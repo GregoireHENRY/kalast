@@ -16,21 +16,21 @@ use std::{fs, ptr, str};
 #[allow(unused)]
 use std::mem::{size_of, size_of_val};
 
-pub const VS_DEPTH: &'static str = include_str!("../../assets/shaders/depth.vs");
-pub const FS_DEPTH: &'static str = include_str!("../../assets/shaders/depth.fs");
-pub const VS_BODY: &'static str = include_str!("../../assets/shaders/body.vs");
-pub const FS_BODY: &'static str = include_str!("../../assets/shaders/body.fs");
-pub const VS_LIGHT: &'static str = include_str!("../../assets/shaders/light.vs");
-pub const FS_LIGHT: &'static str = include_str!("../../assets/shaders/light.fs");
-pub const VS_DEBUG_DEPTH: &'static str = include_str!("../../assets/shaders/debug_depth.vs");
-pub const FS_DEBUG_DEPTH: &'static str = include_str!("../../assets/shaders/debug_depth.fs");
-pub const VS_PICKING: &'static str = include_str!("../../assets/shaders/picking.vs");
-pub const FS_PICKING: &'static str = include_str!("../../assets/shaders/picking.fs");
-pub const VS_NORMALS: &'static str = include_str!("../../assets/shaders/normals.vs");
-pub const FS_NORMALS: &'static str = include_str!("../../assets/shaders/normals.fs");
-pub const GS_NORMALS: &'static str = include_str!("../../assets/shaders/normals.gs");
-pub const VS_TRAJECTORY: &'static str = include_str!("../../assets/shaders/trajectory.vs");
-pub const FS_TRAJECTORY: &'static str = include_str!("../../assets/shaders/trajectory.fs");
+pub const VS_DEPTH: &'static str = include_str!("../../shaders/depth.vs");
+pub const FS_DEPTH: &'static str = include_str!("../../shaders/depth.fs");
+pub const VS_BODY: &'static str = include_str!("../../shaders/body.vs");
+pub const FS_BODY: &'static str = include_str!("../../shaders/body.fs");
+pub const VS_LIGHT: &'static str = include_str!("../../shaders/light.vs");
+pub const FS_LIGHT: &'static str = include_str!("../../shaders/light.fs");
+pub const VS_DEBUG_DEPTH: &'static str = include_str!("../../shaders/debug_depth.vs");
+pub const FS_DEBUG_DEPTH: &'static str = include_str!("../../shaders/debug_depth.fs");
+pub const VS_PICKING: &'static str = include_str!("../../shaders/picking.vs");
+pub const FS_PICKING: &'static str = include_str!("../../shaders/picking.fs");
+pub const VS_NORMALS: &'static str = include_str!("../../shaders/normals.vs");
+pub const FS_NORMALS: &'static str = include_str!("../../shaders/normals.fs");
+pub const GS_NORMALS: &'static str = include_str!("../../shaders/normals.gs");
+pub const VS_TRAJECTORY: &'static str = include_str!("../../shaders/trajectory.vs");
+pub const FS_TRAJECTORY: &'static str = include_str!("../../shaders/trajectory.fs");
 
 pub fn create_program(vs: u32, fs: u32, gs: Option<u32>) -> u32 {
     let program = unsafe {
@@ -515,7 +515,7 @@ impl VAO {
 
         let size_vertex_data = size_of::<Vertex>();
         let len = vertices.len();
-        
+
         // println!("{} {}: {} {}", vao, vbo, size_vertex_data, len);
 
         unsafe {
@@ -644,7 +644,7 @@ impl VAO {
             gl::BindVertexArray(0);
             gl::BindBuffer(gl::ARRAY_BUFFER, 0);
         }
-        
+
         Self {
             vao,
             vbo,

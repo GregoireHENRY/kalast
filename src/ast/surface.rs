@@ -13,11 +13,11 @@ use tobj::LoadError;
 #[allow(unused)]
 use std::mem::{size_of, size_of_val};
 
-pub const STR_SHAPE_MODEL_PLANE: &str = include_str!("../../assets/meshes/plane.obj");
-pub const STR_SHAPE_MODEL_CUBE: &str = include_str!("../../assets/meshes/cube.obj");
-pub const STR_SHAPE_MODEL_SPHERE: &str = include_str!("../../assets/meshes/sphere.obj");
-pub const STR_SHAPE_MODEL_ICOSPHERE: &str = include_str!("../../assets/meshes/icosphere.obj");
-pub const STR_SHAPE_MODEL_CRATER: &str = include_str!("../../assets/meshes/crater.obj");
+pub const STR_SHAPE_MODEL_CRATER: &str = include_str!("../../assets/mesh/crater.obj");
+pub const STR_SHAPE_MODEL_CUBE: &str = include_str!("../../assets/mesh/cube.obj");
+pub const STR_SHAPE_MODEL_ICOSPHERE: &str = include_str!("../../assets/mesh/icosphere.obj");
+pub const STR_SHAPE_MODEL_PLANE: &str = include_str!("../../assets/mesh/plane.obj");
+pub const STR_SHAPE_MODEL_SPHERE: &str = include_str!("../../assets/mesh/sphere.obj");
 
 pub type Result<T, E = SurfaceError> = std::result::Result<T, E>;
 
@@ -68,16 +68,20 @@ impl std::convert::From<SurfaceError> for PyErr {
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum IntegratedShapeModel {
-    #[serde(rename = "plane")]
-    Plane,
-    #[serde(rename = "cube")]
-    Cube,
-    #[serde(rename = "sphere")]
-    Sphere,
-    #[serde(rename = "icosphere")]
-    Icosphere,
     #[serde(rename = "crater")]
     Crater,
+
+    #[serde(rename = "cube")]
+    Cube,
+
+    #[serde(rename = "icosphere")]
+    Icosphere,
+
+    #[serde(rename = "plane")]
+    Plane,
+
+    #[serde(rename = "sphere")]
+    Sphere,
 }
 
 impl IntegratedShapeModel {
