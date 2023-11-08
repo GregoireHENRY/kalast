@@ -5,7 +5,7 @@ authors = ["Grégoire Henry <gregoire.henry@oma.be>"]
 edition = "2021"
 description = "Thermophysical Model for Binary Asteroids"
 license = "Apache-2.0"
-repository = "https://gitlab-as.oma.be/sbm/kalast/kalast"
+repository = "https://github.com/GregoireHENRY/kalast"
 keywords = ["thermophysical", "model", "binary", "asteroid", "space"]
 categories = ["algorithms", "science"]
 
