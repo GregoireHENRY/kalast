@@ -1,0 +1,7 @@
+mesh:
+  shape: sphere
+  factor: [0.4095, 0.4005, 0.3035]
+
+color: diffuse_light
+
+faces: [114, 120, 115, 124, 127, 116, 123, 119]

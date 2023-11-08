@@ -1,0 +1,30 @@
+mesh:
+  shape: sphere
+  factor: [0.4095, 0.4005, 0.3035]
+
+mesh_low:
+  shape: icosphere
+  factor: [0.4095, 0.4005, 0.3035]
+
+material:
+  albedo: 0.1
+  emissivity: 0.9
+  thermal_inertia: 500.0
+  density: 2100.0
+  heat_capacity: 600.0
+
+color_mode: Data
+# color_mode: DiffuseLight
+
+interior:
+  type: linear
+  size: 40
+  a: 2e-2
+
+spin:
+  period: 8136
+  obliquity: 0
+
+record:
+  all_once: true
+  columns: [114]

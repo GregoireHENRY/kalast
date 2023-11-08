@@ -1,0 +1,21 @@
+# Generics
+.vscode/
+.idea/
+.DS_Store
+profile.json
+
+# Rust generics
+target/
+
+# Python generics
+.env
+python/__pycache__
+python/kalast/kalast.abi3.so
+python/kalast/__pycache__/__init__.cpython-311.pyc
+
+# Project
+assets/perso/
+runs/
+kalast.log
+kalast.err
+kalast.out

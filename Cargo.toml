@@ -1,0 +1,64 @@
+[package]
+name = "kalast"
+version = "0.2.0"
+authors = ["Grégoire Henry <gregoire.henry@oma.be>"]
+edition = "2021"
+description = "Thermophysical Model for Binary Asteroids"
+license = "Apache-2.0"
+repository = "https://gitlab-as.oma.be/sbm/kalast/kalast"
+keywords = ["thermophysical", "model", "binary", "asteroid", "space"]
+categories = ["algorithms", "science"]
+
+[lib]
+name = "kalast"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[features]
+default = []
+python = []
+spice = ["rust-spice"]
+
+[dependencies]
+itertools = "0.11"
+float_eq = "1.0"
+nalgebra = { version = "0.32", features = ["serde-serialize"] }
+nalgebra-glm = "0.18"
+ndarray = "0.15.6"
+numpy = { version = "0.20", features = ["nalgebra"] }
+tobj = { version = "4.0", features = ["ahash", "use_f64"] }
+rust-spice = { version = "0.7", optional = true }
+indicatif = "0.17"
+console = "0.15"
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+serde_json = "1.0"
+color-eyre = "0.6"
+polars = { version = "0.34", features = [] }
+snafu = "0.7"
+log = "0.4"
+simplelog = "0.12"
+gl = "0.14.0"
+sdl2 = "0.35.2"
+stb_image = "0.3"
+pyo3 = { version = "0.20", features = ["abi3-py311"] }
+image = "0.24.6"
+chrono = "0.4.24"
+notify-rust = "4"
+directories = "5.0"
+fs_extra = "1.3.0"
+
+[dev-dependencies]
+rstest = "0.18"
+serial_test = "2.0"
+
+[profile.release]
+lto = "fat"
+opt-level = 3
+
+[profile.profiling]
+inherits = "release"
+debug = true
+
+# [[example]]
+# name = "lightcurve-spice"
+# required-features = ["spice"]
