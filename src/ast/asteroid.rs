@@ -1,7 +1,5 @@
 use crate::prelude::*;
-// use crate::python::*;
 
-/// An asteroid.
 #[derive(Debug, Clone)]
 pub struct Asteroid {
     pub surface: Surface,

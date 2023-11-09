@@ -13,8 +13,7 @@ material:
   density: 2100.0
   heat_capacity: 600.0
 
-color_mode: Data
-# color_mode: DiffuseLight
+color: data
 
 interior:
   type: linear

@@ -37,6 +37,12 @@ pub struct CfgWindow {
 
     #[serde(default)]
     pub colormap: CfgColormap,
+
+    #[serde(default)]
+    pub normals: bool,
+
+    #[serde(default = "default_normals_length")]
+    pub normals_length: Float,
 }
 
 impl Configuration for CfgWindow {}
@@ -59,6 +65,10 @@ fn default_ambient() -> Vec3 {
 
 pub fn default_dpi() -> usize {
     100
+}
+
+fn default_normals_length() -> Float {
+    0.02
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]

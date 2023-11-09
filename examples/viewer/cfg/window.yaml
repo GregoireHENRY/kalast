@@ -1,17 +1,5 @@
 ambient: [0.1, 0.1, 0.1]
 
 wireframe: true
-
-colormap:
-  # name: cividis
-  # name: gray
-  # vmin: 0
-  # vmax: 90
-  # scalar: angle_incidence
-  # scalar: angle_emission
-  # reverse: true
   
-  # name: cividis
-  # vmin: 0
-  # vmax: 180
-  # scalar: angle_phase
+# normals: true

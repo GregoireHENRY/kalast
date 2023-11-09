@@ -211,7 +211,6 @@ impl RawSurface {
     */
 }
 
-/// A surface.
 #[pyclass(get_all)]
 #[derive(Debug, Clone)]
 pub struct Surface {

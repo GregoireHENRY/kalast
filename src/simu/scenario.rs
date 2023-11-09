@@ -44,6 +44,8 @@ impl Scenario<BodyDefault, RoutinesViewerDefault> {
             s.camera_speed = cfg.win.camera_speed;
             s.ambient_light_color = cfg.win.ambient;
             s.wireframe = cfg.win.wireframe;
+            s.draw_normals = cfg.win.normals;
+            s.normals_magnitude = cfg.win.normals_length;
         })
         .with_camera_position(&scene.cam_pos)
         .with_light_position(&scene.sun_pos_cubelight());

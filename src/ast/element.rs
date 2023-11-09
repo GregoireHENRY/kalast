@@ -46,7 +46,6 @@ pub(crate) fn compute_area(a: &Vec3, b: &Vec3, c: &Vec3) -> Float {
     0.5 * (b - a).angle(&(c - a)).sin() * (b - a).magnitude() * (c - a).magnitude()
 }
 
-/// A vertex.
 #[pyclass]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Vertex {
