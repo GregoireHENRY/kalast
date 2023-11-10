@@ -40,8 +40,8 @@ pub fn path_win<P: AsRef<Path>>(p: P) -> PathBuf {
     p.as_ref().join("window.yaml")
 }
 
-pub fn path_time<P: AsRef<Path>>(p: P) -> PathBuf {
-    p.as_ref().join("time.yaml")
+pub fn path_simu<P: AsRef<Path>>(p: P) -> PathBuf {
+    p.as_ref().join("simulation.yaml")
 }
 
 pub fn path_sun<P: AsRef<Path>>(p: P) -> PathBuf {
@@ -84,7 +84,7 @@ impl Cfg {
         let path = path.as_ref();
         let cfg_pref_path = path_pref(path);
         let cfg_win_path = path_win(path);
-        let cfg_simu_path = path_time(path);
+        let cfg_simu_path = path_simu(path);
         let cfg_sun_path = path_sun(path);
         let cfg_cam_path = path_cam(path);
 
@@ -142,8 +142,8 @@ impl Cfg {
         path_win(&self.path)
     }
 
-    pub fn path_time(&self) -> PathBuf {
-        path_time(&self.path)
+    pub fn path_simu(&self) -> PathBuf {
+        path_simu(&self.path)
     }
 
     pub fn path_sun(&self) -> PathBuf {
@@ -161,7 +161,7 @@ impl Cfg {
     pub fn paths(&self) -> Vec<PathBuf> {
         let mut paths = vec![
             self.path_win(),
-            self.path_time(),
+            self.path_simu(),
             self.path_sun(),
             self.path_cam(),
         ];
