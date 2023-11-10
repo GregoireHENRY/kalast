@@ -4,8 +4,7 @@ fn main() -> Result<()> {
     let path = Path::new(file!()).parent().unwrap();
     let sc = Scenario::new(path)?;
 
-    let routines = RoutinesViewerCustom::new();
-    let mut sc = sc.select_routines(routines);
+    let mut sc = sc.select_routines(RoutinesViewerCustom::new());
     sc.load_bodies()?;
 
     let faces: Vec<usize> =

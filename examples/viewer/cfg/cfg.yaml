@@ -1,0 +1,9 @@
+win:
+  ambient: [0.1, 0.1, 0.1]
+  wireframe: true
+
+bodies:
+  - id: body
+    mesh:
+      shape: sphere
+      factor: [0.4095, 0.4005, 0.3035]

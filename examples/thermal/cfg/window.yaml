@@ -1,6 +1,0 @@
-colormap:
-  name: inferno
-  vmax: 400.0
-  scalar: temperature
-
-export_frames: true
