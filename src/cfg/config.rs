@@ -118,50 +118,53 @@ impl Cfg {
 
     pub fn new_from<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
+        let cfg_path = path_cfg(path);
+
+        let mut cfg = if let Some(Ok(mut cfg)) = read_cfg_if_exists::<_, Cfg>(&cfg_path) {
+            cfg.path = path.to_path_buf();
+            cfg
+        } else {
+            Self::new_empty(path)
+        };
+
         let cfg_pref_path = path_pref(path);
         let cfg_win_path = path_win(path);
         let cfg_simu_path = path_simu(path);
         let cfg_sun_path = path_sun(path);
         let cfg_cam_path = path_cam(path);
+        let cfg_bodies_paths = path_bodies(path);
 
-        let pref: CfgPreferences = read_cfg(&cfg_pref_path)?;
-        let win: CfgWindow = read_cfg(&cfg_win_path)?;
-        let simu: CfgSimulation = read_cfg(&cfg_simu_path)?;
-        let sun: CfgSun = read_cfg(&cfg_sun_path)?;
-        let cam: CfgCamera = read_cfg(&cfg_cam_path)?;
+        if let Some(Ok(pref)) = read_cfg_if_exists(&cfg_pref_path) {
+            cfg.pref = pref;
+        }
 
-        let cfg_bodies_path_iter = path_bodies(path);
-        let bodies: Vec<CfgBody> = cfg_bodies_path_iter
-            .iter()
-            .map(|p| {
-                let mut body: CfgBody = read_cfg(&p).unwrap();
+        if let Some(Ok(win)) = read_cfg_if_exists(&cfg_win_path) {
+            cfg.win = win;
+        }
 
+        if let Some(Ok(simu)) = read_cfg_if_exists(&cfg_simu_path) {
+            cfg.simu = simu;
+        }
+
+        if let Some(Ok(sun)) = read_cfg_if_exists(&cfg_sun_path) {
+            cfg.sun = sun;
+        }
+
+        if let Some(Ok(cam)) = read_cfg_if_exists(&cfg_cam_path) {
+            cfg.cam = cam;
+        }
+
+        for p in &cfg_bodies_paths {
+            if let Some(Ok(mut body)) = read_cfg_if_exists::<_, CfgBody>(p) {
                 if body.id == "!empty" {
                     body.id = p.file_stem().unwrap().to_str().unwrap().to_string();
                 }
+                cfg.bodies.push(body);
+            }
+        }
 
-                body
-            })
-            .collect_vec();
-
-        /*
-        dbg!(cfg_window);
-        dbg!(cfg_simu);
-        dbg!(cfg_sun);
-        dbg!(cfg_camera);
-        dbg!(cfg_body);
-        dbg!(cfg_moon);
-        */
-
-        Ok(Self {
-            path: path.to_path_buf(),
-            pref,
-            win,
-            simu,
-            sun,
-            cam,
-            bodies,
-        })
+        // dbg!(&cfg);
+        Ok(cfg)
     }
 
     pub fn new() -> Result<Self> {
