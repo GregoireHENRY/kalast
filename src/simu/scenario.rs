@@ -25,7 +25,7 @@ impl Scenario<BodyDefault, RoutinesViewerDefault> {
         let bodies: Vec<BodyDefault> = vec![];
         let routines = simu::routines_viewer_default();
 
-        let sun_pos = cfg.sun.position.unwrap() * AU;
+        let sun_pos = cfg.sun.position * AU;
         let cam_pos = match cfg.cam {
             CfgCamera::Position(p) => p,
             CfgCamera::SunDirection(d) => sun_pos.normalize() * d,
