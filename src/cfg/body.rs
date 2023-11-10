@@ -57,6 +57,9 @@ pub struct CfgMesh {
 
     #[serde(default = "default_mesh_factor")]
     pub factor: Vec3,
+
+    #[serde(default)]
+    pub smooth: bool,
 }
 
 impl Default for CfgMesh {
@@ -64,6 +67,7 @@ impl Default for CfgMesh {
         Self {
             shape: CfgMeshSource::default(),
             factor: default_mesh_factor(),
+            smooth: false,
         }
     }
 }

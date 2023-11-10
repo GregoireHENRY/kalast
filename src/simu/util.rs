@@ -6,13 +6,16 @@ pub fn read_surface(cb: &CfgBody, kind: CfgMeshKind) -> Result<Surface> {
         CfgMeshKind::Low => &cb.mesh_low.as_ref().unwrap(),
     };
 
-    let builder = match &mesh.shape {
+    let mut builder = match &mesh.shape {
         CfgMeshSource::Path(p) => Surface::read_file(p)?,
         CfgMeshSource::Shape(m) => Surface::use_integrated(*m)?,
     };
-    
+
+    if !mesh.smooth {
+        builder = builder.flat();
+    }
+
     let surface = builder
-        .flat()
         .update_all(|v| {
             v.position.x *= mesh.factor.x;
             v.position.y *= mesh.factor.y;
