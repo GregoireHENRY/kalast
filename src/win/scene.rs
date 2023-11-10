@@ -44,7 +44,12 @@ impl Scene {
     }
 
     pub fn set_camera_position(&mut self, pos: &Vec3) {
-        self.camera.position = pos.clone();
+        let mut pos = pos.clone();
+        if pos.x == 0.0 && pos.y == 0.0 {
+            let dx = 1e-5;
+            pos = vec3(dx, dx, pos.z);
+        }
+        self.camera.position = pos;
     }
 
     pub fn set_light_offset(&mut self, offset: Float) {
