@@ -1,6 +1,5 @@
 win:
   ambient: [0.1, 0.1, 0.1]
-  wireframe: true
 
 bodies:
   - id: body
