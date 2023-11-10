@@ -70,11 +70,10 @@ pub fn path_bodies_dir<P: AsRef<Path>>(p: P) -> PathBuf {
 }
 
 pub fn path_bodies<P: AsRef<Path>>(p: P) -> Vec<PathBuf> {
-    path_bodies_dir(p)
-        .read_dir()
-        .unwrap()
-        .map(|e| e.unwrap().path())
-        .collect_vec()
+    match path_bodies_dir(p).read_dir() {
+        Ok(dir) => dir.map(|e| e.unwrap().path()).collect_vec(),
+        Err(_) => vec![],
+    }
 }
 
 pub trait Configuration: Serialize + DeserializeOwned {}
@@ -159,11 +158,16 @@ impl Cfg {
                 if body.id == "!empty" {
                     body.id = p.file_stem().unwrap().to_str().unwrap().to_string();
                 }
+                for (ii, oth_body) in cfg.bodies.iter().enumerate() {
+                    if oth_body.id == body.id {
+                        cfg.bodies.remove(ii);
+                        break;
+                    }
+                }
                 cfg.bodies.push(body);
             }
         }
 
-        // dbg!(&cfg);
         Ok(cfg)
     }
 
