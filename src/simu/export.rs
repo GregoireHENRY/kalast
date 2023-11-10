@@ -25,8 +25,7 @@ impl Export {
         &mut self,
         time: &mut Time,
         folders: &FoldersRun,
-        cfg_time: &CfgSimulation,
-        cbs: &[CfgBody],
+        cfg: &Cfg,
         bodies: &[B],
         routines: &R,
         scene: &Scene,
@@ -35,7 +34,7 @@ impl Export {
         let dt = time.used_time_step();
         let elapsed = time.elapsed_seconds();
 
-        for (ii_body, cb) in cbs.iter().enumerate() {
+        for (ii_body, cb) in cfg.bodies.iter().enumerate() {
             if ii_body > 0 {
                 // print!(" ");
             }
@@ -56,12 +55,12 @@ impl Export {
                 // print!(" began exporting..");
                 self.exporting = true;
                 self.exporting_started_elapsed = elapsed as _;
-                self.remaining_duration_export = cfg_time.export.duration as _;
-                time.set_time_step(cfg_time.export.step);
+                self.remaining_duration_export = cfg.simu.export.duration as _;
+                time.set_time_step(cfg.simu.export.step);
             } else if self.cooldown_export - (dt as i64) < 0 {
                 // So export does not really start here, but the time step is adapted to not miss the beginning of export
                 // (in case export time step is smaller than simulation time step).
-                time.set_time_step(cfg_time.export.step);
+                time.set_time_step(cfg.simu.export.step);
             }
         }
 
@@ -72,12 +71,14 @@ impl Export {
 
             // print!(" remaining duration export({})..", self.remaining_duration_export);
 
-            let path = folders
-                .simu_rec_time_img(self.exporting_started_elapsed as _)
-                .join(format!("{}.png", elapsed));
-            win.export_frame(path);
+            if cfg.win.export_frames {
+                let path = folders
+                    .simu_rec_time_frames(self.exporting_started_elapsed as _)
+                    .join(format!("{}.png", elapsed));
+                win.export_frame(path);
+            }
 
-            for (ii_body, (body, cb)) in izip!(bodies, cbs).enumerate() {
+            for (ii_body, (body, cb)) in izip!(bodies, &cfg.bodies).enumerate() {
                 if self.is_first_it_export {
                     self.iteration_body_export_start_generic(cb, body, time, folders, scene);
                 }
@@ -99,8 +100,8 @@ impl Export {
                 // print!(" finished exporting..");
                 self.exporting = false;
                 self.is_first_it_export = true;
-                self.cooldown_export = (cfg_time.export.period - cfg_time.export.duration) as _;
-                time.set_time_step(cfg_time.step);
+                self.cooldown_export = (cfg.simu.export.period - cfg.simu.export.duration) as _;
+                time.set_time_step(cfg.simu.step);
 
                 // let _cvg = kalast::simu::converge::check_all(&mut bodies, &folder_tpm, &cfg.time.export);
             }
@@ -127,7 +128,7 @@ impl Export {
             folders.simu_rec_time_body_state(self.exporting_started_elapsed as _, &cb.id);
         let folder_tpm =
             folders.simu_rec_time_body_temperatures(self.exporting_started_elapsed as _, &cb.id);
-        let folder_img = folders.simu_rec_time_img(self.exporting_started_elapsed as _);
+        let folder_img = folders.simu_rec_time_frames(self.exporting_started_elapsed as _);
         fs::create_dir_all(&folder_state).unwrap();
         fs::create_dir_all(&folder_tpm).unwrap();
         fs::create_dir_all(&folder_img).unwrap();

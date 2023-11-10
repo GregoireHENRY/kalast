@@ -438,18 +438,16 @@ pub fn fn_export_iteration_period_default<B: Body>(
     fs::create_dir_all(&folder_tpm).unwrap();
 
     if is_first_it_export {
-        if cb.record.all_once {
-            let mut df = df!(
-                "tmp" => data.tmp.map(|t| t as f32).as_slice(),
-            )
+        let mut df = df!(
+            "tmp" => data.tmp.map(|t| t as f32).as_slice(),
+        )
+        .unwrap();
+        let mut file = std::fs::File::options()
+            .append(true)
+            .create(true)
+            .open(folder_tpm.join("temperatures-all.csv"))
             .unwrap();
-            let mut file = std::fs::File::options()
-                .append(true)
-                .create(true)
-                .open(folder_tpm.join("temperatures-all.csv"))
-                .unwrap();
-            CsvWriter::new(&mut file).finish(&mut df).unwrap();
-        }
+        CsvWriter::new(&mut file).finish(&mut df).unwrap();
     }
 
     if !cb.record.faces.is_empty() {

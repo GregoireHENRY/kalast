@@ -25,5 +25,4 @@ spin:
   obliquity: 0
 
 record:
-  all_once: true
   columns: [114]

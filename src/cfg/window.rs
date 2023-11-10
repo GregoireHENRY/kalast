@@ -43,6 +43,9 @@ pub struct CfgWindow {
 
     #[serde(default = "default_normals_length")]
     pub normals_length: Float,
+
+    #[serde(default)]
+    pub export_frames: bool,
 }
 
 impl Configuration for CfgWindow {}

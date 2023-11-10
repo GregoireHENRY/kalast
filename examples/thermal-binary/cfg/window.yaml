@@ -17,3 +17,5 @@ colormap:
   # name: inferno
   # vmax: 1200.0
   # scalar: flux_solar
+
+export_frame: true

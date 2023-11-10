@@ -234,8 +234,7 @@ where
             export.iteration(
                 &mut self.time,
                 &self.folders,
-                &self.cfg.simu,
-                &self.cfg.bodies,
+                &self.cfg,
                 &self.bodies,
                 &self.routines,
                 &self.scene,

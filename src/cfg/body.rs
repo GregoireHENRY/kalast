@@ -239,12 +239,6 @@ impl Default for CfgTemperatureInit {
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct CfgRecord {
     #[serde(default)]
-    pub images: bool,
-
-    #[serde(default)]
-    pub all_once: bool,
-
-    #[serde(default)]
     pub faces: Vec<usize>,
 
     #[serde(default)]

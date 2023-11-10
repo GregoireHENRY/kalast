@@ -44,8 +44,8 @@ impl FoldersRun {
         self.simu_rec().join(format!("{}", elapsed))
     }
 
-    pub fn simu_rec_time_img(&self, elapsed: usize) -> PathBuf {
-        self.simu_rec_time(elapsed).join("img")
+    pub fn simu_rec_time_frames(&self, elapsed: usize) -> PathBuf {
+        self.simu_rec_time(elapsed).join("frames")
     }
 
     pub fn simu_rec_time_body(&self, elapsed: usize, id: &str) -> PathBuf {

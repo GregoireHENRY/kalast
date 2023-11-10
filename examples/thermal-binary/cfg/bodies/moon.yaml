@@ -32,5 +32,4 @@ state:
   control: 5.2e11
 
 record:
-  all_once: true
   columns: [114]
