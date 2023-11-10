@@ -18,6 +18,6 @@ impl Configuration for CfgCamera {}
 
 impl Default for CfgCamera {
     fn default() -> Self {
-        Self::SunDirection(1.0)
+        Self::SunDirection(2.0)
     }
 }
