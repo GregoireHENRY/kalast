@@ -1,0 +1,38 @@
+win:
+  export_frames: true
+  colormap:
+    name: inferno
+    vmax: 400.0
+    scalar: temperature
+      
+sun:
+  position: [0.0, 0.0, 1.0]
+
+simu:
+  step: 600
+  duration: 8136000
+  export:
+    step: 60
+    duration: 8160
+    period: 813600
+
+bodies:
+  - id: body
+    mesh:
+      shape: triangle
+      factor: [0.4, 0.4, 0.4]
+    material:
+      albedo: 0.1
+      emissivity: 0.9
+      thermal_inertia: 500.0
+      density: 2100.0
+      heat_capacity: 600.0
+    color: data
+    interior:
+      type: linear
+      size: 40
+      a: 2e-2
+    spin:
+      period: 8136
+    record:
+      columns: [0]
