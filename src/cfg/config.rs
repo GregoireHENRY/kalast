@@ -32,6 +32,19 @@ where
     Ok(cfg)
 }
 
+pub fn read_cfg_if_exists<P, C>(path: P) -> Option<Result<C>>
+where
+    P: AsRef<Path>,
+    C: Configuration,
+{
+    let path = path.as_ref();
+    path.exists().then(|| read_cfg(path))
+}
+
+pub fn path_cfg<P: AsRef<Path>>(p: P) -> PathBuf {
+    p.as_ref().join("cfg.yaml")
+}
+
 pub fn path_pref<P: AsRef<Path>>(_p: P) -> PathBuf {
     Path::new("./preferences.yaml").to_path_buf()
 }
