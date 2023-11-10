@@ -87,24 +87,22 @@ pub fn fn_update_matrix_model_default<B: Body>(
     };
 
     let mat_translation = match &cb.state {
-        None => Mat4::identity(),
-        Some(state) => match state {
-            CfgState::Path(_p) => Mat4::identity(),
-            CfgState::Orbit(orb) => {
-                let (mu_ref, factor) = simu::find_ref_orbit(&orb, &other_cbs);
-                let pos = orbit::position_in_inertial_frame(
-                    orb.a * factor,
-                    orb.e,
-                    orb.i * RPD,
-                    orb.node * RPD,
-                    orb.peri * RPD,
-                    elapsed_from_start as Float,
-                    orb.tp,
-                    mu_ref,
-                );
-                Mat4::new_translation(&(pos * 1e-3))
-            }
-        },
+        CfgState::Position(pos) => Mat4::new_translation(pos),
+        CfgState::Path(_p) => Mat4::identity(),
+        CfgState::Orbit(orb) => {
+            let (mu_ref, factor) = simu::find_ref_orbit(&orb, &other_cbs);
+            let pos = orbit::position_in_inertial_frame(
+                orb.a * factor,
+                orb.e,
+                orb.i * RPD,
+                orb.node * RPD,
+                orb.peri * RPD,
+                elapsed_from_start as Float,
+                orb.tp,
+                mu_ref,
+            );
+            Mat4::new_translation(&(pos * 1e-3))
+        }
     };
 
     body.asteroid_mut().matrix_model =

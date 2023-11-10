@@ -44,22 +44,20 @@ pub fn read_surface_low(cb: &CfgBody) -> Result<Surface> {
 
 pub fn find_reference_matrix_orientation<B: Body>(cb: &CfgBody, other_bodies: &[&B]) -> Mat4 {
     match &cb.state {
-        None => Mat4::identity(),
-        Some(state) => match state {
-            CfgState::Path(_p) => Mat4::identity(),
-            CfgState::Orbit(orb) => match &orb.frame {
-                CfgFrameCenter::Sun => Mat4::identity(),
-                CfgFrameCenter::Body(id) => {
-                    let mut mat = Mat4::identity();
-                    for other_body in other_bodies {
-                        if other_body.id() == *id {
-                            mat = *other_body.mat_orient();
-                            break;
-                        }
+        CfgState::Position(_pos) => Mat4::identity(),
+        CfgState::Path(_p) => Mat4::identity(),
+        CfgState::Orbit(orb) => match &orb.frame {
+            CfgFrameCenter::Sun => Mat4::identity(),
+            CfgFrameCenter::Body(id) => {
+                let mut mat = Mat4::identity();
+                for other_body in other_bodies {
+                    if other_body.id() == *id {
+                        mat = *other_body.mat_orient();
+                        break;
                     }
-                    mat
                 }
-            },
+                mat
+            }
         },
     }
 }

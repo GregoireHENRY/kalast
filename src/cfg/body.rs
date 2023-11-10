@@ -29,7 +29,7 @@ pub struct CfgBody {
     pub spin: CfgSpin,
 
     #[serde(default)]
-    pub state: Option<CfgState>,
+    pub state: CfgState,
 
     #[serde(default)]
     pub mass: Option<Float>,
@@ -161,11 +161,20 @@ fn default_spin_axis() -> Vec3 {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum CfgState {
+    #[serde(rename = "position")]
+    Position(Vec3),
+
     #[serde(rename = "path")]
     Path(PathBuf),
 
     #[serde(rename = "orbit")]
     Orbit(CfgOrbitKepler),
+}
+
+impl Default for CfgState {
+    fn default() -> Self {
+        Self::Position(Vec3::zeros())
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
