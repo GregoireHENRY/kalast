@@ -3,7 +3,7 @@ use crate::prelude::*;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CfgWindow {
     #[serde(default = "default_width")]
     pub width: usize,
@@ -29,7 +29,7 @@ pub struct CfgWindow {
     #[serde(default = "default_camera_speed")]
     pub camera_speed: Float,
 
-    #[serde(default = "default_ambient")]
+    #[serde(default)]
     pub ambient: Vec3,
 
     #[serde(default)]
@@ -50,6 +50,27 @@ pub struct CfgWindow {
 
 impl Configuration for CfgWindow {}
 
+impl Default for CfgWindow {
+    fn default() -> Self {
+        Self {
+            width: default_width(),
+            height: default_height(),
+            fullscreen: false,
+            high_dpi: false,
+            shadow_dpi: default_dpi(),
+            shadows: false,
+            orthographic: false,
+            camera_speed: default_camera_speed(),
+            ambient: Vec3::zeros(),
+            wireframe: false,
+            colormap: CfgColormap::default(),
+            normals: false,
+            normals_length: default_normals_length(),
+            export_frames: false,
+        }
+    }
+}
+
 fn default_width() -> usize {
     crate::win::window_settings::WINDOW_WIDTH
 }
@@ -62,10 +83,6 @@ fn default_camera_speed() -> Float {
     0.5
 }
 
-fn default_ambient() -> Vec3 {
-    Vec3::zeros()
-}
-
 pub fn default_dpi() -> usize {
     100
 }
@@ -74,7 +91,7 @@ fn default_normals_length() -> Float {
     0.02
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CfgColormap {
     #[serde(default)]
     pub name: Colormap,
@@ -90,6 +107,18 @@ pub struct CfgColormap {
 
     #[serde(default)]
     pub reverse: bool,
+}
+
+impl Default for CfgColormap {
+    fn default() -> Self {
+        Self {
+            name: Colormap::default(),
+            vmin: default_colormap_vmin(),
+            vmax: default_colormap_vmax(),
+            scalar: None,
+            reverse: false,
+        }
+    }
 }
 
 fn default_colormap_vmin() -> Float {

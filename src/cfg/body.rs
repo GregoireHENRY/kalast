@@ -50,12 +50,22 @@ fn default_body_id() -> String {
     "!empty".to_string()
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CfgMesh {
+    #[serde(default)]
     pub shape: CfgMeshSource,
 
     #[serde(default = "default_mesh_factor")]
     pub factor: Vec3,
+}
+
+impl Default for CfgMesh {
+    fn default() -> Self {
+        Self {
+            shape: CfgMeshSource::default(),
+            factor: default_mesh_factor(),
+        }
+    }
 }
 
 fn default_mesh_factor() -> Vec3 {
@@ -113,7 +123,7 @@ pub enum CfgInteriorGrid1D {
     File { path: PathBuf },
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CfgSpin {
     #[serde(default)]
     pub period: Float,
@@ -127,6 +137,17 @@ pub struct CfgSpin {
     /// Pre-rotation to consider around spin axis, in degrees.
     #[serde(default)]
     pub spin0: Float,
+}
+
+impl Default for CfgSpin {
+    fn default() -> Self {
+        Self {
+            period: 0.0,
+            axis: default_spin_axis(),
+            obliquity: 0.0,
+            spin0: 0.0,
+        }
+    }
 }
 
 fn default_spin_axis() -> Vec3 {
@@ -174,6 +195,21 @@ pub struct CfgOrbitKepler {
 
     #[serde(default)]
     pub control: CfgOrbitSpeedControl,
+}
+
+impl Default for CfgOrbitKepler {
+    fn default() -> Self {
+        Self {
+            a: default_orbit_a(),
+            e: 0.0,
+            i: 0.0,
+            peri: default_orbit_peri(),
+            node: 0.0,
+            tp: 0.0,
+            frame: CfgFrameCenter::default(),
+            control: CfgOrbitSpeedControl::default(),
+        }
+    }
 }
 
 fn default_orbit_a() -> Float {
