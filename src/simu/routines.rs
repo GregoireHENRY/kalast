@@ -59,7 +59,13 @@ pub trait Routines {
         is_first_it_export: bool,
     );
 
-    fn fn_end_of_iteration<B: Body>(&mut self, bodies: &mut [B], time: &Time, scene: &Scene, win: &Window);
+    fn fn_end_of_iteration<B: Body>(
+        &mut self,
+        bodies: &mut [B],
+        time: &Time,
+        scene: &Scene,
+        win: &Window,
+    );
 }
 
 pub fn fn_setup_body_default<B: Body>(asteroid: Asteroid, cb: &CfgBody) -> B {
