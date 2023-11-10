@@ -4,7 +4,7 @@ use crate::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct CfgSimulation {
     #[serde(default)]
     pub jd0: Float,

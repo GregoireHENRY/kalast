@@ -15,3 +15,9 @@ pub enum CfgCamera {
 }
 
 impl Configuration for CfgCamera {}
+
+impl Default for CfgCamera {
+    fn default() -> Self {
+        Self::SunDirection(1.0)
+    }
+}
