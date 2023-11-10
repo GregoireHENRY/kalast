@@ -1,7 +1,7 @@
 use crate::prelude::*;
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use serde_yaml;
+use serde_yaml::{self, Value};
 
 pub type Result<T, E = CfgError> = std::result::Result<T, E>;
 
@@ -66,20 +66,43 @@ pub fn path_bodies<P: AsRef<Path>>(p: P) -> Vec<PathBuf> {
 
 pub trait Configuration: Serialize + DeserializeOwned {}
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct Cfg {
+    #[serde(skip)]
     pub path: PathBuf,
+
+    #[serde(default)]
     pub pref: CfgPreferences,
+
+    #[serde(default)]
     pub win: CfgWindow,
+
+    #[serde(default)]
     pub simu: CfgSimulation,
+
+    #[serde(default)]
     pub sun: CfgSun,
+
+    #[serde(default)]
     pub cam: CfgCamera,
+
+    #[serde(default)]
     pub bodies: Vec<CfgBody>,
+
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
 }
 
 impl Configuration for Cfg {}
 
 impl Cfg {
+    pub fn new_empty<P: AsRef<Path>>(path: P) -> Self {
+        Self {
+            path: path.as_ref().to_path_buf(),
+            ..Default::default()
+        }
+    }
+
     pub fn new_from<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
         let cfg_pref_path = path_pref(path);

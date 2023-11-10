@@ -2,7 +2,6 @@ use crate::cfg::config::Configuration;
 use crate::prelude::*;
 
 use serde::{Deserialize, Serialize};
-use serde_yaml::Value;
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct CfgSimulation {
@@ -17,9 +16,6 @@ pub struct CfgSimulation {
 
     #[serde(default)]
     pub export: CfgTimeExport,
-
-    #[serde(flatten)]
-    pub extra: HashMap<String, Value>,
 }
 
 impl Configuration for CfgSimulation {}
