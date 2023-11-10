@@ -1,11 +1,9 @@
 use crate::prelude::*;
-use crate::python::*;
 
 use crate::win::camera::*;
 use crate::win::graphical_pipeline::VAO;
 use crate::win::lighting::*;
 
-#[pyclass]
 #[derive(Debug, Clone)]
 pub struct Scene {
     pub(crate) camera: Camera,

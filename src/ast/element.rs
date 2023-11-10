@@ -1,8 +1,7 @@
 use crate::prelude::*;
-use crate::python::*;
 
-use std::fmt;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[repr(u8)]
@@ -12,7 +11,7 @@ pub enum ColorMode {
 
     #[serde(rename = "color")]
     Color,
-    
+
     #[serde(rename = "data")]
     Data,
 }
@@ -46,7 +45,6 @@ pub(crate) fn compute_area(a: &Vec3, b: &Vec3, c: &Vec3) -> Float {
     0.5 * (b - a).angle(&(c - a)).sin() * (b - a).magnitude() * (c - a).magnitude()
 }
 
-#[pyclass]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Vertex {
     pub position: Vec3,
@@ -98,35 +96,7 @@ impl Vertex {
     }
 }
 
-#[pymethods]
-impl Vertex {
-    fn __repr__(&self) -> String {
-        format!("{:?}", self)
-    }
-
-    #[getter]
-    fn get_data(&self) -> Float {
-        self.data
-    }
-
-    #[getter]
-    fn get_material(&self, py: Python) -> PyObject {
-        self.material.into_py(py)
-    }
-
-    #[setter]
-    fn set_data(&mut self, data: Float) {
-        self.data = data;
-    }
-
-    #[setter]
-    fn set_material(&mut self, material: Material) {
-        self.material = material;
-    }
-}
-
 /// Data of a face.
-#[pyclass]
 #[derive(Debug, Clone, Copy)]
 pub struct FaceData {
     pub vertex: Vertex, // virtual vertex at the center of the facet.
@@ -181,42 +151,5 @@ impl FaceData {
             color_mode,
         };
         Self { vertex, area }
-    }
-}
-
-#[pymethods]
-impl FaceData {
-    #[classmethod]
-    #[pyo3(name = "recompute")]
-    #[allow(unused)]
-    fn recompute_py(cls: &PyType, a: &Vertex, b: &Vertex, c: &Vertex) -> Self {
-        Self::recompute(a, b, c)
-    }
-
-    #[classmethod]
-    #[pyo3(name = "average")]
-    #[allow(unused)]
-    fn average_py(cls: &PyType, a: &Vertex, b: &Vertex, c: &Vertex) -> Self {
-        Self::average(a, b, c)
-    }
-
-    #[getter]
-    pub fn get_vertex(&self) -> Vertex {
-        self.vertex
-    }
-
-    #[getter]
-    pub fn get_area(&self) -> Float {
-        self.area
-    }
-
-    #[setter]
-    pub fn set_vertex(&mut self, vertex: Vertex) {
-        self.vertex = vertex;
-    }
-
-    #[setter]
-    pub fn set_area(&mut self, area: Float) {
-        self.area = area;
     }
 }

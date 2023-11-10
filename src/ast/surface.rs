@@ -1,5 +1,4 @@
 use crate::prelude::*;
-use crate::python::*;
 
 use crate::ast::element::compute_normal;
 
@@ -59,13 +58,6 @@ pub enum SurfaceError {
     },
 }
 
-impl std::convert::From<SurfaceError> for PyErr {
-    fn from(err: SurfaceError) -> PyErr {
-        PyRuntimeError::new_err(err.to_string())
-    }
-}
-
-#[pyclass]
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum IntegratedShapeModel {
@@ -102,7 +94,6 @@ impl IntegratedShapeModel {
 }
 
 /// A raw surface.
-#[pyclass(get_all)]
 #[derive(Debug, Clone)]
 pub struct RawSurface {
     pub positions: Vec<Float>,
@@ -188,35 +179,6 @@ impl RawSurface {
     */
 }
 
-#[pymethods]
-impl RawSurface {
-    fn __repr__(&self) -> String {
-        format!("{}", self)
-    }
-
-    #[classmethod]
-    #[pyo3(name = "read_file")]
-    #[allow(unused)]
-    fn read_file_py(cls: &PyType, path: &str) -> Result<Self> {
-        Self::read_file(path)
-    }
-
-    /*
-    #[classmethod]
-    #[pyo3(name = "use_integrated")]
-    #[allow(unused)]
-    fn use_integrated_py(cls: &PyType, model: IntegratedShapeModel) -> Result<Self> {
-        Self::use_integrated(model)
-    }
-
-    #[pyo3(name = "update")]
-    pub fn update_all_py(&mut self, closure: &PyAny) {
-        self.__update_all(CallbackType::Python(closure));
-    }
-    */
-}
-
-#[pyclass(get_all)]
 #[derive(Debug, Clone)]
 pub struct Surface {
     pub vertices: Vec<Vertex>,
@@ -340,7 +302,6 @@ impl Surface {
 }
 
 /// Builder of surface.
-#[pyclass(get_all)]
 #[derive(Debug, Clone)]
 pub struct SurfaceBuilder {
     pub vertices: Vec<Vertex>,
@@ -403,31 +364,6 @@ impl SurfaceBuilder {
         }
         self
     }
-
-    /*
-    pub fn update_all<F>(mut self, closure: F) -> Self
-    where
-        F: Fn(Vertex) -> Vertex,
-    {
-        let callback = CallbackType::Rust(closure);
-        self.update_all_internal(callback);
-        self
-    }
-
-    fn __update_all(&mut self, callback: CallbackType<Vertex>) -> &mut Self {
-        self.update_all_internal(callback);
-        self
-    }
-
-    fn update_all_internal<F>(&mut self, callback: CallbackType<F>)
-    where
-        F: Fn(Vertex) -> Vertex,
-    {
-        for vertex in &mut self.vertices {
-            *vertex = callback.call(*vertex);
-        }
-    }
-    */
 
     pub fn build(self) -> Surface {
         let Self {

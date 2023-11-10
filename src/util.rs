@@ -1,5 +1,4 @@
 use crate::prelude::*;
-use crate::python::*;
 
 use std::{env, path::PathBuf};
 
@@ -115,64 +114,4 @@ pub fn fmt_str_tab(text: &str, tab: usize) -> String {
     }
 
     vec.join("\n")
-}
-
-#[allow(non_snake_case, unused)]
-pub(crate) mod python {
-    use super::*;
-
-    #[pyfunction]
-    pub(crate) const fn ASTRONOMICAL_UNIT() -> Float {
-        super::ASTRONOMICAL_UNIT
-    }
-
-    #[pyfunction]
-    pub(crate) const fn AU() -> Float {
-        super::AU
-    }
-
-    #[pyfunction]
-    pub(crate) const fn SECOND() -> u64 {
-        super::SECOND
-    }
-
-    #[pyfunction]
-    pub(crate) const fn MINUTE() -> u64 {
-        super::MINUTE
-    }
-
-    #[pyfunction]
-    pub(crate) const fn HOUR() -> u64 {
-        super::HOUR
-    }
-
-    #[pyfunction]
-    pub(crate) const fn DAY() -> u64 {
-        super::DAY
-    }
-
-    #[pyfunction]
-    pub(crate) const fn YEAR() -> u64 {
-        super::YEAR
-    }
-
-    #[pyfunction]
-    pub(crate) const fn SPICE_DATE_FORMAT<'a>() -> &'a str {
-        super::SPICE_DATE_FORMAT
-    }
-
-    #[pyfunction]
-    pub(crate) const fn SPICE_DATE_FORMAT_FILE<'a>() -> &'a str {
-        super::SPICE_DATE_FORMAT_FILE
-    }
-
-    #[pyfunction]
-    pub(crate) const fn DPR() -> Float {
-        super::DPR
-    }
-
-    #[pyfunction]
-    pub(crate) const fn RPD() -> Float {
-        super::RPD
-    }
 }

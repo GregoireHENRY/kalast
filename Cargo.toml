@@ -1,6 +1,6 @@
 [package]
 name = "kalast"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Grégoire Henry <gregoire.henry@oma.be>"]
 edition = "2021"
 description = "Thermophysical Model for Binary Asteroids"
@@ -24,7 +24,6 @@ float_eq = "1.0"
 nalgebra = { version = "0.32", features = ["serde-serialize"] }
 nalgebra-glm = "0.18"
 ndarray = "0.15.6"
-numpy = { version = "0.20", features = ["nalgebra"] }
 tobj = { version = "4.0", features = ["ahash", "use_f64"] }
 rust-spice = { version = "0.7", optional = true }
 indicatif = "0.17"
@@ -40,7 +39,6 @@ simplelog = "0.12"
 gl = "0.14.0"
 sdl2 = "0.35.2"
 stb_image = "0.3"
-pyo3 = { version = "0.20", features = ["abi3-py311"] }
 image = "0.24.6"
 chrono = "0.4.24"
 notify-rust = "4"

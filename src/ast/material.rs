@@ -1,5 +1,4 @@
 use crate::prelude::*;
-use crate::python::*;
 use serde::{Deserialize, Serialize};
 
 #[allow(unused)]
@@ -17,8 +16,6 @@ fn diffusivity(conductivity: Float, density: Float, heat_capacity: Float) -> Flo
 }
 
 /// Material properties.
-// #[pyo3(text_signature = "(albedo, emissivity, thermal_inertia, density, heat_capacity: float)")]
-#[pyclass(get_all, set_all)]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Material {
     /// The surface albedo defines the capacity to reflect the light.
@@ -75,29 +72,5 @@ impl Material {
 
     pub fn thermal_skin_depth(&self, period: Float) -> Float {
         thermal_skin_depth(self.diffusivity(), period)
-    }
-}
-
-#[pymethods]
-impl Material {
-    #[new]
-    fn new(
-        albedo: Float,
-        emissivity: Float,
-        thermal_inertia: Float,
-        density: Float,
-        heat_capacity: Float,
-    ) -> Self {
-        Self {
-            albedo,
-            emissivity,
-            thermal_inertia,
-            density,
-            heat_capacity,
-        }
-    }
-
-    fn __repr__(&self) -> String {
-        format!("{:?}", self)
     }
 }
