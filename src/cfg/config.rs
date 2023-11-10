@@ -172,39 +172,4 @@ impl Cfg {
         let parent = file.parent().unwrap();
         Self::new_from(parent)
     }
-
-    pub fn path_pref(&self) -> PathBuf {
-        path_pref(&self.path)
-    }
-
-    pub fn path_win(&self) -> PathBuf {
-        path_win(&self.path)
-    }
-
-    pub fn path_simu(&self) -> PathBuf {
-        path_simu(&self.path)
-    }
-
-    pub fn path_sun(&self) -> PathBuf {
-        path_sun(&self.path)
-    }
-
-    pub fn path_cam(&self) -> PathBuf {
-        path_cam(&self.path)
-    }
-
-    pub fn path_bodies(&self) -> Vec<PathBuf> {
-        path_bodies(&self.path)
-    }
-
-    pub fn paths(&self) -> Vec<PathBuf> {
-        let mut paths = vec![
-            self.path_win(),
-            self.path_simu(),
-            self.path_sun(),
-            self.path_cam(),
-        ];
-        paths.extend(self.path_bodies());
-        paths
-    }
 }
