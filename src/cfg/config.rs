@@ -32,8 +32,8 @@ where
     Ok(cfg)
 }
 
-pub fn path_pref<P: AsRef<Path>>(p: P) -> PathBuf {
-    p.as_ref().join("preferences.yaml")
+pub fn path_pref<P: AsRef<Path>>(_p: P) -> PathBuf {
+    Path::new("./preferences.yaml").to_path_buf()
 }
 
 pub fn path_win<P: AsRef<Path>>(p: P) -> PathBuf {
