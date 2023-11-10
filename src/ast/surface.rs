@@ -18,6 +18,7 @@ pub const STR_SHAPE_MODEL_CUBE: &str = include_str!("../../assets/mesh/cube.obj"
 pub const STR_SHAPE_MODEL_ICOSPHERE: &str = include_str!("../../assets/mesh/icosphere.obj");
 pub const STR_SHAPE_MODEL_PLANE: &str = include_str!("../../assets/mesh/plane.obj");
 pub const STR_SHAPE_MODEL_SPHERE: &str = include_str!("../../assets/mesh/sphere.obj");
+pub const STR_SHAPE_MODEL_TRIANGLE: &str = include_str!("../../assets/mesh/triangle.obj");
 
 pub type Result<T, E = SurfaceError> = std::result::Result<T, E>;
 
@@ -82,16 +83,20 @@ pub enum IntegratedShapeModel {
 
     #[serde(rename = "sphere")]
     Sphere,
+
+    #[serde(rename = "triangle")]
+    Triangle,
 }
 
 impl IntegratedShapeModel {
     pub const fn str(&self) -> &str {
         match self {
-            Self::Plane => STR_SHAPE_MODEL_PLANE,
-            Self::Cube => STR_SHAPE_MODEL_CUBE,
-            Self::Sphere => STR_SHAPE_MODEL_SPHERE,
-            Self::Icosphere => STR_SHAPE_MODEL_ICOSPHERE,
             Self::Crater => STR_SHAPE_MODEL_CRATER,
+            Self::Cube => STR_SHAPE_MODEL_CUBE,
+            Self::Icosphere => STR_SHAPE_MODEL_ICOSPHERE,
+            Self::Plane => STR_SHAPE_MODEL_PLANE,
+            Self::Sphere => STR_SHAPE_MODEL_SPHERE,
+            Self::Triangle => STR_SHAPE_MODEL_TRIANGLE,
         }
     }
 }
