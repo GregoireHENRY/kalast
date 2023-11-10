@@ -143,6 +143,28 @@ where
     }
 
     pub fn iterations(&mut self) -> Result<()> {
+        self.iterations_with_fns(R::fn_iteration_body, R::fn_end_of_iteration)
+    }
+
+    pub fn iterations_with_fn_body<F>(&mut self, fn_body: F) -> Result<()>
+    where
+        F: Fn(&mut R, usize, &[usize], &CfgBody, &[&CfgBody], &mut [B], &Scene, &Time),
+    {
+        self.iterations_with_fns(fn_body, R::fn_end_of_iteration)
+    }
+
+    pub fn iterations_with_fn_end<F>(&mut self, fn_end: F) -> Result<()>
+    where
+        F: Fn(&mut R, &mut [B], &Time, &Scene, &Window),
+    {
+        self.iterations_with_fns(R::fn_iteration_body, fn_end)
+    }
+
+    pub fn iterations_with_fns<F1, F2>(&mut self, fn_body: F1, fn_end: F2) -> Result<()>
+    where
+        F1: Fn(&mut R, usize, &[usize], &CfgBody, &[&CfgBody], &mut [B], &Scene, &Time),
+        F2: Fn(&mut R, &mut [B], &Time, &Scene, &Window),
+    {
         if self.bodies.is_empty() {
             self.load_bodies()?;
         }
@@ -205,7 +227,8 @@ where
                     &mat_orient_ref,
                 );
 
-                self.routines.fn_iteration_body(
+                fn_body(
+                    &mut self.routines,
                     ii_body,
                     ii_other_bodies,
                     cb,
@@ -241,8 +264,13 @@ where
                 &self.win,
             );
 
-            self.routines
-                .fn_end_of_iteration(&mut self.bodies, &self.time, &self.scene, &self.win);
+            fn_end(
+                &mut self.routines,
+                &mut self.bodies,
+                &self.time,
+                &self.scene,
+                &self.win,
+            );
 
             if elapsed > self.cfg.simu.duration {
                 let time_calc = Utc::now().time() - *self.time.real_time();
