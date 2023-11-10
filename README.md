@@ -24,11 +24,11 @@ Add to your code:
 use kalast::prelude::*;
 ```
 
-and refer to [kalast::prelude online](docsrs-prelude) for available modules and items.
+and refer to [kalast::prelude online][docsrs-prelude] for available modules and items.
 
 ## License
 
-Licensed under the [Apache License, Version 2.0](apache2).
+Licensed under the [Apache License, Version 2.0][apache2].
 
 ## Contribution
 
@@ -38,5 +38,5 @@ Any contribution is welcome.
 [cratesio]: https://crates.io/crates/kalast
 [docsrs-image]: https://docs.rs/kalast/badge.svg
 [docsrs]: https://docs.rs/kalast
-[docsrs-prelude]: https://docs.rs/kalast/latest/kalast/prelude/index.html
-[apache2]: https://docs.rs/kalast
+[docsrs-prelude]: https://docs.rs/kalast/latest/kalast/prelude
+[apache2]: https://www.apache.org/licenses/LICENSE-2.0
