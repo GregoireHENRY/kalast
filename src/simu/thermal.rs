@@ -114,30 +114,30 @@ impl ThermalData {
 }
 
 pub trait RoutinesThermal: Routines {
-    fn fn_compute_solar_flux<B: Body>(
+    fn fn_compute_solar_flux(
         &self,
-        body: &B,
+        body: &Body,
         body_info: &ThermalData,
         scene: &Scene,
     ) -> DRVector<Float>;
 
-    fn fn_compute_surface_temperatures<B: Body>(
+    fn fn_compute_surface_temperatures(
         &self,
-        body: &B,
+        body: &Body,
         body_info: &ThermalData,
         surface_fluxes: &DRVector<Float>,
     ) -> DRVector<Float>;
 
-    fn fn_compute_heat_conduction<B: Body>(
+    fn fn_compute_heat_conduction(
         &self,
-        body: &B,
+        body: &Body,
         body_info: &ThermalData,
         delta_time: Float,
     ) -> DMatrix<Float>;
 
-    fn fn_compute_bottom_depth_temperatures<B: Body>(
+    fn fn_compute_bottom_depth_temperatures(
         &self,
-        body: &B,
+        body: &Body,
         body_info: &ThermalData,
     ) -> DRVector<Float>;
 }
@@ -148,18 +148,18 @@ pub struct RoutinesThermalDefault {
 }
 
 impl Routines for RoutinesThermalDefault {
-    fn fn_setup_body<B: Body>(&mut self, asteroid: Asteroid, cb: &CfgBody, scene: &Scene) -> B {
+    fn fn_setup_body(&mut self, asteroid: Asteroid, cb: &CfgBody, scene: &Scene) -> Body {
         self.data.push(ThermalData::new(&asteroid, cb, scene));
         simu::fn_setup_body_default(asteroid, cb)
     }
 
-    fn fn_iteration_body<B: Body>(
+    fn fn_iteration_body(
         &mut self,
         ii_body: usize,
         ii_other_bodies: &[usize],
         _cb: &CfgBody,
         _other_cbs: &[&CfgBody],
-        bodies: &mut [B],
+        bodies: &mut [Body],
         scene: &Scene,
         time: &Time,
     ) {
@@ -176,8 +176,8 @@ impl Routines for RoutinesThermalDefault {
             for other_body in other_bodies {
                 shadows_mutual = ray::shadows(
                     &scene.sun_pos,
-                    &bodies[ii_body].asteroid(),
-                    &other_body.asteroid(),
+                    &bodies[ii_body].asteroid,
+                    &other_body.asteroid,
                 );
             }
 
@@ -211,12 +211,12 @@ impl Routines for RoutinesThermalDefault {
         self.data[ii_body].fluxes_solar = fluxes_solar;
     }
 
-    fn fn_update_colormap<B: Body>(
+    fn fn_update_colormap(
         &self,
         win: &Window,
         cmap: &CfgColormap,
         ii_body: usize,
-        body: &mut B,
+        body: &mut Body,
         scene: &Scene,
     ) {
         fn_update_colormap_default(&self.data[ii_body], win, cmap, ii_body, body, scene);
@@ -233,10 +233,10 @@ impl Routines for RoutinesThermalDefault {
         fn_export_iteration_default(&self.data[ii_body], cb, time, folders, is_first_it);
     }
 
-    fn fn_export_iteration_period<B: Body>(
+    fn fn_export_iteration_period(
         &self,
         cb: &CfgBody,
-        body: &B,
+        body: &Body,
         ii_body: usize,
         folders: &FoldersRun,
         exporting_started_elapsed: i64,
@@ -252,40 +252,47 @@ impl Routines for RoutinesThermalDefault {
         );
     }
 
-    fn fn_end_of_iteration<B: Body>(&mut self, _bodies: &mut [B], _time: &Time, _scene: &Scene, _win: &Window) {}
+    fn fn_end_of_iteration(
+        &mut self,
+        _bodies: &mut [Body],
+        _time: &Time,
+        _scene: &Scene,
+        _win: &Window,
+    ) {
+    }
 }
 
 impl RoutinesThermal for RoutinesThermalDefault {
-    fn fn_compute_solar_flux<B: Body>(
+    fn fn_compute_solar_flux(
         &self,
-        body: &B,
+        body: &Body,
         body_info: &ThermalData,
         scene: &Scene,
     ) -> DRVector<Float> {
         fn_compute_solar_flux_default(body, body_info, scene)
     }
 
-    fn fn_compute_surface_temperatures<B: Body>(
+    fn fn_compute_surface_temperatures(
         &self,
-        body: &B,
+        body: &Body,
         body_info: &ThermalData,
         surface_fluxes: &DRVector<Float>,
     ) -> DRVector<Float> {
         fn_compute_surface_temperatures_default(body, body_info, surface_fluxes)
     }
 
-    fn fn_compute_heat_conduction<B: Body>(
+    fn fn_compute_heat_conduction(
         &self,
-        body: &B,
+        body: &Body,
         body_info: &ThermalData,
         delta_time: Float,
     ) -> DMatrix<Float> {
         fn_compute_heat_conduction_default(body, body_info, delta_time)
     }
 
-    fn fn_compute_bottom_depth_temperatures<B: Body>(
+    fn fn_compute_bottom_depth_temperatures(
         &self,
-        body: &B,
+        body: &Body,
         body_info: &ThermalData,
     ) -> DRVector<Float> {
         fn_compute_bottom_depth_temperatures_default(body, body_info)
@@ -299,21 +306,21 @@ pub fn routines_thermal_default() -> RoutinesThermalDefault {
     }
 }
 
-pub fn fn_compute_solar_flux_default<B: Body>(
-    body: &B,
+pub fn fn_compute_solar_flux_default(
+    body: &Body,
     body_info: &ThermalData,
     scene: &Scene,
 ) -> DRVector<Float> {
-    let cos_incidences = simu::compute_cosine_incidence_angle(body, body.normals(), scene);
+    let cos_incidences = simu::compute_cosine_incidence_angle(body, &body.normals, scene);
     flux::flux_solar_radiation(&cos_incidences, &body_info.albedos, scene.sun_dist())
 }
 
-pub fn fn_compute_surface_temperatures_default<B: Body>(
-    body: &B,
+pub fn fn_compute_surface_temperatures_default(
+    body: &Body,
     body_info: &ThermalData,
     surface_fluxes: &DRVector<Float>,
 ) -> DRVector<Float> {
-    let depth_grid = &body.asteroid().interior.as_ref().unwrap().as_grid().depth;
+    let depth_grid = &body.asteroid.interior.as_ref().unwrap().as_grid().depth;
 
     bound::newton_method_temperature(
         body_info.tmp.row(0).as_view(),
@@ -325,13 +332,13 @@ pub fn fn_compute_surface_temperatures_default<B: Body>(
     )
 }
 
-pub fn fn_compute_heat_conduction_default<B: Body>(
-    body: &B,
+pub fn fn_compute_heat_conduction_default(
+    body: &Body,
     body_info: &ThermalData,
     delta_time: Float,
 ) -> DMatrix<Float> {
     let curr_size = body_info.depth_size - 2;
-    let surf_size = body.asteroid().surface.faces.len();
+    let surf_size = body.asteroid.surface.faces.len();
 
     let prev = body_info.tmp.view((0, 0), (curr_size, surf_size));
     let curr = body_info.tmp.view((1, 0), (curr_size, surf_size));
@@ -343,28 +350,27 @@ pub fn fn_compute_heat_conduction_default<B: Body>(
             .component_mul(&(prev - 2. * curr + next))
 }
 
-pub fn fn_compute_bottom_depth_temperatures_default<B: Body>(
-    _body: &B,
+pub fn fn_compute_bottom_depth_temperatures_default(
+    _body: &Body,
     body_info: &ThermalData,
 ) -> DRVector<Float> {
     body_info.tmp.row(body_info.depth_size - 2).clone_owned()
 }
 
-pub fn fn_update_colormap_default<B: Body>(
+pub fn fn_update_colormap_default(
     data: &ThermalData,
     win: &Window,
     cmap: &CfgColormap,
     ii_body: usize,
-    body: &mut B,
+    body: &mut Body,
     scene: &Scene,
 ) {
     let scalars = match &cmap.scalar {
         Some(CfgScalar::AngleIncidence) => {
-            simu::compute_cosine_incidence_angle(body, body.normals(), scene)
-                .map(|a| a.acos() * DPR)
+            simu::compute_cosine_incidence_angle(body, &body.normals, scene).map(|a| a.acos() * DPR)
         }
         Some(CfgScalar::AngleEmission) => {
-            simu::compute_cosine_emission_angle(body, body.normals(), scene).map(|a| a.acos() * DPR)
+            simu::compute_cosine_emission_angle(body, &body.normals, scene).map(|a| a.acos() * DPR)
         }
         Some(CfgScalar::AnglePhase) => {
             simu::compute_cosine_phase_angle(body, scene).map(|a| a.acos() * DPR)
@@ -377,7 +383,7 @@ pub fn fn_update_colormap_default<B: Body>(
         None | Some(CfgScalar::Temperature) => data.tmp.row(0).into_owned(),
     };
 
-    simu::update_colormap_scalar(win, cmap, scalars.as_slice(), body.asteroid_mut(), ii_body);
+    simu::update_colormap_scalar(win, cmap, scalars.as_slice(), &mut body.asteroid, ii_body);
 }
 
 pub fn fn_export_iteration_default(
@@ -425,10 +431,10 @@ pub fn fn_export_iteration_default(
         .unwrap();
 }
 
-pub fn fn_export_iteration_period_default<B: Body>(
+pub fn fn_export_iteration_period_default(
     data: &ThermalData,
     cb: &CfgBody,
-    _body: &B,
+    _body: &Body,
     folders: &FoldersRun,
     exporting_started_elapsed: i64,
     is_first_it_export: bool,

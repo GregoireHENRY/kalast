@@ -4,14 +4,14 @@ pub trait RoutinesData {
     fn new(asteroid: &Asteroid, _cb: &CfgBody, _scene: &Scene) -> Self;
 }
 
-pub trait Routines {
-    fn fn_setup_body<B: Body>(&mut self, asteroid: Asteroid, cb: &CfgBody, _scene: &Scene) -> B {
+pub trait Routines: DowncastSync {
+    fn fn_setup_body(&mut self, asteroid: Asteroid, cb: &CfgBody, _scene: &Scene) -> Body {
         fn_setup_body_default(asteroid, cb)
     }
 
-    fn fn_update_matrix_model<B: Body>(
+    fn fn_update_matrix_model(
         &self,
-        body: &mut B,
+        body: &mut Body,
         cb: &CfgBody,
         other_cbs: &[&CfgBody],
         time: &Time,
@@ -20,23 +20,23 @@ pub trait Routines {
         fn_update_matrix_model_default(body, cb, other_cbs, time, mat_orient_ref);
     }
 
-    fn fn_iteration_body<B: Body>(
+    fn fn_iteration_body(
         &mut self,
         ii_body: usize,
         ii_other_bodies: &[usize],
         _cb: &CfgBody,
         _other_cbs: &[&CfgBody],
-        bodies: &mut [B],
+        bodies: &mut [Body],
         scene: &Scene,
         time: &Time,
     );
 
-    fn fn_update_colormap<B: Body>(
+    fn fn_update_colormap(
         &self,
         win: &Window,
         cmap: &CfgColormap,
         ii_body: usize,
-        body: &mut B,
+        body: &mut Body,
         scene: &Scene,
     );
 
@@ -49,31 +49,33 @@ pub trait Routines {
         is_first_it: bool,
     );
 
-    fn fn_export_iteration_period<B: Body>(
+    fn fn_export_iteration_period(
         &self,
         cb: &CfgBody,
-        body: &B,
+        body: &Body,
         ii_body: usize,
         folders: &FoldersRun,
         exporting_started_elapsed: i64,
         is_first_it_export: bool,
     );
 
-    fn fn_end_of_iteration<B: Body>(
+    fn fn_end_of_iteration(
         &mut self,
-        bodies: &mut [B],
+        bodies: &mut [Body],
         time: &Time,
         scene: &Scene,
         win: &Window,
     );
 }
 
-pub fn fn_setup_body_default<B: Body>(asteroid: Asteroid, cb: &CfgBody) -> B {
-    B::new(asteroid, cb)
+impl_downcast!(sync Routines);
+
+pub fn fn_setup_body_default(asteroid: Asteroid, cb: &CfgBody) -> Body {
+    Body::new(asteroid, cb)
 }
 
-pub fn fn_update_matrix_model_default<B: Body>(
-    body: &mut B,
+pub fn fn_update_matrix_model_default(
+    body: &mut Body,
     cb: &CfgBody,
     other_cbs: &[&CfgBody],
     time: &Time,
@@ -111,6 +113,6 @@ pub fn fn_update_matrix_model_default<B: Body>(
         }
     };
 
-    body.asteroid_mut().matrix_model =
-        mat_orient_ref * mat_translation * body.mat_orient() * mat_spin;
+    body.asteroid.matrix_model =
+        mat_orient_ref * mat_translation * body.mat_orient * mat_spin;
 }

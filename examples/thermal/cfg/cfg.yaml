@@ -6,6 +6,7 @@ win:
     scalar: temperature
     
 simu:
+  routines: thermal
   step: 600
   duration: 8136000
   export:

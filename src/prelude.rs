@@ -55,7 +55,6 @@ pub use crate::cfg::{
 pub use crate::simu::{
     self,
     Body,
-    BodyDefault,
     Export,
     FoldersRun,
     Routines,
@@ -108,6 +107,8 @@ pub use notify_rust::Notification;
 pub use polars::prelude::*;
 
 pub use directories::UserDirs;
+
+pub use downcast_rs::{DowncastSync, impl_downcast};
 
 pub use std::collections::{BTreeMap, HashMap};
 pub use std::env;

@@ -42,7 +42,7 @@ pub fn read_surface_low(cb: &CfgBody) -> Result<Surface> {
     read_surface(cb, CfgMeshKind::Low)
 }
 
-pub fn find_reference_matrix_orientation<B: Body>(cb: &CfgBody, other_bodies: &[&B]) -> Mat4 {
+pub fn find_reference_matrix_orientation(cb: &CfgBody, other_bodies: &[&Body]) -> Mat4 {
     match &cb.state {
         CfgState::Position(_pos) => Mat4::identity(),
         CfgState::Path(_p) => Mat4::identity(),
@@ -51,8 +51,8 @@ pub fn find_reference_matrix_orientation<B: Body>(cb: &CfgBody, other_bodies: &[
             CfgFrameCenter::Body(id) => {
                 let mut mat = Mat4::identity();
                 for other_body in other_bodies {
-                    if other_body.id() == *id {
-                        mat = *other_body.mat_orient();
+                    if other_body.id == *id {
+                        mat = other_body.mat_orient;
                         break;
                     }
                 }
@@ -106,38 +106,38 @@ pub fn update_colormap_scalar(
     win.update_vao(ii_body, &mut asteroid.surface);
 }
 
-pub fn compute_cosine_incidence_angle<B: Body>(
-    body: &B,
+pub fn compute_cosine_incidence_angle(
+    body: &Body,
     normals: &Matrix3xX<Float>,
     scene: &Scene,
 ) -> DRVector<Float> {
     let matrix_normal: Mat3 =
-        glm::mat4_to_mat3(&glm::inverse_transpose(body.asteroid().matrix_model));
+        glm::mat4_to_mat3(&glm::inverse_transpose(body.asteroid.matrix_model));
     let normals_oriented = matrix_normal * normals;
     flux::cosine_angle(&scene.sun_dir(), &normals_oriented)
 }
 
-pub fn compute_cosine_emission_angle<B: Body>(
-    body: &B,
+pub fn compute_cosine_emission_angle(
+    body: &Body,
     normals: &Matrix3xX<Float>,
     scene: &Scene,
 ) -> DRVector<Float> {
     let matrix_normal: Mat3 =
-        glm::mat4_to_mat3(&glm::inverse_transpose(body.asteroid().matrix_model));
+        glm::mat4_to_mat3(&glm::inverse_transpose(body.asteroid.matrix_model));
     let normals_oriented = matrix_normal * normals;
     flux::cosine_angle(&scene.cam_dir(), &normals_oriented)
 }
 
-pub fn compute_cosine_phase_angle<B: Body>(body: &B, scene: &Scene) -> DRVector<Float> {
+pub fn compute_cosine_phase_angle(body: &Body, scene: &Scene) -> DRVector<Float> {
     DRVector::from_row_slice(
         &body
-            .asteroid()
+            .asteroid
             .surface
             .faces
             .iter()
             .map(|f| {
                 let v4 = glm::vec3_to_vec4(&f.vertex.position);
-                let v3_oriented = glm::vec4_to_vec3(&(body.asteroid().matrix_model * v4));
+                let v3_oriented = glm::vec4_to_vec3(&(body.asteroid.matrix_model * v4));
                 (scene.sun_pos - v3_oriented)
                     .normalize()
                     .dot(&(scene.cam_pos - v3_oriented).normalize())

@@ -1,20 +1,23 @@
 use crate::prelude::*;
 
-pub struct Scenario<B: Body, R: Routines> {
+pub struct Scenario {
     pub cfg: Cfg,
     pub folders: FoldersRun,
-    pub bodies: Vec<B>,
+    pub bodies: Vec<Body>,
     pub win: Window,
     pub time: Time,
     pub scene: Scene,
-    pub routines: R,
+    pub routines: Box<dyn Routines>,
 }
 
-impl Scenario<BodyDefault, RoutinesViewerDefault> {
-    pub fn new<P>(path: P) -> Result<Self>
-    where
-        P: AsRef<Path>,
-    {
+impl Scenario {
+    pub fn new() -> Result<Self> {
+        let path_exe = env::current_exe().unwrap();
+        let path = path_exe.parent().unwrap();
+        Self::new_with(path)
+    }
+
+    pub fn new_with<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
         let cfg = Cfg::new_from(&path.join("cfg"))?;
 
@@ -22,8 +25,12 @@ impl Scenario<BodyDefault, RoutinesViewerDefault> {
         folders.save_cfgs(&cfg);
         folders.save_src(&path);
 
-        let bodies: Vec<BodyDefault> = vec![];
-        let routines = simu::routines_viewer_default();
+        let bodies: Vec<Body> = vec![];
+
+        let routines = match &cfg.simu.routines {
+            CfgRoutines::Viewer => Box::new(simu::routines_viewer_default()) as Box<dyn Routines>,
+            CfgRoutines::Thermal => Box::new(simu::routines_thermal_default()) as Box<dyn Routines>,
+        };
 
         let sun_pos = cfg.sun.position * AU;
         let cam_pos = match cfg.cam {
@@ -67,39 +74,9 @@ impl Scenario<BodyDefault, RoutinesViewerDefault> {
     }
 }
 
-impl<B, R> Scenario<B, R>
-where
-    B: Body,
-    R: Routines,
-{
-    pub fn select_routines<R2>(self, routines: R2) -> Scenario<B, R2>
-    where
-        R2: Routines,
-    {
-        Scenario::<B, R2> {
-            cfg: self.cfg,
-            folders: self.folders,
-            bodies: vec![],
-            win: self.win,
-            time: self.time,
-            scene: self.scene,
-            routines,
-        }
-    }
-
-    pub fn select_body_type<B2>(self) -> Scenario<B2, R>
-    where
-        B2: Body,
-    {
-        Scenario::<B2, R> {
-            cfg: self.cfg,
-            folders: self.folders,
-            bodies: vec![],
-            win: self.win,
-            time: self.time,
-            scene: self.scene,
-            routines: self.routines,
-        }
+impl Scenario {
+    pub fn change_routines<R: Routines>(&mut self, routines: R) {
+        self.routines = Box::new(routines);
     }
 
     pub fn load_bodies(&mut self) -> Result<()> {
@@ -133,7 +110,7 @@ where
         }
 
         self.win
-            .load_surfaces(self.bodies.iter().map(|b| &b.asteroid().surface));
+            .load_surfaces(self.bodies.iter().map(|b| &b.asteroid.surface));
 
         Ok(())
     }
@@ -142,29 +119,33 @@ where
         (0..self.bodies.len()).permutations(self.bodies.len())
     }
 
-    pub fn iterations(&mut self) -> Result<()> {
+    /*
+    pub fn iterations<R: Routines>(&mut self) -> Result<()> {
         self.iterations_with_fns(R::fn_iteration_body, R::fn_end_of_iteration)
     }
 
-    pub fn iterations_with_fn_body<F>(&mut self, fn_body: F) -> Result<()>
+    pub fn iterations_with_fn_body<R: Routines, F>(&mut self, fn_body: F) -> Result<()>
     where
-        F: Fn(&mut R, usize, &[usize], &CfgBody, &[&CfgBody], &mut [B], &Scene, &Time),
+        F: Fn(&mut R, usize, &[usize], &CfgBody, &[&CfgBody], &mut [Body], &Scene, &Time),
     {
         self.iterations_with_fns(fn_body, R::fn_end_of_iteration)
     }
 
-    pub fn iterations_with_fn_end<F>(&mut self, fn_end: F) -> Result<()>
+    pub fn iterations_with_fn_end<R: Routines, F>(&mut self, fn_end: F) -> Result<()>
     where
-        F: Fn(&mut R, &mut [B], &Time, &Scene, &Window),
+        F: Fn(&mut R, &mut [Body], &Time, &Scene, &Window),
     {
         self.iterations_with_fns(R::fn_iteration_body, fn_end)
     }
 
-    pub fn iterations_with_fns<F1, F2>(&mut self, fn_body: F1, fn_end: F2) -> Result<()>
+    pub fn iterations_with_fns<R: Routines, F1, F2>(&mut self, fn_body: F1, fn_end: F2) -> Result<()>
     where
-        F1: Fn(&mut R, usize, &[usize], &CfgBody, &[&CfgBody], &mut [B], &Scene, &Time),
-        F2: Fn(&mut R, &mut [B], &Time, &Scene, &Window),
+        F1: Fn(&mut R, usize, &[usize], &CfgBody, &[&CfgBody], &mut [Body], &Scene, &Time),
+        F2: Fn(&mut R, &mut [Body], &Time, &Scene, &Window),
     {
+    */
+
+    pub fn iterations(&mut self) -> Result<()> {
         if self.bodies.is_empty() {
             self.load_bodies()?;
         }
@@ -184,7 +165,7 @@ where
 
             if self.win.is_paused() {
                 self.win
-                    .render_asteroids(&self.bodies.iter().map(|b| b.asteroid()).collect_vec());
+                    .render_asteroids(&self.bodies.iter().map(|b| &b.asteroid).collect_vec());
                 self.win.swap_window();
                 continue;
             }
@@ -227,8 +208,7 @@ where
                     &mat_orient_ref,
                 );
 
-                fn_body(
-                    &mut self.routines,
+                self.routines.fn_iteration_body(
                     ii_body,
                     ii_other_bodies,
                     cb,
@@ -251,7 +231,7 @@ where
 
             // self.win.update_vaos(self.bodies.iter_mut().map(|b| &mut b.asteroid_mut().surface));
             self.win
-                .render_asteroids(&self.bodies.iter().map(|b| b.asteroid()).collect_vec());
+                .render_asteroids(&self.bodies.iter().map(|b| &b.asteroid).collect_vec());
             self.win.swap_window();
 
             export.iteration(
@@ -259,18 +239,13 @@ where
                 &self.folders,
                 &self.cfg,
                 &self.bodies,
-                &self.routines,
+                self.routines.as_ref(),
                 &self.scene,
                 &self.win,
             );
 
-            fn_end(
-                &mut self.routines,
-                &mut self.bodies,
-                &self.time,
-                &self.scene,
-                &self.win,
-            );
+            self.routines
+                .fn_end_of_iteration(&mut self.bodies, &self.time, &self.scene, &self.win);
 
             if elapsed > self.cfg.simu.duration {
                 let time_calc = Utc::now().time() - *self.time.real_time();

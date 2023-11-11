@@ -3,26 +3,35 @@ use kalast::prelude::*;
 fn main() -> Result<()> {
     let mut sc = Scenario::new()?;
 
-    let mut sc = sc.select_routines(RoutinesViewerCustom::new());
+    sc.change_routines(RoutinesViewerCustom::new());
     sc.load_bodies()?;
 
     let faces: Vec<usize> =
         serde_yaml::from_value(sc.cfg.bodies[0].extra["faces"].clone()).unwrap();
-    update_surf_face(&mut sc.routines, &mut sc.bodies, &sc.win, &faces, 0);
+    update_surf_face(
+        sc.routines
+            .downcast_mut::<RoutinesViewerCustom>()
+            .as_mut()
+            .unwrap(),
+        &mut sc.bodies,
+        &sc.win,
+        &faces,
+        0,
+    );
 
     sc.iterations()?;
 
     Ok(())
 }
 
-fn update_surf_face<B: Body>(
+fn update_surf_face(
     routines: &mut RoutinesViewerCustom,
-    bodies: &mut [B],
+    bodies: &mut [Body],
     win: &Window,
     faces: &[usize],
     ii_body: usize,
 ) {
-    let surf = &mut bodies[ii_body].asteroid_mut().surface;
+    let surf = &mut bodies[ii_body].asteroid.surface;
 
     for &ii_face in faces {
         if !routines.faces.contains(&ii_face) {
@@ -48,12 +57,12 @@ pub struct RoutinesViewerCustom {
 }
 
 impl Routines for RoutinesViewerCustom {
-    fn fn_setup_body<B: Body>(&mut self, asteroid: Asteroid, cb: &CfgBody, scene: &Scene) -> B {
+    fn fn_setup_body(&mut self, asteroid: Asteroid, cb: &CfgBody, scene: &Scene) -> Body {
         self.default.fn_setup_body(asteroid, cb, scene)
     }
-    fn fn_update_matrix_model<B: Body>(
+    fn fn_update_matrix_model(
         &self,
-        body: &mut B,
+        body: &mut Body,
         cb: &CfgBody,
         other_cbs: &[&CfgBody],
         time: &Time,
@@ -63,13 +72,13 @@ impl Routines for RoutinesViewerCustom {
             .fn_update_matrix_model(body, cb, other_cbs, time, mat_orient_ref)
     }
 
-    fn fn_iteration_body<B: Body>(
+    fn fn_iteration_body(
         &mut self,
         ii_body: usize,
         ii_other_bodies: &[usize],
         cb: &CfgBody,
         other_cbs: &[&CfgBody],
-        bodies: &mut [B],
+        bodies: &mut [Body],
         scene: &Scene,
         time: &Time,
     ) {
@@ -77,12 +86,12 @@ impl Routines for RoutinesViewerCustom {
             .fn_iteration_body(ii_body, ii_other_bodies, cb, other_cbs, bodies, scene, time)
     }
 
-    fn fn_update_colormap<B: Body>(
+    fn fn_update_colormap(
         &self,
         win: &Window,
         cmap: &CfgColormap,
         ii_body: usize,
-        body: &mut B,
+        body: &mut Body,
         scene: &Scene,
     ) {
         self.default
@@ -101,10 +110,10 @@ impl Routines for RoutinesViewerCustom {
             .fn_export_iteration(cb, ii_body, time, folders, is_first_it)
     }
 
-    fn fn_export_iteration_period<B: Body>(
+    fn fn_export_iteration_period(
         &self,
         cb: &CfgBody,
-        body: &B,
+        body: &Body,
         ii_body: usize,
         folders: &FoldersRun,
         exporting_started_elapsed: i64,
@@ -120,9 +129,9 @@ impl Routines for RoutinesViewerCustom {
         )
     }
 
-    fn fn_end_of_iteration<B: Body>(
+    fn fn_end_of_iteration(
         &mut self,
-        bodies: &mut [B],
+        bodies: &mut [Body],
         _time: &Time,
         _scene: &Scene,
         win: &Window,

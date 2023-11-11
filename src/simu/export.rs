@@ -21,13 +21,13 @@ impl Export {
         }
     }
 
-    pub fn iteration<B: Body, R: Routines>(
+    pub fn iteration(
         &mut self,
         time: &mut Time,
         folders: &FoldersRun,
         cfg: &Cfg,
-        bodies: &[B],
-        routines: &R,
+        bodies: &[Body],
+        routines: &dyn Routines,
         scene: &Scene,
         win: &Window,
     ) {
@@ -112,10 +112,10 @@ impl Export {
         }
     }
 
-    pub fn iteration_body_export_start_generic<B: Body>(
+    pub fn iteration_body_export_start_generic(
         &self,
         cb: &CfgBody,
-        body: &B,
+        body: &Body,
         time: &Time,
         folders: &FoldersRun,
         scene: &Scene,
@@ -159,7 +159,7 @@ impl Export {
         CsvWriter::new(&mut file).finish(&mut df).unwrap();
 
         let mut df = df!(
-            "spinrot" => body.mat_orient().as_slice(),
+            "spinrot" => body.mat_orient.as_slice(),
         )
         .unwrap();
         let mut file = std::fs::File::options()

@@ -10,7 +10,7 @@ pub mod time;
 pub mod util;
 pub mod viewer;
 
-pub use body::{Body, BodyDefault};
+pub use body::Body;
 pub use export::Export;
 pub use folders::FoldersRun;
 pub use routines::{

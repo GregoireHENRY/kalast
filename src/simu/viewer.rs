@@ -17,18 +17,18 @@ pub struct RoutinesViewerDefault {
 }
 
 impl Routines for RoutinesViewerDefault {
-    fn fn_setup_body<B: Body>(&mut self, asteroid: Asteroid, cb: &CfgBody, scene: &Scene) -> B {
+    fn fn_setup_body(&mut self, asteroid: Asteroid, cb: &CfgBody, scene: &Scene) -> Body {
         self.data.push(ViewerData::new(&asteroid, cb, scene));
         simu::fn_setup_body_default(asteroid, cb)
     }
 
-    fn fn_iteration_body<B: Body>(
+    fn fn_iteration_body(
         &mut self,
         _ii_body: usize,
         ii_other_bodies: &[usize],
         _cb: &CfgBody,
         _other_cbs: &[&CfgBody],
-        bodies: &mut [B],
+        bodies: &mut [Body],
         _scene: &Scene,
         time: &Time,
     ) {
@@ -36,12 +36,12 @@ impl Routines for RoutinesViewerDefault {
         let _other_bodies = ii_other_bodies.iter().map(|&ii| &bodies[ii]).collect_vec();
     }
 
-    fn fn_update_colormap<B: Body>(
+    fn fn_update_colormap(
         &self,
         win: &Window,
         cmap: &CfgColormap,
         ii_body: usize,
-        body: &mut B,
+        body: &mut Body,
         scene: &Scene,
     ) {
         fn_update_colormap_default(&self.data[ii_body], win, cmap, ii_body, body, scene);
@@ -58,10 +58,10 @@ impl Routines for RoutinesViewerDefault {
         fn_export_iteration_default(&self.data[ii_body], cb, time, folders, is_first_it);
     }
 
-    fn fn_export_iteration_period<B: Body>(
+    fn fn_export_iteration_period(
         &self,
         cb: &CfgBody,
-        body: &B,
+        body: &Body,
         ii_body: usize,
         folders: &FoldersRun,
         exporting_started_elapsed: i64,
@@ -77,7 +77,14 @@ impl Routines for RoutinesViewerDefault {
         );
     }
 
-    fn fn_end_of_iteration<B: Body>(&mut self, _bodies: &mut [B], _time: &Time, _scene: &Scene, _win: &Window) {}
+    fn fn_end_of_iteration(
+        &mut self,
+        _bodies: &mut [Body],
+        _time: &Time,
+        _scene: &Scene,
+        _win: &Window,
+    ) {
+    }
 }
 
 impl RoutinesViewer for RoutinesViewerDefault {}
@@ -86,21 +93,20 @@ pub fn routines_viewer_default() -> RoutinesViewerDefault {
     RoutinesViewerDefault { data: vec![] }
 }
 
-pub fn fn_update_colormap_default<B: Body, D: RoutinesData>(
+pub fn fn_update_colormap_default<D: RoutinesData>(
     _data: &D,
     win: &Window,
     cmap: &CfgColormap,
     ii_body: usize,
-    body: &mut B,
+    body: &mut Body,
     scene: &Scene,
 ) {
     let scalars = match &cmap.scalar {
         Some(CfgScalar::AngleIncidence) => {
-            simu::compute_cosine_incidence_angle(body, body.normals(), scene)
-                .map(|a| a.acos() * DPR)
+            simu::compute_cosine_incidence_angle(body, &body.normals, scene).map(|a| a.acos() * DPR)
         }
         Some(CfgScalar::AngleEmission) => {
-            simu::compute_cosine_emission_angle(body, body.normals(), scene).map(|a| a.acos() * DPR)
+            simu::compute_cosine_emission_angle(body, &body.normals, scene).map(|a| a.acos() * DPR)
         }
         Some(CfgScalar::AnglePhase) => {
             simu::compute_cosine_phase_angle(body, scene).map(|a| a.acos() * DPR)
@@ -109,7 +115,7 @@ pub fn fn_update_colormap_default<B: Body, D: RoutinesData>(
         _ => unreachable!(),
     };
 
-    simu::update_colormap_scalar(win, cmap, scalars.as_slice(), body.asteroid_mut(), ii_body);
+    simu::update_colormap_scalar(win, cmap, scalars.as_slice(), &mut body.asteroid, ii_body);
 }
 
 pub fn fn_export_iteration_default<D: RoutinesData>(
@@ -122,10 +128,10 @@ pub fn fn_export_iteration_default<D: RoutinesData>(
     let _np_elapsed = time.elapsed_seconds() as Float / cb.spin.period;
 }
 
-pub fn fn_export_iteration_period_default<B: Body, D: RoutinesData>(
+pub fn fn_export_iteration_period_default<D: RoutinesData>(
     _data: &D,
     _cb: &CfgBody,
-    _body: &B,
+    _body: &Body,
     _folders: &FoldersRun,
     _exporting_started_elapsed: i64,
     _is_first_it_export: bool,
