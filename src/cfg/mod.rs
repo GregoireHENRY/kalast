@@ -13,6 +13,6 @@ pub use body::{
 pub use camera::CfgCamera;
 pub use config::{read_cfg, Cfg, CfgError};
 pub use preferences::CfgPreferences;
-pub use simu::{CfgSimulation, CfgSimulationType, CfgTimeExport};
+pub use simu::{CfgSimulation, CfgRoutines, CfgTimeExport};
 pub use sun::CfgSun;
 pub use window::{CfgColormap, CfgScalar, CfgWindow};

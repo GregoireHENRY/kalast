@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct CfgSimulation {
     #[serde(default)]
+    pub routines: CfgRoutines,
+
+    #[serde(default)]
     pub jd0: Float,
 
     #[serde(default)]
@@ -20,19 +23,16 @@ pub struct CfgSimulation {
 
 impl Configuration for CfgSimulation {}
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum CfgSimulationType {
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub enum CfgRoutines {
     #[serde(rename = "viewer")]
     Viewer,
-
-    #[serde(rename = "light")]
-    Light,
 
     #[serde(rename = "thermal")]
     Thermal,
 }
 
-impl Default for CfgSimulationType {
+impl Default for CfgRoutines {
     fn default() -> Self {
         Self::Viewer
     }

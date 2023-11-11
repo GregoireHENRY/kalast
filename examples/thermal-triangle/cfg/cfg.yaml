@@ -9,6 +9,7 @@ sun:
   position: [0.0, 0.0, 1.0]
 
 simu:
+  routines: thermal
   step: 600
   duration: 8136000
   export:
