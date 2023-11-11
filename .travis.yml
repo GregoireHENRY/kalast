@@ -1,0 +1,80 @@
+dist: trusty
+language: rust
+services: docker
+sudo: required
+env:
+  global:
+  - CRATE_NAME=kalast
+  matrix:
+    secure: GC4Y8bS/Aav6XzLW/A0kkSu2NquBCCiyNVdFV9VJbtOt5YkCHeLaCGbuNOf/fFXEUkxr4pOsqF4RAn8+Viasrchvpdd9ytLIsSuLZNQHC0q3EXuEN3l6OpXiYxLG55/t42mN/BYdBhPodvGzjY85Dt8YWcqRNMKrW/EqaRQHBntSULaEstV8yAb6AjwjSAEknbcmikpKDmjMIyhNT65IhwsqtEVEdxzZpZVXLD8efB9YQVUQyEgSSKcMlHRK4SqMNORjpmWN7UtjIcsd4KkBbKSMXSuutTnkKGKaCGUpp4RMPBTNQdNUIk0zqnhJFx4/Hw/gE5KsWvv83UOboS+aF/qd3jM1o8GUSB7x/EJ0Q2cubzgDtV/TKwNlOJ//Oauv2HtKc/AyDar0jGOydZhgp9c0hTzBmLMfe/YMULcAyRyAcs+hFvWDgQfOmpb0KWjPuwBxdD3OP0CB9Lll7fZ/5k4TYrjAuecy7Mtr50bgNpFZD7g40LXICzW7leo5Q27K0xxjfZOVkANDgx00kZHiVru3s0dwE7joAYBmi0v6Uo0bCDYaK31OMOY+DWrdc4nG4d6MKT8Ba8ddJdMeGR0d4Shjh+OAltBuIo5prqKCvPcDGY/QDgobiFAVWTNVWjeli0ikNrVwS4DFHOI7b5GSycqL+8QI2/6Fzx2o1iXxJE8=
+matrix:
+  include:
+  - env: TARGET=aarch64-apple-ios DISABLE_TESTS=1
+    os: osx
+  - env: TARGET=armv7-apple-ios DISABLE_TESTS=1
+    os: osx
+  - env: TARGET=armv7s-apple-ios DISABLE_TESTS=1
+    os: osx
+  - env: TARGET=i386-apple-ios DISABLE_TESTS=1
+    os: osx
+  - env: TARGET=x86_64-apple-ios DISABLE_TESTS=1
+    os: osx
+  - env: TARGET=aarch64-unknown-linux-gnu
+  - env: TARGET=arm-unknown-linux-gnueabi
+  - env: TARGET=armv7-unknown-linux-gnueabihf
+  - env: TARGET=i686-unknown-linux-gnu
+  - env: TARGET=i686-unknown-linux-musl
+  - env: TARGET=mips-unknown-linux-gnu
+  - env: TARGET=mips64-unknown-linux-gnuabi64
+  - env: TARGET=mips64el-unknown-linux-gnuabi64
+  - env: TARGET=mipsel-unknown-linux-gnu
+  - env: TARGET=powerpc-unknown-linux-gnu
+  - env: TARGET=powerpc64-unknown-linux-gnu
+  - env: TARGET=powerpc64le-unknown-linux-gnu
+  - env: TARGET=s390x-unknown-linux-gnu DISABLE_TESTS=1
+  - env: TARGET=x86_64-unknown-linux-gnu
+  - env: TARGET=x86_64-unknown-linux-musl
+  - env: TARGET=i686-apple-darwin
+    os: osx
+  - env: TARGET=x86_64-apple-darwin
+    os: osx
+  - env: TARGET=i686-unknown-freebsd DISABLE_TESTS=1
+  - env: TARGET=x86_64-unknown-freebsd DISABLE_TESTS=1
+  - env: TARGET=x86_64-unknown-netbsd DISABLE_TESTS=1
+  - env: TARGET=x86_64-pc-windows-gnu
+  - env: TARGET=x86_64-unknown-linux-gnu
+    rust: nightly
+  - env: TARGET=x86_64-apple-darwin
+    os: osx
+    rust: nightly
+before_install:
+- set -e
+- rustup self update
+install:
+- sh ci/install.sh
+- source ~/.cargo/env || true
+script:
+- bash ci/script.sh
+after_script: set +e
+before_deploy:
+- sh ci/before_deploy.sh
+deploy:
+  api_key:
+    secure: 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
+  file_glob: true
+  file: "$CRATE_NAME-$TRAVIS_TAG-$TARGET.*"
+  on:
+    condition: "$TRAVIS_RUST_VERSION = stable"
+    tags: true
+  provider: releases
+  skip_cleanup: true
+cache: cargo
+before_cache:
+- chmod -R a+r $HOME/.cargo
+branches:
+  only:
+  - "/^v\\d+\\.\\d+\\.\\d+.*$/"
+  - master
+notifications:
+  email:
+    on_success: never
