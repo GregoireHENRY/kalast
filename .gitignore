@@ -15,6 +15,7 @@ python/kalast/__pycache__/__init__.cpython-311.pyc
 
 # Project
 assets/perso/
+bin/
 runs/
 kalast.log
 kalast.err
