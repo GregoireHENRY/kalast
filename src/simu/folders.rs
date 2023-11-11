@@ -67,6 +67,12 @@ impl FoldersRun {
     pub fn save_src<P: AsRef<Path>>(&mut self, path: P) {
         let path = path.as_ref();
 
+        let path_mainrs = path.join("main.rs");
+
+        if !path_mainrs.exists() {
+            return;
+        }
+
         fs::create_dir_all(&self.path).unwrap();
         fs::copy(path.join("main.rs"), self.path.join("main.rs")).unwrap();
     }
