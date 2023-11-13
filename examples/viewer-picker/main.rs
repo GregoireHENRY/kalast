@@ -62,14 +62,23 @@ impl Routines for RoutinesViewerCustom {
     }
     fn fn_update_matrix_model(
         &self,
-        body: &mut Body,
+        ii_body: usize,
+        ii_other_bodies: &[usize],
         cb: &CfgBody,
         other_cbs: &[&CfgBody],
+        bodies: &mut [Body],
         time: &Time,
-        mat_orient_ref: &Mat4,
+        scene: &mut Scene,
     ) {
-        self.default
-            .fn_update_matrix_model(body, cb, other_cbs, time, mat_orient_ref)
+        self.default.fn_update_matrix_model(
+            ii_body,
+            ii_other_bodies,
+            cb,
+            other_cbs,
+            bodies,
+            time,
+            scene,
+        )
     }
 
     fn fn_iteration_body(

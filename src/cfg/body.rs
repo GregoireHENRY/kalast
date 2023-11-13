@@ -35,7 +35,7 @@ pub struct CfgBody {
     pub mass: Option<Float>,
 
     #[serde(default)]
-    pub temperature_init: CfgTemperatureInit,
+    pub temperature: CfgTemperatureInit,
 
     #[serde(default)]
     pub record: CfgRecord,

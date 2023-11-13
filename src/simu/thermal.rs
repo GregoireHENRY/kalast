@@ -78,7 +78,7 @@ impl ThermalData {
                 .collect_vec(),
         );
 
-        let tmp = match &cb.temperature_init {
+        let tmp = match &cb.temperature {
             CfgTemperatureInit::Effective(ratio) => {
                 let mat = asteroid.surface.faces[0].vertex.material;
                 let init = bound::effective_temperature(

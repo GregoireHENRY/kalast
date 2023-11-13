@@ -13,6 +13,9 @@ pub struct CfgWindow {
 
     #[serde(default)]
     pub fullscreen: bool,
+    
+    #[serde(default)]
+    pub background: Vec3,
 
     #[serde(default)]
     pub high_dpi: bool,
@@ -56,6 +59,7 @@ impl Default for CfgWindow {
             width: default_width(),
             height: default_height(),
             fullscreen: false,
+            background: Vec3::zeros(),
             high_dpi: false,
             shadow_dpi: default_dpi(),
             shadows: false,

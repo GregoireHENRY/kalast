@@ -11,13 +11,23 @@ pub trait Routines: DowncastSync {
 
     fn fn_update_matrix_model(
         &self,
-        body: &mut Body,
+        ii_body: usize,
+        ii_other_bodies: &[usize],
         cb: &CfgBody,
         other_cbs: &[&CfgBody],
+        bodies: &mut [Body],
         time: &Time,
-        mat_orient_ref: &Mat4,
+        scene: &mut Scene,
     ) {
-        fn_update_matrix_model_default(body, cb, other_cbs, time, mat_orient_ref);
+        fn_update_matrix_model_default(
+            ii_body,
+            ii_other_bodies,
+            cb,
+            other_cbs,
+            bodies,
+            time,
+            scene,
+        );
     }
 
     fn fn_iteration_body(
@@ -75,14 +85,20 @@ pub fn fn_setup_body_default(asteroid: Asteroid, cb: &CfgBody) -> Body {
 }
 
 pub fn fn_update_matrix_model_default(
-    body: &mut Body,
+    ii_body: usize,
+    ii_other_bodies: &[usize],
     cb: &CfgBody,
     other_cbs: &[&CfgBody],
+    bodies: &mut [Body],
     time: &Time,
-    mat_orient_ref: &Mat4,
+    scene: &mut Scene,
 ) {
     let elapsed = time.elapsed_seconds();
     let elapsed_from_start = time.elapsed_seconds_from_start();
+
+    let other_bodies = ii_other_bodies.iter().map(|&ii| &bodies[ii]).collect_vec();
+
+    let mat_orient_ref = simu::find_reference_matrix_orientation(cb, &other_bodies);
 
     let mat_spin = {
         if cb.spin.period == 0.0 {
@@ -109,10 +125,15 @@ pub fn fn_update_matrix_model_default(
                 orb.tp,
                 mu_ref,
             );
-            Mat4::new_translation(&(pos * 1e-3))
+            if mu_ref == MU_SUN {
+                scene.sun_pos = -pos;
+                Mat4::identity()
+            } else {
+                Mat4::new_translation(&(pos * 1e-3))
+            }
         }
     };
 
-    body.asteroid.matrix_model =
-        mat_orient_ref * mat_translation * body.mat_orient * mat_spin;
+    bodies[ii_body].asteroid.matrix_model =
+        mat_orient_ref * mat_translation * bodies[ii_body].mat_orient * mat_spin;
 }

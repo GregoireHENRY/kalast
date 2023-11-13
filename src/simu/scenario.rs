@@ -42,6 +42,7 @@ impl Scenario {
         let win = Window::with_settings(|s| {
             s.width = cfg.win.width;
             s.height = cfg.win.height;
+            s.background_color = cfg.win.background;
             if cfg.win.high_dpi {
                 s.high_dpi();
             }
@@ -193,19 +194,14 @@ impl Scenario {
                 let (&ii_body, ii_other_bodies) = indices_bodies.split_first().unwrap();
                 let (cb, other_cbs) = cbs_permut.split_first().unwrap();
 
-                let other_bodies = ii_other_bodies
-                    .iter()
-                    .map(|&ii| &self.bodies[ii])
-                    .collect_vec();
-
-                let mat_orient_ref = simu::find_reference_matrix_orientation(cb, &other_bodies);
-
                 self.routines.fn_update_matrix_model(
-                    &mut self.bodies[ii_body],
+                    ii_body,
+                    &ii_other_bodies,
                     cb,
                     &other_cbs,
+                    &mut self.bodies,
                     &self.time,
-                    &mat_orient_ref,
+                    &mut self.scene,
                 );
 
                 self.routines.fn_iteration_body(
