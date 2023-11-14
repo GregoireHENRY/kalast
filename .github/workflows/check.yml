@@ -2,7 +2,7 @@ name: Check code can compile
 
 on:
   push:
-    branch:        
+    branches:        
       - '**' 
 
 jobs:
