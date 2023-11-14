@@ -16,9 +16,9 @@ jobs:
       run: sudo apt install -y libsdl2-dev
 
     - name: Install kalast on cache
-      uses: taiki-e/cache-cargo-install-action@v1
+      uses: baptiste0928/cargo-install@v2
       with:
-        tool: kalast
+        crate: kalast
 
     - name: Check that code can compile
       run: cargo check
