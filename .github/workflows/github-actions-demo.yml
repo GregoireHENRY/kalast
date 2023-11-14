@@ -13,3 +13,8 @@ jobs:
         profile: minimal
         toolchain: stable
         components: rustfmt, clippy
+    - name: Release build
+      uses: actions-rs/cargo@v1
+      with:
+        command: build
+        args: --release
