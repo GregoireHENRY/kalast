@@ -110,6 +110,7 @@ jobs:
     - name: Make bundle
       run: |
         mkdir -p bin/win
+        cp -r examples bin/win
         cp -r target/release/kalast.exe bin/win
         mv SDL2.dll bin/win
         mv SDL2.lib bin/win
