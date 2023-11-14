@@ -1,6 +1,6 @@
 [package]
 name = "kalast"
-version = "0.3.6"
+version = "0.3.7"
 authors = ["Grégoire Henry <gregoire.henry@oma.be>"]
 edition = "2021"
 description = "Thermophysical Model for Binary Asteroids"
