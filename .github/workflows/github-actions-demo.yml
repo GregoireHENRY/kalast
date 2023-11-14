@@ -15,8 +15,7 @@ jobs:
     - name: Install SDL2
       run: sudo apt install -y libsdl2-dev
 
-    - name: Install kalast on cache
-      uses: baptiste0928/cargo-install@v2
+    - uses: dtolnay/install@master
       with:
         crate: kalast
 
