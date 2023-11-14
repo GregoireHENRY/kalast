@@ -35,7 +35,7 @@ jobs:
         cp -r examples bin/ubuntu
         cp -r target/release/kalast bin/ubuntu
         cd bin/ubuntu
-        cp -r example/thermal/cfg .
+        cp -r examples/thermal/cfg .
         tar cvzf kalast-${{ github.ref_name }}-tar.gz *
 
     - name: Release
