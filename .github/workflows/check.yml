@@ -1,0 +1,27 @@
+name: Build release
+
+on: [push]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Cache Rust dependencies
+      uses: actions/cache@v3
+      with:
+        path: target
+        key: ${{ runner.OS }}-build-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.OS }}-build-
+
+    - name: Install stable toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install SDL2
+      run: sudo apt install -y libsdl2-dev
+
+    - name: Check that code can compile
+      run: cargo check
