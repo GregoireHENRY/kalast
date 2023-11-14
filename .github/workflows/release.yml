@@ -41,5 +41,5 @@ jobs:
     - name: Release
       uses: softprops/action-gh-release@v1
       with:
-        files: kalast-${{ github.ref_name }}-tar.gz 
+        files: bin/ubuntu/kalast-${{ github.ref_name }}-tar.gz 
         prerelease: true
