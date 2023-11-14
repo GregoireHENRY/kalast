@@ -112,6 +112,11 @@ jobs:
       run: |
         mkdir -p bin/win
         cp -r target/release/kalast bin/win
+        mv SDL2.dll bin/win
+        mv SDL2.lib bin/win
+        cp include/kalast.ico bin/win
+        cp include/preferences.yaml bin/win
+        cp README.md bin/win
         cd bin/win
         cp -r examples/thermal/cfg .
         Compress-Archive * kalast-${{ github.ref_name }}-win.zip
