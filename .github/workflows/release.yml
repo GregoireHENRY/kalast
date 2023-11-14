@@ -104,14 +104,13 @@ jobs:
         cp include/win/SDL2.dll .
         cp include/win/SDL2.lib .
 
-
     - name: Build
       run: cargo build -r
 
     - name: Make bundle
       run: |
         mkdir -p bin/win
-        cp -r target/release/kalast bin/win
+        cp -r target/release/kalast.exe bin/win
         mv SDL2.dll bin/win
         mv SDL2.lib bin/win
         cp include/kalast.ico bin/win
