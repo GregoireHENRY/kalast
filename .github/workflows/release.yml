@@ -106,7 +106,7 @@ jobs:
 
 
     - name: Build
-      run: cargo build -r && strip target/release/kalast
+      run: cargo build -r
 
     - name: Make bundle
       run: |
