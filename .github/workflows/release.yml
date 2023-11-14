@@ -6,7 +6,7 @@ on:
       - '**' 
 
 jobs:
-  check:
+  release:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
@@ -27,7 +27,7 @@ jobs:
       run: sudo apt install -y libsdl2-dev
 
     - name: Build
-      run: cargo build && strip target/release/kalast
+      run: cargo build -r && strip target/release/kalast
 
     - name: Make bundle
       run: |
