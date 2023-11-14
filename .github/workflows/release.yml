@@ -100,7 +100,10 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
 
     - name: Use SDL2 from repo/include/win
-      run: cp include/win/SDL2.dll .
+      run: |
+        cp include/win/SDL2.dll .
+        cp include/win/SDL2.lib .
+
 
     - name: Build
       run: cargo build -r && strip target/release/kalast

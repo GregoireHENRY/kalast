@@ -70,7 +70,9 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
 
     - name: Use SDL2 from repo/include/win
-      run: cp include/win/SDL2.dll .
+      run: |
+        cp include/win/SDL2.dll .
+        cp include/win/SDL2.lib .
 
     - name: Check that code can compile
       run: cargo check
