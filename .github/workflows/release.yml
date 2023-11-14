@@ -36,7 +36,7 @@ jobs:
         cp -r target/release/kalast bin/ubuntu
         cd bin/ubuntu
         cp -r examples/thermal/cfg .
-        tar cvzf kalast-${{ github.ref_name }}.tar.gz *
+        tar cvzf kalast-${{ github.ref_name }}-ubuntu.tar.gz *
 
     - name: Release
       uses: softprops/action-gh-release@v1
