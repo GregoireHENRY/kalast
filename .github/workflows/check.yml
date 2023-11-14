@@ -6,7 +6,7 @@ on:
       - '**' 
 
 jobs:
-  check:
+  check-ubuntu:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
@@ -25,6 +25,21 @@ jobs:
 
     - name: Install SDL2
       run: sudo apt install -y libsdl2-dev
+
+    - name: Check that code can compile
+      run: cargo check
+
+  check-macos:
+    runs-on: macos-14
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install stable toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install SDL2
+      run: brew install SDL2
 
     - name: Check that code can compile
       run: cargo check
