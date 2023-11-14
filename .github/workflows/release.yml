@@ -1,9 +1,9 @@
-name: Build release
+name: Build and upload release
 
 on:
   push:
     tags:        
-      - '*' 
+      - '**' 
 
 jobs:
   check:
@@ -27,10 +27,17 @@ jobs:
       run: sudo apt install -y libsdl2-dev
 
     - name: Build
-      run: cargo build -r && strip target/release/kalast
+      run: cargo build && strip target/debug/kalast
+
+    - name: Make bundle
+      run: |
+        mkdir -p bin/ubuntu
+        cp -r examples bin/ubuntu
+        cp -r target/debug/kalast bin/ubuntu
+        tar czf kalast-${{ github.ref_name }}-tar.gz bin/ubuntu
 
     - name: Release
       uses: softprops/action-gh-release@v1
       with:
-        files: target/release/kalast
+        files: kalast-${{ github.ref_name }}-tar.gz 
         prerelease: true

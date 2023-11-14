@@ -1,6 +1,9 @@
-name: Build release
+name: Check code can compile
 
-on: [push]
+on:
+  push:
+    branch:        
+      - '**' 
 
 jobs:
   check:
