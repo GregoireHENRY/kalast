@@ -12,6 +12,9 @@ jobs:
     - name: Install stable toolchain
       uses: dtolnay/rust-toolchain@stable
 
+    - name: Install SDL2
+      run: sudo apt install -y libsdl2-dev
+
     - name: Check that code can compile
       run: cargo check
 
