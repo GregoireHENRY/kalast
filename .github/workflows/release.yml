@@ -6,7 +6,7 @@ on:
       - '**' 
 
 jobs:
-  release:
+  release-ubuntu:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
@@ -36,10 +36,85 @@ jobs:
         cp -r target/release/kalast bin/ubuntu
         cd bin/ubuntu
         cp -r examples/thermal/cfg .
-        tar cvzf kalast-${{ github.ref_name }}-tar.gz *
+        tar cvzf kalast-${{ github.ref_name }}.tar.gz *
 
     - name: Release
       uses: softprops/action-gh-release@v1
       with:
-        files: bin/ubuntu/kalast-${{ github.ref_name }}-tar.gz 
+        files: bin/ubuntu/kalast-${{ github.ref_name }}-ubuntu.tar.gz 
+        prerelease: true
+          
+  release-macos:
+    runs-on: macos-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Cache Rust dependencies
+      uses: actions/cache@v3
+      with:
+        path: target
+        key: ${{ runner.OS }}-build-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.OS }}-build-
+
+    - name: Install stable toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install SDL2
+      run: brew install SDL2
+
+    - name: Build
+      run: cargo build -r && strip target/release/kalast
+
+    - name: Make bundle
+      run: |
+        mkdir -p bin/macos
+        cp -r examples bin/macos
+        cp -r target/release/kalast bin/macos
+        cd bin/macos
+        cp -r examples/thermal/cfg .
+        tar cvzf kalast-${{ github.ref_name }}-macos.tar.gz *
+
+    - name: Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: bin/macos/kalast-${{ github.ref_name }}-macos.tar.gz 
+        prerelease: true
+
+  release-windows:
+    runs-on: windows-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Cache Rust dependencies
+      uses: actions/cache@v3
+      with:
+        path: target
+        key: ${{ runner.OS }}-build-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.OS }}-build-
+
+    - name: Install stable toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Use SDL2 from repo/include/win
+      run: cp include/win/SDL2.dll .
+
+    - name: Build
+      run: cargo build -r && strip target/release/kalast
+
+    - name: Make bundle
+      run: |
+        mkdir -p bin/win
+        cp -r target/release/kalast bin/win
+        cd bin/win
+        cp -r examples/thermal/cfg .
+        Compress-Archive * kalast-${{ github.ref_name }}-win.zip
+
+    - name: Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: bin/win/kalast-${{ github.ref_name }}-win.zip
         prerelease: true
