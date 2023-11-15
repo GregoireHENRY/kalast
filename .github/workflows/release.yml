@@ -32,7 +32,6 @@ jobs:
     - name: Build examples
       run: cargo build -r --example viewer-picker && strip target/release/examples/viewer-picker
 
-
     - name: Make bundle
       run: |
         mkdir -p bin/ubuntu
@@ -42,11 +41,12 @@ jobs:
         cd bin/ubuntu
         cp -r examples/thermal/cfg .
         tar cvzf kalast-${{ github.ref_name }}-ubuntu.tar.gz *
+        mv kalast-${{ github.ref_name }}-ubuntu.tar.gz ..
 
     - name: Release
       uses: softprops/action-gh-release@v1
       with:
-        files: bin/ubuntu/kalast-${{ github.ref_name }}-ubuntu.tar.gz 
+        files: bin/kalast-${{ github.ref_name }}-ubuntu.tar.gz 
         prerelease: true
           
   release-macos:
@@ -84,11 +84,12 @@ jobs:
         cd bin/macos
         cp -r examples/thermal/cfg .
         tar cvzf kalast-${{ github.ref_name }}-macos.tar.gz *
+        mv kalast-${{ github.ref_name }}-macos.tar.gz ..
 
     - name: Release
       uses: softprops/action-gh-release@v1
       with:
-        files: bin/macos/kalast-${{ github.ref_name }}-macos.tar.gz 
+        files: bin/kalast-${{ github.ref_name }}-macos.tar.gz
         prerelease: true
 
   release-windows:
@@ -119,7 +120,6 @@ jobs:
     - name: Build examples
       run: cargo build -r --example viewer-picker
 
-
     - name: Make bundle
       run: |
         mkdir -p bin/win
@@ -134,9 +134,15 @@ jobs:
         cd bin/win
         cp -r examples/thermal/cfg .
         Compress-Archive * kalast-${{ github.ref_name }}-win.zip
+        mv kalast-${{ github.ref_name }}-win.zip ..
+        
+    - name: Try compile Inno
+      run: cd bin && iscc ./installer.iss
 
     - name: Release
       uses: softprops/action-gh-release@v1
       with:
-        files: bin/win/kalast-${{ github.ref_name }}-win.zip
+        files: |
+          bin/kalast-${{ github.ref_name }}-win.zip
+          bin/setup-kalast-${{ github.ref_name }}.exe
         prerelease: true

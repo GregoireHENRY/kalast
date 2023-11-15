@@ -58,12 +58,6 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Test Inno
-      run: iscc /?
-
-    - name: Test Inno 2
-      run: ISCC.exe /?
-
     - name: Cache Rust dependencies
       uses: actions/cache@v3
       with:
