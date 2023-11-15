@@ -6,7 +6,7 @@ pub fn heat_conduction_1d(
     depth_steps: &[Float],
     diffusivities: &[Float],
 ) -> Vec<Float> {
-    let it_prev = slice.clone().iter();
+    let it_prev = slice.iter();
     let it_cur = it_prev.clone().skip(1);
     let it_next = it_prev.clone().skip(2);
 
