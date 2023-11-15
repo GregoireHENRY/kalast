@@ -136,13 +136,11 @@ jobs:
         Compress-Archive * kalast-${{ github.ref_name }}-win.zip
         mv kalast-${{ github.ref_name }}-win.zip ..
         
-    - name: Try compile Inno
+    - name: Compile installer with Inno
       run: cd bin && iscc ./installer.iss
 
     - name: Release
       uses: softprops/action-gh-release@v1
       with:
-        files: |
-          bin/kalast-${{ github.ref_name }}-win.zip
-          bin/setup-kalast-${{ github.ref_name }}.exe
+        files: bin/setup-kalast-${{ github.ref_name }}.exe
         prerelease: true

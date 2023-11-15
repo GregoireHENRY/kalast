@@ -1,5 +1,5 @@
 #define NAME "kalast"
-#define VERSION "0.3.8"
+#define VERSION "0.3.7"
 #define ROOT ".."
 #define URL "https://github.com/GregoireHENRY/kalast"
 #define PUBLISHER "NT Productions"
