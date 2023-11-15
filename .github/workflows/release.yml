@@ -125,7 +125,7 @@ jobs:
         mkdir -p bin/win
         cp -r examples bin/win
         cp target/release/kalast.exe bin/win
-        cp target/release/examples/viewer-picker.exe bin/ubuntu/examples/viewer-picker
+        cp target/release/examples/viewer-picker.exe bin/win/examples/viewer-picker
         mv SDL2.dll bin/win
         mv SDL2.lib bin/win
         cp include/kalast.ico bin/win
