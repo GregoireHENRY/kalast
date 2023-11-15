@@ -26,14 +26,19 @@ jobs:
     - name: Install SDL2
       run: sudo apt install -y libsdl2-dev
 
-    - name: Build
+    - name: Build kalast
       run: cargo build -r && strip target/release/kalast
+
+    - name: Build examples
+      run: cargo build -r --example viewer-picker && strip target/release/examples/viewer-picker
+
 
     - name: Make bundle
       run: |
         mkdir -p bin/ubuntu
         cp -r examples bin/ubuntu
-        cp -r target/release/kalast bin/ubuntu
+        cp target/release/kalast bin/ubuntu
+        cp target/release/examples/viewer-picker bin/ubuntu/examples/viewer-picker
         cd bin/ubuntu
         cp -r examples/thermal/cfg .
         tar cvzf kalast-${{ github.ref_name }}-ubuntu.tar.gz *
@@ -64,14 +69,18 @@ jobs:
     - name: Install SDL2
       run: brew install SDL2
 
-    - name: Build
+    - name: Build kalast
       run: cargo build -r && strip target/release/kalast
+
+    - name: Build examples
+      run: cargo build -r --example viewer-picker && strip target/release/examples/viewer-picker
 
     - name: Make bundle
       run: |
         mkdir -p bin/macos
         cp -r examples bin/macos
-        cp -r target/release/kalast bin/macos
+        cp target/release/kalast bin/macos
+        cp target/release/examples/viewer-picker bin/macos/examples/viewer-picker
         cd bin/macos
         cp -r examples/thermal/cfg .
         tar cvzf kalast-${{ github.ref_name }}-macos.tar.gz *
@@ -104,14 +113,19 @@ jobs:
         cp include/win/SDL2.dll .
         cp include/win/SDL2.lib .
 
-    - name: Build
+    - name: Build kalast
       run: cargo build -r
+
+    - name: Build examples
+      run: cargo build -r --example viewer-picker
+
 
     - name: Make bundle
       run: |
         mkdir -p bin/win
         cp -r examples bin/win
-        cp -r target/release/kalast.exe bin/win
+        cp target/release/kalast.exe bin/win
+        cp target/release/examples/viewer-picker.exe bin/ubuntu/examples/viewer-picker
         mv SDL2.dll bin/win
         mv SDL2.lib bin/win
         cp include/kalast.ico bin/win
