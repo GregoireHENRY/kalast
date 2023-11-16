@@ -43,4 +43,4 @@ Any contribution is welcome.
 [docsrs]: https://docs.rs/kalast
 [docsrs-prelude]: https://docs.rs/kalast/latest/kalast/prelude
 [apache2]: https://www.apache.org/licenses/LICENSE-2.0
-[kalast-image]: ./assets/kalast.png
+[kalast-image]: ./assets/kalast-small.png
