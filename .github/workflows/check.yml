@@ -29,15 +29,6 @@ jobs:
     - name: Check that code can compile
       run: cargo check
 
-    - name: Test echo env before
-      run: echo $PLATFORM
-    
-    - name: Test set env
-      run: ./compile/ubuntu/set_env.sh
-    
-    - name: Test echo env
-      run: echo $PLATFORM
-
   check-macos:
     runs-on: macos-latest
     steps:
