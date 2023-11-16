@@ -89,7 +89,7 @@ jobs:
       run: |
         cp compile/win/installer.iss bundle
         cd bundle
-        iscc ./installer.iss /version=${{ github.ref_name }}
+        iscc ./installer.iss /DVERSION=${{ github.ref_name }}
 
     - name: Release
       uses: softprops/action-gh-release@v1

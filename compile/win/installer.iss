@@ -6,7 +6,7 @@
 Uninstallable=no
 AppId=2F8C40BA-A831-42C0-AECA-C6265F3ABABC
 AppName={#NAME}
-AppVersion={param:version|1.0}
+AppVersion={#VERSION}
 AppPublisher={#PUBLISHER}
 AppPublisherURL={#URL}
 AppSupportURL={#URL}
@@ -16,7 +16,7 @@ DefaultDirName=C:\Program Files\{#NAME}
 DefaultGroupName={#NAME}
 DisableWelcomePage=no
 OutputDir=.
-OutputBaseFilename=setup-{#NAME}-{#SetupSetting("AppVersion")}
+OutputBaseFilename=setup-{#NAME}-{#VERSION}
 Compression=lzma
 SolidCompression=yes
 WizardImageFile=.\vbanner-intro.bmp
