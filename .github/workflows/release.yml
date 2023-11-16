@@ -48,49 +48,6 @@ jobs:
       with:
         files: bin/kalast-${{ github.ref_name }}-ubuntu.tar.gz 
         prerelease: true
-          
-  release-macos:
-    runs-on: macos-latest
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-
-    - name: Cache Rust dependencies
-      uses: actions/cache@v3
-      with:
-        path: target
-        key: ${{ runner.OS }}-build-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.OS }}-build-
-
-    - name: Install stable toolchain
-      uses: dtolnay/rust-toolchain@stable
-
-    - name: Install SDL2
-      run: brew install SDL2
-
-    - name: Build kalast
-      run: cargo build -r && strip target/release/kalast
-
-    - name: Build examples
-      run: cargo build -r --example viewer-picker && strip target/release/examples/viewer-picker
-
-    - name: Make bundle
-      run: |
-        mkdir -p bin/macos
-        cp -r examples bin/macos
-        cp target/release/kalast bin/macos
-        cp target/release/examples/viewer-picker bin/macos/examples/viewer-picker
-        cd bin/macos
-        cp -r examples/thermal/cfg .
-        tar cvzf kalast-${{ github.ref_name }}-macos.tar.gz *
-        mv kalast-${{ github.ref_name }}-macos.tar.gz ..
-
-    - name: Release
-      uses: softprops/action-gh-release@v1
-      with:
-        files: bin/kalast-${{ github.ref_name }}-macos.tar.gz
-        prerelease: true
 
   release-windows:
     runs-on: windows-latest
@@ -143,4 +100,76 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         files: bin/setup-kalast-${{ github.ref_name }}.exe
+        prerelease: true
+          
+  release-macos:
+    runs-on: macos-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Cache Rust dependencies
+      uses: actions/cache@v3
+      with:
+        path: target
+        key: ${{ runner.OS }}-build-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.OS }}-build-
+
+    - name: Install stable toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install SDL2
+      run: brew install SDL2
+
+    - name: Build kalast
+      run: cargo build -r && strip target/release/kalast
+
+    - name: Build examples
+      run: cargo build -r --example viewer-picker && strip target/release/examples/viewer-picker
+
+    - name: Make bundle
+      run: |
+        mkdir -p bin/macos-x86_64
+        cp -r examples bin/macos-x86_64
+        cp target/release/kalast bin/macos-x86_64
+        cp target/release/examples/viewer-picker bin/macos-x86_64/examples/viewer-picker
+        cd bin/macos-x86_64
+        cp -r examples/thermal/cfg .
+        tar cvzf kalast-${{ github.ref_name }}-macos-x86_64.tar.gz *
+        mv kalast-${{ github.ref_name }}-macos-x86_64.tar.gz ..
+
+    - name: Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: bin/kalast-${{ github.ref_name }}-macos-x86_64.tar.gz
+        prerelease: true
+
+  release-self-hosted:
+    runs-on: self-hosted
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Build kalast
+      run: cargo build -r && strip target/release/kalast
+
+    - name: Build examples
+      run: cargo build -r --example viewer-picker && strip target/release/examples/viewer-picker
+
+    - name: Make bundle
+      run: |
+        mkdir -p bin/macos-arm64
+        cp -r examples bin/macos-arm64
+        cp target/release/kalast bin/macos-arm64
+        cp target/release/examples/viewer-picker bin/macos-arm64/examples/viewer-picker
+        cd bin/macos-arm64
+        cp -r examples/thermal/cfg .
+        tar cvzf kalast-${{ github.ref_name }}-macos-arm64.tar.gz *
+        mv kalast-${{ github.ref_name }}-macos-arm64.tar.gz ..
+
+    - name: Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: bin/kalast-${{ github.ref_name }}-macos-arm64.tar.gz
         prerelease: true
