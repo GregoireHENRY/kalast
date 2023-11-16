@@ -1,5 +1,4 @@
 #define NAME "kalast"
-#define VERSION "0.3.8-beta-3"
 #define URL "https://github.com/GregoireHENRY/kalast"
 #define PUBLISHER "NT Productions"
 
@@ -7,7 +6,7 @@
 Uninstallable=no
 AppId=2F8C40BA-A831-42C0-AECA-C6265F3ABABC
 AppName={#NAME}
-AppVersion={#VERSION}
+AppVersion={param:version|1.0}
 AppPublisher={#PUBLISHER}
 AppPublisherURL={#URL}
 AppSupportURL={#URL}
