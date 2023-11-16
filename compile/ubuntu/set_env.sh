@@ -1,4 +1,4 @@
 #!/bin/bash
 
 echo "Setting environment variables."
-export PLATFORM=ubuntu
+echo "PLATFORM=macos-ubuntu" >> "$GITHUB_ENV"
