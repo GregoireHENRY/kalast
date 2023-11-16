@@ -20,7 +20,7 @@ cp target/release/kalast bundle
 cp target/release/examples/viewer-picker bundle/examples/viewer-picker
 cp include/kalast.ico bundle
 cp include/preferences.yaml bundle
-cp README.md bundle/content
+cp README.md bundle
 
 echo "Move inside bundle."
 cd bundle
@@ -28,5 +28,11 @@ cd bundle
 echo "Select default cfg."
 cp -r examples/thermal/cfg .
 
+echo "Move out of bundle."
+cd ..
+
+echo "Rename bundle."
+mv bundle kalast-$GITHUB_REF_NAME-$PLATFORM
+
 echo "Compress bundle."
-tar cvzf kalast-$GITHUB_REF_NAME-$PLATFORM.tar.gz *
+tar cvzf kalast-$GITHUB_REF_NAME-$PLATFORM.tar.gz kalast-$GITHUB_REF_NAME-$PLATFORM
