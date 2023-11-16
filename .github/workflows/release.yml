@@ -71,27 +71,30 @@ jobs:
 
     - name: Make bundle
       run: |
-        mkdir -p bin/win
-        cp -r examples bin/win
-        cp target/release/kalast.exe bin/win
-        cp target/release/examples/viewer-picker.exe bin/win/examples/viewer-picker
-        mv SDL2.dll bin/win
-        mv SDL2.lib bin/win
-        cp include/kalast.ico bin/win
-        cp include/preferences.yaml bin/win
-        cp README.md bin/win
-        cd bin/win
+        mkdir -p bundle/content
+        cp -r examples bundle/content
+        cp target/release/kalast.exe bundle/content
+        cp target/release/examples/viewer-picker.exe bundle/content/examples/viewer-picker
+        cp include/win/SDL2.dll bundle/content
+        cp include/win/SDL2.lib bundle/content
+        cp include/kalast.ico bundle/content
+        cp include/preferences.yaml bundle/content
+        cp README.md bundle/content
+        cp assets/kalast-vbanner.bmp bundle/vbanner-intro.bmp
+
+        cd bundle/content
         cp -r examples/thermal/cfg .
-        Compress-Archive * kalast-${{ github.ref_name }}-win.zip
-        mv kalast-${{ github.ref_name }}-win.zip ..
-        
+      
     - name: Compile installer with Inno
-      run: cd bin && iscc ./installer.iss
+      run: |
+        cp compile/win/installer.iss bundle
+        cd bundle
+        iscc ./installer.iss
 
     - name: Release
       uses: softprops/action-gh-release@v1
       with:
-        files: bin/setup-kalast-${{ github.ref_name }}.exe
+        files: bundle/setup-kalast-${{ github.ref_name }}.exe
         prerelease: true
           
   release-macos:
@@ -114,27 +117,19 @@ jobs:
     - name: Install SDL2
       run: brew install SDL2
 
-    - name: Build kalast
-      run: cargo build -r && strip target/release/kalast
+    - name: Set environment variables
+      run: ./compile/macos-x86_64/set_env.sh
 
-    - name: Build examples
-      run: cargo build -r --example viewer-picker && strip target/release/examples/viewer-picker
+    - name: Build kalast
+      run: ./compile/generic/build_kalast.sh
 
     - name: Make bundle
-      run: |
-        mkdir -p bin/macos-x86_64
-        cp -r examples bin/macos-x86_64
-        cp target/release/kalast bin/macos-x86_64
-        cp target/release/examples/viewer-picker bin/macos-x86_64/examples/viewer-picker
-        cd bin/macos-x86_64
-        cp -r examples/thermal/cfg .
-        tar cvzf kalast-${{ github.ref_name }}-macos-x86_64.tar.gz *
-        mv kalast-${{ github.ref_name }}-macos-x86_64.tar.gz ..
+      run: ./compile/generic/make_bundle.sh
 
     - name: Release
       uses: softprops/action-gh-release@v1
       with:
-        files: bin/kalast-${{ github.ref_name }}-macos-x86_64.tar.gz
+        files: bundle/kalast-${{ github.ref_name }}-macos-x86_64.tar.gz
         prerelease: true
 
   release-self-hosted:
@@ -143,25 +138,17 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Build kalast
-      run: cargo build -r && strip target/release/kalast
+    - name: Set environment variables
+      run: ./compile/macos-arm64/set_env.sh
 
-    - name: Build examples
-      run: cargo build -r --example viewer-picker && strip target/release/examples/viewer-picker
+    - name: Build kalast
+      run: ./compile/generic/build_kalast.sh
 
     - name: Make bundle
-      run: |
-        mkdir -p bin/macos-arm64
-        cp -r examples bin/macos-arm64
-        cp target/release/kalast bin/macos-arm64
-        cp target/release/examples/viewer-picker bin/macos-arm64/examples/viewer-picker
-        cd bin/macos-arm64
-        cp -r examples/thermal/cfg .
-        tar cvzf kalast-${{ github.ref_name }}-macos-arm64.tar.gz *
-        mv kalast-${{ github.ref_name }}-macos-arm64.tar.gz ..
+      run: ./compile/generic/make_bundle.sh
 
     - name: Release
       uses: softprops/action-gh-release@v1
       with:
-        files: bin/kalast-${{ github.ref_name }}-macos-arm64.tar.gz
+        files: bundle/kalast-${{ github.ref_name }}-macos-arm64.tar.gz
         prerelease: true

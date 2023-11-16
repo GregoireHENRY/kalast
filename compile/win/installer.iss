@@ -1,11 +1,11 @@
 #define NAME "kalast"
-#define VERSION "0.3.8-beta"
+#define VERSION "0.3.8-beta-3"
 #define URL "https://github.com/GregoireHENRY/kalast"
 #define PUBLISHER "NT Productions"
 
 [Setup]
 Uninstallable=no
-AppId={{2F8C40BA-A831-42C0-AECA-C6265F3ABABC}
+AppId=2F8C40BA-A831-42C0-AECA-C6265F3ABABC
 AppName={#NAME}
 AppVersion={#VERSION}
 AppPublisher={#PUBLISHER}
@@ -20,7 +20,7 @@ OutputDir=.
 OutputBaseFilename=setup-{#NAME}-v{#VERSION}
 Compression=lzma
 SolidCompression=yes
-WizardImageFile=.\assets\kalast-vbanner.bmp
+WizardImageFile=.\vbanner-intro.bmp
 WizardImageStretch=yes
 
 [Icons]
@@ -30,5 +30,4 @@ Name: "{group}\{#NAME}"; Filename: "{app}\{#NAME}.exe"; WorkingDir: "{app}"; Ico
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
-Source: ".\include\*"; DestDir: "{app}"; Flags: ignoreversion
-Source: ".\include\win\*"; DestDir: "{app}"; Flags: ignoreversion
+Source: ".\content\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
