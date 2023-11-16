@@ -83,8 +83,5 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Install stable toolchain
-      uses: dtolnay/rust-toolchain@stable
-
     - name: Check that code can compile
       run: cargo check
