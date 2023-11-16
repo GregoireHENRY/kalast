@@ -18,6 +18,9 @@ echo "Copy examples and executables to bundle."
 cp -r examples bundle
 cp target/release/kalast bundle
 cp target/release/examples/viewer-picker bundle/examples/viewer-picker
+cp include/kalast.ico bundle
+cp include/preferences.yaml bundle
+cp README.md bundle/content
 
 echo "Move inside bundle."
 cd bundle
