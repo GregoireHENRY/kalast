@@ -25,7 +25,7 @@ $$W_{i}=\sum_{\substack{j \\ j\neq i}}^{N}V_{ij}\frac{S_\odot A\cos\varsigma_j\l
 where $V_{ij}$ is the view factor describing the fraction of energy emitted from one facet
 $i$ towards the facet $j$, $S_\odot$ is [Solar Constant][SOLAR_CONSTANT], $A$ the albedo,
 $\varsigma_j$ the illumination angle of the facet $j$, and $r_H$ the heliocentric distance
-in [AU][ASTRONAUMICAL_UNIT].
+in [AU][ASTRONOMICAL_UNIT].
 */
 #[allow(unused)]
 pub fn diffuse_solar_radiation(

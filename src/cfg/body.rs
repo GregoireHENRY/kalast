@@ -4,12 +4,110 @@ use crate::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 
+/**
+# Configure the bodies of your scenario.
+
+You can configure the properties of your Bodies, for example the [mesh][CfgMesh], [interior][CfgInterior],
+[materials][Material], [spin][CfgSpin], [orbit][CfgState], and many more.
+
+Each yaml file in the folder `cfg/bodies/` will load one body to the simulation. For example, for binary system of
+asteroids the scenario expect two body config files with different names.
+Bodies take their name from the name of the file, but it can be forced by a variable called [`id`][CfgBody::id].
+
+The fields of [`CfgBody`][CfgBody] are shown [here][CfgBody#fields] and all are optionals.
+
+### Simplest example for viewer
+
+File `body.yaml`
+
+```yaml
+mesh:
+  shape: sphere
+```
+
+With the [`mesh`][CfgMesh] keyword, we are simply using the [integrated sphere][IntegratedShapeModel::Sphere] (see the
+[list of of shape models integrated to kalast][IntegratedShapeModel]).
+
+## Simple example for thermophysical simulation
+
+File `body.yaml`
+
+```yaml
+mesh:
+  shape: sphere
+material:
+  albedo: 0.1
+  emissivity: 0.9
+  thermal_inertia: 500.0
+  density: 2100.0
+  heat_capacity: 600.0
+color: data
+interior:
+  type: linear
+  size: 40
+  a: 2e-2
+spin:
+  period: 7200
+record:
+  columns: [114]
+```
+
+- also using the [integrated sphere][IntegratedShapeModel::Sphere].
+- the [`material`][Material] sets thermophysical properties of the surface of the sphere.
+- we change [`color`][ColorMode] to [`data`][ColorMode::Data] to show the temperature. If not mentioned it defaults to
+  [`diffuse_light`][ColorMode::DiffuseLight] to show the diffuse light.
+- we want temperature to conduct inside the body so we set an [`interior`][CfgInterior]. Here it is a
+  [`linear` (constant grid)][CfgInteriorGrid1D::Linear] of 40 layers each separated by 2 cm (total depth 80 cm).
+- we want the asteroid to [`spin`][CfgSpin] at a period of 2 hours.
+- we want to [`record`][CfgRecord] the simulated vertical temperatures in depth at longitude/latitude=0° (which correspond to the
+  facet index #114 for the sphere shape)
+
+*/
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CfgBody {
-    /// ID of the body as a unique string name.
+    /// Unique name for a body. By default it takes the name of the yaml file but can be forced by setting a value to
+    /// this field.
+    /// 
+    /// ### Example
+    ///
+    /// ```yaml
+    /// id: Didymos
+    /// ```
     #[serde(default = "default_body_id")]
     pub id: String,
 
+    /// Shape model for the asteroid.
+    /// 
+    /// ### Example Sphere with Integrated Shape
+    /// 
+    /// See [list of integrated shape models][IntegratedShapeModel].
+    ///
+    /// ```yaml
+    /// mesh:
+    ///   shape: sphere
+    /// ```
+    /// 
+    /// ### Example Ellipsoid
+    /// 
+    /// A sphere can be rescaled into an ellipsoid with factor multiplication on x, y & z axes.
+    ///
+    /// ```yaml
+    /// mesh:
+    ///   shape: sphere
+    ///   factor: [1.0, 0.9, 0.6]
+    /// ```
+    ///
+    /// ### Example Smooth Sphere
+    /// 
+    /// The shape model can be smoothed for rendering.
+    /// The thermophysical model only works with `flat` (as opposed to `smooth`) so try it only for "viewer" routines.
+    ///
+    /// ```yaml
+    /// mesh:
+    ///   shape: sphere
+    ///   smooth: true
+    /// ```
+    ///
     #[serde(default)]
     pub mesh: CfgMesh,
 

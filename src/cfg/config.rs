@@ -81,7 +81,7 @@ pub trait Configuration: Serialize + DeserializeOwned {}
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct Cfg {
     #[serde(skip)]
-    pub path: PathBuf,
+    path: PathBuf,
 
     #[serde(default)]
     pub pref: CfgPreferences,
@@ -175,5 +175,9 @@ impl Cfg {
         let file = Path::new(file!());
         let parent = file.parent().unwrap();
         Self::new_from(parent)
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
     }
 }
