@@ -7,6 +7,8 @@
 [![crates.io/kalast][cratesio-image]][cratesio]
 [![docs.rs/kalast][docsrs-image]][docsrs]
 
+[![kalast-image]][repo]
+
 </div>
 
 ## Usage
@@ -34,9 +36,11 @@ Licensed under the [Apache License, Version 2.0][apache2].
 
 Any contribution is welcome. 
 
+[repo]: https://github.com/GregoireHENRY/kalast
 [cratesio-image]: https://img.shields.io/crates/v/kalast.svg
 [cratesio]: https://crates.io/crates/kalast
 [docsrs-image]: https://docs.rs/kalast/badge.svg
 [docsrs]: https://docs.rs/kalast
 [docsrs-prelude]: https://docs.rs/kalast/latest/kalast/prelude
 [apache2]: https://www.apache.org/licenses/LICENSE-2.0
+[kalast-image]: ./assets/kalast.png
