@@ -26,27 +26,19 @@ jobs:
     - name: Install SDL2
       run: sudo apt install -y libsdl2-dev
 
-    - name: Build kalast
-      run: cargo build -r && strip target/release/kalast
+    - name: Set environment variables
+      run: ./compile/ubuntu/set_env.sh
 
-    - name: Build examples
-      run: cargo build -r --example viewer-picker && strip target/release/examples/viewer-picker
+    - name: Build kalast
+      run: ./compile/generic/build_kalast.sh
 
     - name: Make bundle
-      run: |
-        mkdir -p bin/ubuntu
-        cp -r examples bin/ubuntu
-        cp target/release/kalast bin/ubuntu
-        cp target/release/examples/viewer-picker bin/ubuntu/examples/viewer-picker
-        cd bin/ubuntu
-        cp -r examples/thermal/cfg .
-        tar cvzf kalast-${{ github.ref_name }}-ubuntu.tar.gz *
-        mv kalast-${{ github.ref_name }}-ubuntu.tar.gz ..
+      run: ./compile/generic/make_bundle.sh
 
     - name: Release
       uses: softprops/action-gh-release@v1
       with:
-        files: bin/kalast-${{ github.ref_name }}-ubuntu.tar.gz 
+        files: bundle/kalast-${{ github.ref_name }}-ubuntu.tar.gz 
         prerelease: true
 
   release-windows:

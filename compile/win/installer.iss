@@ -1,6 +1,5 @@
 #define NAME "kalast"
-#define VERSION "0.3.7"
-#define ROOT ".."
+#define VERSION "0.3.8-beta"
 #define URL "https://github.com/GregoireHENRY/kalast"
 #define PUBLISHER "NT Productions"
 
@@ -21,7 +20,7 @@ OutputDir=.
 OutputBaseFilename=setup-{#NAME}-v{#VERSION}
 Compression=lzma
 SolidCompression=yes
-WizardImageFile={#ROOT}\assets\kalast-vbanner.bmp
+WizardImageFile=.\assets\kalast-vbanner.bmp
 WizardImageStretch=yes
 
 [Icons]
@@ -31,4 +30,5 @@ Name: "{group}\{#NAME}"; Filename: "{app}\{#NAME}.exe"; WorkingDir: "{app}"; Ico
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
-Source: ".\win\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: ".\include\*"; DestDir: "{app}"; Flags: ignoreversion
+Source: ".\include\win\*"; DestDir: "{app}"; Flags: ignoreversion
