@@ -1,24 +1,26 @@
 /*!
 # Configure your scenarios.
 
-To configure the scenario of your simulations, you talk with a config file to **kalast**.
+To configure the scenario of your simulations, you can use an existing configuration or write your own config file.
+
+... you talk with a config file to **kalast**.
 **kalast** will look for a folder named `cfg/` containing the configs files. Config files are using the
 [yaml][url-yaml] format.
 
 You can configure the following structures with the files:
 
-- `cfg/bodies/ *.yaml` - [`CfgBody`][CfgBody]: the mesh, interior, materials, spin, orbit, ... for the body of your
+- `cfg/bodies/ *.yaml` - [`CfgBody`]: the mesh, interior, materials, spin, orbit, ... for the body of your
   simulation.
   As there can be multiple bodies (for example two bodies for binary system of asteroids), the bodies are
   configured in a folder called `cfg/bodies/` inside the `cfg/` folder. Each config file will be considered as a body.
   The name of the body is its filename or can be forced by a variable called [`id`][CfgBody::id].
-- `cfg/camera.yaml` - [`CfgCamera`][CfgCamera]: options for the position of the camera.
-- `cfg/sun.yaml` - [`CfgSun`][CfgSun]: options for the position of the Sun.
-- `cfg/simulation.yaml` - [`CfgSimulation`][CfgSimulation]: to configure the simulation and time.
-- `cfg/window.yaml` - [`CfgWindow`][CfgWindow]: options for the window and rendering
-- `preferences.yaml` - [`CfgPreferences`][CfgPreferences]: for general preferences, is configured outside of the folder
+- `cfg/camera.yaml` - [`CfgCamera`]: options for the position of the camera.
+- `cfg/sun.yaml` - [`CfgSun`]: options for the position of the Sun.
+- `cfg/simulation.yaml` - [`CfgSimulation`]: to configure the simulation and time.
+- `cfg/window.yaml` - [`CfgWindow`]: options for the window and rendering
+- `preferences.yaml` - [`CfgPreferences`]: for general preferences, is configured outside of the folder
   `cfg/`, next to the executable.
-- `cfg/cfg.yaml` - [`Cfg`][Cfg]: if you want, you can write everything mentioned above in a single file.
+- `cfg/cfg.yaml` - [`Cfg`]: if you want, you can write everything mentioned above in a single file.
   It is the parent config and regroup all of the above structure. For conflicts, this file is loaded first and the
   files above are loaded after and will overwrite parameters.
 

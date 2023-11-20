@@ -60,7 +60,7 @@ pub enum SurfaceError {
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub enum IntegratedShapeModel {
+pub enum Shapes {
     #[serde(rename = "crater")]
     Crater,
 
@@ -80,8 +80,8 @@ pub enum IntegratedShapeModel {
     Triangle,
 }
 
-impl IntegratedShapeModel {
-    pub const fn str(&self) -> &str {
+impl Shapes {
+    pub const fn as_str(&self) -> &str {
         match self {
             Self::Crater => STR_SHAPE_MODEL_CRATER,
             Self::Cube => STR_SHAPE_MODEL_CUBE,
@@ -133,8 +133,8 @@ impl RawSurface {
         })
     }
 
-    pub fn use_integrated(model: IntegratedShapeModel) -> Result<Self> {
-        let str_shape_model = model.str();
+    pub fn use_integrated(model: Shapes) -> Result<Self> {
+        let str_shape_model = model.as_str();
         let mut buf = str_shape_model.as_bytes();
 
         let (mut models, _) = tobj::load_obj_buf(
@@ -203,7 +203,7 @@ impl Surface {
         Ok(Self::from(positions, indices))
     }
 
-    pub fn use_integrated(model: IntegratedShapeModel) -> Result<SurfaceBuilder> {
+    pub fn use_integrated(model: Shapes) -> Result<SurfaceBuilder> {
         let RawSurface { positions, indices } = RawSurface::use_integrated(model)?;
         Ok(Self::from(positions, indices))
     }

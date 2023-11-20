@@ -15,7 +15,7 @@ pub struct Light {
 
 impl Light {
     pub fn new(offset: Float) -> Self {
-        let cube = Surface::use_integrated(IntegratedShapeModel::Cube)
+        let cube = Surface::use_integrated(Shapes::Cube)
             .unwrap()
             /*
             .update_all(|mut v| {

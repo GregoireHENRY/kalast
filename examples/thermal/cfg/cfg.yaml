@@ -8,17 +8,16 @@ win:
 simu:
   routines: thermal
   step: 600
-  duration: 8136000
+  duration: 7200000
   export:
     step: 60
-    duration: 8160
-    period: 813600
+    duration: 7200
+    period: 720000
 
 bodies:
   - id: body
     mesh:
       shape: sphere
-      factor: [0.4095, 0.4005, 0.3035]
     material:
       albedo: 0.1
       emissivity: 0.9
@@ -31,6 +30,6 @@ bodies:
       size: 40
       a: 2e-2
     spin:
-      period: 8136
+      period: 7200
     record:
       columns: [114]

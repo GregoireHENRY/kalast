@@ -14,7 +14,7 @@ Each yaml file in the folder `cfg/bodies/` will load one body to the simulation.
 asteroids the scenario expect two body config files with different names.
 Bodies take their name from the name of the file, but it can be forced by a variable called [`id`][CfgBody::id].
 
-The fields of [`CfgBody`][CfgBody] are shown [here][CfgBody#fields] and all are optionals.
+The fields of [`CfgBody`] are shown [here][CfgBody#fields] and all are optionals.
 
 ### Simplest example for viewer
 
@@ -25,8 +25,8 @@ mesh:
   shape: sphere
 ```
 
-With the [`mesh`][CfgMesh] keyword, we are simply using the [integrated sphere][IntegratedShapeModel::Sphere] (see the
-[list of of shape models integrated to kalast][IntegratedShapeModel]).
+With the [`mesh`][CfgMesh] keyword, we are simply using the [shape of the sphere already included][Shapes::Sphere] (see the
+[list of of shape models integrated to kalast][Shapes]).
 
 ## Simple example for thermophysical simulation
 
@@ -52,7 +52,7 @@ record:
   columns: [114]
 ```
 
-- also using the [integrated sphere][IntegratedShapeModel::Sphere].
+- also using the [sphere][Shapes::Sphere].
 - the [`material`][Material] sets thermophysical properties of the surface of the sphere.
 - we change [`color`][ColorMode] to [`data`][ColorMode::Data] to show the temperature. If not mentioned it defaults to
   [`diffuse_light`][ColorMode::DiffuseLight] to show the diffuse light.
@@ -78,9 +78,9 @@ pub struct CfgBody {
 
     /// Shape model for the asteroid.
     /// 
-    /// ### Example Sphere with Integrated Shape
+    /// ### Example Sphere
     /// 
-    /// See [list of integrated shape models][IntegratedShapeModel].
+    /// See [list of already included shapes][Shapes].
     ///
     /// ```yaml
     /// mesh:
@@ -178,7 +178,7 @@ fn default_mesh_factor() -> Vec3 {
 #[serde(untagged)]
 pub enum CfgMeshSource {
     #[serde(rename = "shape")]
-    Shape(IntegratedShapeModel),
+    Shape(Shapes),
 
     #[serde(rename = "path")]
     Path(PathBuf),
@@ -186,7 +186,7 @@ pub enum CfgMeshSource {
 
 impl Default for CfgMeshSource {
     fn default() -> Self {
-        Self::Shape(IntegratedShapeModel::Sphere)
+        Self::Shape(Shapes::Sphere)
     }
 }
 

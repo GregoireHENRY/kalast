@@ -1,6 +1,7 @@
 use crate::prelude::*;
+use serde::{Deserialize, Serialize};
 
-use std::{env, path::PathBuf};
+use std::env;
 
 /// [Astronomical unit](https://en.wikipedia.org/wiki/Astronomical_unit).
 pub const ASTRONOMICAL_UNIT: Float = 1.495978707e11;
@@ -65,21 +66,16 @@ pub const NUMBER_ITERATION_FAIL: usize = 1e4 as usize;
 /// Threshold that defines the convergence condition of the numerical Newton method.
 pub const NEWTON_METHOD_THRESHOLD: Float = 1e-4;
 
-#[allow(unused)]
-pub(crate) fn package_name() -> String {
-    env::var("CARGO_PKG_NAME").unwrap()
-}
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Find the location of the `target/` directory. Note that this may be
-/// overridden by `cmake`, so we also need to check the `CARGO_TARGET_DIR`
-/// variable.
-#[allow(unused)]
-pub(crate) fn target_dir() -> PathBuf {
-    if let Ok(target) = env::var("CARGO_TARGET_DIR") {
-        PathBuf::from(target)
-    } else {
-        PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("target")
-    }
+pub const NAME: &str = env!("CARGO_PKG_NAME");
+
+pub const DATETIME: &str = compile_time::datetime_str!();
+
+pub const RUSTC_VERSION: &str = compile_time::rustc_version_str!();
+
+pub fn version() -> Version {
+    Version::parse(VERSION).unwrap()
 }
 
 pub fn cartesian_to_spherical(cartesian: &Vec3) -> Vec3 {
@@ -114,4 +110,45 @@ pub fn fmt_str_tab(text: &str, tab: usize) -> String {
     }
 
     vec.join("\n")
+}
+
+pub fn check_if_latest_version(cfg: &Cfg) {
+    let client = reqwest::blocking::Client::new();
+    let resp = client
+        .get("https://api.github.com/repos/GregoireHENRY/kalast/tags")
+        .header("User-Agent", "request")
+        .send()
+        .unwrap()
+        .json::<Vec<ReqwGitHubTag>>()
+        .unwrap();
+
+    let latest = resp
+        .iter()
+        .map(|t| t.version())
+        .filter(|v| v.pre == semver::Prerelease::EMPTY)
+        .max()
+        .unwrap();
+
+    if latest > version() {
+        println!("A more recent version of kalast is available: {}.", latest);
+
+        if cfg.pref.auto_update {
+            unimplemented!("Auto-update is not yet implemented. Install newest version manually.");
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ReqwGitHubTag {
+    commit: HashMap<String, String>,
+    name: String,
+    node_id: String,
+    tarball_url: String,
+    zipball_url: String,
+}
+
+impl ReqwGitHubTag {
+    pub fn version(&self) -> Version {
+        Version::parse(&self.name.chars().skip(1).collect::<String>()).unwrap()
+    }
 }

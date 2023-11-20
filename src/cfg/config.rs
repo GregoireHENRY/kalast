@@ -3,6 +3,60 @@ use crate::prelude::*;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_yaml::{self, Value};
 
+pub const CFG_THERMAL_STR: &str = include_str!("../../examples/thermal/cfg/cfg.yaml");
+pub const CFG_THERMAL_BINARY_STR: &str = include_str!("../../examples/thermal-binary/cfg/cfg.yaml");
+pub const CFG_THERMAL_TRIANGLE_STR: &str =
+    include_str!("../../examples/thermal-triangle/cfg/cfg.yaml");
+pub const CFG_VIEWER_STR: &str = include_str!("../../examples/viewer/cfg/cfg.yaml");
+pub const CFG_VIEWER_PICKER_STR: &str = include_str!("../../examples/viewer-picker/cfg/cfg.yaml");
+pub const CFG_VIEWER_SMOOTH_STR: &str = include_str!("../../examples/viewer-smooth/cfg/cfg.yaml");
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum Cfgs {
+    #[serde(rename = "empty")]
+    Empty,
+
+    #[serde(rename = "thermal")]
+    Thermal,
+
+    #[serde(rename = "thermal_binary")]
+    ThermalBinary,
+
+    #[serde(rename = "thermal_triangle")]
+    ThermalTriangle,
+
+    #[serde(rename = "viewer")]
+    Viewer,
+
+    #[serde(rename = "viewer_picker")]
+    ViewerPicker,
+
+    #[serde(rename = "viewer_smooth")]
+    ViewerSmooth,
+}
+
+impl Cfgs {
+    pub const fn as_str(&self) -> &str {
+        match self {
+            Self::Empty => "",
+            Self::Thermal => CFG_THERMAL_STR,
+            Self::ThermalBinary => CFG_THERMAL_BINARY_STR,
+            Self::ThermalTriangle => CFG_THERMAL_TRIANGLE_STR,
+            Self::Viewer => CFG_VIEWER_STR,
+            Self::ViewerPicker => CFG_VIEWER_PICKER_STR,
+            Self::ViewerSmooth => CFG_VIEWER_SMOOTH_STR,
+        }
+    }
+
+    pub fn load(&self) -> Cfg {
+        serde_yaml::from_str(self.as_str()).unwrap()
+    }
+}
+
+pub fn cfg_viewer() -> Cfg {
+    serde_yaml::from_str(CFG_VIEWER_STR).unwrap()
+}
+
 pub type Result<T, E = CfgError> = std::result::Result<T, E>;
 
 /// Errors related to Kalast config.
@@ -80,8 +134,8 @@ pub trait Configuration: Serialize + DeserializeOwned {}
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct Cfg {
-    #[serde(skip)]
-    path: PathBuf,
+    #[serde(default)]
+    pub base: Option<CfgBase>,
 
     #[serde(default)]
     pub pref: CfgPreferences,
@@ -108,22 +162,14 @@ pub struct Cfg {
 impl Configuration for Cfg {}
 
 impl Cfg {
-    pub fn new_empty<P: AsRef<Path>>(path: P) -> Self {
-        Self {
-            path: path.as_ref().to_path_buf(),
-            ..Default::default()
-        }
-    }
-
     pub fn new_from<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
         let cfg_path = path_cfg(path);
 
-        let mut cfg = if let Some(Ok(mut cfg)) = read_cfg_if_exists::<_, Cfg>(&cfg_path) {
-            cfg.path = path.to_path_buf();
+        let mut cfg = if let Some(Ok(cfg)) = read_cfg_if_exists::<_, Cfg>(&cfg_path) {
             cfg
         } else {
-            Self::new_empty(path)
+            Self::default()
         };
 
         let cfg_pref_path = path_pref(path);
@@ -176,8 +222,20 @@ impl Cfg {
         let parent = file.parent().unwrap();
         Self::new_from(parent)
     }
+}
 
-    pub fn path(&self) -> &Path {
-        &self.path
+// #[serde(untagged)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum CfgBase {
+    #[serde(rename = "cfg")]
+    Cfg(Cfgs),
+
+    #[serde(rename = "path")]
+    Path(PathBuf),
+}
+
+impl Default for CfgBase {
+    fn default() -> Self {
+        Self::Cfg(Cfgs::Empty)
     }
 }

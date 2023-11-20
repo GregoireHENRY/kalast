@@ -14,4 +14,4 @@ pub use asteroid::{
 pub use element::{ColorMode, FaceData, Vertex};
 pub use interior::{Interior, InteriorGrid};
 pub use material::Material;
-pub use surface::{IntegratedShapeModel, RawSurface, Surface, SurfaceBuilder, SurfaceError};
+pub use surface::{Shapes, RawSurface, Surface, SurfaceBuilder, SurfaceError};

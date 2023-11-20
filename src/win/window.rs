@@ -317,6 +317,10 @@ impl Window {
         self.win.win.set_fullscreen(mode).unwrap();
     }
 
+    pub fn toggle_debug(&self) {
+        self.settings.borrow_mut().toggle_debug();
+    }
+
     pub fn is_paused(&self) -> bool {
         self.state.borrow_mut().pause
     }
@@ -413,20 +417,20 @@ impl Window {
 
                     if let Some(keycode) = keycode {
                         match (keycode, keymod) {
-                            (
-                                Keycode::Up | Keycode::Left | Keycode::Down | Keycode::Right,
-                                Mod::NOMOD,
-                            ) => self
-                                .scene
-                                .borrow_mut()
-                                .camera
-                                .move_command(Direction::from_keycode(keycode), clock_delta_time),
                             (Keycode::Up | Keycode::Down, Mod::LSHIFTMOD) => {
                                 self.scene.borrow_mut().camera.change_speed(
                                     Direction::from_keycode(keycode),
                                     clock_delta_time,
                                 );
                             }
+                            (
+                                Keycode::Up | Keycode::Left | Keycode::Down | Keycode::Right,
+                                _mod,
+                            ) => self
+                                .scene
+                                .borrow_mut()
+                                .camera
+                                .move_command(Direction::from_keycode(keycode), clock_delta_time),
                             (Keycode::M, _) => {
                                 self.scene.borrow_mut().camera.change_move_method();
                             }
@@ -440,10 +444,18 @@ impl Window {
                                 self.export_quit();
                             }
                             // (Keycode::Comma, Mod::LSHIFTMOD | Mod::RSHIFTMOD | Mod::CAPSMOD) => {
-                            (Keycode::H, _) => {
-                                println!("-- Debug Scene --");
-                                println!("{}", self.scene.borrow().camera.position);
-                                println!("-----------------");
+                            (Keycode::H, mode) => {
+                                if (mode & Mod::LSHIFTMOD) == Mod::LSHIFTMOD
+                                    || (mode & Mod::LSHIFTMOD) == Mod::RSHIFTMOD
+                                {
+                                    println!("Toggle debug!");
+                                    self.toggle_debug();
+                                } else {
+                                    println!("-- Debug Scene --");
+                                    println!("camera pos: {:?}", self.scene.borrow().camera.position.as_slice());
+                                    println!("light pos: {:?}", self.scene.borrow().light.position.as_slice());
+                                    println!("-----------------");
+                                }
                             }
                             (Keycode::F10, _) => {
                                 self.toggle_fullscreen_windowed();

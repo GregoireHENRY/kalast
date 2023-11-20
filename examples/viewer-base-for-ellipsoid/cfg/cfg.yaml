@@ -1,8 +1,7 @@
-win:
-  ambient: [0.1, 0.1, 0.1]
+base: viewer
 
 bodies:
   - id: body
     mesh:
       shape: sphere
-      smooth: true
+      factor: [1.0, 1.0, 0.6]

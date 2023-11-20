@@ -60,20 +60,22 @@ impl FoldersRun {
         self.simu_rec_time_body(elapsed, id).join("temperatures")
     }
 
-    pub fn save_cfgs(&mut self, cfg: &Cfg) {
-        fs::create_dir_all(&self.path).unwrap();
-        fs_extra::dir::copy(cfg.path(), &self.path, &fs_extra::dir::CopyOptions::new()).unwrap();
-    }
-    pub fn save_src<P: AsRef<Path>>(&mut self, path: P) {
+    pub fn save_cfgs<P: AsRef<Path>>(&mut self, path: P) {
         let path = path.as_ref();
-
-        let path_mainrs = path.join("main.rs");
-
-        if !path_mainrs.exists() {
+        if !path.exists() {
             return;
         }
 
         fs::create_dir_all(&self.path).unwrap();
-        fs::copy(path.join("main.rs"), self.path.join("main.rs")).unwrap();
+        fs_extra::dir::copy(path, &self.path, &fs_extra::dir::CopyOptions::new()).unwrap();
+    }
+    pub fn save_src<P: AsRef<Path>>(&mut self, path: P) {
+        let path = path.as_ref();
+        if !path.exists() {
+            return;
+        }
+
+        fs::create_dir_all(&self.path).unwrap();
+        fs::copy(path, &self.path).unwrap();
     }
 }

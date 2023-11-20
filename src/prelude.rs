@@ -16,7 +16,7 @@ pub use crate::ast::{
     Asteroid,
     ColorMode,
     FaceData,
-    IntegratedShapeModel,
+    Shapes,
     Interior,
     InteriorGrid,
     Material,
@@ -101,6 +101,8 @@ pub use itertools::{iproduct, izip, Itertools};
 
 pub use snafu::prelude::*;
 
+pub use semver::Version;
+
 pub use chrono::{Duration, Utc};
 
 pub use notify_rust::Notification;
@@ -109,6 +111,8 @@ pub use polars::prelude::*;
 pub use directories::UserDirs;
 
 pub use downcast_rs::{DowncastSync, impl_downcast};
+
+pub use lazy_static::lazy_static;
 
 pub use std::collections::{BTreeMap, HashMap};
 pub use std::env;

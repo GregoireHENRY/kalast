@@ -34,6 +34,10 @@ impl Export {
         let dt = time.used_time_step();
         let elapsed = time.elapsed_seconds();
 
+        if !folders.path.exists() {
+            fs::create_dir_all(&folders.path).unwrap();
+        }
+
         for (ii_body, cb) in cfg.bodies.iter().enumerate() {
             if ii_body > 0 {
                 // print!(" ");

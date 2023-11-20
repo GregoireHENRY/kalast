@@ -3,6 +3,3 @@ win:
 
 bodies:
   - id: body
-    mesh:
-      shape: sphere
-      factor: [0.4095, 0.4005, 0.3035]

@@ -19,11 +19,32 @@ impl Scenario {
 
     pub fn new_with<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
-        let cfg = Cfg::new_from(&path.join("cfg"))?;
+        let path_cfg = path.join("cfg");
+        let path_mainrs = path.join("main.rs");
+
+        println!(
+            "kalast<{}> (built on {} with rustc<{}>)",
+            version(),
+            DATETIME,
+            RUSTC_VERSION
+        );
+
+        let cfg = Cfg::new_from(&path_cfg)?;
+        
+        dbg!(&cfg);
+        
+        println!(
+            "Config initialized at {}",
+            path.canonicalize().unwrap().to_str().unwrap()
+        );
+
+        if !cfg.pref.do_not_check_latest_version {
+            util::check_if_latest_version(&cfg);
+        }
 
         let mut folders = FoldersRun::new(&cfg);
-        folders.save_cfgs(&cfg);
-        folders.save_src(&path);
+        folders.save_cfgs(&path_cfg);
+        folders.save_src(&path_mainrs);
 
         let bodies: Vec<Body> = vec![];
 

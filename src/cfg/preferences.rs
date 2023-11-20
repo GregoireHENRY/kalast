@@ -7,6 +7,12 @@ use serde::{Deserialize, Serialize};
 pub struct CfgPreferences {
     #[serde(default = "default_runs")]
     pub runs: PathBuf,
+
+    #[serde(default)]
+    pub do_not_check_latest_version: bool,
+
+    #[serde(default)]
+    pub auto_update: bool,
 }
 
 impl Configuration for CfgPreferences {}
@@ -15,6 +21,8 @@ impl Default for CfgPreferences {
     fn default() -> Self {
         Self {
             runs: default_runs(),
+            auto_update: false,
+            do_not_check_latest_version: false,
         }
     }
 }

@@ -1,9 +1,8 @@
 use crate::prelude::*;
 use serde::{Deserialize, Serialize};
 
-pub const WINDOW_WIDTH: usize = 500;
-pub const WINDOW_HEIGHT: usize = 500;
-// pub const WINDOW_RATIO: Float = WINDOW_WIDTH as Float / WINDOW_HEIGHT as Float;
+pub const WINDOW_WIDTH: usize = 640;
+pub const WINDOW_HEIGHT: usize = 480;
 
 /// List of possible colormaps.
 #[repr(u8)]
@@ -194,5 +193,10 @@ impl WindowSettings {
 
     pub fn aspect_ratio(&self) -> Float {
         self.width as Float / self.height as Float
+    }
+    
+    pub fn toggle_debug(&mut self) -> bool {
+        self.debug = !self.debug;
+        self.debug
     }
 }
