@@ -2,12 +2,9 @@
 # Configure your scenarios.
 
 To configure the scenario of your simulations, you can use an existing configuration or write your own config file.
+**kalast** will look for a folder named `cfg/` containing the configs files under the [yaml][url-yaml] format.
 
-... you talk with a config file to **kalast**.
-**kalast** will look for a folder named `cfg/` containing the configs files. Config files are using the
-[yaml][url-yaml] format.
-
-You can configure the following structures with the files:
+The configuration is done using the following strcuture:
 
 - `cfg/bodies/ *.yaml` - [`CfgBody`]: the mesh, interior, materials, spin, orbit, ... for the body of your
   simulation.
