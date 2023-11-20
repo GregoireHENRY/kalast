@@ -167,6 +167,14 @@ impl Cfg {
         let cfg_path = path_cfg(path);
 
         let mut cfg = if let Some(Ok(cfg)) = read_cfg_if_exists::<_, Cfg>(&cfg_path) {
+            // TODO: finish base argument
+            if let Some(base) = cfg.base.as_ref() {
+                let _base_cfg = match base {
+                    CfgBase::Cfg(base) => base.load(),
+                    CfgBase::Path(_p) => unimplemented!(), //Self::new_from(p)?
+                };
+            }
+
             cfg
         } else {
             Self::default()

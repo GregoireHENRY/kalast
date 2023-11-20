@@ -8,8 +8,9 @@ pub struct CfgSimulation {
     #[serde(default)]
     pub routines: CfgRoutines,
 
+    // In seconds.
     #[serde(default)]
-    pub jd0: Float,
+    pub start: Float,
 
     #[serde(default)]
     pub step: usize,

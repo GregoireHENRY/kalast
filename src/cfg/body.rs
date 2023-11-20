@@ -14,7 +14,7 @@ Each yaml file in the folder `cfg/bodies/` will load one body to the simulation.
 asteroids the scenario expect two body config files with different names.
 Bodies take their name from the name of the file, but it can be forced by a variable called [`id`][CfgBody::id].
 
-The fields of [`CfgBody`] are shown [here][CfgBody#fields] and all are optionals.
+The [fields of `CfgBody`][CfgBody#fields] are all optionals.
 
 ### Simplest example for viewer
 
@@ -26,7 +26,7 @@ mesh:
 ```
 
 With the [`mesh`][CfgMesh] keyword, we are simply using the [shape of the sphere already included][Shapes::Sphere] (see the
-[list of of shape models integrated to kalast][Shapes]).
+[list of of shape models integrated to kalast][Shapes#variants]).
 
 ## Simple example for thermophysical simulation
 
@@ -76,41 +76,12 @@ pub struct CfgBody {
     #[serde(default = "default_body_id")]
     pub id: String,
 
-    /// Shape model for the asteroid.
-    /// 
-    /// ### Example Sphere
-    /// 
-    /// See [list of already included shapes][Shapes].
-    ///
-    /// ```yaml
-    /// mesh:
-    ///   shape: sphere
-    /// ```
-    /// 
-    /// ### Example Ellipsoid
-    /// 
-    /// A sphere can be rescaled into an ellipsoid with factor multiplication on x, y & z axes.
-    ///
-    /// ```yaml
-    /// mesh:
-    ///   shape: sphere
-    ///   factor: [1.0, 0.9, 0.6]
-    /// ```
-    ///
-    /// ### Example Smooth Sphere
-    /// 
-    /// The shape model can be smoothed for rendering.
-    /// The thermophysical model only works with `flat` (as opposed to `smooth`) so try it only for "viewer" routines.
-    ///
-    /// ```yaml
-    /// mesh:
-    ///   shape: sphere
-    ///   smooth: true
-    /// ```
-    ///
+    /// Surface mesh for the body.
     #[serde(default)]
     pub mesh: CfgMesh,
 
+    /// Optional second surface mesh for the body.
+    /// For instance, it can be used for faster shadow computation with a lower resolution mesh.
     #[serde(default)]
     pub mesh_low: Option<CfgMesh>,
 
@@ -148,14 +119,61 @@ fn default_body_id() -> String {
     "!empty".to_string()
 }
 
+/// Surface mesh for the body.
+/// 
+/// ### Example Sphere
+/// 
+/// See [list of already included shapes][Shapes#variants].
+///
+/// ```yaml
+/// mesh:
+///   shape: sphere
+/// ```
+/// 
+/// ### Example Ellipsoid
+/// 
+/// A sphere can be rescaled into an ellipsoid with factor multiplication on x, y & z axes.
+///
+/// ```yaml
+/// mesh:
+///   shape: sphere
+///   factor: [1.0, 0.9, 0.6]
+/// ```
+///
+/// ### Example Smooth Sphere
+/// 
+/// The shape model can be smoothed for rendering.
+/// The thermophysical model only works with `flat` (as opposed to `smooth`) so try it only for "viewer" routines.
+///
+/// ```yaml
+/// mesh:
+///   shape: sphere
+///   smooth: true
+/// ```
+///
+/// ### Example Custom Shape
+/// 
+/// The shape model can be loaded from user files as Wavefront format.
+///
+/// ```yaml
+/// mesh:
+///   shape: path/to/ryugu.obj
+/// ```
+///
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CfgMesh {
+    /// Options for the source of the mesh.
+    /// Default is [sphere][`Shapes::Sphere`].
     #[serde(default)]
     pub shape: CfgMeshSource,
 
+    /// Resize factor to be applied to the mesh.
+    /// Default is `[1.0, 1.0, 1.0]`.
     #[serde(default = "default_mesh_factor")]
     pub factor: Vec3,
 
+    /// Wether to render vertex- (smooth) or facet-wise (flat). 
+    /// Default is flat, smooth is `false`.
     #[serde(default)]
     pub smooth: bool,
 }

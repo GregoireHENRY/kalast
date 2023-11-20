@@ -30,12 +30,10 @@ impl Scenario {
         );
 
         let cfg = Cfg::new_from(&path_cfg)?;
-        
-        dbg!(&cfg);
-        
+
         println!(
             "Config initialized at {}",
-            path.canonicalize().unwrap().to_str().unwrap()
+            dunce::canonicalize(&path).unwrap().to_str().unwrap()
         );
 
         if !cfg.pref.do_not_check_latest_version {
@@ -79,10 +77,9 @@ impl Scenario {
         .with_camera_position(&scene.cam_pos)
         .with_light_position(&scene.sun_pos_cubelight());
 
-        let time_start = cfg.simu.jd0 * DAY as Float;
         let time = Time::new()
             .with_time_step(cfg.simu.step)
-            .with_time_start(time_start as _);
+            .with_time_start(cfg.simu.start as _);
 
         Ok(Self {
             cfg,
