@@ -50,6 +50,7 @@ semver = "1.0"
 compile-time = "0.2"
 lazy_static = "1.0"
 dunce = "1.0"
+astro-rs = "0.1"
 
 [dev-dependencies]
 rstest = "0.18"
