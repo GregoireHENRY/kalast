@@ -434,7 +434,7 @@ pub fn fn_export_iteration_thermal_default(
         .open(folder_simu.join("progress.csv"))
         .unwrap();
     CsvWriter::new(&mut file)
-        .has_header(is_first_it)
+        .include_header(is_first_it)
         .finish(&mut df)
         .unwrap();
 }
@@ -479,7 +479,7 @@ pub fn fn_export_iteration_period_thermal_default(
             .open(&p)
             .unwrap();
         CsvWriter::new(&mut file)
-            .has_header(is_first_it_export)
+            .include_header(is_first_it_export)
             .finish(&mut df)
             .unwrap();
     }
@@ -499,7 +499,7 @@ pub fn fn_export_iteration_period_thermal_default(
             .open(&p)
             .unwrap();
         CsvWriter::new(&mut file)
-            .has_header(is_first_it_export)
+            .include_header(is_first_it_export)
             .finish(&mut df)
             .unwrap();
     }
@@ -519,7 +519,7 @@ pub fn fn_export_iteration_period_thermal_default(
             .open(&p)
             .unwrap();
         CsvWriter::new(&mut file)
-            .has_header(is_first_it_export)
+            .include_header(is_first_it_export)
             .finish(&mut df)
             .unwrap();
     }
@@ -544,7 +544,7 @@ pub fn fn_export_iteration_period_thermal_default(
             .open(&p)
             .unwrap();
         CsvWriter::new(&mut file)
-            .has_header(is_first_it_export)
+            .include_header(is_first_it_export)
             .finish(&mut df)
             .unwrap();
     }

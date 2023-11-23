@@ -1,6 +1,6 @@
 [package]
 name = "kalast"
-version = "0.3.8-beta"
+version = "0.4.0-beta"
 authors = ["Grégoire Henry <gregoire.henry@oma.be>"]
 edition = "2021"
 description = "Thermophysical Model for Binary Asteroids"
@@ -32,12 +32,12 @@ serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 serde_json = "1.0"
 color-eyre = "0.6"
-polars = { version = "0.34", features = [] }
+polars = { version = "0.35", features = [] }
 snafu = "0.7"
 log = "0.4"
 simplelog = "0.12"
 gl = "0.14.0"
-sdl2 = "0.35.2"
+sdl2 = "0.36"
 stb_image = "0.3"
 image = "0.24.6"
 chrono = "0.4.24"

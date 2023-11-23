@@ -160,7 +160,7 @@ pub fn check<P: AsRef<Path>>(
                 .open(folder_simu.join(format!("events-{}.csv", id)))
                 .unwrap();
             CsvWriter::new(&mut file)
-                .has_header(body_cvg == 3)
+                .include_header(body_cvg == 3)
                 .finish(&mut df)
                 .unwrap();
 
