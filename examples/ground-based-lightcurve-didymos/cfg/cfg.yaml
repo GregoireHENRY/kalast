@@ -9,14 +9,23 @@ simulation:
     duration: 8136
 
 scene:
-  sun: [1.0, 0.0, 0.0]
-  camera: [2.0, 0.0, 0.0]
+  camera:
+    !earth 2.0
+  sun:
+    type: astronomical
+    RA: 12 12 22.42
+    DEC: -01 20 20.3
 
 bodies:
   - mesh:
       shape: sphere
       factor: [0.4095, 0.4005, 0.3035]
+      smooth: true
     material:
       albedo: 0.1
     spin:
       period: 8136
+    state:
+      type: astronomical
+      RA: 3 21 43.477
+      DEC: -33 22 44.57
