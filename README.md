@@ -13,20 +13,18 @@
 
 ## Usage
 
-Add the dependency **kalast** to your `Cargo.toml`:
+Latest executables of **kalast** [can be downloaded here][releases].
+
+*kalast* can also be used as a library in Rust.
+Add the dependency to your `Cargo.toml`:
 
 ```toml
 [dependencies]
 kalast = "0.3"
 ```
 
-Add to your code:
-
-```rust
-use kalast::prelude::*;
-```
-
-and refer to [kalast::prelude online][docsrs-prelude] for available modules and items.
+and have a look at [the examples][examples] or [the documentation online][docsrs]
+for available modules and items.
 
 ## License
 
@@ -37,10 +35,11 @@ Licensed under the [Apache License, Version 2.0][apache2].
 Any contribution is welcome. 
 
 [repo]: https://github.com/GregoireHENRY/kalast
+[releases]: https://github.com/GregoireHENRY/kalast/releases
+[examples]: https://github.com/GregoireHENRY/kalast/tree/main/examples
 [cratesio-image]: https://img.shields.io/crates/v/kalast.svg
 [cratesio]: https://crates.io/crates/kalast
 [docsrs-image]: https://docs.rs/kalast/badge.svg
 [docsrs]: https://docs.rs/kalast
-[docsrs-prelude]: https://docs.rs/kalast/latest/kalast/prelude
 [apache2]: https://www.apache.org/licenses/LICENSE-2.0
 [kalast-image]: ./assets/kalast-small.png
