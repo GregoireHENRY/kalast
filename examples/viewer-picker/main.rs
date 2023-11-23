@@ -1,4 +1,7 @@
-use kalast::prelude::*;
+use kalast::{
+    routines_viewer_default, simu::Scene, util::*, Asteroid, Body, CfgBody, CfgColormap, ColorMode,
+    FoldersRun, Result, Routines, RoutinesViewerDefault, Scenario, Time, Window,
+};
 
 fn main() -> Result<()> {
     let mut sc = Scenario::new()?;
@@ -7,7 +10,7 @@ fn main() -> Result<()> {
     sc.load_bodies()?;
 
     let faces: Vec<usize> =
-        serde_yaml::from_value(sc.cfg.bodies[0].extra["faces"].clone()).unwrap();
+        serde_yaml::from_value(sc.cfg.bodies[0].extra()["faces"].clone()).unwrap();
     update_surf_face(
         sc.routines
             .downcast_mut::<RoutinesViewerCustom>()
@@ -154,7 +157,7 @@ impl Routines for RoutinesViewerCustom {
 impl RoutinesViewerCustom {
     pub fn new() -> Self {
         Self {
-            default: simu::routines_viewer_default(),
+            default: routines_viewer_default(),
             faces: vec![],
         }
     }

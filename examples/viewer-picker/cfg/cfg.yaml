@@ -3,7 +3,4 @@ win:
   wireframe: true
 
 bodies:
-  - id: body
-    mesh:
-      shape: sphere
-    faces: [114, 120, 115, 124, 127, 116, 123, 119]
+  - faces: [114, 120, 115, 124, 127, 116, 123, 119]
