@@ -53,12 +53,12 @@ mod body;
 mod scene;
 mod config;
 mod preferences;
-mod simu;
+mod simulation;
 mod window;
 
 pub use body::*;
 pub use scene::*;
 pub use config::*;
 pub use preferences::*;
-pub use simu::*;
+pub use simulation::*;
 pub use window::*;
