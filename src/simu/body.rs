@@ -1,4 +1,6 @@
-use crate::prelude::*;
+use crate::{matrix_orientation_obliquity, Asteroid, CfgBody, util::*};
+
+use itertools::Itertools;
 
 #[derive(Debug, Clone)]
 pub struct Body {
@@ -10,7 +12,7 @@ pub struct Body {
 
 impl Body {
     pub fn new(asteroid: Asteroid, cb: &CfgBody) -> Self {
-        let mat_orient = ast::matrix_orientation_obliquity(0.0, cb.spin.obliquity * RPD);
+        let mat_orient = matrix_orientation_obliquity(0.0, cb.spin.obliquity * RPD);
 
         let normals = Matrix3xX::from_columns(
             &asteroid

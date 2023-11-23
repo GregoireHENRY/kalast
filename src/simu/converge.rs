@@ -1,4 +1,11 @@
-use crate::prelude::*;
+use crate::{util::*, Asteroid, CfgBody, CfgTimeExport, ThermalData};
+
+use itertools::izip;
+use notify_rust::Notification;
+use polars::prelude::{
+    df, CsvReader, CsvWriter, DataFrame, NamedFrom, SerReader, SerWriter, Series,
+};
+use std::path::Path;
 
 pub fn check<P: AsRef<Path>>(
     id: usize,

@@ -1,11 +1,7 @@
-use crate::prelude::*;
-// use crate::python::*;
-
-use crate::ast::ray;
-use crate::win::camera::*;
-use crate::win::graphical_pipeline::*;
-use crate::win::scene::Scene;
-use crate::win::window_settings::*;
+use crate::{
+    intersect_asteroids, util::*, win::Scene, Asteroid, Direction, GraphicalPipeline, Shader,
+    Surface, WindowSettings, WindowState,
+};
 
 // use beryllium::events::*;
 // use beryllium::init::*;
@@ -16,13 +12,14 @@ use crate::win::window_settings::*;
 // use gl33::global_loader::*;
 // use gl33::*;
 
+use itertools::{izip, Itertools};
 use sdl2;
 use sdl2::event::{Event, WindowEvent};
 use sdl2::keyboard::Keycode;
 use sdl2::keyboard::Mod;
 use sdl2::mouse::MouseButton;
 use sdl2::sys as sdl2_sys;
-use sdl2::video::GLContext;
+use sdl2::video::{GLContext, FullscreenType};
 use sdl2::video::Window as SDL_Window;
 use sdl2::video::{GLProfile, SwapInterval};
 use sdl2::Sdl;
@@ -452,8 +449,14 @@ impl Window {
                                     self.toggle_debug();
                                 } else {
                                     println!("-- Debug Scene --");
-                                    println!("camera pos: {:?}", self.scene.borrow().camera.position.as_slice());
-                                    println!("light pos: {:?}", self.scene.borrow().light.position.as_slice());
+                                    println!(
+                                        "camera pos: {:?}",
+                                        self.scene.borrow().camera.position.as_slice()
+                                    );
+                                    println!(
+                                        "light pos: {:?}",
+                                        self.scene.borrow().light.position.as_slice()
+                                    );
                                     println!("-----------------");
                                 }
                             }
@@ -849,11 +852,11 @@ impl Window {
                 let dir_view = glm::inverse(&matrix_projection) * dir_view;
                 let dir_view = dir_view.xyz().normalize();
 
-                let start_world = glm::inverse(&matrix_view) * util::vec3_to_4_one(&start_view);
+                let start_world = glm::inverse(&matrix_view) * vec3_to_4_one(&start_view);
                 let start_world = start_world.xyz();
 
                 let end_world =
-                    glm::inverse(&matrix_view) * util::vec3_to_4_one(&(start_view + dir_view));
+                    glm::inverse(&matrix_view) * vec3_to_4_one(&(start_view + dir_view));
                 let end_world = end_world.xyz();
 
                 let dir_world = (end_world - start_world).normalize();
@@ -869,8 +872,7 @@ impl Window {
             println!("cam pos: {:?}", scene.camera.position.as_slice());
             */
 
-            let maybe_intersect =
-                ray::intersect_asteroids(&raystart_world, &raydir_world, asteroids);
+            let maybe_intersect = intersect_asteroids(&raystart_world, &raydir_world, asteroids);
 
             if let Some((intersect, face_index, surface_index)) = maybe_intersect {
                 println!("Clicked on surface #{} face #{}", surface_index, face_index);

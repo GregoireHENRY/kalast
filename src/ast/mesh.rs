@@ -1,6 +1,6 @@
-use itertools::iproduct;
+use crate::{Asteroid, intersect_surface, FaceData, vec3_to_4_one, util::*};
 
-use crate::prelude::*;
+use itertools::{iproduct, izip};
 
 /**
 Compute the view factor per unit of area describing the fraction of energy that can be transmitted between the `Face`s
@@ -126,7 +126,7 @@ pub fn view_factor(b1: &Asteroid, b2: &Asteroid, shadows: bool) -> DMatrix<Float
                     .collect();
 
                 if let Some(_) =
-                    ray::intersect_surface(&center_b1_in_b2, &unit_b2_to_b1, surfv, true)
+                    intersect_surface(&center_b1_in_b2, &unit_b2_to_b1, surfv, true)
                 {
                     continue;
                 }
@@ -149,7 +149,7 @@ pub fn view_factor(b1: &Asteroid, b2: &Asteroid, shadows: bool) -> DMatrix<Float
                 .collect();
 
             if let Some(_) =
-                ray::intersect_surface(&face_b1.vertex.position, &unit_b1_to_b2, surfv, true)
+                intersect_surface(&face_b1.vertex.position, &unit_b1_to_b2, surfv, true)
             {
                 continue;
             }

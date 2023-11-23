@@ -1,4 +1,6 @@
-use crate::prelude::*;
+use crate::util::*;
+
+use itertools::izip;
 
 pub fn heat_conduction_1d(
     slice: &[Float],

@@ -1,7 +1,15 @@
-pub mod camera;
-pub mod graphical_pipeline;
-pub mod lighting;
-pub mod scene;
-pub mod scene_settings;
-pub mod window;
-pub mod window_settings;
+mod camera;
+mod graphical_pipeline;
+mod lighting;
+mod scene;
+mod scene_settings;
+mod window;
+mod window_settings;
+
+pub use camera::*;
+pub use graphical_pipeline::*;
+pub use lighting::*;
+pub use scene::*;
+pub use scene_settings::*;
+pub use window::*;
+pub use window_settings::*;

@@ -1,4 +1,8 @@
-use crate::prelude::*;
+use crate::{simu::Scene, Body, Cfg, CfgBody, CfgTimeExport, FoldersRun, Routines, Time, Window, util::*};
+
+use std::fs;
+use itertools::izip;
+use polars::prelude::{df, CsvWriter, NamedFrom, SerWriter};
 
 pub struct Export {
     pub is_first_it: bool,
@@ -59,12 +63,12 @@ impl Export {
                 // print!(" began exporting..");
                 self.exporting = true;
                 self.exporting_started_elapsed = elapsed as _;
-                self.remaining_duration_export = cfg.simu.export.duration as _;
-                time.set_time_step(cfg.simu.export.step);
+                self.remaining_duration_export = cfg.simulation.export.duration as _;
+                time.set_time_step(cfg.simulation.export.step);
             } else if self.cooldown_export - (dt as i64) < 0 {
                 // So export does not really start here, but the time step is adapted to not miss the beginning of export
                 // (in case export time step is smaller than simulation time step).
-                time.set_time_step(cfg.simu.export.step);
+                time.set_time_step(cfg.simulation.export.step);
             }
         }
 
@@ -75,7 +79,7 @@ impl Export {
 
             // print!(" remaining duration export({})..", self.remaining_duration_export);
 
-            if cfg.win.export_frames {
+            if cfg.window.export_frames {
                 let path = folders
                     .simu_rec_time_frames(self.exporting_started_elapsed as _)
                     .join(format!("{}.png", elapsed));
@@ -104,8 +108,8 @@ impl Export {
                 // print!(" finished exporting..");
                 self.exporting = false;
                 self.is_first_it_export = true;
-                self.cooldown_export = (cfg.simu.export.period - cfg.simu.export.duration) as _;
-                time.set_time_step(cfg.simu.step);
+                self.cooldown_export = (cfg.simulation.export.period - cfg.simulation.export.duration) as _;
+                time.set_time_step(cfg.simulation.step);
 
                 // let _cvg = kalast::simu::converge::check_all(&mut bodies, &folder_tpm, &cfg.time.export);
             }

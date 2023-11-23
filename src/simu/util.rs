@@ -1,4 +1,10 @@
-use crate::prelude::*;
+use crate::{
+    cosine_angle, simu::Scene, util::*, Asteroid, Body, CfgBody, CfgColormap, CfgFrameCenter,
+    CfgMeshKind, CfgMeshSource, CfgOrbitKepler, CfgOrbitSpeedControl, CfgState, CfgStateManual,
+    Material, Result, Surface, Window,
+};
+
+use itertools::{izip, Itertools};
 
 pub fn read_surface(cb: &CfgBody, kind: CfgMeshKind) -> Result<Surface> {
     let mesh = match kind {
@@ -44,8 +50,11 @@ pub fn read_surface_low(cb: &CfgBody) -> Result<Surface> {
 
 pub fn find_reference_matrix_orientation(cb: &CfgBody, other_bodies: &[&Body]) -> Mat4 {
     match &cb.state {
-        CfgState::Position(_pos) => Mat4::identity(),
-        CfgState::Path(_p) => Mat4::identity(),
+        CfgState::Manual(CfgStateManual {
+            position: _position,
+            orientation,
+        }) => glm::mat3_to_mat4(orientation),
+        CfgState::File(_p) => Mat4::identity(),
         CfgState::Orbit(orb) => match &orb.frame {
             CfgFrameCenter::Sun => Mat4::identity(),
             CfgFrameCenter::Body(id) => {
@@ -114,7 +123,7 @@ pub fn compute_cosine_incidence_angle(
     let matrix_normal: Mat3 =
         glm::mat4_to_mat3(&glm::inverse_transpose(body.asteroid.matrix_model));
     let normals_oriented = matrix_normal * normals;
-    flux::cosine_angle(&scene.sun_dir(), &normals_oriented)
+    cosine_angle(&scene.sun_dir(), &normals_oriented)
 }
 
 pub fn compute_cosine_emission_angle(
@@ -125,7 +134,7 @@ pub fn compute_cosine_emission_angle(
     let matrix_normal: Mat3 =
         glm::mat4_to_mat3(&glm::inverse_transpose(body.asteroid.matrix_model));
     let normals_oriented = matrix_normal * normals;
-    flux::cosine_angle(&scene.cam_dir(), &normals_oriented)
+    cosine_angle(&scene.cam_dir(), &normals_oriented)
 }
 
 pub fn compute_cosine_phase_angle(body: &Body, scene: &Scene) -> DRVector<Float> {

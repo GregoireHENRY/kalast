@@ -1,7 +1,37 @@
-use crate::prelude::*;
-use serde::{Deserialize, Serialize};
+use crate::Cfg;
 
-use std::env;
+use semver::Version;
+use serde::{Deserialize, Serialize};
+use std::{env, collections::HashMap};
+
+pub use nalgebra::{
+    self as na, DMatrix, DVector, DVectorView, Dyn, Matrix, Matrix3xX, MatrixView, RowDVector,
+    SMatrix, SVector, VecStorage, ViewStorage, U1, U2, U3, U4,
+};
+pub use nalgebra_glm::{self as glm, vec2, vec3, vec4};
+
+pub type Float = f64;
+pub const PI: Float = std::f64::consts::PI;
+pub const TAU: Float = std::f64::consts::TAU;
+
+pub type DRVector<T> = RowDVector<T>;
+pub type DRVectorView<'a, T> = Matrix<T, U1, Dyn, ViewStorage<'a, Float, U1, Dyn, Dyn, Dyn>>;
+pub type DRVectorRef<'a, T> = Matrix<T, U1, Dyn, ViewStorage<'a, Float, U1, Dyn, U1, Dyn>>;
+
+pub type Matrix4xX<T> = Matrix<T, U4, Dyn, VecStorage<T, U4, Dyn>>;
+
+pub type DMatrix2xXView<'a, T> = Matrix<T, U2, Dyn, ViewStorage<'a, Float, U2, Dyn, Dyn, Dyn>>;
+pub type DMatrix3xXView<'a, T> = Matrix<T, U3, Dyn, ViewStorage<'a, Float, U3, Dyn, Dyn, Dyn>>;
+pub type DMatrixView<'a, T> = Matrix<T, Dyn, Dyn, ViewStorage<'a, Float, Dyn, Dyn, Dyn, Dyn>>;
+
+pub type Vec2 = glm::DVec2;
+pub type Vec3 = glm::DVec3;
+pub type Vec4 = glm::DVec4;
+pub type Vec6 = nalgebra::SVector<Float, 6>;
+
+pub type Mat2 = glm::DMat2;
+pub type Mat3 = glm::DMat3;
+pub type Mat4 = glm::DMat4;
 
 /// [Astronomical unit](https://en.wikipedia.org/wiki/Astronomical_unit).
 pub const ASTRONOMICAL_UNIT: Float = 1.495978707e11;
@@ -132,7 +162,7 @@ pub fn check_if_latest_version(cfg: &Cfg) {
     if latest > version() {
         println!("A more recent version of kalast is available: {}.", latest);
 
-        if cfg.pref.auto_update {
+        if cfg.preferences.auto_update {
             unimplemented!("Auto-update is not yet implemented. Install newest version manually.");
         }
     }

@@ -1,5 +1,4 @@
-use crate::cfg::config::Configuration;
-use crate::prelude::*;
+use crate::{util::*, Colormap, Configuration, WINDOW_HEIGHT, WINDOW_WIDTH};
 
 use serde::{Deserialize, Serialize};
 
@@ -13,7 +12,7 @@ pub struct CfgWindow {
 
     #[serde(default)]
     pub fullscreen: bool,
-    
+
     #[serde(default)]
     pub background: Vec3,
 
@@ -76,11 +75,11 @@ impl Default for CfgWindow {
 }
 
 fn default_width() -> usize {
-    crate::win::window_settings::WINDOW_WIDTH
+    WINDOW_WIDTH
 }
 
 fn default_height() -> usize {
-    crate::win::window_settings::WINDOW_HEIGHT
+    WINDOW_HEIGHT
 }
 
 fn default_camera_speed() -> Float {

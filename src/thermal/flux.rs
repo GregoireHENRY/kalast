@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::util::*;
 
 pub fn cosine_angle(direction: &Vec3, normals: &Matrix3xX<Float>) -> DRVector<Float> {
     (-(-direction.transpose() * normals)).map(|x| x.max(0.0))

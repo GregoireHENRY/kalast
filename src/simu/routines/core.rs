@@ -1,4 +1,11 @@
-use crate::prelude::*;
+use crate::{
+    find_ref_orbit, find_reference_matrix_orientation, matrix_spin, position_in_inertial_frame,
+    simu::Scene, util::*, Asteroid, Body, CfgBody, CfgColormap, CfgState, CfgStateManual,
+    FoldersRun, Time, Window,
+};
+
+use downcast_rs::{impl_downcast, DowncastSync};
+use itertools::Itertools;
 
 pub trait RoutinesData {
     fn new(asteroid: &Asteroid, _cb: &CfgBody, _scene: &Scene) -> Self;
@@ -98,24 +105,27 @@ pub fn fn_update_matrix_model_default(
 
     let other_bodies = ii_other_bodies.iter().map(|&ii| &bodies[ii]).collect_vec();
 
-    let mat_orient_ref = simu::find_reference_matrix_orientation(cb, &other_bodies);
+    let mat_orient_ref = find_reference_matrix_orientation(cb, &other_bodies);
 
     let mat_spin = {
         if cb.spin.period == 0.0 {
             Mat4::identity()
         } else {
             let np_elapsed = elapsed as Float / cb.spin.period;
-            let spin = (TAU * np_elapsed + cb.spin.spin0) % TAU;
-            ast::matrix_spin(spin)
+            let spin = (TAU * np_elapsed + cb.spin.spin0 * RPD) % TAU;
+            matrix_spin(spin)
         }
     };
 
     let mat_translation = match &cb.state {
-        CfgState::Position(pos) => Mat4::new_translation(pos),
-        CfgState::Path(_p) => Mat4::identity(),
+        CfgState::Manual(CfgStateManual {
+            position,
+            orientation: _orientation,
+        }) => Mat4::new_translation(position),
+        CfgState::File(_p) => Mat4::identity(),
         CfgState::Orbit(orb) => {
-            let (mu_ref, factor) = simu::find_ref_orbit(&orb, &other_cbs);
-            let pos = orbit::position_in_inertial_frame(
+            let (mu_ref, factor) = find_ref_orbit(&orb, &other_cbs);
+            let pos = position_in_inertial_frame(
                 orb.a * factor,
                 orb.e,
                 orb.i * RPD,

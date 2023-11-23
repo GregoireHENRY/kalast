@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::util::*;
 
 /// Settings of scene.
 #[derive(Debug, Clone)]

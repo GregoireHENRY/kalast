@@ -1,4 +1,12 @@
-use crate::prelude::*;
+use crate::{
+    check_if_latest_version, read_surface_main, routines_thermal_default, routines_viewer_default,
+    simu::Scene, util::*, Asteroid, Body, Cfg, CfgCamera, CfgInterior, CfgInteriorGrid1D,
+    CfgRoutines, Export, FoldersRun, FrameEvent, Result, Routines, Time, Window,
+};
+
+use chrono::Utc;
+use itertools::{izip, Itertools};
+use std::{env, path::Path};
 
 pub struct Scenario {
     pub cfg: Cfg,
@@ -36,8 +44,8 @@ impl Scenario {
             dunce::canonicalize(&path).unwrap().to_str().unwrap()
         );
 
-        if !cfg.pref.do_not_check_latest_version {
-            util::check_if_latest_version(&cfg);
+        if !cfg.preferences.do_not_check_latest_version {
+            check_if_latest_version(&cfg);
         }
 
         let mut folders = FoldersRun::new(&cfg);
@@ -46,40 +54,40 @@ impl Scenario {
 
         let bodies: Vec<Body> = vec![];
 
-        let routines = match &cfg.simu.routines {
-            CfgRoutines::Viewer => Box::new(simu::routines_viewer_default()) as Box<dyn Routines>,
-            CfgRoutines::Thermal => Box::new(simu::routines_thermal_default()) as Box<dyn Routines>,
+        let routines = match &cfg.simulation.routines {
+            CfgRoutines::Viewer => Box::new(routines_viewer_default()) as Box<dyn Routines>,
+            CfgRoutines::Thermal => Box::new(routines_thermal_default()) as Box<dyn Routines>,
         };
 
-        let sun_pos = cfg.sun.position * AU;
-        let cam_pos = match cfg.cam {
+        let sun_pos = cfg.scene.sun.position * AU;
+        let cam_pos = match cfg.scene.camera {
             CfgCamera::Position(p) => p,
             CfgCamera::SunDirection(d) => sun_pos.normalize() * d,
         };
         let scene = Scene { sun_pos, cam_pos };
 
         let win = Window::with_settings(|s| {
-            s.width = cfg.win.width;
-            s.height = cfg.win.height;
-            s.background_color = cfg.win.background;
-            if cfg.win.high_dpi {
+            s.width = cfg.window.width;
+            s.height = cfg.window.height;
+            s.background_color = cfg.window.background;
+            if cfg.window.high_dpi {
                 s.high_dpi();
             }
-            s.colormap = cfg.win.colormap.name;
-            s.shadows = cfg.win.shadows;
-            s.ortho = cfg.win.orthographic;
-            s.camera_speed = cfg.win.camera_speed;
-            s.ambient_light_color = cfg.win.ambient;
-            s.wireframe = cfg.win.wireframe;
-            s.draw_normals = cfg.win.normals;
-            s.normals_magnitude = cfg.win.normals_length;
+            s.colormap = cfg.window.colormap.name;
+            s.shadows = cfg.window.shadows;
+            s.ortho = cfg.window.orthographic;
+            s.camera_speed = cfg.window.camera_speed;
+            s.ambient_light_color = cfg.window.ambient;
+            s.wireframe = cfg.window.wireframe;
+            s.draw_normals = cfg.window.normals;
+            s.normals_magnitude = cfg.window.normals_length;
         })
         .with_camera_position(&scene.cam_pos)
         .with_light_position(&scene.sun_pos_cubelight());
 
         let time = Time::new()
-            .with_time_step(cfg.simu.step)
-            .with_time_start(cfg.simu.start as _);
+            .with_time_step(cfg.simulation.step)
+            .with_time_start(cfg.simulation.start as _);
 
         Ok(Self {
             cfg,
@@ -100,7 +108,7 @@ impl Scenario {
 
     pub fn load_bodies(&mut self) -> Result<()> {
         for (_ii, cb) in self.cfg.bodies.iter().enumerate() {
-            let surface = simu::read_surface_main(cb)?;
+            let surface = read_surface_main(cb)?;
             let asteroid = Asteroid::new(surface);
 
             let asteroid = match &cb.interior {
@@ -170,7 +178,7 @@ impl Scenario {
         }
 
         let mut paused_stop = true;
-        let mut export = Export::new(&self.cfg.simu.export);
+        let mut export = Export::new(&self.cfg.simulation.export);
 
         'main_loop: loop {
             let event = self.win.events();
@@ -234,7 +242,7 @@ impl Scenario {
 
                 self.routines.fn_update_colormap(
                     &self.win,
-                    &self.cfg.win.colormap,
+                    &self.cfg.window.colormap,
                     ii_body,
                     &mut self.bodies[ii_body],
                     &self.scene,
@@ -261,7 +269,7 @@ impl Scenario {
             self.routines
                 .fn_end_of_iteration(&mut self.bodies, &self.time, &self.scene, &self.win);
 
-            if elapsed > self.cfg.simu.duration {
+            if elapsed > self.cfg.simulation.duration {
                 let time_calc = Utc::now().time() - *self.time.real_time();
                 println!(
                     "\nSimulation finished at JD: {}.\nComputation time: {:.3}s ({}it).",

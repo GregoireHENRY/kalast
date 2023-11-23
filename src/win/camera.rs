@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::util::*;
 
 use sdl2::keyboard::Keycode;
 
@@ -137,7 +137,7 @@ impl Camera {
             * 0.01
             * delta_time
             * self.position.magnitude();
-        
+
         self.position += delta_position;
         self.target += delta_position;
     }

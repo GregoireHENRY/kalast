@@ -1,6 +1,7 @@
 use crate::cfg::config::Configuration;
-use crate::prelude::*;
 
+use std::path::PathBuf;
+use directories::UserDirs;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::util::*;
 
 pub fn effective_temperature(
     position_sun: &Vec3,

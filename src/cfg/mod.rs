@@ -1,45 +1,64 @@
 /*!
-# Configure your scenarios.
+# Configuration
 
-To configure the scenario of your simulations, you can use an existing configuration or write your own config file.
-**kalast** will look for a folder named `cfg/` containing the configs files under the [yaml][url-yaml] format.
+## To configure your scenarios.
 
-The configuration is done using the following strcuture:
+A scenario configuration is a `cfg/` folder containing the configuration files using [yaml][url-yaml] format.
+You can use an existing configuration from [the examples][examples] or write your own config.
 
-- `cfg/bodies/ *.yaml` - [`CfgBody`]: the mesh, interior, materials, spin, orbit, ... for the body of your
-  simulation.
-  As there can be multiple bodies (for example two bodies for binary system of asteroids), the bodies are
-  configured in a folder called `cfg/bodies/` inside the `cfg/` folder. Each config file will be considered as a body.
-  The name of the body is its filename or can be forced by a variable called [`id`][CfgBody::id].
-- `cfg/camera.yaml` - [`CfgCamera`]: options for the position of the camera.
-- `cfg/sun.yaml` - [`CfgSun`]: options for the position of the Sun.
-- `cfg/simulation.yaml` - [`CfgSimulation`]: to configure the simulation and time.
-- `cfg/window.yaml` - [`CfgWindow`]: options for the window and rendering
-- `preferences.yaml` - [`CfgPreferences`]: for general preferences, is configured outside of the folder
-  `cfg/`, next to the executable.
-- `cfg/cfg.yaml` - [`Cfg`]: if you want, you can write everything mentioned above in a single file.
-  It is the parent config and regroup all of the above structure. For conflicts, this file is loaded first and the
-  files above are loaded after and will overwrite parameters.
+The configuration can be done in a single file or split in different files. 
 
+### Using a single file `cfg.yaml`
+
+The name of the file must be `cfg.yaml`, inside the config folder (i.e., `cfg/cfg.yaml`).
+The config can be customised with the [optional fields of the main `Cfg` structure][Cfg#fields].
+
+### Splitting the config into multiple files
+
+Each field of the main [`Cfg`] structure can written in a separate file. It leads to the following folder
+strcture:
+
+- `cfg/bodies/ *.yaml`: an additional folder called `bodies` in the config folder with as many config files inside
+as you want. Each file will be a new body, given that they are defined with unique name, using the [`CfgBody`
+configuration][CfgBody].
+- `cfg/scene.yaml`: a file using the [`CfgScene` configuration][CfgScene].
+- `cfg/simulation.yaml`: a file using the [`CfgSimulation` configuration][CfgSimulation].
+- `cfg/window.yaml`: a file using the [`CfgWindow` configuration][CfgWindow]
+- `cfg/preferences.yaml`: a file using the [`CfgPreferences` configuration][CfgPreferences]
+
+## General Preferences
+
+If you install an executable of **kalast**, you can see that a file `preferences.yaml` is also shipped, next to
+the executable. This serves as general preferences across your different configs. Local preferences will overwrite
+general preferences.
+
+## Also
+
+If you try to run **kalast** without config (i.e., no `cfg/` folder with no config inside), the default config
+will be used, defaulting each field of each structure.
+
+Variant of Enums for options are in CamelCase but corresponding values in yaml config files are snake_case.
+For example, see [`ColorMode`][crate::ColorMode].
+
+## What Next?
+
+Now you should read the documentation of the different config structures: [`Cfg`], [`CfgBody`], [`CfgScene`],
+[`CfgSimulation`], [`CfgWindow`], [`CfgPreferences`].
 
 [url-yaml]: https://yaml.org
+[examples]: https://github.com/GregoireHENRY/kalast/tree/main/examples
 */
 
-pub mod body;
-pub mod camera;
-pub mod config;
-pub mod preferences;
-pub mod simu;
-pub mod sun;
-pub mod window;
+mod body;
+mod scene;
+mod config;
+mod preferences;
+mod simu;
+mod window;
 
-pub use body::{
-    CfgBody, CfgFrameCenter, CfgInterior, CfgInteriorGrid1D, CfgMesh, CfgMeshKind, CfgMeshSource,
-    CfgOrbitKepler, CfgOrbitSpeedControl, CfgState, CfgTemperatureInit,
-};
-pub use camera::CfgCamera;
-pub use config::{read_cfg, Cfg, CfgError};
-pub use preferences::CfgPreferences;
-pub use simu::{CfgRoutines, CfgSimulation, CfgTimeExport};
-pub use sun::CfgSun;
-pub use window::{CfgColormap, CfgScalar, CfgWindow};
+pub use body::*;
+pub use scene::*;
+pub use config::*;
+pub use preferences::*;
+pub use simu::*;
+pub use window::*;

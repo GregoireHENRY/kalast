@@ -1,4 +1,8 @@
-use crate::prelude::*;
+use crate::{util::*, Interior, InteriorGrid, Surface};
+
+use itertools::Itertools;
+use polars::prelude::{CsvReader, SerReader};
+use std::path::Path;
 
 #[derive(Debug, Clone)]
 pub struct Asteroid {

@@ -1,4 +1,5 @@
-use crate::prelude::*;
+use crate::util::*;
+
 use serde::{Deserialize, Serialize};
 
 #[allow(unused)]
@@ -15,7 +16,20 @@ fn diffusivity(conductivity: Float, density: Float, heat_capacity: Float) -> Flo
     conductivity / (density * heat_capacity)
 }
 
-/// Material properties.
+/**
+# Configuration of Material for Surface of Body
+
+## Default
+
+```yaml
+albedo: 0.0
+emissivity: 1.0
+thermal_inertia: 0.0
+density: 0.0
+heat_capacity: 0.0
+```
+
+*/
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Material {
     /// The surface albedo defines the capacity to reflect the light.

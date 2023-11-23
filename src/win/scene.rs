@@ -1,8 +1,6 @@
-use crate::prelude::*;
+use crate::{util::*, Camera, Light, Surface, WindowSettings, VAO};
 
-use crate::win::camera::*;
-use crate::win::graphical_pipeline::VAO;
-use crate::win::lighting::*;
+use itertools::izip;
 
 #[derive(Debug, Clone)]
 pub struct Scene {

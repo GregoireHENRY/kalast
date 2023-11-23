@@ -22,8 +22,39 @@ Information on the configuration of your **kalast** scenarios are located at the
 
 pub mod ast;
 pub mod cfg;
-pub mod prelude;
 pub mod simu;
 pub mod thermal;
 pub mod util;
 pub mod win;
+
+pub use ast::*;
+pub use cfg::*;
+pub use simu::*;
+pub use thermal::*;
+pub use util::*;
+pub use win::*;
+
+#[cfg(feature = "rust_spice")]
+pub use spice;
+
+use snafu::prelude::*;
+
+pub type Result<T, E = Error> = std::result::Result<T, E>;
+
+#[derive(Debug, Snafu)]
+pub enum Error {
+    CfgError { source: CfgError },
+    SurfaceError { source: SurfaceError },
+}
+
+impl From<CfgError> for Error {
+    fn from(value: CfgError) -> Self {
+        Self::CfgError { source: value }
+    }
+}
+
+impl From<SurfaceError> for Error {
+    fn from(value: SurfaceError) -> Self {
+        Self::SurfaceError { source: value }
+    }
+}

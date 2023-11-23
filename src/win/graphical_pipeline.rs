@@ -1,11 +1,8 @@
-use crate::prelude::*;
-
-// use crate::element_rework::{Vertex};
-
-// use gl33::global_loader::*;
-// use gl33::*;
+use crate::util::*;
+use crate::{Vertex, Material, WindowSettings};
 
 use gl::types::*;
+use itertools::Itertools;
 
 use std::cell::RefCell;
 use std::convert::TryInto;

@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::{cartesian_to_spherical, fmt_str_tab, Material, util::*};
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -6,12 +6,18 @@ use std::fmt;
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum ColorMode {
+    /// Rendering diffuse lighting from shaders using normals of vertices and light direction.
+    /// In configuration, use `diffuse_light`.
     #[serde(rename = "diffuse_light")]
     DiffuseLight,
 
+    /// Rendering a color given to vertices.
+    /// In configuration, use `color`.
     #[serde(rename = "color")]
     Color,
 
+    /// Rendering a data given to vertices with a [colormap][crate::CfgColormap] configured for the window.
+    /// In configuration, use `data`.
     #[serde(rename = "data")]
     Data,
 }
@@ -37,11 +43,11 @@ fn averaged_material(a: &Material, b: &Material, c: &Material) -> Material {
     }
 }
 
-pub(crate) fn compute_normal(a: &Vec3, b: &Vec3, c: &Vec3) -> Vec3 {
+pub fn compute_normal(a: &Vec3, b: &Vec3, c: &Vec3) -> Vec3 {
     glm::normalize(&(b - a).cross(&(c - a)))
 }
 
-pub(crate) fn compute_area(a: &Vec3, b: &Vec3, c: &Vec3) -> Float {
+pub fn compute_area(a: &Vec3, b: &Vec3, c: &Vec3) -> Float {
     0.5 * (b - a).angle(&(c - a)).sin() * (b - a).magnitude() * (c - a).magnitude()
 }
 
@@ -92,7 +98,7 @@ impl fmt::Display for Vertex {
 
 impl Vertex {
     pub fn sph(&self) -> Vec3 {
-        util::cartesian_to_spherical(&self.position)
+        cartesian_to_spherical(&self.position)
     }
 }
 
@@ -108,7 +114,7 @@ impl fmt::Display for FaceData {
         write!(
             f,
             "Face:\n{}\n- area: {}",
-            util::fmt_str_tab(&format!("{}", self.vertex), 1),
+            fmt_str_tab(&format!("{}", self.vertex), 1),
             self.area
         )
     }

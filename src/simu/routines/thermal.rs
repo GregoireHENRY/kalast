@@ -1,4 +1,14 @@
-use crate::prelude::*;
+use crate::{
+    compute_cosine_emission_angle, compute_cosine_incidence_angle, compute_cosine_phase_angle,
+    effective_temperature, flux_solar_radiation, fn_setup_body_default, newton_method_temperature,
+    read_surface_low, shadows, simu::Scene, update_colormap_scalar, util::*, Asteroid, Body,
+    CfgBody, CfgColormap, CfgScalar, CfgTemperatureInit, FoldersRun, Routines, RoutinesData,
+    Surface, Time, Window,
+};
+
+use itertools::Itertools;
+use polars::prelude::{df, CsvWriter, DataFrame, NamedFrom, SerWriter, Series};
+use std::fs;
 
 pub struct ThermalData {
     pub depth_size: usize,
@@ -13,8 +23,8 @@ pub struct ThermalData {
     pub fluxes_solar: DRVector<Float>,
 }
 
-impl ThermalData {
-    pub fn new(asteroid: &Asteroid, cb: &CfgBody, scene: &Scene) -> Self {
+impl RoutinesData for ThermalData {
+    fn new(asteroid: &Asteroid, cb: &CfgBody, scene: &Scene) -> Self {
         let depth_grid = &asteroid.interior.as_ref().unwrap().as_grid().depth;
         let depth_size = depth_grid.len();
         let surf_size = asteroid.surface.faces.len();
@@ -22,7 +32,7 @@ impl ThermalData {
         let surf_low = cb
             .mesh_low
             .as_ref()
-            .and_then(|_| Some(simu::read_surface_low(cb).unwrap()));
+            .and_then(|_| Some(read_surface_low(cb).unwrap()));
 
         let albedos = DRVector::from_row_slice(
             &asteroid
@@ -80,19 +90,17 @@ impl ThermalData {
 
         let tmp = match &cb.temperature {
             CfgTemperatureInit::Effective(ratio) => {
+                let ratio = ratio.unwrap_or((1, 4));
+                let ratio = ratio.0 as Float / ratio.1 as Float;
+
                 let mat = asteroid.surface.faces[0].vertex.material;
-                let init = bound::effective_temperature(
-                    &scene.sun_pos,
-                    mat.albedo,
-                    mat.emissivity,
-                    *ratio,
-                );
+                let init = effective_temperature(&scene.sun_pos, mat.albedo, mat.emissivity, ratio);
                 DMatrix::<Float>::from_element(depth_size, surf_size, init)
             }
             CfgTemperatureInit::Scalar(scalar) => {
                 DMatrix::<Float>::from_element(depth_size, surf_size, *scalar)
             }
-            CfgTemperatureInit::Path(_p) => unimplemented!(),
+            CfgTemperatureInit::File(_p) => unimplemented!(),
         };
 
         let fluxes = DRVector::zeros(surf_size);
@@ -150,7 +158,7 @@ pub struct RoutinesThermalDefault {
 impl Routines for RoutinesThermalDefault {
     fn fn_setup_body(&mut self, asteroid: Asteroid, cb: &CfgBody, scene: &Scene) -> Body {
         self.data.push(ThermalData::new(&asteroid, cb, scene));
-        simu::fn_setup_body_default(asteroid, cb)
+        fn_setup_body_default(asteroid, cb)
     }
 
     fn fn_iteration_body(
@@ -174,7 +182,7 @@ impl Routines for RoutinesThermalDefault {
             let mut shadows_mutual: Vec<usize> = vec![];
 
             for other_body in other_bodies {
-                shadows_mutual = ray::shadows(
+                shadows_mutual = shadows(
                     &scene.sun_pos,
                     &bodies[ii_body].asteroid,
                     &other_body.asteroid,
@@ -219,7 +227,7 @@ impl Routines for RoutinesThermalDefault {
         body: &mut Body,
         scene: &Scene,
     ) {
-        fn_update_colormap_default(&self.data[ii_body], win, cmap, ii_body, body, scene);
+        fn_update_colormap_thermal_default(&self.data[ii_body], win, cmap, ii_body, body, scene);
     }
 
     fn fn_export_iteration(
@@ -230,7 +238,7 @@ impl Routines for RoutinesThermalDefault {
         folders: &FoldersRun,
         is_first_it: bool,
     ) {
-        fn_export_iteration_default(&self.data[ii_body], cb, time, folders, is_first_it);
+        fn_export_iteration_thermal_default(&self.data[ii_body], cb, time, folders, is_first_it);
     }
 
     fn fn_export_iteration_period(
@@ -242,7 +250,7 @@ impl Routines for RoutinesThermalDefault {
         exporting_started_elapsed: i64,
         is_first_it_export: bool,
     ) {
-        fn_export_iteration_period_default(
+        fn_export_iteration_period_thermal_default(
             &self.data[ii_body],
             cb,
             body,
@@ -311,8 +319,8 @@ pub fn fn_compute_solar_flux_default(
     body_info: &ThermalData,
     scene: &Scene,
 ) -> DRVector<Float> {
-    let cos_incidences = simu::compute_cosine_incidence_angle(body, &body.normals, scene);
-    flux::flux_solar_radiation(&cos_incidences, &body_info.albedos, scene.sun_dist())
+    let cos_incidences = compute_cosine_incidence_angle(body, &body.normals, scene);
+    flux_solar_radiation(&cos_incidences, &body_info.albedos, scene.sun_dist())
 }
 
 pub fn fn_compute_surface_temperatures_default(
@@ -322,7 +330,7 @@ pub fn fn_compute_surface_temperatures_default(
 ) -> DRVector<Float> {
     let depth_grid = &body.asteroid.interior.as_ref().unwrap().as_grid().depth;
 
-    bound::newton_method_temperature(
+    newton_method_temperature(
         body_info.tmp.row(0).as_view(),
         &surface_fluxes,
         &body_info.emissivities,
@@ -357,7 +365,7 @@ pub fn fn_compute_bottom_depth_temperatures_default(
     body_info.tmp.row(body_info.depth_size - 2).clone_owned()
 }
 
-pub fn fn_update_colormap_default(
+pub fn fn_update_colormap_thermal_default(
     data: &ThermalData,
     win: &Window,
     cmap: &CfgColormap,
@@ -367,13 +375,13 @@ pub fn fn_update_colormap_default(
 ) {
     let scalars = match &cmap.scalar {
         Some(CfgScalar::AngleIncidence) => {
-            simu::compute_cosine_incidence_angle(body, &body.normals, scene).map(|a| a.acos() * DPR)
+            compute_cosine_incidence_angle(body, &body.normals, scene).map(|a| a.acos() * DPR)
         }
         Some(CfgScalar::AngleEmission) => {
-            simu::compute_cosine_emission_angle(body, &body.normals, scene).map(|a| a.acos() * DPR)
+            compute_cosine_emission_angle(body, &body.normals, scene).map(|a| a.acos() * DPR)
         }
         Some(CfgScalar::AnglePhase) => {
-            simu::compute_cosine_phase_angle(body, scene).map(|a| a.acos() * DPR)
+            compute_cosine_phase_angle(body, scene).map(|a| a.acos() * DPR)
         }
         Some(CfgScalar::FluxSolar) => data.fluxes_solar.clone(),
         Some(CfgScalar::FluxSurface) => data.fluxes.clone(),
@@ -383,10 +391,10 @@ pub fn fn_update_colormap_default(
         None | Some(CfgScalar::Temperature) => data.tmp.row(0).into_owned(),
     };
 
-    simu::update_colormap_scalar(win, cmap, scalars.as_slice(), &mut body.asteroid, ii_body);
+    update_colormap_scalar(win, cmap, scalars.as_slice(), &mut body.asteroid, ii_body);
 }
 
-pub fn fn_export_iteration_default(
+pub fn fn_export_iteration_thermal_default(
     data: &ThermalData,
     cb: &CfgBody,
     time: &Time,
@@ -431,7 +439,7 @@ pub fn fn_export_iteration_default(
         .unwrap();
 }
 
-pub fn fn_export_iteration_period_default(
+pub fn fn_export_iteration_period_thermal_default(
     data: &ThermalData,
     cb: &CfgBody,
     _body: &Body,

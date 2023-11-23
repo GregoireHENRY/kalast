@@ -1,4 +1,6 @@
-use crate::prelude::*;
+use crate::util::*;
+
+use sdl2::video::FullscreenType;
 use serde::{Deserialize, Serialize};
 
 pub const WINDOW_WIDTH: usize = 640;

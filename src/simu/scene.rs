@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::util::*;
 
 pub struct Scene {
     pub sun_pos: Vec3,

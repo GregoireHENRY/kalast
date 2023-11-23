@@ -1,4 +1,9 @@
-use crate::prelude::*;
+use crate::Cfg;
+
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 pub fn find_new_name_run<P: AsRef<Path>>(path_runs: P) -> Option<PathBuf> {
     let path_runs = path_runs.as_ref();
@@ -19,7 +24,7 @@ pub struct FoldersRun {
 
 impl FoldersRun {
     pub fn new(cfg: &Cfg) -> Self {
-        let path = find_new_name_run(&cfg.pref.runs).unwrap();
+        let path = find_new_name_run(&cfg.preferences.runs).unwrap();
 
         Self { path }
     }

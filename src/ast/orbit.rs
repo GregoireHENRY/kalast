@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::{NEWTON_METHOD_THRESHOLD, NUMBER_ITERATION_FAIL, util::*};
 
 pub fn mean_angular_motion(gravitational_parameter: Float, semi_major_axis: Float) -> Float {
     (gravitational_parameter / semi_major_axis.powi(3)).sqrt()

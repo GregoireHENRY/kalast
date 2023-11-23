@@ -1,8 +1,16 @@
-use crate::prelude::*;
+use crate::{CfgBody, CfgPreferences, CfgScene, CfgSimulation, CfgWindow};
 
+use itertools::Itertools;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_yaml::{self, Value};
+use snafu::prelude::*;
+use std::{
+    collections::HashMap,
+    io,
+    path::{Path, PathBuf},
+};
 
+const ID_RESERVED: usize = std::usize::MAX;
 pub const CFG_THERMAL_STR: &str = include_str!("../../examples/thermal/cfg/cfg.yaml");
 pub const CFG_THERMAL_BINARY_STR: &str = include_str!("../../examples/thermal-binary/cfg/cfg.yaml");
 pub const CFG_THERMAL_TRIANGLE_STR: &str =
@@ -99,24 +107,24 @@ pub fn path_cfg<P: AsRef<Path>>(p: P) -> PathBuf {
     p.as_ref().join("cfg.yaml")
 }
 
-pub fn path_pref<P: AsRef<Path>>(_p: P) -> PathBuf {
+pub fn path_pref_global() -> PathBuf {
     Path::new("./preferences.yaml").to_path_buf()
 }
 
-pub fn path_win<P: AsRef<Path>>(p: P) -> PathBuf {
+pub fn path_pref_local<P: AsRef<Path>>(p: P) -> PathBuf {
+    p.as_ref().join("preferences.yaml")
+}
+
+pub fn path_window<P: AsRef<Path>>(p: P) -> PathBuf {
     p.as_ref().join("window.yaml")
 }
 
-pub fn path_simu<P: AsRef<Path>>(p: P) -> PathBuf {
+pub fn path_simulation<P: AsRef<Path>>(p: P) -> PathBuf {
     p.as_ref().join("simulation.yaml")
 }
 
-pub fn path_sun<P: AsRef<Path>>(p: P) -> PathBuf {
-    p.as_ref().join("sun.yaml")
-}
-
-pub fn path_cam<P: AsRef<Path>>(p: P) -> PathBuf {
-    p.as_ref().join("camera.yaml")
+pub fn path_scene<P: AsRef<Path>>(p: P) -> PathBuf {
+    p.as_ref().join("scene.yaml")
 }
 
 pub fn path_bodies_dir<P: AsRef<Path>>(p: P) -> PathBuf {
@@ -132,86 +140,126 @@ pub fn path_bodies<P: AsRef<Path>>(p: P) -> Vec<PathBuf> {
 
 pub trait Configuration: Serialize + DeserializeOwned {}
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+/**
+# Configuration
+
+For the moment, no high-level documentation of `Cfg`.
+Read [the existing examples][examples] and adapt them with the definition of `Cfg`.
+
+You can read [`CfgBody`] for preliminary documentation of the configuration for the bodies.
+
+[examples]: https://github.com/GregoireHENRY/kalast/tree/main/examples
+*/
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Cfg {
     #[serde(default)]
-    pub base: Option<CfgBase>,
-
-    #[serde(default)]
-    pub pref: CfgPreferences,
-
-    #[serde(default)]
-    pub win: CfgWindow,
-
-    #[serde(default)]
-    pub simu: CfgSimulation,
-
-    #[serde(default)]
-    pub sun: CfgSun,
-
-    #[serde(default)]
-    pub cam: CfgCamera,
+    base: Option<CfgBase>,
 
     #[serde(default)]
     pub bodies: Vec<CfgBody>,
 
-    #[serde(flatten)]
-    pub extra: HashMap<String, Value>,
-}
+    #[serde(default)]
+    pub scene: CfgScene,
 
-impl Configuration for Cfg {}
+    #[serde(default)]
+    pub simulation: CfgSimulation,
+
+    #[serde(default)]
+    pub window: CfgWindow,
+
+    #[serde(default)]
+    pub preferences: CfgPreferences,
+
+    #[serde(flatten)]
+    extra: HashMap<String, Value>,
+
+    #[serde(default = "default_id_last")]
+    id_last: usize,
+}
 
 impl Cfg {
     pub fn new_from<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
         let cfg_path = path_cfg(path);
 
-        let mut cfg = if let Some(Ok(cfg)) = read_cfg_if_exists::<_, Cfg>(&cfg_path) {
-            // TODO: finish base argument
-            if let Some(base) = cfg.base.as_ref() {
-                let _base_cfg = match base {
-                    CfgBase::Cfg(base) => base.load(),
-                    CfgBase::Path(_p) => unimplemented!(), //Self::new_from(p)?
-                };
-            }
+        let mut cfg = if let Some(cfg) = read_cfg_if_exists::<_, Cfg>(&cfg_path) {
+            match cfg {
+                Ok(mut cfg) => {
+                    // TODO: finish base argument
+                    if let Some(base) = cfg.base.as_ref() {
+                        let _base_cfg = match base {
+                            CfgBase::Cfg(base) => base.load(),
+                            CfgBase::Path(_p) => unimplemented!(), //Self::new_from(p)?
+                        };
+                    }
 
-            cfg
+                    // Check body IDs to make them unique from loading order if necessary.
+                    for indices_bodies in (0..cfg.bodies.len()).permutations(cfg.bodies.len()) {
+                        let (&ii_body, ii_other_bodies) = indices_bodies.split_first().unwrap();
+
+                        if cfg.bodies[ii_body].id == super::body::default_body_id() {
+                            if cfg.id_last == ID_RESERVED {
+                                cfg.id_last = 0;
+                            } else {
+                                cfg.id_last += 1;
+                            }
+
+                            loop {
+                                for &ii_other_body in ii_other_bodies {
+                                    if cfg.id_last.to_string() == cfg.bodies[ii_other_body].id {
+                                        cfg.id_last += 1;
+                                        break;
+                                    }
+                                }
+
+                                break;
+                            }
+
+                            cfg.bodies[ii_body].id = cfg.id_last.to_string();
+                        }
+                    }
+
+                    cfg
+                }
+                Err(e) => panic!("{}", e),
+            }
         } else {
             Self::default()
         };
 
-        let cfg_pref_path = path_pref(path);
-        let cfg_win_path = path_win(path);
-        let cfg_simu_path = path_simu(path);
-        let cfg_sun_path = path_sun(path);
-        let cfg_cam_path = path_cam(path);
+        let cfg_pref_path_global = path_pref_global();
+        let cfg_pref_path_local = path_pref_local(path);
+        let cfg_win_path = path_window(path);
+        let cfg_simu_path = path_simulation(path);
+        let cfg_scene_path = path_scene(path);
         let cfg_bodies_paths = path_bodies(path);
 
-        if let Some(Ok(pref)) = read_cfg_if_exists(&cfg_pref_path) {
-            cfg.pref = pref;
+        if let Some(Ok(pref)) = read_cfg_if_exists(&cfg_pref_path_global) {
+            cfg.preferences = pref;
+        }
+
+        if let Some(Ok(pref)) = read_cfg_if_exists(&cfg_pref_path_local) {
+            cfg.preferences = pref;
         }
 
         if let Some(Ok(win)) = read_cfg_if_exists(&cfg_win_path) {
-            cfg.win = win;
+            cfg.window = win;
         }
 
         if let Some(Ok(simu)) = read_cfg_if_exists(&cfg_simu_path) {
-            cfg.simu = simu;
+            cfg.simulation = simu;
         }
 
-        if let Some(Ok(sun)) = read_cfg_if_exists(&cfg_sun_path) {
-            cfg.sun = sun;
-        }
-
-        if let Some(Ok(cam)) = read_cfg_if_exists(&cfg_cam_path) {
-            cfg.cam = cam;
+        if let Some(Ok(scene)) = read_cfg_if_exists(&cfg_scene_path) {
+            cfg.scene = scene;
         }
 
         for p in &cfg_bodies_paths {
             if let Some(Ok(mut body)) = read_cfg_if_exists::<_, CfgBody>(p) {
-                if body.id == "!empty" {
+                if body.id == super::body::default_body_id() {
                     body.id = p.file_stem().unwrap().to_str().unwrap().to_string();
                 }
+
                 for (ii, oth_body) in cfg.bodies.iter().enumerate() {
                     if oth_body.id == body.id {
                         cfg.bodies.remove(ii);
@@ -222,6 +270,8 @@ impl Cfg {
             }
         }
 
+        dbg!(&cfg.bodies[0]);
+
         Ok(cfg)
     }
 
@@ -230,6 +280,31 @@ impl Cfg {
         let parent = file.parent().unwrap();
         Self::new_from(parent)
     }
+
+    pub fn extra(&self) -> &HashMap<String, Value> {
+        &self.extra
+    }
+}
+
+impl Configuration for Cfg {}
+
+impl Default for Cfg {
+    fn default() -> Self {
+        Self {
+            base: None,
+            bodies: vec![],
+            scene: CfgScene::default(),
+            simulation: CfgSimulation::default(),
+            window: CfgWindow::default(),
+            preferences: CfgPreferences::default(),
+            extra: HashMap::new(),
+            id_last: ID_RESERVED,
+        }
+    }
+}
+
+fn default_id_last() -> usize {
+    ID_RESERVED
 }
 
 // #[serde(untagged)]

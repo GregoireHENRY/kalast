@@ -1,12 +1,12 @@
-use crate::prelude::*;
+use crate::{compute_normal, util::*, FaceData, Vertex};
 
-use crate::ast::element::compute_normal;
-
-use serde::Deserialize;
-use serde::Serialize;
-use snafu::Location;
-use std::fmt::Display;
-use std::path::Path;
+use itertools::{izip, Itertools};
+use serde::{Deserialize, Serialize};
+use snafu::{prelude::*, Location};
+use std::{
+    fmt::Display,
+    path::{Path, PathBuf},
+};
 use tobj::LoadError;
 
 #[allow(unused)]

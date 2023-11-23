@@ -1,6 +1,4 @@
-use crate::prelude::*;
-
-use crate::win::graphical_pipeline::Projection;
+use crate::{util::*, Shapes, Surface, Projection};
 
 /// The lighting manager.
 ///

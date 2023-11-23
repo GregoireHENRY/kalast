@@ -1,5 +1,4 @@
-use crate::cfg::config::Configuration;
-use crate::prelude::*;
+use crate::{util::*, Configuration};
 
 use serde::{Deserialize, Serialize};
 

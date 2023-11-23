@@ -1,4 +1,6 @@
-use crate::prelude::*;
+use crate::{vec3_to_4_one, Asteroid, util::*};
+
+use itertools::izip;
 
 fn point_in_or_on(p1: &Vec3, p2: &Vec3, a: &Vec3, b: &Vec3) -> bool {
     let cp1 = (b - a).cross(&(p1 - a));
@@ -75,10 +77,10 @@ pub fn intersect_asteroids(
 
     for (surface_index, &asteroid) in asteroids.iter().enumerate() {
         let raystart =
-            (glm::inverse(&asteroid.matrix_model) * util::vec3_to_4_one(&raystart_world)).xyz();
+            (glm::inverse(&asteroid.matrix_model) * vec3_to_4_one(&raystart_world)).xyz();
 
         let rayend = (glm::inverse(&asteroid.matrix_model)
-            * util::vec3_to_4_one(&(raystart_world + raydir_world)))
+            * vec3_to_4_one(&(raystart_world + raydir_world)))
         .xyz();
         let raydir = (rayend - raystart).normalize();
 
@@ -137,8 +139,8 @@ pub fn shadows(lightpos_world: &Vec3, asteroid1: &Asteroid, asteroid2: &Asteroid
     let inv_m2_m1 = inv_m2 * asteroid1.matrix_model;
 
     // In frame of asteroids.
-    let lightpos_f2 = (inv_m2 * util::vec3_to_4_one(&lightpos_world)).xyz();
-    let lightpos_f1 = (inv_m1 * util::vec3_to_4_one(&lightpos_world)).xyz();
+    let lightpos_f2 = (inv_m2 * vec3_to_4_one(&lightpos_world)).xyz();
+    let lightpos_f1 = (inv_m1 * vec3_to_4_one(&lightpos_world)).xyz();
 
     // Filtering out faces that cannot be shadowed because they don't see the Sun.
     for (index, face) in asteroid1
@@ -150,7 +152,7 @@ pub fn shadows(lightpos_world: &Vec3, asteroid1: &Asteroid, asteroid2: &Asteroid
     {
         // In frame of asteroid2.
         let _area_sqrt = face.area.sqrt();
-        let center_f2 = (inv_m2_m1 * util::vec3_to_4_one(&face.vertex.position)).xyz();
+        let center_f2 = (inv_m2_m1 * vec3_to_4_one(&face.vertex.position)).xyz();
         let raydist = (center_f2 - lightpos_f2).magnitude();
         let raydir = (center_f2 - lightpos_f2).normalize();
 
