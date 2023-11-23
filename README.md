@@ -15,7 +15,7 @@
 
 Latest executables of **kalast** [can be downloaded here][releases].
 
-*kalast* can also be used as a library in Rust.
+**kalast** can also be used as a library in Rust.
 Add the dependency to your `Cargo.toml`:
 
 ```toml
