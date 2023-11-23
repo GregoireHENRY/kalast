@@ -1,4 +1,4 @@
-use crate::{util::*, Configuration};
+use crate::{util::*, CfgStateAstronomical, CfgStateCartesian, Configuration};
 
 use serde::{Deserialize, Serialize};
 
@@ -23,36 +23,39 @@ impl Default for CfgScene {
 impl Configuration for CfgScene {}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(untagged)]
 pub enum CfgCamera {
     #[serde(rename = "position")]
     Position(Vec3),
 
-    // The Float is distance from origin of frame.
-    #[serde(rename = "sun_direction")]
-    SunDirection(Float),
+    /// Camera in from the direction of the Sun (Sun behind camera).
+    /// The float is the distance from the center of frame to the camera.
+    #[serde(rename = "sun")]
+    Sun(Float),
+
+    #[serde(rename = "earth")]
+    Earth(Float),
 }
 
 impl Default for CfgCamera {
     fn default() -> Self {
-        Self::SunDirection(5.0)
+        Self::Sun(5.0)
     }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct CfgSun {
-    #[serde(default = "default_sun_position")]
-    pub position: Vec3,
+#[serde(tag = "type")]
+pub enum CfgSun {
+    #[serde(rename = "cartesian")]
+    #[serde(alias = "cart")]
+    Cartesian(CfgStateCartesian),
+
+    #[serde(rename = "astronomical")]
+    #[serde(alias = "astro")]
+    Astronomical(CfgStateAstronomical),
 }
 
 impl Default for CfgSun {
     fn default() -> Self {
-        Self {
-            position: default_sun_position(),
-        }
+        Self::Cartesian(CfgStateCartesian::default())
     }
-}
-
-fn default_sun_position() -> Vec3 {
-    Vec3::x()
 }

@@ -473,7 +473,8 @@ fn default_spin_axis() -> Vec3 {
 
 [Three `type`s are available][CfgState#variants]:
 
-- [`manual`][CfgStateManual]: [manually configuring position and/or orientation matrix][CfgStateManual]
+- [`cartesian`][CfgStateCartesian]:
+  [configuring position and/or orientation matrix from cartesian coordinates][CfgStateCartesian]
 - [`orbit`][CfgOrbitKepler]: [defining an orbit][CfgOrbitKepler]
 - `file`: reading state from a file (unimplemented)
 
@@ -488,7 +489,7 @@ Use the field `type` followed by one of the three options, and then the actual v
 #### Type Manual
 
 ```yaml
-type: manual
+type: cartesian
 position: [1.0, 0.0, 0.0]
 ```
 
@@ -504,23 +505,29 @@ e: 0.5
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum CfgState {
-    #[serde(rename = "manual")]
-    Manual(CfgStateManual),
+    #[serde(rename = "cartesian")]
+    #[serde(alias = "cart")]
+    Cartesian(CfgStateCartesian),
+    
+    #[serde(rename = "astronomical")]
+    #[serde(alias = "astro")]
+    Astronomical(CfgStateAstronomical),
 
     #[serde(rename = "orbit")]
     Orbit(CfgOrbitKepler),
 
-    #[serde(rename = "path")]
+    #[serde(rename = "file")]
     File(PathBuf),
 }
 
 impl Default for CfgState {
     fn default() -> Self {
-        Self::Manual(CfgStateManual::default())
+        Self::Cartesian(CfgStateCartesian::default())
     }
 }
+
 /**
-# Manual Configuration of Position and Orientation of Body
+# Manual Configuration of Position and Orientation of Body from Cartesian Coordinates
 
 ## Default
 
@@ -535,7 +542,7 @@ orientation: [
 
 */
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct CfgStateManual {
+pub struct CfgStateCartesian {
     /// Position of the body.
     /// Default is `[0.0, 0.0, 0.0]`
     #[serde(default)]
@@ -547,7 +554,7 @@ pub struct CfgStateManual {
     pub orientation: Mat3,
 }
 
-impl Default for CfgStateManual {
+impl Default for CfgStateCartesian {
     fn default() -> Self {
         Self {
             position: Vec3::zeros(),
@@ -559,6 +566,54 @@ impl Default for CfgStateManual {
 fn default_orientation() -> Mat3 {
     Mat3::identity()
 }
+
+/**
+# Manual Configuration of Position and Orientation of Body from Astronomical Coordinates
+
+## Default
+
+```yaml
+position: [0, 0, 0]
+orientation: [
+  1, 0, 0,
+  0, 1, 0,
+  0, 0, 1
+]
+```
+
+*/
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CfgStateAstronomical {
+    /// Right ascension of the body.
+    /// Default is `00 00 00.000`
+    #[serde(default = "default_right_ascension")]
+    #[serde(alias = "RA")]
+    pub right_ascension: String,
+    
+    /// Declination of the body.
+    /// Default is `00 00 00.000`
+    #[serde(default = "default_declination")]
+    #[serde(alias = "DEC")]
+    pub declination: String,
+}
+
+impl Default for CfgStateAstronomical {
+    fn default() -> Self {
+        Self {
+            right_ascension: default_right_ascension(),
+            declination: default_declination(),
+        }
+    }
+}
+
+fn default_right_ascension() -> String {
+    "00 00 00.000".to_string()
+}
+
+fn default_declination() -> String {
+    "00 00 00.000".to_string()
+}
+
 /**
 # Configuration of the Orbit of the Body
 

@@ -1,0 +1,22 @@
+window:
+  export_frames: true
+    
+simulation:
+  step: 60
+  duration: 8136
+  export:
+    step: 60
+    duration: 8136
+
+scene:
+  sun: [1.0, 0.0, 0.0]
+  camera: [2.0, 0.0, 0.0]
+
+bodies:
+  - mesh:
+      shape: sphere
+      factor: [0.4095, 0.4005, 0.3035]
+    material:
+      albedo: 0.1
+    spin:
+      period: 8136

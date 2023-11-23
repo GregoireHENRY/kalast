@@ -1,7 +1,8 @@
 use crate::{
     check_if_latest_version, read_surface_main, routines_thermal_default, routines_viewer_default,
     simu::Scene, util::*, Asteroid, Body, Cfg, CfgCamera, CfgInterior, CfgInteriorGrid1D,
-    CfgRoutines, Export, FoldersRun, FrameEvent, Result, Routines, Time, Window,
+    CfgRoutines, CfgStateAstronomical, CfgStateCartesian, CfgSun, Export, FoldersRun, FrameEvent,
+    Result, Routines, Time, Window,
 };
 
 use chrono::Utc;
@@ -59,11 +60,24 @@ impl Scenario {
             CfgRoutines::Thermal => Box::new(routines_thermal_default()) as Box<dyn Routines>,
         };
 
-        let sun_pos = cfg.scene.sun.position * AU;
-        let cam_pos = match cfg.scene.camera {
-            CfgCamera::Position(p) => p,
-            CfgCamera::SunDirection(d) => sun_pos.normalize() * d,
+        let sun_pos = match &cfg.scene.sun {
+            CfgSun::Cartesian(CfgStateCartesian { position, .. }) => position * AU,
+            CfgSun::Astronomical(CfgStateAstronomical {
+                right_ascension,
+                declination,
+            }) => Vec3::x() * AU,
         };
+
+        // If camera is from Earth, we cannot give a correct value for position now.
+        // This is because in the background the simulation is always centered on the asteroid.
+        // So we wait until we have information on asteroid position with respect to Earth and then we invert it
+        // to place Earth from asteroid to make our simulation happy.
+        // Happy because otherwise it would be a mess to move camera and projection frustrum from developer side.
+        let cam_pos = match &cfg.scene.camera {
+            CfgCamera::Position(p) => *p,
+            CfgCamera::Sun(d) | CfgCamera::Earth(d) => sun_pos.normalize() * *d,
+        };
+
         let scene = Scene { sun_pos, cam_pos };
 
         let win = Window::with_settings(|s| {
