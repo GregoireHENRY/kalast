@@ -270,8 +270,6 @@ impl Cfg {
             }
         }
 
-        dbg!(&cfg.bodies[0]);
-
         Ok(cfg)
     }
 
