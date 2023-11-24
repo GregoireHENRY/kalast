@@ -1,4 +1,6 @@
-use crate::{util::*, ColorMode, Configuration, Equatorial, Material, Shapes, AstronomicalAngle, CfgSun};
+use crate::{
+    util::*, AstronomicalAngle, CfgSun, ColorMode, Configuration, Equatorial, Material, Shapes,
+};
 
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
@@ -521,11 +523,7 @@ pub enum CfgState {
 impl CfgState {
     pub fn as_equatorial(&self) -> Equatorial {
         match self {
-            Self::Equatorial(CfgStateEquatorial { ra, dec }) => {
-                let ra = AstronomicalAngle::from_hms(ra).unwrap();
-                let dec = AstronomicalAngle::from_dms(dec).unwrap();
-                Equatorial::new(ra, dec)
-            }
+            Self::Equatorial(coords) => coords.parse(),
             _ => panic!("nono"),
         }
     }
@@ -606,6 +604,14 @@ pub struct CfgStateEquatorial {
     #[serde(default = "default_declination")]
     #[serde(alias = "declination")]
     pub dec: String,
+}
+
+impl CfgStateEquatorial {
+    pub fn parse(&self) -> Equatorial {
+        let ra = AstronomicalAngle::from_hms(&self.ra).unwrap();
+        let dec = AstronomicalAngle::from_dms(&self.dec).unwrap();
+        Equatorial::new(ra, dec)
+    }
 }
 
 impl Default for CfgStateEquatorial {

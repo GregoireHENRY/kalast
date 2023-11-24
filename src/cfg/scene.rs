@@ -1,4 +1,6 @@
-use crate::{util::*, CfgStateCartesian, CfgStateEquatorial, Configuration, Equatorial, AstronomicalAngle};
+use crate::{
+    util::*, AstronomicalAngle, CfgStateCartesian, CfgStateEquatorial, Configuration, Equatorial,
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -57,11 +59,7 @@ pub enum CfgSun {
 impl CfgSun {
     pub fn as_equatorial(&self) -> Equatorial {
         match self {
-            Self::Equatorial(CfgStateEquatorial { ra, dec }) => {
-                let ra = AstronomicalAngle::from_hms(ra).unwrap();
-                let dec = AstronomicalAngle::from_dms(dec).unwrap();
-                Equatorial::new(ra, dec)
-            }
+            Self::Equatorial(coords) => coords.parse(),
             _ => panic!("nono"),
         }
     }
