@@ -12,9 +12,9 @@ scene:
   camera:
     !earth 2.0
   sun:
-    type: astronomical
-    RA: 12 12 22.42
-    DEC: -01 20 20.3
+    type: equatorial
+    ra: 12h12m22.42s
+    dec: -01°20'20.3"
 
 bodies:
   - mesh:
@@ -26,6 +26,6 @@ bodies:
     spin:
       period: 8136
     state:
-      type: astronomical
-      RA: 3 21 43.477
-      DEC: -33 22 44.57
+      type: equatorial
+      ra: 03h21m43.477s
+      dec: -33°22'44.57"
