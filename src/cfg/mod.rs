@@ -7,7 +7,7 @@ A scenario configuration is a `cfg/` folder containing the configuration files u
 You can use an existing configuration from [the examples][examples] or write your own configuration.
 The `cfg/` folder must be located next to the executable.
 
-The configuration can be a single file or split in different files. 
+The configuration can be a single file or split in different files.
 
 ### Using a single file `cfg.yaml`
 
@@ -52,15 +52,15 @@ Now you should read the documentation of the different config structures: [`Cfg`
 */
 
 mod body;
-mod scene;
 mod config;
 mod preferences;
+mod scene;
 mod simulation;
 mod window;
 
 pub use body::*;
-pub use scene::*;
 pub use config::*;
 pub use preferences::*;
+pub use scene::*;
 pub use simulation::*;
 pub use window::*;

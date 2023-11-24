@@ -1,4 +1,4 @@
-use crate::{vec3_to_4_one, Asteroid, util::*};
+use crate::{util::*, vec3_to_4_one, Asteroid};
 
 use itertools::izip;
 

@@ -1,7 +1,161 @@
-use crate::{NEWTON_METHOD_THRESHOLD, NUMBER_ITERATION_FAIL, util::*};
+use crate::{util::*, NEWTON_METHOD_THRESHOLD, NUMBER_ITERATION_FAIL};
 
-pub struct AstronomicalCoordinates {
-    
+use regex::Regex;
+use snafu::{prelude::*, Location};
+use std::str::FromStr;
+use uom::{
+    si::{angle::radian, f64::Angle},
+    str::ParseQuantityError,
+};
+
+pub type Result<T, E = AstronomicalAngleConversionError> = std::result::Result<T, E>;
+
+#[derive(Debug, Snafu)]
+pub enum AstronomicalAngleConversionError {
+    AngleParsingError {
+        source: ParseQuantityError,
+        location: Location,
+    },
+    RegexParsingError {
+        source: regex::Error,
+        location: Location,
+    },
+    NotDMS {
+        location: Location,
+        missing: DMS,
+    },
+    NotHMS {
+        location: Location,
+        missing: HMS,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub enum DMS {
+    D,
+    M,
+    S,
+}
+
+#[derive(Debug, Clone)]
+pub enum HMS {
+    H,
+    M,
+    S,
+}
+
+#[derive(Debug, Clone)]
+pub enum AstronomicalAngleOptions {
+    Value,
+    HMS,
+    DMS,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct AstronomicalAngle {
+    pub angle: Angle,
+}
+
+impl AstronomicalAngle {
+    pub fn new(angle: Angle) -> Self {
+        Self { angle }
+    }
+
+    pub fn parse(_s: &str) -> Result<Self> {
+        todo!()
+    }
+
+    pub fn from_value(s: &str) -> Result<Self> {
+        s.parse::<Angle>()
+            .context(AngleParsingSnafu {})
+            .and_then(|angle| Ok(Self::new(angle)))
+    }
+
+    pub fn from_hms(s: &str) -> Result<Self> {
+        // To find the int hours: \d{1,2}h
+        // To find the int minutes: \d{1,2}m
+        // To find the float seconds: [+-]?(\d+([.]\d*)?([eE][+-]?\d+)?|[.]\d+([eE][+-]?\d+)?)s
+        let re = Regex::new(r"^(?<h>\d{1,2})h(?<m>\d{1,2})m(?<s>[+-]?(\d+([.]\d*)?([eE][+-]?\d+)?|[.]\d+([eE][+-]?\d+)?))s$").context(RegexParsingSnafu)?;
+
+        let caps = re.captures_iter(s).next().unwrap();
+
+        let h = caps
+            .name("h")
+            .context(NotHMSSnafu { missing: HMS::H })?
+            .as_str()
+            .parse::<u8>()
+            .unwrap();
+        let m = caps
+            .name("m")
+            .context(NotHMSSnafu { missing: HMS::M })?
+            .as_str()
+            .parse::<u8>()
+            .unwrap();
+        let s = caps
+            .name("s")
+            .context(NotHMSSnafu { missing: HMS::S })?
+            .as_str()
+            .parse::<f64>()
+            .unwrap();
+
+        let radians =
+            h as f64 * RPH + m as f64 * RADIANS_PER_MINUTE_HMS + s * RADIANS_PER_SECOND_HMS;
+
+        Ok(Self::new(Angle::new::<radian>(radians)))
+    }
+
+    pub fn from_dms(s: &str) -> Result<Self> {
+        // To find the int degrees: [+-]?\d{1,2}°
+        // To find the int minutes: \d{1,2}'
+        // To find the float seconds: [+-]?(\d+([.]\d*)?([eE][+-]?\d+)?|[.]\d+([eE][+-]?\d+)?)"
+        let re = Regex::new(r#"^(?<d>[+-]?\d{1,2})°(?<m>\d{1,2})'(?<s>[+-]?(\d+([.]\d*)?([eE][+-]?\d+)?|[.]\d+([eE][+-]?\d+)?))"$"#).context(RegexParsingSnafu)?;
+
+        let caps = re.captures_iter(s).next().unwrap();
+
+        let d = caps
+            .name("d")
+            .context(NotDMSSnafu { missing: DMS::D })?
+            .as_str()
+            .parse::<i8>()
+            .unwrap();
+        let m = caps
+            .name("m")
+            .context(NotDMSSnafu { missing: DMS::M })?
+            .as_str()
+            .parse::<u8>()
+            .unwrap();
+        let s = caps
+            .name("s")
+            .context(NotDMSSnafu { missing: DMS::S })?
+            .as_str()
+            .parse::<f64>()
+            .unwrap();
+
+        let radians =
+            d as f64 * RPD + m as f64 * RADIANS_PER_MINUTE_HMS + s * RADIANS_PER_SECOND_HMS;
+
+        Ok(Self::new(Angle::new::<radian>(radians)))
+    }
+}
+
+impl FromStr for AstronomicalAngle {
+    type Err = AstronomicalAngleConversionError;
+
+    fn from_str(s: &str) -> Result<Self> {
+        Self::parse(s)
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Equatorial {
+    pub ra: AstronomicalAngle,
+    pub dec: AstronomicalAngle,
+}
+
+impl Equatorial {
+    pub fn new(ra: AstronomicalAngle, dec: AstronomicalAngle) -> Self {
+        Self { ra, dec }
+    }
 }
 
 pub fn mean_angular_motion(gravitational_parameter: Float, semi_major_axis: Float) -> Float {

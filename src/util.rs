@@ -2,7 +2,7 @@ use crate::Cfg;
 
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::{env, collections::HashMap};
+use std::{collections::HashMap, env};
 
 pub use nalgebra::{
     self as na, DMatrix, DVector, DVectorView, Dyn, Matrix, Matrix3xX, MatrixView, RowDVector,
@@ -89,6 +89,21 @@ pub const DPR: Float = 180. / PI;
 
 /// Radians per degree.
 pub const RPD: Float = 1. / DPR;
+
+/// Radians per hour.
+pub const RPH: Float = PI / 12.0;
+
+/// ...
+pub const RADIANS_PER_MINUTE_HMS: Float = RPH / 60.0;
+
+/// ...
+pub const RADIANS_PER_MINUTE_DMS: Float = RPD / 60.0;
+
+/// ...
+pub const RADIANS_PER_SECOND_HMS: Float = RADIANS_PER_MINUTE_HMS / 60.0;
+
+/// ...
+pub const RADIANS_PER_SECOND_DMS: Float = RADIANS_PER_MINUTE_DMS / 60.0;
 
 /// After this number of iterations is reached, consider the numerical method has failed to converge.
 pub const NUMBER_ITERATION_FAIL: usize = 1e4 as usize;

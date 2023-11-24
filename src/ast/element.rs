@@ -1,4 +1,4 @@
-use crate::{cartesian_to_spherical, fmt_str_tab, Material, util::*};
+use crate::{cartesian_to_spherical, fmt_str_tab, util::*, Material};
 
 use serde::{Deserialize, Serialize};
 use std::fmt;

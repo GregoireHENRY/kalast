@@ -1,4 +1,4 @@
-use crate::{util::*, Shapes, Surface, Projection};
+use crate::{util::*, Projection, Shapes, Surface};
 
 /// The lighting manager.
 ///

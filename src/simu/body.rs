@@ -1,4 +1,4 @@
-use crate::{matrix_orientation_obliquity, Asteroid, CfgBody, util::*};
+use crate::{matrix_orientation_obliquity, util::*, Asteroid, CfgBody};
 
 use itertools::Itertools;
 

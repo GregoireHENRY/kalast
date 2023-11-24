@@ -1,7 +1,7 @@
 use crate::{
     find_ref_orbit, find_reference_matrix_orientation, matrix_spin, position_in_inertial_frame,
-    simu::Scene, util::*, Asteroid, Body, CfgBody, CfgColormap, CfgState, CfgStateAstronomical,
-    CfgStateCartesian, FoldersRun, Time, Window,
+    simu::Scene, util::*, Asteroid, Body, CfgBody, CfgColormap, CfgState, CfgStateCartesian,
+    CfgStateEquatorial, FoldersRun, Time, Window,
 };
 
 use downcast_rs::{impl_downcast, DowncastSync};
@@ -122,10 +122,9 @@ pub fn fn_update_matrix_model_default(
             position,
             orientation: _orientation,
         }) => Mat4::new_translation(position),
-        CfgState::Astronomical(CfgStateAstronomical {
-            right_ascension,
-            declination,
-        }) => Mat4::new_translation(&Vec3::zeros()),
+        CfgState::Equatorial(CfgStateEquatorial { ra, dec }) => {
+            Mat4::new_translation(&Vec3::zeros())
+        }
         CfgState::File(_p) => Mat4::identity(),
         CfgState::Orbit(orb) => {
             let (mu_ref, factor) = find_ref_orbit(&orb, &other_cbs);

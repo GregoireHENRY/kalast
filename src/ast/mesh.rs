@@ -1,4 +1,4 @@
-use crate::{Asteroid, intersect_surface, FaceData, vec3_to_4_one, util::*};
+use crate::{intersect_surface, util::*, vec3_to_4_one, Asteroid, FaceData};
 
 use itertools::{iproduct, izip};
 
@@ -125,9 +125,7 @@ pub fn view_factor(b1: &Asteroid, b2: &Asteroid, shadows: bool) -> DMatrix<Float
                     .map(|(_, (vf, _))| (&vf[0].position, &vf[1].position, &vf[2].position))
                     .collect();
 
-                if let Some(_) =
-                    intersect_surface(&center_b1_in_b2, &unit_b2_to_b1, surfv, true)
-                {
+                if let Some(_) = intersect_surface(&center_b1_in_b2, &unit_b2_to_b1, surfv, true) {
                     continue;
                 }
             }

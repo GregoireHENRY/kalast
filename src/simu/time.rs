@@ -1,6 +1,6 @@
 use crate::util::*;
 
-use chrono::{NaiveTime, Utc, Duration};
+use chrono::{Duration, NaiveTime, Utc};
 
 pub struct Time {
     pub(crate) iteration: usize,

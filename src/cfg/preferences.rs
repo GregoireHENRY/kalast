@@ -1,8 +1,8 @@
 use crate::cfg::config::Configuration;
 
-use std::path::PathBuf;
 use directories::UserDirs;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CfgPreferences {

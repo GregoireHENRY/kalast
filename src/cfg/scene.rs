@@ -1,4 +1,4 @@
-use crate::{util::*, CfgStateAstronomical, CfgStateCartesian, Configuration};
+use crate::{util::*, CfgStateCartesian, CfgStateEquatorial, Configuration, Equatorial, AstronomicalAngle};
 
 use serde::{Deserialize, Serialize};
 
@@ -49,9 +49,22 @@ pub enum CfgSun {
     #[serde(alias = "cart")]
     Cartesian(CfgStateCartesian),
 
-    #[serde(rename = "astronomical")]
+    #[serde(rename = "equatorial")]
     #[serde(alias = "astro")]
-    Astronomical(CfgStateAstronomical),
+    Equatorial(CfgStateEquatorial),
+}
+
+impl CfgSun {
+    pub fn as_equatorial(&self) -> Equatorial {
+        match self {
+            Self::Equatorial(CfgStateEquatorial { ra, dec }) => {
+                let ra = AstronomicalAngle::from_hms(ra).unwrap();
+                let dec = AstronomicalAngle::from_dms(dec).unwrap();
+                Equatorial::new(ra, dec)
+            }
+            _ => panic!("nono"),
+        }
+    }
 }
 
 impl Default for CfgSun {

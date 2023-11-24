@@ -1,8 +1,10 @@
-use crate::{simu::Scene, Body, Cfg, CfgBody, CfgTimeExport, FoldersRun, Routines, Time, Window, util::*};
+use crate::{
+    simu::Scene, util::*, Body, Cfg, CfgBody, CfgTimeExport, FoldersRun, Routines, Time, Window,
+};
 
-use std::fs;
 use itertools::izip;
 use polars::prelude::{df, CsvWriter, NamedFrom, SerWriter};
+use std::fs;
 
 pub struct Export {
     pub is_first_it: bool,
@@ -108,7 +110,8 @@ impl Export {
                 // print!(" finished exporting..");
                 self.exporting = false;
                 self.is_first_it_export = true;
-                self.cooldown_export = (cfg.simulation.export.period - cfg.simulation.export.duration) as _;
+                self.cooldown_export =
+                    (cfg.simulation.export.period - cfg.simulation.export.duration) as _;
                 time.set_time_step(cfg.simulation.step);
 
                 // let _cvg = kalast::simu::converge::check_all(&mut bodies, &folder_tpm, &cfg.time.export);

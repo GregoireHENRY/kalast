@@ -196,7 +196,7 @@ impl WindowSettings {
     pub fn aspect_ratio(&self) -> Float {
         self.width as Float / self.height as Float
     }
-    
+
     pub fn toggle_debug(&mut self) -> bool {
         self.debug = !self.debug;
         self.debug

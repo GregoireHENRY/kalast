@@ -1,4 +1,7 @@
-use crate::{CfgBody, CfgPreferences, CfgScene, CfgSimulation, CfgWindow};
+use crate::{
+    util::*, AstronomicalAngle, CfgBody, CfgPreferences, CfgScene, CfgSimulation,
+    CfgStateEquatorial, CfgSun, CfgWindow, Equatorial,
+};
 
 use itertools::Itertools;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -8,7 +11,9 @@ use std::{
     collections::HashMap,
     io,
     path::{Path, PathBuf},
+    str::FromStr,
 };
+use uom::si::f64::Angle;
 
 const ID_RESERVED: usize = std::usize::MAX;
 pub const CFG_THERMAL_STR: &str = include_str!("../../examples/thermal/cfg/cfg.yaml");
@@ -269,10 +274,6 @@ impl Cfg {
                 cfg.bodies.push(body);
             }
         }
-        
-        dbg!(&cfg);
-        
-        
 
         Ok(cfg)
     }

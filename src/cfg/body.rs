@@ -1,4 +1,4 @@
-use crate::{util::*, ColorMode, Configuration, Material, Shapes};
+use crate::{util::*, ColorMode, Configuration, Equatorial, Material, Shapes, AstronomicalAngle, CfgSun};
 
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
@@ -506,18 +506,29 @@ e: 0.5
 #[serde(tag = "type")]
 pub enum CfgState {
     #[serde(rename = "cartesian")]
-    #[serde(alias = "cart")]
     Cartesian(CfgStateCartesian),
-    
-    #[serde(rename = "astronomical")]
-    #[serde(alias = "astro")]
-    Astronomical(CfgStateAstronomical),
+
+    #[serde(rename = "equatorial")]
+    Equatorial(CfgStateEquatorial),
 
     #[serde(rename = "orbit")]
     Orbit(CfgOrbitKepler),
 
     #[serde(rename = "file")]
     File(PathBuf),
+}
+
+impl CfgState {
+    pub fn as_equatorial(&self) -> Equatorial {
+        match self {
+            Self::Equatorial(CfgStateEquatorial { ra, dec }) => {
+                let ra = AstronomicalAngle::from_hms(ra).unwrap();
+                let dec = AstronomicalAngle::from_dms(dec).unwrap();
+                Equatorial::new(ra, dec)
+            }
+            _ => panic!("nono"),
+        }
+    }
 }
 
 impl Default for CfgState {
@@ -547,7 +558,7 @@ pub struct CfgStateCartesian {
     /// Default is `[0.0, 0.0, 0.0]`
     #[serde(default)]
     pub position: Vec3,
-    
+
     /// Orientation matrix of the body.
     /// Default is: `[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]`
     #[serde(default = "default_orientation")]
@@ -583,25 +594,25 @@ orientation: [
 
 */
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct CfgStateAstronomical {
+pub struct CfgStateEquatorial {
     /// Right ascension of the body.
     /// Default is `00 00 00.000`
     #[serde(default = "default_right_ascension")]
-    #[serde(alias = "RA")]
-    pub right_ascension: String,
-    
+    #[serde(alias = "right_ascension")]
+    pub ra: String,
+
     /// Declination of the body.
     /// Default is `00 00 00.000`
     #[serde(default = "default_declination")]
-    #[serde(alias = "DEC")]
-    pub declination: String,
+    #[serde(alias = "declination")]
+    pub dec: String,
 }
 
-impl Default for CfgStateAstronomical {
+impl Default for CfgStateEquatorial {
     fn default() -> Self {
         Self {
-            right_ascension: default_right_ascension(),
-            declination: default_declination(),
+            ra: default_right_ascension(),
+            dec: default_declination(),
         }
     }
 }
@@ -642,10 +653,10 @@ In this sense, just [`a`][CfgOrbitKepler::a] and [`e`][CfgOrbitKepler::e] are us
 pub struct CfgOrbitKepler {
     /// Heliocentric distance.
     /// The units are determined automatically depending on the center of the frame:
-    /// 
+    ///
     /// - in AU if in Sun-centered frame
     /// - in km if in body-centered frame
-    /// 
+    ///
     /// Default is `1.0`.
     #[serde(default = "default_orbit_a")]
     pub a: Float,

@@ -19,8 +19,8 @@ use sdl2::keyboard::Keycode;
 use sdl2::keyboard::Mod;
 use sdl2::mouse::MouseButton;
 use sdl2::sys as sdl2_sys;
-use sdl2::video::{GLContext, FullscreenType};
 use sdl2::video::Window as SDL_Window;
+use sdl2::video::{FullscreenType, GLContext};
 use sdl2::video::{GLProfile, SwapInterval};
 use sdl2::Sdl;
 

@@ -1,5 +1,5 @@
 use crate::util::*;
-use crate::{Vertex, Material, WindowSettings};
+use crate::{Material, Vertex, WindowSettings};
 
 use gl::types::*;
 use itertools::Itertools;
