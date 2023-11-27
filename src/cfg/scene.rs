@@ -1,8 +1,20 @@
 use crate::{
-    util::*, AstronomicalAngle, CfgStateCartesian, CfgStateEquatorial, Configuration, Equatorial,
+    util::*, CfgBodyError, CfgStateCartesian, CfgStateEquatorial, Configuration, Equatorial,
 };
 
 use serde::{Deserialize, Serialize};
+use snafu::{prelude::*, Location};
+
+pub type SceneResult<T, E = CfgSceneError> = std::result::Result<T, E>;
+
+/// Errors related to Kalast config.
+#[derive(Debug, Snafu)]
+pub enum CfgSceneError {
+    CfgParsingEquatorial {
+        source: CfgBodyError,
+        location: Location,
+    },
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CfgScene {
@@ -57,9 +69,9 @@ pub enum CfgSun {
 }
 
 impl CfgSun {
-    pub fn as_equatorial(&self) -> Equatorial {
+    pub fn as_equatorial(&self) -> SceneResult<Equatorial> {
         match self {
-            Self::Equatorial(coords) => coords.parse(),
+            Self::Equatorial(coords) => coords.parse().context(CfgParsingEquatorialSnafu),
             _ => panic!("nono"),
         }
     }

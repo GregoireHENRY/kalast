@@ -19,7 +19,7 @@ pub const STR_SHAPE_MODEL_PLANE: &str = include_str!("../../assets/mesh/plane.ob
 pub const STR_SHAPE_MODEL_SPHERE: &str = include_str!("../../assets/mesh/sphere.obj");
 pub const STR_SHAPE_MODEL_TRIANGLE: &str = include_str!("../../assets/mesh/triangle.obj");
 
-pub type Result<T, E = SurfaceError> = std::result::Result<T, E>;
+pub type SurfaceResult<T, E = SurfaceError> = std::result::Result<T, E>;
 
 fn compute_raw_facedata(vertices: &Vec<Vertex>, indices: &Vec<u32>) -> Vec<FaceData> {
     if indices.is_empty() {
@@ -112,7 +112,7 @@ impl Display for RawSurface {
 }
 
 impl RawSurface {
-    pub fn read_file<P: AsRef<Path>>(path: P) -> Result<Self> {
+    pub fn read_file<P: AsRef<Path>>(path: P) -> SurfaceResult<Self> {
         let path = path.as_ref().to_path_buf();
         let (mut models, _) = tobj::load_obj(
             &path,
@@ -133,7 +133,7 @@ impl RawSurface {
         })
     }
 
-    pub fn use_integrated(model: Shapes) -> Result<Self> {
+    pub fn use_integrated(model: Shapes) -> SurfaceResult<Self> {
         let str_shape_model = model.as_str();
         let mut buf = str_shape_model.as_bytes();
 
@@ -198,12 +198,12 @@ impl Display for Surface {
 }
 
 impl Surface {
-    pub fn read_file<P: AsRef<Path>>(path: P) -> Result<SurfaceBuilder> {
+    pub fn read_file<P: AsRef<Path>>(path: P) -> SurfaceResult<SurfaceBuilder> {
         let RawSurface { positions, indices } = RawSurface::read_file(path)?;
         Ok(Self::from(positions, indices))
     }
 
-    pub fn use_integrated(model: Shapes) -> Result<SurfaceBuilder> {
+    pub fn use_integrated(model: Shapes) -> SurfaceResult<SurfaceBuilder> {
         let RawSurface { positions, indices } = RawSurface::use_integrated(model)?;
         Ok(Self::from(positions, indices))
     }

@@ -1,10 +1,23 @@
 use crate::{
-    util::*, AstronomicalAngle, CfgSun, ColorMode, Configuration, Equatorial, Material, Shapes,
+    util::*, AstronomicalAngle, AstronomicalAngleConversionError, ColorMode, Configuration,
+    Equatorial, Material, Shapes
 };
 
+use core::panic;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
+use snafu::{prelude::*, Location};
 use std::{collections::HashMap, path::PathBuf};
+
+pub type BodyResult<T, E = CfgBodyError> = std::result::Result<T, E>;
+
+#[derive(Debug, Snafu)]
+pub enum CfgBodyError {
+    AngleParsing {
+        source: AstronomicalAngleConversionError,
+        location: Location,
+    },
+}
 
 /**
 # Configuration of Body
@@ -521,7 +534,7 @@ pub enum CfgState {
 }
 
 impl CfgState {
-    pub fn as_equatorial(&self) -> Equatorial {
+    pub fn as_equatorial(&self) -> BodyResult<Equatorial> {
         match self {
             Self::Equatorial(coords) => coords.parse(),
             _ => panic!("nono"),
@@ -607,10 +620,11 @@ pub struct CfgStateEquatorial {
 }
 
 impl CfgStateEquatorial {
-    pub fn parse(&self) -> Equatorial {
-        let ra = AstronomicalAngle::from_hms(&self.ra).unwrap();
-        let dec = AstronomicalAngle::from_dms(&self.dec).unwrap();
-        Equatorial::new(ra, dec)
+    pub fn parse(&self) -> BodyResult<Equatorial> {
+        let ra = AstronomicalAngle::from_hms(&self.ra).context(AngleParsingSnafu {})?;
+        let dec = AstronomicalAngle::from_dms(&self.dec).context(AngleParsingSnafu {})?;
+
+        Ok(Equatorial::new(ra, dec))
     }
 }
 

@@ -3,7 +3,7 @@ use crate::{util::*, Camera, Light, Surface, WindowSettings, VAO};
 use itertools::izip;
 
 #[derive(Debug, Clone)]
-pub struct Scene {
+pub struct WindowScene {
     pub(crate) camera: Camera,
     pub(crate) light: Light,
     pub(crate) light_vao: Option<VAO>,
@@ -11,7 +11,7 @@ pub struct Scene {
     pub(crate) trajectories_vao: Vec<VAO>,
 }
 
-impl Scene {
+impl WindowScene {
     pub fn new(settings: &WindowSettings) -> Self {
         let camera = Camera::new(
             vec3(0.0, 0.0, 1.0),

@@ -1,5 +1,5 @@
 use crate::{
-    intersect_asteroids, util::*, win::Scene, Asteroid, Direction, GraphicalPipeline, Shader,
+    intersect_asteroids, util::*, win::WindowScene, Asteroid, Direction, GraphicalPipeline, Shader,
     Surface, WindowSettings, WindowState,
 };
 
@@ -181,7 +181,7 @@ pub struct Window {
     pub state: RefCell<WindowState>,
     pub clock: Clock,
     pub graphical_pipeline: GraphicalPipeline,
-    pub scene: RefCell<Scene>,
+    pub scene: RefCell<WindowScene>,
 }
 
 impl Window {
@@ -191,7 +191,7 @@ impl Window {
 
         let graphical_pipeline = GraphicalPipeline::new(&settings);
         let clock = Clock::new();
-        let scene = Scene::new(&settings);
+        let scene = WindowScene::new(&settings);
 
         Self {
             win,
@@ -601,7 +601,7 @@ impl Window {
         self.render_trajectories(&matrix_projection, &matrix_view, &scene)
     }
 
-    pub fn render_trajectories(&self, matrix_projection: &Mat4, matrix_view: &Mat4, scene: &Scene) {
+    pub fn render_trajectories(&self, matrix_projection: &Mat4, matrix_view: &Mat4, scene: &WindowScene) {
         let shader = self.graphical_pipeline.shaders.trajectory();
         shader.set_mat4("matrix_projection", &matrix_projection);
         shader.set_mat4("matrix_view", &matrix_view);
@@ -615,7 +615,7 @@ impl Window {
 
     fn render_depth_to_texture(
         &self,
-        scene: &Scene,
+        scene: &WindowScene,
         matrix_lightspace: &Mat4,
         matrices_model: &[&Mat4],
     ) {
@@ -660,7 +660,7 @@ impl Window {
 
     fn render_scene(
         &self,
-        scene: &Scene,
+        scene: &WindowScene,
         matrix_projection: &Mat4,
         matrix_view: &Mat4,
         matrices_model: &[&Mat4],
@@ -715,7 +715,7 @@ impl Window {
 
     fn render_normals(
         &self,
-        scene: &Scene,
+        scene: &WindowScene,
         matrix_view: &Mat4,
         matrix_projection: &Mat4,
         matrices_model: &[&Mat4],
@@ -755,7 +755,7 @@ impl Window {
 
     fn draw_user_rendering(
         &self,
-        scene: &Scene,
+        scene: &WindowScene,
         shader: &Shader,
         matrices_model: &[&Mat4],
         wireframe: bool,
@@ -828,7 +828,7 @@ impl Window {
     fn mouse_click(
         &self,
         asteroids: &[&Asteroid],
-        scene: &Scene,
+        scene: &WindowScene,
         matrix_projection: &Mat4,
         matrix_view: &Mat4,
     ) {

@@ -8,27 +8,32 @@ use uom::{
     str::ParseQuantityError,
 };
 
-pub type Result<T, E = AstronomicalAngleConversionError> = std::result::Result<T, E>;
+pub type OrbitResult<T, E = AstronomicalAngleConversionError> = std::result::Result<T, E>;
 
 #[derive(Debug, Snafu)]
 pub enum AstronomicalAngleConversionError {
-    AngleParsingError {
+    AngleParsing {
         source: ParseQuantityError,
         location: Location,
     },
-    RegexParsingError {
+
+    RegexParsing {
         source: regex::Error,
         location: Location,
     },
+
     NotDMS {
         location: Location,
-        missing: DMS,
     },
+
     NotHMS {
         location: Location,
-        missing: HMS,
     },
-    CannotBeParsed {},
+
+    #[snafu(display("Cannot be parsed, given {given} but expect the format 00h00m00.0s."))]
+    CannotBeParsed {
+        given: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -62,12 +67,12 @@ impl AstronomicalAngle {
         Self { angle }
     }
 
-    pub fn parse(s: &str) -> Result<Self> {
+    pub fn parse(s: &str) -> OrbitResult<Self> {
         match Self::from_value(s) {
             Ok(angle) => return Ok(angle),
             Err(_) => {}
         };
-        
+
         match Self::from_hms(s) {
             Ok(angle) => return Ok(angle),
             Err(_) => {}
@@ -78,38 +83,42 @@ impl AstronomicalAngle {
             Err(_) => {}
         };
 
-        Err(AstronomicalAngleConversionError::CannotBeParsed {})
+        Err(AstronomicalAngleConversionError::CannotBeParsed {
+            given: s.to_string(),
+        })
     }
 
-    pub fn from_value(s: &str) -> Result<Self> {
+    pub fn from_value(s: &str) -> OrbitResult<Self> {
         s.parse::<Angle>()
             .context(AngleParsingSnafu {})
             .and_then(|angle| Ok(Self::new(angle)))
     }
 
-    pub fn from_hms(s: &str) -> Result<Self> {
+    pub fn from_hms(s: &str) -> OrbitResult<Self> {
         // To find the int hours: \d{1,2}h
         // To find the int minutes: \d{1,2}m
         // To find the float seconds: [+-]?(\d+([.]\d*)?([eE][+-]?\d+)?|[.]\d+([eE][+-]?\d+)?)s
         let re = Regex::new(r"^(?<h>\d{1,2})h(?<m>\d{1,2})m(?<s>[+-]?(\d+([.]\d*)?([eE][+-]?\d+)?|[.]\d+([eE][+-]?\d+)?))s$").context(RegexParsingSnafu)?;
 
-        let caps = re.captures_iter(s).next().unwrap();
+        let caps = re.captures_iter(s).next().context(CannotBeParsedSnafu {
+            given: s.to_string(),
+        })?;
 
         let h = caps
             .name("h")
-            .context(NotHMSSnafu { missing: HMS::H })?
+            .context(NotHMSSnafu {})?
             .as_str()
             .parse::<u8>()
             .unwrap();
         let m = caps
             .name("m")
-            .context(NotHMSSnafu { missing: HMS::M })?
+            .context(NotHMSSnafu {})?
             .as_str()
             .parse::<u8>()
             .unwrap();
         let s = caps
             .name("s")
-            .context(NotHMSSnafu { missing: HMS::S })?
+            .context(NotHMSSnafu {})?
             .as_str()
             .parse::<f64>()
             .unwrap();
@@ -120,29 +129,31 @@ impl AstronomicalAngle {
         Ok(Self::new(Angle::new::<radian>(radians)))
     }
 
-    pub fn from_dms(s: &str) -> Result<Self> {
+    pub fn from_dms(s: &str) -> OrbitResult<Self> {
         // To find the int degrees: [+-]?\d{1,2}°
         // To find the int minutes: \d{1,2}'
         // To find the float seconds: [+-]?(\d+([.]\d*)?([eE][+-]?\d+)?|[.]\d+([eE][+-]?\d+)?)"
         let re = Regex::new(r#"^(?<d>[+-]?\d{1,2})°(?<m>\d{1,2})'(?<s>[+-]?(\d+([.]\d*)?([eE][+-]?\d+)?|[.]\d+([eE][+-]?\d+)?))"$"#).context(RegexParsingSnafu)?;
 
-        let caps = re.captures_iter(s).next().unwrap();
+        let caps = re.captures_iter(s).next().context(CannotBeParsedSnafu {
+            given: s.to_string(),
+        })?;
 
         let d = caps
             .name("d")
-            .context(NotDMSSnafu { missing: DMS::D })?
+            .context(NotDMSSnafu {})?
             .as_str()
             .parse::<i8>()
             .unwrap();
         let m = caps
             .name("m")
-            .context(NotDMSSnafu { missing: DMS::M })?
+            .context(NotDMSSnafu {})?
             .as_str()
             .parse::<u8>()
             .unwrap();
         let s = caps
             .name("s")
-            .context(NotDMSSnafu { missing: DMS::S })?
+            .context(NotDMSSnafu {})?
             .as_str()
             .parse::<f64>()
             .unwrap();
@@ -157,7 +168,7 @@ impl AstronomicalAngle {
 impl FromStr for AstronomicalAngle {
     type Err = AstronomicalAngleConversionError;
 
-    fn from_str(s: &str) -> Result<Self> {
+    fn from_str(s: &str) -> OrbitResult<Self> {
         Self::parse(s)
     }
 }

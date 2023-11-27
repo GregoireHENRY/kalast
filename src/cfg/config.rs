@@ -1,19 +1,14 @@
-use crate::{
-    util::*, AstronomicalAngle, CfgBody, CfgPreferences, CfgScene, CfgSimulation,
-    CfgStateEquatorial, CfgSun, CfgWindow, Equatorial,
-};
+use crate::{CfgBody, CfgBodyError, CfgPreferences, CfgScene, CfgSimulation, CfgWindow};
 
 use itertools::Itertools;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_yaml::{self, Value};
-use snafu::prelude::*;
+use snafu::{prelude::*, Location};
 use std::{
     collections::HashMap,
     io,
     path::{Path, PathBuf},
-    str::FromStr,
 };
-use uom::si::f64::Angle;
 
 const ID_RESERVED: usize = std::usize::MAX;
 pub const CFG_THERMAL_STR: &str = include_str!("../../examples/thermal/cfg/cfg.yaml");
@@ -70,7 +65,7 @@ pub fn cfg_viewer() -> Cfg {
     serde_yaml::from_str(CFG_VIEWER_STR).unwrap()
 }
 
-pub type Result<T, E = CfgError> = std::result::Result<T, E>;
+pub type CfgResult<T, E = CfgError> = std::result::Result<T, E>;
 
 /// Errors related to Kalast config.
 #[derive(Debug, Snafu)]
@@ -83,9 +78,13 @@ pub enum CfgError {
         source: serde_yaml::Error,
         path: PathBuf,
     },
+    CfgParsingEquatorial {
+        source: CfgBodyError,
+        location: Location,
+    },
 }
 
-pub fn read_cfg<P, C>(path: P) -> Result<C>
+pub fn read_cfg<P, C>(path: P) -> CfgResult<C>
 where
     P: AsRef<Path>,
     C: Configuration,
@@ -99,7 +98,7 @@ where
     Ok(cfg)
 }
 
-pub fn read_cfg_if_exists<P, C>(path: P) -> Option<Result<C>>
+pub fn read_cfg_if_exists<P, C>(path: P) -> Option<CfgResult<C>>
 where
     P: AsRef<Path>,
     C: Configuration,
@@ -183,7 +182,7 @@ pub struct Cfg {
 }
 
 impl Cfg {
-    pub fn new_from<P: AsRef<Path>>(path: P) -> Result<Self> {
+    pub fn new_from<P: AsRef<Path>>(path: P) -> CfgResult<Self> {
         let path = path.as_ref();
         let cfg_path = path_cfg(path);
 
@@ -274,14 +273,14 @@ impl Cfg {
                 cfg.bodies.push(body);
             }
         }
-        
-        let angle = cfg.scene.sun.as_equatorial();
+
+        let angle = cfg.scene.sun.as_equatorial().unwrap();
         dbg!(angle);
 
         Ok(cfg)
     }
 
-    pub fn new() -> Result<Self> {
+    pub fn new() -> CfgResult<Self> {
         let file = Path::new(file!());
         let parent = file.parent().unwrap();
         Self::new_from(parent)
