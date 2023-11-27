@@ -28,6 +28,7 @@ pub enum AstronomicalAngleConversionError {
         location: Location,
         missing: HMS,
     },
+    CannotBeParsed {},
 }
 
 #[derive(Debug, Clone)]
@@ -61,8 +62,23 @@ impl AstronomicalAngle {
         Self { angle }
     }
 
-    pub fn parse(_s: &str) -> Result<Self> {
-        todo!()
+    pub fn parse(s: &str) -> Result<Self> {
+        match Self::from_value(s) {
+            Ok(angle) => return Ok(angle),
+            Err(_) => {}
+        };
+        
+        match Self::from_hms(s) {
+            Ok(angle) => return Ok(angle),
+            Err(_) => {}
+        };
+
+        match Self::from_dms(s) {
+            Ok(angle) => return Ok(angle),
+            Err(_) => {}
+        };
+
+        Err(AstronomicalAngleConversionError::CannotBeParsed {})
     }
 
     pub fn from_value(s: &str) -> Result<Self> {
