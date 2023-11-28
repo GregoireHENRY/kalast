@@ -1,6 +1,6 @@
 use crate::{
-    util::*, AstronomicalAngle, AstronomicalAngleConversionError, ColorMode, Configuration,
-    Equatorial, Material, Shapes
+    util::*, AstronomicalAngleConversionError, ColorMode, Configuration, Equatorial, Material,
+    Shapes,
 };
 
 use core::panic;
@@ -524,7 +524,7 @@ pub enum CfgState {
     Cartesian(CfgStateCartesian),
 
     #[serde(rename = "equatorial")]
-    Equatorial(CfgStateEquatorial),
+    Equatorial(Equatorial),
 
     #[serde(rename = "orbit")]
     Orbit(CfgOrbitKepler),
@@ -534,9 +534,9 @@ pub enum CfgState {
 }
 
 impl CfgState {
-    pub fn as_equatorial(&self) -> BodyResult<Equatorial> {
+    pub fn as_equatorial(&self) -> BodyResult<&Equatorial> {
         match self {
-            Self::Equatorial(coords) => coords.parse(),
+            Self::Equatorial(coords) => Ok(coords),
             _ => panic!("nono"),
         }
     }
@@ -587,62 +587,6 @@ impl Default for CfgStateCartesian {
 
 fn default_orientation() -> Mat3 {
     Mat3::identity()
-}
-
-/**
-# Manual Configuration of Position and Orientation of Body from Astronomical Coordinates
-
-## Default
-
-```yaml
-position: [0, 0, 0]
-orientation: [
-  1, 0, 0,
-  0, 1, 0,
-  0, 0, 1
-]
-```
-
-*/
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct CfgStateEquatorial {
-    /// Right ascension of the body.
-    /// Default is `00 00 00.000`
-    #[serde(default = "default_right_ascension")]
-    #[serde(alias = "right_ascension")]
-    pub ra: String,
-
-    /// Declination of the body.
-    /// Default is `00 00 00.000`
-    #[serde(default = "default_declination")]
-    #[serde(alias = "declination")]
-    pub dec: String,
-}
-
-impl CfgStateEquatorial {
-    pub fn parse(&self) -> BodyResult<Equatorial> {
-        let ra = AstronomicalAngle::from_hms(&self.ra).context(AngleParsingSnafu {})?;
-        let dec = AstronomicalAngle::from_dms(&self.dec).context(AngleParsingSnafu {})?;
-
-        Ok(Equatorial::new(ra, dec))
-    }
-}
-
-impl Default for CfgStateEquatorial {
-    fn default() -> Self {
-        Self {
-            ra: default_right_ascension(),
-            dec: default_declination(),
-        }
-    }
-}
-
-fn default_right_ascension() -> String {
-    "00 00 00.000".to_string()
-}
-
-fn default_declination() -> String {
-    "00 00 00.000".to_string()
 }
 
 /**

@@ -1,6 +1,4 @@
-use crate::{
-    util::*, CfgBodyError, CfgStateCartesian, CfgStateEquatorial, Configuration, Equatorial,
-};
+use crate::{util::*, CfgBodyError, CfgStateCartesian, Configuration, Equatorial};
 
 use serde::{Deserialize, Serialize};
 use snafu::{prelude::*, Location};
@@ -65,14 +63,14 @@ pub enum CfgSun {
 
     #[serde(rename = "equatorial")]
     #[serde(alias = "astro")]
-    Equatorial(CfgStateEquatorial),
+    Equatorial(Equatorial),
 }
 
 impl CfgSun {
-    pub fn as_equatorial(&self) -> SceneResult<Equatorial> {
+    pub fn as_equatorial(&self) -> SceneResult<&Equatorial> {
         match self {
-            Self::Equatorial(coords) => coords.parse().context(CfgParsingEquatorialSnafu),
-            _ => panic!("nono"),
+            Self::Equatorial(coords) => Ok(coords),
+            _ => panic!("Not equatorial coordinates."),
         }
     }
 }

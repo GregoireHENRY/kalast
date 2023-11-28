@@ -1,6 +1,7 @@
 use crate::{util::*, NEWTON_METHOD_THRESHOLD, NUMBER_ITERATION_FAIL};
 
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 use snafu::{prelude::*, Location};
 use std::str::FromStr;
 use uom::{
@@ -34,6 +35,9 @@ pub enum AstronomicalAngleConversionError {
     CannotBeParsed {
         given: String,
     },
+    Deserialize {
+        location: Location,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -57,7 +61,9 @@ pub enum AstronomicalAngleOptions {
     DMS,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(try_from = "AstronomicalAngleStr")]
+#[serde(into = "AstronomicalAngleStr")]
 pub struct AstronomicalAngle {
     pub angle: Angle,
 }
@@ -173,7 +179,39 @@ impl FromStr for AstronomicalAngle {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Serialize, Deserialize)]
+struct AstronomicalAngleStr(String);
+
+impl TryFrom<AstronomicalAngleStr> for AstronomicalAngle {
+    type Error = AstronomicalAngleConversionError;
+
+    fn try_from(other: AstronomicalAngleStr) -> Result<Self, Self::Error> {
+        Self::parse(&other.0)
+    }
+}
+
+impl From<AstronomicalAngle> for AstronomicalAngleStr {
+    fn from(value: AstronomicalAngle) -> Self {
+        Self(value.angle.value.to_string())
+    }
+}
+
+/**
+# Manual Configuration of Position and Orientation of Body from Astronomical Coordinates
+
+## Default
+
+```yaml
+position: [0, 0, 0]
+orientation: [
+  1, 0, 0,
+  0, 1, 0,
+  0, 0, 1
+]
+```
+
+*/
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct Equatorial {
     pub ra: AstronomicalAngle,
     pub dec: AstronomicalAngle,

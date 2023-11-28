@@ -1,7 +1,7 @@
 use crate::{
     cosine_angle, simu::Scene, util::*, Asteroid, Body, CfgBody, CfgColormap, CfgFrameCenter,
     CfgMeshKind, CfgMeshSource, CfgOrbitKepler, CfgOrbitSpeedControl, CfgState, CfgStateCartesian,
-    CfgStateEquatorial, Material, Result, Surface, Window,
+    Equatorial, Material, Result, Surface, Window,
 };
 
 use itertools::{izip, Itertools};
@@ -53,7 +53,7 @@ pub fn find_reference_matrix_orientation(cb: &CfgBody, other_bodies: &[&Body]) -
         CfgState::Cartesian(CfgStateCartesian { orientation, .. }) => {
             glm::mat3_to_mat4(orientation)
         }
-        CfgState::Equatorial(CfgStateEquatorial { ra, dec }) => Mat4::identity(),
+        CfgState::Equatorial(Equatorial { ra, dec }) => Mat4::identity(),
         CfgState::File(_p) => Mat4::identity(),
         CfgState::Orbit(orb) => match &orb.frame {
             CfgFrameCenter::Sun => Mat4::identity(),

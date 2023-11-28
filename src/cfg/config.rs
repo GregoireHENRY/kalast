@@ -274,8 +274,8 @@ impl Cfg {
             }
         }
 
-        let angle = cfg.scene.sun.as_equatorial().unwrap();
-        dbg!(angle);
+        dbg!(cfg.scene.sun.as_equatorial().unwrap());
+        dbg!(cfg.bodies.first().unwrap().state.as_equatorial().unwrap());
 
         Ok(cfg)
     }

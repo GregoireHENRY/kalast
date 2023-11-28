@@ -1,8 +1,8 @@
 use crate::{
     check_if_latest_version, read_surface_main, routines_thermal_default, routines_viewer_default,
     simu::Scene, util::*, Asteroid, Body, Cfg, CfgCamera, CfgInterior, CfgInteriorGrid1D,
-    CfgRoutines, CfgStateCartesian, CfgStateEquatorial, CfgSun, Export, FoldersRun, FrameEvent,
-    Result, Routines, Time, Window,
+    CfgRoutines, CfgStateCartesian, CfgSun, Export, FoldersRun, FrameEvent, Result, Routines, Time,
+    Window, Equatorial,
 };
 
 use chrono::Utc;
@@ -62,7 +62,7 @@ impl Scenario {
 
         let sun_pos = match &cfg.scene.sun {
             CfgSun::Cartesian(CfgStateCartesian { position, .. }) => position * AU,
-            CfgSun::Equatorial(CfgStateEquatorial { ra, dec }) => Vec3::x() * AU,
+            CfgSun::Equatorial(Equatorial { ra, dec }) => Vec3::x() * AU,
         };
 
         // If camera is from Earth, we cannot give a correct value for position now.
