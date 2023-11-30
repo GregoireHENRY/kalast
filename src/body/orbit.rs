@@ -3,7 +3,10 @@ use crate::{util::*, NEWTON_METHOD_THRESHOLD, NUMBER_ITERATION_FAIL};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use snafu::{prelude::*, Location};
-use std::str::FromStr;
+use std::{
+    ops::{Deref, DerefMut},
+    str::FromStr,
+};
 use uom::{
     si::{angle::radian, f64::Angle},
     str::ParseQuantityError,
@@ -64,13 +67,11 @@ pub enum AstronomicalAngleOptions {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(try_from = "AstronomicalAngleStr")]
 #[serde(into = "AstronomicalAngleStr")]
-pub struct AstronomicalAngle {
-    pub angle: Angle,
-}
+pub struct AstronomicalAngle(Angle);
 
 impl AstronomicalAngle {
     pub fn new(angle: Angle) -> Self {
-        Self { angle }
+        Self(angle)
     }
 
     pub fn parse(s: &str) -> OrbitResult<Self> {
@@ -179,6 +180,19 @@ impl FromStr for AstronomicalAngle {
     }
 }
 
+impl Deref for AstronomicalAngle {
+    type Target = Angle;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for AstronomicalAngle {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 struct AstronomicalAngleStr(String);
 
@@ -192,7 +206,7 @@ impl TryFrom<AstronomicalAngleStr> for AstronomicalAngle {
 
 impl From<AstronomicalAngle> for AstronomicalAngleStr {
     fn from(value: AstronomicalAngle) -> Self {
-        Self(value.angle.value.to_string())
+        Self(value.value.to_string())
     }
 }
 
@@ -220,6 +234,15 @@ pub struct Equatorial {
 impl Equatorial {
     pub fn new(ra: AstronomicalAngle, dec: AstronomicalAngle) -> Self {
         Self { ra, dec }
+    }
+
+    pub fn xyz(&self, distance: Float) -> Vec3 {
+        distance
+            * vec3(
+                (self.ra.cos() * self.dec.cos()).value,
+                (self.ra.sin() * self.dec.cos()).value,
+                self.dec.sin().value,
+            )
     }
 }
 

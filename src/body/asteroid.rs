@@ -5,13 +5,13 @@ use polars::prelude::{CsvReader, SerReader};
 use std::path::Path;
 
 #[derive(Debug, Clone)]
-pub struct Asteroid {
+pub struct AirlessBody {
     pub surface: Surface,
     pub interior: Option<Interior>,
     pub matrix_model: Mat4,
 }
 
-impl Asteroid {
+impl AirlessBody {
     pub fn new(surface: Surface) -> Self {
         Self {
             surface,

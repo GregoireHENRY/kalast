@@ -1,4 +1,4 @@
-use crate::{util::*, Asteroid, CfgBody, CfgTimeExport, ThermalData};
+use crate::{util::*, AirlessBody, CfgBody, CfgTimeExport, ThermalData};
 
 use itertools::izip;
 use notify_rust::Notification;
@@ -9,7 +9,7 @@ use std::path::Path;
 
 pub fn check<P: AsRef<Path>>(
     id: usize,
-    asteroid: &mut Asteroid,
+    asteroid: &mut AirlessBody,
     cb: &CfgBody,
     info: &mut ThermalData,
     path: P,
@@ -182,7 +182,7 @@ pub fn check<P: AsRef<Path>>(
 }
 
 pub fn check_all<P: AsRef<Path>>(
-    asteroids: &mut [Asteroid],
+    asteroids: &mut [AirlessBody],
     cbs: &[CfgBody],
     infos: &mut [ThermalData],
     path: P,

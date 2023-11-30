@@ -1,9 +1,9 @@
 use crate::{
     compute_cosine_emission_angle, compute_cosine_incidence_angle, compute_cosine_phase_angle,
-    effective_temperature, flux_solar_radiation, fn_setup_body_default, newton_method_temperature,
-    read_surface_low, shadows, simu::Scene, update_colormap_scalar, util::*, Asteroid, Body,
-    CfgBody, CfgColormap, CfgScalar, CfgTemperatureInit, FoldersRun, Routines, RoutinesData,
-    Surface, Time, Window,
+    effective_temperature, flux_solar_radiation, newton_method_temperature, read_surface_low,
+    shadows, simu::Scene, update_colormap_scalar, util::*, AirlessBody, Cfg, CfgBody, CfgScalar,
+    CfgTemperatureInit, FoldersRun, PreComputedBody, Routines, RoutinesData, Surface,
+    Time, Window,
 };
 
 use itertools::Itertools;
@@ -24,7 +24,7 @@ pub struct ThermalData {
 }
 
 impl RoutinesData for ThermalData {
-    fn new(asteroid: &Asteroid, cb: &CfgBody, scene: &Scene) -> Self {
+    fn new(asteroid: &AirlessBody, cb: &CfgBody, scene: &Scene) -> Self {
         let depth_grid = &asteroid.interior.as_ref().unwrap().as_grid().depth;
         let depth_size = depth_grid.len();
         let surf_size = asteroid.surface.faces.len();
@@ -124,28 +124,29 @@ impl RoutinesData for ThermalData {
 pub trait RoutinesThermal: Routines {
     fn fn_compute_solar_flux(
         &self,
-        body: &Body,
+        body: &AirlessBody,
+        precomputed: &PreComputedBody,
         body_info: &ThermalData,
         scene: &Scene,
     ) -> DRVector<Float>;
 
     fn fn_compute_surface_temperatures(
         &self,
-        body: &Body,
+        body: &AirlessBody,
         body_info: &ThermalData,
         surface_fluxes: &DRVector<Float>,
     ) -> DRVector<Float>;
 
     fn fn_compute_heat_conduction(
         &self,
-        body: &Body,
+        body: &AirlessBody,
         body_info: &ThermalData,
         delta_time: Float,
     ) -> DMatrix<Float>;
 
     fn fn_compute_bottom_depth_temperatures(
         &self,
-        body: &Body,
+        body: &AirlessBody,
         body_info: &ThermalData,
     ) -> DRVector<Float>;
 }
@@ -155,38 +156,41 @@ pub struct RoutinesThermalDefault {
     pub shadows_mutual: bool,
 }
 
-impl Routines for RoutinesThermalDefault {
-    fn fn_setup_body(&mut self, asteroid: Asteroid, cb: &CfgBody, scene: &Scene) -> Body {
-        self.data.push(ThermalData::new(&asteroid, cb, scene));
-        fn_setup_body_default(asteroid, cb)
+impl RoutinesThermalDefault {
+    pub fn new() -> Self {
+        Self {
+            data: vec![],
+            shadows_mutual: false,
+        }
     }
+}
 
+impl Routines for RoutinesThermalDefault {
     fn fn_iteration_body(
         &mut self,
-        ii_body: usize,
-        ii_other_bodies: &[usize],
-        _cb: &CfgBody,
-        _other_cbs: &[&CfgBody],
-        bodies: &mut [Body],
-        scene: &Scene,
+        body: usize,
+        bodies: &mut [AirlessBody],
+        pre_computed_bodies: &mut [PreComputedBody],
         time: &Time,
+        scene: &Scene,
     ) {
         let dt = time.used_time_step();
-        let other_bodies = ii_other_bodies.iter().map(|&ii| &bodies[ii]).collect_vec();
 
-        let mut fluxes_solar =
-            self.fn_compute_solar_flux(&bodies[ii_body], &self.data[ii_body], &scene);
+        let other_bodies = (0..bodies.len()).filter(|ii| *ii != body).collect_vec();
+
+        let mut fluxes_solar = self.fn_compute_solar_flux(
+            &bodies[body],
+            &pre_computed_bodies[body],
+            &self.data[body],
+            &scene,
+        );
 
         if self.shadows_mutual {
             let shadows_self: Vec<usize> = vec![];
             let mut shadows_mutual: Vec<usize> = vec![];
 
             for other_body in other_bodies {
-                shadows_mutual = shadows(
-                    &scene.sun_pos,
-                    &bodies[ii_body].asteroid,
-                    &other_body.asteroid,
-                );
+                shadows_mutual = shadows(&scene.sun_pos, &bodies[body], &bodies[other_body]);
             }
 
             for &index in shadows_mutual.iter().chain(&shadows_self).unique() {
@@ -197,355 +201,283 @@ impl Routines for RoutinesThermalDefault {
         let fluxes = fluxes_solar.clone();
 
         let temperatures_surface =
-            self.fn_compute_surface_temperatures(&bodies[ii_body], &self.data[ii_body], &fluxes);
-        self.data[ii_body].tmp.set_row(0, &temperatures_surface);
+            self.fn_compute_surface_temperatures(&bodies[body], &self.data[body], &fluxes);
+        self.data[body].tmp.set_row(0, &temperatures_surface);
 
         let temperatures_inside =
-            self.fn_compute_heat_conduction(&bodies[ii_body], &self.data[ii_body], dt as Float);
-        let curr_size = self.data[ii_body].depth_size - 2;
+            self.fn_compute_heat_conduction(&bodies[body], &self.data[body], dt as Float);
+        let curr_size = self.data[body].depth_size - 2;
         for index in 0..curr_size {
-            self.data[ii_body]
+            self.data[body]
                 .tmp
                 .set_row(index + 1, &temperatures_inside.row(index));
         }
 
         let temperatures_bottom =
-            self.fn_compute_bottom_depth_temperatures(&bodies[ii_body], &self.data[ii_body]);
-        self.data[ii_body]
+            self.fn_compute_bottom_depth_temperatures(&bodies[body], &self.data[body]);
+        self.data[body]
             .tmp
             .set_row(curr_size + 1, &temperatures_bottom);
 
-        self.data[ii_body].fluxes = fluxes;
-        self.data[ii_body].fluxes_solar = fluxes_solar;
+        self.data[body].fluxes = fluxes;
+        self.data[body].fluxes_solar = fluxes_solar;
     }
 
     fn fn_update_colormap(
         &self,
-        win: &Window,
-        cmap: &CfgColormap,
-        ii_body: usize,
-        body: &mut Body,
+        body: usize,
+        bodies: &mut [AirlessBody],
+        pre_computed_bodies: &[PreComputedBody],
+        cfg: &Cfg,
         scene: &Scene,
+        win: &Window,
     ) {
-        fn_update_colormap_thermal_default(&self.data[ii_body], win, cmap, ii_body, body, scene);
+        let cmap = &cfg.window.colormap;
+        let scalars = match &cmap.scalar {
+            Some(CfgScalar::AngleIncidence) => compute_cosine_incidence_angle(
+                &bodies[body],
+                &pre_computed_bodies[body].normals,
+                scene,
+            )
+            .map(|a| a.acos() * DPR),
+            Some(CfgScalar::AngleEmission) => compute_cosine_emission_angle(
+                &bodies[body],
+                &pre_computed_bodies[body].normals,
+                scene,
+            )
+            .map(|a| a.acos() * DPR),
+            Some(CfgScalar::AnglePhase) => {
+                compute_cosine_phase_angle(&bodies[body], scene).map(|a| a.acos() * DPR)
+            }
+            Some(CfgScalar::FluxSolar) => self.data[body].fluxes_solar.clone(),
+            Some(CfgScalar::FluxSurface) => self.data[body].fluxes.clone(),
+            Some(CfgScalar::FluxEmitted) => unimplemented!(),
+            Some(CfgScalar::FluxSelf) => unimplemented!(),
+            Some(CfgScalar::FluxMutual) => unimplemented!(),
+            None | Some(CfgScalar::Temperature) => self.data[body].tmp.row(0).into_owned(),
+        };
+
+        update_colormap_scalar(win, cfg, scalars.as_slice(), &mut bodies[body], body);
     }
 
     fn fn_export_iteration(
         &self,
-        cb: &CfgBody,
-        ii_body: usize,
+        body: usize,
+        cfg: &Cfg,
         time: &Time,
         folders: &FoldersRun,
         is_first_it: bool,
     ) {
-        fn_export_iteration_thermal_default(&self.data[ii_body], cb, time, folders, is_first_it);
+        let np_elapsed = time.elapsed_seconds() as Float / cfg.bodies[body].spin.period;
+
+        let data = &self.data[body];
+        let tmp_surf_min = data.tmp.row(0).min();
+        let tmp_surf_max = data.tmp.row(0).max();
+        let tmp_surf_mean = data.tmp.row(0).mean();
+        let tmp_surf_stdev = data.tmp.row(0).variance().sqrt();
+        let tmp_bottom_min = data.tmp.row(data.depth_size - 1).min();
+        let tmp_bottom_max = data.tmp.row(data.depth_size - 1).max();
+        let tmp_bottom_mean = data.tmp.row(data.depth_size - 1).mean();
+        let tmp_bottom_stdev = data.tmp.row(data.depth_size - 1).variance().sqrt();
+
+        let mut df = df!(
+            "time" => [np_elapsed],
+            "tmp-surf-min" => [tmp_surf_min],
+            "tmp-surf-max" => [tmp_surf_max],
+            "tmp-surf-mean" => [tmp_surf_mean],
+            "tmp-surf-stdev" => [tmp_surf_stdev],
+            "tmp-bottom-min" => [tmp_bottom_min],
+            "tmp-bottom-max" => [tmp_bottom_max],
+            "tmp-bottom-mean" => [tmp_bottom_mean],
+            "tmp-bottom-stdev" => [tmp_bottom_stdev],
+        )
+        .unwrap();
+
+        let folder_simu = folders.simu_body(&cfg.bodies[body].id);
+        fs::create_dir_all(&folder_simu).unwrap();
+
+        let mut file = std::fs::File::options()
+            .append(true)
+            .create(true)
+            .open(folder_simu.join("progress.csv"))
+            .unwrap();
+        CsvWriter::new(&mut file)
+            .include_header(is_first_it)
+            .finish(&mut df)
+            .unwrap();
     }
 
     fn fn_export_iteration_period(
         &self,
-        cb: &CfgBody,
-        body: &Body,
-        ii_body: usize,
+        body: usize,
+        _bodies: &mut [AirlessBody],
+        cfg: &Cfg,
         folders: &FoldersRun,
         exporting_started_elapsed: i64,
         is_first_it_export: bool,
     ) {
-        fn_export_iteration_period_thermal_default(
-            &self.data[ii_body],
-            cb,
-            body,
-            folders,
-            exporting_started_elapsed,
-            is_first_it_export,
-        );
-    }
+        let folder_tpm = folders
+            .simu_rec_time_body_temperatures(exporting_started_elapsed as _, &cfg.bodies[body].id);
+        fs::create_dir_all(&folder_tpm).unwrap();
 
-    fn fn_end_of_iteration(
-        &mut self,
-        _bodies: &mut [Body],
-        _time: &Time,
-        _scene: &Scene,
-        _win: &Window,
-    ) {
+        let data = &self.data[body];
+
+        if is_first_it_export {
+            let mut df = df!(
+                "tmp" => data.tmp.map(|t| t as f32).as_slice(),
+            )
+            .unwrap();
+            let mut file = std::fs::File::options()
+                .append(true)
+                .create(true)
+                .open(folder_tpm.join("temperatures-all.csv"))
+                .unwrap();
+            CsvWriter::new(&mut file).finish(&mut df).unwrap();
+        }
+
+        if !cfg.bodies[body].record.faces.is_empty() {
+            let dfcols = cfg.bodies[body]
+                .record
+                .faces
+                .iter()
+                .map(|&face| Series::new(&format!("{}", face), &vec![data.tmp.row(0)[face]]))
+                .collect_vec();
+            let mut df = DataFrame::new(dfcols).unwrap();
+            let p = folder_tpm.join("temperatures-faces.csv");
+            let mut file = std::fs::File::options()
+                .append(true)
+                .create(true)
+                .open(&p)
+                .unwrap();
+            CsvWriter::new(&mut file)
+                .include_header(is_first_it_export)
+                .finish(&mut df)
+                .unwrap();
+        }
+
+        if !cfg.bodies[body].record.cells.is_empty() {
+            let dfcols = cfg.bodies[body]
+                .record
+                .cells
+                .iter()
+                .map(|&cell| Series::new(&format!("{}", cell), &vec![data.tmp[cell]]))
+                .collect_vec();
+            let mut df = DataFrame::new(dfcols).unwrap();
+            let p = folder_tpm.join("temperatures-cells.csv");
+            let mut file = std::fs::File::options()
+                .append(true)
+                .create(true)
+                .open(&p)
+                .unwrap();
+            CsvWriter::new(&mut file)
+                .include_header(is_first_it_export)
+                .finish(&mut df)
+                .unwrap();
+        }
+
+        if !cfg.bodies[body].record.columns.is_empty() {
+            let dfcols = cfg.bodies[body]
+                .record
+                .columns
+                .iter()
+                .map(|&column| {
+                    Series::new(&format!("{}", column), data.tmp.column(column).as_slice())
+                })
+                .collect_vec();
+            let mut df = DataFrame::new(dfcols).unwrap();
+            let p = folder_tpm.join("temperatures-columns.csv");
+            let mut file = std::fs::File::options()
+                .append(true)
+                .create(true)
+                .open(&p)
+                .unwrap();
+            CsvWriter::new(&mut file)
+                .include_header(is_first_it_export)
+                .finish(&mut df)
+                .unwrap();
+        }
+
+        if !cfg.bodies[body].record.rows.is_empty() {
+            let dfcols = cfg.bodies[body]
+                .record
+                .rows
+                .iter()
+                .map(|&row| {
+                    Series::new(
+                        &format!("{}", row),
+                        data.tmp.row(row).transpose().as_slice(),
+                    )
+                })
+                .collect_vec();
+            let mut df = DataFrame::new(dfcols).unwrap();
+            let p = folder_tpm.join("temperatures-rows.csv");
+            let mut file = std::fs::File::options()
+                .append(true)
+                .create(true)
+                .open(&p)
+                .unwrap();
+            CsvWriter::new(&mut file)
+                .include_header(is_first_it_export)
+                .finish(&mut df)
+                .unwrap();
+        }
     }
 }
 
 impl RoutinesThermal for RoutinesThermalDefault {
     fn fn_compute_solar_flux(
         &self,
-        body: &Body,
+        body: &AirlessBody,
+        precomputed: &PreComputedBody,
         body_info: &ThermalData,
         scene: &Scene,
     ) -> DRVector<Float> {
-        fn_compute_solar_flux_default(body, body_info, scene)
+        let cos_incidences = compute_cosine_incidence_angle(body, &precomputed.normals, scene);
+        flux_solar_radiation(&cos_incidences, &body_info.albedos, scene.sun_dist())
     }
 
     fn fn_compute_surface_temperatures(
         &self,
-        body: &Body,
+        body: &AirlessBody,
         body_info: &ThermalData,
         surface_fluxes: &DRVector<Float>,
     ) -> DRVector<Float> {
-        fn_compute_surface_temperatures_default(body, body_info, surface_fluxes)
+        let depth_grid = &body.interior.as_ref().unwrap().as_grid().depth;
+
+        newton_method_temperature(
+            body_info.tmp.row(0).as_view(),
+            &surface_fluxes,
+            &body_info.emissivities,
+            &body_info.conductivities,
+            body_info.tmp.rows(1, 2).as_view(),
+            depth_grid[2],
+        )
     }
 
     fn fn_compute_heat_conduction(
         &self,
-        body: &Body,
+        body: &AirlessBody,
         body_info: &ThermalData,
         delta_time: Float,
     ) -> DMatrix<Float> {
-        fn_compute_heat_conduction_default(body, body_info, delta_time)
+        let curr_size = body_info.depth_size - 2;
+        let surf_size = body.surface.faces.len();
+
+        let prev = body_info.tmp.view((0, 0), (curr_size, surf_size));
+        let curr = body_info.tmp.view((1, 0), (curr_size, surf_size));
+        let next = body_info.tmp.view((2, 0), (curr_size, surf_size));
+
+        curr + delta_time
+            * body_info
+                .diffu_dx2
+                .component_mul(&(prev - 2. * curr + next))
     }
 
     fn fn_compute_bottom_depth_temperatures(
         &self,
-        body: &Body,
+        _body: &AirlessBody,
         body_info: &ThermalData,
     ) -> DRVector<Float> {
-        fn_compute_bottom_depth_temperatures_default(body, body_info)
-    }
-}
-
-pub fn routines_thermal_default() -> RoutinesThermalDefault {
-    RoutinesThermalDefault {
-        data: vec![],
-        shadows_mutual: false,
-    }
-}
-
-pub fn fn_compute_solar_flux_default(
-    body: &Body,
-    body_info: &ThermalData,
-    scene: &Scene,
-) -> DRVector<Float> {
-    let cos_incidences = compute_cosine_incidence_angle(body, &body.normals, scene);
-    flux_solar_radiation(&cos_incidences, &body_info.albedos, scene.sun_dist())
-}
-
-pub fn fn_compute_surface_temperatures_default(
-    body: &Body,
-    body_info: &ThermalData,
-    surface_fluxes: &DRVector<Float>,
-) -> DRVector<Float> {
-    let depth_grid = &body.asteroid.interior.as_ref().unwrap().as_grid().depth;
-
-    newton_method_temperature(
-        body_info.tmp.row(0).as_view(),
-        &surface_fluxes,
-        &body_info.emissivities,
-        &body_info.conductivities,
-        body_info.tmp.rows(1, 2).as_view(),
-        depth_grid[2],
-    )
-}
-
-pub fn fn_compute_heat_conduction_default(
-    body: &Body,
-    body_info: &ThermalData,
-    delta_time: Float,
-) -> DMatrix<Float> {
-    let curr_size = body_info.depth_size - 2;
-    let surf_size = body.asteroid.surface.faces.len();
-
-    let prev = body_info.tmp.view((0, 0), (curr_size, surf_size));
-    let curr = body_info.tmp.view((1, 0), (curr_size, surf_size));
-    let next = body_info.tmp.view((2, 0), (curr_size, surf_size));
-
-    curr + delta_time
-        * body_info
-            .diffu_dx2
-            .component_mul(&(prev - 2. * curr + next))
-}
-
-pub fn fn_compute_bottom_depth_temperatures_default(
-    _body: &Body,
-    body_info: &ThermalData,
-) -> DRVector<Float> {
-    body_info.tmp.row(body_info.depth_size - 2).clone_owned()
-}
-
-pub fn fn_update_colormap_thermal_default(
-    data: &ThermalData,
-    win: &Window,
-    cmap: &CfgColormap,
-    ii_body: usize,
-    body: &mut Body,
-    scene: &Scene,
-) {
-    let scalars = match &cmap.scalar {
-        Some(CfgScalar::AngleIncidence) => {
-            compute_cosine_incidence_angle(body, &body.normals, scene).map(|a| a.acos() * DPR)
-        }
-        Some(CfgScalar::AngleEmission) => {
-            compute_cosine_emission_angle(body, &body.normals, scene).map(|a| a.acos() * DPR)
-        }
-        Some(CfgScalar::AnglePhase) => {
-            compute_cosine_phase_angle(body, scene).map(|a| a.acos() * DPR)
-        }
-        Some(CfgScalar::FluxSolar) => data.fluxes_solar.clone(),
-        Some(CfgScalar::FluxSurface) => data.fluxes.clone(),
-        Some(CfgScalar::FluxEmitted) => unimplemented!(),
-        Some(CfgScalar::FluxSelf) => unimplemented!(),
-        Some(CfgScalar::FluxMutual) => unimplemented!(),
-        None | Some(CfgScalar::Temperature) => data.tmp.row(0).into_owned(),
-    };
-
-    update_colormap_scalar(win, cmap, scalars.as_slice(), &mut body.asteroid, ii_body);
-}
-
-pub fn fn_export_iteration_thermal_default(
-    data: &ThermalData,
-    cb: &CfgBody,
-    time: &Time,
-    folders: &FoldersRun,
-    is_first_it: bool,
-) {
-    let np_elapsed = time.elapsed_seconds() as Float / cb.spin.period;
-
-    let tmp_surf_min = data.tmp.row(0).min();
-    let tmp_surf_max = data.tmp.row(0).max();
-    let tmp_surf_mean = data.tmp.row(0).mean();
-    let tmp_surf_stdev = data.tmp.row(0).variance().sqrt();
-    let tmp_bottom_min = data.tmp.row(data.depth_size - 1).min();
-    let tmp_bottom_max = data.tmp.row(data.depth_size - 1).max();
-    let tmp_bottom_mean = data.tmp.row(data.depth_size - 1).mean();
-    let tmp_bottom_stdev = data.tmp.row(data.depth_size - 1).variance().sqrt();
-
-    let mut df = df!(
-        "time" => [np_elapsed],
-        "tmp-surf-min" => [tmp_surf_min],
-        "tmp-surf-max" => [tmp_surf_max],
-        "tmp-surf-mean" => [tmp_surf_mean],
-        "tmp-surf-stdev" => [tmp_surf_stdev],
-        "tmp-bottom-min" => [tmp_bottom_min],
-        "tmp-bottom-max" => [tmp_bottom_max],
-        "tmp-bottom-mean" => [tmp_bottom_mean],
-        "tmp-bottom-stdev" => [tmp_bottom_stdev],
-    )
-    .unwrap();
-
-    let folder_simu = folders.simu_body(&cb.id);
-    fs::create_dir_all(&folder_simu).unwrap();
-
-    let mut file = std::fs::File::options()
-        .append(true)
-        .create(true)
-        .open(folder_simu.join("progress.csv"))
-        .unwrap();
-    CsvWriter::new(&mut file)
-        .include_header(is_first_it)
-        .finish(&mut df)
-        .unwrap();
-}
-
-pub fn fn_export_iteration_period_thermal_default(
-    data: &ThermalData,
-    cb: &CfgBody,
-    _body: &Body,
-    folders: &FoldersRun,
-    exporting_started_elapsed: i64,
-    is_first_it_export: bool,
-) {
-    let folder_tpm =
-        folders.simu_rec_time_body_temperatures(exporting_started_elapsed as _, &cb.id);
-    fs::create_dir_all(&folder_tpm).unwrap();
-
-    if is_first_it_export {
-        let mut df = df!(
-            "tmp" => data.tmp.map(|t| t as f32).as_slice(),
-        )
-        .unwrap();
-        let mut file = std::fs::File::options()
-            .append(true)
-            .create(true)
-            .open(folder_tpm.join("temperatures-all.csv"))
-            .unwrap();
-        CsvWriter::new(&mut file).finish(&mut df).unwrap();
-    }
-
-    if !cb.record.faces.is_empty() {
-        let dfcols = cb
-            .record
-            .faces
-            .iter()
-            .map(|&face| Series::new(&format!("{}", face), &vec![data.tmp.row(0)[face]]))
-            .collect_vec();
-        let mut df = DataFrame::new(dfcols).unwrap();
-        let p = folder_tpm.join("temperatures-faces.csv");
-        let mut file = std::fs::File::options()
-            .append(true)
-            .create(true)
-            .open(&p)
-            .unwrap();
-        CsvWriter::new(&mut file)
-            .include_header(is_first_it_export)
-            .finish(&mut df)
-            .unwrap();
-    }
-
-    if !cb.record.cells.is_empty() {
-        let dfcols = cb
-            .record
-            .cells
-            .iter()
-            .map(|&cell| Series::new(&format!("{}", cell), &vec![data.tmp[cell]]))
-            .collect_vec();
-        let mut df = DataFrame::new(dfcols).unwrap();
-        let p = folder_tpm.join("temperatures-cells.csv");
-        let mut file = std::fs::File::options()
-            .append(true)
-            .create(true)
-            .open(&p)
-            .unwrap();
-        CsvWriter::new(&mut file)
-            .include_header(is_first_it_export)
-            .finish(&mut df)
-            .unwrap();
-    }
-
-    if !cb.record.columns.is_empty() {
-        let dfcols = cb
-            .record
-            .columns
-            .iter()
-            .map(|&column| Series::new(&format!("{}", column), data.tmp.column(column).as_slice()))
-            .collect_vec();
-        let mut df = DataFrame::new(dfcols).unwrap();
-        let p = folder_tpm.join("temperatures-columns.csv");
-        let mut file = std::fs::File::options()
-            .append(true)
-            .create(true)
-            .open(&p)
-            .unwrap();
-        CsvWriter::new(&mut file)
-            .include_header(is_first_it_export)
-            .finish(&mut df)
-            .unwrap();
-    }
-
-    if !cb.record.rows.is_empty() {
-        let dfcols = cb
-            .record
-            .rows
-            .iter()
-            .map(|&row| {
-                Series::new(
-                    &format!("{}", row),
-                    data.tmp.row(row).transpose().as_slice(),
-                )
-            })
-            .collect_vec();
-        let mut df = DataFrame::new(dfcols).unwrap();
-        let p = folder_tpm.join("temperatures-rows.csv");
-        let mut file = std::fs::File::options()
-            .append(true)
-            .create(true)
-            .open(&p)
-            .unwrap();
-        CsvWriter::new(&mut file)
-            .include_header(is_first_it_export)
-            .finish(&mut df)
-            .unwrap();
+        body_info.tmp.row(body_info.depth_size - 2).clone_owned()
     }
 }

@@ -20,21 +20,21 @@ Information on the configuration of your **kalast** scenarios are located at the
 [releases]: https://github.com/GregoireHENRY/kalast/releases
 */
 
-pub mod ast;
+pub mod body;
 pub mod cfg;
 pub mod simu;
 pub mod thermal;
 pub mod util;
 pub mod win;
 
-pub use ast::*;
+pub use body::*;
 pub use cfg::*;
 pub use simu::*;
 pub use thermal::*;
 pub use util::*;
 pub use win::*;
 
-#[cfg(feature = "rust_spice")]
+#[cfg(feature = "spice")]
 pub use spice;
 
 use snafu::prelude::*;

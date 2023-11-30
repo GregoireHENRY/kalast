@@ -1,150 +1,186 @@
 use crate::{
-    find_ref_orbit, find_reference_matrix_orientation, matrix_spin, position_in_inertial_frame,
-    simu::Scene, util::*, Asteroid, Body, CfgBody, CfgColormap, CfgState, CfgStateCartesian,
-    Equatorial, FoldersRun, Time, Window,
+    compute_cosine_emission_angle, compute_cosine_incidence_angle, compute_cosine_phase_angle,
+    find_matrix_spin, find_matrix_translation, find_reference_matrix_orientation, simu::Scene,
+    update_colormap_scalar, util::*, AirlessBody, Cfg, CfgBody, CfgScalar, FoldersRun,
+    PreComputedBody, Time, Window,
 };
 
+#[cfg(feature = "spice")]
+use crate::CfgCamera;
+
+#[cfg(not(feature = "spice"))]
+use crate::{find_ref_orbit, position_in_inertial_frame, CfgState};
+
 use downcast_rs::{impl_downcast, DowncastSync};
+
+#[cfg(not(feature = "spice"))]
 use itertools::Itertools;
 
 pub trait RoutinesData {
-    fn new(asteroid: &Asteroid, _cb: &CfgBody, _scene: &Scene) -> Self;
+    fn new(asteroid: &AirlessBody, _cb: &CfgBody, _scene: &Scene) -> Self;
 }
 
 pub trait Routines: DowncastSync {
-    fn fn_setup_body(&mut self, asteroid: Asteroid, cb: &CfgBody, _scene: &Scene) -> Body {
-        fn_setup_body_default(asteroid, cb)
+    fn fn_update_scene(&self, cfg: &Cfg, time: &Time, scene: &mut Scene) {
+        let elapsed_from_start = time.elapsed_seconds_from_start();
+
+        #[cfg(not(feature = "spice"))]
+        if let Some(body) = cfg.bodies.first() {
+            let other_bodies = cfg.bodies.iter().skip(1).collect_vec();
+
+            match &body.state {
+                CfgState::Equatorial(coords) => {
+                    let distance = cfg.scene.camera.as_earth().unwrap();
+                    let position = coords.xyz(distance);
+                    dbg!(position);
+                    scene.cam_pos = -position;
+
+                    let coords_sun = cfg.scene.sun.as_equatorial().unwrap();
+                    let position_sun = coords_sun.xyz(distance);
+                    dbg!(position_sun);
+                    scene.sun_pos = scene.cam_pos + position_sun;
+                }
+                CfgState::Orbit(orb) => {
+                    let (mu_ref, factor) = find_ref_orbit(&orb, &other_bodies);
+                    let pos = position_in_inertial_frame(
+                        orb.a * factor,
+                        orb.e,
+                        orb.i * RPD,
+                        orb.node * RPD,
+                        orb.peri * RPD,
+                        elapsed_from_start as Float,
+                        orb.tp,
+                        mu_ref,
+                    );
+                    if mu_ref == MU_SUN {
+                        scene.sun_pos = -pos;
+                    }
+                }
+                _ => {}
+            };
+        }
+
+        #[cfg(feature = "spice")]
+        if let Some(body) = cfg.bodies.first() {
+            let context = match cfg.scene.camera {
+                CfgCamera::Earth(distance) => ("Earth", "J2000", distance),
+                _ => panic!("Expecting Earth with distance for camera settings"),
+            };
+            let (position, _lt) = spice::spkpos(
+                context.0,
+                elapsed_from_start as f64,
+                context.1,
+                "none",
+                &body.id,
+            );
+            let position = Vec3::from_row_slice(&position);
+
+            let (position_sun, _lt_sun) = spice::spkpos(
+                "Sun",
+                elapsed_from_start as f64,
+                context.1,
+                "none",
+                &body.id,
+            );
+            let position_sun = Vec3::from_row_slice(&position_sun);
+
+            scene.cam_pos = position.normalize() * context.2;
+            scene.sun_pos = position_sun.normalize() * context.2;
+        }
     }
 
     fn fn_update_matrix_model(
         &self,
-        ii_body: usize,
-        ii_other_bodies: &[usize],
-        cb: &CfgBody,
-        other_cbs: &[&CfgBody],
-        bodies: &mut [Body],
+        cfg: &Cfg,
+        body: usize,
+        bodies: &mut [AirlessBody],
+        pre_computed_bodies: &mut [PreComputedBody],
         time: &Time,
-        scene: &mut Scene,
+        _scene: &Scene,
     ) {
-        fn_update_matrix_model_default(
-            ii_body,
-            ii_other_bodies,
-            cb,
-            other_cbs,
-            bodies,
-            time,
-            scene,
-        );
+        let mat_orient_ref = find_reference_matrix_orientation(&cfg, body, pre_computed_bodies);
+        let mat_spin = find_matrix_spin(cfg, body, time);
+        let mat_translation = find_matrix_translation(cfg, body, time);
+
+        bodies[body].matrix_model =
+            mat_orient_ref * mat_translation * pre_computed_bodies[body].mat_orient * mat_spin;
     }
 
     fn fn_iteration_body(
         &mut self,
-        ii_body: usize,
-        ii_other_bodies: &[usize],
-        _cb: &CfgBody,
-        _other_cbs: &[&CfgBody],
-        bodies: &mut [Body],
-        scene: &Scene,
-        time: &Time,
-    );
+        _body: usize,
+        _bodies: &mut [AirlessBody],
+        _pre_computed_bodies: &mut [PreComputedBody],
+        _time: &Time,
+        _scene: &Scene,
+    ) {
+    }
 
     fn fn_update_colormap(
         &self,
-        win: &Window,
-        cmap: &CfgColormap,
-        ii_body: usize,
-        body: &mut Body,
+        body: usize,
+        bodies: &mut [AirlessBody],
+        pre_computed_bodies: &[PreComputedBody],
+        cfg: &Cfg,
         scene: &Scene,
-    );
+        win: &Window,
+    ) {
+        let scalars = match &cfg.window.colormap.scalar {
+            Some(CfgScalar::AngleIncidence) => compute_cosine_incidence_angle(
+                &bodies[body],
+                &pre_computed_bodies[body].normals,
+                scene,
+            )
+            .map(|a| a.acos() * DPR),
+            Some(CfgScalar::AngleEmission) => compute_cosine_emission_angle(
+                &bodies[body],
+                &pre_computed_bodies[body].normals,
+                scene,
+            )
+            .map(|a| a.acos() * DPR),
+            Some(CfgScalar::AnglePhase) => {
+                compute_cosine_phase_angle(&bodies[body], scene).map(|a| a.acos() * DPR)
+            }
+            None => return,
+            _ => unreachable!(),
+        };
+
+        update_colormap_scalar(win, cfg, scalars.as_slice(), &mut bodies[body], body);
+    }
 
     fn fn_export_iteration(
         &self,
-        cb: &CfgBody,
-        ii_body: usize,
-        time: &Time,
-        folders: &FoldersRun,
-        is_first_it: bool,
-    );
+        _body: usize,
+        _cfg: &Cfg,
+        _time: &Time,
+        _folders: &FoldersRun,
+        _is_first_it: bool,
+    ) {
+    }
 
     fn fn_export_iteration_period(
         &self,
-        cb: &CfgBody,
-        body: &Body,
-        ii_body: usize,
-        folders: &FoldersRun,
-        exporting_started_elapsed: i64,
-        is_first_it_export: bool,
-    );
+        _body: usize,
+        _bodies: &mut [AirlessBody],
+        _cfg: &Cfg,
+        _folders: &FoldersRun,
+        _exporting_started_elapsed: i64,
+        _is_first_it_export: bool,
+    ) {
+    }
 
     fn fn_end_of_iteration(
         &mut self,
-        bodies: &mut [Body],
-        time: &Time,
-        scene: &Scene,
+        cfg: &Cfg,
+        _bodies: &mut [AirlessBody],
+        _time: &Time,
+        _scene: &Scene,
         win: &Window,
-    );
+    ) {
+        if cfg.simulation.pause_after_first_iteration {
+            win.toggle_pause();
+        }
+    }
 }
 
 impl_downcast!(sync Routines);
-
-pub fn fn_setup_body_default(asteroid: Asteroid, cb: &CfgBody) -> Body {
-    Body::new(asteroid, cb)
-}
-
-pub fn fn_update_matrix_model_default(
-    ii_body: usize,
-    ii_other_bodies: &[usize],
-    cb: &CfgBody,
-    other_cbs: &[&CfgBody],
-    bodies: &mut [Body],
-    time: &Time,
-    scene: &mut Scene,
-) {
-    let elapsed = time.elapsed_seconds();
-    let elapsed_from_start = time.elapsed_seconds_from_start();
-
-    let other_bodies = ii_other_bodies.iter().map(|&ii| &bodies[ii]).collect_vec();
-
-    let mat_orient_ref = find_reference_matrix_orientation(cb, &other_bodies);
-
-    let mat_spin = {
-        if cb.spin.period == 0.0 {
-            Mat4::identity()
-        } else {
-            let np_elapsed = elapsed as Float / cb.spin.period;
-            let spin = (TAU * np_elapsed + cb.spin.spin0 * RPD) % TAU;
-            matrix_spin(spin)
-        }
-    };
-
-    let mat_translation = match &cb.state {
-        CfgState::Cartesian(CfgStateCartesian {
-            position,
-            orientation: _orientation,
-        }) => Mat4::new_translation(position),
-        CfgState::Equatorial(Equatorial { ra, dec }) => Mat4::new_translation(&Vec3::zeros()),
-        CfgState::File(_p) => Mat4::identity(),
-        CfgState::Orbit(orb) => {
-            let (mu_ref, factor) = find_ref_orbit(&orb, &other_cbs);
-            let pos = position_in_inertial_frame(
-                orb.a * factor,
-                orb.e,
-                orb.i * RPD,
-                orb.node * RPD,
-                orb.peri * RPD,
-                elapsed_from_start as Float,
-                orb.tp,
-                mu_ref,
-            );
-            if mu_ref == MU_SUN {
-                scene.sun_pos = -pos;
-                Mat4::identity()
-            } else {
-                Mat4::new_translation(&(pos * 1e-3))
-            }
-        }
-    };
-
-    bodies[ii_body].asteroid.matrix_model =
-        mat_orient_ref * mat_translation * bodies[ii_body].mat_orient * mat_spin;
-}

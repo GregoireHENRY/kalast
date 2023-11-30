@@ -14,6 +14,12 @@ pub struct CfgPreferences {
 
     #[serde(default)]
     pub auto_update: bool,
+
+    #[serde(default)]
+    pub debug: bool,
+
+    #[serde(default)]
+    pub debug_cfg: bool,
 }
 
 impl Configuration for CfgPreferences {}
@@ -24,6 +30,8 @@ impl Default for CfgPreferences {
             runs: default_runs(),
             auto_update: false,
             do_not_check_latest_version: false,
+            debug: false,
+            debug_cfg: false,
         }
     }
 }

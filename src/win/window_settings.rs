@@ -71,6 +71,11 @@ impl Default for WindowState {
 impl WindowState {
     pub fn toggle_pause(&mut self) -> bool {
         self.pause = !self.pause;
+        match self.pause {
+            true => println!("Paused."),
+            false => println!("Unpaused."),
+        }
+        
         self.pause
     }
 

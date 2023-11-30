@@ -576,6 +576,22 @@ pub struct CfgStateCartesian {
     pub orientation: Mat3,
 }
 
+impl CfgStateCartesian {
+    pub fn position_only(position: Vec3) -> Self {
+        Self {
+            position,
+            orientation: Mat3::identity(),
+        }
+    }
+
+    pub fn orientation_only(orientation: Mat3) -> Self {
+        Self {
+            position: Vec3::zeros(),
+            orientation,
+        }
+    }
+}
+
 impl Default for CfgStateCartesian {
     fn default() -> Self {
         Self {

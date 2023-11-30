@@ -1,4 +1,4 @@
-use crate::{intersect_surface, util::*, vec3_to_4_one, Asteroid, FaceData};
+use crate::{intersect_surface, util::*, vec3_to_4_one, AirlessBody, FaceData};
 
 use itertools::{iproduct, izip};
 
@@ -49,7 +49,7 @@ where $a_i$ is the area of the facet $i$, $\Theta_x$ the angle between the cente
 facets $i$ and $j$ and the normal of the facet $x$, and $r$ is the distance between the
 facets.
 */
-pub fn view_factor(b1: &Asteroid, b2: &Asteroid, shadows: bool) -> DMatrix<Float> {
+pub fn view_factor(b1: &AirlessBody, b2: &AirlessBody, shadows: bool) -> DMatrix<Float> {
     assert!(!b1.surface.is_smooth());
     assert!(!b2.surface.is_smooth());
 

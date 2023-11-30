@@ -274,8 +274,11 @@ impl Cfg {
             }
         }
 
-        dbg!(cfg.scene.sun.as_equatorial().unwrap());
-        dbg!(cfg.bodies.first().unwrap().state.as_equatorial().unwrap());
+        if cfg.preferences.debug_cfg {
+            println!("\nDebug cfg:");
+            dbg!(&cfg);
+            println!();
+        }
 
         Ok(cfg)
     }

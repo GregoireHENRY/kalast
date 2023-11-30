@@ -1,8 +1,8 @@
 use crate::{
-    simu::Scene, util::*, Body, Cfg, CfgBody, CfgTimeExport, FoldersRun, Routines, Time, Window,
+    simu::Scene, util::*, AirlessBody, Cfg, CfgTimeExport, FoldersRun, PreComputedBody,
+    Routines, Time, Window,
 };
 
-use itertools::izip;
 use polars::prelude::{df, CsvWriter, NamedFrom, SerWriter};
 use std::fs;
 
@@ -29,13 +29,14 @@ impl Export {
 
     pub fn iteration(
         &mut self,
-        time: &mut Time,
-        folders: &FoldersRun,
         cfg: &Cfg,
-        bodies: &[Body],
-        routines: &dyn Routines,
+        bodies: &mut [AirlessBody],
+        precomputed: &[PreComputedBody],
+        time: &mut Time,
         scene: &Scene,
         win: &Window,
+        folders: &FoldersRun,
+        routines: &dyn Routines,
     ) {
         let dt = time.used_time_step();
         let elapsed = time.elapsed_seconds();
@@ -44,14 +45,14 @@ impl Export {
             fs::create_dir_all(&folders.path).unwrap();
         }
 
-        for (ii_body, cb) in cfg.bodies.iter().enumerate() {
-            if ii_body > 0 {
+        for body in 0..cfg.bodies.len() {
+            if body > 0 {
                 // print!(" ");
             }
             // let np_elapsed = elapsed as Float / cb.spin.period;
             // print!("{:8.4}", np_elapsed);
 
-            routines.fn_export_iteration(cb, ii_body, time, folders, self.is_first_it);
+            routines.fn_export_iteration(body, cfg, time, folders, self.is_first_it);
         }
         // print!(">");
 
@@ -88,14 +89,22 @@ impl Export {
                 win.export_frame(path);
             }
 
-            for (ii_body, (body, cb)) in izip!(bodies, &cfg.bodies).enumerate() {
+            for body in 0..cfg.bodies.len() {
                 if self.is_first_it_export {
-                    self.iteration_body_export_start_generic(cb, body, time, folders, scene);
+                    self.iteration_body_export_start_generic(
+                        cfg,
+                        body,
+                        bodies,
+                        precomputed,
+                        time,
+                        scene,
+                        folders,
+                    );
                 }
                 routines.fn_export_iteration_period(
-                    cb,
                     body,
-                    ii_body,
+                    bodies,
+                    cfg,
                     folders,
                     self.exporting_started_elapsed,
                     self.is_first_it_export,
@@ -125,20 +134,24 @@ impl Export {
 
     pub fn iteration_body_export_start_generic(
         &self,
-        cb: &CfgBody,
-        body: &Body,
+        cfg: &Cfg,
+        body: usize,
+        _bodies: &mut [AirlessBody],
+        precomputed: &[PreComputedBody],
         time: &Time,
-        folders: &FoldersRun,
         scene: &Scene,
+        folders: &FoldersRun,
     ) {
         let elapsed = time.elapsed_seconds();
-        let np_elapsed = time.elapsed_seconds() as Float / cb.spin.period;
+        let np_elapsed = time.elapsed_seconds() as Float / cfg.bodies[body].spin.period;
         let jd = time.jd();
 
-        let folder_state =
-            folders.simu_rec_time_body_state(self.exporting_started_elapsed as _, &cb.id);
-        let folder_tpm =
-            folders.simu_rec_time_body_temperatures(self.exporting_started_elapsed as _, &cb.id);
+        let folder_state = folders
+            .simu_rec_time_body_state(self.exporting_started_elapsed as _, &cfg.bodies[body].id);
+        let folder_tpm = folders.simu_rec_time_body_temperatures(
+            self.exporting_started_elapsed as _,
+            &cfg.bodies[body].id,
+        );
         let folder_img = folders.simu_rec_time_frames(self.exporting_started_elapsed as _);
         fs::create_dir_all(&folder_state).unwrap();
         fs::create_dir_all(&folder_tpm).unwrap();
@@ -170,7 +183,7 @@ impl Export {
         CsvWriter::new(&mut file).finish(&mut df).unwrap();
 
         let mut df = df!(
-            "spinrot" => body.mat_orient.as_slice(),
+            "spinrot" => precomputed[body].mat_orient.as_slice(),
         )
         .unwrap();
         let mut file = std::fs::File::options()

@@ -48,6 +48,10 @@ impl WindowScene {
         self.camera.position = pos;
     }
 
+    pub fn light_direction<>(&self) -> Vec3 {
+        self.light.direction()
+    }
+
     pub fn set_light_offset(&mut self, offset: Float) {
         self.light.set_offset(offset);
 

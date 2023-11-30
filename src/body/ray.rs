@@ -1,4 +1,4 @@
-use crate::{util::*, vec3_to_4_one, Asteroid};
+use crate::{util::*, vec3_to_4_one, AirlessBody};
 
 use itertools::izip;
 
@@ -71,11 +71,11 @@ pub fn intersect_surface(
 pub fn intersect_asteroids(
     raystart_world: &Vec3,
     raydir_world: &Vec3,
-    asteroids: &[&Asteroid],
+    asteroids: &[AirlessBody],
 ) -> Option<(Vec3, usize, usize)> {
     let mut best_intersect: Option<(Vec3, usize, usize)> = None;
 
-    for (surface_index, &asteroid) in asteroids.iter().enumerate() {
+    for (surface_index, asteroid) in asteroids.iter().enumerate() {
         let raystart =
             (glm::inverse(&asteroid.matrix_model) * vec3_to_4_one(&raystart_world)).xyz();
 
@@ -114,7 +114,11 @@ pub fn intersect_asteroids(
 }
 
 /// asteroid1 is shadowed by asteroid2.
-pub fn shadows(lightpos_world: &Vec3, asteroid1: &Asteroid, asteroid2: &Asteroid) -> Vec<usize> {
+pub fn shadows(
+    lightpos_world: &Vec3,
+    asteroid1: &AirlessBody,
+    asteroid2: &AirlessBody,
+) -> Vec<usize> {
     if asteroid1.surface.is_smooth() || asteroid2.surface.is_smooth() {
         unimplemented!("Shadowing by ray-casting is only implemented for flat surface.");
     }

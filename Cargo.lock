@@ -1534,6 +1534,7 @@ dependencies = [
  "image",
  "indicatif",
  "itertools 0.12.0",
+ "kalast_macros",
  "lazy_static",
  "log",
  "nalgebra 0.32.3",
@@ -1556,6 +1557,15 @@ dependencies = [
  "stb_image",
  "tobj",
  "uom",
+]
+
+[[package]]
+name = "kalast_macros"
+version = "0.4.0-beta"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.31",
 ]
 
 [[package]]

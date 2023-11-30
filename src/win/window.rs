@@ -1,6 +1,6 @@
 use crate::{
-    intersect_asteroids, util::*, win::WindowScene, Asteroid, Direction, GraphicalPipeline, Shader,
-    Surface, WindowSettings, WindowState,
+    intersect_asteroids, util::*, win::WindowScene, AirlessBody, Direction, GraphicalPipeline,
+    Shader, Surface, WindowSettings, WindowState,
 };
 
 // use beryllium::events::*;
@@ -275,6 +275,14 @@ impl Window {
         self.scene.borrow().camera_position().clone()
     }
 
+    pub fn set_camera_position(&self, pos: &Vec3) {
+        self.scene.borrow_mut().set_camera_position(&pos);
+    }
+
+    pub fn light_direction(&self) -> Vec3 {
+        self.scene.borrow().light_direction().clone()
+    }
+
     pub fn set_light_position(&self, pos: &Vec3) {
         let mut scene = self.scene.borrow_mut();
         scene.set_light_position(pos);
@@ -513,7 +521,7 @@ impl Window {
         self.win.win.gl_swap_window();
     }
 
-    pub fn render_asteroids(&mut self, asteroids: &[&Asteroid]) {
+    pub fn render_asteroids(&mut self, asteroids: &[AirlessBody]) {
         let width_viewport = self.settings.borrow().width_viewport();
         let height_viewport = self.settings.borrow().height_viewport();
         let aspect_ratio = self.settings.borrow().aspect_ratio();
@@ -601,7 +609,12 @@ impl Window {
         self.render_trajectories(&matrix_projection, &matrix_view, &scene)
     }
 
-    pub fn render_trajectories(&self, matrix_projection: &Mat4, matrix_view: &Mat4, scene: &WindowScene) {
+    pub fn render_trajectories(
+        &self,
+        matrix_projection: &Mat4,
+        matrix_view: &Mat4,
+        scene: &WindowScene,
+    ) {
         let shader = self.graphical_pipeline.shaders.trajectory();
         shader.set_mat4("matrix_projection", &matrix_projection);
         shader.set_mat4("matrix_view", &matrix_view);
@@ -827,7 +840,7 @@ impl Window {
 
     fn mouse_click(
         &self,
-        asteroids: &[&Asteroid],
+        asteroids: &[AirlessBody],
         scene: &WindowScene,
         matrix_projection: &Mat4,
         matrix_view: &Mat4,

@@ -1,22 +1,23 @@
 use crate::{
-    check_if_latest_version, read_surface_main, routines_thermal_default, routines_viewer_default,
-    simu::Scene, util::*, Asteroid, Body, Cfg, CfgCamera, CfgInterior, CfgInteriorGrid1D,
-    CfgRoutines, CfgStateCartesian, CfgSun, Export, FoldersRun, FrameEvent, Result, Routines, Time,
-    Window, Equatorial,
+    check_if_latest_version, read_surface_main, simu::Scene, util::*, AirlessBody, Cfg, CfgCamera,
+    CfgInterior, CfgInteriorGrid1D, CfgRoutines, CfgStateCartesian, CfgSun, Equatorial, Export,
+    FoldersRun, FrameEvent, PreComputedBody, Result, Routines, RoutinesThermalDefault,
+    RoutinesViewerDefault, Time, Window,
 };
 
 use chrono::Utc;
-use itertools::{izip, Itertools};
+use itertools::Itertools;
 use std::{env, path::Path};
 
 pub struct Scenario {
     pub cfg: Cfg,
-    pub folders: FoldersRun,
-    pub bodies: Vec<Body>,
-    pub win: Window,
+    pub bodies: Vec<AirlessBody>,
     pub time: Time,
     pub scene: Scene,
+    pub win: Window,
+    pub folders: FoldersRun,
     pub routines: Box<dyn Routines>,
+    pub pre_computed_bodies: Vec<PreComputedBody>,
 }
 
 impl Scenario {
@@ -53,16 +54,22 @@ impl Scenario {
         folders.save_cfgs(&path_cfg);
         folders.save_src(&path_mainrs);
 
-        let bodies: Vec<Body> = vec![];
+        let bodies = vec![];
+        let pre_computed_bodies = vec![];
 
         let routines = match &cfg.simulation.routines {
-            CfgRoutines::Viewer => Box::new(routines_viewer_default()) as Box<dyn Routines>,
-            CfgRoutines::Thermal => Box::new(routines_thermal_default()) as Box<dyn Routines>,
+            CfgRoutines::Viewer => Box::new(RoutinesViewerDefault::new()) as Box<dyn Routines>,
+            CfgRoutines::Thermal => Box::new(RoutinesThermalDefault::new()) as Box<dyn Routines>,
         };
+
+        #[cfg(feature = "spice")]
+        if let Some(path) = &cfg.scene.spice {
+            spice::furnsh(path.to_str().unwrap());
+        }
 
         let sun_pos = match &cfg.scene.sun {
             CfgSun::Cartesian(CfgStateCartesian { position, .. }) => position * AU,
-            CfgSun::Equatorial(Equatorial { ra, dec }) => Vec3::x() * AU,
+            CfgSun::Equatorial(Equatorial { ra: _ra, dec: _dec }) => Vec3::x() * AU,
         };
 
         // If camera is from Earth, we cannot give a correct value for position now.
@@ -98,21 +105,20 @@ impl Scenario {
 
         let time = Time::new()
             .with_time_step(cfg.simulation.step)
-            .with_time_start(cfg.simulation.start as _);
+            .with_time_start(cfg.simulation.start.seconds().unwrap() as _);
 
         Ok(Self {
             cfg,
-            folders,
             bodies,
-            win,
             time,
             scene,
+            win,
+            folders,
             routines,
+            pre_computed_bodies,
         })
     }
-}
 
-impl Scenario {
     pub fn change_routines<R: Routines>(&mut self, routines: R) {
         self.routines = Box::new(routines);
     }
@@ -120,7 +126,7 @@ impl Scenario {
     pub fn load_bodies(&mut self) -> Result<()> {
         for (_ii, cb) in self.cfg.bodies.iter().enumerate() {
             let surface = read_surface_main(cb)?;
-            let asteroid = Asteroid::new(surface);
+            let asteroid = AirlessBody::new(surface);
 
             let asteroid = match &cb.interior {
                 None => asteroid,
@@ -142,13 +148,13 @@ impl Scenario {
                 },
             };
 
-            // self.data.push(ThermalData::new(&asteroid, &cb, &self.scene));
-            self.bodies
-                .push(self.routines.fn_setup_body(asteroid, cb, &self.scene));
+            self.pre_computed_bodies
+                .push(PreComputedBody::new(&asteroid, &cb));
+            self.bodies.push(asteroid);
         }
 
         self.win
-            .load_surfaces(self.bodies.iter().map(|b| &b.asteroid.surface));
+            .load_surfaces(self.bodies.iter().map(|b| &b.surface));
 
         Ok(())
     }
@@ -192,8 +198,10 @@ impl Scenario {
         let mut export = Export::new(&self.cfg.simulation.export);
 
         'main_loop: loop {
+            // Register keyboard and mouse interactions.
             let event = self.win.events();
 
+            // Update camera data from keyboard movements.
             self.scene.cam_pos = self.win.camera_position();
 
             match event {
@@ -202,8 +210,7 @@ impl Scenario {
             };
 
             if self.win.is_paused() {
-                self.win
-                    .render_asteroids(&self.bodies.iter().map(|b| &b.asteroid).collect_vec());
+                self.win.render_asteroids(&self.bodies);
                 self.win.swap_window();
                 continue;
             }
@@ -216,69 +223,61 @@ impl Scenario {
             let elapsed = self.time.elapsed_seconds();
             let jd = self.time.jd();
 
-            for (indices_bodies, cbs_permut) in izip!(
-                self.bodies_permutations_indices(),
-                self.cfg
-                    .bodies
-                    .clone()
-                    .iter()
-                    .permutations(self.bodies.len())
-            ) {
-                if indices_bodies.is_empty() {
-                    break;
-                }
+            self.routines
+                .fn_update_scene(&self.cfg, &self.time, &mut self.scene);
 
-                let (&ii_body, ii_other_bodies) = indices_bodies.split_first().unwrap();
-                let (cb, other_cbs) = cbs_permut.split_first().unwrap();
-
+            for body in 0..self.bodies.len() {
                 self.routines.fn_update_matrix_model(
-                    ii_body,
-                    &ii_other_bodies,
-                    cb,
-                    &other_cbs,
+                    &self.cfg,
+                    body,
                     &mut self.bodies,
+                    &mut self.pre_computed_bodies,
+                    &self.time,
+                    &mut self.scene,
+                );
+                self.routines.fn_iteration_body(
+                    body,
+                    &mut self.bodies,
+                    &mut self.pre_computed_bodies,
                     &self.time,
                     &mut self.scene,
                 );
 
-                self.routines.fn_iteration_body(
-                    ii_body,
-                    ii_other_bodies,
-                    cb,
-                    other_cbs,
-                    &mut self.bodies,
-                    &self.scene,
-                    &self.time,
-                );
-
                 self.routines.fn_update_colormap(
-                    &self.win,
-                    &self.cfg.window.colormap,
-                    ii_body,
-                    &mut self.bodies[ii_body],
+                    body,
+                    &mut self.bodies,
+                    &self.pre_computed_bodies,
+                    &self.cfg,
                     &self.scene,
+                    &self.win,
                 );
             }
 
+            self.win.set_camera_position(&self.scene.cam_pos);
             self.win.set_light_direction(&self.scene.sun_dir());
 
             // self.win.update_vaos(self.bodies.iter_mut().map(|b| &mut b.asteroid_mut().surface));
-            self.win
-                .render_asteroids(&self.bodies.iter().map(|b| &b.asteroid).collect_vec());
+            self.win.render_asteroids(&self.bodies);
             self.win.swap_window();
 
             export.iteration(
-                &mut self.time,
-                &self.folders,
                 &self.cfg,
-                &self.bodies,
+                &mut self.bodies,
+                &self.pre_computed_bodies,
+                &mut self.time,
+                &self.scene,
+                &self.win,
+                &self.folders,
                 self.routines.as_ref(),
+            );
+
+            self.routines.fn_end_of_iteration(
+                &self.cfg,
+                &mut self.bodies,
+                &self.time,
                 &self.scene,
                 &self.win,
             );
-
-            self.routines
-                .fn_end_of_iteration(&mut self.bodies, &self.time, &self.scene, &self.win);
 
             if elapsed > self.cfg.simulation.duration {
                 let time_calc = Utc::now().time() - *self.time.real_time();
@@ -302,5 +301,9 @@ impl Scenario {
         }
 
         Ok(())
+    }
+
+    pub fn orientation_reference(&self, body: usize) -> &Mat4 {
+        &self.pre_computed_bodies[body].mat_orient
     }
 }

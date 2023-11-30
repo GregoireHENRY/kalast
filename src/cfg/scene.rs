@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use crate::{util::*, CfgBodyError, CfgStateCartesian, Configuration, Equatorial};
 
 use serde::{Deserialize, Serialize};
@@ -17,6 +19,9 @@ pub enum CfgSceneError {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CfgScene {
     #[serde(default)]
+    pub spice: Option<PathBuf>,
+
+    #[serde(default)]
     pub camera: CfgCamera,
 
     #[serde(default)]
@@ -26,6 +31,7 @@ pub struct CfgScene {
 impl Default for CfgScene {
     fn default() -> Self {
         Self {
+            spice: None,
             camera: CfgCamera::default(),
             sun: CfgSun::default(),
         }
@@ -46,6 +52,15 @@ pub enum CfgCamera {
 
     #[serde(rename = "earth")]
     Earth(Float),
+}
+
+impl CfgCamera {
+    pub fn as_earth(&self) -> SceneResult<Float> {
+        match self {
+            Self::Earth(distance) => Ok(*distance),
+            _ => panic!("Not in Earth mode."),
+        }
+    }
 }
 
 impl Default for CfgCamera {
@@ -77,6 +92,6 @@ impl CfgSun {
 
 impl Default for CfgSun {
     fn default() -> Self {
-        Self::Cartesian(CfgStateCartesian::default())
+        Self::Cartesian(CfgStateCartesian::position_only(Vec3::x()))
     }
 }

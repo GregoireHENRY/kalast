@@ -1,0 +1,26 @@
+window:
+  export_frames: true
+    
+simulation:
+  start: 2022-09-26
+  step: 60
+  duration: 8136
+  export:
+    step: 60
+    duration: 8136
+
+scene:
+  spice: true
+  camera:
+    !earth 2.0
+
+bodies:
+  - id: Didymos
+    mesh:
+      shape: sphere
+      factor: [0.4095, 0.4005, 0.3035]
+      smooth: true
+    material:
+      albedo: 0.1
+    spin:
+      period: 8136
