@@ -85,11 +85,11 @@ impl AirlessBody {
     }
 }
 
-pub fn matrix_spin(spin: Float) -> Mat4 {
+pub fn matrix_spin(spin: Float, axis: Vec3) -> Mat4 {
     if spin == 0.0 {
         Mat4::identity()
     } else {
-        Mat4::new_rotation(spin * Vec3::z())
+        Mat4::new_rotation(spin * axis)
     }
 }
 

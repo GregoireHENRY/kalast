@@ -531,6 +531,9 @@ pub enum CfgState {
 
     #[serde(rename = "file")]
     File(PathBuf),
+
+    #[serde(rename = "spice")]
+    Spice(CfgStateSpice),
 }
 
 impl CfgState {
@@ -755,6 +758,18 @@ impl Default for CfgOrbitSpeedControl {
     fn default() -> Self {
         Self::Mass(None)
     }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CfgStateSpice {
+    #[serde(default)]
+    pub origin: Option<String>,
+
+    #[serde(default)]
+    pub frame: Option<String>,
+
+    #[serde(default)]
+    pub frame_to: Option<String>,
 }
 
 /**

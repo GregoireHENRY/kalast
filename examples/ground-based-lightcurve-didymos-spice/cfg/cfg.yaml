@@ -8,11 +8,13 @@ simulation:
   export:
     step: 60
     duration: 8136
+  pause_after_first_iteration: true
 
 scene:
-  spice: true
+  spice: /Users/gregoireh/data/spice/dart/mk/d420.tm
   camera:
-    !earth 2.0
+    from: Earth
+    distance: 2
 
 bodies:
   - id: Didymos

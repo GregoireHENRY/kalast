@@ -1,9 +1,9 @@
-use std::path::PathBuf;
-
-use crate::{util::*, CfgBodyError, CfgStateCartesian, Configuration, Equatorial};
+use crate::{util::*, CfgBodyError, Configuration, Equatorial};
 
 use serde::{Deserialize, Serialize};
 use snafu::{prelude::*, Location};
+use std::path::PathBuf;
+use strum::{Display, EnumString};
 
 pub type SceneResult<T, E = CfgSceneError> = std::result::Result<T, E>;
 
@@ -41,57 +41,92 @@ impl Default for CfgScene {
 impl Configuration for CfgScene {}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(untagged)]
 pub enum CfgCamera {
     #[serde(rename = "position")]
     Position(Vec3),
 
     /// Camera in from the direction of the Sun (Sun behind camera).
     /// The float is the distance from the center of frame to the camera.
-    #[serde(rename = "sun")]
-    Sun(Float),
-
-    #[serde(rename = "earth")]
-    Earth(Float),
+    ///
+    /// TODO: COMPLETE DOC
+    #[serde(rename = "from")]
+    From(CfgCameraFrom),
 }
 
 impl CfgCamera {
-    pub fn as_earth(&self) -> SceneResult<Float> {
-        match self {
-            Self::Earth(distance) => Ok(*distance),
-            _ => panic!("Not in Earth mode."),
-        }
+    pub fn default_position() -> Vec3 {
+        Vec3::x() * 5.0
     }
 }
 
 impl Default for CfgCamera {
     fn default() -> Self {
-        Self::Sun(5.0)
+        Self::Position(Self::default_position())
     }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "type")]
+pub struct CfgCameraFrom {
+    #[serde(default)]
+    pub from: CfgCameraFromOptions,
+
+    #[serde(default)]
+    #[serde(alias = "distance")]
+    pub distance_origin: Float,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, EnumString, Display)]
+pub enum CfgCameraFromOptions {
+    #[serde(rename = "sun")]
+    #[serde(alias = "Sun")]
+    Sun,
+
+    #[serde(rename = "earth")]
+    #[serde(alias = "Earth")]
+    Earth,
+}
+
+impl Default for CfgCameraFromOptions {
+    fn default() -> Self {
+        Self::Sun
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(untagged)]
 pub enum CfgSun {
-    #[serde(rename = "cartesian")]
-    #[serde(alias = "cart")]
-    Cartesian(CfgStateCartesian),
+    #[serde(rename = "position")]
+    Position(Vec3),
 
     #[serde(rename = "equatorial")]
-    #[serde(alias = "astro")]
     Equatorial(Equatorial),
+
+    #[serde(rename = "from")]
+    From(CfgSunFrom),
 }
 
 impl CfgSun {
-    pub fn as_equatorial(&self) -> SceneResult<&Equatorial> {
-        match self {
-            Self::Equatorial(coords) => Ok(coords),
-            _ => panic!("Not equatorial coordinates."),
-        }
+    pub fn default_position() -> Vec3 {
+        Vec3::x() * Self::default_distance()
+    }
+
+    pub fn default_distance() -> Float {
+        1.0
     }
 }
 
 impl Default for CfgSun {
     fn default() -> Self {
-        Self::Cartesian(CfgStateCartesian::position_only(Vec3::x()))
+        Self::Position(Self::default_position())
     }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum CfgSunFrom {
+    #[serde(rename = "from_spice")]
+    Spice,
+
+    #[serde(rename = "from_orbit_body")]
+    OrbitBody,
 }

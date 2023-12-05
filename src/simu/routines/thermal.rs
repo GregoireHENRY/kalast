@@ -94,7 +94,7 @@ impl RoutinesData for ThermalData {
                 let ratio = ratio.0 as Float / ratio.1 as Float;
 
                 let mat = asteroid.surface.faces[0].vertex.material;
-                let init = effective_temperature(&scene.sun_pos, mat.albedo, mat.emissivity, ratio);
+                let init = effective_temperature(&scene.sun, mat.albedo, mat.emissivity, ratio);
                 DMatrix::<Float>::from_element(depth_size, surf_size, init)
             }
             CfgTemperatureInit::Scalar(scalar) => {
@@ -190,7 +190,7 @@ impl Routines for RoutinesThermalDefault {
             let mut shadows_mutual: Vec<usize> = vec![];
 
             for other_body in other_bodies {
-                shadows_mutual = shadows(&scene.sun_pos, &bodies[body], &bodies[other_body]);
+                shadows_mutual = shadows(&scene.sun, &bodies[body], &bodies[other_body]);
             }
 
             for &index in shadows_mutual.iter().chain(&shadows_self).unique() {

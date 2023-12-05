@@ -1,4 +1,4 @@
-use crate::{CfgBody, CfgBodyError, CfgPreferences, CfgScene, CfgSimulation, CfgWindow};
+use crate::{CfgBody, CfgBodyError, CfgPreferences, CfgScene, CfgSimulation, CfgSpice, CfgWindow};
 
 use itertools::Itertools;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -168,6 +168,10 @@ pub struct Cfg {
     #[serde(default)]
     pub simulation: CfgSimulation,
 
+    #[cfg(feature = "spice")]
+    #[serde(default)]
+    pub spice: CfgSpice,
+
     #[serde(default)]
     pub window: CfgWindow,
 
@@ -292,6 +296,10 @@ impl Cfg {
     pub fn extra(&self) -> &HashMap<String, Value> {
         &self.extra
     }
+
+    pub fn using_spice(&self) -> bool {
+        self.scene.spice.is_some()
+    }
 }
 
 impl Configuration for Cfg {}
@@ -303,6 +311,10 @@ impl Default for Cfg {
             bodies: vec![],
             scene: CfgScene::default(),
             simulation: CfgSimulation::default(),
+
+            #[cfg(feature = "spice")]
+            spice: CfgSpice::default(),
+
             window: CfgWindow::default(),
             preferences: CfgPreferences::default(),
             extra: HashMap::new(),

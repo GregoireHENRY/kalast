@@ -8,7 +8,8 @@ pub type SimulationResult<T, E = CfgSimulationError> = std::result::Result<T, E>
 /// Errors related to Kalast config.
 #[derive(Debug, Snafu)]
 pub enum CfgSimulationError {
-    SpiceNotLoaded {},
+    #[snafu(display("Feature `spice` is not enabled."))]
+    FeatureSpiceNotEnabled {},
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -66,7 +67,7 @@ impl TimeOption {
                 #[cfg(feature = "spice")]
                 return Ok(spice::str2et(_s));
                 #[cfg(not(feature = "spice"))]
-                return Err(CfgSimulationError::SpiceNotLoaded {});
+                return Err(CfgSimulationError::FeatureSpiceNotEnabled {});
             }
         }
     }

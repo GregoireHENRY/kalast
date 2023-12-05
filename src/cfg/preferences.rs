@@ -10,6 +10,7 @@ pub struct CfgPreferences {
     pub runs: PathBuf,
 
     #[serde(default)]
+    #[serde(alias = "no_check")]
     pub do_not_check_latest_version: bool,
 
     #[serde(default)]
@@ -28,8 +29,8 @@ impl Default for CfgPreferences {
     fn default() -> Self {
         Self {
             runs: default_runs(),
-            auto_update: false,
             do_not_check_latest_version: false,
+            auto_update: false,
             debug: false,
             debug_cfg: false,
         }

@@ -172,7 +172,7 @@ impl Export {
         CsvWriter::new(&mut file).finish(&mut df).unwrap();
 
         let mut df = df!(
-            "sunpos" => scene.sun_pos.as_slice(),
+            "sunpos" => scene.sun.as_slice(),
         )
         .unwrap();
         let mut file = std::fs::File::options()

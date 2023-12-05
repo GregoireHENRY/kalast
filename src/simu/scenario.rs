@@ -1,8 +1,7 @@
 use crate::{
     check_if_latest_version, read_surface_main, simu::Scene, util::*, AirlessBody, Cfg, CfgCamera,
-    CfgInterior, CfgInteriorGrid1D, CfgRoutines, CfgStateCartesian, CfgSun, Equatorial, Export,
-    FoldersRun, FrameEvent, PreComputedBody, Result, Routines, RoutinesThermalDefault,
-    RoutinesViewerDefault, Time, Window,
+    CfgInterior, CfgInteriorGrid1D, CfgRoutines, CfgSun, Export, FoldersRun, FrameEvent,
+    PreComputedBody, Result, Routines, RoutinesThermalDefault, RoutinesViewerDefault, Time, Window,
 };
 
 use chrono::Utc;
@@ -67,22 +66,10 @@ impl Scenario {
             spice::furnsh(path.to_str().unwrap());
         }
 
-        let sun_pos = match &cfg.scene.sun {
-            CfgSun::Cartesian(CfgStateCartesian { position, .. }) => position * AU,
-            CfgSun::Equatorial(Equatorial { ra: _ra, dec: _dec }) => Vec3::x() * AU,
+        let scene = Scene {
+            sun: CfgSun::default_position(),
+            camera: CfgCamera::default_position(),
         };
-
-        // If camera is from Earth, we cannot give a correct value for position now.
-        // This is because in the background the simulation is always centered on the asteroid.
-        // So we wait until we have information on asteroid position with respect to Earth and then we invert it
-        // to place Earth from asteroid to make our simulation happy.
-        // Happy because otherwise it would be a mess to move camera and projection frustrum from developer side.
-        let cam_pos = match &cfg.scene.camera {
-            CfgCamera::Position(p) => *p,
-            CfgCamera::Sun(d) | CfgCamera::Earth(d) => sun_pos.normalize() * *d,
-        };
-
-        let scene = Scene { sun_pos, cam_pos };
 
         let win = Window::with_settings(|s| {
             s.width = cfg.window.width;
@@ -100,12 +87,17 @@ impl Scenario {
             s.draw_normals = cfg.window.normals;
             s.normals_magnitude = cfg.window.normals_length;
         })
-        .with_camera_position(&scene.cam_pos)
+        .with_camera_position(&scene.camera)
         .with_light_position(&scene.sun_pos_cubelight());
+
+        let time_start = match cfg.simulation.start.seconds() {
+            Ok(seconds) => seconds,
+            Err(e) => panic!("{e} Spice is required to convert the starting date of the simulation to ephemeris time."),
+        } as usize;
 
         let time = Time::new()
             .with_time_step(cfg.simulation.step)
-            .with_time_start(cfg.simulation.start.seconds().unwrap() as _);
+            .with_time_start(time_start);
 
         Ok(Self {
             cfg,
@@ -202,7 +194,7 @@ impl Scenario {
             let event = self.win.events();
 
             // Update camera data from keyboard movements.
-            self.scene.cam_pos = self.win.camera_position();
+            self.scene.camera = self.win.camera_position();
 
             match event {
                 FrameEvent::Exit => break 'main_loop,
@@ -223,14 +215,14 @@ impl Scenario {
             let elapsed = self.time.elapsed_seconds();
             let jd = self.time.jd();
 
-            self.routines
-                .fn_update_scene(&self.cfg, &self.time, &mut self.scene);
+            self.scene = self
+                .routines
+                .fn_update_scene(&self.cfg, &self.time, &self.scene);
 
             for body in 0..self.bodies.len() {
-                self.routines.fn_update_matrix_model(
+                self.bodies[body].matrix_model = self.routines.fn_update_matrix_model(
                     &self.cfg,
                     body,
-                    &mut self.bodies,
                     &mut self.pre_computed_bodies,
                     &self.time,
                     &mut self.scene,
@@ -253,7 +245,7 @@ impl Scenario {
                 );
             }
 
-            self.win.set_camera_position(&self.scene.cam_pos);
+            self.win.set_camera_position(&self.scene.camera);
             self.win.set_light_direction(&self.scene.sun_dir());
 
             // self.win.update_vaos(self.bodies.iter_mut().map(|b| &mut b.asteroid_mut().surface));

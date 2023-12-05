@@ -56,6 +56,7 @@ mod config;
 mod preferences;
 mod scene;
 mod simulation;
+mod spice;
 mod window;
 
 pub use body::*;
@@ -63,4 +64,5 @@ pub use config::*;
 pub use preferences::*;
 pub use scene::*;
 pub use simulation::*;
+pub use spice::*;
 pub use window::*;

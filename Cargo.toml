@@ -53,6 +53,7 @@ dunce = "1.0"
 uom = "0.35"
 regex = "1.10"
 kalast_macros = { path = "macros", version = "0.4.0-beta" }
+strum = { version = "0.25", features = ["derive"] }
 
 [dev-dependencies]
 rstest = "0.18"
