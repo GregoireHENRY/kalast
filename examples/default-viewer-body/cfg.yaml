@@ -1,0 +1,9 @@
+window:
+  ambient: [0.0, 0.0, 0.0]
+
+scene:
+  sun: [1.0, 0.0, 0.0]
+  camera: [5.0, 0.0, 0.0]
+
+bodies:
+  - id: 0

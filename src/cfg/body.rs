@@ -3,7 +3,6 @@ use crate::{
     Shapes,
 };
 
-use core::panic;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use snafu::{prelude::*, Location};
@@ -518,7 +517,6 @@ e: 0.5
 
 */
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "type")]
 pub enum CfgState {
     #[serde(rename = "cartesian")]
     Cartesian(CfgStateCartesian),
@@ -527,22 +525,13 @@ pub enum CfgState {
     Equatorial(Equatorial),
 
     #[serde(rename = "orbit")]
-    Orbit(CfgOrbitKepler),
+    Orbit(CfgStateOrbit),
 
     #[serde(rename = "file")]
     File(PathBuf),
 
     #[serde(rename = "spice")]
     Spice(CfgStateSpice),
-}
-
-impl CfgState {
-    pub fn as_equatorial(&self) -> BodyResult<&Equatorial> {
-        match self {
-            Self::Equatorial(coords) => Ok(coords),
-            _ => panic!("nono"),
-        }
-    }
 }
 
 impl Default for CfgState {
@@ -577,22 +566,9 @@ pub struct CfgStateCartesian {
     /// Default is: `[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]`
     #[serde(default = "default_orientation")]
     pub orientation: Mat3,
-}
 
-impl CfgStateCartesian {
-    pub fn position_only(position: Vec3) -> Self {
-        Self {
-            position,
-            orientation: Mat3::identity(),
-        }
-    }
-
-    pub fn orientation_only(orientation: Mat3) -> Self {
-        Self {
-            position: Vec3::zeros(),
-            orientation,
-        }
-    }
+    #[serde(default)]
+    pub reference: Option<String>,
 }
 
 impl Default for CfgStateCartesian {
@@ -600,6 +576,7 @@ impl Default for CfgStateCartesian {
         Self {
             position: Vec3::zeros(),
             orientation: default_orientation(),
+            reference: None,
         }
     }
 }
@@ -633,7 +610,7 @@ In this sense, just [`a`][CfgOrbitKepler::a] and [`e`][CfgOrbitKepler::e] are us
 
 */
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct CfgOrbitKepler {
+pub struct CfgStateOrbit {
     /// Heliocentric distance.
     /// The units are determined automatically depending on the center of the frame:
     ///
@@ -674,7 +651,7 @@ pub struct CfgOrbitKepler {
     pub control: CfgOrbitSpeedControl,
 }
 
-impl Default for CfgOrbitKepler {
+impl Default for CfgStateOrbit {
     fn default() -> Self {
         Self {
             a: default_orbit_a(),
@@ -766,7 +743,7 @@ pub struct CfgStateSpice {
     pub origin: Option<String>,
 
     #[serde(default)]
-    pub frame: Option<String>,
+    pub frame_from: Option<String>,
 
     #[serde(default)]
     pub frame_to: Option<String>,

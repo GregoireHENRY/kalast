@@ -12,7 +12,8 @@ use uom::{
     str::ParseQuantityError,
 };
 
-pub type OrbitResult<T, E = AstronomicalAngleConversionError> = std::result::Result<T, E>;
+pub type AstronomicalAngleResult<T, E = AstronomicalAngleConversionError> =
+    std::result::Result<T, E>;
 
 #[derive(Debug, Snafu)]
 pub enum AstronomicalAngleConversionError {
@@ -41,6 +42,13 @@ pub enum AstronomicalAngleConversionError {
     Deserialize {
         location: Location,
     },
+}
+
+pub type EquatorialResult<T, E = EquatorialError> = std::result::Result<T, E>;
+
+#[derive(Debug, Snafu)]
+pub enum EquatorialError {
+    DistanceNotDefined {},
 }
 
 #[derive(Debug, Clone)]
@@ -74,7 +82,7 @@ impl AstronomicalAngle {
         Self(angle)
     }
 
-    pub fn parse(s: &str) -> OrbitResult<Self> {
+    pub fn parse(s: &str) -> AstronomicalAngleResult<Self> {
         match Self::from_value(s) {
             Ok(angle) => return Ok(angle),
             Err(_) => {}
@@ -95,13 +103,13 @@ impl AstronomicalAngle {
         })
     }
 
-    pub fn from_value(s: &str) -> OrbitResult<Self> {
+    pub fn from_value(s: &str) -> AstronomicalAngleResult<Self> {
         s.parse::<Angle>()
             .context(AngleParsingSnafu {})
             .and_then(|angle| Ok(Self::new(angle)))
     }
 
-    pub fn from_hms(s: &str) -> OrbitResult<Self> {
+    pub fn from_hms(s: &str) -> AstronomicalAngleResult<Self> {
         // To find the int hours: \d{1,2}h
         // To find the int minutes: \d{1,2}m
         // To find the float seconds: [+-]?(\d+([.]\d*)?([eE][+-]?\d+)?|[.]\d+([eE][+-]?\d+)?)s
@@ -136,7 +144,7 @@ impl AstronomicalAngle {
         Ok(Self::new(Angle::new::<radian>(radians)))
     }
 
-    pub fn from_dms(s: &str) -> OrbitResult<Self> {
+    pub fn from_dms(s: &str) -> AstronomicalAngleResult<Self> {
         // To find the int degrees: [+-]?\d{1,2}°
         // To find the int minutes: \d{1,2}'
         // To find the float seconds: [+-]?(\d+([.]\d*)?([eE][+-]?\d+)?|[.]\d+([eE][+-]?\d+)?)"
@@ -175,7 +183,7 @@ impl AstronomicalAngle {
 impl FromStr for AstronomicalAngle {
     type Err = AstronomicalAngleConversionError;
 
-    fn from_str(s: &str) -> OrbitResult<Self> {
+    fn from_str(s: &str) -> AstronomicalAngleResult<Self> {
         Self::parse(s)
     }
 }
@@ -227,16 +235,38 @@ orientation: [
 */
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct Equatorial {
+    #[serde(default)]
     pub ra: AstronomicalAngle,
+
+    #[serde(default)]
     pub dec: AstronomicalAngle,
+
+    #[serde(default)]
+    pub distance: Option<Float>,
 }
 
 impl Equatorial {
     pub fn new(ra: AstronomicalAngle, dec: AstronomicalAngle) -> Self {
-        Self { ra, dec }
+        Self {
+            ra,
+            dec,
+            distance: None,
+        }
     }
 
-    pub fn xyz(&self, distance: Float) -> Vec3 {
+    pub fn with_distance(self, distance: Float) -> Self {
+        Self {
+            ra: self.ra,
+            dec: self.dec,
+            distance: Some(distance),
+        }
+    }
+
+    pub fn xyz(&self) -> EquatorialResult<Vec3> {
+        Ok(self.xyz_with_distance(self.distance.context(DistanceNotDefinedSnafu {})?))
+    }
+
+    pub fn xyz_with_distance(&self, distance: Float) -> Vec3 {
         distance
             * vec3(
                 (self.ra.cos() * self.dec.cos()).value,

@@ -1,6 +1,6 @@
 use crate::{
-    simu::Scene, util::*, AirlessBody, Cfg, CfgTimeExport, FoldersRun, PreComputedBody,
-    Routines, Time, Window,
+    simu::Scene, util::*, AirlessBody, BodyData, Cfg, CfgTimeExport, FoldersRun, Routines, Time,
+    Window,
 };
 
 use polars::prelude::{df, CsvWriter, NamedFrom, SerWriter};
@@ -31,7 +31,7 @@ impl Export {
         &mut self,
         cfg: &Cfg,
         bodies: &mut [AirlessBody],
-        precomputed: &[PreComputedBody],
+        body_data: &[BodyData],
         time: &mut Time,
         scene: &Scene,
         win: &Window,
@@ -92,13 +92,7 @@ impl Export {
             for body in 0..cfg.bodies.len() {
                 if self.is_first_it_export {
                     self.iteration_body_export_start_generic(
-                        cfg,
-                        body,
-                        bodies,
-                        precomputed,
-                        time,
-                        scene,
-                        folders,
+                        cfg, body, bodies, body_data, time, scene, folders,
                     );
                 }
                 routines.fn_export_iteration_period(
@@ -136,8 +130,8 @@ impl Export {
         &self,
         cfg: &Cfg,
         body: usize,
-        _bodies: &mut [AirlessBody],
-        precomputed: &[PreComputedBody],
+        bodies: &mut [AirlessBody],
+        body_data: &[BodyData],
         time: &Time,
         scene: &Scene,
         folders: &FoldersRun,
@@ -183,7 +177,9 @@ impl Export {
         CsvWriter::new(&mut file).finish(&mut df).unwrap();
 
         let mut df = df!(
-            "spinrot" => precomputed[body].mat_orient.as_slice(),
+            "translation" => body_data[body].translation.as_slice(),
+            "orientation" => body_data[body].orientation.as_slice(),
+            "model" => bodies[body].matrix_model.as_slice(),
         )
         .unwrap();
         let mut file = std::fs::File::options()

@@ -1,13 +1,9 @@
 use crate::{
     compute_cosine_emission_angle, compute_cosine_incidence_angle, compute_cosine_phase_angle,
     find_ref_orbit, matrix_spin, position_in_inertial_frame, simu::Scene, update_colormap_scalar,
-    util::*, AirlessBody, Cfg, CfgBody, CfgCamera, CfgCameraFrom, CfgCameraFromOptions,
-    CfgFrameCenter, CfgScalar, CfgState, CfgStateCartesian, CfgSun, CfgSunFrom, FoldersRun,
-    PreComputedBody, Time, Window,
+    util::*, AirlessBody, BodyData, Cfg, CfgBody, CfgCamera, CfgCameraPosition, CfgFrameCenter,
+    CfgScalar, CfgState, CfgStateCartesian, CfgSun, CfgSunPosition, FoldersRun, Time, Window,
 };
-
-#[cfg(feature = "spice")]
-use crate::CfgStateSpice;
 
 use downcast_rs::{impl_downcast, DowncastSync};
 use itertools::{izip, Itertools};
@@ -20,101 +16,145 @@ pub trait Routines: DowncastSync {
     fn fn_update_scene(&self, cfg: &Cfg, time: &Time, _scene: &Scene) -> Scene {
         let elapsed_from_start = time.elapsed_seconds_from_start();
 
-        let sun = match &cfg.scene.sun {
-            CfgSun::Position(p) => *p,
-            CfgSun::Equatorial(coords) => coords.xyz(CfgSun::default_distance()),
-            CfgSun::From(from) => match from {
-                CfgSunFrom::Spice => {
-                    if cfg.using_spice() {
-                        #[cfg(not(feature = "spice"))]
-                        {
-                            panic!("Feature `spice` is not enabled. The feature is required to compute the position of the Sun.")
-                        }
+        if cfg.preferences.debug {
+            println!("Routine default fn_update_scene");
+            println!("Iteration: {}", time.iteration());
+        }
 
-                        #[cfg(feature = "spice")]
-                        {
-                            if let Some(body) = cfg.bodies.first() {
-                                let (position, _lt) = spice::spkpos(
-                                    "Sun",
-                                    elapsed_from_start as f64,
-                                    "ECLIPJ2000",
-                                    "none",
-                                    &body.id,
-                                );
-                                Vec3::from_row_slice(&position)
-                            } else {
-                                panic!("A body must be loaded to compute the position of the Sun.")
-                            }
+        let mut sun = match &cfg.scene.sun.position {
+            CfgSunPosition::Cartesian(p) => *p,
+            CfgSunPosition::Equatorial(coords) => {
+                coords.xyz_with_distance(coords.distance.unwrap_or(CfgSun::default_distance()))
+            }
+            CfgSunPosition::Spice => {
+                #[cfg(not(feature = "spice"))]
+                {
+                    panic!("Feature `spice` is not enabled. The feature is required to compute the position of the Sun.")
+                }
+
+                #[cfg(feature = "spice")]
+                {
+                    if cfg.is_spice_loaded() {
+                        if let Some(body) = cfg.bodies.first() {
+                            let (position, _lt) = spice::spkpos(
+                                "Sun",
+                                elapsed_from_start as f64,
+                                &cfg.spice.frame,
+                                "none",
+                                &body.id,
+                            );
+                            Vec3::from_row_slice(&position)
+                        } else {
+                            panic!("A body must be loaded to compute the position of the Sun.")
                         }
                     } else {
                         panic!("Spice is not being used and is needed to compute the position of the Sun. Try loading a spice kernel to enable spice.")
                     }
                 }
-                CfgSunFrom::OrbitBody => {
-                    if let Some(body) = cfg.bodies.first() {
-                        match &body.state {
-                            CfgState::Orbit(orbit) => match &orbit.frame {
-                                CfgFrameCenter::Sun => -position_in_inertial_frame(
-                                    orbit.a * AU,
-                                    orbit.e,
-                                    orbit.i * RPD,
-                                    orbit.node * RPD,
-                                    orbit.peri * RPD,
-                                    elapsed_from_start as Float,
-                                    orbit.tp,
-                                    MU_SUN,
-                                ),
-                                CfgFrameCenter::Body(_) => CfgSun::default_position(),
-                            },
-                            CfgState::Cartesian(_)
-                            | CfgState::Equatorial(_)
-                            | CfgState::File(_)
-                            | CfgState::Spice(_) => CfgSun::default_position(),
+            }
+            CfgSunPosition::FromBody => {
+                if let Some(body) = cfg.bodies.first() {
+                    match &body.state {
+                        CfgState::Orbit(orbit) => match &orbit.frame {
+                            CfgFrameCenter::Sun => -position_in_inertial_frame(
+                                orbit.a * AU,
+                                orbit.e,
+                                orbit.i * RPD,
+                                orbit.node * RPD,
+                                orbit.peri * RPD,
+                                elapsed_from_start as Float,
+                                orbit.tp,
+                                MU_SUN,
+                            ),
+                            CfgFrameCenter::Body(_) => {
+                                if time.iteration() == 0 {
+                                    println!("Warning: The Sun is set to be configured from the state of the primary body but only works if the state is an orbit centered on the Sun.");
+                                }
+                                CfgSun::default_position()
+                            }
+                        },
+                        CfgState::Cartesian(_)
+                        | CfgState::Equatorial(_)
+                        | CfgState::File(_)
+                        | CfgState::Spice(_) => {
+                            if time.iteration() == 0 {
+                                println!("Warning: The Sun is set to be configured from the state of the primary body but only works if the state is an orbit centered on the Sun.");
+                            }
+
+                            CfgSun::default_position()
                         }
-                    } else {
-                        panic!("A body must be loaded to compute the position of the Sun.")
                     }
+                } else {
+                    panic!("A body must be loaded to compute the position of the Sun.")
                 }
-            },
+            }
         };
 
-        let camera = match &cfg.scene.camera {
-            CfgCamera::Position(p) => *p,
-            CfgCamera::From(CfgCameraFrom {
-                from,
-                distance_origin,
-            }) => match &from {
-                CfgCameraFromOptions::Sun => sun.normalize() * *distance_origin,
-                CfgCameraFromOptions::Earth => {
-                    if let Some(_body) = cfg.bodies.first() {
-                        if cfg.using_spice() {
-                            #[cfg(not(feature = "spice"))]
-                            {
-                                panic!("Feature `spice` is not enabled. The feature is required to compute the position of the camera from Earth direction.")
-                            }
+        let camera = match &cfg.scene.camera.position {
+            CfgCameraPosition::Cartesian(p) => *p,
+            CfgCameraPosition::FromSun => {
+                sun.normalize()
+                    * cfg
+                        .scene
+                        .camera
+                        .distance_origin
+                        .unwrap_or(CfgCamera::default_distance())
+            }
+            CfgCameraPosition::Spice(_name) => {
+                if let Some(_body) = cfg.bodies.first() {
+                    #[cfg(not(feature = "spice"))]
+                    {
+                        panic!("Feature `spice` is not enabled. The feature is required to compute the position of the camera from Earth direction.")
+                    }
 
-                            #[cfg(feature = "spice")]
-                            {
-                                let (position, _lt) = spice::spkpos(
-                                    "Earth",
-                                    elapsed_from_start as f64,
-                                    "ECLIPJ2000",
-                                    "none",
-                                    &_body.id,
-                                );
-                                let position = Vec3::from_row_slice(&position);
+                    #[cfg(feature = "spice")]
+                    {
+                        if cfg.is_spice_loaded() {
+                            let (position, _lt) = spice::spkpos(
+                                _name,
+                                elapsed_from_start as f64,
+                                &cfg.spice.frame,
+                                "none",
+                                &_body.id,
+                            );
+                            let position = Vec3::from_row_slice(&position);
 
-                                position.normalize() * *distance_origin
-                            }
+                            position.normalize()
+                                * cfg
+                                    .scene
+                                    .camera
+                                    .distance_origin
+                                    .unwrap_or(CfgCamera::default_distance())
                         } else {
                             panic!("Spice is not being used and is needed to compute the position of the camera from Earth direction. Try loading a spice kernel to enable spice.")
                         }
-                    } else {
-                        panic!("A body must be loaded to compute the position of the camera from Earth direction. Visualisation is centered on body")
                     }
+                } else {
+                    panic!("A body must be loaded to compute the position of the camera from Earth direction. Visualisation is centered on body")
                 }
-            },
+            }
+            CfgCameraPosition::Reference => {
+                if let Some(body) = cfg.bodies.first() {
+                    match &body.state {
+                        CfgState::Equatorial(coords) => {
+                            let position = -coords.xyz_with_distance(
+                                coords.distance.unwrap_or(CfgCamera::default_distance()),
+                            );
+                            sun += position;
+                            position
+                        }
+                        _ => panic!("Camera on reference mode only work with primary body state equatorial."),
+                    }
+                } else {
+                    panic!("No body has been loaded to compute camera position.")
+                }
+            }
         };
+
+        if cfg.preferences.debug {
+            println!("camera: {:?}", camera.as_slice());
+            println!("sun: {:?}", sun.as_slice());
+        }
 
         Scene { camera, sun }
     }
@@ -123,32 +163,27 @@ pub trait Routines: DowncastSync {
         &self,
         cfg: &Cfg,
         body: usize,
-        pre_computed_bodies: &mut [PreComputedBody],
+        bodies_data: &mut [BodyData],
         time: &Time,
         _scene: &Scene,
     ) -> Mat4 {
         let elapsed_from_start = time.elapsed_seconds_from_start();
 
         match &cfg.bodies[body].state {
-            CfgState::Spice(_from) => {
+            CfgState::Spice(_spice) => {
                 #[cfg(not(feature = "spice"))]
                 panic!("Feature `spice` is not enabled. The feature is required to compute the position of the camera from Earth direction.");
 
                 #[cfg(feature = "spice")]
                 {
-                    let CfgStateSpice {
-                        origin,
-                        frame,
-                        frame_to,
-                    } = _from;
-                    let frame = frame.clone().unwrap_or("J2000".to_string());
-
                     let position = {
-                        if let Some(origin) = origin {
+                        if let Some(origin) = &_spice.origin {
+                            let frame_to =
+                                _spice.frame_to.clone().unwrap_or(cfg.spice.frame.clone());
                             let (position, _lt) = spice::spkpos(
                                 &cfg.bodies[body].id,
                                 elapsed_from_start as f64,
-                                &frame,
+                                &frame_to,
                                 "none",
                                 &origin,
                             );
@@ -159,31 +194,36 @@ pub trait Routines: DowncastSync {
                     };
 
                     let rotation = {
-                        if let Some(frame_to) = frame_to {
+                        if let Some(frame) = &_spice.frame_from {
+                            let frame_to =
+                                _spice.frame_to.clone().unwrap_or(cfg.spice.frame.clone());
                             let rotation =
-                                spice::pxform(&frame, frame_to, elapsed_from_start as f64);
+                                spice::pxform(&frame, &frame_to, elapsed_from_start as f64);
                             Mat3::from_row_slice(&rotation.iter().cloned().flatten().collect_vec())
                         } else {
                             Mat3::identity()
                         }
                     };
 
-                    let mut matrix_model = Mat4::new_translation(&position);
-
-                    for (e, new) in izip!(
-                        matrix_model.fixed_view_mut::<3, 3>(1, 1).iter_mut(),
-                        rotation.iter()
-                    ) {
-                        *e = *new;
+                    if cfg.preferences.debug {
+                        println!("Body state with spice");
+                        println!("position: {:?}", position.as_slice());
+                        println!("rotation: {}", rotation);
                     }
 
-                    matrix_model
+                    let matrix_translation = Mat4::new_translation(&position);
+                    let matrix_orientation = glm::mat3_to_mat4(&rotation);
+
+                    bodies_data[body].translation = matrix_translation;
+                    bodies_data[body].orientation = matrix_orientation;
+
+                    matrix_translation * matrix_orientation
                 }
             }
             anything_else => {
-                let mut matrix_orientation_reference = Mat4::identity();
+                let mut matrix_model_reference = Mat4::identity();
 
-                let mut matrix_orientation = pre_computed_bodies[body].mat_orient;
+                let mut matrix_orientation = bodies_data[body].orientation;
 
                 let elapsed = time.elapsed_seconds();
                 let np_elapsed = if cfg.bodies[body].spin.period == 0.0 {
@@ -208,10 +248,31 @@ pub trait Routines: DowncastSync {
                     CfgState::Cartesian(CfgStateCartesian {
                         position,
                         orientation,
+                        reference,
                     }) => {
-                        matrix_orientation = glm::mat3_to_mat4(orientation);
                         matrix_translation = Mat4::new_translation(position);
+                        matrix_orientation = glm::mat3_to_mat4(orientation);
+
+                        if let Some(reference) = reference {
+                            let ref_id = cfg
+                                .body_index(reference)
+                                .expect(&format!("No body loaded with this id {}", reference));
+
+                            // matrix_orientation = matrix_orientation * bodies_data[ref_id].orientation;
+
+                            matrix_model_reference =
+                                bodies_data[ref_id].translation * bodies_data[ref_id].orientation;
+                        }
+
+                        if cfg.preferences.debug {
+                            println!("Body state with manual cartesian");
+                            println!("position: {:?}", position.as_slice());
+                            println!("rotation: {}", orientation);
+                            println!("matrix model reference: {}", matrix_model_reference);
+                        }
                     }
+
+                    CfgState::Equatorial(_) => {}
                     CfgState::Orbit(orbit) => {
                         let (mu_ref, factor) = find_ref_orbit(&orbit, &other_bodies);
                         if mu_ref != MU_SUN {
@@ -231,22 +292,24 @@ pub trait Routines: DowncastSync {
                         match &orbit.frame {
                             CfgFrameCenter::Sun => {}
                             CfgFrameCenter::Body(id) => {
-                                for (pre, cb) in izip!(pre_computed_bodies.iter_mut(), &cfg.bodies)
-                                {
+                                for (pre, cb) in izip!(bodies_data.iter_mut(), &cfg.bodies) {
                                     if cb.id == *id {
-                                        matrix_orientation_reference = pre.mat_orient;
+                                        matrix_model_reference = pre.orientation;
                                         break;
                                     }
                                 }
                             }
                         }
                     }
-                    CfgState::Equatorial(_) | CfgState::File(_) => {}
+                    CfgState::File(_) => {}
                     _ => panic!("tempo"),
                 };
 
+                bodies_data[body].translation = matrix_translation;
+                bodies_data[body].orientation = matrix_orientation;
+
                 let matrix_body = matrix_translation * matrix_orientation * matrix_spin;
-                matrix_orientation_reference * matrix_body
+                matrix_model_reference * matrix_body
             }
         }
     }
@@ -255,7 +318,7 @@ pub trait Routines: DowncastSync {
         &mut self,
         _body: usize,
         _bodies: &mut [AirlessBody],
-        _pre_computed_bodies: &mut [PreComputedBody],
+        _pre_computed_bodies: &mut [BodyData],
         _time: &Time,
         _scene: &Scene,
     ) {
@@ -265,7 +328,7 @@ pub trait Routines: DowncastSync {
         &self,
         body: usize,
         bodies: &mut [AirlessBody],
-        pre_computed_bodies: &[PreComputedBody],
+        pre_computed_bodies: &[BodyData],
         cfg: &Cfg,
         scene: &Scene,
         win: &Window,

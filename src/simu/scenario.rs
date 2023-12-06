@@ -1,7 +1,7 @@
 use crate::{
-    check_if_latest_version, read_surface_main, simu::Scene, util::*, AirlessBody, Cfg, CfgCamera,
-    CfgInterior, CfgInteriorGrid1D, CfgRoutines, CfgSun, Export, FoldersRun, FrameEvent,
-    PreComputedBody, Result, Routines, RoutinesThermalDefault, RoutinesViewerDefault, Time, Window,
+    check_if_latest_version, read_surface_main, simu::Scene, util::*, AirlessBody, BodyData, Cfg,
+    CfgCamera, CfgInterior, CfgInteriorGrid1D, CfgRoutines, CfgSun, Export, FoldersRun, FrameEvent,
+    Result, Routines, RoutinesThermalDefault, RoutinesViewerDefault, Time, Window,
 };
 
 use chrono::Utc;
@@ -16,7 +16,7 @@ pub struct Scenario {
     pub win: Window,
     pub folders: FoldersRun,
     pub routines: Box<dyn Routines>,
-    pub pre_computed_bodies: Vec<PreComputedBody>,
+    pub pre_computed_bodies: Vec<BodyData>,
 }
 
 impl Scenario {
@@ -62,8 +62,12 @@ impl Scenario {
         };
 
         #[cfg(feature = "spice")]
-        if let Some(path) = &cfg.scene.spice {
-            spice::furnsh(path.to_str().unwrap());
+        {
+            spice::kclear();
+
+            if let Some(path) = &cfg.spice.kernel {
+                spice::furnsh(path.to_str().unwrap());
+            }
         }
 
         let scene = Scene {
@@ -140,8 +144,7 @@ impl Scenario {
                 },
             };
 
-            self.pre_computed_bodies
-                .push(PreComputedBody::new(&asteroid, &cb));
+            self.pre_computed_bodies.push(BodyData::new(&asteroid, &cb));
             self.bodies.push(asteroid);
         }
 
@@ -280,6 +283,9 @@ impl Scenario {
                     it
                 );
 
+                #[cfg(feature = "spice")]
+                spice::kclear();
+
                 if paused_stop {
                     paused_stop = false;
                     self.win.toggle_pause();
@@ -293,9 +299,5 @@ impl Scenario {
         }
 
         Ok(())
-    }
-
-    pub fn orientation_reference(&self, body: usize) -> &Mat4 {
-        &self.pre_computed_bodies[body].mat_orient
     }
 }

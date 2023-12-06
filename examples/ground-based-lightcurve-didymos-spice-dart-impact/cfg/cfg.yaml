@@ -6,12 +6,13 @@ spice:
   frame: J2000
 
 simulation:
-  start: 2022-09-26 22:30:00
+  start: 2022-09-26 23:14:24.000
   step: 60
   duration: 8136
   export:
     step: 60
     duration: 8136
+  pause_after_first_iteration: true
 
 scene:
   sun:
@@ -45,3 +46,12 @@ bodies:
       !spice
         origin: didymos
         frame_from: dimorphos_fixed
+
+  - id: dart
+    mesh:
+      shape: cube
+      factor: [0.01, 0.01, 0.01]
+    state:
+      !cartesian
+        position: [-0.00831, 0.0832, 0.013]
+        reference: dimorphos

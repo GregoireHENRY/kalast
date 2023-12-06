@@ -3,15 +3,14 @@ use crate::{matrix_orientation_obliquity, util::*, AirlessBody, CfgBody};
 use itertools::Itertools;
 
 #[derive(Debug, Clone)]
-pub struct PreComputedBody {
-    pub mat_orient: Mat4,
+pub struct BodyData {
     pub normals: Matrix3xX<Float>,
+    pub translation: Mat4,
+    pub orientation: Mat4,
 }
 
-impl PreComputedBody {
+impl BodyData {
     pub fn new(asteroid: &AirlessBody, cb: &CfgBody) -> Self {
-        let mat_orient = matrix_orientation_obliquity(0.0, cb.spin.obliquity * RPD);
-
         let normals = Matrix3xX::from_columns(
             &asteroid
                 .surface
@@ -21,9 +20,13 @@ impl PreComputedBody {
                 .collect_vec(),
         );
 
+        let translation = Mat4::identity();
+        let orientation = matrix_orientation_obliquity(0.0, cb.spin.obliquity * RPD);
+
         Self {
-            mat_orient,
             normals,
+            translation,
+            orientation,
         }
     }
 }

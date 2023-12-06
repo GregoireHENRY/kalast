@@ -2,8 +2,6 @@ use crate::{util::*, CfgBodyError, Configuration, Equatorial};
 
 use serde::{Deserialize, Serialize};
 use snafu::{prelude::*, Location};
-use std::path::PathBuf;
-use strum::{Display, EnumString};
 
 pub type SceneResult<T, E = CfgSceneError> = std::result::Result<T, E>;
 
@@ -19,21 +17,17 @@ pub enum CfgSceneError {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CfgScene {
     #[serde(default)]
-    pub spice: Option<PathBuf>,
+    pub sun: CfgSun,
 
     #[serde(default)]
     pub camera: CfgCamera,
-
-    #[serde(default)]
-    pub sun: CfgSun,
 }
 
 impl Default for CfgScene {
     fn default() -> Self {
         Self {
-            spice: None,
-            camera: CfgCamera::default(),
             sun: CfgSun::default(),
+            camera: CfgCamera::default(),
         }
     }
 }
@@ -41,69 +35,9 @@ impl Default for CfgScene {
 impl Configuration for CfgScene {}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum CfgCamera {
-    #[serde(rename = "position")]
-    Position(Vec3),
-
-    /// Camera in from the direction of the Sun (Sun behind camera).
-    /// The float is the distance from the center of frame to the camera.
-    ///
-    /// TODO: COMPLETE DOC
-    #[serde(rename = "from")]
-    From(CfgCameraFrom),
-}
-
-impl CfgCamera {
-    pub fn default_position() -> Vec3 {
-        Vec3::x() * 5.0
-    }
-}
-
-impl Default for CfgCamera {
-    fn default() -> Self {
-        Self::Position(Self::default_position())
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct CfgCameraFrom {
+pub struct CfgSun {
     #[serde(default)]
-    pub from: CfgCameraFromOptions,
-
-    #[serde(default)]
-    #[serde(alias = "distance")]
-    pub distance_origin: Float,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, EnumString, Display)]
-pub enum CfgCameraFromOptions {
-    #[serde(rename = "sun")]
-    #[serde(alias = "Sun")]
-    Sun,
-
-    #[serde(rename = "earth")]
-    #[serde(alias = "Earth")]
-    Earth,
-}
-
-impl Default for CfgCameraFromOptions {
-    fn default() -> Self {
-        Self::Sun
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum CfgSun {
-    #[serde(rename = "position")]
-    Position(Vec3),
-
-    #[serde(rename = "equatorial")]
-    Equatorial(Equatorial),
-
-    #[serde(rename = "from")]
-    From(CfgSunFrom),
+    pub position: CfgSunPosition,
 }
 
 impl CfgSun {
@@ -118,15 +52,85 @@ impl CfgSun {
 
 impl Default for CfgSun {
     fn default() -> Self {
-        Self::Position(Self::default_position())
+        Self {
+            position: CfgSunPosition::default(),
+        }
     }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum CfgSunFrom {
-    #[serde(rename = "from_spice")]
+pub enum CfgSunPosition {
+    #[serde(rename = "cartesian")]
+    Cartesian(Vec3),
+
+    #[serde(rename = "equatorial")]
+    Equatorial(Equatorial),
+
+    #[serde(rename = "spice")]
+    #[serde(alias = "from_spice")]
     Spice,
 
-    #[serde(rename = "from_orbit_body")]
-    OrbitBody,
+    #[serde(rename = "body")]
+    #[serde(alias = "from_body")]
+    FromBody,
+}
+
+impl Default for CfgSunPosition {
+    fn default() -> Self {
+        Self::Cartesian(CfgSun::default_position())
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CfgCamera {
+    #[serde(default)]
+    pub position: CfgCameraPosition,
+
+    #[serde(default)]
+    #[serde(alias = "distance")]
+    pub distance_origin: Option<Float>,
+}
+
+impl CfgCamera {
+    pub fn default_position() -> Vec3 {
+        Vec3::x() * Self::default_distance()
+    }
+
+    pub fn default_distance() -> Float {
+        5.0
+    }
+}
+
+impl Default for CfgCamera {
+    fn default() -> Self {
+        Self {
+            position: CfgCameraPosition::default(),
+            distance_origin: None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum CfgCameraPosition {
+    #[serde(rename = "cartesian")]
+    Cartesian(Vec3),
+
+    #[serde(rename = "sun")]
+    #[serde(alias = "Sun")]
+    #[serde(alias = "from_sun")]
+    #[serde(alias = "from_Sun")]
+    FromSun,
+
+    #[serde(rename = "spice")]
+    #[serde(alias = "from_spice")]
+    Spice(String),
+
+    #[serde(rename = "reference")]
+    Reference,
+}
+
+impl Default for CfgCameraPosition {
+    fn default() -> Self {
+        Self::Cartesian(CfgCamera::default_position())
+    }
 }

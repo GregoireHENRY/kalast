@@ -1,4 +1,7 @@
-use crate::{CfgBody, CfgBodyError, CfgPreferences, CfgScene, CfgSimulation, CfgSpice, CfgWindow};
+use crate::{CfgBody, CfgBodyError, CfgPreferences, CfgScene, CfgSimulation, CfgWindow};
+
+#[cfg(feature = "spice")]
+use crate::CfgSpice;
 
 use itertools::Itertools;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -18,6 +21,30 @@ pub const CFG_THERMAL_TRIANGLE_STR: &str =
 pub const CFG_VIEWER_STR: &str = include_str!("../../examples/viewer/cfg/cfg.yaml");
 pub const CFG_VIEWER_PICKER_STR: &str = include_str!("../../examples/viewer-picker/cfg/cfg.yaml");
 pub const CFG_VIEWER_SMOOTH_STR: &str = include_str!("../../examples/viewer-smooth/cfg/cfg.yaml");
+
+pub type CfgResult<T, E = CfgError> = std::result::Result<T, E>;
+
+/// Errors related to Kalast config.
+#[derive(Debug, Snafu)]
+pub enum CfgError {
+    CfgFileNotFound {
+        source: io::Error,
+        path: PathBuf,
+    },
+
+    CfgReading {
+        source: serde_yaml::Error,
+        path: PathBuf,
+    },
+
+    CfgParsingEquatorial {
+        source: CfgBodyError,
+        location: Location,
+    },
+
+    #[snafu(display("Feature `spice` is not enabled."))]
+    FeatureSpiceNotEnabled {},
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Cfgs {
@@ -63,25 +90,6 @@ impl Cfgs {
 
 pub fn cfg_viewer() -> Cfg {
     serde_yaml::from_str(CFG_VIEWER_STR).unwrap()
-}
-
-pub type CfgResult<T, E = CfgError> = std::result::Result<T, E>;
-
-/// Errors related to Kalast config.
-#[derive(Debug, Snafu)]
-pub enum CfgError {
-    CfgFileNotFound {
-        source: io::Error,
-        path: PathBuf,
-    },
-    CfgReading {
-        source: serde_yaml::Error,
-        path: PathBuf,
-    },
-    CfgParsingEquatorial {
-        source: CfgBodyError,
-        location: Location,
-    },
 }
 
 pub fn read_cfg<P, C>(path: P) -> CfgResult<C>
@@ -297,8 +305,13 @@ impl Cfg {
         &self.extra
     }
 
-    pub fn using_spice(&self) -> bool {
-        self.scene.spice.is_some()
+    #[cfg(feature = "spice")]
+    pub fn is_spice_loaded(&self) -> bool {
+        self.spice.kernel.is_some()
+    }
+
+    pub fn body_index(&self, id: &str) -> Option<usize> {
+        self.bodies.iter().position(|body| body.id == id)
     }
 }
 

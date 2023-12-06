@@ -1,15 +1,20 @@
-use crate::{util::*, Configuration};
+use crate::{util::*, CfgError, Configuration};
 
 use serde::{Deserialize, Serialize};
 use snafu::prelude::*;
 
-pub type SimulationResult<T, E = CfgSimulationError> = std::result::Result<T, E>;
+pub type CfgSimulationResult<T, E = CfgSimulationError> = std::result::Result<T, E>;
 
 /// Errors related to Kalast config.
 #[derive(Debug, Snafu)]
 pub enum CfgSimulationError {
-    #[snafu(display("Feature `spice` is not enabled."))]
-    FeatureSpiceNotEnabled {},
+    CfgSpiceError { source: CfgError },
+}
+
+impl From<CfgError> for CfgSimulationError {
+    fn from(value: CfgError) -> Self {
+        Self::CfgSpiceError { source: value }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -60,14 +65,14 @@ pub enum TimeOption {
 }
 
 impl TimeOption {
-    pub fn seconds(&self) -> SimulationResult<Float> {
+    pub fn seconds(&self) -> CfgSimulationResult<Float> {
         match self {
             Self::Seconds(v) => Ok(*v),
             Self::String(_s) => {
                 #[cfg(feature = "spice")]
                 return Ok(spice::str2et(_s));
                 #[cfg(not(feature = "spice"))]
-                return Err(CfgSimulationError::FeatureSpiceNotEnabled {});
+                return Err(CfgError::FeatureSpiceNotEnabled {}).context(CfgSpiceSnafu);
             }
         }
     }

@@ -1,9 +1,8 @@
 use crate::{
     compute_cosine_emission_angle, compute_cosine_incidence_angle, compute_cosine_phase_angle,
     effective_temperature, flux_solar_radiation, newton_method_temperature, read_surface_low,
-    shadows, simu::Scene, update_colormap_scalar, util::*, AirlessBody, Cfg, CfgBody, CfgScalar,
-    CfgTemperatureInit, FoldersRun, PreComputedBody, Routines, RoutinesData, Surface,
-    Time, Window,
+    shadows, simu::Scene, update_colormap_scalar, util::*, AirlessBody, BodyData, Cfg, CfgBody,
+    CfgScalar, CfgTemperatureInit, FoldersRun, Routines, RoutinesData, Surface, Time, Window,
 };
 
 use itertools::Itertools;
@@ -125,7 +124,7 @@ pub trait RoutinesThermal: Routines {
     fn fn_compute_solar_flux(
         &self,
         body: &AirlessBody,
-        precomputed: &PreComputedBody,
+        precomputed: &BodyData,
         body_info: &ThermalData,
         scene: &Scene,
     ) -> DRVector<Float>;
@@ -170,7 +169,7 @@ impl Routines for RoutinesThermalDefault {
         &mut self,
         body: usize,
         bodies: &mut [AirlessBody],
-        pre_computed_bodies: &mut [PreComputedBody],
+        pre_computed_bodies: &mut [BodyData],
         time: &Time,
         scene: &Scene,
     ) {
@@ -227,7 +226,7 @@ impl Routines for RoutinesThermalDefault {
         &self,
         body: usize,
         bodies: &mut [AirlessBody],
-        pre_computed_bodies: &[PreComputedBody],
+        pre_computed_bodies: &[BodyData],
         cfg: &Cfg,
         scene: &Scene,
         win: &Window,
@@ -428,7 +427,7 @@ impl RoutinesThermal for RoutinesThermalDefault {
     fn fn_compute_solar_flux(
         &self,
         body: &AirlessBody,
-        precomputed: &PreComputedBody,
+        precomputed: &BodyData,
         body_info: &ThermalData,
         scene: &Scene,
     ) -> DRVector<Float> {

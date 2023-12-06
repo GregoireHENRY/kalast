@@ -1,6 +1,6 @@
 use crate::{
     cosine_angle, simu::Scene, util::*, AirlessBody, Cfg, CfgBody, CfgFrameCenter, CfgMeshKind,
-    CfgMeshSource, CfgOrbitKepler, CfgOrbitSpeedControl, Material, Result, Surface, Window,
+    CfgMeshSource, CfgOrbitSpeedControl, CfgStateOrbit, Material, Result, Surface, Window,
 };
 
 use itertools::{izip, Itertools};
@@ -48,7 +48,7 @@ pub fn read_surface_low(cb: &CfgBody) -> Result<Surface> {
 }
 
 /// return MU and factor for distances.
-pub fn find_ref_orbit(orbit: &CfgOrbitKepler, cfgs: &[&CfgBody]) -> (Float, Float) {
+pub fn find_ref_orbit(orbit: &CfgStateOrbit, cfgs: &[&CfgBody]) -> (Float, Float) {
     match &orbit.frame {
         CfgFrameCenter::Sun => (MU_SUN, AU),
         CfgFrameCenter::Body(id) => (

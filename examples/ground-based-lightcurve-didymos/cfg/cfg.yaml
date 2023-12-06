@@ -1,31 +1,32 @@
 window:
   export_frames: true
-    
+
 simulation:
   step: 60
   duration: 8136
   export:
     step: 60
     duration: 8136
+  pause_after_first_iteration: true
 
 scene:
-  camera:
-    !earth 2.0
   sun:
-    type: equatorial
-    ra: 12h12m22.42s
-    dec: -01°20'20.3"
+    position:
+      !equatorial
+        ra: 12h12m22.42s
+        dec: -01°20'20.3"
+  camera:
+    !reference
 
 bodies:
-  - mesh:
+  - id: didymos
+    mesh:
       shape: sphere
       factor: [0.4095, 0.4005, 0.3035]
       smooth: true
     material:
       albedo: 0.1
-    spin:
-      period: 8136
     state:
-      type: equatorial
-      ra: 03h21m43.477s
-      dec: -33°22'44.57"
+      !equatorial
+        ra: 03h21m43.477s
+        dec: -33°22'44.57"
