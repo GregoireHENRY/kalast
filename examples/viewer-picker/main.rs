@@ -1,6 +1,6 @@
 use kalast::{
-    simu::Scene, util::*, AirlessBody, ColorMode, Result, Routines, RoutinesViewer, Scenario, Time,
-    Window,
+    simu::Scene, util::*, AirlessBody, Cfg, ColorMode, Result, Routines, RoutinesViewer,
+    RoutinesViewerDefault, Scenario, Time, Window,
 };
 
 fn main() -> Result<()> {
@@ -56,22 +56,30 @@ fn update_surf_face(
 
 pub struct RoutinesViewerCustom {
     pub faces: Vec<usize>,
+    pub default: RoutinesViewerDefault,
 }
 
 impl RoutinesViewerCustom {
     pub fn new() -> Self {
-        Self { faces: vec![] }
+        Self {
+            faces: vec![],
+            default: RoutinesViewerDefault::new(),
+        }
     }
 }
 
 impl Routines for RoutinesViewerCustom {
     fn fn_end_of_iteration(
         &mut self,
+        cfg: &Cfg,
         bodies: &mut [AirlessBody],
-        _time: &Time,
-        _scene: &Scene,
+        time: &Time,
+        scene: &Scene,
         win: &Window,
     ) {
+        self.default
+            .fn_end_of_iteration(cfg, bodies, time, scene, win);
+
         if let Some((ii_face, ii_body)) = win.picked() {
             update_surf_face(self, bodies, win, &vec![ii_face], ii_body);
         }
