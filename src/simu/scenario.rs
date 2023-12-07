@@ -250,6 +250,7 @@ impl Scenario {
             }
 
             self.win.set_camera_position(&self.scene.camera);
+            self.win.camera_target_origin();
             self.win.set_light_direction(&self.scene.sun_dir());
 
             // self.win.update_vaos(self.bodies.iter_mut().map(|b| &mut b.asteroid_mut().surface));

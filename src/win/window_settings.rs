@@ -75,7 +75,7 @@ impl WindowState {
             true => println!("Paused."),
             false => println!("Unpaused."),
         }
-        
+
         self.pause
     }
 
@@ -106,8 +106,12 @@ pub struct WindowSettings {
     pub front_face_culling_for_peter_panning: bool,
     pub colormap: Colormap,
     pub colormap_bounds: (Float, Float),
-    pub fov: Float,
     pub ortho: bool,
+    pub fovy: Float,
+    pub camera_up: Vec3,
+    pub camera_boresight: Vec3,
+    pub camera_position: Vec3,
+    pub camera_origin: Vec3,
     pub far_factor: Float,
     pub close_distance: Float,
     pub draw_normals: bool,
@@ -142,8 +146,12 @@ impl Default for WindowSettings {
             front_face_culling_for_peter_panning: false,
             colormap: Colormap::default(),
             colormap_bounds: (0.0, 1.0),
-            fov: 30.0,
             ortho: false,
+            fovy: 30.0,
+            camera_up: Vec3::z(),
+            camera_boresight: -Vec3::x(),
+            camera_position: Vec3::x(),
+            camera_origin: Vec3::zeros(),
             far_factor: 1.0,
             close_distance: 1e-3,
             draw_normals: false,

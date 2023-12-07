@@ -34,25 +34,31 @@ impl Direction {
 #[derive(Debug, Clone)]
 pub struct Camera {
     pub up: Vec3,
-    pub target: Vec3,
+    pub boresight: Vec3,
     pub position: Vec3,
+    pub origin: Vec3,
     pub speed: Float,
     pub movement_method: MovementMethod,
 }
 
 impl Camera {
-    pub fn new(up: Vec3, target: Vec3, position: Vec3, speed: Float) -> Self {
+    pub fn new(up: Vec3, boresight: Vec3, position: Vec3, origin: Vec3, speed: Float) -> Self {
         Self {
             up,
-            target,
+            boresight,
             position,
+            origin,
             speed,
             movement_method: MovementMethod::Rotate,
         }
     }
 
+    pub fn target(&self) -> Vec3 {
+        self.position + self.boresight
+    }
+
     pub fn front(&self) -> Vec3 {
-        glm::normalize(&(self.target - self.position))
+        self.boresight.clone()
     }
 
     pub fn back(&self) -> Vec3 {
@@ -68,16 +74,20 @@ impl Camera {
     }
 
     pub fn look_at(&self) -> Mat4 {
-        glm::look_at(&self.position, &self.target, &self.up)
+        glm::look_at(&self.position, &self.target(), &self.up)
+    }
+
+    pub fn reset_origin(&mut self) {
+        self.origin = Vec3::zeros()
     }
 
     pub fn target_origin(&mut self) {
-        self.target = glm::vec3(0.0, 0.0, 0.0);
+        self.boresight = (self.origin - self.position).normalize();
     }
 
     pub fn move_command(&mut self, direction: Direction, delta_time: Float) {
         match self.movement_method {
-            MovementMethod::Rotate => self.rotate_around(direction, delta_time),
+            MovementMethod::Rotate => self.rotate_around_origin(direction, delta_time),
             MovementMethod::Strafe => self.strafe(direction, delta_time),
         };
     }
@@ -104,7 +114,7 @@ impl Camera {
         self.speed += delta_speed;
     }
 
-    pub fn rotate_around(&mut self, direction: Direction, delta_time: Float) {
+    pub fn rotate_around_origin(&mut self, direction: Direction, delta_time: Float) {
         let speed = self.speed * delta_time;
         let mut sphericals = cartesian_to_spherical(&self.position);
 
@@ -125,6 +135,7 @@ impl Camera {
         sphericals[2] = new_phi;
 
         self.position = spherical_to_cartesian(&sphericals);
+        self.target_origin()
     }
 
     pub fn strafe(&mut self, direction: Direction, delta_time: Float) {
@@ -139,6 +150,5 @@ impl Camera {
             * self.position.magnitude();
 
         self.position += delta_position;
-        self.target += delta_position;
     }
 }

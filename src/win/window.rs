@@ -279,6 +279,10 @@ impl Window {
         self.scene.borrow_mut().set_camera_position(&pos);
     }
 
+    pub fn camera_target_origin(&self) {
+        self.scene.borrow_mut().camera.target_origin();
+    }
+
     pub fn light_direction(&self) -> Vec3 {
         self.scene.borrow().light_direction().clone()
     }
@@ -529,7 +533,7 @@ impl Window {
         let directional_light_color = self.settings.borrow().directional_light_color;
         let ambient_light_color = self.settings.borrow().ambient_light_color;
         let ortho = self.settings.borrow().ortho;
-        let fov = self.settings.borrow().fov;
+        let fovy = self.settings.borrow().fovy;
         let far_factor = self.settings.borrow().far_factor;
         let close_distance = self.settings.borrow().close_distance;
         let draw_normals = self.settings.borrow().draw_normals;
@@ -557,7 +561,7 @@ impl Window {
                 far,
             )
         } else {
-            glm::perspective(aspect_ratio, fov * RPD, close, far)
+            glm::perspective(aspect_ratio, fovy * RPD, close, far)
         };
 
         let matrix_view = scene.camera.look_at();

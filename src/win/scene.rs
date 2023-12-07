@@ -14,9 +14,10 @@ pub struct WindowScene {
 impl WindowScene {
     pub fn new(settings: &WindowSettings) -> Self {
         let camera = Camera::new(
-            vec3(0.0, 0.0, 1.0),
-            vec3(0.0, 0.0, 0.0),
-            vec3(1.0, 0.0, 0.0),
+            settings.camera_up,
+            settings.camera_boresight,
+            settings.camera_position,
+            settings.camera_origin,
             settings.camera_speed,
         );
         let light = Light::new(settings.light_offset);
@@ -48,7 +49,7 @@ impl WindowScene {
         self.camera.position = pos;
     }
 
-    pub fn light_direction<>(&self) -> Vec3 {
+    pub fn light_direction(&self) -> Vec3 {
         self.light.direction()
     }
 
