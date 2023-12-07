@@ -1519,7 +1519,7 @@ dependencies = [
 
 [[package]]
 name = "kalast"
-version = "0.4.0-beta10"
+version = "0.4.0-beta11"
 dependencies = [
  "chrono",
  "color-eyre",
