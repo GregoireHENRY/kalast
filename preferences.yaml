@@ -1,4 +1,4 @@
 no_check: true
 
-debug_cfg: true
+debug_cfg: false
 debug: false

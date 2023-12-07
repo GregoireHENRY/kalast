@@ -1,7 +1,0 @@
-base: viewer
-
-bodies:
-  - id: body
-    mesh:
-      shape: sphere
-      factor: [1.0, 1.0, 0.6]

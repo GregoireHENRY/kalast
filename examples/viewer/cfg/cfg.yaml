@@ -2,4 +2,4 @@ window:
   ambient: [0.1, 0.1, 0.1]
 
 bodies:
-  - id: body
+  -

@@ -9,6 +9,7 @@ pub enum ColorMode {
     /// Rendering diffuse lighting from shaders using normals of vertices and light direction.
     /// In configuration, use `diffuse_light`.
     #[serde(rename = "diffuse_light")]
+    #[serde(alias = "diffuse")]
     DiffuseLight,
 
     /// Rendering a color given to vertices.

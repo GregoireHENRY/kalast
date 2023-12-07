@@ -165,11 +165,15 @@ impl RoutinesThermalDefault {
 }
 
 impl Routines for RoutinesThermalDefault {
+    fn load(&mut self, body: &AirlessBody, cb: &CfgBody, scene: &Scene) {
+        self.data.push(ThermalData::new(body, cb, scene));
+    }
+
     fn fn_iteration_body(
         &mut self,
         body: usize,
         bodies: &mut [AirlessBody],
-        pre_computed_bodies: &mut [BodyData],
+        bodies_data: &mut [BodyData],
         time: &Time,
         scene: &Scene,
     ) {
@@ -177,12 +181,8 @@ impl Routines for RoutinesThermalDefault {
 
         let other_bodies = (0..bodies.len()).filter(|ii| *ii != body).collect_vec();
 
-        let mut fluxes_solar = self.fn_compute_solar_flux(
-            &bodies[body],
-            &pre_computed_bodies[body],
-            &self.data[body],
-            &scene,
-        );
+        let mut fluxes_solar =
+            self.fn_compute_solar_flux(&bodies[body], &bodies_data[body], &self.data[body], &scene);
 
         if self.shadows_mutual {
             let shadows_self: Vec<usize> = vec![];
@@ -427,11 +427,11 @@ impl RoutinesThermal for RoutinesThermalDefault {
     fn fn_compute_solar_flux(
         &self,
         body: &AirlessBody,
-        precomputed: &BodyData,
+        body_data: &BodyData,
         body_info: &ThermalData,
         scene: &Scene,
     ) -> DRVector<Float> {
-        let cos_incidences = compute_cosine_incidence_angle(body, &precomputed.normals, scene);
+        let cos_incidences = compute_cosine_incidence_angle(body, &body_data.normals, scene);
         flux_solar_radiation(&cos_incidences, &body_info.albedos, scene.sun_dist())
     }
 

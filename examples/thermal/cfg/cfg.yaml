@@ -1,11 +1,10 @@
-win:
-  export_frames: true
+window:
   colormap:
     name: inferno
     vmax: 400.0
     scalar: temperature
     
-simu:
+simulation:
   routines: thermal
   step: 600
   duration: 7200000
@@ -14,11 +13,13 @@ simu:
     duration: 7200
     period: 720000
 
+scene:
+  sun:
+    position:
+      !cartesian [1.5e11, 0.0, 0.0]
+
 bodies:
-  - id: body
-    mesh:
-      shape: sphere
-    material:
+  - material:
       albedo: 0.1
       emissivity: 0.9
       thermal_inertia: 500.0
@@ -31,5 +32,6 @@ bodies:
       a: 2e-2
     spin:
       period: 7200
+      obliquity: 0
     record:
       columns: [114]

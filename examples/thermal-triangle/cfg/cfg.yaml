@@ -1,14 +1,10 @@
-win:
-  export_frames: true
+window:
   colormap:
     name: inferno
     vmax: 400.0
     scalar: temperature
-      
-sun:
-  position: [0.0, 0.0, 1.0]
 
-simu:
+simulation:
   routines: thermal
   step: 600
   duration: 7200000
@@ -17,9 +13,16 @@ simu:
     duration: 7200
     period: 720000
 
+scene:
+  sun:
+    position:
+      !cartesian [0.0, 0.0, 1.5e11]
+  camera:
+    position:
+      !cartesian [0.0, 3.0, 3.0]
+
 bodies:
-  - id: body
-    mesh:
+  - mesh:
       shape: triangle
     material:
       albedo: 0.1

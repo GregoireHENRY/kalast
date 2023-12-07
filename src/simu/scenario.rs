@@ -144,6 +144,7 @@ impl Scenario {
                 },
             };
 
+            self.routines.load(&asteroid, &cb, &self.scene);
             self.pre_computed_bodies.push(BodyData::new(&asteroid, &cb));
             self.bodies.push(asteroid);
         }

@@ -18,24 +18,24 @@ window:
   ambient: [0.0, 0.0, 0.0]
   wireframe: false
   colormap:
-    name: gray
+    name: inferno
     vmin: 0.0
-    vmax: 1.0
-    scalar:
+    vmax: 400.0
+    scalar: temperature
     reverse: false
   normals: false
   normals_length: 0.02
   export_frames: false
     
 simulation:
-  routines: viewer
+  routines: thermal
   start: 0.0
-  step: 0
-  duration: 0
+  step: 600
+  duration: 7200000
   export:
-    step: 0
-    duration: 0
-    period: 0
+    step: 60
+    duration: 7200
+    period: 720000
     cooldown_start:
   pause_after_first_iteration: false
 
@@ -46,7 +46,7 @@ spice:
 scene:
   sun:
     position:
-      !cartesian [1.0, 0.0, 0.0]
+      !cartesian [1.5e11, 0.0, 0.0]
   camera:
     position:
       !cartesian [5.0, 0.0, 0.0]
@@ -60,15 +60,18 @@ bodies:
       smooth: false
     mesh_low:
     material:
-      albedo: 0.0
-      emissivity: 1.0
-      thermal_inertia: 0.0
-      density: 0.0
-      heat_capacity: 0.0
-    color: diffuse
+      albedo: 0.1
+      emissivity: 0.9
+      thermal_inertia: 500.0
+      density: 2100.0
+      heat_capacity: 600.0
+    color: data
     interior:
+      type: linear
+      size: 40
+      a: 2e-2
     spin:
-      period: 0.0
+      period: 7200
       axis: [0.0, 0.0, 1.0]
       obliquity: 0.0
       spin0: 0.0
@@ -85,6 +88,6 @@ bodies:
     temperature: 0.0
     record:
       faces: []
-      columns: []
+      columns: [114]
       rows: []
       cells: []

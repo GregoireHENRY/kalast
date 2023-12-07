@@ -9,10 +9,14 @@ use downcast_rs::{impl_downcast, DowncastSync};
 use itertools::{izip, Itertools};
 
 pub trait RoutinesData {
-    fn new(asteroid: &AirlessBody, _cb: &CfgBody, _scene: &Scene) -> Self;
+    fn new(asteroid: &AirlessBody, _cb: &CfgBody, _scene: &Scene) -> Self
+    where
+        Self: Sized;
 }
 
 pub trait Routines: DowncastSync {
+    fn load(&mut self, _body: &AirlessBody, _cb: &CfgBody, _scene: &Scene) {}
+
     fn fn_update_scene(&self, cfg: &Cfg, time: &Time, _scene: &Scene) -> Scene {
         let elapsed_from_start = time.elapsed_seconds_from_start();
 
