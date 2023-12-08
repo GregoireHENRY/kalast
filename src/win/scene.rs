@@ -4,8 +4,8 @@ use itertools::izip;
 
 #[derive(Debug, Clone)]
 pub struct WindowScene {
-    pub(crate) camera: Camera,
-    pub(crate) light: Light,
+    pub camera: Camera,
+    pub light: Light,
     pub(crate) light_vao: Option<VAO>,
     pub(crate) bodies_vao: Vec<VAO>,
     pub(crate) trajectories_vao: Vec<VAO>,
@@ -15,12 +15,10 @@ impl WindowScene {
     pub fn new(settings: &WindowSettings) -> Self {
         let camera = Camera::new(
             settings.camera_up,
-            settings.camera_boresight,
+            settings.camera_direction,
             settings.camera_position,
-            settings.camera_origin,
-            settings.camera_speed,
         );
-        let light = Light::new(settings.light_offset);
+        let light = Light::new(settings.light_position);
 
         let light_vao = settings.show_light.then_some(VAO::smooth_element_buffers(
             &light.cube.vertices,
@@ -33,54 +31,6 @@ impl WindowScene {
             light_vao,
             bodies_vao: vec![],
             trajectories_vao: vec![],
-        }
-    }
-
-    pub fn camera_position(&self) -> &Vec3 {
-        &self.camera.position
-    }
-
-    pub fn set_camera_position(&mut self, pos: &Vec3) {
-        let mut pos = pos.clone();
-        if pos.x == 0.0 && pos.y == 0.0 {
-            let dx = 1e-5;
-            pos = vec3(dx, dx, pos.z);
-        }
-        self.camera.position = pos;
-    }
-
-    pub fn light_direction(&self) -> Vec3 {
-        self.light.direction()
-    }
-
-    pub fn set_light_offset(&mut self, offset: Float) {
-        self.light.set_offset(offset);
-
-        if self.light_vao.is_some() {
-            self.update_light_vao();
-        }
-    }
-
-    fn update_light_vao(&mut self) {
-        self.light_vao = Some(VAO::smooth_element_buffers(
-            &self.light.cube.vertices,
-            &self.light.cube.indices,
-        ));
-    }
-
-    pub fn set_light_position(&mut self, pos: &Vec3) {
-        self.light.set_position(pos);
-
-        if self.light_vao.is_some() {
-            self.update_light_vao();
-        }
-    }
-
-    pub fn set_light_direction(&mut self, dir: &Vec3) {
-        self.light.set_direction(dir);
-
-        if self.light_vao.is_some() {
-            self.update_light_vao();
         }
     }
 

@@ -1,15 +1,15 @@
 use crate::{
     compute_cosine_emission_angle, compute_cosine_incidence_angle, compute_cosine_phase_angle,
     effective_temperature, flux_solar_radiation, newton_method_temperature, read_surface_low,
-    shadows, simu::Scene, update_colormap_scalar, util::*, AirlessBody, BodyData, Cfg, CfgBody,
-    CfgScalar, CfgTemperatureInit, FoldersRun, Routines, RoutinesData, Surface, Time, Window,
+    shadows, update_colormap_scalar, util::*, AirlessBody, BodyData, Cfg, CfgBody, CfgScalar,
+    CfgTemperatureInit, FoldersRun, Routines, Surface, Time, Window, WindowScene,
 };
 
 use itertools::Itertools;
 use polars::prelude::{df, CsvWriter, DataFrame, NamedFrom, SerWriter, Series};
 use std::fs;
 
-pub struct ThermalData {
+pub struct ThermalBodyData {
     pub depth_size: usize,
     pub cvg: usize,
     pub surf_low: Option<Surface>,
@@ -22,8 +22,8 @@ pub struct ThermalData {
     pub fluxes_solar: DRVector<Float>,
 }
 
-impl RoutinesData for ThermalData {
-    fn new(asteroid: &AirlessBody, cb: &CfgBody, scene: &Scene) -> Self {
+impl ThermalBodyData {
+    fn new(asteroid: &AirlessBody, cb: &CfgBody, sun_distance: Float) -> Self {
         let depth_grid = &asteroid.interior.as_ref().unwrap().as_grid().depth;
         let depth_size = depth_grid.len();
         let surf_size = asteroid.surface.faces.len();
@@ -93,7 +93,7 @@ impl RoutinesData for ThermalData {
                 let ratio = ratio.0 as Float / ratio.1 as Float;
 
                 let mat = asteroid.surface.faces[0].vertex.material;
-                let init = effective_temperature(&scene.sun, mat.albedo, mat.emissivity, ratio);
+                let init = effective_temperature(sun_distance, mat.albedo, mat.emissivity, ratio);
                 DMatrix::<Float>::from_element(depth_size, surf_size, init)
             }
             CfgTemperatureInit::Scalar(scalar) => {
@@ -125,33 +125,34 @@ pub trait RoutinesThermal: Routines {
         &self,
         body: &AirlessBody,
         precomputed: &BodyData,
-        body_info: &ThermalData,
-        scene: &Scene,
+        body_info: &ThermalBodyData,
+        sun_direction: &Vec3,
     ) -> DRVector<Float>;
 
     fn fn_compute_surface_temperatures(
         &self,
         body: &AirlessBody,
-        body_info: &ThermalData,
+        body_info: &ThermalBodyData,
         surface_fluxes: &DRVector<Float>,
     ) -> DRVector<Float>;
 
     fn fn_compute_heat_conduction(
         &self,
         body: &AirlessBody,
-        body_info: &ThermalData,
+        body_info: &ThermalBodyData,
         delta_time: Float,
     ) -> DMatrix<Float>;
 
     fn fn_compute_bottom_depth_temperatures(
         &self,
         body: &AirlessBody,
-        body_info: &ThermalData,
+        body_info: &ThermalBodyData,
     ) -> DRVector<Float>;
 }
 
 pub struct RoutinesThermalDefault {
-    pub data: Vec<ThermalData>,
+    pub data: Vec<ThermalBodyData>,
+    pub sun_distance: Float,
     pub shadows_mutual: bool,
 }
 
@@ -159,14 +160,16 @@ impl RoutinesThermalDefault {
     pub fn new() -> Self {
         Self {
             data: vec![],
+            sun_distance: 1.0,
             shadows_mutual: false,
         }
     }
 }
 
 impl Routines for RoutinesThermalDefault {
-    fn load(&mut self, body: &AirlessBody, cb: &CfgBody, scene: &Scene) {
-        self.data.push(ThermalData::new(body, cb, scene));
+    fn load(&mut self, body: &AirlessBody, cb: &CfgBody) {
+        self.data
+            .push(ThermalBodyData::new(body, cb, self.sun_distance));
     }
 
     fn fn_iteration_body(
@@ -175,21 +178,29 @@ impl Routines for RoutinesThermalDefault {
         bodies: &mut [AirlessBody],
         bodies_data: &mut [BodyData],
         time: &Time,
-        scene: &Scene,
+        scene: &WindowScene,
     ) {
         let dt = time.used_time_step();
 
         let other_bodies = (0..bodies.len()).filter(|ii| *ii != body).collect_vec();
 
-        let mut fluxes_solar =
-            self.fn_compute_solar_flux(&bodies[body], &bodies_data[body], &self.data[body], &scene);
+        let mut fluxes_solar = self.fn_compute_solar_flux(
+            &bodies[body],
+            &bodies_data[body],
+            &self.data[body],
+            &scene.light.position.normalize(),
+        );
 
         if self.shadows_mutual {
             let shadows_self: Vec<usize> = vec![];
             let mut shadows_mutual: Vec<usize> = vec![];
 
             for other_body in other_bodies {
-                shadows_mutual = shadows(&scene.sun, &bodies[body], &bodies[other_body]);
+                shadows_mutual = shadows(
+                    &(scene.light.position.normalize() * self.sun_distance),
+                    &bodies[body],
+                    &bodies[other_body],
+                );
             }
 
             for &index in shadows_mutual.iter().chain(&shadows_self).unique() {
@@ -228,7 +239,6 @@ impl Routines for RoutinesThermalDefault {
         bodies: &mut [AirlessBody],
         pre_computed_bodies: &[BodyData],
         cfg: &Cfg,
-        scene: &Scene,
         win: &Window,
     ) {
         let cmap = &cfg.window.colormap;
@@ -236,18 +246,21 @@ impl Routines for RoutinesThermalDefault {
             Some(CfgScalar::AngleIncidence) => compute_cosine_incidence_angle(
                 &bodies[body],
                 &pre_computed_bodies[body].normals,
-                scene,
+                &win.scene.borrow().light.position.normalize(),
             )
             .map(|a| a.acos() * DPR),
             Some(CfgScalar::AngleEmission) => compute_cosine_emission_angle(
                 &bodies[body],
                 &pre_computed_bodies[body].normals,
-                scene,
+                &win.scene.borrow().camera.position.normalize(),
             )
             .map(|a| a.acos() * DPR),
-            Some(CfgScalar::AnglePhase) => {
-                compute_cosine_phase_angle(&bodies[body], scene).map(|a| a.acos() * DPR)
-            }
+            Some(CfgScalar::AnglePhase) => compute_cosine_phase_angle(
+                &bodies[body],
+                &win.scene.borrow().camera.position.normalize(),
+                &win.scene.borrow().light.position.normalize(),
+            )
+            .map(|a| a.acos() * DPR),
             Some(CfgScalar::FluxSolar) => self.data[body].fluxes_solar.clone(),
             Some(CfgScalar::FluxSurface) => self.data[body].fluxes.clone(),
             Some(CfgScalar::FluxEmitted) => unimplemented!(),
@@ -428,17 +441,18 @@ impl RoutinesThermal for RoutinesThermalDefault {
         &self,
         body: &AirlessBody,
         body_data: &BodyData,
-        body_info: &ThermalData,
-        scene: &Scene,
+        body_info: &ThermalBodyData,
+        sun_direction: &Vec3,
     ) -> DRVector<Float> {
-        let cos_incidences = compute_cosine_incidence_angle(body, &body_data.normals, scene);
-        flux_solar_radiation(&cos_incidences, &body_info.albedos, scene.sun_dist())
+        let cos_incidences =
+            compute_cosine_incidence_angle(body, &body_data.normals, sun_direction);
+        flux_solar_radiation(&cos_incidences, &body_info.albedos, self.sun_distance)
     }
 
     fn fn_compute_surface_temperatures(
         &self,
         body: &AirlessBody,
-        body_info: &ThermalData,
+        body_info: &ThermalBodyData,
         surface_fluxes: &DRVector<Float>,
     ) -> DRVector<Float> {
         let depth_grid = &body.interior.as_ref().unwrap().as_grid().depth;
@@ -456,7 +470,7 @@ impl RoutinesThermal for RoutinesThermalDefault {
     fn fn_compute_heat_conduction(
         &self,
         body: &AirlessBody,
-        body_info: &ThermalData,
+        body_info: &ThermalBodyData,
         delta_time: Float,
     ) -> DMatrix<Float> {
         let curr_size = body_info.depth_size - 2;
@@ -475,7 +489,7 @@ impl RoutinesThermal for RoutinesThermalDefault {
     fn fn_compute_bottom_depth_temperatures(
         &self,
         _body: &AirlessBody,
-        body_info: &ThermalData,
+        body_info: &ThermalBodyData,
     ) -> DRVector<Float> {
         body_info.tmp.row(body_info.depth_size - 2).clone_owned()
     }

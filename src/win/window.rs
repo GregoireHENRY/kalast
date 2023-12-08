@@ -247,56 +247,6 @@ impl Window {
         self
     }
 
-    pub fn with_light_position(self, pos: &Vec3) -> Self {
-        {
-            let mut scene = self.scene.borrow_mut();
-            scene.set_light_position(pos);
-        }
-        self
-    }
-
-    pub fn with_light_direction(self, dir: &Vec3) -> Self {
-        {
-            let mut scene = self.scene.borrow_mut();
-            scene.set_light_direction(dir);
-        }
-        self
-    }
-
-    pub fn with_camera_position(self, pos: &Vec3) -> Self {
-        {
-            let mut scene = self.scene.borrow_mut();
-            scene.set_camera_position(pos);
-        }
-        self
-    }
-
-    pub fn camera_position(&self) -> Vec3 {
-        self.scene.borrow().camera_position().clone()
-    }
-
-    pub fn set_camera_position(&self, pos: &Vec3) {
-        self.scene.borrow_mut().set_camera_position(&pos);
-    }
-
-    pub fn camera_target_origin(&self) {
-        self.scene.borrow_mut().camera.target_origin();
-    }
-
-    pub fn light_direction(&self) -> Vec3 {
-        self.scene.borrow().light_direction().clone()
-    }
-
-    pub fn set_light_position(&self, pos: &Vec3) {
-        let mut scene = self.scene.borrow_mut();
-        scene.set_light_position(pos);
-    }
-
-    pub fn set_light_direction(&self, dir: &Vec3) {
-        let mut scene = self.scene.borrow_mut();
-        scene.set_light_direction(dir);
-    }
-
     pub fn update_vao(&self, body_index: usize, surf: &mut Surface) {
         let mut scene = self.scene.borrow_mut();
         scene.update_surface_data(body_index, surf);
@@ -441,7 +391,7 @@ impl Window {
                                 .camera
                                 .move_command(Direction::from_keycode(keycode), clock_delta_time),
                             (Keycode::M, _) => {
-                                self.scene.borrow_mut().camera.change_move_method();
+                                self.scene.borrow_mut().camera.toggle_move_method();
                             }
                             (Keycode::C, _) => {
                                 self.scene.borrow_mut().camera.target_origin();
@@ -532,10 +482,6 @@ impl Window {
         let shadows = self.settings.borrow().shadows;
         let directional_light_color = self.settings.borrow().directional_light_color;
         let ambient_light_color = self.settings.borrow().ambient_light_color;
-        let ortho = self.settings.borrow().ortho;
-        let fovy = self.settings.borrow().fovy;
-        let far_factor = self.settings.borrow().far_factor;
-        let close_distance = self.settings.borrow().close_distance;
         let draw_normals = self.settings.borrow().draw_normals;
         let wireframe = self.settings.borrow().wireframe;
         let wireframe_width = self.settings.borrow().wireframe_width;
@@ -547,24 +493,9 @@ impl Window {
         let scene = self.scene.borrow_mut();
 
         // Set constant uniforms for shader body.
-        let distance = scene.camera.position.magnitude();
-        let close = close_distance;
-        let far = distance * 2.0 * far_factor;
-        let matrix_projection = if ortho {
-            let side = distance;
-            glm::ortho(
-                -side * aspect_ratio,
-                side * aspect_ratio,
-                -side,
-                side,
-                close,
-                far,
-            )
-        } else {
-            glm::perspective(aspect_ratio, fovy * RPD, close, far)
-        };
+        let matrix_projection = scene.camera.projection_matrix(aspect_ratio);
 
-        let matrix_view = scene.camera.look_at();
+        let matrix_view = scene.camera.get_look_at_matrix();
 
         // let surfaces = asteroids.iter().map(|s| &s.surface).collect_vec();
         let matrices_model = asteroids.iter().map(|s| &s.matrix_model).collect_vec();
@@ -583,12 +514,8 @@ impl Window {
         shader.set_vec3("forced_color", &vec3(0.0, 0.0, 0.0));
 
         // Matrices for shader depth.
-        let projection_light_matrix = scene.light.projection.matrix;
-        let matrix_view_light = glm::look_at(
-            &scene.light.position,
-            &vec3(0.0, 0.0, 0.0),
-            &vec3(0.0, 0.0, 1.0),
-        );
+        let projection_light_matrix = scene.light.projection_matrix();
+        let matrix_view_light = scene.light.get_look_at_matrix();
         let matrix_lightspace = projection_light_matrix * matrix_view_light;
 
         self.render_depth_to_texture(&scene, &matrix_lightspace, &matrices_model);

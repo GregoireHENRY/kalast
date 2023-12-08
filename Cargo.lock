@@ -1528,6 +1528,7 @@ dependencies = [
  "directories",
  "downcast-rs",
  "dunce",
+ "dyn-clone",
  "float_eq",
  "fs_extra",
  "gl",

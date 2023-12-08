@@ -1,6 +1,6 @@
 use crate::{
-    simu::Scene, util::*, AirlessBody, BodyData, Cfg, CfgTimeExport, FoldersRun, Routines, Time,
-    Window,
+    util::*, AirlessBody, BodyData, Cfg, CfgTimeExport, FoldersRun, Routines, Time, Window,
+    WindowScene,
 };
 
 use polars::prelude::{df, CsvWriter, NamedFrom, SerWriter};
@@ -33,7 +33,6 @@ impl Export {
         bodies: &mut [AirlessBody],
         body_data: &[BodyData],
         time: &mut Time,
-        scene: &Scene,
         win: &Window,
         folders: &FoldersRun,
         routines: &dyn Routines,
@@ -92,7 +91,13 @@ impl Export {
             for body in 0..cfg.bodies.len() {
                 if self.is_first_it_export {
                     self.iteration_body_export_start_generic(
-                        cfg, body, bodies, body_data, time, scene, folders,
+                        cfg,
+                        body,
+                        bodies,
+                        body_data,
+                        time,
+                        &win.scene.borrow(),
+                        folders,
                     );
                 }
                 routines.fn_export_iteration_period(
@@ -133,7 +138,7 @@ impl Export {
         bodies: &mut [AirlessBody],
         body_data: &[BodyData],
         time: &Time,
-        scene: &Scene,
+        scene: &WindowScene,
         folders: &FoldersRun,
     ) {
         let elapsed = time.elapsed_seconds();
@@ -166,7 +171,7 @@ impl Export {
         CsvWriter::new(&mut file).finish(&mut df).unwrap();
 
         let mut df = df!(
-            "sunpos" => scene.sun.as_slice(),
+            "sunpos" => scene.light.position.as_slice(),
         )
         .unwrap();
         let mut file = std::fs::File::options()

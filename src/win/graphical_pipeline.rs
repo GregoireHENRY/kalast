@@ -749,57 +749,6 @@ impl UBOS {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-#[allow(unused)]
-pub enum ProjectionParams {
-    Orthographic(Float, Float, Float, Float, Float, Float),
-    Perspective(),
-}
-
-#[allow(unused)]
-#[derive(Debug, Clone, Copy)]
-pub struct Projection {
-    pub matrix: Mat4,
-    params: ProjectionParams,
-}
-
-impl Projection {
-    pub fn new_ortho(
-        left: Float,
-        right: Float,
-        bottom: Float,
-        top: Float,
-        znear: Float,
-        zfar: Float,
-    ) -> Self {
-        let matrix = glm::ortho(left, right, bottom, top, znear, zfar);
-        let params = ProjectionParams::Orthographic(left, right, bottom, top, znear, zfar);
-        Self { matrix, params }
-    }
-
-    #[allow(unused)]
-    pub fn update_params(&mut self, params: ProjectionParams) {
-        self.matrix = match params {
-            ProjectionParams::Orthographic(left, right, bottom, top, znear, zfar) => {
-                glm::ortho(left, right, bottom, top, znear, zfar)
-            }
-            _ => unimplemented!("projection update params"),
-        };
-        self.params = params;
-    }
-
-    #[allow(unused)]
-    pub fn update_zfar(&mut self, zfar: Float) {
-        match self.params {
-            ProjectionParams::Orthographic(left, right, bottom, top, znear, _) => self
-                .update_params(ProjectionParams::Orthographic(
-                    left, right, bottom, top, znear, zfar,
-                )),
-            _ => unimplemented!("projection update params"),
-        };
-    }
-}
-
 #[derive(Debug)]
 pub struct MapShadow {
     pub framebuffer: u32,

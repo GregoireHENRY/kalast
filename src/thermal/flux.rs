@@ -4,12 +4,13 @@ pub fn cosine_angle(direction: &Vec3, normals: &Matrix3xX<Float>) -> DRVector<Fl
     (-(-direction.transpose() * normals)).map(|x| x.max(0.0))
 }
 
+// Sun distance in AU.
 pub fn flux_solar_radiation(
     cos_incidences: &DRVector<Float>,
     albedos: &DRVector<Float>,
-    sundist: Float,
+    sun_distance: Float,
 ) -> DRVector<Float> {
-    SOLAR_CONSTANT / (sundist / AU).powi(2) * albedos.map(|a| 1.0 - a).component_mul(cos_incidences)
+    SOLAR_CONSTANT / sun_distance.powi(2) * albedos.map(|a| 1.0 - a).component_mul(cos_incidences)
 }
 
 /**

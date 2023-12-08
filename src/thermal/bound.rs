@@ -1,13 +1,14 @@
 use crate::util::*;
 
+// Sun distance in AU.
 pub fn effective_temperature(
-    position_sun: &Vec3,
+    sun_distance: Float,
     albedo: Float,
     emissivity: Float,
     ratio_areas: Float,
 ) -> Float {
     (ratio_areas * SOLAR_CONSTANT * (1.0 - albedo)
-        / (emissivity * STEFAN_BOLTZMANN * (position_sun.magnitude() / AU).powi(2)))
+        / (emissivity * STEFAN_BOLTZMANN * sun_distance.powi(2)))
     .powf(1.0 / 4.0)
 }
 

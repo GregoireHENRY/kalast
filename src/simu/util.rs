@@ -1,6 +1,6 @@
 use crate::{
-    cosine_angle, simu::Scene, util::*, AirlessBody, Cfg, CfgBody, CfgFrameCenter, CfgMeshKind,
-    CfgMeshSource, CfgOrbitSpeedControl, CfgStateOrbit, Material, Result, Surface, Window,
+    cosine_angle, util::*, AirlessBody, Cfg, CfgBody, CfgFrameCenter, CfgMeshKind, CfgMeshSource,
+    CfgOrbitSpeedControl, CfgStateOrbit, Material, Result, Surface, Window,
 };
 
 use itertools::{izip, Itertools};
@@ -96,24 +96,28 @@ pub fn update_colormap_scalar(
 pub fn compute_cosine_incidence_angle(
     body: &AirlessBody,
     normals: &Matrix3xX<Float>,
-    scene: &Scene,
+    sun_direction: &Vec3,
 ) -> DRVector<Float> {
     let matrix_normal: Mat3 = glm::mat4_to_mat3(&glm::inverse_transpose(body.matrix_model));
     let normals_oriented = matrix_normal * normals;
-    cosine_angle(&scene.sun_dir(), &normals_oriented)
+    cosine_angle(sun_direction, &normals_oriented)
 }
 
 pub fn compute_cosine_emission_angle(
     body: &AirlessBody,
     normals: &Matrix3xX<Float>,
-    scene: &Scene,
+    camera_direction: &Vec3,
 ) -> DRVector<Float> {
     let matrix_normal: Mat3 = glm::mat4_to_mat3(&glm::inverse_transpose(body.matrix_model));
     let normals_oriented = matrix_normal * normals;
-    cosine_angle(&scene.cam_dir(), &normals_oriented)
+    cosine_angle(camera_direction, &normals_oriented)
 }
 
-pub fn compute_cosine_phase_angle(body: &AirlessBody, scene: &Scene) -> DRVector<Float> {
+pub fn compute_cosine_phase_angle(
+    body: &AirlessBody,
+    camera_direction: &Vec3,
+    sun_direction: &Vec3,
+) -> DRVector<Float> {
     DRVector::from_row_slice(
         &body
             .surface
@@ -122,9 +126,9 @@ pub fn compute_cosine_phase_angle(body: &AirlessBody, scene: &Scene) -> DRVector
             .map(|f| {
                 let v4 = glm::vec3_to_vec4(&f.vertex.position);
                 let v3_oriented = glm::vec4_to_vec3(&(body.matrix_model * v4));
-                (scene.sun - v3_oriented)
+                (sun_direction - v3_oriented)
                     .normalize()
-                    .dot(&(scene.camera - v3_oriented).normalize())
+                    .dot(&(camera_direction - v3_oriented).normalize())
             })
             .collect_vec(),
     )

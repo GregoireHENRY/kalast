@@ -1,23 +1,17 @@
 use crate::{
     compute_cosine_emission_angle, compute_cosine_incidence_angle, compute_cosine_phase_angle,
-    find_ref_orbit, matrix_spin, position_in_inertial_frame, simu::Scene, update_colormap_scalar,
-    util::*, AirlessBody, BodyData, Cfg, CfgBody, CfgCamera, CfgCameraPosition, CfgFrameCenter,
-    CfgScalar, CfgState, CfgStateCartesian, CfgSun, CfgSunPosition, FoldersRun, Time, Window,
+    find_ref_orbit, matrix_spin, position_in_inertial_frame, update_colormap_scalar, util::*,
+    AirlessBody, BodyData, Cfg, CfgBody, CfgCamera, CfgCameraPosition, CfgFrameCenter, CfgScalar,
+    CfgState, CfgStateCartesian, CfgSun, CfgSunPosition, FoldersRun, Time, Window, WindowScene,
 };
 
 use downcast_rs::{impl_downcast, DowncastSync};
 use itertools::{izip, Itertools};
 
-pub trait RoutinesData {
-    fn new(asteroid: &AirlessBody, _cb: &CfgBody, _scene: &Scene) -> Self
-    where
-        Self: Sized;
-}
-
 pub trait Routines: DowncastSync {
-    fn load(&mut self, _body: &AirlessBody, _cb: &CfgBody, _scene: &Scene) {}
+    fn load(&mut self, _body: &AirlessBody, _cb: &CfgBody) {}
 
-    fn fn_update_scene(&self, cfg: &Cfg, time: &Time, _scene: &Scene) -> Scene {
+    fn fn_update_scene(&self, cfg: &Cfg, time: &Time, scene: &mut WindowScene) {
         let elapsed_from_start = time.elapsed_seconds_from_start();
 
         if cfg.preferences.debug {
@@ -160,7 +154,9 @@ pub trait Routines: DowncastSync {
             println!("sun: {:?}", sun.as_slice());
         }
 
-        Scene { camera, sun }
+        scene.light.position = sun.normalize() * camera.magnitude();
+        scene.camera.position = camera;
+        scene.camera.target_origin();
     }
 
     fn fn_update_matrix_model(
@@ -169,7 +165,6 @@ pub trait Routines: DowncastSync {
         body: usize,
         bodies_data: &mut [BodyData],
         time: &Time,
-        _scene: &Scene,
     ) -> Mat4 {
         let elapsed_from_start = time.elapsed_seconds_from_start();
 
@@ -324,7 +319,7 @@ pub trait Routines: DowncastSync {
         _bodies: &mut [AirlessBody],
         _pre_computed_bodies: &mut [BodyData],
         _time: &Time,
-        _scene: &Scene,
+        _scene: &WindowScene,
     ) {
     }
 
@@ -334,25 +329,27 @@ pub trait Routines: DowncastSync {
         bodies: &mut [AirlessBody],
         pre_computed_bodies: &[BodyData],
         cfg: &Cfg,
-        scene: &Scene,
         win: &Window,
     ) {
         let scalars = match &cfg.window.colormap.scalar {
             Some(CfgScalar::AngleIncidence) => compute_cosine_incidence_angle(
                 &bodies[body],
                 &pre_computed_bodies[body].normals,
-                scene,
+                &win.scene.borrow().light.position.normalize(),
             )
             .map(|a| a.acos() * DPR),
             Some(CfgScalar::AngleEmission) => compute_cosine_emission_angle(
                 &bodies[body],
                 &pre_computed_bodies[body].normals,
-                scene,
+                &win.scene.borrow().camera.position.normalize(),
             )
             .map(|a| a.acos() * DPR),
-            Some(CfgScalar::AnglePhase) => {
-                compute_cosine_phase_angle(&bodies[body], scene).map(|a| a.acos() * DPR)
-            }
+            Some(CfgScalar::AnglePhase) => compute_cosine_phase_angle(
+                &bodies[body],
+                &win.scene.borrow().camera.position.normalize(),
+                &win.scene.borrow().light.position.normalize(),
+            )
+            .map(|a| a.acos() * DPR),
             None => return,
             _ => unreachable!(),
         };
@@ -386,7 +383,6 @@ pub trait Routines: DowncastSync {
         cfg: &Cfg,
         _bodies: &mut [AirlessBody],
         _time: &Time,
-        _scene: &Scene,
         win: &Window,
     ) {
         if cfg.simulation.pause_after_first_iteration || cfg.simulation.step == 0 {

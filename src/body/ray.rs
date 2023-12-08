@@ -115,7 +115,7 @@ pub fn intersect_asteroids(
 
 /// asteroid1 is shadowed by asteroid2.
 pub fn shadows(
-    lightpos_world: &Vec3,
+    sun_position: &Vec3,
     asteroid1: &AirlessBody,
     asteroid2: &AirlessBody,
 ) -> Vec<usize> {
@@ -128,8 +128,8 @@ pub fn shadows(
     // Calculation of distance in frame of world.
     let pos1 = asteroid1.matrix_model.column(3).xyz();
     let pos2 = asteroid2.matrix_model.column(3).xyz();
-    let d1 = (pos1 - lightpos_world).magnitude();
-    let d2 = (pos2 - lightpos_world).magnitude();
+    let d1 = (pos1 - sun_position).magnitude();
+    let d2 = (pos2 - sun_position).magnitude();
 
     if d2 > d1 {
         return shadowed;
@@ -143,8 +143,8 @@ pub fn shadows(
     let inv_m2_m1 = inv_m2 * asteroid1.matrix_model;
 
     // In frame of asteroids.
-    let lightpos_f2 = (inv_m2 * vec3_to_4_one(&lightpos_world)).xyz();
-    let lightpos_f1 = (inv_m1 * vec3_to_4_one(&lightpos_world)).xyz();
+    let lightpos_f2 = (inv_m2 * vec3_to_4_one(&sun_position)).xyz();
+    let lightpos_f1 = (inv_m1 * vec3_to_4_one(&sun_position)).xyz();
 
     // Filtering out faces that cannot be shadowed because they don't see the Sun.
     for (index, face) in asteroid1

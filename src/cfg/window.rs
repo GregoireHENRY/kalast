@@ -31,9 +31,6 @@ pub struct CfgWindow {
     #[serde(default)]
     pub fovy: Float,
 
-    #[serde(default = "default_camera_speed")]
-    pub camera_speed: Float,
-
     #[serde(default)]
     pub ambient: Vec3,
 
@@ -67,7 +64,6 @@ impl Default for CfgWindow {
             shadows: false,
             orthographic: false,
             fovy: 30.0,
-            camera_speed: default_camera_speed(),
             ambient: Vec3::zeros(),
             wireframe: false,
             colormap: CfgColormap::default(),
@@ -84,10 +80,6 @@ fn default_width() -> usize {
 
 fn default_height() -> usize {
     WINDOW_HEIGHT
-}
-
-fn default_camera_speed() -> Float {
-    0.5
 }
 
 pub fn default_dpi() -> usize {

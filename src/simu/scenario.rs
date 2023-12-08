@@ -1,7 +1,7 @@
 use crate::{
-    check_if_latest_version, read_surface_main, simu::Scene, util::*, AirlessBody, BodyData, Cfg,
-    CfgCamera, CfgInterior, CfgInteriorGrid1D, CfgRoutines, CfgSun, Export, FoldersRun, FrameEvent,
-    Result, Routines, RoutinesThermalDefault, RoutinesViewerDefault, Time, Window,
+    check_if_latest_version, read_surface_main, util::*, AirlessBody, BodyData, Cfg, CfgInterior,
+    CfgInteriorGrid1D, CfgRoutines, Export, FoldersRun, FrameEvent, Projection, Result, Routines,
+    RoutinesThermalDefault, RoutinesViewerDefault, Time, Window,
 };
 
 use chrono::Utc;
@@ -12,7 +12,6 @@ pub struct Scenario {
     pub cfg: Cfg,
     pub bodies: Vec<AirlessBody>,
     pub time: Time,
-    pub scene: Scene,
     pub win: Window,
     pub folders: FoldersRun,
     pub routines: Box<dyn Routines>,
@@ -70,11 +69,6 @@ impl Scenario {
             }
         }
 
-        let scene = Scene {
-            sun: CfgSun::default_position(),
-            camera: CfgCamera::default_position(),
-        };
-
         let win = Window::with_settings(|s| {
             s.width = cfg.window.width;
             s.height = cfg.window.height;
@@ -85,14 +79,13 @@ impl Scenario {
             s.colormap = cfg.window.colormap.name;
             s.shadows = cfg.window.shadows;
             s.ortho = cfg.window.orthographic;
-            s.camera_speed = cfg.window.camera_speed;
             s.ambient_light_color = cfg.window.ambient;
             s.wireframe = cfg.window.wireframe;
             s.draw_normals = cfg.window.normals;
             s.normals_magnitude = cfg.window.normals_length;
-        })
-        .with_camera_position(&scene.camera)
-        .with_light_position(&scene.sun_pos_cubelight());
+        });
+
+        // win.scene.borrow_mut().camera.projection = Projection::Orthographic;
 
         let time_start = match cfg.simulation.start.seconds() {
             Ok(seconds) => seconds,
@@ -107,7 +100,6 @@ impl Scenario {
             cfg,
             bodies,
             time,
-            scene,
             win,
             folders,
             routines,
@@ -144,7 +136,7 @@ impl Scenario {
                 },
             };
 
-            self.routines.load(&asteroid, &cb, &self.scene);
+            self.routines.load(&asteroid, &cb);
             self.pre_computed_bodies.push(BodyData::new(&asteroid, &cb));
             self.bodies.push(asteroid);
         }
@@ -197,9 +189,6 @@ impl Scenario {
             // Register keyboard and mouse interactions.
             let event = self.win.events();
 
-            // Update camera data from keyboard movements.
-            self.scene.camera = self.win.camera_position();
-
             match event {
                 FrameEvent::Exit => break 'main_loop,
                 _ => (),
@@ -219,9 +208,8 @@ impl Scenario {
             let elapsed = self.time.elapsed_seconds();
             let jd = self.time.jd();
 
-            self.scene = self
-                .routines
-                .fn_update_scene(&self.cfg, &self.time, &self.scene);
+            self.routines
+                .fn_update_scene(&self.cfg, &self.time, &mut self.win.scene.borrow_mut());
 
             for body in 0..self.bodies.len() {
                 self.bodies[body].matrix_model = self.routines.fn_update_matrix_model(
@@ -229,14 +217,13 @@ impl Scenario {
                     body,
                     &mut self.pre_computed_bodies,
                     &self.time,
-                    &mut self.scene,
                 );
                 self.routines.fn_iteration_body(
                     body,
                     &mut self.bodies,
                     &mut self.pre_computed_bodies,
                     &self.time,
-                    &mut self.scene,
+                    &self.win.scene.borrow(),
                 );
 
                 self.routines.fn_update_colormap(
@@ -244,14 +231,9 @@ impl Scenario {
                     &mut self.bodies,
                     &self.pre_computed_bodies,
                     &self.cfg,
-                    &self.scene,
                     &self.win,
                 );
             }
-
-            self.win.set_camera_position(&self.scene.camera);
-            self.win.camera_target_origin();
-            self.win.set_light_direction(&self.scene.sun_dir());
 
             // self.win.update_vaos(self.bodies.iter_mut().map(|b| &mut b.asteroid_mut().surface));
             self.win.render_asteroids(&self.bodies);
@@ -262,19 +244,13 @@ impl Scenario {
                 &mut self.bodies,
                 &self.pre_computed_bodies,
                 &mut self.time,
-                &self.scene,
                 &self.win,
                 &self.folders,
                 self.routines.as_ref(),
             );
 
-            self.routines.fn_end_of_iteration(
-                &self.cfg,
-                &mut self.bodies,
-                &self.time,
-                &self.scene,
-                &self.win,
-            );
+            self.routines
+                .fn_end_of_iteration(&self.cfg, &mut self.bodies, &self.time, &self.win);
 
             if elapsed > self.cfg.simulation.duration {
                 let time_calc = Utc::now().time() - *self.time.real_time();
