@@ -24,15 +24,15 @@ jobs:
         restore-keys: |
           ${{ runner.OS }}-build-
 
-    - name: Install SDL2
+    - name: Get SDL2 (Ubuntu)
       if: ${{ matrix.os == 'ubuntu-latest' }}
       run: sudo apt install -y libsdl2-dev
         
-    - name: Install SDL2
+    - name: Get SDL2 (MacOS)
       if: ${{ matrix.os == 'macos-latest' }}
       run: brew install SDL2
         
-    - name: Use SDL2 from repo/include/win
+    - name: Get SDL2 (Windows)
       if: ${{ matrix.os == 'windows-latest' }}
       run: |
         cp include/win/SDL2.dll .
