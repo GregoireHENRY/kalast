@@ -490,10 +490,18 @@ impl Window {
             .borrow()
             .difference_in_height_from_ratio_after_resize;
 
-        let scene = self.scene.borrow_mut();
+        let mut scene = self.scene.borrow_mut();
+        scene.camera.projection.base.aspect = aspect_ratio;
+        scene.light.projection.base.aspect = aspect_ratio;
+
+        let camera_distance = (scene.camera.position - scene.camera.origin).magnitude();
+        scene.camera.projection.update_distance(camera_distance);
+
+        let light_distance = scene.light.position.magnitude();
+        scene.camera.projection.update_distance(light_distance);
 
         // Set constant uniforms for shader body.
-        let matrix_projection = scene.camera.projection_matrix(aspect_ratio);
+        let matrix_projection = scene.camera.projection.build();
 
         let matrix_view = scene.camera.get_look_at_matrix();
 
@@ -514,7 +522,7 @@ impl Window {
         shader.set_vec3("forced_color", &vec3(0.0, 0.0, 0.0));
 
         // Matrices for shader depth.
-        let projection_light_matrix = scene.light.projection_matrix();
+        let projection_light_matrix = scene.light.projection.build();
         let matrix_view_light = scene.light.get_look_at_matrix();
         let matrix_lightspace = projection_light_matrix * matrix_view_light;
 

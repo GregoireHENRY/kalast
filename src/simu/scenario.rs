@@ -1,6 +1,6 @@
 use crate::{
     check_if_latest_version, read_surface_main, util::*, AirlessBody, BodyData, Cfg, CfgInterior,
-    CfgInteriorGrid1D, CfgRoutines, Export, FoldersRun, FrameEvent, Projection, Result, Routines,
+    CfgInteriorGrid1D, CfgRoutines, Export, FoldersRun, FrameEvent, Result, Routines,
     RoutinesThermalDefault, RoutinesViewerDefault, Time, Window,
 };
 

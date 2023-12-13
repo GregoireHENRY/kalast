@@ -1,9 +1,5 @@
-use std::fmt::Debug;
-
 use crate::util::*;
 
-use downcast_rs::{impl_downcast, DowncastSync};
-use dyn_clone::DynClone;
 use sdl2::keyboard::Keycode;
 
 pub const ORIGIN: Vec3 = Vec3::new(0.0, 0.0, 0.0);
@@ -43,85 +39,81 @@ impl Direction {
     }
 }
 
-pub trait Projection: DowncastSync + Debug + DynClone {
-    fn new() -> Self
-    where
-        Self: Sized;
-    fn build(&self) -> Mat4;
-}
-
-impl_downcast!(sync Projection);
-dyn_clone::clone_trait_object!(Projection);
-
 #[derive(Debug, Clone)]
-pub struct Orthographic {
+pub struct FrustrumBase {
     pub aspect: Float,
-    pub side: Float,
     pub znear: Float,
     pub zfar: Float,
 }
 
-impl Default for Orthographic {
+impl Default for FrustrumBase {
     fn default() -> Self {
         Self {
             aspect: ASPECT,
-            side: SIDE,
             znear: CLOSE,
             zfar: FAR,
         }
-    }
-}
-
-impl Projection for Orthographic {
-    fn new() -> Self {
-        Self::default()
-    }
-
-    fn build(&self) -> Mat4 {
-        glm::ortho(
-            self.side * self.aspect,
-            self.side * self.aspect,
-            self.side,
-            self.side,
-            self.znear,
-            self.zfar,
-        )
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Perspective {
-    pub aspect: Float,
-    pub fovy: Float,
-    pub znear: Float,
-    pub zfar: Float,
-}
-
-impl Default for Perspective {
-    fn default() -> Self {
-        Self {
-            aspect: ASPECT,
-            fovy: SIDE,
-            znear: CLOSE,
-            zfar: FAR,
-        }
-    }
-}
-
-impl Projection for Perspective {
-    fn new() -> Self {
-        Self::default()
-    }
-
-    fn build(&self) -> Mat4 {
-        glm::perspective(self.aspect, self.fovy, self.znear, self.zfar)
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum ProjectionMode {
-    Orthographic,
-    Perspective,
+    Orthographic(Float), // side
+    Perspective(Float),  // fovy
+}
+
+#[derive(Debug, Clone)]
+pub struct Projection {
+    pub base: FrustrumBase,
+    pub mode: ProjectionMode,
+}
+
+impl Default for Projection {
+    fn default() -> Self {
+        Self::perspective()
+    }
+}
+
+impl Projection {
+    pub fn orthographic() -> Self {
+        Self {
+            base: FrustrumBase::default(),
+            mode: ProjectionMode::Orthographic(SIDE),
+        }
+    }
+
+    pub fn perspective() -> Self {
+        Self {
+            base: FrustrumBase::default(),
+            mode: ProjectionMode::Perspective(FOVY),
+        }
+    }
+
+    pub fn update_distance(&mut self, distance: Float) {
+        self.base.zfar = distance * FAR;
+        self.base.znear = distance * CLOSE;
+
+        match &mut self.mode {
+            ProjectionMode::Orthographic(d) => *d = distance,
+            _ => {}
+        };
+    }
+
+    pub fn build(&self) -> Mat4 {
+        match self.mode {
+            ProjectionMode::Orthographic(side) => glm::ortho(
+                side * self.base.aspect,
+                side * self.base.aspect,
+                side,
+                side,
+                self.base.znear,
+                self.base.zfar,
+            ),
+            ProjectionMode::Perspective(fovy) => {
+                glm::perspective(self.base.aspect, fovy, self.base.znear, self.base.zfar)
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -130,7 +122,7 @@ pub struct Camera {
     pub direction: Vec3,
     pub position: Vec3,
     pub origin: Vec3,
-    pub projection: Box<dyn Projection>,
+    pub projection: Projection,
     speed: Float,
     movement_method: MovementMethod,
 }
@@ -142,7 +134,7 @@ impl Camera {
             direction,
             position,
             origin: ORIGIN,
-            projection: Box::new(Perspective::new()),
+            projection: Projection::perspective(),
             speed: SPEED,
             movement_method: MovementMethod::Rotate,
         }
@@ -160,12 +152,12 @@ impl Camera {
         -self.front()
     }
 
-    pub fn left(&self) -> Vec3 {
+    pub fn right(&self) -> Vec3 {
         glm::normalize(&glm::cross(&self.front(), &self.up))
     }
 
-    pub fn right(&self) -> Vec3 {
-        -self.left()
+    pub fn left(&self) -> Vec3 {
+        -self.right()
     }
 
     pub fn get_look_at_matrix(&self) -> Mat4 {
