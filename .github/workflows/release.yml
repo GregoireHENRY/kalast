@@ -64,10 +64,10 @@ jobs:
         cp include/win/SDL2.lib .
 
     - name: Build kalast
-      run: cargo build -r
+      run: cargo build -r --all-features
 
     - name: Build examples
-      run: cargo build -r --example viewer-picker
+      run: cargo build -r --all-features --example viewer-picker
 
     - name: Make bundle
       run: |
