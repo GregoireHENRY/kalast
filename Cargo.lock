@@ -671,10 +671,10 @@ dependencies = [
 [[package]]
 name = "cspice-sys"
 version = "1.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9783c3723fd8b4ff5852df41a4cd55c9bfa821812f32a12731a99df805760185"
+source = "git+https://github.com/jacob-pro/cspice-rs.git#43c749a48e75e0195a38925b6a3ecb47cea9e739"
 dependencies = [
  "bindgen",
+ "reqwest",
 ]
 
 [[package]]
@@ -1468,15 +1468,6 @@ checksum = "8f518f335dce6725a761382244631d86cf0ccb2863413590b31338feb467f9c3"
 
 [[package]]
 name = "itertools"
-version = "0.10.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0fd2260e829bddf4cb6ea802289de2f86d6a7a690192fbe91b3f46e0f2c8473"
-dependencies = [
- "either",
-]
-
-[[package]]
-name = "itertools"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "25db6b064527c5d482d0423354fcd07a89a2dfe07b67892e62411946db7f07b0"
@@ -1519,7 +1510,7 @@ dependencies = [
 
 [[package]]
 name = "kalast"
-version = "0.4.0-beta11"
+version = "0.4.0-beta12"
 dependencies = [
  "chrono",
  "color-eyre",
@@ -1534,11 +1525,11 @@ dependencies = [
  "gl",
  "image",
  "indicatif",
- "itertools 0.12.0",
+ "itertools",
  "kalast_macros",
  "lazy_static",
  "log",
- "nalgebra 0.32.3",
+ "nalgebra",
  "nalgebra-glm",
  "ndarray",
  "notify-rust",
@@ -1552,7 +1543,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
- "serial_test 2.0.0",
+ "serial_test",
  "simplelog",
  "snafu",
  "stb_image",
@@ -1787,35 +1778,18 @@ dependencies = [
 
 [[package]]
 name = "nalgebra"
-version = "0.31.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20bd243ab3dbb395b39ee730402d2e5405e448c75133ec49cc977762c4cba3d1"
-dependencies = [
- "approx",
- "matrixmultiply",
- "nalgebra-macros 0.1.0",
- "num-complex",
- "num-rational",
- "num-traits",
- "serde",
- "simba 0.7.3",
- "typenum",
-]
-
-[[package]]
-name = "nalgebra"
 version = "0.32.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "307ed9b18cc2423f29e83f84fd23a8e73628727990181f18641a8b5dc2ab1caa"
 dependencies = [
  "approx",
  "matrixmultiply",
- "nalgebra-macros 0.2.1",
+ "nalgebra-macros",
  "num-complex",
  "num-rational",
  "num-traits",
  "serde",
- "simba 0.8.1",
+ "simba",
  "typenum",
 ]
 
@@ -1826,20 +1800,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e68879ff227a94627e63bbd518b4f82b8f0cc56bb01a498251507de6d1c412d6"
 dependencies = [
  "approx",
- "nalgebra 0.32.3",
+ "nalgebra",
  "num-traits",
- "simba 0.8.1",
-]
-
-[[package]]
-name = "nalgebra-macros"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "01fcc0b8149b4632adc89ac3b7b31a12fb6099a0317a4eb2ebff574ef7de7218"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
+ "simba",
 ]
 
 [[package]]
@@ -2564,30 +2527,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "proc-macro-error"
-version = "1.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da25490ff9892aab3fcf7c36f08cfb902dd3e71ca0f9f9517bea02a73a5ce38c"
-dependencies = [
- "proc-macro-error-attr",
- "proc-macro2",
- "quote",
- "syn 1.0.109",
- "version_check",
-]
-
-[[package]]
-name = "proc-macro-error-attr"
-version = "1.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1be40180e52ecc98ad80b184934baf3d0d29f979574e439af5a55274b35f869"
-dependencies = [
- "proc-macro2",
- "quote",
- "version_check",
-]
-
-[[package]]
 name = "proc-macro2"
 version = "1.0.66"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2822,29 +2761,27 @@ dependencies = [
 
 [[package]]
 name = "rust-spice"
-version = "0.7.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4c5bb039d7b780c23e88a70176ae1b806376da3b9cc0dc26eb3a5894c76aa00"
+version = "0.7.7"
+source = "git+https://github.com/GregoireHENRY/rust-spice.git#89f735c806bed8f6ba0ab84b6d74ac925cf24bbf"
 dependencies = [
  "approx",
  "cspice-sys",
- "itertools 0.10.5",
+ "itertools",
  "libc",
  "log",
- "nalgebra 0.31.4",
+ "nalgebra",
  "rust-spice-derive",
  "serde",
  "serde_json",
  "serde_repr",
- "serial_test 0.8.0",
+ "serial_test",
  "thiserror",
 ]
 
 [[package]]
 name = "rust-spice-derive"
-version = "0.7.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61f5edb705bfe97f781a7f596f7b86413d1e2d8a91b8f5cd4a5139c00328b8fa"
+version = "0.7.6"
+source = "git+https://github.com/GregoireHENRY/rust-spice.git#89f735c806bed8f6ba0ab84b6d74ac925cf24bbf"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3056,19 +2993,6 @@ dependencies = [
 
 [[package]]
 name = "serial_test"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7eec42e7232e5ca56aa59d63af3c7f991fe71ee6a3ddd2d3480834cf3902b007"
-dependencies = [
- "futures",
- "lazy_static",
- "log",
- "parking_lot",
- "serial_test_derive 0.8.0",
-]
-
-[[package]]
-name = "serial_test"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e56dd856803e253c8f298af3f4d7eb0ae5e23a737252cd90bb4f3b435033b2d"
@@ -3078,20 +3002,7 @@ dependencies = [
  "lazy_static",
  "log",
  "parking_lot",
- "serial_test_derive 2.0.0",
-]
-
-[[package]]
-name = "serial_test_derive"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1b95bb2f4f624565e8fe8140c789af7e2082c0e0561b5a82a1b678baa9703dc"
-dependencies = [
- "proc-macro-error",
- "proc-macro2",
- "quote",
- "rustversion",
- "syn 1.0.109",
+ "serial_test_derive",
 ]
 
 [[package]]
@@ -3159,19 +3070,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8229b473baa5980ac72ef434c4415e70c4b5e71b423043adb4ba059f89c99a1"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "simba"
-version = "0.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f3fd720c48c53cace224ae62bef1bbff363a70c68c4802a78b5cc6159618176"
-dependencies = [
- "approx",
- "num-complex",
- "num-traits",
- "paste",
- "wide",
 ]
 
 [[package]]
