@@ -20,9 +20,9 @@ jobs:
       uses: actions/cache@v3
       with:
         path: target
-        key: ${{ runner.OS }}-build-${{ hashFiles('**/Cargo.lock') }}
+        key: ${{ runner.os }}-build-${{ hashFiles('**/Cargo.lock') }}
         restore-keys: |
-          ${{ runner.OS }}-build-
+          ${{ runner.os }}-build-
 
     - name: Get SDL2
       run: |
@@ -34,6 +34,7 @@ jobs:
           cp include/win/SDL2.dll .
           cp include/win/SDL2.lib .
         fi
+      shell: bash
         
     - name: Check that code can compile
       run: cargo check --all-features
