@@ -1,7 +1,5 @@
 #!/bin/bash
 
-echo $PLATFORM
-
 echo "Build main executable."
 cargo build -r --all-features && strip target/release/kalast
 
