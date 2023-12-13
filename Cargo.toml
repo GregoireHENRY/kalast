@@ -24,8 +24,8 @@ float_eq = "1.0"
 nalgebra = { version = "0.32", features = ["serde-serialize"] }
 nalgebra-glm = "0.18"
 ndarray = "0.15.6"
-tobj = { version = "4.0", features = ["ahash", "use_f64", "downloadcspice"] }
-rust-spice = { version = "0.7", optional = true }
+tobj = { version = "4.0", features = ["ahash", "use_f64"] }
+rust-spice = { version = "0.7", optional = true, features = ["downloadcspice"]}
 indicatif = "0.17"
 console = "0.15"
 serde = { version = "1.0", features = ["derive"] }
