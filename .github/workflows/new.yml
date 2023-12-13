@@ -1,0 +1,42 @@
+name: Build and upload release
+
+on:
+  push:
+    branches:        
+      - '**' 
+
+jobs:
+  release-ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Cache Rust dependencies
+      uses: actions/cache@v3
+      with:
+        path: target
+        key: ${{ runner.OS }}-build-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.OS }}-build-
+
+    - name: Install stable toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install SDL2
+      run: sudo apt install -y libsdl2-dev
+
+    - name: Set environment variables
+      run: ./compile/ubuntu/set_env.sh
+
+    - name: Build kalast
+      run: ./compile/generic/build_kalast.sh
+
+    - name: Make bundle
+      run: ./compile/generic/make_bundle.sh
+
+    - name: Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: kalast-${{ github.ref_name }}-ubuntu.tar.gz 
+        prerelease: true
