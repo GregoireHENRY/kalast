@@ -24,19 +24,16 @@ jobs:
         restore-keys: |
           ${{ runner.OS }}-build-
 
-    - name: Get SDL2 (Ubuntu)
-      if: ${{ matrix.os == 'ubuntu-latest' }}
-      run: sudo apt install -y libsdl2-dev
-        
-    - name: Get SDL2 (MacOS)
-      if: ${{ matrix.os == 'macos-latest' }}
-      run: brew install SDL2
-        
-    - name: Get SDL2 (Windows)
-      if: ${{ matrix.os == 'windows-latest' }}
+    - name: Get SDL2
       run: |
-        cp include/win/SDL2.dll .
-        cp include/win/SDL2.lib .
-
+        if [ ${{ matrix.os }} == 'ubuntu-latest' ]; then
+          sudo apt install -y libsdl2-dev
+        elif [ ${{ matrix.os }} == 'macos-latest' ]; then
+          brew install SDL2
+        elif [ ${{ matrix.os }} == 'windows-latest' ]; then
+          cp include/win/SDL2.dll .
+          cp include/win/SDL2.lib .
+        fi
+        
     - name: Check that code can compile
       run: cargo check --all-features
