@@ -10,8 +10,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        # os: [ubuntu-latest, macos-latest, windows-latest]
-        os: [ubuntu-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
     - uses: actions/checkout@v4
@@ -73,10 +72,10 @@ jobs:
     - name: Build
       run: |
         echo "Build main executable."
-        cargo build -r --all-features && strip target/release/kalast
+        cargo build -r --all-features && strip target/release/kalast$EXT
 
         echo "Build custom executable for specific example." 
-        cargo build -r --all-features --example viewer-picker && strip target/release/examples/viewer-picker
+        cargo build -r --all-features --example viewer-picker && strip target/release/examples/viewer-picker$EXT
       shell: bash
       
     - name: Bundle
@@ -101,7 +100,7 @@ jobs:
         mv bundle $BUNDLE_NAME
 
         if [ "${{ matrix.os }}" == "windows-latest" ]; then
-          iscc compile/installer.iss /DVERSION=${{ github.ref_name }} /DSETUP_NAME=${{ env.RELEASE_FILE }} /DBUNDLE_PATH=.\bundle /DASSETS_PATH=.\assets
+          iscc compile/installer.iss /DVERSION=${{ github.ref_name }} /DSETUP_NAME=$RELEASE_FILE /DBUNDLE_PATH=.\bundle /DASSETS_PATH=.\assets
         else
           tar cvzf $RELEASE_FILE $BUNDLE_NAME
         fi
