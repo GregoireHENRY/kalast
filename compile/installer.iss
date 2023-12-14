@@ -1,3 +1,8 @@
+; This inno script will bundle everything inside the relative folder bundle\
+; Output installer file name should be given by command line /F"setup.exe"
+; Assets are looked in relative folder assets\
+; In particular, assets\vbanner-intro.bmp is looked for.
+
 #define NAME "kalast"
 #define URL "https://github.com/GregoireHENRY/kalast"
 #define PUBLISHER "NT Productions"
@@ -16,7 +21,7 @@ DefaultDirName=C:\Program Files\{#NAME}
 DefaultGroupName={#NAME}
 DisableWelcomePage=no
 OutputDir=.
-; OutputBaseFilename={#SETUP_NAME}
+OutputBaseFilename=setup.exe
 Compression=lzma
 SolidCompression=yes
 WizardImageFile=assets\vbanner-intro.bmp

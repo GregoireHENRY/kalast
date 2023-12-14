@@ -4,8 +4,13 @@ window:
     vmax: 500.0
     scalar: temperature
 
+spice:
+  kernels: .///.... .mk
+  frame: ECLIPJ2000
+
 simulation:
   routines: thermal
+  start: 2020......
   step: 600
   duration: 300672000
   export:
@@ -13,23 +18,20 @@ simulation:
     duration: 2505600
     period: 30067200
 
-
 scene:
   sun:
     position:
-      !cartesian [1.5e11, 0.0, 0.0]
+      !spice
   camera:
     position:
       !cartesian [5.0, 0.0, 0.0]
 
 bodies:
-  - id: didymos
-    mesh:
-      shape: sphere
+  - id: moon
     material:
-      albedo: 0.1
+      albedo: 0.12
       emissivity: 0.9
-      thermal_inertia: 100.0
+      thermal_inertia: 55.0
       density: 1800.0
       heat_capacity: 600.0
     spin:
@@ -41,4 +43,4 @@ bodies:
       a: 2e-2
     color: data
     record:
-      columns: [114]
+      column: [114, 115, 116]
