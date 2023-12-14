@@ -27,26 +27,26 @@ jobs:
 
     - name: Get SDL2
       run: |
-        if [ ${{ matrix.os }} == "ubuntu-latest" ]; then
+        if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
           sudo apt install -y libsdl2-dev
-        elif [ ${{ matrix.os }} == "macos-latest" ]; then
+        elif [ "${{ matrix.os }}" == "macos-latest" ]; then
           brew install SDL2
-        elif [ ${{ matrix.os }} == "windows-latest" ]; then
+        elif [ "${{ matrix.os }}" == "windows-latest" ]; then
           cp include/windows/* .
         fi
       shell: bash
 
     - name: Set environment
       run: |
-        if [ ${{ matrix.os }} == "ubuntu-latest" ]; then
+        if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
           PLATFORM=ubuntu
-        elif [ ${{ matrix.os }} == "macos-latest" ]; then
+        elif [ "${{ matrix.os }}" == "macos-latest" ]; then
           PLATFORM=macos-x86_64
-        elif [ ${{ matrix.os }} == "windows-latest" ]; then
+        elif [ "${{ matrix.os }}" == "windows-latest" ]; then
           PLATFORM=windows
         fi
 
-        if [ ${{ matrix.os }} == "windows-latest" ]; then
+        if [ "${{ matrix.os }}" == "windows-latest" ]; then
           EXT=.exe
           OUT_EXT=.exe
         else
@@ -90,7 +90,7 @@ jobs:
         cp preferences.yaml bundle
         cp README.md bundle
 
-        if [ ${{ matrix.os }} == "windows-latest" ]; then
+        if [ "${{ matrix.os }}" == "windows-latest" ]; then
           cp include/windows/* bundle
         fi
 
@@ -100,7 +100,7 @@ jobs:
         cd ..
         mv bundle $BUNDLE_NAME
 
-        if [ ${{ matrix.os }} == "windows-latest" ]; then
+        if [ "${{ matrix.os }}" == "windows-latest" ]; then
           iscc compile/installer.iss /DVERSION=${{ github.ref_name }} /DSETUP_NAME=${{ env.RELEASE_FILE }} /DBUNDLE_PATH=.\bundle /DASSETS_PATH=.\assets
         else
           tar cvzf $RELEASE_FILE $BUNDLE_NAME
