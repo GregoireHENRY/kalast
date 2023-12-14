@@ -6,15 +6,17 @@ on:
       - '**' 
 
 jobs:
-  release-ubuntu:
+  release:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest, gregoireh-1_macos-arm64-M1]
 
     steps:
     - uses: actions/checkout@v4
+
     - uses: dtolnay/rust-toolchain@stable
+      if: ${{ matrix.os }} != 'gregoireh-1_macos-arm64-M1'
 
     - name: Cache Rust dependencies
       uses: actions/cache@v3
@@ -23,6 +25,7 @@ jobs:
         key: ${{ runner.os }}-build-${{ hashFiles('**/Cargo.lock') }}
         restore-keys: |
           ${{ runner.os }}-build-
+      if: ${{ matrix.os }} != 'gregoireh-1_macos-arm64-M1'
 
     - name: Get SDL2
       run: |
@@ -34,15 +37,18 @@ jobs:
           cp include/windows/* .
         fi
       shell: bash
+      if: ${{ matrix.os }} != 'gregoireh-1_macos-arm64-M1'
 
     - name: Set environment
       run: |
-        if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
+        if [ "${{ matrix.os }}" == "windows-latest" ]; then
+          PLATFORM=windows
+        elif [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
           PLATFORM=ubuntu
         elif [ "${{ matrix.os }}" == "macos-latest" ]; then
           PLATFORM=macos-x86_64
-        elif [ "${{ matrix.os }}" == "windows-latest" ]; then
-          PLATFORM=windows
+        elif [ "${{ matrix.os }}" == "gregoireh-1_macos-arm64-M1" ]; then
+          PLATFORM=macos-arm64
         fi
 
         if [ "${{ matrix.os }}" == "windows-latest" ]; then
@@ -56,12 +62,6 @@ jobs:
         BUNDLE_NAME=kalast-$GITHUB_REF_NAME-$PLATFORM
         RELEASE_FILE=$BUNDLE_NAME$OUT_EXT
 
-        echo $PLATFORM
-        echo $EXT
-        echo $OUT_EXT
-        echo $BUNDLE_NAME
-        echo $RELEASE_FILE
-        
         echo "PLATFORM=$PLATFORM" >> "$GITHUB_ENV"
         echo "EXT=$EXT" >> "$GITHUB_ENV"
         echo "OUT_EXT=$OUT_EXT" >> "$GITHUB_ENV"
@@ -98,9 +98,12 @@ jobs:
 
         cd ..
         mv bundle $BUNDLE_NAME
+        
+        echo "$RELEASE_FILE"
+        echo "${{ env.RELEASE_FILE }}"
 
         if [ "${{ matrix.os }}" == "windows-latest" ]; then
-          iscc compile/installer.iss /DVERSION=${{ github.ref_name }} /DSETUP_NAME=$RELEASE_FILE /DBUNDLE_PATH=.\bundle /DASSETS_PATH=.\assets
+          iscc compile/installer.iss /DVERSION=${{ github.ref_name }} /DSETUP_NAME="$RELEASE_FILE" /DBUNDLE_PATH=.\bundle /DASSETS_PATH=.\assets
         else
           tar cvzf $RELEASE_FILE $BUNDLE_NAME
         fi
