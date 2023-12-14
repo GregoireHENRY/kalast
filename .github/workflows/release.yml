@@ -54,8 +54,7 @@ jobs:
         elif [ ${{ matrix.os }} == "macos-latest" ]; then
           brew install SDL2
         elif [ ${{ matrix.os }} == "windows-latest" ]; then
-          cp include/win/SDL2.dll .
-          cp include/win/SDL2.lib .
+          cp include/windows/* .
         fi
       shell: bash
       
