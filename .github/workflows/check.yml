@@ -24,8 +24,11 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-build-
 
+    - name: dbg
+      run: ls compile
+
     - name: Get SDL2
-      run: ./compile/sdl.sh
+      run: compile/sdl.sh
         
     - name: Check that code can compile
       run: cargo check --all-features
