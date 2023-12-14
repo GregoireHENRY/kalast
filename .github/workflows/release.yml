@@ -1,4 +1,4 @@
-name: Build and upload release
+name: Build and Upload Release
 
 on:
   push:
@@ -92,7 +92,6 @@ jobs:
         else
           tar cvzf $RELEASE_FILE $BUNDLE_NAME
         fi
-
       shell: bash
 
     - uses: softprops/action-gh-release@v1
