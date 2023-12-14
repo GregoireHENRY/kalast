@@ -16,10 +16,10 @@ DefaultDirName=C:\Program Files\{#NAME}
 DefaultGroupName={#NAME}
 DisableWelcomePage=no
 OutputDir=.
-OutputBaseFilename=setup-{#NAME}-{#VERSION}
+OutputBaseFilename={#SETUP_NAME}
 Compression=lzma
 SolidCompression=yes
-WizardImageFile=.\vbanner-intro.bmp
+WizardImageFile={#ASSETS_PATH}\vbanner-intro.bmp
 WizardImageStretch=yes
 
 [Icons]
@@ -29,4 +29,4 @@ Name: "{group}\{#NAME}"; Filename: "{app}\{#NAME}.exe"; WorkingDir: "{app}"; Ico
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
-Source: ".\content\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
+Source: "{#BUNDLE_PATH}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs

@@ -10,7 +10,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest]
 
     steps:
     - uses: actions/checkout@v4
@@ -28,13 +29,22 @@ jobs:
       run: |
         if [ ${{ matrix.os }} == "ubuntu-latest" ]; then
           echo "PLATFORM=ubuntu" >> "$GITHUB_ENV"
-          echo "EXT=" >> "$GITHUB_ENV"
         elif [ ${{ matrix.os }} == "macos-latest" ]; then
-          echo "EXT=" >> "$GITHUB_ENV"
+          echo "PLATFORM=macos-x86_64" >> "$GITHUB_ENV"
         elif [ ${{ matrix.os }} == "windows-latest" ]; then
           echo "PLATFORM=windows" >> "$GITHUB_ENV"
-          echo "EXT=.exe" >> "$GITHUB_ENV"
         fi
+        
+        if [ ${{ matrix.os }} == "windows-latest" ]; then
+          echo "EXT=.exe" >> "$GITHUB_ENV"
+          echo "OUT_EXT=.exe" >> "$GITHUB_ENV"
+        else
+          echo "EXT=" >> "$GITHUB_ENV"
+          echo "OUT_EXT=.tar.gz" >> "$GITHUB_ENV"
+        fi
+
+        echo "BUNDLE_NAME=kalast-$GITHUB_REF_NAME-$PLATFORM" >> "$GITHUB_ENV"
+        echo "RELEASE_FILE=$BUNDLE_NAME$OUT_EXT" >> "$GITHUB_ENV"
       shell: bash
           
     - name: Get SDL2
@@ -64,111 +74,29 @@ jobs:
         cp target/release/kalast$EXT bundle
         cp target/release/examples/viewer-picker$EXT bundle/examples/viewer-picker
         cp include/kalast.ico bundle
-        cp assets/kalast-vbanner.bmp bundle/vbanner-intro.bmp
+        cp -r include/assets bundle
         cp preferences.yaml bundle
         cp README.md bundle
         
         if [ ${{ matrix.os }} == "windows-latest" ]; then
-          cp include/win/SDL2.dll bundle
-          cp include/win/SDL2.lib bundle
+          cp include/windows/* bundle
         fi
 
         cd bundle
         cp -r examples/viewer/cfg .
 
         cd ..
-        mv bundle kalast-$GITHUB_REF_NAME-$PLATFORM
-        tar cvzf kalast-$GITHUB_REF_NAME-$PLATFORM.tar.gz kalast-$GITHUB_REF_NAME-$PLATFORM
+        mv bundle $BUNDLE_NAME
+
+        if [ ${{ matrix.os }} == "windows-latest" ]; then
+          iscc compile/installer.iss /DVERSION=${{ github.ref_name }} /DSETUP_NAME=${{ env.RELEASE_FILE }} /DBUNDLE_PATH=.\bundle /DASSETS_PATH=.\assets
+        else
+          tar cvzf $RELEASE_FILE $BUNDLE_NAME
+        fi
+
       shell: bash
 
     - uses: softprops/action-gh-release@v1
       with:
-        files: kalast-${{ github.ref_name }}-ubuntu.tar.gz 
-        prerelease: true
-
-  release-windows:
-    runs-on: windows-latest
-    steps:
-    - name: Make bundle
-      run: |
-        mkdir -p bundle/content
-        cp -r examples bundle/content
-        cp target/release/kalast.exe bundle/content
-        cp target/release/examples/viewer-picker.exe bundle/content/examples/viewer-picker
-        cp include/win/SDL2.dll bundle/content
-        cp include/win/SDL2.lib bundle/content
-        cp include/kalast.ico bundle/content
-        cp preferences.yaml bundle/content
-        cp README.md bundle/content
-        cp assets/kalast-vbanner.bmp bundle/vbanner-intro.bmp
-
-        cd bundle/content
-        cp -r examples/thermal/cfg .
-      
-    - name: Compile installer with Inno
-      run: |
-        cp compile/win/installer.iss bundle
-        cd bundle
-        iscc ./installer.iss /DVERSION=${{ github.ref_name }}
-
-    - name: Release
-      uses: softprops/action-gh-release@v1
-      with:
-        files: bundle/setup-kalast-${{ github.ref_name }}.exe
-        prerelease: true
-          
-  release-macos:
-    runs-on: macos-latest
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-
-    - name: Cache Rust dependencies
-      uses: actions/cache@v3
-      with:
-        path: target
-        key: ${{ runner.OS }}-build-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.OS }}-build-
-
-    - name: Install stable toolchain
-      uses: dtolnay/rust-toolchain@stable
-
-    - name: Install SDL2
-      run: brew install SDL2
-
-    - name: Set environment variables
-      run: ./compile/macos-x86_64/set_env.sh
-
-    - name: Build kalast
-      run: ./compile/generic/build_kalast.sh
-
-    - name: Make bundle
-      run: ./compile/generic/make_bundle.sh
-
-    - name: Release
-      uses: softprops/action-gh-release@v1
-      with:
-        files: kalast-${{ github.ref_name }}-macos-x86_64.tar.gz
-        prerelease: true
-
-  release-self-hosted-macos-M1:
-    runs-on: gregoireh-1_macos-arm64-M1
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-
-    - name: Set environment variables
-      run: ./compile/macos-arm64/set_env.sh
-
-    - name: Build kalast
-      run: ./compile/generic/build_kalast.sh
-
-    - name: Make bundle
-      run: ./compile/generic/make_bundle.sh
-
-    - name: Release
-      uses: softprops/action-gh-release@v1
-      with:
-        files: kalast-${{ github.ref_name }}-macos-arm64.tar.gz
+        files: ${{ env.RELEASE_FILE }}
         prerelease: true
