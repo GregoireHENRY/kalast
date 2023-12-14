@@ -45,6 +45,12 @@ jobs:
 
         echo "BUNDLE_NAME=kalast-$GITHUB_REF_NAME-$PLATFORM" >> "$GITHUB_ENV"
         echo "RELEASE_FILE=$BUNDLE_NAME$OUT_EXT" >> "$GITHUB_ENV"
+        
+        echo $PLATFORM
+        echo $EXT
+        echo $OUT_EXT
+        echo $BUNDLE_NAME
+        echo $RELEASE_FILE
       shell: bash
           
     - name: Get SDL2
@@ -68,6 +74,7 @@ jobs:
       
     - name: Bundle
       run: |
+        # Make bundle
         mkdir -p bundle
         cp -r examples bundle
         cp target/release/kalast$EXT bundle
@@ -93,6 +100,11 @@ jobs:
           tar cvzf $RELEASE_FILE $BUNDLE_NAME
         fi
       shell: bash
+
+    - name: Check env
+      run: |
+        echo "$RELEASE_FILE"
+        echo "${{ env.RELEASE_FILE }}"
 
     - uses: softprops/action-gh-release@v1
       with:
