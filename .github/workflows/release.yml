@@ -25,17 +25,83 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-build-
 
-    - name: Set environment
-      run: ./compile/environment.sh
-
     - name: Get SDL2
-      run: ./compile/sdl.sh
-      
+      run: |
+        if [ ${{ matrix.os }} == "ubuntu-latest" ]; then
+          sudo apt install -y libsdl2-dev
+        elif [ ${{ matrix.os }} == "macos-latest" ]; then
+          brew install SDL2
+        elif [ ${{ matrix.os }} == "windows-latest" ]; then
+          cp include/windows/* .
+        fi
+
+    - name: Set environment
+      run: |
+        if [ ${{ matrix.os }} == "ubuntu-latest" ]; then
+          PLATFORM=ubuntu
+        elif [ ${{ matrix.os }} == "macos-latest" ]; then
+          PLATFORM=macos-x86_64
+        elif [ ${{ matrix.os }} == "windows-latest" ]; then
+          PLATFORM=windows
+        fi
+
+        if [ ${{ matrix.os }} == "windows-latest" ]; then
+          EXT=.exe
+          OUT_EXT=.exe
+        else
+          EXT=
+          OUT_EXT=.tar.gz
+        fi
+
+        BUNDLE_NAME=kalast-$GITHUB_REF_NAME-$PLATFORM
+        RELEASE_FILE=$BUNDLE_NAME$OUT_EXT
+
+        echo $PLATFORM
+        echo $EXT
+        echo $OUT_EXT
+        echo $BUNDLE_NAME
+        echo $RELEASE_FILE
+        
+        echo "PLATFORM=$PLATFORM" >> "$GITHUB_ENV"
+        echo "EXT=$EXT" >> "$GITHUB_ENV"
+        echo "OUT_EXT=$OUT_EXT" >> "$GITHUB_ENV"
+        echo "BUNDLE_NAME=$BUNDLE_NAME" >> "$GITHUB_ENV"
+        echo "RELEASE_FILE=$RELEASE_FILE" >> "$GITHUB_ENV"
+        
     - name: Build
-      run: ./compile/build.sh
+      run: |
+        echo "Build main executable."
+        cargo build -r --all-features && strip target/release/kalast
+
+        echo "Build custom executable for specific example." 
+        cargo build -r --all-features --example viewer-picker && strip target/release/examples/viewer-picker
       
     - name: Bundle
-      run: ./compile/bundle.sh
+      run: |
+        mkdir -p bundle
+        cp -r examples bundle
+        cp target/release/kalast$EXT bundle
+        cp target/release/examples/viewer-picker$EXT bundle/examples/viewer-picker
+        cp include/kalast.ico bundle
+        cp -r include/assets bundle
+        cp preferences.yaml bundle
+        cp README.md bundle
+
+        if [ ${{ matrix.os }} == "windows-latest" ]; then
+          cp include/windows/* bundle
+        fi
+
+        cd bundle
+        cp -r examples/viewer/cfg .
+
+        cd ..
+        mv bundle $BUNDLE_NAME
+
+        if [ ${{ matrix.os }} == "windows-latest" ]; then
+          iscc compile/installer.iss /DVERSION=${{ github.ref_name }} /DSETUP_NAME=${{ env.RELEASE_FILE }} /DBUNDLE_PATH=.\bundle /DASSETS_PATH=.\assets
+        else
+          tar cvzf $RELEASE_FILE $BUNDLE_NAME
+        fi
 
     - uses: softprops/action-gh-release@v1
       with:
