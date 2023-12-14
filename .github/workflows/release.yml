@@ -100,7 +100,7 @@ jobs:
         mv bundle $BUNDLE_NAME
         
         if [ "${{ matrix.os }}" == "windows-latest" ]; then
-          iscc compile/installer.iss /DVERSION=${{ github.ref_name }} /DSETUP_NAME=${{ env.RELEASE_FILE }} /DBUNDLE_PATH=bundle /DASSETS_PATH=assets
+          iscc compile/installer.iss /DVERSION=${{ github.ref_name }} /F"${{ env.RELEASE_FILE }}"
         else
           tar cvzf $RELEASE_FILE $BUNDLE_NAME
         fi
