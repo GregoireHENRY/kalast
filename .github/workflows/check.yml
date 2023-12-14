@@ -24,9 +24,6 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-build-
 
-    - name: dbg
-      run: ls compile
-
     - name: Get SDL2
       run: compile/sdl.sh
         
