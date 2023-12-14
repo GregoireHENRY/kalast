@@ -99,11 +99,8 @@ jobs:
         cd ..
         mv bundle $BUNDLE_NAME
         
-        echo "$RELEASE_FILE"
-        echo "${{ env.RELEASE_FILE }}"
-
         if [ "${{ matrix.os }}" == "windows-latest" ]; then
-          iscc compile/installer.iss /DVERSION=${{ github.ref_name }} /DSETUP_NAME="$RELEASE_FILE" /DBUNDLE_PATH=.\bundle /DASSETS_PATH=.\assets
+          iscc compile/installer.iss /DVERSION=${{ github.ref_name }} /DSETUP_NAME=${{ env.RELEASE_FILE }} /DBUNDLE_PATH=bundle /DASSETS_PATH=assets
         else
           tar cvzf $RELEASE_FILE $BUNDLE_NAME
         fi
