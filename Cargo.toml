@@ -1,6 +1,6 @@
 [package]
 name = "kalast"
-version = "0.4.0-beta21"
+version = "0.4.0-beta22"
 authors = ["Grégoire Henry <gregoire.henry@oma.be>"]
 edition = "2021"
 description = "Thermophysical Model for Binary Asteroids"
@@ -68,7 +68,3 @@ opt-level = 3
 [profile.profiling]
 inherits = "release"
 debug = true
-
-# [[example]]
-# name = "lightcurve-spice"
-# required-features = ["spice"]
