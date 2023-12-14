@@ -41,7 +41,7 @@ pub trait Routines: DowncastSync {
                                 "none",
                                 &body.id,
                             );
-                            Vec3::from_row_slice(&position)
+                            Vec3::from_row_slice(&position) * 1e3
                         } else {
                             panic!("A body must be loaded to compute the position of the Sun.")
                         }
@@ -186,7 +186,7 @@ pub trait Routines: DowncastSync {
                                 "none",
                                 &origin,
                             );
-                            Vec3::from_row_slice(&position)
+                            Vec3::from_row_slice(&position) * 1e3
                         } else {
                             Vec3::zeros()
                         }

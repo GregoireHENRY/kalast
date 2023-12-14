@@ -79,6 +79,9 @@ impl Scenario {
             s.colormap = cfg.window.colormap.name;
             s.shadows = cfg.window.shadows;
             s.ortho = cfg.window.orthographic;
+            s.fovy = cfg.window.fovy;
+            s.camera_up = cfg.window.camera_up;
+            s.camera_direction = cfg.window.camera_direction;
             s.ambient_light_color = cfg.window.ambient;
             s.wireframe = cfg.window.wireframe;
             s.draw_normals = cfg.window.normals;
