@@ -26,85 +26,16 @@ jobs:
           ${{ runner.os }}-build-
 
     - name: Set environment
-      run: |
-        if [ ${{ matrix.os }} == "ubuntu-latest" ]; then
-          echo "PLATFORM=ubuntu" >> "$GITHUB_ENV"
-        elif [ ${{ matrix.os }} == "macos-latest" ]; then
-          echo "PLATFORM=macos-x86_64" >> "$GITHUB_ENV"
-        elif [ ${{ matrix.os }} == "windows-latest" ]; then
-          echo "PLATFORM=windows" >> "$GITHUB_ENV"
-        fi
-        
-        if [ ${{ matrix.os }} == "windows-latest" ]; then
-          echo "EXT=.exe" >> "$GITHUB_ENV"
-          echo "OUT_EXT=.exe" >> "$GITHUB_ENV"
-        else
-          echo "EXT=" >> "$GITHUB_ENV"
-          echo "OUT_EXT=.tar.gz" >> "$GITHUB_ENV"
-        fi
+      run: ./compile/environment.sh
 
-        echo "BUNDLE_NAME=kalast-$GITHUB_REF_NAME-$PLATFORM" >> "$GITHUB_ENV"
-        echo "RELEASE_FILE=$BUNDLE_NAME$OUT_EXT" >> "$GITHUB_ENV"
-        
-        echo $PLATFORM
-        echo $EXT
-        echo $OUT_EXT
-        echo $BUNDLE_NAME
-        echo $RELEASE_FILE
-      shell: bash
-          
     - name: Get SDL2
-      run: |
-        if [ ${{ matrix.os }} == "ubuntu-latest" ]; then
-          sudo apt install -y libsdl2-dev
-        elif [ ${{ matrix.os }} == "macos-latest" ]; then
-          brew install SDL2
-        elif [ ${{ matrix.os }} == "windows-latest" ]; then
-          cp include/windows/* .
-        fi
-      shell: bash
+      run: ./compile/sdl.sh
       
     - name: Build
-      run: |
-        echo "Build main executable."
-        cargo build -r --all-features && strip target/release/kalast
-        echo "Build custom executable for specific example." 
-        cargo build -r --all-features --example viewer-picker && strip target/release/examples/viewer-picker
-      shell: bash
+      run: ./compile/build.sh
       
     - name: Bundle
-      run: |
-        # Make bundle
-        mkdir -p bundle
-        cp -r examples bundle
-        cp target/release/kalast$EXT bundle
-        cp target/release/examples/viewer-picker$EXT bundle/examples/viewer-picker
-        cp include/kalast.ico bundle
-        cp -r include/assets bundle
-        cp preferences.yaml bundle
-        cp README.md bundle
-        
-        if [ ${{ matrix.os }} == "windows-latest" ]; then
-          cp include/windows/* bundle
-        fi
-
-        cd bundle
-        cp -r examples/viewer/cfg .
-
-        cd ..
-        mv bundle $BUNDLE_NAME
-
-        if [ ${{ matrix.os }} == "windows-latest" ]; then
-          iscc compile/installer.iss /DVERSION=${{ github.ref_name }} /DSETUP_NAME=${{ env.RELEASE_FILE }} /DBUNDLE_PATH=.\bundle /DASSETS_PATH=.\assets
-        else
-          tar cvzf $RELEASE_FILE $BUNDLE_NAME
-        fi
-      shell: bash
-
-    - name: Check env
-      run: |
-        echo "$RELEASE_FILE"
-        echo "${{ env.RELEASE_FILE }}"
+      run: ./compile/bundle.sh
 
     - uses: softprops/action-gh-release@v1
       with:
