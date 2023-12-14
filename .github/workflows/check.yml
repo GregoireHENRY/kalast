@@ -33,6 +33,7 @@ jobs:
         elif [ "${{ matrix.os }}" == "windows-latest" ]; then
           cp include/windows/* .
         fi
+      shell: bash
         
     - name: Check that code can compile
       run: cargo check --all-features
