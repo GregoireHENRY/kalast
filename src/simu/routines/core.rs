@@ -7,6 +7,7 @@ use crate::{
 
 use downcast_rs::{impl_downcast, DowncastSync};
 use itertools::{izip, Itertools};
+use polars::prelude::*;
 
 pub trait Routines: DowncastSync {
     fn load(&mut self, _body: &AirlessBody, _cb: &CfgBody) {}
@@ -300,7 +301,9 @@ pub trait Routines: DowncastSync {
                             }
                         }
                     }
-                    CfgState::File(_) => {}
+                    CfgState::File(path) => {
+                        let df = CsvReader::from_path(&path).unwrap().finish().unwrap();
+                    }
                     _ => panic!("tempo"),
                 };
 
