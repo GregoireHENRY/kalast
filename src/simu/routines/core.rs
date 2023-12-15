@@ -302,7 +302,12 @@ pub trait Routines: DowncastSync {
                         }
                     }
                     CfgState::File(path) => {
+                        dbg!(&path);
+                        dbg!(&path.canonicalize().unwrap());
+
                         let df = CsvReader::from_path(&path).unwrap().finish().unwrap();
+                        dbg!(&df[0]);
+                        dbg!(&df[1]);
                     }
                     _ => panic!("tempo"),
                 };

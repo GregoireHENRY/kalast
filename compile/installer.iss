@@ -6,7 +6,6 @@
 Uninstallable=no
 AppId=2F8C40BA-A831-42C0-AECA-C6265F3ABABC
 AppName={#NAME}
-AppVersion={#VERSION}
 AppPublisher={#PUBLISHER}
 AppPublisherURL={#URL}
 AppSupportURL={#URL}

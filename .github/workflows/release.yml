@@ -101,7 +101,12 @@ jobs:
         
         if [ "${{ matrix.os }}" == "windows-latest" ]; then
           cp compile/installer.iss .
-          iscc ./installer.iss /DVERSION=${{ github.ref_name }} 
+          ls
+          pwd
+          ls bundle
+          iscc /?
+          cp -h
+          iscc installer.iss
           mv setup.exe $RELEASE_FILE
         else
           tar cvzf $RELEASE_FILE $BUNDLE_NAME
