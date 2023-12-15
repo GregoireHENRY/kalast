@@ -302,12 +302,24 @@ pub trait Routines: DowncastSync {
                         }
                     }
                     CfgState::File(path) => {
-                        dbg!(&path);
-                        dbg!(&path.canonicalize().unwrap());
+                        let df = CsvReader::from_path(&path)
+                            .unwrap()
+                            .has_header(false)
+                            .finish()
+                            .unwrap();
+                        let row = df
+                            .get_row(time.iteration())
+                            .unwrap()
+                            .0
+                            .into_iter()
+                            .map(|v| {
+                                v.cast(&DataType::Float64)
+                                    .unwrap()
+                                    .try_extract::<Float>()
+                                    .unwrap()
+                            });
 
-                        let df = CsvReader::from_path(&path).unwrap().finish().unwrap();
-                        dbg!(&df[0]);
-                        dbg!(&df[1]);
+                        let t = Mat4::new_translation(&Vec3::from_iterator(row.take(3)));
                     }
                     _ => panic!("tempo"),
                 };
