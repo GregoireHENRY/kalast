@@ -103,10 +103,11 @@ jobs:
           ls
           pwd
           ls bundle
-          iscc /?
           cp -h
-          iscc installer.iss
-          mv setup.exe $RELEASE_FILE
+          iscc installer.iss /DVERSION=0.4.0-beta /DSETUP_NAME=kalast-installer
+          echo "DONE !!!"
+          ls
+          # mv setup.exe $RELEASE_FILE
         else
           mv bundle $BUNDLE_NAME
           tar cvzf $RELEASE_FILE $BUNDLE_NAME
