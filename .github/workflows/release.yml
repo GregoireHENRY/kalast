@@ -16,7 +16,7 @@ jobs:
     - uses: actions/checkout@v4
 
     - uses: dtolnay/rust-toolchain@stable
-      if: ${{ matrix.os }} != 'gregoireh-1_macos-arm64-M1'
+      if: matrix.os != 'gregoireh-1_macos-arm64-M1'
 
     - name: Cache Rust dependencies
       uses: actions/cache@v3
@@ -98,20 +98,20 @@ jobs:
 
         cd ..
       shell: bash
+
+    - name: Finish bundle Linux/MacOS
+      if: matrix.os != 'windows-latest'
+      run: |
+        mv bundle $BUNDLE_NAME
+        tar cvzf $RELEASE_FILE $BUNDLE_NAME
         
     - name: Finish bundle Windows
+      if: matrix.os == 'windows-latest'
       run: |
         iscc compile\installer.iss /DVERSION=0.4.0-beta /DSETUP_NAME=kalast-installer
         echo "DONE !!!"
         ls
         mv kalast-installer.exe $RELEASE_FILE
-      if: ${{ matrix.os }} == 'windows-latest'
-        
-    - name: Finish bundle Linux/MacOS
-      run: |
-        mv bundle $BUNDLE_NAME
-        tar cvzf $RELEASE_FILE $BUNDLE_NAME
-      if: ${{ matrix.os }} != 'windows-latest'
 
     - uses: softprops/action-gh-release@v1
       with:
