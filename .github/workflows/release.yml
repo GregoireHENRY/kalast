@@ -54,9 +54,11 @@ jobs:
         if [ "${{ matrix.os }}" == "windows-latest" ]; then
           EXT=.exe
           OUT_EXT=.exe
+          SHELL=pwsh
         else
           EXT=
           OUT_EXT=.tar.gz
+          SHELL=bash
         fi
 
         BUNDLE_NAME=kalast-$GITHUB_REF_NAME-$PLATFORM
@@ -65,6 +67,7 @@ jobs:
         echo "PLATFORM=$PLATFORM" >> "$GITHUB_ENV"
         echo "EXT=$EXT" >> "$GITHUB_ENV"
         echo "OUT_EXT=$OUT_EXT" >> "$GITHUB_ENV"
+        echo "SHELL=$SHELL" >> "$GITHUB_ENV"
         echo "BUNDLE_NAME=$BUNDLE_NAME" >> "$GITHUB_ENV"
         echo "RELEASE_FILE=$RELEASE_FILE" >> "$GITHUB_ENV"
       shell: bash
@@ -100,9 +103,6 @@ jobs:
         
         if [ "${{ matrix.os }}" == "windows-latest" ]; then
           cp compile/installer.iss .
-          ls
-          pwd
-          ls bundle
           iscc installer.iss /DVERSION=0.4.0-beta /DSETUP_NAME=kalast-installer
           echo "DONE !!!"
           ls
@@ -111,7 +111,7 @@ jobs:
           mv bundle $BUNDLE_NAME
           tar cvzf $RELEASE_FILE $BUNDLE_NAME
         fi
-      shell: bash
+      shell: ${{ env.SHELL }}
 
     - uses: softprops/action-gh-release@v1
       with:
