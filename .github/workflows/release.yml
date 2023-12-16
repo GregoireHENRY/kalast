@@ -97,7 +97,6 @@ jobs:
         cp -r examples/viewer/cfg .
 
         cd ..
-        mv bundle $BUNDLE_NAME
         
         if [ "${{ matrix.os }}" == "windows-latest" ]; then
           cp compile/installer.iss .
@@ -109,6 +108,7 @@ jobs:
           iscc installer.iss
           mv setup.exe $RELEASE_FILE
         else
+          mv bundle $BUNDLE_NAME
           tar cvzf $RELEASE_FILE $BUNDLE_NAME
         fi
       shell: bash
