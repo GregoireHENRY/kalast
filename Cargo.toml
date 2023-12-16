@@ -9,7 +9,6 @@ repository = "https://github.com/GregoireHENRY/kalast"
 keywords = ["thermophysical", "model", "binary", "asteroid", "space"]
 categories = ["algorithms", "science"]
 
-
 [lib]
 name = "kalast"
 crate-type = ["lib", "cdylib", "staticlib"]
