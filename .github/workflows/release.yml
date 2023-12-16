@@ -12,25 +12,6 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest] # , gregoireh-1_macos-arm64-M1]
 
-        include:
-          - os: ubuntu-latest
-            PLATFORM: ubuntu
-            SHELL: bashpwsh
-            EXT: .exe
-            OUT_EXT: .exe
-
-          - os: macos-latest
-            PLATFORM: macos-x86_64
-            SHELL: bash
-            EXT:
-            OUT_EXT: .tar.gz
-
-          - os: windows-latest
-            PLATFORM: windows
-            SHELL: pwsh
-            EXT:
-            OUT_EXT: .tar.gz
-
     steps:
     - uses: actions/checkout@v4
 
@@ -60,16 +41,32 @@ jobs:
 
     - name: Set environment
       run: |
+        if [ "${{ matrix.os }}" == "windows-latest" ]; then
+          PLATFORM=windows
+        elif [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
+          PLATFORM=ubuntu
+        elif [ "${{ matrix.os }}" == "macos-latest" ]; then
+          PLATFORM=macos-x86_64
+        elif [ "${{ matrix.os }}" == "gregoireh-1_macos-arm64-M1" ]; then
+          PLATFORM=macos-arm64
+        fi
+
+        if [ "${{ matrix.os }}" == "windows-latest" ]; then
+          EXT=.exe
+          OUT_EXT=.exe
+        else
+          EXT=
+          OUT_EXT=.tar.gz
+        fi
+
         BUNDLE_NAME=kalast-$GITHUB_REF_NAME-$PLATFORM
         RELEASE_FILE=$BUNDLE_NAME$OUT_EXT
-
+        
+        echo "PLATFORM=$PLATFORM" >> "$GITHUB_ENV"
+        echo "EXT=$EXT" >> "$GITHUB_ENV"
+        echo "OUT_EXT=$OUT_EXT" >> "$GITHUB_ENV"
         echo "BUNDLE_NAME=$BUNDLE_NAME" >> "$GITHUB_ENV"
         echo "RELEASE_FILE=$RELEASE_FILE" >> "$GITHUB_ENV"
-        
-        echo "$PLATFORM"
-        echo "$SHELL"
-        echo "$BUNDLE_NAME"
-        echo "$RELASE_FILE"
       shell: bash
         
     - name: Build
@@ -81,7 +78,7 @@ jobs:
         cargo build -r --all-features --example viewer-picker && strip target/release/examples/viewer-picker$EXT
       shell: bash
       
-    - name: Bundle
+    - name: Prepare bundle
       run: |
         mkdir -p bundle
         cp -r examples bundle
@@ -100,17 +97,21 @@ jobs:
         cp -r examples/viewer/cfg .
 
         cd ..
+      shell: bash
         
-        if [ "${{ matrix.os }}" == "windows-latest" ]; then
-          cp compile/installer.iss .
-          iscc installer.iss /DVERSION=0.4.0-beta /DSETUP_NAME=kalast-installer
-          echo "DONE !!!"
-          ls
-          # mv setup.exe $RELEASE_FILE
-        else
-          mv bundle $BUNDLE_NAME
-          tar cvzf $RELEASE_FILE $BUNDLE_NAME
-        fi
+    - name: Finish bundle Windows
+      run: |
+        iscc compile\installer.iss /DVERSION=0.4.0-beta /DSETUP_NAME=kalast-installer
+        echo "DONE !!!"
+        ls
+        mv kalast-installer.exe $RELEASE_FILE
+      if: ${{ matrix.os }} == 'windows-latest'
+        
+    - name: Finish bundle Linux/MacOS
+      run: |
+        mv bundle $BUNDLE_NAME
+        tar cvzf $RELEASE_FILE $BUNDLE_NAME
+      if: ${{ matrix.os }} != 'windows-latest'
 
     - uses: softprops/action-gh-release@v1
       with:
