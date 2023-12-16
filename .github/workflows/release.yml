@@ -103,7 +103,6 @@ jobs:
           ls
           pwd
           ls bundle
-          cp -h
           iscc installer.iss /DVERSION=0.4.0-beta /DSETUP_NAME=kalast-installer
           echo "DONE !!!"
           ls
