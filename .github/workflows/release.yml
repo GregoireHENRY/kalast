@@ -108,7 +108,8 @@ jobs:
     - name: Finish bundle Windows
       if: matrix.os == 'windows-latest'
       run: |
-        iscc compile\installer.iss /DVERSION=0.4.0-beta /DSETUP_NAME=kalast-installer
+        cp scripts\installer.iss .
+        iscc installer.iss /DVERSION=0.4.0-beta /DSETUP_NAME=kalast-installer
         echo "DONE !!!"
         ls
         mv kalast-installer.exe $RELEASE_FILE
