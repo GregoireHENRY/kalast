@@ -110,9 +110,7 @@ jobs:
       run: |
         cp scripts\installer.iss .
         iscc installer.iss /DVERSION=0.4.0-beta /DSETUP_NAME=kalast-installer
-        echo "DONE !!!"
-        ls
-        mv kalast-installer.exe $RELEASE_FILE
+        mv kalast-installer.exe ${{ env.RELEASE_FILE }}
 
     - uses: softprops/action-gh-release@v1
       with:
