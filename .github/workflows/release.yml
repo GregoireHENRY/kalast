@@ -10,7 +10,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest] # , gregoireh-1_macos-arm64-M1]
+        os: [ubuntu-latest, macos-latest, windows-latest, gregoireh-1_macos-arm64-M1]
 
     steps:
     - uses: actions/checkout@v4
@@ -109,8 +109,7 @@ jobs:
       if: matrix.os == 'windows-latest'
       run: |
         cp scripts\installer.iss .
-        iscc installer.iss /DVERSION=0.4.0-beta /DSETUP_NAME=kalast-installer
-        mv kalast-installer.exe ${{ env.RELEASE_FILE }}
+        iscc installer.iss /DVERSION=${{ github.ref_name }} /DSETUP_NAME=${{ env.BUNDLE_NAME }}
 
     - uses: softprops/action-gh-release@v1
       with:
