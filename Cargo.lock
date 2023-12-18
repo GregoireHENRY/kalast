@@ -670,8 +670,9 @@ dependencies = [
 
 [[package]]
 name = "cspice-sys"
-version = "1.0.3"
-source = "git+https://github.com/jacob-pro/cspice-rs.git#43c749a48e75e0195a38925b6a3ecb47cea9e739"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8618af1e3e55a5efb6031c569f0741315ca8c38f7b4d9ed2c23492f293d2204"
 dependencies = [
  "bindgen",
  "reqwest",
@@ -1510,7 +1511,7 @@ dependencies = [
 
 [[package]]
 name = "kalast"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "chrono",
  "color-eyre",
@@ -2761,8 +2762,9 @@ dependencies = [
 
 [[package]]
 name = "rust-spice"
-version = "0.7.7"
-source = "git+https://github.com/GregoireHENRY/rust-spice.git#89f735c806bed8f6ba0ab84b6d74ac925cf24bbf"
+version = "0.7.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "51d52211133773c44f68ddc5fbbfecdaf24d214b84acbd9b8c1e0b099dad2271"
 dependencies = [
  "approx",
  "cspice-sys",
@@ -2781,7 +2783,8 @@ dependencies = [
 [[package]]
 name = "rust-spice-derive"
 version = "0.7.6"
-source = "git+https://github.com/GregoireHENRY/rust-spice.git#89f735c806bed8f6ba0ab84b6d74ac925cf24bbf"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6447921ee19982d6a94878472c1cfc2b4cdf10b112b1a08f5b01e4eb7b5dbbc7"
 dependencies = [
  "proc-macro2",
  "quote",
