@@ -20,7 +20,7 @@ Add the dependency to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-kalast = "0.3"
+kalast = "0.4"
 ```
 
 and have a look at [the examples][examples] or [the documentation online][docsrs]
