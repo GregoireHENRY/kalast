@@ -5,7 +5,7 @@ use sdl2::keyboard::Keycode;
 pub const ORIGIN: Vec3 = Vec3::new(0.0, 0.0, 0.0);
 pub const SIDE: Float = 1.0;
 pub const CLOSE: Float = 1e-4;
-pub const FAR: Float = 2.0;
+pub const FAR: Float = 3.0;
 pub const ASPECT: Float = 1.0;
 pub const FOVY: Float = 30.0 * RPD;
 pub const SPEED: Float = 0.5;

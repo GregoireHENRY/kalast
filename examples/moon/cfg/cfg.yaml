@@ -1,0 +1,41 @@
+window:
+  colormap:
+    name: inferno
+    vmax: 500.0
+    scalar: temperature
+
+simulation:
+  routines: thermal
+  step: 600
+  duration: 300672000
+  export:
+    step: 600
+    duration: 2505600
+    period: 30067200
+
+scene:
+  sun:
+    position:
+      !cartesian [1.5e11, 0.0, 0.0]
+  camera:
+    position:
+      !cartesian [5.0, 0.0, 0.0]
+
+bodies:
+  - id: moon
+    material:
+      albedo: 0.12
+      emissivity: 0.9
+      thermal_inertia: 55.0
+      density: 1800.0
+      heat_capacity: 600.0
+    spin:
+      period: 2505600
+      obliquity: 1.5
+    interior:
+      type: linear
+      size: 40
+      a: 2e-2
+    color: data
+    record:
+      column: [114, 115, 116]

@@ -1,0 +1,6 @@
+window:
+  ambient: [0.1, 0.1, 0.1]
+
+bodies:
+  - state:
+      !file state.csv

@@ -1,0 +1,33 @@
+window:
+  export_frames: true
+  camera_up: [0, 1, 0]
+  camera_direction: [0, 0, 1]
+  fovy: 16.74
+  width: 328
+  height: 248
+
+spice:
+  kernel: C:\data\SPICE\hayabusa2\mk\hyb2_v03.tm
+  frame: HAYABUSA2_TIR-S
+
+simulation:
+  start: 2018-12-01 00:00
+
+scene:
+  sun:
+    position:
+      !spice
+  camera:
+    position:
+      !spice HAYABUSA2
+    distance: 5.0
+
+bodies:
+  - id: RYUGU
+    mesh:
+      shape: C:\data\meshes\ryugu\SHAPE_SFM_49k_v20180804.obj
+    material:
+      albedo: 0.1
+    state:
+      !spice
+        frame_from: RYUGU_FIXED
