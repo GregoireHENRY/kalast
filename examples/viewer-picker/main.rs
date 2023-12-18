@@ -5,25 +5,8 @@ use kalast::{
 
 fn main() -> Result<()> {
     let mut sc = Scenario::new()?;
-
     sc.change_routines(RoutinesViewerCustom::new());
-    sc.load_bodies()?;
-
-    let faces: Vec<usize> =
-        serde_yaml::from_value(sc.cfg.bodies[0].extra()["faces"].clone()).unwrap();
-    update_surf_face(
-        sc.routines
-            .downcast_mut::<RoutinesViewerCustom>()
-            .as_mut()
-            .unwrap(),
-        &mut sc.bodies,
-        &sc.win,
-        &faces,
-        0,
-    );
-
     sc.iterations()?;
-
     Ok(())
 }
 
@@ -69,18 +52,25 @@ impl RoutinesViewerCustom {
 }
 
 impl Routines for RoutinesViewerCustom {
-    fn fn_end_of_iteration(
+    fn init(&mut self, cfg: &Cfg, bodies: &mut [AirlessBody], time: &Time, win: &mut Window) {
+        self.default.init(cfg, bodies, time, win);
+        let faces: Vec<_> = serde_yaml::from_value(cfg.bodies[0].extra()["faces"].clone())
+            .expect("No value `faces` for body");
+        update_surf_face(self, bodies, win, &faces, 0);
+    }
+
+    fn fn_update_and_render(
         &mut self,
         cfg: &Cfg,
         bodies: &mut [AirlessBody],
         time: &Time,
-        win: &Window,
+        win: &mut Window,
     ) {
-        self.default.fn_end_of_iteration(cfg, bodies, time, win);
-
-        if let Some((ii_face, ii_body)) = win.picked() {
-            update_surf_face(self, bodies, win, &vec![ii_face], ii_body);
+        if let Some((ii_face, _)) = win.picked() {
+            update_surf_face(self, bodies, win, &vec![ii_face], 0);
         }
+
+        self.default.fn_update_and_render(cfg, bodies, time, win);
     }
 }
 

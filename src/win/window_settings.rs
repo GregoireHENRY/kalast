@@ -145,7 +145,7 @@ impl Default for WindowSettings {
             colormap: Colormap::default(),
             colormap_bounds: (0.0, 1.0),
             ortho: false,
-            fovy: 30.0,
+            fovy: 30.0 * RPD,
             camera_up: Vec3::z(),
             camera_direction: -Vec3::x(),
             camera_position: Vec3::x(),

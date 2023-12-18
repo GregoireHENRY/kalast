@@ -79,7 +79,7 @@ impl Scenario {
             s.colormap = cfg.window.colormap.name;
             s.shadows = cfg.window.shadows;
             s.ortho = cfg.window.orthographic;
-            s.fovy = cfg.window.fovy;
+            s.fovy = cfg.window.fovy * RPD;
             s.camera_up = cfg.window.camera_up;
             s.camera_direction = cfg.window.camera_direction;
             s.ambient_light_color = cfg.window.ambient;
@@ -188,6 +188,9 @@ impl Scenario {
         let mut paused_stop = true;
         let mut export = Export::new(&self.cfg.simulation.export);
 
+        self.routines
+            .init(&self.cfg, &mut self.bodies, &self.time, &mut self.win);
+
         'main_loop: loop {
             // Register keyboard and mouse interactions.
             let event = self.win.events();
@@ -198,8 +201,12 @@ impl Scenario {
             };
 
             if self.win.is_paused() {
-                self.win.render_asteroids(&self.bodies);
-                self.win.swap_window();
+                self.routines.fn_update_and_render(
+                    &self.cfg,
+                    &mut self.bodies,
+                    &self.time,
+                    &mut self.win,
+                );
                 continue;
             }
 
@@ -238,9 +245,12 @@ impl Scenario {
                 );
             }
 
-            // self.win.update_vaos(self.bodies.iter_mut().map(|b| &mut b.asteroid_mut().surface));
-            self.win.render_asteroids(&self.bodies);
-            self.win.swap_window();
+            self.routines.fn_update_and_render(
+                &self.cfg,
+                &mut self.bodies,
+                &self.time,
+                &mut self.win,
+            );
 
             export.iteration(
                 &self.cfg,

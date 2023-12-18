@@ -4,13 +4,8 @@ window:
     vmax: 500.0
     scalar: temperature
 
-spice:
-  kernels: .///.... .mk
-  frame: ECLIPJ2000
-
 simulation:
   routines: thermal
-  start: 2020......
   step: 600
   duration: 300672000
   export:
@@ -21,7 +16,7 @@ simulation:
 scene:
   sun:
     position:
-      !spice
+      !cartesian [1.5e11, 0.0, 0.0]
   camera:
     position:
       !cartesian [5.0, 0.0, 0.0]

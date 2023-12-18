@@ -20,9 +20,9 @@ impl WindowScene {
         );
 
         if settings.ortho {
-            camera.projection.mode = ProjectionMode::Orthographic(settings.fovy);
+            camera.projection.mode = ProjectionMode::Orthographic(camera.position.magnitude());
         } else {
-            camera.projection.mode = ProjectionMode::Perspective(camera.position.magnitude());
+            camera.projection.mode = ProjectionMode::Perspective(settings.fovy);
         }
 
         let light = Light::new(settings.light_position);
