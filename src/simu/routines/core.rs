@@ -1,8 +1,9 @@
 use crate::{
     compute_cosine_emission_angle, compute_cosine_incidence_angle, compute_cosine_phase_angle,
-    find_ref_orbit, matrix_spin, position_in_inertial_frame, update_colormap_scalar, util::*,
-    AirlessBody, BodyData, Cfg, CfgBody, CfgCamera, CfgCameraPosition, CfgFrameCenter, CfgScalar,
-    CfgState, CfgStateCartesian, CfgSun, CfgSunPosition, FoldersRun, Time, Window, WindowScene,
+    find_ref_orbit, matrix_orientation_obliquity, matrix_spin, position_in_inertial_frame,
+    update_colormap_scalar, util::*, AirlessBody, BodyData, Cfg, CfgBody, CfgCamera,
+    CfgCameraDirection, CfgCameraPosition, CfgFrameCenter, CfgScalar, CfgState, CfgStateCartesian,
+    CfgSun, CfgSunPosition, FoldersRun, MovementMode, Time, Window, WindowScene,
 };
 
 use downcast_rs::{impl_downcast, DowncastSync};
@@ -14,7 +15,7 @@ pub trait Routines: DowncastSync {
 
     fn init(&mut self, _cfg: &Cfg, _bodies: &mut [AirlessBody], _time: &Time, _win: &mut Window) {}
 
-    fn fn_update_scene(&self, cfg: &Cfg, time: &Time, scene: &mut WindowScene) {
+    fn fn_update_scene_core(&self, cfg: &Cfg, time: &Time, scene: &mut WindowScene) {
         let elapsed_from_start = time.elapsed_seconds_from_start();
 
         if cfg.preferences.debug {
@@ -43,7 +44,7 @@ pub trait Routines: DowncastSync {
                                 "none",
                                 &body.id,
                             );
-                            Vec3::from_row_slice(&position) * 1e3
+                            Vec3::from_row_slice(&position)
                         } else {
                             panic!("A body must be loaded to compute the position of the Sun.")
                         }
@@ -117,14 +118,13 @@ pub trait Routines: DowncastSync {
                                 "none",
                                 &_body.id,
                             );
-                            let position = Vec3::from_row_slice(&position);
+                            let mut position = Vec3::from_row_slice(&position);
 
-                            position.normalize()
-                                * cfg
-                                    .scene
-                                    .camera
-                                    .distance_origin
-                                    .unwrap_or(CfgCamera::default_distance())
+                            if let Some(distance) = cfg.scene.camera.distance_origin {
+                                position = position.normalize() * distance;
+                            }
+
+                            position
                         } else {
                             panic!("Spice is not being used and is needed to compute the position of the camera from Earth direction. Try loading a spice kernel to enable spice.")
                         }
@@ -156,21 +156,39 @@ pub trait Routines: DowncastSync {
             println!("sun: {:?}", sun.as_slice());
         }
 
-        scene.light.position = sun.normalize() * camera.magnitude();
+        scene.light.position = sun;
         scene.camera.position = camera;
-        scene.camera.target_origin();
+
+        if scene.camera.movement_mode == MovementMode::Rotate
+            && cfg.scene.camera.direction == CfgCameraDirection::TargetAnchor
+        {
+            scene.camera.target_anchor();
+        }
+
+        if time.iteration == 0 {
+            scene.camera.direction = match cfg.scene.camera.direction {
+                CfgCameraDirection::Cartesian(v) => v,
+                CfgCameraDirection::TargetAnchor => -scene.camera.position.normalize(),
+            };
+            scene.camera.up = cfg.scene.camera.up;
+            scene.camera.up_world = cfg.scene.camera.up;
+            scene.camera.projection = cfg.scene.camera.projection;
+        }
     }
 
-    fn fn_update_matrix_model(
+    fn fn_update_scene(&self, cfg: &Cfg, time: &Time, scene: &mut WindowScene) {
+        self.fn_update_scene_core(cfg, time, scene);
+    }
+
+    fn fn_update_body_matrix_model(
         &self,
         cfg: &Cfg,
         body: usize,
+        bodies: &mut [AirlessBody],
         bodies_data: &mut [BodyData],
         time: &Time,
     ) -> Mat4 {
         let elapsed_from_start = time.elapsed_seconds_from_start();
-
-        // let mut matrix_orientation = bodies_data[body].orientation;
 
         let mut matrix_model_reference = Mat4::identity();
         let mut matrix_orientation = Mat4::identity();
@@ -184,6 +202,9 @@ pub trait Routines: DowncastSync {
         };
         let spin_angle = (TAU * np_elapsed + cfg.bodies[body].spin.spin0 * RPD) % TAU;
         let matrix_spin = matrix_spin(spin_angle, cfg.bodies[body].spin.axis);
+
+        let matrix_spin_tilt =
+            matrix_orientation_obliquity(0.0, cfg.bodies[body].spin.obliquity * RPD);
 
         let other_bodies = cfg
             .bodies
@@ -200,7 +221,7 @@ pub trait Routines: DowncastSync {
                 reference,
             }) => {
                 matrix_translation = Mat4::new_translation(position);
-                matrix_orientation = glm::mat3_to_mat4(orientation);
+                matrix_orientation *= glm::mat3_to_mat4(orientation);
 
                 if let Some(reference) = reference {
                     let ref_id = cfg
@@ -282,7 +303,7 @@ pub trait Routines: DowncastSync {
                     let position = {
                         if let Some(origin) = &_spice.origin {
                             let frame_to =
-                                _spice.frame_to.clone().unwrap_or(cfg.spice.frame.clone());
+                                _spice.into_frame.clone().unwrap_or(cfg.spice.frame.clone());
                             let (position, _lt) = spice::spkpos(
                                 &cfg.bodies[body].id,
                                 elapsed_from_start as f64,
@@ -290,16 +311,16 @@ pub trait Routines: DowncastSync {
                                 "none",
                                 &origin,
                             );
-                            Vec3::from_row_slice(&position) * 1e3
+                            Vec3::from_row_slice(&position)
                         } else {
                             Vec3::zeros()
                         }
                     };
 
                     let rotation = {
-                        if let Some(frame) = &_spice.frame_from {
+                        if let Some(frame) = &_spice.frame {
                             let frame_to =
-                                _spice.frame_to.clone().unwrap_or(cfg.spice.frame.clone());
+                                _spice.into_frame.clone().unwrap_or(cfg.spice.frame.clone());
                             let rotation =
                                 spice::pxform(&frame, &frame_to, elapsed_from_start as f64);
                             Mat3::from_row_slice(&rotation.iter().cloned().flatten().collect_vec())
@@ -309,38 +330,37 @@ pub trait Routines: DowncastSync {
                     };
 
                     if cfg.preferences.debug {
-                        println!("Body state with spice");
+                        println!("Body state computed with spice.");
                         println!("position: {:?}", position.as_slice());
                         println!("rotation: {}", rotation);
                     }
 
                     matrix_translation = Mat4::new_translation(&position);
                     matrix_orientation = glm::mat3_to_mat4(&rotation);
-
-                    bodies_data[body].translation = matrix_translation;
-                    bodies_data[body].orientation = matrix_orientation;
                 }
             }
         };
 
         bodies_data[body].translation = matrix_translation;
-        bodies_data[body].orientation = matrix_orientation;
+        bodies_data[body].orientation = matrix_orientation * matrix_spin_tilt;
 
-        let matrix_body = matrix_translation * matrix_orientation * matrix_spin;
-        matrix_model_reference * matrix_body
+        bodies[body].matrix_model =
+            bodies_data[body].translation * bodies_data[body].orientation * matrix_spin;
+        matrix_model_reference * bodies[body].matrix_model
     }
 
-    fn fn_iteration_body(
+    fn fn_update_body_data(
         &mut self,
+        _cfg: &Cfg,
         _body: usize,
         _bodies: &mut [AirlessBody],
-        _pre_computed_bodies: &mut [BodyData],
+        _bodies_data: &mut [BodyData],
         _time: &Time,
         _scene: &WindowScene,
     ) {
     }
 
-    fn fn_update_colormap(
+    fn fn_update_body_colormap(
         &self,
         body: usize,
         bodies: &mut [AirlessBody],
@@ -374,6 +394,20 @@ pub trait Routines: DowncastSync {
         update_colormap_scalar(win, cfg, scalars.as_slice(), &mut bodies[body], body);
     }
 
+    fn fn_update_body(
+        &mut self,
+        cfg: &Cfg,
+        body: usize,
+        bodies: &mut [AirlessBody],
+        bodies_data: &mut [BodyData],
+        time: &Time,
+        window: &Window,
+    ) {
+        self.fn_update_body_matrix_model(cfg, body, bodies, bodies_data, time);
+        self.fn_update_body_data(cfg, body, bodies, bodies_data, time, &window.scene.borrow());
+        self.fn_update_body_colormap(body, bodies, bodies_data, cfg, window);
+    }
+
     fn fn_export_iteration(
         &self,
         _body: usize,
@@ -395,25 +429,21 @@ pub trait Routines: DowncastSync {
     ) {
     }
 
-    fn fn_end_of_iteration(
+    fn fn_iteration_finish(
         &mut self,
         cfg: &Cfg,
         _bodies: &mut [AirlessBody],
         time: &Time,
         win: &Window,
     ) {
-        if cfg.preferences.debug {
-            println!("Iteration: {}", time.iteration());
-        }
-
         if cfg.simulation.pause_after_first_iteration && time.iteration() == 0
-            || time.used_time_step() == 0
+            || time.time_step() == 0
         {
             win.toggle_pause();
         }
     }
 
-    fn fn_update_and_render(
+    fn fn_render(
         &mut self,
         _cfg: &Cfg,
         bodies: &mut [AirlessBody],

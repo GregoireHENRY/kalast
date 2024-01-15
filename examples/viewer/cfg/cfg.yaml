@@ -1,5 +1,5 @@
 window:
-  ambient: [0.1, 0.1, 0.1]
+  ambient: [0.07, 0.07, 0.07]
 
 bodies:
   -

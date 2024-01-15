@@ -130,7 +130,7 @@ record:
 ```
 
 */
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct CfgBody {
     /// Unique identifier for a body.
     ///
@@ -743,10 +743,10 @@ pub struct CfgStateSpice {
     pub origin: Option<String>,
 
     #[serde(default)]
-    pub frame_from: Option<String>,
+    pub frame: Option<String>,
 
     #[serde(default)]
-    pub frame_to: Option<String>,
+    pub into_frame: Option<String>,
 }
 
 /**

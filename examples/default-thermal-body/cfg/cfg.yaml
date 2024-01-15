@@ -1,5 +1,8 @@
 preferences:
-  runs: runs,
+  # By default it is writing to Desktop folder `kalast-runs`.
+  # 
+  runs: runs  
+
   do_not_check_latest_version: true
   auto_update: false
   debug: false

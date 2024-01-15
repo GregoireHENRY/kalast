@@ -1,4 +1,4 @@
-use crate::{util::*, CfgBodyError, Configuration, Equatorial};
+use crate::{util::*, CfgBodyError, Configuration, Equatorial, ProjectionMode};
 
 use serde::{Deserialize, Serialize};
 use snafu::{prelude::*, Location};
@@ -14,7 +14,7 @@ pub enum CfgSceneError {
     },
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct CfgScene {
     #[serde(default)]
     pub sun: CfgSun,
@@ -23,18 +23,9 @@ pub struct CfgScene {
     pub camera: CfgCamera,
 }
 
-impl Default for CfgScene {
-    fn default() -> Self {
-        Self {
-            sun: CfgSun::default(),
-            camera: CfgCamera::default(),
-        }
-    }
-}
-
 impl Configuration for CfgScene {}
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct CfgSun {
     #[serde(default)]
     pub position: CfgSunPosition,
@@ -47,14 +38,6 @@ impl CfgSun {
 
     pub fn default_distance() -> Float {
         1.0
-    }
-}
-
-impl Default for CfgSun {
-    fn default() -> Self {
-        Self {
-            position: CfgSunPosition::default(),
-        }
     }
 }
 
@@ -86,18 +69,32 @@ pub struct CfgCamera {
     #[serde(default)]
     pub position: CfgCameraPosition,
 
+    // In case position OPT is not cartesian we need that.
     #[serde(default)]
     #[serde(alias = "distance")]
     pub distance_origin: Option<Float>,
+
+    #[serde(default)]
+    #[serde(rename = "direction")]
+    pub direction: CfgCameraDirection,
+
+    #[serde(default = "default_camera_anchor")]
+    pub anchor: Vec3,
+
+    #[serde(default = "default_camera_up")]
+    pub up: Vec3,
+
+    #[serde(default)]
+    pub projection: ProjectionMode,
 }
 
 impl CfgCamera {
     pub fn default_position() -> Vec3 {
-        Vec3::x() * Self::default_distance()
+        crate::DEFAULT_CAMERA_POSITION
     }
 
     pub fn default_distance() -> Float {
-        5.0
+        Self::default_position().magnitude()
     }
 }
 
@@ -106,6 +103,10 @@ impl Default for CfgCamera {
         Self {
             position: CfgCameraPosition::default(),
             distance_origin: None,
+            direction: CfgCameraDirection::default(),
+            anchor: default_camera_anchor(),
+            up: default_camera_up(),
+            projection: ProjectionMode::default(),
         }
     }
 }
@@ -126,11 +127,36 @@ pub enum CfgCameraPosition {
     Spice(String),
 
     #[serde(rename = "reference")]
-    Reference,
+    Reference, // distance origin
 }
 
 impl Default for CfgCameraPosition {
     fn default() -> Self {
         Self::Cartesian(CfgCamera::default_position())
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum CfgCameraDirection {
+    #[serde(rename = "cartesian")]
+    #[serde(alias = "vector")]
+    Cartesian(Vec3),
+
+    #[serde(rename = "target_anchor")]
+    #[serde(alias = "anchor")]
+    TargetAnchor,
+}
+
+impl Default for CfgCameraDirection {
+    fn default() -> Self {
+        Self::TargetAnchor
+    }
+}
+
+fn default_camera_anchor() -> Vec3 {
+    crate::DEFAULT_CAMERA_ANCHOR
+}
+
+fn default_camera_up() -> Vec3 {
+    crate::DEFAULT_CAMERA_UP
 }

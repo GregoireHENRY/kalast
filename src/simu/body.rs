@@ -1,4 +1,4 @@
-use crate::{matrix_orientation_obliquity, util::*, AirlessBody, CfgBody};
+use crate::{util::*, AirlessBody, CfgBody};
 
 use itertools::Itertools;
 
@@ -10,7 +10,7 @@ pub struct BodyData {
 }
 
 impl BodyData {
-    pub fn new(asteroid: &AirlessBody, cb: &CfgBody) -> Self {
+    pub fn new(asteroid: &AirlessBody, _cb: &CfgBody) -> Self {
         let normals = Matrix3xX::from_columns(
             &asteroid
                 .surface
@@ -21,7 +21,7 @@ impl BodyData {
         );
 
         let translation = Mat4::identity();
-        let orientation = matrix_orientation_obliquity(0.0, cb.spin.obliquity * RPD);
+        let orientation = Mat4::identity();
 
         Self {
             normals,

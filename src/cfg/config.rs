@@ -150,7 +150,7 @@ pub fn path_bodies<P: AsRef<Path>>(p: P) -> Vec<PathBuf> {
     }
 }
 
-pub trait Configuration: Serialize + DeserializeOwned {}
+pub trait Configuration: Serialize + DeserializeOwned + Default {}
 
 /**
 # Configuration

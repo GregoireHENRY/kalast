@@ -62,10 +62,17 @@ impl Scenario {
 
         #[cfg(feature = "spice")]
         {
-            spice::kclear();
-
             if let Some(path) = &cfg.spice.kernel {
-                spice::furnsh(path.to_str().unwrap());
+                spice::kclear();
+                if cfg.preferences.debug {
+                    println!("SPICE: Cleared kernel pool.");
+                }
+
+                let path_str = path.to_str().unwrap();
+                spice::furnsh(path_str);
+                if cfg.preferences.debug {
+                    println!("SPICE: Loaded kernel {}.", path_str);
+                }
             }
         }
 
@@ -78,17 +85,12 @@ impl Scenario {
             }
             s.colormap = cfg.window.colormap.name;
             s.shadows = cfg.window.shadows;
-            s.ortho = cfg.window.orthographic;
-            s.fovy = cfg.window.fovy * RPD;
-            s.camera_up = cfg.window.camera_up;
-            s.camera_direction = cfg.window.camera_direction;
             s.ambient_light_color = cfg.window.ambient;
             s.wireframe = cfg.window.wireframe;
             s.draw_normals = cfg.window.normals;
             s.normals_magnitude = cfg.window.normals_length;
+            s.debug = cfg.preferences.debug;
         });
-
-        // win.scene.borrow_mut().camera.projection = Projection::Orthographic;
 
         let time_start = match cfg.simulation.start.seconds() {
             Ok(seconds) => seconds,
@@ -154,32 +156,6 @@ impl Scenario {
         (0..self.bodies.len()).permutations(self.bodies.len())
     }
 
-    /*
-    pub fn iterations<R: Routines>(&mut self) -> Result<()> {
-        self.iterations_with_fns(R::fn_iteration_body, R::fn_end_of_iteration)
-    }
-
-    pub fn iterations_with_fn_body<R: Routines, F>(&mut self, fn_body: F) -> Result<()>
-    where
-        F: Fn(&mut R, usize, &[usize], &CfgBody, &[&CfgBody], &mut [Body], &Scene, &Time),
-    {
-        self.iterations_with_fns(fn_body, R::fn_end_of_iteration)
-    }
-
-    pub fn iterations_with_fn_end<R: Routines, F>(&mut self, fn_end: F) -> Result<()>
-    where
-        F: Fn(&mut R, &mut [Body], &Time, &Scene, &Window),
-    {
-        self.iterations_with_fns(R::fn_iteration_body, fn_end)
-    }
-
-    pub fn iterations_with_fns<R: Routines, F1, F2>(&mut self, fn_body: F1, fn_end: F2) -> Result<()>
-    where
-        F1: Fn(&mut R, usize, &[usize], &CfgBody, &[&CfgBody], &mut [Body], &Scene, &Time),
-        F2: Fn(&mut R, &mut [Body], &Time, &Scene, &Window),
-    {
-    */
-
     pub fn iterations(&mut self) -> Result<()> {
         if self.bodies.is_empty() {
             self.load_bodies()?;
@@ -201,12 +177,8 @@ impl Scenario {
             };
 
             if self.win.is_paused() {
-                self.routines.fn_update_and_render(
-                    &self.cfg,
-                    &mut self.bodies,
-                    &self.time,
-                    &mut self.win,
-                );
+                self.routines
+                    .fn_render(&self.cfg, &mut self.bodies, &self.time, &mut self.win);
                 continue;
             }
 
@@ -222,35 +194,18 @@ impl Scenario {
                 .fn_update_scene(&self.cfg, &self.time, &mut self.win.scene.borrow_mut());
 
             for body in 0..self.bodies.len() {
-                self.bodies[body].matrix_model = self.routines.fn_update_matrix_model(
+                self.routines.fn_update_body(
                     &self.cfg,
-                    body,
-                    &mut self.pre_computed_bodies,
-                    &self.time,
-                );
-                self.routines.fn_iteration_body(
                     body,
                     &mut self.bodies,
                     &mut self.pre_computed_bodies,
                     &self.time,
-                    &self.win.scene.borrow(),
-                );
-
-                self.routines.fn_update_colormap(
-                    body,
-                    &mut self.bodies,
-                    &self.pre_computed_bodies,
-                    &self.cfg,
                     &self.win,
                 );
             }
 
-            self.routines.fn_update_and_render(
-                &self.cfg,
-                &mut self.bodies,
-                &self.time,
-                &mut self.win,
-            );
+            self.routines
+                .fn_render(&self.cfg, &mut self.bodies, &self.time, &mut self.win);
 
             export.iteration(
                 &self.cfg,
@@ -263,7 +218,7 @@ impl Scenario {
             );
 
             self.routines
-                .fn_end_of_iteration(&self.cfg, &mut self.bodies, &self.time, &self.win);
+                .fn_iteration_finish(&self.cfg, &mut self.bodies, &self.time, &self.win);
 
             if elapsed > self.cfg.simulation.duration {
                 let time_calc = Utc::now().time() - *self.time.real_time();
@@ -285,8 +240,6 @@ impl Scenario {
 
                 break 'main_loop;
             }
-
-            // println!();
         }
 
         Ok(())

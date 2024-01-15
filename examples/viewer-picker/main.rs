@@ -59,18 +59,12 @@ impl Routines for RoutinesViewerCustom {
         update_surf_face(self, bodies, win, &faces, 0);
     }
 
-    fn fn_update_and_render(
-        &mut self,
-        cfg: &Cfg,
-        bodies: &mut [AirlessBody],
-        time: &Time,
-        win: &mut Window,
-    ) {
+    fn fn_render(&mut self, cfg: &Cfg, bodies: &mut [AirlessBody], time: &Time, win: &mut Window) {
         if let Some((ii_face, _)) = win.picked() {
             update_surf_face(self, bodies, win, &vec![ii_face], 0);
         }
 
-        self.default.fn_update_and_render(cfg, bodies, time, win);
+        self.default.fn_render(cfg, bodies, time, win);
     }
 }
 

@@ -1,4 +1,4 @@
-use crate::{util::*, Camera, Light, ProjectionMode, Surface, WindowSettings, VAO};
+use crate::{util::*, Camera, Light, Surface, WindowSettings, VAO};
 
 use itertools::izip;
 
@@ -13,17 +13,7 @@ pub struct WindowScene {
 
 impl WindowScene {
     pub fn new(settings: &WindowSettings) -> Self {
-        let mut camera = Camera::new(
-            settings.camera_up,
-            settings.camera_direction,
-            settings.camera_position,
-        );
-
-        if settings.ortho {
-            camera.projection.mode = ProjectionMode::Orthographic(camera.position.magnitude());
-        } else {
-            camera.projection.mode = ProjectionMode::Perspective(settings.fovy);
-        }
+        let camera = Camera::new();
 
         let light = Light::new(settings.light_position);
 

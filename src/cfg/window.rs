@@ -26,18 +26,6 @@ pub struct CfgWindow {
     pub shadows: bool,
 
     #[serde(default)]
-    pub orthographic: bool,
-
-    #[serde(default = "default_fovy")]
-    pub fovy: Float,
-
-    #[serde(default = "default_camera_up")]
-    pub camera_up: Vec3,
-
-    #[serde(default = "default_camera_direction")]
-    pub camera_direction: Vec3,
-
-    #[serde(default)]
     pub ambient: Vec3,
 
     #[serde(default)]
@@ -68,10 +56,6 @@ impl Default for CfgWindow {
             high_dpi: false,
             shadow_dpi: default_dpi(),
             shadows: false,
-            orthographic: false,
-            fovy: default_fovy(),
-            camera_up: default_camera_up(),
-            camera_direction: default_camera_direction(),
             ambient: Vec3::zeros(),
             wireframe: false,
             colormap: CfgColormap::default(),
@@ -96,18 +80,6 @@ pub fn default_dpi() -> usize {
 
 fn default_normals_length() -> Float {
     0.02
-}
-
-pub fn default_fovy() -> Float {
-    30.0
-}
-
-fn default_camera_up() -> Vec3 {
-    Vec3::z()
-}
-
-fn default_camera_direction() -> Vec3 {
-    -Vec3::x()
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

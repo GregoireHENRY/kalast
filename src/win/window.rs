@@ -1,7 +1,8 @@
 use crate::{
-    intersect_asteroids, util::*, win::WindowScene, AirlessBody, Direction, GraphicalPipeline,
-    Shader, Surface, WindowSettings, WindowState,
+    intersect_asteroids, util::*, win::WindowScene, AirlessBody, GraphicalPipeline, Shader,
+    Surface, WindowSettings, WindowState,
 };
+use crate::{MovementMode, ProjectionMode};
 
 // use beryllium::events::*;
 // use beryllium::init::*;
@@ -18,6 +19,7 @@ use sdl2::event::{Event, WindowEvent};
 use sdl2::keyboard::Keycode;
 use sdl2::keyboard::Mod;
 use sdl2::mouse::MouseButton;
+use sdl2::rect::Rect;
 use sdl2::sys as sdl2_sys;
 use sdl2::video::Window as SDL_Window;
 use sdl2::video::{FullscreenType, GLContext};
@@ -26,6 +28,7 @@ use sdl2::Sdl;
 
 use gl::types::*;
 
+use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::fmt::Debug;
 
@@ -169,6 +172,15 @@ impl RawWindow {
                 }
             }
         }
+
+        // sdl.mouse().set_relative_mouse_mode(true);
+        // sdl.mouse().show_cursor(true);
+
+        sdl.mouse().warp_mouse_in_window(
+            &win,
+            (settings.width / 2) as i32,
+            (settings.height / 2) as i32,
+        );
 
         Self { sdl, win, ctx }
     }
@@ -322,6 +334,15 @@ impl Window {
         self.graphical_pipeline.mapshadow.update(&settings);
     }
 
+    pub fn center_cursor(&self) {
+        let settings = self.settings.borrow();
+        self.win.sdl.mouse().warp_mouse_in_window(
+            &self.win.win,
+            (settings.width / 2) as i32,
+            (settings.height / 2) as i32,
+        );
+    }
+
     pub fn events(&mut self) -> FrameEvent {
         let clock_delta_time = self.clock.delta_time();
         let mut event_pump = self.win.sdl.event_pump().unwrap();
@@ -334,7 +355,7 @@ impl Window {
                     win_event,
                 } => {
                     if self.settings.borrow().debug {
-                        println!("{} {} {:?}", timestamp, window_id, win_event);
+                        println!("Event Window: {} {} {:?}", timestamp, window_id, win_event);
                     }
 
                     match win_event {
@@ -369,19 +390,21 @@ impl Window {
                 } => {
                     if self.settings.borrow().debug {
                         println!(
-                            "{} {} {:?} {:?} {} {}",
+                            "Event Key: {} {} {:?} {:?} {} {}",
                             timestamp, window_id, keycode, scancode, keymod, repeat
                         );
                     }
 
                     if let Some(keycode) = keycode {
                         match (keycode, keymod) {
+                            /*
                             (Keycode::Up | Keycode::Down, Mod::LSHIFTMOD) => {
                                 self.scene.borrow_mut().camera.change_speed(
                                     Direction::from_keycode(keycode),
                                     clock_delta_time,
                                 );
                             }
+                            */
                             (
                                 Keycode::Up | Keycode::Left | Keycode::Down | Keycode::Right,
                                 _mod,
@@ -389,12 +412,45 @@ impl Window {
                                 .scene
                                 .borrow_mut()
                                 .camera
-                                .move_command(Direction::from_keycode(keycode), clock_delta_time),
+                                .move_command(keycode, clock_delta_time),
                             (Keycode::M, _) => {
-                                self.scene.borrow_mut().camera.toggle_move_method();
+                                let mode = self.scene.borrow_mut().camera.toggle_movement_mode();
+                                match mode {
+                                    MovementMode::Strafe => {
+                                        // self.win.sdl.mouse().show_cursor(false);
+                                        // self.win.win.set_grab(true);
+
+                                        self.win.sdl.mouse().set_relative_mouse_mode(true);
+                                        self.center_cursor();
+                                        let settings = self.settings.borrow();
+                                        self.win
+                                            .win
+                                            .set_mouse_rect(Some(Rect::new(
+                                                (settings.width / 2) as i32,
+                                                (settings.height / 2) as i32,
+                                                1,
+                                                1,
+                                            )))
+                                            .unwrap();
+                                    }
+                                    _ => {
+                                        // self.win.sdl.mouse().show_cursor(true);
+                                        // self.win.win.set_grab(false);
+
+                                        /*
+                                        if !self.win.sdl.mouse().is_cursor_showing() {
+                                            // self.center_cursor();
+                                            // self.win.sdl.mouse().show_cursor(true);
+                                        }
+                                        */
+
+                                        self.win.sdl.mouse().set_relative_mouse_mode(false);
+                                        self.win.win.set_mouse_rect(None).unwrap();
+                                    }
+                                };
                             }
                             (Keycode::C, _) => {
-                                self.scene.borrow_mut().camera.target_origin();
+                                self.scene.borrow_mut().camera.target_anchor();
                             }
                             (Keycode::P, _) => {
                                 self.toggle_pause();
@@ -410,7 +466,6 @@ impl Window {
                                     println!("Toggle debug!");
                                     self.toggle_debug();
                                 } else {
-                                    println!("-- Debug Scene --");
                                     println!(
                                         "camera pos: {:?}",
                                         self.scene.borrow().camera.position.as_slice()
@@ -419,7 +474,6 @@ impl Window {
                                         "light pos: {:?}",
                                         self.scene.borrow().light.position.as_slice()
                                     );
-                                    println!("-----------------");
                                 }
                             }
                             (Keycode::F10, _) => {
@@ -444,22 +498,94 @@ impl Window {
                 } => {
                     if self.settings.borrow().debug {
                         println!(
-                            "{} {} {} {:?} {} {} {}",
+                            "Event Button: {} {} {} {:?} {} {} {}",
                             timestamp, window_id, which, mouse_btn, clicks, x, y,
                         );
                     }
 
                     match mouse_btn {
                         MouseButton::Left => {
-                            let mut picker = self.graphical_pipeline.picker.borrow_mut();
-
-                            // let height = self.settings.borrow().height;
-                            // let y = height as i32 - y - 1;
-
-                            picker.pick(x, y);
+                            if self.win.sdl.mouse().is_cursor_showing() {
+                                self.graphical_pipeline.picker.borrow_mut().pick(x, y);
+                            }
                         }
+                        /*
+                        MouseButton::Right => {
+                            let mode = self.scene.borrow_mut().camera.toggle_movement_mode();
+                            match mode {
+                                MovementMode::Rotate => {
+                                    self.scene.borrow_mut().camera.rotate_strafe(
+                                        xrel,
+                                        yrel,
+                                        clock_delta_time,
+                                    );
+                                }
+                                _ => {}
+                            };
+                        }
+                        */
                         _ => (),
                     }
+                }
+
+                Event::MouseMotion {
+                    timestamp,
+                    window_id,
+                    which,
+                    mousestate,
+                    x,
+                    y,
+                    xrel,
+                    yrel,
+                } => {
+                    if self.settings.borrow().debug {
+                        println!(
+                            "Event Motion: {} {} {} {:?} {} {} {} {}",
+                            timestamp, window_id, which, mousestate, x, y, xrel, yrel,
+                        );
+                    }
+
+                    let mode = self.scene.borrow().camera.movement_mode;
+                    match mode {
+                        MovementMode::Strafe => {
+                            self.scene.borrow_mut().camera.rotate_strafe(
+                                xrel,
+                                yrel,
+                                clock_delta_time,
+                            );
+                        }
+                        MovementMode::Rotate => {}
+                    }
+                }
+
+                Event::MouseWheel {
+                    timestamp,
+                    window_id,
+                    which,
+                    x,
+                    y,
+                    direction,
+                    precise_x,
+                    precise_y,
+                } => {
+                    if self.settings.borrow().debug {
+                        println!(
+                            "Event Wheel: {} {} {} {} {} {:?} {} {}",
+                            timestamp, window_id, which, x, y, direction, precise_x, precise_y,
+                        );
+                    }
+
+                    let mode = self.scene.borrow_mut().camera.movement_mode;
+                    match mode {
+                        MovementMode::Rotate => {
+                            self.scene.borrow_mut().camera.rotate_around_anchor(
+                                x,
+                                y,
+                                clock_delta_time,
+                            );
+                        }
+                        _ => {}
+                    };
                 }
 
                 Event::Quit {
@@ -468,6 +594,7 @@ impl Window {
                 _ => (),
             }
         }
+
         FrameEvent::Continue
     }
 
@@ -490,20 +617,12 @@ impl Window {
             .borrow()
             .difference_in_height_from_ratio_after_resize;
 
-        let mut scene = self.scene.borrow_mut();
-        scene.camera.projection.base.aspect = aspect_ratio;
-        scene.light.projection.base.aspect = aspect_ratio;
-
-        let camera_distance = (scene.camera.position - scene.camera.origin).magnitude();
-        scene.camera.projection.update_distance(camera_distance);
-
-        let light_distance = scene.light.position.magnitude();
-        scene.camera.projection.update_distance(light_distance);
+        let scene = self.scene.borrow();
 
         // Set constant uniforms for shader body.
-        let matrix_projection = scene.camera.projection.build();
+        let matrix_projection = scene.camera.matrix_projection(aspect_ratio);
 
-        let matrix_view = scene.camera.get_look_at_matrix();
+        let matrix_view = scene.camera.matrix_lookat();
 
         // let surfaces = asteroids.iter().map(|s| &s.surface).collect_vec();
         let matrices_model = asteroids.iter().map(|s| &s.matrix_model).collect_vec();
@@ -522,8 +641,8 @@ impl Window {
         shader.set_vec3("forced_color", &vec3(0.0, 0.0, 0.0));
 
         // Matrices for shader depth.
-        let projection_light_matrix = scene.light.projection.build();
-        let matrix_view_light = scene.light.get_look_at_matrix();
+        let projection_light_matrix = scene.light.matrix_projection(aspect_ratio);
+        let matrix_view_light = scene.light.matrix_lookat();
         let matrix_lightspace = projection_light_matrix * matrix_view_light;
 
         self.render_depth_to_texture(&scene, &matrix_lightspace, &matrices_model);
@@ -785,36 +904,36 @@ impl Window {
         matrix_view: &Mat4,
     ) {
         let mut picker = self.graphical_pipeline.picker.borrow_mut();
-        let ortho = self.settings.borrow().ortho;
 
         if let Some((ndc_x, ndc_y)) = picker.use_pick_to_ndc(&self.settings.borrow()) {
-            let (raystart_world, raydir_world) = if ortho {
-                let raystart_world = -(glm::inverse(matrix_view)
-                    * glm::inverse(matrix_projection)
-                    * vec4(-ndc_x, ndc_y, 0.0, 1.0))
-                .xyz();
+            let (raystart_world, raydir_world) =
+                if scene.borrow().camera.projection == ProjectionMode::Orthographic {
+                    let raystart_world = -(glm::inverse(matrix_view)
+                        * glm::inverse(matrix_projection)
+                        * vec4(-ndc_x, ndc_y, 0.0, 1.0))
+                    .xyz();
 
-                let raydir_world = scene.camera.front();
+                    let raydir_world = scene.camera.front();
 
-                (raystart_world, raydir_world)
-            } else {
-                let start_view = vec3(0.0, 0.0, 0.0);
+                    (raystart_world, raydir_world)
+                } else {
+                    let start_view = vec3(0.0, 0.0, 0.0);
 
-                let dir_view = vec4(ndc_x, -ndc_y, 0.0, 1.0);
-                let dir_view = glm::inverse(&matrix_projection) * dir_view;
-                let dir_view = dir_view.xyz().normalize();
+                    let dir_view = vec4(ndc_x, -ndc_y, 0.0, 1.0);
+                    let dir_view = glm::inverse(&matrix_projection) * dir_view;
+                    let dir_view = dir_view.xyz().normalize();
 
-                let start_world = glm::inverse(&matrix_view) * vec3_to_4_one(&start_view);
-                let start_world = start_world.xyz();
+                    let start_world = glm::inverse(&matrix_view) * vec3_to_4_one(&start_view);
+                    let start_world = start_world.xyz();
 
-                let end_world =
-                    glm::inverse(&matrix_view) * vec3_to_4_one(&(start_view + dir_view));
-                let end_world = end_world.xyz();
+                    let end_world =
+                        glm::inverse(&matrix_view) * vec3_to_4_one(&(start_view + dir_view));
+                    let end_world = end_world.xyz();
 
-                let dir_world = (end_world - start_world).normalize();
+                    let dir_world = (end_world - start_world).normalize();
 
-                (start_world, dir_world)
-            };
+                    (start_world, dir_world)
+                };
 
             /*
             println!();

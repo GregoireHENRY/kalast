@@ -2,7 +2,7 @@ use crate::{compute_normal, util::*, FaceData, Vertex};
 
 use itertools::{izip, Itertools};
 use serde::{Deserialize, Serialize};
-use snafu::{prelude::*, Location};
+use snafu::prelude::*;
 use std::{
     fmt::Display,
     path::{Path, PathBuf},
@@ -47,15 +47,8 @@ fn compute_raw_facedata(vertices: &Vec<Vertex>, indices: &Vec<u32>) -> Vec<FaceD
 /// FromPythonError or something
 #[derive(Debug, Snafu)]
 pub enum SurfaceError {
-    FileNotFound {
-        source: LoadError,
-        path: PathBuf,
-        location: Location,
-    },
-    Unknown {
-        source: LoadError,
-        location: Location,
-    },
+    FileNotFound { source: LoadError, path: PathBuf },
+    Unknown { source: LoadError },
 }
 
 #[repr(u8)]

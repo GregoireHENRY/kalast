@@ -2,7 +2,7 @@ use crate::{util::*, NEWTON_METHOD_THRESHOLD, NUMBER_ITERATION_FAIL};
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use snafu::{prelude::*, Location};
+use snafu::prelude::*;
 use std::{
     ops::{Deref, DerefMut},
     str::FromStr,
@@ -19,29 +19,21 @@ pub type AstronomicalAngleResult<T, E = AstronomicalAngleConversionError> =
 pub enum AstronomicalAngleConversionError {
     AngleParsing {
         source: ParseQuantityError,
-        location: Location,
     },
 
     RegexParsing {
         source: regex::Error,
-        location: Location,
     },
 
-    NotDMS {
-        location: Location,
-    },
+    NotDMS {},
 
-    NotHMS {
-        location: Location,
-    },
+    NotHMS {},
 
     #[snafu(display("Cannot be parsed, given {given} but expect the format 00h00m00.0s."))]
     CannotBeParsed {
         given: String,
     },
-    Deserialize {
-        location: Location,
-    },
+    Deserialize {},
 }
 
 pub type EquatorialResult<T, E = EquatorialError> = std::result::Result<T, E>;
