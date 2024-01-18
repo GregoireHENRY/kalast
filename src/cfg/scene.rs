@@ -14,6 +14,7 @@ pub enum CfgSceneError {
     },
 }
 
+/// Position vectors are expected in km.
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct CfgScene {
     #[serde(default)]
@@ -25,6 +26,7 @@ pub struct CfgScene {
 
 impl Configuration for CfgScene {}
 
+/// Position vectors are expected in km.
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct CfgSun {
     #[serde(default)]
@@ -41,6 +43,7 @@ impl CfgSun {
     }
 }
 
+/// Position vectors are expected in km.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum CfgSunPosition {
     #[serde(rename = "cartesian")]

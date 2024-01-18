@@ -114,6 +114,7 @@ pub fn intersect_asteroids(
 }
 
 /// asteroid1 is shadowed by asteroid2.
+/// Distances are kept to km in this routine for there is no need of conversion to meters.
 pub fn shadows(
     sun_position: &Vec3,
     asteroid1: &AirlessBody,

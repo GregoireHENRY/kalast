@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.4.4 [unreleased] - 2024-01-18
+
+### Added
+
+- documentation for position vector km and distance in km or m
+
+### Fixed
+
+- position vectors are uniformized to km across the program
+
 ## v0.4.3 - 2024-01-17
 
 ### Added

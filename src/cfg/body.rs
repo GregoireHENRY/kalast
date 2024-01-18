@@ -485,6 +485,8 @@ fn default_spin_axis() -> Vec3 {
 /**
 # Configuration of the State of the Body
 
+Position vectors are expected in km.
+
 [Three `type`s are available][CfgState#variants]:
 
 - [`cartesian`][CfgStateCartesian]:
@@ -542,6 +544,8 @@ impl Default for CfgState {
 
 /**
 # Manual Configuration of Position and Orientation of Body from Cartesian Coordinates
+
+Position vectors are expected in km.
 
 ## Default
 

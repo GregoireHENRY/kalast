@@ -125,7 +125,7 @@ pub trait RoutinesThermal: Routines {
 
                 let mat = body.surface.faces[0].vertex.material;
                 let init = effective_temperature(
-                    sun_position.magnitude(),
+                    sun_position.magnitude() * 1e3,
                     mat.albedo,
                     mat.emissivity,
                     ratio,
@@ -151,7 +151,7 @@ pub trait RoutinesThermal: Routines {
         flux_solar_radiation(
             &cos_incidences,
             &thermal_data.albedos,
-            sun_position.magnitude() / AU,
+            sun_position.magnitude() * 1e3 / AU,
         )
     }
 
@@ -223,6 +223,15 @@ impl Routines for RoutinesThermalDefault {
         self.data.push(ThermalBodyData::new(body, cb));
     }
 
+    // Sun position is obtained from the position of the light in window scene.
+    // To avoid large floating values, distances are in km, so are the size of meshes and
+    // position of Sun. The Sun distance will be converted to meters at the very last possible
+    // moment. We keep Sun position vector in km for easier shadow computation with respect
+    // to position of other bodies.
+    // View factor does not require to be in meters as the result is a coefficient.
+    // So keeping km should be ok.
+    // To summarize, when you see vector position, expect it to be km, and distance should
+    // be in meters for computation unless explicitely mentioned.
     fn fn_update_body_data(
         &mut self,
         cfg: &Cfg,
@@ -232,7 +241,7 @@ impl Routines for RoutinesThermalDefault {
         time: &Time,
         scene: &WindowScene,
     ) {
-        let sun_position = scene.light.position * 1e3;
+        let sun_position = scene.light.position;
 
         if time.iteration == 0 {
             self.fn_compute_initial_temperatures(&bodies[body], &cfg.bodies[body], &sun_position);
