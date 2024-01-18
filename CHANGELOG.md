@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.4.3 - 2024-01-17
+
+### Added
+
+- possibility to change key for free camera movement and sensitivity in cfg preferences
+- free camera movement and sensitivity also now in window settings
+- shift key during movement for fast speed
+
+### Changed
+
+- renamed rotate and strafe camera into lock and free camera
+- renamed camera methods for movements
+- renamed camera constants
+- camera sensitivity correction defaults
+- simplified camera movements computations
+
+### Fixed
+
+- movement keys state down and up are now recorded to avoid waiting for key repetition for instant movement
+
+### Removed
+
+- camera direction struct, direction from movement key is computed in window events
+
 ## v0.4.2 - 2024-01-15
 
 ### Added

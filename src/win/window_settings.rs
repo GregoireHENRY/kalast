@@ -1,6 +1,6 @@
-use crate::util::*;
+use crate::{util::*, KEY_BACKWARD, KEY_FORWARD, KEY_LEFT, KEY_RIGHT, SENSITIVITY};
 
-use sdl2::video::FullscreenType;
+use sdl2::{keyboard::Keycode, video::FullscreenType};
 use serde::{Deserialize, Serialize};
 
 pub const WINDOW_WIDTH: usize = 640;
@@ -55,6 +55,7 @@ pub struct WindowState {
     pub pre_record: bool,
     pub pause: bool,
     pub export_quit: bool,
+    pub keys_down: Vec<Keycode>,
 }
 
 impl Default for WindowState {
@@ -64,6 +65,7 @@ impl Default for WindowState {
             pre_record: false,
             pause: false,
             export_quit: false,
+            keys_down: vec![],
         }
     }
 }
@@ -110,6 +112,11 @@ pub struct WindowSettings {
     pub normals_magnitude: Float,
     pub wireframe: bool,
     pub wireframe_width: Float,
+    pub sensitivity: Float,
+    pub forward: Keycode,
+    pub left: Keycode,
+    pub backward: Keycode,
+    pub right: Keycode,
 
     dpi: usize,
 }
@@ -122,7 +129,6 @@ impl Default for WindowSettings {
             width: WINDOW_WIDTH,
             height: WINDOW_HEIGHT,
             fullscreen: FullscreenType::Off,
-            dpi: 100,
             multisampling: Some(16),
             background_color: vec3(0.0, 0.0, 0.0),
             directional_light_color: vec3(1.0, 1.0, 1.0),
@@ -141,6 +147,13 @@ impl Default for WindowSettings {
             normals_magnitude: 0.1,
             wireframe: false,
             wireframe_width: 1.0,
+            sensitivity: SENSITIVITY,
+            forward: KEY_FORWARD,
+            left: KEY_LEFT,
+            backward: KEY_BACKWARD,
+            right: KEY_RIGHT,
+
+            dpi: 100,
         }
     }
 }

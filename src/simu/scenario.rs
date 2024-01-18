@@ -6,6 +6,7 @@ use crate::{
 
 use chrono::Utc;
 use itertools::Itertools;
+use sdl2::keyboard::Keycode;
 use std::{env, path::Path};
 
 pub struct Scenario {
@@ -90,6 +91,11 @@ impl Scenario {
             s.draw_normals = cfg.window.normals;
             s.normals_magnitude = cfg.window.normals_length;
             s.debug = cfg.preferences.debug;
+            s.sensitivity = cfg.preferences.sensitivity;
+            s.forward = Keycode::from_name(&cfg.preferences.keys.forward).unwrap();
+            s.left = Keycode::from_name(&cfg.preferences.keys.left).unwrap();
+            s.backward = Keycode::from_name(&cfg.preferences.keys.backward).unwrap();
+            s.right = Keycode::from_name(&cfg.preferences.keys.right).unwrap();
         });
 
         let time_start = match cfg.simulation.start.seconds() {

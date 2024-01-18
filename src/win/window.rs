@@ -1,19 +1,8 @@
 use crate::{
-    intersect_asteroids, util::*, win::WindowScene, AirlessBody, GraphicalPipeline, Shader,
-    Surface, WindowSettings, WindowState,
+    intersect_asteroids, util::*, win::WindowScene, AirlessBody, GraphicalPipeline, MovementMode,
+    ProjectionMode, Shader, Surface, WindowSettings, WindowState, SPEED, SPEED_FAST_FACTOR,
 };
-use crate::{MovementMode, ProjectionMode};
 
-// use beryllium::events::*;
-// use beryllium::init::*;
-// use beryllium::video::*;
-// use beryllium::Sdl;
-// use fermium::prelude::*;
-
-// use gl33::global_loader::*;
-// use gl33::*;
-
-use itertools::{izip, Itertools};
 use sdl2;
 use sdl2::event::{Event, WindowEvent};
 use sdl2::keyboard::Keycode;
@@ -30,12 +19,12 @@ use gl::types::*;
 
 use std::borrow::Borrow;
 use std::cell::RefCell;
+use std::ffi::CStr;
 use std::fmt::Debug;
-
 use std::fs;
 use std::path::Path;
 
-use std::ffi::CStr;
+use itertools::{izip, Itertools};
 
 #[allow(unused)]
 fn viewport(width: u32, height: u32) {
@@ -45,19 +34,6 @@ fn viewport(width: u32, height: u32) {
 fn viewport_adaptative(width: u32, height: u32, diff_height: i32) {
     unsafe { gl::Viewport(0, diff_height as _, width as _, (height as i32) as _) }
 }
-
-/*
-fn viewport_center(width: u32, height: u32) {
-    unsafe {
-        glViewport(
-            -(width as f32 / 2.0) as _,
-            -(height as f32 / 2.0) as _,
-            (width as f32 / 2.0) as _,
-            (height as f32 / 2.0) as _,
-        )
-    }
-}
-*/
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FrameEvent {
@@ -347,6 +323,11 @@ impl Window {
         let clock_delta_time = self.clock.delta_time();
         let mut event_pump = self.win.sdl.event_pump().unwrap();
 
+        let (forward, left, backward, right) = {
+            let s = self.settings.borrow();
+            (s.forward, s.left, s.backward, s.right)
+        };
+
         for event in event_pump.poll_iter() {
             match event {
                 Event::Window {
@@ -364,12 +345,6 @@ impl Window {
                                 let mut settings = self.settings.borrow_mut();
                                 settings.width = x as _;
                                 settings.height = y as _;
-                                /*
-                                let mut state = self.state.borrow_mut();
-                                settings.height = (x as Float / WINDOW_RATIO) as _;
-                                state.difference_in_height_from_ratio_after_resize =
-                                    y - settings.height as i32;
-                                */
                             }
 
                             self.graphical_pipeline
@@ -390,36 +365,25 @@ impl Window {
                 } => {
                     if self.settings.borrow().debug {
                         println!(
-                            "Event Key: {} {} {:?} {:?} {} {}",
+                            "Event Key up: {} {} {:?} {:?} {} {}",
                             timestamp, window_id, keycode, scancode, keymod, repeat
                         );
                     }
 
                     if let Some(keycode) = keycode {
-                        match (keycode, keymod) {
-                            /*
-                            (Keycode::Up | Keycode::Down, Mod::LSHIFTMOD) => {
-                                self.scene.borrow_mut().camera.change_speed(
-                                    Direction::from_keycode(keycode),
-                                    clock_delta_time,
-                                );
+                        // Register selected key codes.
+                        if [forward, left, backward, right, Keycode::LShift].contains(&keycode) {
+                            let ok = !self.state.borrow().keys_down.contains(&keycode);
+                            if ok {
+                                self.state.borrow_mut().keys_down.push(keycode);
                             }
-                            */
-                            (
-                                Keycode::Up | Keycode::Left | Keycode::Down | Keycode::Right,
-                                _mod,
-                            ) => self
-                                .scene
-                                .borrow_mut()
-                                .camera
-                                .move_command(keycode, clock_delta_time),
-                            (Keycode::M, _) => {
+                        }
+
+                        match keycode {
+                            Keycode::M => {
                                 let mode = self.scene.borrow_mut().camera.toggle_movement_mode();
                                 match mode {
-                                    MovementMode::Strafe => {
-                                        // self.win.sdl.mouse().show_cursor(false);
-                                        // self.win.win.set_grab(true);
-
+                                    MovementMode::Free => {
                                         self.win.sdl.mouse().set_relative_mouse_mode(true);
                                         self.center_cursor();
                                         let settings = self.settings.borrow();
@@ -434,34 +398,23 @@ impl Window {
                                             .unwrap();
                                     }
                                     _ => {
-                                        // self.win.sdl.mouse().show_cursor(true);
-                                        // self.win.win.set_grab(false);
-
-                                        /*
-                                        if !self.win.sdl.mouse().is_cursor_showing() {
-                                            // self.center_cursor();
-                                            // self.win.sdl.mouse().show_cursor(true);
-                                        }
-                                        */
-
                                         self.win.sdl.mouse().set_relative_mouse_mode(false);
                                         self.win.win.set_mouse_rect(None).unwrap();
                                     }
                                 };
                             }
-                            (Keycode::C, _) => {
+                            Keycode::C => {
                                 self.scene.borrow_mut().camera.target_anchor();
                             }
-                            (Keycode::P, _) => {
+                            Keycode::P => {
                                 self.toggle_pause();
                             }
-                            (Keycode::Q, _) => {
+                            Keycode::Q => {
                                 self.export_quit();
                             }
-                            // (Keycode::Comma, Mod::LSHIFTMOD | Mod::RSHIFTMOD | Mod::CAPSMOD) => {
-                            (Keycode::H, mode) => {
-                                if (mode & Mod::LSHIFTMOD) == Mod::LSHIFTMOD
-                                    || (mode & Mod::LSHIFTMOD) == Mod::RSHIFTMOD
+                            Keycode::H => {
+                                if (keymod & Mod::LSHIFTMOD) == Mod::LSHIFTMOD
+                                    || (keymod & Mod::LSHIFTMOD) == Mod::RSHIFTMOD
                                 {
                                     println!("Toggle debug!");
                                     self.toggle_debug();
@@ -476,13 +429,35 @@ impl Window {
                                     );
                                 }
                             }
-                            (Keycode::F10, _) => {
+                            Keycode::F10 => {
                                 self.toggle_fullscreen_windowed();
                             }
-                            (Keycode::F11, _) => {
+                            Keycode::F11 => {
                                 self.toggle_fullscreen();
                             }
-                            (_, _) => {}
+                            _ => {}
+                        }
+                    }
+                }
+
+                Event::KeyUp {
+                    timestamp: _,
+                    window_id: _,
+                    keycode,
+                    scancode: _,
+                    keymod: _,
+                    repeat: _,
+                } => {
+                    // Unregister key codes.
+                    if let Some(keycode) = keycode {
+                        let opt_pos = self
+                            .state
+                            .borrow()
+                            .keys_down
+                            .iter()
+                            .position(|x| *x == keycode);
+                        if let Some(pos) = opt_pos {
+                            self.state.borrow_mut().keys_down.remove(pos);
                         }
                     }
                 }
@@ -509,21 +484,6 @@ impl Window {
                                 self.graphical_pipeline.picker.borrow_mut().pick(x, y);
                             }
                         }
-                        /*
-                        MouseButton::Right => {
-                            let mode = self.scene.borrow_mut().camera.toggle_movement_mode();
-                            match mode {
-                                MovementMode::Rotate => {
-                                    self.scene.borrow_mut().camera.rotate_strafe(
-                                        xrel,
-                                        yrel,
-                                        clock_delta_time,
-                                    );
-                                }
-                                _ => {}
-                            };
-                        }
-                        */
                         _ => (),
                     }
                 }
@@ -545,16 +505,51 @@ impl Window {
                         );
                     }
 
+                    let speed = self.settings.borrow().sensitivity * clock_delta_time;
                     let mode = self.scene.borrow().camera.movement_mode;
                     match mode {
-                        MovementMode::Strafe => {
-                            self.scene.borrow_mut().camera.rotate_strafe(
-                                xrel,
-                                yrel,
-                                clock_delta_time,
-                            );
+                        MovementMode::Free => {
+                            self.scene
+                                .borrow_mut()
+                                .camera
+                                .free_rotate(-xrel as Float * speed, -yrel as Float * speed);
                         }
-                        MovementMode::Rotate => {}
+                        MovementMode::Lock => {
+                            if mousestate.middle() {
+                                self.scene
+                                    .borrow_mut()
+                                    .camera
+                                    .lock_rotate(-xrel as Float * speed, -yrel as Float * speed);
+
+                                let settings = self.settings.borrow();
+                                if x >= settings.width as _ {
+                                    self.win
+                                        .sdl
+                                        .mouse()
+                                        .warp_mouse_in_window(&self.win.win, 1, y);
+                                }
+                                if x <= 0 as _ {
+                                    self.win.sdl.mouse().warp_mouse_in_window(
+                                        &self.win.win,
+                                        (settings.width - 1) as _,
+                                        y,
+                                    );
+                                }
+                                if y >= settings.height as _ {
+                                    self.win
+                                        .sdl
+                                        .mouse()
+                                        .warp_mouse_in_window(&self.win.win, x, 1);
+                                }
+                                if y <= 0 as _ {
+                                    self.win.sdl.mouse().warp_mouse_in_window(
+                                        &self.win.win,
+                                        x,
+                                        (settings.height - 1) as _,
+                                    );
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -577,13 +572,6 @@ impl Window {
 
                     let mode = self.scene.borrow_mut().camera.movement_mode;
                     match mode {
-                        MovementMode::Rotate => {
-                            self.scene.borrow_mut().camera.rotate_around_anchor(
-                                x,
-                                y,
-                                clock_delta_time,
-                            );
-                        }
                         _ => {}
                     };
                 }
@@ -593,6 +581,40 @@ impl Window {
                 } => return FrameEvent::Exit,
                 _ => (),
             }
+        }
+
+        // custom user keys for WASD / ZQSD
+
+        let mode = self.scene.borrow().camera.movement_mode;
+        match mode {
+            MovementMode::Free => {
+                let mut x = 0.0;
+                let mut y = 0.0;
+                let mut speed = SPEED;
+
+                let keys = &self.state.borrow().keys_down;
+
+                if keys.contains(&Keycode::LShift) {
+                    speed *= SPEED_FAST_FACTOR;
+                }
+                let delta_pos = speed * clock_delta_time;
+
+                if keys.contains(&forward) {
+                    y += delta_pos;
+                }
+                if keys.contains(&left) {
+                    x -= delta_pos;
+                }
+                if keys.contains(&backward) {
+                    y -= delta_pos;
+                }
+                if keys.contains(&right) {
+                    x += delta_pos;
+                }
+
+                self.scene.borrow_mut().camera.free_movement(x, y);
+            }
+            _ => {}
         }
 
         FrameEvent::Continue

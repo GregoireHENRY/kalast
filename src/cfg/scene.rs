@@ -90,7 +90,7 @@ pub struct CfgCamera {
 
 impl CfgCamera {
     pub fn default_position() -> Vec3 {
-        crate::DEFAULT_CAMERA_POSITION
+        crate::POSITION
     }
 
     pub fn default_distance() -> Float {
@@ -154,9 +154,9 @@ impl Default for CfgCameraDirection {
 }
 
 fn default_camera_anchor() -> Vec3 {
-    crate::DEFAULT_CAMERA_ANCHOR
+    crate::ANCHOR
 }
 
 fn default_camera_up() -> Vec3 {
-    crate::DEFAULT_CAMERA_UP
+    crate::UP
 }

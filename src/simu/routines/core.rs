@@ -159,7 +159,7 @@ pub trait Routines: DowncastSync {
         scene.light.position = sun;
         scene.camera.position = camera;
 
-        if scene.camera.movement_mode == MovementMode::Rotate
+        if scene.camera.movement_mode == MovementMode::Lock
             && cfg.scene.camera.direction == CfgCameraDirection::TargetAnchor
         {
             scene.camera.target_anchor();
