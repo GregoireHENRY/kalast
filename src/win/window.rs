@@ -1,8 +1,10 @@
 use crate::{
     intersect_asteroids, util::*, win::WindowScene, AirlessBody, GraphicalPipeline, MovementMode,
-    ProjectionMode, Shader, Surface, WindowSettings, WindowState,
-    SENSITIVITY_MACOS_MOUSEWHEEL_CORRECTION, SPEED, SPEED_FAST_FACTOR,
+    ProjectionMode, Shader, Surface, WindowSettings, WindowState, SPEED, SPEED_FAST_FACTOR,
 };
+
+#[cfg(target_os = "macos")]
+use crate::SENSITIVITY_MACOS_MOUSEWHEEL_CORRECTION;
 
 use sdl2;
 use sdl2::event::{Event, WindowEvent};
