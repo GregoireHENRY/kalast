@@ -96,6 +96,7 @@ impl Scenario {
             s.left = Keycode::from_name(&cfg.preferences.keys.left).unwrap();
             s.backward = Keycode::from_name(&cfg.preferences.keys.backward).unwrap();
             s.right = Keycode::from_name(&cfg.preferences.keys.right).unwrap();
+            s.touchpad_controls = cfg.preferences.touchpad_controls;
         });
 
         let time_start = match cfg.simulation.start.seconds() {

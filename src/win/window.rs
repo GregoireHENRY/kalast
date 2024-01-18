@@ -1,10 +1,8 @@
 use crate::{
     intersect_asteroids, util::*, win::WindowScene, AirlessBody, GraphicalPipeline, MovementMode,
-    ProjectionMode, Shader, Surface, WindowSettings, WindowState, SPEED, SPEED_FAST_FACTOR,
+    ProjectionMode, Shader, Surface, WindowSettings, WindowState,
+    SENSITIVITY_ROTATE_MOUSEWHEEL_CORRECTION, SPEED, SPEED_FAST_FACTOR,
 };
-
-#[cfg(target_os = "macos")]
-use crate::SENSITIVITY_MACOS_MOUSEWHEEL_CORRECTION;
 
 use sdl2;
 use sdl2::event::{Event, WindowEvent};
@@ -536,6 +534,7 @@ impl Window {
                         );
                     }
 
+                    let touchpad_controls = self.settings.borrow().touchpad_controls;
                     let speed = self.settings.borrow().sensitivity * clock_delta_time;
                     let mode = self.scene.borrow().camera.movement_mode;
                     match mode {
@@ -545,18 +544,17 @@ impl Window {
                                 .camera
                                 .free_rotate(-xrel as Float * speed, -yrel as Float * speed);
                         }
-                        #[cfg(not(target_os = "macos"))]
                         MovementMode::Lock => {
-                            if mousestate.middle() {
-                                self.scene
-                                    .borrow_mut()
-                                    .camera
-                                    .lock_rotate(-xrel as Float * speed, -yrel as Float * speed);
-                                self.warp_mouse_in_window_repeat(x, y);
+                            if !touchpad_controls {
+                                if mousestate.middle() {
+                                    self.scene.borrow_mut().camera.lock_rotate(
+                                        -xrel as Float * speed,
+                                        -yrel as Float * speed,
+                                    );
+                                    self.warp_mouse_in_window_repeat(x, y);
+                                }
                             }
                         }
-                        #[cfg(target_os = "macos")]
-                        MovementMode::Lock => {}
                     }
                 }
 
@@ -577,10 +575,11 @@ impl Window {
                         );
                     }
 
-                    #[cfg(target_os = "macos")]
-                    {
+                    let touchpad_controls = self.settings.borrow().touchpad_controls;
+
+                    if touchpad_controls {
                         let speed = self.settings.borrow().sensitivity
-                            * SENSITIVITY_MACOS_MOUSEWHEEL_CORRECTION
+                            * SENSITIVITY_ROTATE_MOUSEWHEEL_CORRECTION
                             * clock_delta_time;
                         let mode = self.scene.borrow().camera.movement_mode;
                         match mode {

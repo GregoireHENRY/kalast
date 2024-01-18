@@ -14,9 +14,7 @@ pub const FOVY: Float = 40.0 * RPD;
 
 pub const SENSITIVITY: Float = 1.0;
 pub const SENSITIVITY_CORRECTION: Float = 1e-3;
-
-#[cfg(target_os = "macos")]
-pub const SENSITIVITY_MACOS_MOUSEWHEEL_CORRECTION: Float = 1e1;
+pub const SENSITIVITY_ROTATE_MOUSEWHEEL_CORRECTION: Float = 1e1;
 
 pub const FREE_SENSITIVITY_CORRECTION: Float = 1e-1;
 pub const FREE_KEYBOARD_SENSITIVITY_CORRECTION: Float = 1e-3;

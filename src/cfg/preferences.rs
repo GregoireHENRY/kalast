@@ -30,6 +30,9 @@ pub struct CfgPreferences {
 
     #[serde(default = "default_sensitivity")]
     pub sensitivity: Float,
+
+    #[serde(default)]
+    pub touchpad_controls: bool,
 }
 
 impl Configuration for CfgPreferences {}
@@ -44,6 +47,7 @@ impl Default for CfgPreferences {
             debug_cfg: false,
             keys: CfgKeys::default(),
             sensitivity: default_sensitivity(),
+            touchpad_controls: false,
         }
     }
 }

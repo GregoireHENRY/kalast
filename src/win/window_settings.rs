@@ -117,6 +117,7 @@ pub struct WindowSettings {
     pub left: Keycode,
     pub backward: Keycode,
     pub right: Keycode,
+    pub touchpad_controls: bool,
 
     dpi: usize,
 }
@@ -152,6 +153,7 @@ impl Default for WindowSettings {
             left: KEY_LEFT,
             backward: KEY_BACKWARD,
             right: KEY_RIGHT,
+            touchpad_controls: false,
 
             dpi: 100,
         }
