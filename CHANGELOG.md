@@ -7,10 +7,20 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - documentation for position vector km and distance in km or m
+- macos specific mouse sensitivity correction for scroll wheel
+
+### Changed
+
+- platform specific rotation
+- macos lock camera rotate with touchpad scroll wheel (two finger movement, without need
+  for warp)
+- windows lock camera rotate with mouse wheel button pressed and movement (need for warp
+  repeat)
 
 ### Fixed
 
 - position vectors are uniformized to km across the program
+- example viewer-picker option names
 
 ## v0.4.3 - 2024-01-17
 

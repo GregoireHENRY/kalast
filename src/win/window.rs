@@ -1,6 +1,7 @@
 use crate::{
     intersect_asteroids, util::*, win::WindowScene, AirlessBody, GraphicalPipeline, MovementMode,
-    ProjectionMode, Shader, Surface, WindowSettings, WindowState, SPEED, SPEED_FAST_FACTOR,
+    ProjectionMode, Shader, Surface, WindowSettings, WindowState,
+    SENSITIVITY_MACOS_MOUSEWHEEL_CORRECTION, SPEED, SPEED_FAST_FACTOR,
 };
 
 use sdl2;
@@ -319,6 +320,34 @@ impl Window {
         );
     }
 
+    pub fn warp_mouse_in_window_repeat(&self, x: i32, y: i32) {
+        let settings = self.settings.borrow();
+        if x >= settings.width as _ {
+            self.win
+                .sdl
+                .mouse()
+                .warp_mouse_in_window(&self.win.win, 1, y);
+        }
+        if x <= 0 as _ {
+            self.win
+                .sdl
+                .mouse()
+                .warp_mouse_in_window(&self.win.win, (settings.width - 1) as _, y);
+        }
+        if y >= settings.height as _ {
+            self.win
+                .sdl
+                .mouse()
+                .warp_mouse_in_window(&self.win.win, x, 1);
+        }
+        if y <= 0 as _ {
+            self.win
+                .sdl
+                .mouse()
+                .warp_mouse_in_window(&self.win.win, x, (settings.height - 1) as _);
+        }
+    }
+
     pub fn events(&mut self) -> FrameEvent {
         let clock_delta_time = self.clock.delta_time();
         let mut event_pump = self.win.sdl.event_pump().unwrap();
@@ -514,42 +543,18 @@ impl Window {
                                 .camera
                                 .free_rotate(-xrel as Float * speed, -yrel as Float * speed);
                         }
+                        #[cfg(not(target_os = "macos"))]
                         MovementMode::Lock => {
                             if mousestate.middle() {
                                 self.scene
                                     .borrow_mut()
                                     .camera
                                     .lock_rotate(-xrel as Float * speed, -yrel as Float * speed);
-
-                                let settings = self.settings.borrow();
-                                if x >= settings.width as _ {
-                                    self.win
-                                        .sdl
-                                        .mouse()
-                                        .warp_mouse_in_window(&self.win.win, 1, y);
-                                }
-                                if x <= 0 as _ {
-                                    self.win.sdl.mouse().warp_mouse_in_window(
-                                        &self.win.win,
-                                        (settings.width - 1) as _,
-                                        y,
-                                    );
-                                }
-                                if y >= settings.height as _ {
-                                    self.win
-                                        .sdl
-                                        .mouse()
-                                        .warp_mouse_in_window(&self.win.win, x, 1);
-                                }
-                                if y <= 0 as _ {
-                                    self.win.sdl.mouse().warp_mouse_in_window(
-                                        &self.win.win,
-                                        x,
-                                        (settings.height - 1) as _,
-                                    );
-                                }
+                                self.warp_mouse_in_window_repeat(x, y);
                             }
                         }
+                        #[cfg(target_os = "macos")]
+                        MovementMode::Lock => {}
                     }
                 }
 
@@ -570,10 +575,22 @@ impl Window {
                         );
                     }
 
-                    let mode = self.scene.borrow_mut().camera.movement_mode;
-                    match mode {
-                        _ => {}
-                    };
+                    #[cfg(target_os = "macos")]
+                    {
+                        let speed = self.settings.borrow().sensitivity
+                            * SENSITIVITY_MACOS_MOUSEWHEEL_CORRECTION
+                            * clock_delta_time;
+                        let mode = self.scene.borrow().camera.movement_mode;
+                        match mode {
+                            MovementMode::Free => {}
+                            MovementMode::Lock => {
+                                self.scene.borrow_mut().camera.lock_rotate(
+                                    precise_x as Float * speed,
+                                    -precise_y as Float * speed,
+                                );
+                            }
+                        }
+                    }
                 }
 
                 Event::Quit {

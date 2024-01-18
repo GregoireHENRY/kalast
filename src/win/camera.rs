@@ -11,10 +11,16 @@ pub const ANCHOR: Vec3 = Vec3::new(0.0, 0.0, 0.0);
 pub const NEAR_FACTOR: Float = 1e-5;
 pub const FAR_FACTOR: Float = 2.0;
 pub const FOVY: Float = 40.0 * RPD;
+
 pub const SENSITIVITY: Float = 1.0;
 pub const SENSITIVITY_CORRECTION: Float = 1e-3;
+
+#[cfg(target_os = "macos")]
+pub const SENSITIVITY_MACOS_MOUSEWHEEL_CORRECTION: Float = 1e1;
+
 pub const FREE_SENSITIVITY_CORRECTION: Float = 1e-1;
 pub const FREE_KEYBOARD_SENSITIVITY_CORRECTION: Float = 1e-3;
+
 pub const SPEED: Float = 1.0;
 pub const SPEED_FAST_FACTOR: Float = 10.0;
 
