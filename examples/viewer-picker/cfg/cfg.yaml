@@ -1,5 +1,5 @@
-win:
-  ambient: [0.1, 0.1, 0.1]
+window:
+  ambient: [0.07, 0.07, 0.07]
   wireframe: true
 
 bodies:
