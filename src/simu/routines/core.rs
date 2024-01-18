@@ -271,6 +271,9 @@ pub trait Routines: DowncastSync {
                 }
             }
             CfgState::File(path) => {
+                // Each loop iteration is reading corresponding row index of state file.
+                // So taking in consideration that kalast first iteration is initialization,
+                // the first line of state can be repeated by user in second line if needed.
                 let row_index = time.iteration();
 
                 let df = match CsvReader::from_path(&path) {
@@ -291,6 +294,8 @@ pub trait Routines: DowncastSync {
                     })
                     .collect_vec();
 
+                // position is first 1x3
+                // rotation is next 1x9
                 matrix_translation = Mat4::new_translation(&Vec3::from_row_slice(&row[..3]));
                 matrix_orientation = glm::mat3_to_mat4(&Mat3::from_row_slice(&row[3..]));
             }
