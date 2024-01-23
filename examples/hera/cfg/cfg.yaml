@@ -5,7 +5,7 @@ window:
   height: 1024
 
 spice:
-  kernel: /Users/gregoireh/data/spice/hera/kernels/mk/hera_study_PO_EMA_2024.tm
+  kernel: C:\data\spice\hera\kernels\mk\hera_study_PO_EMA_2024.tm
   frame: HERA_SPACECRAFT
 
 simulation:

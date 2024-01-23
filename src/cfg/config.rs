@@ -211,6 +211,10 @@ impl Cfg {
 
                     // Check body IDs to make them unique from loading order if necessary.
                     for indices_bodies in (0..cfg.bodies.len()).permutations(cfg.bodies.len()) {
+                        if indices_bodies.is_empty() {
+                            continue;
+                        }
+
                         let (&ii_body, ii_other_bodies) = indices_bodies.split_first().unwrap();
 
                         if cfg.bodies[ii_body].id == super::body::default_body_id() {

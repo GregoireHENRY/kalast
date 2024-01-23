@@ -1,12 +1,15 @@
 preferences:
-  # By default it is writing to Desktop folder `kalast-runs`.
-  # 
-  runs: runs  
-
+  runs: runs
   do_not_check_latest_version: true
   auto_update: false
   debug: false
   debug_cfg: false
+  keys:
+    forward: W
+    left: A
+    backward: S
+    right: D
+  sensitivity: 1.0
 
 window:
   width: 640
@@ -29,7 +32,11 @@ window:
   normals: false
   normals_length: 0.02
   export_frames: false
-    
+
+# Asteroid spin is 2h.
+# We decide to export 1 spin each 100 spins at a time step of 60s
+# Simulation time step is 600s and last 1000 spins.
+# So 10 exports will occur.
 simulation:
   routines: thermal
   start: 0.0
@@ -41,7 +48,7 @@ simulation:
     period: 720000
     cooldown_start:
   pause_after_first_iteration: false
-
+    
 spice:
   kernel:
   frame: ECLIPJ2000
@@ -49,11 +56,15 @@ spice:
 scene:
   sun:
     position:
-      !cartesian [1.5e11, 0.0, 0.0]
+      !cartesian [1.5e8, 0.0, 0.0]
   camera:
     position:
       !cartesian [5.0, 0.0, 0.0]
     distance_origin:
+    anchor: [0.0, 0.0, 0.0]
+    up: [0.0, 0.0, 1.0]
+    projection:
+      !perspective 0.6981  # 40°
 
 bodies:
   - id: 0
