@@ -5,7 +5,7 @@ window:
   height: 1024
 
 spice:
-  kernel: /Users/gregoireh/data/spice/git-hera/kernels/mk/hera_study_PO_EMA_2024.tm
+  kernel: /Users/gregoireh/data/spice/hera/kernels/mk/hera_study_PO_EMA_2024.tm
   frame: HERA_SPACECRAFT
 
 simulation:
@@ -23,7 +23,7 @@ scene:
       # !anchor
       !vector [0, 0, 1]
     projection:
-      !perspective 0.09546951
+      !perspective 0.09546951  # 5.47° FOVY
 
 bodies:
   - id: DIDYMOS

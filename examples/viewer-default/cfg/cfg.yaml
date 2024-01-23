@@ -1,9 +1,15 @@
 preferences:
-  runs: runs,
+  runs: runs
   do_not_check_latest_version: true
   auto_update: false
   debug: false
   debug_cfg: false
+  keys:
+    forward: W
+    left: A
+    backward: S
+    right: D
+  sensitivity: 1.0
 
 window:
   width: 640
@@ -51,6 +57,10 @@ scene:
     position:
       !cartesian [5.0, 0.0, 0.0]
     distance_origin:
+    anchor: [0.0, 0.0, 0.0]
+    up: [0.0, 0.0, 1.0]
+    projection:
+      !perspective 0.6981  # 40°
 
 bodies:
   - id: 0

@@ -61,7 +61,8 @@ impl Export {
             }
             // print!(" cooldown export({})..", self.cooldown_export);
 
-            if self.cooldown_export <= 0 && dt > 0 {
+            // if self.cooldown_export <= 0 && dt > 0 {
+            if self.cooldown_export <= 0 {
                 // print!(" began exporting..");
                 self.exporting = true;
                 self.exporting_started_elapsed = elapsed as _;
