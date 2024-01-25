@@ -16,7 +16,7 @@ simulation:
 scene:
   sun:
     position:
-      !cartesian [0.0, 0.0, 1.5e11]
+      !cartesian [0.0, 0.0, 1.5e8]
   camera:
     position:
       !cartesian [0.0, 3.0, 3.0]

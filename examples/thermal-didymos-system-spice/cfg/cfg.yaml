@@ -3,25 +3,33 @@ window:
     name: inferno
     vmax: 400.0
     scalar: temperature
+
+spice:
+  kernel: C:\data\spice\hera\kernels\mk\hera_study_PO_EMA_2024.tm
+  frame: J2000
     
 simulation:
   routines: thermal
+  start: 2025-01-01 00:00
   step: 600
-  duration: 3600000
+  duration: 99661440  # 1.5 Didy year
   export:
     step: 60
-    duration: 36000
-    period: 360000
+    duration: 42960
+    period: 4296000
+    
 
 scene:
   sun:
     position:
-      !cartesian [1.5e8, 0.0, 0.0]
+      !spice
 
 bodies:
-  - id: body
+
+  - id: DIDYMOS
     mesh:
-      factor: [0.5, 0.5, 0.5]
+      # factor: [0.4095, 0.4005, 0.3035]
+      shape: C:\data\spice\hera\kernels\dsk\g_50677mm_rad_obj_didy_0000n00000_v001.obj
     material:
       albedo: 0.1
       emissivity: 0.9
@@ -33,14 +41,16 @@ bodies:
       type: linear
       size: 40
       a: 2e-2
-    spin:
-      period: 7200
+    state:
+      !spice
+        frame: DIDYMOS_FIXED
     record:
       columns: [114]
 
-  - id: moon
+  - id: DIMORPHOS
     mesh:
-      factor: [0.1, 0.1, 0.06]
+      # factor: [0.0895165, 0.0825, 0.0575]
+      shape: C:\data\spice\hera\kernels\dsk\g_08438mm_lgt_obj_dimo_0000n00000_v002.obj
     material:
       albedo: 0.1
       emissivity: 0.9
@@ -52,12 +62,9 @@ bodies:
       type: linear
       size: 40
       a: 2e-2
-    spin:
-      period: 36000
     state:
-      !orbit
-        a: 1.2
-        frame: body
-        control: 5.2e11
+      !spice
+        frame: DIMORPHOS_FIXED
+        origin: DIDYMOS
     record:
       columns: [114]
