@@ -32,7 +32,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 serde_json = "1.0"
 color-eyre = "0.6"
-polars = { version = "0.36", features = [] }
+polars = { version = "0.37", features = [] }
 snafu = "0.8"
 log = "0.4"
 simplelog = "0.12"

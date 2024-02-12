@@ -1,0 +1,46 @@
+window:
+  ambient: [0.07, 0.07, 0.07]
+  export_frames: true
+  width: 1024
+  height: 1024
+
+spice:
+  kernel: /Users/gregoireh/data/spice/hera/kernels/mk/hera_study_PO_EMA_2024.tm
+
+simulation:
+  start: 2027-04-02 16:57
+
+scene:
+  sun:
+    position:
+      !spice
+  camera:
+    position:
+      !spice HERA_AFC-1
+    # up: [1, 0, 0]
+    # direction:
+    #   !vector [0, 0, 1]
+    projection:
+      !perspective 0.09546951  # 5.47° FOVY
+
+bodies:
+  - id: DIDYMOS
+    mesh:
+      factor: [0.4095, 0.4005, 0.3035]
+      # shape: /Users/gregoireh/data/spice/git-hera/kernels/dsk/g_01165mm_spc_obj_didy_0000n00000_v003.obj
+    material:
+      albedo: 0.1
+    state:
+      !spice
+        frame: DIDYMOS_FIXED
+
+  - id: DIMORPHOS
+    mesh:
+      factor: [0.0895165, 0.0825, 0.0575]
+      # shape: /Users/gregoireh/data/spice/git-hera/kernels/dsk/g_00243mm_spc_obj_dimo_0000n00000_v004.obj
+    material:
+      albedo: 0.1
+    state:
+      !spice
+        frame: DIMORPHOS_FIXED
+        origin: DIDYMOS
