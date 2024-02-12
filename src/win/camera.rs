@@ -49,16 +49,13 @@ impl Default for ProjectionMode {
 }
 
 impl ProjectionMode {
-    pub fn matrix(&self, distance: Float, aspect: Float) -> Mat4 {
-        let side = distance;
-        let zfar = distance * FAR_FACTOR;
-        let znear = zfar * NEAR_FACTOR;
-
+    pub fn matrix(&self, near: Float, far: Float, aspect: Float) -> Mat4 {
         match self {
             ProjectionMode::Orthographic => {
-                glm::ortho(side * aspect, side * aspect, side, side, znear, zfar)
+                let side = far;
+                glm::ortho(side * aspect, side * aspect, side, side, near, far)
             }
-            ProjectionMode::Perspective(fovy) => glm::perspective(aspect, *fovy, znear, zfar),
+            ProjectionMode::Perspective(fovy) => glm::perspective(aspect, *fovy, near, far),
         }
     }
 }
@@ -72,6 +69,8 @@ pub struct Camera {
     pub projection: ProjectionMode,
     pub movement_mode: MovementMode,
     pub up_world: Vec3,
+    pub near: Option<Float>,
+    pub far: Option<Float>,
 }
 
 impl Camera {
@@ -84,6 +83,8 @@ impl Camera {
             projection: ProjectionMode::default(),
             movement_mode: MovementMode::Lock,
             up_world: UP,
+            near: None,
+            far: None,
         }
     }
 
@@ -128,7 +129,21 @@ impl Camera {
     }
 
     pub fn matrix_projection(&self, aspect: Float) -> Mat4 {
-        self.projection.matrix(self.position.magnitude(), aspect)
+        let distance = self.position.magnitude();
+
+        let near = if let Some(near) = self.near {
+            near
+        } else {
+            distance * NEAR_FACTOR
+        };
+
+        let far = if let Some(far) = self.far {
+            far
+        } else {
+            distance * FAR_FACTOR
+        };
+
+        self.projection.matrix(near, far, aspect)
     }
 
     pub fn reset_anchor(&mut self) {

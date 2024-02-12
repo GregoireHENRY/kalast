@@ -1,4 +1,4 @@
-use crate::{util::*, ProjectionMode, Shapes, Surface};
+use crate::{util::*, ProjectionMode, Shapes, Surface, FAR_FACTOR, NEAR_FACTOR};
 
 /// The lighting manager.
 ///
@@ -32,6 +32,9 @@ impl Light {
     }
 
     pub fn matrix_projection(&self, aspect: Float) -> Mat4 {
-        self.projection.matrix(self.position.magnitude(), aspect)
+        let distance = self.position.magnitude();
+        let near = distance * NEAR_FACTOR;
+        let far = distance * FAR_FACTOR;
+        self.projection.matrix(near, far, aspect)
     }
 }

@@ -3,7 +3,7 @@ use crate::{
     find_ref_orbit, matrix_orientation_obliquity, matrix_spin, position_in_inertial_frame,
     update_colormap_scalar, util::*, AirlessBody, BodyData, Cfg, CfgBody, CfgCamera,
     CfgCameraDirection, CfgCameraPosition, CfgFrameCenter, CfgScalar, CfgState, CfgStateCartesian,
-    CfgSun, CfgSunPosition, FoldersRun, MovementMode, Time, Window, WindowScene,
+    CfgSun, CfgSunPosition, FoldersRun, MovementMode, Time, Window, WindowScene, DEFAULT_FRAME,
 };
 
 use downcast_rs::{impl_downcast, DowncastSync};
@@ -40,7 +40,11 @@ pub trait Routines: DowncastSync {
                             let (position, _lt) = spice::spkpos(
                                 "Sun",
                                 elapsed_from_start as f64,
-                                &cfg.spice.frame,
+                                &cfg.spice
+                                    .frame
+                                    .as_ref()
+                                    .cloned()
+                                    .unwrap_or(DEFAULT_FRAME.to_string()),
                                 "none",
                                 &body.id,
                             );
@@ -114,7 +118,11 @@ pub trait Routines: DowncastSync {
                             let (position, _lt) = spice::spkpos(
                                 _name,
                                 elapsed_from_start as f64,
-                                &cfg.spice.frame,
+                                &cfg.spice
+                                    .frame
+                                    .as_ref()
+                                    .cloned()
+                                    .unwrap_or(DEFAULT_FRAME.to_string()),
                                 "none",
                                 &_body.id,
                             );
@@ -173,6 +181,14 @@ pub trait Routines: DowncastSync {
             scene.camera.up = cfg.scene.camera.up;
             scene.camera.up_world = cfg.scene.camera.up;
             scene.camera.projection = cfg.scene.camera.projection;
+
+            if let Some(near) = cfg.scene.camera.near {
+                scene.camera.near = Some(near);
+            }
+
+            if let Some(far) = cfg.scene.camera.far {
+                scene.camera.far = Some(far);
+            }
         }
     }
 
@@ -306,9 +322,14 @@ pub trait Routines: DowncastSync {
                 #[cfg(feature = "spice")]
                 {
                     let position = {
-                        if let Some(origin) = &_spice.origin {
-                            let frame_to =
-                                _spice.into_frame.clone().unwrap_or(cfg.spice.frame.clone());
+                        if let Some(origin) = &_spice.origin.as_ref().or(cfg.spice.origin.as_ref())
+                        {
+                            let frame_to = _spice
+                                .into_frame
+                                .as_ref()
+                                .or(cfg.spice.frame.as_ref())
+                                .cloned()
+                                .unwrap_or(DEFAULT_FRAME.to_string());
                             let (position, _lt) = spice::spkpos(
                                 &cfg.bodies[body].id,
                                 elapsed_from_start as f64,
@@ -324,8 +345,12 @@ pub trait Routines: DowncastSync {
 
                     let rotation = {
                         if let Some(frame) = &_spice.frame {
-                            let frame_to =
-                                _spice.into_frame.clone().unwrap_or(cfg.spice.frame.clone());
+                            let frame_to = _spice
+                                .into_frame
+                                .as_ref()
+                                .or(cfg.spice.frame.as_ref())
+                                .cloned()
+                                .unwrap_or(DEFAULT_FRAME.to_string());
                             let rotation =
                                 spice::pxform(&frame, &frame_to, elapsed_from_start as f64);
                             Mat3::from_row_slice(&rotation.iter().cloned().flatten().collect_vec())
