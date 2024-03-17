@@ -1,0 +1,22 @@
+[window]
+ambient = [0.07, 0.07, 0.07]
+export_frames = true
+shadows = true
+
+[scene]
+sun.position.cartesian = [100, 0, 0]
+
+[scene.camera]
+name = "test"
+position.cartesian = [10, 0, 0]
+# projection.perspective = 0.09
+
+[[bodies]]
+name = "A"
+state.cartesian.position = [0, 0, 0]
+material.albedo = 0.1
+
+[[bodies]]
+name = "B"
+state.cartesian.position = [3, 0, 0]
+material.albedo = 0.1

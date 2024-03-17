@@ -1,16 +1,16 @@
 use crate::{
-    check_if_latest_version, read_surface_main, util::*, AirlessBody, BodyData, Cfg, CfgInterior,
-    CfgInteriorGrid1D, CfgRoutines, Export, FoldersRun, FrameEvent, Result, Routines,
-    RoutinesThermalDefault, RoutinesViewerDefault, Time, Window,
+    check_if_latest_version, config, config::CfgRoutines, config::Config, config::InteriorGrid1D,
+    path_cfg_folder, read_surface_main, util::*, AirlessBody, BodyData, Export, FoldersRun,
+    FrameEvent, Result, Routines, RoutinesThermalDefault, RoutinesViewerDefault, Time, Window,
+    KEY_BACKWARD, KEY_FORWARD, KEY_LEFT, KEY_RIGHT, SENSITIVITY,
 };
 
 use chrono::Utc;
 use itertools::Itertools;
 use sdl2::keyboard::Keycode;
-use std::{env, path::Path};
 
 pub struct Scenario {
-    pub cfg: Cfg,
+    pub config: Config,
     pub bodies: Vec<AirlessBody>,
     pub time: Time,
     pub win: Window,
@@ -20,16 +20,14 @@ pub struct Scenario {
 }
 
 impl Scenario {
-    pub fn new() -> Result<Self> {
-        let path_exe = env::current_exe().unwrap();
-        let path = path_exe.parent().unwrap();
-        Self::new_with(path)
-    }
+    // pub fn new() -> Result<Self> {
+    //     let path_exe = env::current_exe().unwrap();
+    //     let path = path_exe.parent().unwrap();
+    //     Self::new_with(path)
+    // }
 
-    pub fn new_with<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let path = path.as_ref();
-        let path_cfg = path.join("cfg");
-        let path_mainrs = path.join("main.rs");
+    pub fn new(config: Config) -> Result<Self> {
+        let path_cfg = path_cfg_folder();
 
         println!(
             "kalast<{}> (built on {} with rustc<{}>)",
@@ -38,78 +36,106 @@ impl Scenario {
             RUSTC_VERSION
         );
 
-        let cfg = Cfg::new_from(&path_cfg)?;
-
         println!(
             "Config initialized at {}",
-            dunce::canonicalize(&path).unwrap().to_str().unwrap()
+            dunce::canonicalize(&path_cfg).unwrap().to_str().unwrap()
         );
 
-        if !cfg.preferences.do_not_check_latest_version {
-            check_if_latest_version(&cfg);
+        if let Some(true) = config.preferences.debug.config {
+            println!("{:#?}", config);
         }
 
-        let mut folders = FoldersRun::new(&cfg);
+        if let Some(false) = config.preferences.do_not_check_latest_version {
+            check_if_latest_version(&config);
+        }
+
+        let mut folders = FoldersRun::new(&config);
         folders.save_cfgs(&path_cfg);
-        folders.save_src(&path_mainrs);
+        // folders.save_src(&path_mainrs);
 
         let bodies = vec![];
         let pre_computed_bodies = vec![];
 
-        let routines = match &cfg.simulation.routines {
+        let routines = match &config.simulation.routines {
             CfgRoutines::Viewer => Box::new(RoutinesViewerDefault::new()) as Box<dyn Routines>,
             CfgRoutines::Thermal => Box::new(RoutinesThermalDefault::new()) as Box<dyn Routines>,
         };
 
         #[cfg(feature = "spice")]
         {
-            if let Some(path) = &cfg.spice.kernel {
+            if let Some(path) = &config.spice.kernel {
                 spice::kclear();
-                if cfg.preferences.debug {
+                if let Some(true) = config.preferences.debug.general {
                     println!("SPICE: Cleared kernel pool.");
                 }
 
                 let path_str = path.to_str().unwrap();
                 spice::furnsh(path_str);
-                if cfg.preferences.debug {
+                if let Some(true) = config.preferences.debug.general {
                     println!("SPICE: Loaded kernel {}.", path_str);
                 }
             }
         }
 
+        dbg!(&config.window.shadows);
+
         let win = Window::with_settings(|s| {
-            s.width = cfg.window.width;
-            s.height = cfg.window.height;
-            s.background_color = cfg.window.background;
-            if cfg.window.high_dpi {
+            s.width = config.window.width;
+            s.height = config.window.height;
+            s.background_color = config.window.background;
+            if config.window.high_dpi {
                 s.high_dpi();
             }
-            s.colormap = cfg.window.colormap.name;
-            s.shadows = cfg.window.shadows;
-            s.ambient_light_color = cfg.window.ambient;
-            s.wireframe = cfg.window.wireframe;
-            s.draw_normals = cfg.window.normals;
-            s.normals_magnitude = cfg.window.normals_length;
-            s.debug = cfg.preferences.debug;
-            s.sensitivity = cfg.preferences.sensitivity;
-            s.forward = Keycode::from_name(&cfg.preferences.keys.forward).unwrap();
-            s.left = Keycode::from_name(&cfg.preferences.keys.left).unwrap();
-            s.backward = Keycode::from_name(&cfg.preferences.keys.backward).unwrap();
-            s.right = Keycode::from_name(&cfg.preferences.keys.right).unwrap();
-            s.touchpad_controls = cfg.preferences.touchpad_controls;
+            s.colormap = config.window.colormap.name;
+            s.shadows = config.window.shadows;
+            s.ambient_light_color = config.window.ambient;
+            s.wireframe = config.window.wireframe;
+            s.draw_normals = config.window.normals;
+            s.normals_magnitude = config.window.normals_length;
+            s.debug = config.preferences.debug.window.unwrap_or_default();
+            s.sensitivity = config.preferences.sensitivity.unwrap_or(SENSITIVITY);
+            s.forward = config
+                .preferences
+                .keys
+                .forward
+                .as_ref()
+                .and_then(|s| Keycode::from_name(&s))
+                .unwrap_or(KEY_FORWARD);
+            s.left = config
+                .preferences
+                .keys
+                .left
+                .as_ref()
+                .and_then(|s| Keycode::from_name(&s))
+                .unwrap_or(KEY_LEFT);
+            s.backward = config
+                .preferences
+                .keys
+                .backward
+                .as_ref()
+                .and_then(|s| Keycode::from_name(&s))
+                .unwrap_or(KEY_BACKWARD);
+            s.right = config
+                .preferences
+                .keys
+                .right
+                .as_ref()
+                .and_then(|s| Keycode::from_name(&s))
+                .unwrap_or(KEY_RIGHT);
+            s.touchpad_controls = config.preferences.touchpad_controls.unwrap_or_default();
         });
 
-        let time_start = match cfg.simulation.start.seconds() {
+        let time_start = match config.simulation.start.seconds() {
             Ok(seconds) => seconds,
             Err(e) => panic!("{e} Spice is required to convert the starting date of the simulation to ephemeris time."),
         } as usize;
 
         let time = Time::new()
-            .with_time_step(cfg.simulation.step)
+            .with_time_step(config.simulation.step)
             .with_time_start(time_start);
 
         Ok(Self {
-            cfg,
+            config,
             bodies,
             time,
             win,
@@ -124,24 +150,24 @@ impl Scenario {
     }
 
     pub fn load_bodies(&mut self) -> Result<()> {
-        for (_ii, cb) in self.cfg.bodies.iter().enumerate() {
+        for (_ii, cb) in self.config.bodies.iter().enumerate() {
             let surface = read_surface_main(cb)?;
             let asteroid = AirlessBody::new(surface);
 
             let asteroid = match &cb.interior {
                 None => asteroid,
                 Some(interior) => match interior {
-                    CfgInterior::Grid1D(grid) => match grid {
-                        CfgInteriorGrid1D::Linear { size, a } => {
+                    config::Interior::Grid1D(grid) => match grid {
+                        InteriorGrid1D::Linear { size, a } => {
                             asteroid.with_interior_grid_fn_linear(*size, *a)
                         }
-                        CfgInteriorGrid1D::Pow { size, a, n } => {
+                        InteriorGrid1D::Pow { size, a, n } => {
                             asteroid.with_interior_grid_fn_pow(*size, *a, *n)
                         }
-                        CfgInteriorGrid1D::Exp { size, a } => {
+                        InteriorGrid1D::Exp { size, a } => {
                             asteroid.with_interior_grid_fn_exp(*size, *a)
                         }
-                        CfgInteriorGrid1D::File { path } => {
+                        InteriorGrid1D::File { path } => {
                             asteroid.with_interior_grid_from_file(path)
                         }
                     },
@@ -169,10 +195,10 @@ impl Scenario {
         }
 
         let mut paused_stop = true;
-        let mut export = Export::new(&self.cfg.simulation.export);
+        let mut export = Export::new(&self.config.simulation.export);
 
         self.routines
-            .init(&self.cfg, &mut self.bodies, &self.time, &mut self.win);
+            .init(&self.config, &mut self.bodies, &self.time, &mut self.win);
 
         'main_loop: loop {
             // Register keyboard and mouse interactions.
@@ -185,7 +211,7 @@ impl Scenario {
 
             if self.win.is_paused() {
                 self.routines
-                    .fn_render(&self.cfg, &mut self.bodies, &self.time, &mut self.win);
+                    .fn_render(&self.config, &mut self.bodies, &self.time, &mut self.win);
                 continue;
             }
 
@@ -197,12 +223,15 @@ impl Scenario {
             let elapsed = self.time.elapsed_seconds();
             let jd = self.time.jd();
 
-            self.routines
-                .fn_update_scene(&self.cfg, &self.time, &mut self.win.scene.borrow_mut());
+            self.routines.fn_update_scene(
+                &self.config,
+                &self.time,
+                &mut self.win.scene.borrow_mut(),
+            );
 
             for body in 0..self.bodies.len() {
                 self.routines.fn_update_body(
-                    &self.cfg,
+                    &self.config,
                     body,
                     &mut self.bodies,
                     &mut self.pre_computed_bodies,
@@ -212,10 +241,10 @@ impl Scenario {
             }
 
             self.routines
-                .fn_render(&self.cfg, &mut self.bodies, &self.time, &mut self.win);
+                .fn_render(&self.config, &mut self.bodies, &self.time, &mut self.win);
 
             export.iteration(
-                &self.cfg,
+                &self.config,
                 &mut self.bodies,
                 &self.pre_computed_bodies,
                 &mut self.time,
@@ -224,10 +253,14 @@ impl Scenario {
                 self.routines.as_ref(),
             );
 
-            self.routines
-                .fn_iteration_finish(&self.cfg, &mut self.bodies, &self.time, &self.win);
+            self.routines.fn_iteration_finish(
+                &self.config,
+                &mut self.bodies,
+                &self.time,
+                &self.win,
+            );
 
-            if elapsed > self.cfg.simulation.duration {
+            if elapsed > self.config.simulation.duration {
                 let time_calc = Utc::now().time() - *self.time.real_time();
                 println!(
                     "\nSimulation finished at JD: {}.\nComputation time: {:.3}s ({}it).",

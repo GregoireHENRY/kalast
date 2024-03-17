@@ -1,4 +1,4 @@
-use crate::{util::*, Colormap, Configuration, WINDOW_HEIGHT, WINDOW_WIDTH};
+use crate::{util::*, Colormap, WINDOW_HEIGHT, WINDOW_WIDTH};
 
 use serde::{Deserialize, Serialize};
 
@@ -43,8 +43,6 @@ pub struct CfgWindow {
     #[serde(default)]
     pub export_frames: bool,
 }
-
-impl Configuration for CfgWindow {}
 
 impl Default for CfgWindow {
     fn default() -> Self {

@@ -1,4 +1,4 @@
-use crate::{util::*, Interior, InteriorGrid, Surface};
+use crate::{body::interior::Interior, util::*, InteriorGrid, Surface};
 
 use itertools::Itertools;
 use polars::prelude::{CsvReader, SerReader};

@@ -1,4 +1,4 @@
-use crate::{util::*, CfgError, Configuration};
+use crate::{config::Error, config::FileSetup, util::*};
 
 use serde::{Deserialize, Serialize};
 use snafu::prelude::*;
@@ -8,11 +8,11 @@ pub type CfgSimulationResult<T, E = CfgSimulationError> = std::result::Result<T,
 /// Errors related to Kalast config.
 #[derive(Debug, Snafu)]
 pub enum CfgSimulationError {
-    CfgSpiceError { source: CfgError },
+    CfgSpiceError { source: Error },
 }
 
-impl From<CfgError> for CfgSimulationError {
-    fn from(value: CfgError) -> Self {
+impl From<Error> for CfgSimulationError {
+    fn from(value: Error) -> Self {
         Self::CfgSpiceError { source: value }
     }
 }
@@ -37,6 +37,9 @@ pub struct CfgSimulation {
 
     #[serde(default)]
     pub pause_after_first_iteration: bool,
+
+    #[serde(default)]
+    pub file: Option<FileSetup>,
 }
 
 impl Default for CfgSimulation {
@@ -48,27 +51,27 @@ impl Default for CfgSimulation {
             duration: 0,
             export: CfgTimeExport::default(),
             pause_after_first_iteration: false,
+            file: None,
         }
     }
 }
 
-impl Configuration for CfgSimulation {}
-
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
+// #[serde(tag = "type", content = "args")]
 pub enum TimeOption {
     #[serde(rename = "seconds")]
     Seconds(Float),
 
-    #[serde(rename = "string")]
-    String(String),
+    #[serde(rename = "time")]
+    Time(String),
 }
 
 impl TimeOption {
     pub fn seconds(&self) -> CfgSimulationResult<Float> {
         match self {
             Self::Seconds(v) => Ok(*v),
-            Self::String(_s) => {
+            Self::Time(_s) => {
                 #[cfg(feature = "spice")]
                 return Ok(spice::str2et(_s));
                 #[cfg(not(feature = "spice"))]

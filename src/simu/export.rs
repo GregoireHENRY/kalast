@@ -1,6 +1,6 @@
 use crate::{
-    util::*, AirlessBody, BodyData, Cfg, CfgTimeExport, FoldersRun, Routines, Time, Window,
-    WindowScene,
+    config::CfgTimeExport, config::Config, util::*, AirlessBody, BodyData, FoldersRun, Routines,
+    Time, Window, WindowScene,
 };
 
 use polars::prelude::{df, CsvWriter, NamedFrom, SerWriter};
@@ -29,7 +29,7 @@ impl Export {
 
     pub fn iteration(
         &mut self,
-        cfg: &Cfg,
+        cfg: &Config,
         bodies: &mut [AirlessBody],
         body_data: &[BodyData],
         time: &mut Time,
@@ -134,7 +134,7 @@ impl Export {
 
     pub fn iteration_body_export_start_generic(
         &self,
-        cfg: &Cfg,
+        config: &Config,
         body: usize,
         bodies: &mut [AirlessBody],
         body_data: &[BodyData],
@@ -143,14 +143,16 @@ impl Export {
         folders: &FoldersRun,
     ) {
         let elapsed = time.elapsed_seconds();
-        let np_elapsed = time.elapsed_seconds() as Float / cfg.bodies[body].spin.period;
+        let np_elapsed = time.elapsed_seconds() as Float / config.bodies[body].spin.period;
         let jd = time.jd();
 
-        let folder_state = folders
-            .simu_rec_time_body_state(self.exporting_started_elapsed as _, &cfg.bodies[body].id);
+        let folder_state = folders.simu_rec_time_body_state(
+            self.exporting_started_elapsed as _,
+            &config.bodies[body].name,
+        );
         let folder_tpm = folders.simu_rec_time_body_temperatures(
             self.exporting_started_elapsed as _,
-            &cfg.bodies[body].id,
+            &config.bodies[body].name,
         );
         let folder_img = folders.simu_rec_time_frames(self.exporting_started_elapsed as _);
         fs::create_dir_all(&folder_state).unwrap();

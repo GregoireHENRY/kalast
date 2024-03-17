@@ -1,4 +1,6 @@
-use crate::Cfg;
+use directories::UserDirs;
+
+use crate::config::Config;
 
 use std::{
     fs,
@@ -23,8 +25,13 @@ pub struct FoldersRun {
 }
 
 impl FoldersRun {
-    pub fn new(cfg: &Cfg) -> Self {
-        let path = find_new_name_run(&cfg.preferences.runs).unwrap();
+    pub fn new(config: &Config) -> Self {
+        let path = config.preferences.path_runs.clone().unwrap_or({
+            let dirs = UserDirs::new().unwrap();
+            dirs.desktop_dir().unwrap().join("kalast-runs")
+        });
+
+        let path = find_new_name_run(path).unwrap();
 
         Self { path }
     }

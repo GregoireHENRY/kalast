@@ -52,17 +52,74 @@ Now you should read the documentation of the different config structures: [`Cfg`
 */
 
 mod body;
-mod config;
 mod preferences;
 mod scene;
 mod simulation;
 mod spice;
 mod window;
 
+use std::{collections::HashMap, io, path::PathBuf};
+
 pub use body::*;
-pub use config::*;
 pub use preferences::*;
 pub use scene::*;
 pub use simulation::*;
 pub use spice::*;
 pub use window::*;
+
+use figment::value::Value;
+use snafu::prelude::*;
+
+pub type Result<T, E = Error> = std::result::Result<T, E>;
+
+/// Errors related to Kalast config.
+#[derive(Debug, Snafu)]
+pub enum Error {
+    FileNotFound {
+        source: io::Error,
+        path: PathBuf,
+    },
+
+    // CfgReading {
+    //     source: serde_yaml::Error,
+    //     path: PathBuf,
+    // },
+    // ParsingEquatorial {
+    //     source: Error,
+    //     location: Location,
+    // },
+    #[snafu(display("Feature `spice` is not enabled."))]
+    FeatureSpiceNotEnabled {},
+}
+
+use serde::{Deserialize, Serialize};
+
+/// # Configuration
+///
+/// For the moment, no high-level documentation of `Cfg`.
+/// Read [the existing examples][examples] and adapt them with the definition of `Cfg`.
+///
+/// You can read [`CfgBody`] for preliminary documentation of the configuration for the bodies.
+///
+/// [examples]: https://github.com/GregoireHENRY/kalast/tree/main/examples
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct Config {
+    pub preferences: Preferences,
+    pub bodies: Vec<Body>,
+    pub scene: CfgScene,
+    pub simulation: CfgSimulation,
+
+    #[cfg(feature = "spice")]
+    pub spice: CfgSpice,
+
+    pub window: CfgWindow,
+
+    #[serde(flatten)]
+    extra: HashMap<String, Value>,
+}
+
+impl Config {
+    pub fn index_body(&self, name: &str) -> Option<usize> {
+        self.bodies.iter().position(|body| body.name == name)
+    }
+}

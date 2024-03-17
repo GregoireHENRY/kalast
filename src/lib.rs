@@ -21,35 +21,37 @@ Information on the configuration of your **kalast** scenarios are located at the
 */
 
 pub mod body;
-pub mod cfg;
+pub mod config;
 pub mod simu;
 pub mod thermal;
 pub mod util;
 pub mod win;
 
 pub use body::*;
-pub use cfg::*;
 pub use simu::*;
 pub use thermal::*;
 pub use util::*;
 pub use win::*;
 
+use config as cg;
+
 #[cfg(feature = "spice")]
 pub use spice;
 
 use snafu::prelude::*;
+use std::{env, path::PathBuf};
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[derive(Debug, Snafu)]
 pub enum Error {
-    CfgError { source: CfgError },
+    ConfigError { source: cg::Error },
     SurfaceError { source: SurfaceError },
 }
 
-impl From<CfgError> for Error {
-    fn from(value: CfgError) -> Self {
-        Self::CfgError { source: value }
+impl From<cg::Error> for Error {
+    fn from(value: cg::Error) -> Self {
+        Self::ConfigError { source: value }
     }
 }
 
@@ -57,4 +59,8 @@ impl From<SurfaceError> for Error {
     fn from(value: SurfaceError) -> Self {
         Self::SurfaceError { source: value }
     }
+}
+
+pub fn path_cfg_folder() -> PathBuf {
+    env::current_exe().unwrap().parent().unwrap().join("cfg")
 }

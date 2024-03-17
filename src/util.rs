@@ -1,4 +1,4 @@
-use crate::Cfg;
+use crate::config::Config;
 
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -157,7 +157,7 @@ pub fn fmt_str_tab(text: &str, tab: usize) -> String {
     vec.join("\n")
 }
 
-pub fn check_if_latest_version(cfg: &Cfg) {
+pub fn check_if_latest_version(config: &Config) {
     let client = reqwest::blocking::Client::new();
     let resp = client
         .get("https://api.github.com/repos/GregoireHENRY/kalast/tags")
@@ -177,7 +177,7 @@ pub fn check_if_latest_version(cfg: &Cfg) {
     if latest > version() {
         println!("A more recent version of kalast is available: {}.", latest);
 
-        if cfg.preferences.auto_update {
+        if let Some(true) = config.preferences.auto_update {
             unimplemented!("Auto-update is not yet implemented. Install newest version manually.");
         }
     }

@@ -1,8 +1,9 @@
 use crate::{
     compute_cosine_emission_angle, compute_cosine_incidence_angle, compute_cosine_phase_angle,
+    config::Body, config::CfgScalar, config::Config, config::TemperatureInit,
     effective_temperature, flux_solar_radiation, newton_method_temperature, read_surface_low,
-    shadows, update_colormap_scalar, util::*, AirlessBody, BodyData, Cfg, CfgBody, CfgScalar,
-    CfgTemperatureInit, FoldersRun, Routines, Surface, Time, Window, WindowScene,
+    shadows, update_colormap_scalar, util::*, AirlessBody, BodyData, FoldersRun, Routines, Surface,
+    Time, Window, WindowScene,
 };
 
 use itertools::Itertools;
@@ -23,7 +24,7 @@ pub struct ThermalBodyData {
 }
 
 impl ThermalBodyData {
-    pub fn new(asteroid: &AirlessBody, cb: &CfgBody) -> Self {
+    pub fn new(asteroid: &AirlessBody, cb: &Body) -> Self {
         let depth_grid = &asteroid.interior.as_ref().unwrap().as_grid().depth;
         let depth_size = depth_grid.len();
         let surf_size = asteroid.surface.faces.len();
@@ -111,7 +112,7 @@ pub trait RoutinesThermal: Routines {
     fn fn_compute_initial_temperatures(
         &self,
         body: &AirlessBody,
-        cb: &CfgBody,
+        cb: &Body,
         sun_position: &Vec3,
     ) -> DMatrix<Float> {
         let depth_grid = &body.interior.as_ref().unwrap().as_grid().depth;
@@ -119,7 +120,7 @@ pub trait RoutinesThermal: Routines {
         let surf_size = body.surface.faces.len();
 
         match &cb.temperature {
-            CfgTemperatureInit::Effective(ratio) => {
+            TemperatureInit::Effective(ratio) => {
                 let ratio = ratio.unwrap_or((1, 4));
                 let ratio = ratio.0 as Float / ratio.1 as Float;
 
@@ -132,10 +133,10 @@ pub trait RoutinesThermal: Routines {
                 );
                 DMatrix::<Float>::from_element(depth_size, surf_size, init)
             }
-            CfgTemperatureInit::Scalar(scalar) => {
+            TemperatureInit::Scalar(scalar) => {
                 DMatrix::<Float>::from_element(depth_size, surf_size, *scalar)
             }
-            CfgTemperatureInit::File(_p) => unimplemented!(),
+            TemperatureInit::File(_p) => unimplemented!(),
         }
     }
 
@@ -219,7 +220,7 @@ impl RoutinesThermalDefault {
 }
 
 impl Routines for RoutinesThermalDefault {
-    fn load(&mut self, body: &AirlessBody, cb: &CfgBody) {
+    fn load(&mut self, body: &AirlessBody, cb: &Body) {
         self.data.push(ThermalBodyData::new(body, cb));
     }
 
@@ -234,7 +235,7 @@ impl Routines for RoutinesThermalDefault {
     // be in meters for computation unless explicitely mentioned.
     fn fn_update_body_data(
         &mut self,
-        cfg: &Cfg,
+        cfg: &Config,
         body: usize,
         bodies: &mut [AirlessBody],
         bodies_data: &mut [BodyData],
@@ -302,7 +303,7 @@ impl Routines for RoutinesThermalDefault {
         body: usize,
         bodies: &mut [AirlessBody],
         pre_computed_bodies: &[BodyData],
-        cfg: &Cfg,
+        cfg: &Config,
         win: &Window,
     ) {
         let cmap = &cfg.window.colormap;
@@ -339,7 +340,7 @@ impl Routines for RoutinesThermalDefault {
     fn fn_export_iteration(
         &self,
         body: usize,
-        cfg: &Cfg,
+        cfg: &Config,
         time: &Time,
         folders: &FoldersRun,
         is_first_it: bool,
@@ -369,7 +370,7 @@ impl Routines for RoutinesThermalDefault {
         )
         .unwrap();
 
-        let folder_simu = folders.simu_body(&cfg.bodies[body].id);
+        let folder_simu = folders.simu_body(&cfg.bodies[body].name);
         fs::create_dir_all(&folder_simu).unwrap();
 
         let mut file = std::fs::File::options()
@@ -387,13 +388,15 @@ impl Routines for RoutinesThermalDefault {
         &self,
         body: usize,
         _bodies: &mut [AirlessBody],
-        cfg: &Cfg,
+        cfg: &Config,
         folders: &FoldersRun,
         exporting_started_elapsed: i64,
         is_first_it_export: bool,
     ) {
-        let folder_tpm = folders
-            .simu_rec_time_body_temperatures(exporting_started_elapsed as _, &cfg.bodies[body].id);
+        let folder_tpm = folders.simu_rec_time_body_temperatures(
+            exporting_started_elapsed as _,
+            &cfg.bodies[body].name,
+        );
         fs::create_dir_all(&folder_tpm).unwrap();
 
         let data = &self.data[body];

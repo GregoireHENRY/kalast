@@ -1,0 +1,7 @@
+[preferences]
+touchpad_controls = true
+
+[preferences.debug]
+config = true
+general = true
+

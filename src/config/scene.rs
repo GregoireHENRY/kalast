@@ -1,4 +1,4 @@
-use crate::{util::*, CfgBodyError, Configuration, Equatorial, ProjectionMode};
+use crate::{config::SpicePosition, util::*, Equatorial, Error, ProjectionMode};
 
 use serde::{Deserialize, Serialize};
 use snafu::{prelude::*, Location};
@@ -8,10 +8,7 @@ pub type SceneResult<T, E = CfgSceneError> = std::result::Result<T, E>;
 /// Errors related to Kalast config.
 #[derive(Debug, Snafu)]
 pub enum CfgSceneError {
-    CfgParsingEquatorial {
-        source: CfgBodyError,
-        location: Location,
-    },
+    CfgParsingEquatorial { source: Error, location: Location },
 }
 
 /// Position vectors are expected in km.
@@ -23,8 +20,6 @@ pub struct CfgScene {
     #[serde(default)]
     pub camera: CfgCamera,
 }
-
-impl Configuration for CfgScene {}
 
 /// Position vectors are expected in km.
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -53,12 +48,13 @@ pub enum CfgSunPosition {
     Equatorial(Equatorial),
 
     #[serde(rename = "spice")]
-    #[serde(alias = "from_spice")]
     Spice,
 
-    #[serde(rename = "body")]
-    #[serde(alias = "from_body")]
-    FromBody,
+    #[serde(rename = "origin")]
+    Origin,
+
+    #[serde(rename = "file")]
+    File,
 }
 
 impl Default for CfgSunPosition {
@@ -69,6 +65,9 @@ impl Default for CfgSunPosition {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CfgCamera {
+    #[serde(default)]
+    pub name: Option<String>,
+
     #[serde(default)]
     pub position: CfgCameraPosition,
 
@@ -110,6 +109,7 @@ impl CfgCamera {
 impl Default for CfgCamera {
     fn default() -> Self {
         Self {
+            name: None,
             position: CfgCameraPosition::default(),
             distance_origin: None,
             direction: CfgCameraDirection::default(),
@@ -123,6 +123,8 @@ impl Default for CfgCamera {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+// #[serde(untagged)]
+// #[serde(tag = "type", content = "args")]
 pub enum CfgCameraPosition {
     #[serde(rename = "cartesian")]
     Cartesian(Vec3),
@@ -134,8 +136,10 @@ pub enum CfgCameraPosition {
     FromSun,
 
     #[serde(rename = "spice")]
-    #[serde(alias = "from_spice")]
-    Spice(String),
+    Spice,
+
+    #[serde(rename = "spice_pos")]
+    SpicePos(SpicePosition),
 
     #[serde(rename = "reference")]
     Reference, // distance origin

@@ -1,0 +1,53 @@
+[window]
+ambient = [0.07, 0.07, 0.07]
+export_frames = true
+# width = 2048
+# height = 1536
+width = 1024
+height = 768
+shadows = true
+
+[spice]
+kernel = "/Users/gregoireh/data/spice/hera/kernels/mk/hera_study_PO_EMA_2024.tm"
+frame = "JUVENTAS_NAVCAM"
+origin = "DIDYMOS"
+
+[simulation]
+start = "2027 MAR 23 16:02:00.0 TDB"
+step = 60
+duration = 259080
+# 86400 * 60 = 5184000
+# 86400 * 3 = 259200
+# ^-120 = 259080
+
+[scene]
+sun.position = "spice"
+
+[scene.camera]
+name = "JUVENTAS"
+# name = "JUVENTAS_NAVCAM"
+position = "spice"
+up = [1, 0, 0]
+direction.vector = [0, 0, 1]
+# projection.perspective = 0.4974188  # 28.5°
+projection.perspective = 0.09
+
+[[bodies]]
+name = "DIDYMOS"
+frame = "DIDYMOS_FIXED"
+state = "spice"
+material.albedo = 0.1
+# mesh.factor = [0.4095, 0.4005, 0.3035]
+# mesh.shape.path = "/Users/gregoireh/data/spice/hera/kernels/dsk/g_01165mm_spc_obj_didy_0000n00000_v003.obj"
+mesh.shape.path = "/Users/gregoireh/data/DART/meshes/didymos-model-v002/9740mm/g_09740mm_spc_obj_didy_0000n00000_v002.obj"
+# mesh.shape.path = "/Users/gregoireh/data/meshes/didymos/didymos_50680mm_rdr_002_rescaled_30%_Z_axis.obj"
+
+[[bodies]]
+name = "DIMORPHOS"
+frame = "DIMORPHOS_FIXED"
+state = "spice"
+material.albedo = 0.1
+# mesh.factor = [0.0895165, 0.0825, 0.0575]
+# mesh.shape.path = "/Users/gregoireh/data/spice/hera/kernels/dsk/g_00243mm_spc_obj_dimo_0000n00000_v004.obj"
+mesh.shape.path = "/Users/gregoireh/data/DART/meshes/dimorphos-model-v003/1960mm/g_01960mm_spc_obj_dimo_0000n00000_v003.obj"
+# mesh.shape.path = "/Users/gregoireh/data/meshes/dimorphos/dimorphos_08438mm_lgt_002_rescaled_new_ellipsoid.obj"

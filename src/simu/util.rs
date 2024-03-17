@@ -1,19 +1,19 @@
+use crate::config as cg;
 use crate::{
-    cosine_angle, util::*, AirlessBody, Cfg, CfgBody, CfgFrameCenter, CfgMeshKind, CfgMeshSource,
-    CfgOrbitSpeedControl, CfgStateOrbit, Material, Result, Surface, Window,
+    config::Config, cosine_angle, util::*, AirlessBody, Material, Result, Surface, Window,
 };
 
 use itertools::{izip, Itertools};
 
-pub fn read_surface(cb: &CfgBody, kind: CfgMeshKind) -> Result<Surface> {
+pub fn read_surface(cb: &cg::Body, kind: cg::MeshKind) -> Result<Surface> {
     let mesh = match kind {
-        CfgMeshKind::Main => &cb.mesh,
-        CfgMeshKind::Low => &cb.mesh_low.as_ref().unwrap(),
+        cg::MeshKind::Main => &cb.mesh,
+        cg::MeshKind::Low => &cb.mesh_low.as_ref().unwrap(),
     };
 
     let mut builder = match &mesh.shape {
-        CfgMeshSource::Path(p) => Surface::read_file(p)?,
-        CfgMeshSource::Shape(m) => Surface::use_integrated(*m)?,
+        cg::MeshSource::Path(p) => Surface::read_file(p)?,
+        cg::MeshSource::Shape(m) => Surface::use_integrated(*m)?,
     };
 
     if !mesh.smooth {
@@ -39,24 +39,24 @@ pub fn read_surface(cb: &CfgBody, kind: CfgMeshKind) -> Result<Surface> {
     Ok(surface)
 }
 
-pub fn read_surface_main(cb: &CfgBody) -> Result<Surface> {
-    read_surface(cb, CfgMeshKind::Main)
+pub fn read_surface_main(cb: &cg::Body) -> Result<Surface> {
+    read_surface(cb, cg::MeshKind::Main)
 }
 
-pub fn read_surface_low(cb: &CfgBody) -> Result<Surface> {
-    read_surface(cb, CfgMeshKind::Low)
+pub fn read_surface_low(cb: &cg::Body) -> Result<Surface> {
+    read_surface(cb, cg::MeshKind::Low)
 }
 
 /// return MU and factor for distances.
-pub fn find_ref_orbit(orbit: &CfgStateOrbit, cfgs: &[&CfgBody]) -> (Float, Float) {
+pub fn find_ref_orbit(orbit: &cg::StateOrbit, cfgs: &[&cg::Body]) -> (Float, Float) {
     match &orbit.frame {
-        CfgFrameCenter::Sun => (MU_SUN, AU),
-        CfgFrameCenter::Body(id) => (
+        cg::FrameCenter::Sun => (MU_SUN, AU),
+        cg::FrameCenter::Body(id) => (
             match orbit.control {
-                CfgOrbitSpeedControl::Mass(None) | CfgOrbitSpeedControl::Period(_) => {
+                cg::OrbitSpeedControl::Mass(None) | cg::OrbitSpeedControl::Period(_) => {
                     let mut mu = 0.0;
                     for cfg in cfgs {
-                        if cfg.id == *id {
+                        if cfg.name == *id {
                             mu = GRAVITATIONAL_CONSTANT
                                 * cfg
                                     .mass
@@ -66,7 +66,7 @@ pub fn find_ref_orbit(orbit: &CfgStateOrbit, cfgs: &[&CfgBody]) -> (Float, Float
                     }
                     mu
                 }
-                CfgOrbitSpeedControl::Mass(Some(mass)) => GRAVITATIONAL_CONSTANT * mass,
+                cg::OrbitSpeedControl::Mass(Some(mass)) => GRAVITATIONAL_CONSTANT * mass,
             },
             1e3,
         ),
@@ -75,7 +75,7 @@ pub fn find_ref_orbit(orbit: &CfgStateOrbit, cfgs: &[&CfgBody]) -> (Float, Float
 
 pub fn update_colormap_scalar(
     win: &Window,
-    cfg: &Cfg,
+    cfg: &Config,
     scalars: &[Float],
     asteroid: &mut AirlessBody,
     ii_body: usize,

@@ -1,4 +1,4 @@
-use crate::{util::*, AirlessBody, CfgBody};
+use crate::{config::Body, util::*, AirlessBody};
 
 use itertools::Itertools;
 
@@ -10,7 +10,7 @@ pub struct BodyData {
 }
 
 impl BodyData {
-    pub fn new(asteroid: &AirlessBody, _cb: &CfgBody) -> Self {
+    pub fn new(asteroid: &AirlessBody, _cb: &Body) -> Self {
         let normals = Matrix3xX::from_columns(
             &asteroid
                 .surface
