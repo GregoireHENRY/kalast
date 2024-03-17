@@ -9,7 +9,8 @@ sun.position.cartesian = [100, 0, 0]
 [scene.camera]
 name = "test"
 position.cartesian = [10, 0, 0]
-# projection.perspective = 0.09
+projection.perspective = 0.5236
+# projection = "orthographic"
 
 [[bodies]]
 name = "A"
