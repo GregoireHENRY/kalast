@@ -28,6 +28,7 @@ impl Light {
     }
 
     pub fn matrix_lookat(&self) -> Mat4 {
+        // glm::look_at(&self.position, &Vec3::zeros(), &Vec3::z())
         glm::look_at(&self.position, &self.target(), &Vec3::z())
     }
 
