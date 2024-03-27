@@ -67,11 +67,17 @@ impl Export {
                 self.exporting = true;
                 self.exporting_started_elapsed = elapsed as _;
                 self.remaining_duration_export = cfg.simulation.export.duration as _;
+                println!("Detected export time.");
+                println!("Simulation time step: {}", time.time_step);
                 time.set_time_step(cfg.simulation.export.step);
+                println!("Export time step: {}", time.time_step);
             } else if self.cooldown_export - (dt as i64) < 0 {
                 // So export does not really start here, but the time step is adapted to not miss the beginning of export
                 // (in case export time step is smaller than simulation time step).
+                println!("Detected pre-export time.");
+                println!("Simulation time step: {}", time.time_step);
                 time.set_time_step(cfg.simulation.export.step);
+                println!("Export time step: {}", time.time_step);
             }
         }
 
@@ -121,7 +127,10 @@ impl Export {
                 self.is_first_it_export = true;
                 self.cooldown_export =
                     (cfg.simulation.export.period - cfg.simulation.export.duration) as _;
+                println!("End of export.");
+                println!("Export time step: {}", time.time_step);
                 time.set_time_step(cfg.simulation.step);
+                println!("Simulation time step: {}", time.time_step);
 
                 // let _cvg = kalast::simu::converge::check_all(&mut bodies, &folder_tpm, &cfg.time.export);
             }
@@ -150,13 +159,8 @@ impl Export {
             self.exporting_started_elapsed as _,
             &config.bodies[body].name,
         );
-        let folder_tpm = folders.simu_rec_time_body_temperatures(
-            self.exporting_started_elapsed as _,
-            &config.bodies[body].name,
-        );
         let folder_img = folders.simu_rec_time_frames(self.exporting_started_elapsed as _);
         fs::create_dir_all(&folder_state).unwrap();
-        fs::create_dir_all(&folder_tpm).unwrap();
         fs::create_dir_all(&folder_img).unwrap();
 
         let mut df = df!(

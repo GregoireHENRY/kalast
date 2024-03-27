@@ -87,7 +87,7 @@ impl FoldersRun {
             return;
         }
 
-        fs::create_dir_all(&self.path).unwrap();
-        fs::copy(path, &self.path).unwrap();
+        // fs::create_dir_all(&self.path).unwrap();
+        // fs::copy(path, &self.path).unwrap();
     }
 }

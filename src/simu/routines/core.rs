@@ -1,12 +1,16 @@
+use std::{fs, path::Path};
+
 use crate::{
     compute_cosine_emission_angle, compute_cosine_incidence_angle, compute_cosine_phase_angle,
-    config::Body, config::CfgCamera, config::CfgCameraDirection, config::CfgCameraPosition,
-    config::CfgScalar, config::CfgSun, config::CfgSunPosition, config::Config,
-    config::FileBehavior, config::FileColumns, config::FileColumnsOut, config::FileSetup,
-    config::FrameCenter, config::SpicePosition, config::SpiceState, config::State,
-    config::StateCartesian, config::DEFAULT_ABCORR, config::DEFAULT_FRAME, find_ref_orbit,
-    matrix_orientation_obliquity, matrix_spin, position_in_inertial_frame, update_colormap_scalar,
-    util::*, AirlessBody, BodyData, FoldersRun, MovementMode, Time, Window, WindowScene,
+    config::{
+        Body, CfgCamera, CfgCameraDirection, CfgCameraPosition, CfgScalar, CfgSun, CfgSunPosition,
+        Config, FileBehavior, FileColumns, FileColumnsOut, FileSetup, FrameCenter, SpicePosition,
+        SpiceState, State, StateCartesian, DEFAULT_ABCORR, DEFAULT_FRAME,
+    },
+    find_ref_orbit, matrix_orientation_obliquity, matrix_spin, position_in_inertial_frame,
+    update_colormap_scalar,
+    util::*,
+    AirlessBody, BodyData, FoldersRun, Interior, MovementMode, Time, Window, WindowScene,
 };
 
 use downcast_rs::{impl_downcast, DowncastSync};
@@ -23,6 +27,104 @@ pub trait Routines: DowncastSync {
         _time: &Time,
         _win: &mut Window,
     ) {
+    }
+
+    fn fn_update_file_index_core(
+        &self,
+        _config: &Config,
+        time: &mut Time,
+        file: &Path,
+        opt_loop: bool,
+    ) {
+        let df = match CsvReader::from_path(&file) {
+            Ok(reader) => reader.has_header(true).finish().unwrap(),
+            Err(e) => panic!("{}", e),
+        };
+
+        let elapsed = df.column("elapsed").unwrap();
+        let mut time_elapsed = time.elapsed_seconds();
+        let mut found = false;
+        let mut current_time_file = None;
+        let mut next_tried_time_file = None;
+
+        if opt_loop {
+            let last = elapsed
+                .iter()
+                .last()
+                .unwrap()
+                .try_extract::<usize>()
+                .unwrap();
+            time_elapsed = time_elapsed % last;
+        }
+
+        if let Some(&(mut index)) = time.file_row.as_ref() {
+            current_time_file = Some(elapsed.get(index).unwrap().try_extract::<usize>().unwrap());
+
+            index += 1;
+
+            if opt_loop {
+                index = index % df.shape().0;
+            }
+
+            if let Ok(try_next) = elapsed.get(index) {
+                let try_next = try_next.try_extract::<usize>().unwrap();
+                next_tried_time_file = Some(try_next);
+
+                if try_next == time_elapsed {
+                    time.file_row = Some(index);
+                    found = true;
+                }
+            }
+        }
+
+        // attention avec skip car si modulo applied alors on va tout skip sans trouver le bon au début
+        // let skip = time.file_row.unwrap_or_default();
+        let skip = 0;
+
+        if !found {
+            time.file_row = Some(
+                elapsed
+                    .iter()
+                    .skip(skip)
+                    .map(|t| t.try_extract::<usize>().unwrap())
+                    .position(|t| time_elapsed == t)
+                    .expect(&format!(
+                        "Elapsed time is not synchronised with file. Current elapsed time is {}{}. \
+                         From reading the file, it was impossible to find a time matching simulation time. \
+                         For more info, current: {:?} and next tried: {:?}.",
+                        time.elapsed_seconds(),
+                        opt_loop.then(|| format!(
+                            "(Looping on file, modulo applied to time elapsed: {})",
+                            time_elapsed
+                        )).unwrap_or("".to_string()),
+                        current_time_file,
+                        next_tried_time_file
+                    )),
+            );
+        }
+
+        // println!(
+        //     "{:?} {} {} {}",
+        //     time.file_row,
+        //     time.elapsed_seconds(),
+        //     time_elapsed,
+        //     time.time_step
+        // );
+    }
+
+    fn fn_update_file_index(&self, config: &Config, time: &mut Time) {
+        let mut files = vec![config.simulation.file.as_ref()];
+        for body in &config.bodies {
+            files.push(body.file_data.as_ref());
+        }
+
+        for file in &files {
+            if let Some(file) = file {
+                let opt_loop =
+                    file.behavior.clone().unwrap_or(FileBehavior::Stop) == FileBehavior::Loop;
+                self.fn_update_file_index_core(config, time, file.path.as_ref().unwrap(), opt_loop);
+            }
+        }
     }
 
     fn fn_update_scene_core(&self, config: &Config, time: &Time, scene: &mut WindowScene) {
@@ -371,7 +473,7 @@ pub trait Routines: DowncastSync {
 
     fn fn_update_body_data(
         &mut self,
-        _cfg: &Config,
+        _config: &Config,
         _body: usize,
         _bodies: &mut [AirlessBody],
         _bodies_data: &mut [BodyData],
@@ -380,15 +482,41 @@ pub trait Routines: DowncastSync {
     ) {
     }
 
+    fn read_file_data(&self, config: &Config, body: usize, time: &Time) -> Vec<f64> {
+        if let Some(file) = config.bodies[body].file_data.as_ref() {
+            let df = match CsvReader::from_path(&file.path.as_ref().unwrap()) {
+                Ok(reader) => reader.has_header(true).finish().unwrap(),
+                Err(e) => panic!("{}", e),
+            };
+
+            let row_index = time.file_row.unwrap();
+            df.get_row(row_index)
+                .unwrap()
+                .0
+                .into_iter()
+                .skip(1)
+                .map(|v| {
+                    v.cast(&DataType::Float64)
+                        .unwrap()
+                        .try_extract::<Float>()
+                        .unwrap()
+                })
+                .collect_vec()
+        } else {
+            panic!("No file data found.");
+        }
+    }
+
     fn fn_update_body_colormap(
         &self,
+        config: &Config,
         body: usize,
         bodies: &mut [AirlessBody],
         pre_computed_bodies: &[BodyData],
-        cfg: &Config,
+        time: &Time,
         win: &Window,
     ) {
-        let scalars = match &cfg.window.colormap.scalar {
+        let scalars = match &config.window.colormap.scalar {
             Some(CfgScalar::AngleIncidence) => compute_cosine_incidence_angle(
                 &bodies[body],
                 &pre_computed_bodies[body].normals,
@@ -408,24 +536,114 @@ pub trait Routines: DowncastSync {
             )
             .map(|a| a.acos() * DPR),
             None => return,
+            Some(CfgScalar::File) => {
+                let v = self.read_file_data(config, body, time);
+                DRVector::from_row_slice(&v)
+            }
             _ => unreachable!(),
         };
 
-        update_colormap_scalar(win, cfg, scalars.as_slice(), &mut bodies[body], body);
+        update_colormap_scalar(win, config, scalars.as_slice(), &mut bodies[body], body);
     }
 
     fn fn_update_body(
         &mut self,
-        cfg: &Config,
+        config: &Config,
         body: usize,
         bodies: &mut [AirlessBody],
         bodies_data: &mut [BodyData],
         time: &Time,
         window: &Window,
     ) {
-        self.fn_update_body_matrix_model(cfg, body, bodies, bodies_data, time);
-        self.fn_update_body_data(cfg, body, bodies, bodies_data, time, &window.scene.borrow());
-        self.fn_update_body_colormap(body, bodies, bodies_data, cfg, window);
+        self.fn_update_body_matrix_model(config, body, bodies, bodies_data, time);
+        self.fn_update_body_data(
+            config,
+            body,
+            bodies,
+            bodies_data,
+            time,
+            &window.scene.borrow(),
+        );
+        self.fn_update_body_colormap(config, body, bodies, bodies_data, time, window);
+    }
+
+    fn fn_export_body_once_core(
+        &self,
+        config: &Config,
+        body: usize,
+        bodies: &[AirlessBody],
+        _bodies_data: &[BodyData],
+        folders: &FoldersRun,
+    ) {
+        if config.bodies[body].record.mesh {
+            let faces = bodies[body].surface.faces.clone();
+            let sph = faces.iter().map(|f| f.vertex.sph()).collect_vec();
+            let mut df = df!(
+                "x" => faces.iter().map(|f| f.vertex.position.x).collect_vec(),
+                "y" => faces.iter().map(|f| f.vertex.position.y).collect_vec(),
+                "z" => faces.iter().map(|f| f.vertex.position.z).collect_vec(),
+                "lon" => sph.iter().map(|sph| sph[1]).collect_vec(),
+                "lat" => sph.iter().map(|sph| sph[2]).collect_vec(),
+                "rad" => sph.iter().map(|sph| sph[0]).collect_vec(),
+            )
+            .unwrap();
+
+            let folder_simu = folders.simu_body(&config.bodies[body].name);
+            fs::create_dir_all(&folder_simu).unwrap();
+
+            let mut file = std::fs::File::options()
+                .append(true)
+                .create(true)
+                .open(folder_simu.join("mesh.csv"))
+                .unwrap();
+            CsvWriter::new(&mut file)
+                .include_header(true)
+                .finish(&mut df)
+                .unwrap();
+        }
+
+        if config.bodies[body].record.depth {
+            let mut depth = None;
+
+            if let Some(interior) = bodies[body].interior.as_ref() {
+                match interior {
+                    Interior::Grid(grid) => {
+                        depth = Some(grid.depth.clone());
+                    }
+                }
+            }
+
+            if let Some(depth) = depth {
+                let mut df = df!(
+                    "depth" => depth,
+                )
+                .unwrap();
+
+                let folder_simu = folders.simu_body(&config.bodies[body].name);
+                fs::create_dir_all(&folder_simu).unwrap();
+
+                let mut file = std::fs::File::options()
+                    .append(true)
+                    .create(true)
+                    .open(folder_simu.join("depth.csv"))
+                    .unwrap();
+                CsvWriter::new(&mut file)
+                    .include_header(true)
+                    .finish(&mut df)
+                    .unwrap();
+            }
+        }
+    }
+
+    fn fn_export_body_once(
+        &self,
+        config: &Config,
+        body: usize,
+        bodies: &[AirlessBody],
+        bodies_data: &[BodyData],
+        folders: &FoldersRun,
+    ) {
+        self.fn_export_body_once_core(config, body, bodies, bodies_data, folders);
     }
 
     fn fn_export_iteration(
@@ -465,14 +683,17 @@ pub trait Routines: DowncastSync {
 
     fn fn_render(
         &mut self,
-        _cfg: &Config,
+        config: &Config,
         bodies: &mut [AirlessBody],
-        _time: &Time,
+        time: &Time,
         win: &mut Window,
     ) {
         // self.win.update_vaos(self.bodies.iter_mut().map(|b| &mut b.asteroid_mut().surface));
         win.render_asteroids(&bodies);
         win.swap_window();
+        if let Some(true) = config.preferences.debug.window {
+            println!("New frame: {}.", time.elapsed_seconds());
+        }
     }
 }
 
@@ -560,17 +781,12 @@ pub fn read_state_file(
     time: &Time,
     columns: &[FileColumns],
 ) -> Vec<FileColumnsOut> {
-    let mut row_index = time.iteration() * file.row_multiplier.unwrap_or(1);
-
     let df = match CsvReader::from_path(&file.path.as_ref().unwrap()) {
-        Ok(reader) => reader.has_header(false).finish().unwrap(),
+        Ok(reader) => reader.has_header(true).finish().unwrap(),
         Err(e) => panic!("{}", e),
     };
 
-    if let Some(FileBehavior::Loop) = file.behavior {
-        row_index = row_index % df.shape().0;
-    };
-
+    let row_index = time.file_row.unwrap();
     let row = df
         .get_row(row_index)
         .unwrap()

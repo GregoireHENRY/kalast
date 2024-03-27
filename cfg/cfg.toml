@@ -1,23 +1,53 @@
 [window]
-ambient = [0.07, 0.07, 0.07]
-export_frames = true
-shadows = true
+colormap = { name = "inferno", vmax = 400.0, scalar = "temperature" }
+# export_frames = true
+# high_dpi = true
+# width = 1024
+# height = 768
+
+[simulation]
+routines = "thermal"
+step = 198
+duration = 94780800
+
+[simulation.export]
+step = 198
+duration = 172800
+period = 172800
+cooldown_start = 94608000
+
+# 1728000 = 20 days
+# 1900800 = 22 days
+# 31536000 = 365 days
+# 31708800 = 367 days
+# 94608000 = 365*3 days
+# 94780800 = 365*3+2 days
 
 [scene]
-sun.position.cartesian = [100, 0, 0]
-
-[scene.camera]
-name = "test"
-position.cartesian = [10, 0, 0]
-projection.perspective = 0.5236
-# projection = "orthographic"
+sun.position.cartesian = [149597870.7, 0, 0]
+camera.position.cartesian = [5, 0, 0]
 
 [[bodies]]
-name = "A"
-state.cartesian.position = [0, 0, 0]
-material.albedo = 0.1
+name = "Simple"
+color = "data"
+interior.grid1d.increasing = { skin = "one", m = 10, n = 5, b = 20 }
+record = { columns = [0], mesh = true, depth = true }
+spin = { period = 86400 }
+temperature.scalar = 1
 
-[[bodies]]
-name = "B"
-state.cartesian.position = [3, 0, 0]
-material.albedo = 0.1
+[bodies.mesh]
+shape.shape = "triangle"
+position = [0.0, -0.3333, 0.3333]
+
+# 1) Identity
+# 2 to 3) Rotation 90° around X and Y axis
+# orientation = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+# orientation = [1, 0, 0, 0, 0, 1, 0, -1, 0]
+orientation = [0, 0, -1, 0, 1, 0, 1, 0, 0]
+
+[bodies.material]
+albedo = 0.1
+emissivity = 0.9
+thermal_inertia = 500.0
+density = 2000.0
+heat_capacity = 600.0

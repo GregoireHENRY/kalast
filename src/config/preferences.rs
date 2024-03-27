@@ -20,6 +20,7 @@ pub struct Debug {
     pub general: Option<bool>,
     pub window: Option<bool>,
     pub simulation: Option<bool>,
+    pub thermal_stats: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]

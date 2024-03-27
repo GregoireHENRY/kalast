@@ -2,17 +2,20 @@ use crate::util::*;
 
 use serde::{Deserialize, Serialize};
 
-#[allow(unused)]
-fn thermal_skin_depth(diffusivity: Float, period: Float) -> Float {
+pub fn thermal_skin_depth_one(diffusivity: Float, period: Float) -> Float {
     (diffusivity * period / PI).sqrt()
 }
 
+pub fn thermal_skin_depth_two_pi(diffusivity: Float, period: Float) -> Float {
+    (4.0 * PI * diffusivity * period).sqrt()
+}
+
 /// units: W.m^{-1}.K^{-1}
-fn conductivity(thermal_inertia: Float, density: Float, heat_capacity: Float) -> Float {
+pub fn conductivity(thermal_inertia: Float, density: Float, heat_capacity: Float) -> Float {
     thermal_inertia.powi(2) / (density * heat_capacity)
 }
 
-fn diffusivity(conductivity: Float, density: Float, heat_capacity: Float) -> Float {
+pub fn diffusivity(conductivity: Float, density: Float, heat_capacity: Float) -> Float {
     conductivity / (density * heat_capacity)
 }
 
@@ -84,7 +87,11 @@ impl Material {
         diffusivity(self.conductivity(), self.density, self.heat_capacity)
     }
 
-    pub fn thermal_skin_depth(&self, period: Float) -> Float {
-        thermal_skin_depth(self.diffusivity(), period)
+    pub fn thermal_skin_depth_one(&self, period: Float) -> Float {
+        thermal_skin_depth_one(self.diffusivity(), period)
+    }
+
+    pub fn thermal_skin_depth_two_pi(&self, period: Float) -> Float {
+        thermal_skin_depth_two_pi(self.diffusivity(), period)
     }
 }

@@ -75,7 +75,7 @@ impl ThermalBodyData {
         let dx2 = DRVector::from_row_slice(
             &depth_grid
                 .iter()
-                .skip(1)
+                // .skip(1)
                 .take(depth_size - 1)
                 .tuple_windows()
                 .map(|(a, b)| (b - a).powi(2))
@@ -170,7 +170,7 @@ pub trait RoutinesThermal: Routines {
             &thermal_data.emissivities,
             &thermal_data.conductivities,
             thermal_data.tmp.rows(1, 2).as_view(),
-            depth_grid[2],
+            depth_grid[1],
         )
     }
 
@@ -235,7 +235,7 @@ impl Routines for RoutinesThermalDefault {
     // be in meters for computation unless explicitely mentioned.
     fn fn_update_body_data(
         &mut self,
-        cfg: &Config,
+        config: &Config,
         body: usize,
         bodies: &mut [AirlessBody],
         bodies_data: &mut [BodyData],
@@ -245,8 +245,13 @@ impl Routines for RoutinesThermalDefault {
         let sun_position = scene.light.position;
 
         if time.iteration == 0 {
-            self.fn_compute_initial_temperatures(&bodies[body], &cfg.bodies[body], &sun_position);
-            // return;
+            let tmp = self.fn_compute_initial_temperatures(
+                &bodies[body],
+                &config.bodies[body],
+                &sun_position,
+            );
+            self.data[body].tmp = tmp;
+            return;
         }
 
         let dt = time.used_time_step();
@@ -294,16 +299,47 @@ impl Routines for RoutinesThermalDefault {
             .tmp
             .set_row(curr_size + 1, &temperatures_bottom);
 
+        if let Some(true) = config.preferences.debug.thermal_stats {
+            println!(
+                "Update: {:.0} SF: {:.1}±({:.1})/{:.1}/{:.1} | T: {:.1}±({:.1})/{:.1}/{:.1}",
+                time.elapsed_seconds(),
+                fluxes_solar.mean(),
+                fluxes_solar.variance().sqrt(),
+                fluxes_solar.max(),
+                fluxes_solar.min(),
+                temperatures_surface.mean(),
+                temperatures_surface.variance().sqrt(),
+                temperatures_surface.max(),
+                temperatures_surface.min()
+            );
+            println!(
+                "more T0: {:.1}±({:.1})/{:.1}/{:.1} | T1: {:.1}±({:.1})/{:.1}/{:.1} | T2: {:.1}±({:.1})/{:.1}/{:.1}",
+                self.data[body].tmp.row(0).mean(),
+                self.data[body].tmp.row(0).variance().sqrt(),
+                self.data[body].tmp.row(0).max(),
+                self.data[body].tmp.row(0).min(),
+                self.data[body].tmp.row(1).mean(),
+                self.data[body].tmp.row(1).variance().sqrt(),
+                self.data[body].tmp.row(1).max(),
+                self.data[body].tmp.row(1).min(),
+                self.data[body].tmp.row(2).mean(),
+                self.data[body].tmp.row(2).variance().sqrt(),
+                self.data[body].tmp.row(2).max(),
+                self.data[body].tmp.row(2).min()
+            );
+        }
+
         self.data[body].fluxes = fluxes;
         self.data[body].fluxes_solar = fluxes_solar;
     }
 
     fn fn_update_body_colormap(
         &self,
+        cfg: &Config,
         body: usize,
         bodies: &mut [AirlessBody],
         pre_computed_bodies: &[BodyData],
-        cfg: &Config,
+        _time: &Time,
         win: &Window,
     ) {
         let cmap = &cfg.window.colormap;
@@ -331,6 +367,7 @@ impl Routines for RoutinesThermalDefault {
             Some(CfgScalar::FluxEmitted) => unimplemented!(),
             Some(CfgScalar::FluxSelf) => unimplemented!(),
             Some(CfgScalar::FluxMutual) => unimplemented!(),
+            Some(CfgScalar::File) => unimplemented!(),
             None | Some(CfgScalar::Temperature) => self.data[body].tmp.row(0).into_owned(),
         };
 

@@ -22,9 +22,12 @@ pub fn read_surface(cb: &cg::Body, kind: cg::MeshKind) -> Result<Surface> {
 
     let surface = builder
         .update_all(|v| {
-            v.position.x *= mesh.factor.x;
-            v.position.y *= mesh.factor.y;
-            v.position.z *= mesh.factor.z;
+            // v.position.x = mesh.orientation * mesh.factor.x * v.position.x + mesh.position.x;
+            // v.position.y *= mesh.factor.y;
+            // v.position.z *= mesh.factor.z;
+
+            v.position = mesh.orientation * v.position.component_mul(&mesh.factor) + mesh.position;
+
             v.material = Material {
                 albedo: cb.material.albedo,
                 emissivity: cb.material.emissivity,

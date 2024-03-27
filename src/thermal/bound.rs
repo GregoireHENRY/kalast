@@ -21,36 +21,55 @@ pub fn newton_method_temperature(
     depth: Float,
 ) -> DRVector<Float> {
     let mut index = 0;
-    let mut old_temperatures = temperatures.clone_owned();
+    let mut temperatures = temperatures.clone_owned();
 
     loop {
-        let new_temperatures = &old_temperatures
-            - newton_method_temperature_function(
-                &old_temperatures,
-                fluxes,
-                emissivities,
-                conductivities,
-                subsurface_temperatures,
-                depth,
-            )
-            .component_div(&newton_method_temperature_derivative(
-                &old_temperatures,
-                emissivities,
-                conductivities,
-                depth,
-            ));
+        let f = newton_method_temperature_function(
+            &temperatures,
+            fluxes,
+            emissivities,
+            conductivities,
+            subsurface_temperatures,
+            depth,
+        );
 
-        if index > NUMBER_ITERATION_FAIL
-            || (&new_temperatures - &old_temperatures)
-                .abs()
-                .iter()
-                .all(|&dt| dt < NEWTON_METHOD_THRESHOLD)
-        {
-            // println!("index: {}", index);
-            return new_temperatures;
+        let df = newton_method_temperature_derivative(
+            &temperatures,
+            emissivities,
+            conductivities,
+            depth,
+        );
+
+        let delta = (-&f).component_div(&df);
+        temperatures += &delta;
+
+        /*
+        println!(
+            "Newton f: {:.1}±({:.1})/{:.1}/{:.1} | df: {:.1}±({:.1})/{:.1}/{:.1} | dT: {:.1}±({:.1})/{:.1}/{:.1}",
+            f.mean(),
+            f.variance().sqrt(),
+            f.max(),
+            f.min(),
+            df.mean(),
+            df.variance().sqrt(),
+            df.max(),
+            df.min(),
+            delta.mean(),
+            delta.variance().sqrt(),
+            delta.max(),
+            delta.min(),
+        );
+         */
+
+        if index > NUMBER_ITERATION_FAIL {
+            panic!("Newton method never converged.");
         }
 
-        old_temperatures = new_temperatures;
+        if delta.abs().iter().all(|&dt| dt < NEWTON_METHOD_THRESHOLD) {
+            // println!("index: {}", index);
+            return temperatures;
+        }
+
         index += 1;
     }
 }
@@ -67,7 +86,7 @@ pub fn newton_method_temperature_function(
         + conductivities.component_mul(
             &(-subsurface_temperatures.row(1) + 4.0 * subsurface_temperatures.row(0)
                 - 3.0 * temperatures),
-        ) / depth
+        ) / (2.0 * depth)
 }
 
 pub fn newton_method_temperature_derivative(
@@ -77,5 +96,5 @@ pub fn newton_method_temperature_derivative(
     depth: Float,
 ) -> DRVector<Float> {
     -4.0 * STEFAN_BOLTZMANN * emissivities.component_mul(&temperatures.map(|t| t.powi(3)))
-        - 3.0 / depth * conductivities
+        - 3.0 / (2.0 * depth) * conductivities
 }

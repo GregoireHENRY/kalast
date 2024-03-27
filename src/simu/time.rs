@@ -9,6 +9,7 @@ pub struct Time {
     pub(crate) time_start: usize,
     pub(crate) real_time: NaiveTime,
     pub(crate) used_time_step: usize,
+    pub(crate) file_row: Option<usize>,
 }
 
 impl Time {
@@ -20,6 +21,7 @@ impl Time {
             time_start: 0,
             real_time: Utc::now().time(),
             used_time_step: 0,
+            file_row: None,
         }
     }
 
@@ -31,6 +33,7 @@ impl Time {
             time_start: self.time_start,
             real_time: self.real_time,
             used_time_step: self.used_time_step,
+            file_row: self.file_row,
         }
     }
 
@@ -42,6 +45,7 @@ impl Time {
             time_start: start,
             real_time: self.real_time,
             used_time_step: self.used_time_step,
+            file_row: self.file_row,
         }
     }
 

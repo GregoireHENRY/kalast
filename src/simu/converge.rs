@@ -48,7 +48,7 @@ pub fn check<P: AsRef<Path>>(
     let tsd = asteroid.surface.faces[c0_ii]
         .vertex
         .material
-        .thermal_skin_depth(cb.spin.period);
+        .thermal_skin_depth_one(cb.spin.period);
     let ii_tsd_next = zdepth.iter().position(|&x| x > tsd).unwrap();
 
     let c0 = df.column(&c0_name).unwrap().f64().unwrap();

@@ -1,0 +1,26 @@
+figure.figsize: 4.0, 4.0
+figure.autolayout: True
+
+svg.fonttype: none
+font.family: Helvetica, Arial, sans-serif
+
+xtick.top: True
+xtick.bottom: True
+xtick.major.size: 4.0
+xtick.major.width: 1.0
+xtick.minor.size: 2.0
+xtick.minor.width: 1.0
+xtick.direction: in
+
+ytick.left: True
+ytick.right: True
+ytick.major.size: 4.0
+ytick.major.width: 1.0
+ytick.minor.size: 2.0
+ytick.minor.width: 1.0
+ytick.direction: in
+
+# grid.color: "#f8f8f8ff"
+# grid.linewidth: 0.25
+
+savefig.format: svg

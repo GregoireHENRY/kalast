@@ -109,7 +109,8 @@ pub const RADIANS_PER_SECOND_DMS: Float = RADIANS_PER_MINUTE_DMS / 60.0;
 pub const NUMBER_ITERATION_FAIL: usize = 1e4 as usize;
 
 /// Threshold that defines the convergence condition of the numerical Newton method.
-pub const NEWTON_METHOD_THRESHOLD: Float = 1e-4;
+// pub const NEWTON_METHOD_THRESHOLD: Float = 1e-4;
+pub const NEWTON_METHOD_THRESHOLD: Float = 0.1;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 

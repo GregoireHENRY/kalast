@@ -196,6 +196,9 @@ pub struct Body {
     #[serde(default)]
     pub record: Record,
 
+    #[serde(default)]
+    pub file_data: Option<FileSetup>,
+
     #[serde(flatten)]
     extra: HashMap<String, Value>,
 }
@@ -264,10 +267,20 @@ pub struct Mesh {
     #[serde(default)]
     pub shape: MeshSource,
 
-    /// Resize factor to be applied to the mesh.
+    /// Resize correction to be applied to the mesh.
     /// Default is `[1, 1, 1]`.
     #[serde(default = "default_mesh_factor")]
     pub factor: Vec3,
+
+    /// Position correction to be applied to the mesh.
+    /// Default is `[0, 0, 0]`.
+    #[serde(default = "default_vec3_zeros")]
+    pub position: Vec3,
+
+    /// Orientation correction to be applied to the mesh.
+    /// Default Mat3 identity.
+    #[serde(default = "default_mat3_identity")]
+    pub orientation: Mat3,
 
     /// Wether to render vertex- (smooth) or facet-wise (flat).
     /// Default is flat, smooth is `false`.
@@ -281,13 +294,11 @@ impl Default for Mesh {
         Self {
             shape: MeshSource::default(),
             factor: default_mesh_factor(),
+            position: default_vec3_zeros(),
+            orientation: default_mat3_identity(),
             smooth: false,
         }
     }
-}
-
-fn default_mesh_factor() -> Vec3 {
-    vec3(1.0, 1.0, 1.0)
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -420,9 +431,26 @@ pub enum InteriorGrid1D {
     #[serde(rename = "exp")]
     Exp { size: usize, a: Float },
 
+    #[serde(rename = "increasing")]
+    Increasing {
+        skin: SkinDepth,
+        m: usize,
+        n: usize,
+        b: usize,
+    },
+
     /// Unimplemented.
     #[serde(rename = "file")]
     File { path: PathBuf },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum SkinDepth {
+    #[serde(rename = "one")]
+    One,
+
+    #[serde(rename = "two_pi")]
+    TwoPi,
 }
 
 /**
@@ -743,9 +771,6 @@ pub struct FileSetup {
     pub path: Option<PathBuf>,
 
     #[serde(default)]
-    pub row_multiplier: Option<usize>,
-
-    #[serde(default)]
     pub behavior: Option<FileBehavior>,
 }
 
@@ -814,7 +839,7 @@ impl FileColumnsOut {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum FileBehavior {
     #[serde(rename = "stop")]
     Stop,
@@ -922,4 +947,22 @@ pub struct Record {
 
     #[serde(default)]
     pub cells: Vec<usize>,
+
+    #[serde(default)]
+    pub mesh: bool,
+
+    #[serde(default)]
+    pub depth: bool,
+}
+
+fn default_mesh_factor() -> Vec3 {
+    vec3(1.0, 1.0, 1.0)
+}
+
+fn default_vec3_zeros() -> Vec3 {
+    Vec3::zeros()
+}
+
+fn default_mat3_identity() -> Mat3 {
+    Mat3::identity()
 }

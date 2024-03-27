@@ -146,6 +146,9 @@ pub enum CfgScalar {
 
     #[serde(rename = "temperature")]
     Temperature,
+
+    #[serde(rename = "file")]
+    File,
 }
 
 impl Default for CfgScalar {

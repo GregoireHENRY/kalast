@@ -1,11 +1,15 @@
 use crate::{
-    check_if_latest_version, config, config::CfgRoutines, config::Config, config::InteriorGrid1D,
-    path_cfg_folder, read_surface_main, util::*, AirlessBody, BodyData, Export, FoldersRun,
-    FrameEvent, Result, Routines, RoutinesThermalDefault, RoutinesViewerDefault, Time, Window,
-    KEY_BACKWARD, KEY_FORWARD, KEY_LEFT, KEY_RIGHT, SENSITIVITY,
+    check_if_latest_version,
+    config::{self, CfgRoutines, Config, InteriorGrid1D},
+    path_cfg_folder, read_surface_main, thermal_skin_depth_one, thermal_skin_depth_two_pi,
+    util::*,
+    AirlessBody, BodyData, Export, FoldersRun, FrameEvent, Result, Routines,
+    RoutinesThermalDefault, RoutinesViewerDefault, Time, Window, KEY_BACKWARD, KEY_FORWARD,
+    KEY_LEFT, KEY_RIGHT, SENSITIVITY,
 };
 
 use chrono::Utc;
+use config::SkinDepth;
 use itertools::Itertools;
 use sdl2::keyboard::Keycode;
 
@@ -50,7 +54,9 @@ impl Scenario {
         }
 
         let mut folders = FoldersRun::new(&config);
-        folders.save_cfgs(&path_cfg);
+        // folders.save_cfgs(&path_cfg);
+        folders.save_cfgs("cfg");
+
         // folders.save_src(&path_mainrs);
 
         let bodies = vec![];
@@ -170,6 +176,26 @@ impl Scenario {
                         InteriorGrid1D::File { path } => {
                             asteroid.with_interior_grid_from_file(path)
                         }
+                        InteriorGrid1D::Increasing { skin, m, n, b } => {
+                            let diffusivity =
+                                asteroid.surface.faces[0].vertex.material.diffusivity();
+                            let period = cb.spin.period;
+                            let zs = match skin {
+                                SkinDepth::One => thermal_skin_depth_one(diffusivity, period),
+                                SkinDepth::TwoPi => thermal_skin_depth_two_pi(diffusivity, period),
+                            };
+                            let zmax = zs * *b as Float;
+
+                            let mut z = vec![0.0];
+                            let mut dz = zs / *m as Float;
+                            let mut ii = 0;
+                            while z[ii] < zmax {
+                                dz = dz * (1.0 + 1.0 / *n as Float);
+                                z.push(z[ii] + dz);
+                                ii += 1;
+                            }
+                            asteroid.with_interior_grid_depth(z)
+                        }
                     },
                 },
             };
@@ -200,6 +226,16 @@ impl Scenario {
         self.routines
             .init(&self.config, &mut self.bodies, &self.time, &mut self.win);
 
+        for body in 0..self.bodies.len() {
+            self.routines.fn_export_body_once(
+                &self.config,
+                body,
+                &mut self.bodies,
+                &self.pre_computed_bodies,
+                &self.folders,
+            )
+        }
+
         'main_loop: loop {
             // Register keyboard and mouse interactions.
             let event = self.win.events();
@@ -222,6 +258,9 @@ impl Scenario {
             let it = self.time.iteration();
             let elapsed = self.time.elapsed_seconds();
             let jd = self.time.jd();
+
+            self.routines
+                .fn_update_file_index(&self.config, &mut self.time);
 
             self.routines.fn_update_scene(
                 &self.config,

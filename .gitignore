@@ -9,6 +9,7 @@ target/
 
 # Python generics
 .env
+__pycache__/
 python/__pycache__/
 python/kalast/kalast.abi3.so
 python/kalast/__pycache__/__init__.cpython-311.pyc
@@ -17,6 +18,7 @@ python/kalast/__pycache__/__init__.cpython-311.pyc
 assets/perso/
 bin/releases/
 runs/
+out/
 kalast.log
 kalast.err
 kalast.out
