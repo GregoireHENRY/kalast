@@ -6,11 +6,12 @@ use crate::{
         Body, CfgCamera, CfgCameraDirection, CfgCameraPosition, CfgScalar, CfgSun, CfgSunPosition,
         Config, FileBehavior, FileColumns, FileColumnsOut, FileSetup, FrameCenter, SpicePosition,
         SpiceState, State, StateCartesian, DEFAULT_ABCORR, DEFAULT_FRAME,
+        SIMULATION_TIME_FREQUENCY,
     },
     find_ref_orbit, matrix_orientation_obliquity, matrix_spin, position_in_inertial_frame,
     update_colormap_scalar,
     util::*,
-    AirlessBody, BodyData, FoldersRun, Interior, MovementMode, Time, Window, WindowScene,
+    AirlessBody, BodyData, FoldersRun, Interior, MovementMode, Time, Window,
 };
 
 use downcast_rs::{impl_downcast, DowncastSync};
@@ -22,10 +23,10 @@ pub trait Routines: DowncastSync {
 
     fn init(
         &mut self,
-        _cfg: &Config,
+        _config: &Config,
         _bodies: &mut [AirlessBody],
         _time: &Time,
-        _win: &mut Window,
+        _win: Option<&mut Window>,
     ) {
     }
 
@@ -127,14 +128,20 @@ pub trait Routines: DowncastSync {
         }
     }
 
-    fn fn_update_scene_core(&self, config: &Config, time: &Time, scene: &mut WindowScene) {
+    fn fn_update_scene_core(
+        &self,
+        config: &Config,
+        sun: &mut Vec3,
+        time: &Time,
+        win: Option<&mut Window>,
+    ) {
         let elapsed_from_start = time.elapsed_seconds_from_start();
 
         if let Some(true) = config.preferences.debug.simulation {
             println!("Iteration: {}", time.iteration());
         }
 
-        let mut sun = match &config.scene.sun.position {
+        let mut sun_pos = match &config.scene.sun.position {
             CfgSunPosition::Cartesian(p) => *p,
             CfgSunPosition::Equatorial(coords) => {
                 coords.xyz_with_distance(coords.distance.unwrap_or(CfgSun::default_distance()))
@@ -217,10 +224,10 @@ pub trait Routines: DowncastSync {
             }
         };
 
-        let camera = match &config.scene.camera.position {
+        let cam_pos = match &config.scene.camera.position {
             CfgCameraPosition::Cartesian(p) => *p,
             CfgCameraPosition::FromSun => {
-                sun.normalize()
+                sun_pos.normalize()
                     * config
                         .scene
                         .camera
@@ -304,7 +311,7 @@ pub trait Routines: DowncastSync {
                             let position = -coords.xyz_with_distance(
                                 coords.distance.unwrap_or(CfgCamera::default_distance()),
                             );
-                            sun += position;
+                            sun_pos += position;
                             position
                         }
                         _ => panic!("Camera on reference mode only work with primary body state equatorial."),
@@ -316,40 +323,45 @@ pub trait Routines: DowncastSync {
         };
 
         if let Some(true) = config.preferences.debug.simulation {
-            println!("camera: {:?}", camera.as_slice());
-            println!("sun: {:?}", sun.as_slice());
+            println!("camera: {:?}", cam_pos.as_slice());
+            println!("sun: {:?}", sun_pos.as_slice());
         }
 
-        scene.light.position = sun;
-        scene.camera.position = camera;
+        *sun = sun_pos;
+        if let Some(win) = win {
+            let mut scene = win.scene.borrow_mut();
 
-        if scene.camera.movement_mode == MovementMode::Lock
-            && config.scene.camera.direction == CfgCameraDirection::TargetAnchor
-        {
-            scene.camera.target_anchor();
-        }
+            scene.light.position = sun_pos;
+            scene.camera.position = cam_pos;
 
-        if time.iteration == 0 {
-            scene.camera.direction = match config.scene.camera.direction {
-                CfgCameraDirection::Cartesian(v) => v,
-                CfgCameraDirection::TargetAnchor => -scene.camera.position.normalize(),
-            };
-            scene.camera.up = config.scene.camera.up;
-            scene.camera.up_world = config.scene.camera.up;
-            scene.camera.projection = config.scene.camera.projection;
-
-            if let Some(near) = config.scene.camera.near {
-                scene.camera.near = Some(near);
+            if scene.camera.movement_mode == MovementMode::Lock
+                && config.scene.camera.direction == CfgCameraDirection::TargetAnchor
+            {
+                scene.camera.target_anchor();
             }
 
-            if let Some(far) = config.scene.camera.far {
-                scene.camera.far = Some(far);
+            if time.iteration == 0 {
+                scene.camera.direction = match config.scene.camera.direction {
+                    CfgCameraDirection::Cartesian(v) => v,
+                    CfgCameraDirection::TargetAnchor => -scene.camera.position.normalize(),
+                };
+                scene.camera.up = config.scene.camera.up;
+                scene.camera.up_world = config.scene.camera.up;
+                scene.camera.projection = config.scene.camera.projection;
+
+                if let Some(near) = config.scene.camera.near {
+                    scene.camera.near = Some(near);
+                }
+
+                if let Some(far) = config.scene.camera.far {
+                    scene.camera.far = Some(far);
+                }
             }
         }
     }
 
-    fn fn_update_scene(&self, cfg: &Config, time: &Time, scene: &mut WindowScene) {
-        self.fn_update_scene_core(cfg, time, scene);
+    fn fn_update_scene(&self, cfg: &Config, sun: &mut Vec3, time: &Time, win: Option<&mut Window>) {
+        self.fn_update_scene_core(cfg, sun, time, win);
     }
 
     fn fn_update_body_matrix_model(
@@ -477,8 +489,8 @@ pub trait Routines: DowncastSync {
         _body: usize,
         _bodies: &mut [AirlessBody],
         _bodies_data: &mut [BodyData],
+        _sun: &Vec3,
         _time: &Time,
-        _scene: &WindowScene,
     ) {
     }
 
@@ -542,7 +554,6 @@ pub trait Routines: DowncastSync {
             }
             _ => unreachable!(),
         };
-
         update_colormap_scalar(win, config, scalars.as_slice(), &mut bodies[body], body);
     }
 
@@ -552,19 +563,16 @@ pub trait Routines: DowncastSync {
         body: usize,
         bodies: &mut [AirlessBody],
         bodies_data: &mut [BodyData],
+        sun: &Vec3,
         time: &Time,
-        window: &Window,
+        window: Option<&Window>,
     ) {
         self.fn_update_body_matrix_model(config, body, bodies, bodies_data, time);
-        self.fn_update_body_data(
-            config,
-            body,
-            bodies,
-            bodies_data,
-            time,
-            &window.scene.borrow(),
-        );
-        self.fn_update_body_colormap(config, body, bodies, bodies_data, time, window);
+        self.fn_update_body_data(config, body, bodies, bodies_data, sun, time);
+
+        if let Some(window) = window {
+            self.fn_update_body_colormap(config, body, bodies, bodies_data, time, window);
+        }
     }
 
     fn fn_export_body_once_core(
@@ -669,15 +677,49 @@ pub trait Routines: DowncastSync {
 
     fn fn_iteration_finish(
         &mut self,
-        cfg: &Config,
+        config: &Config,
         _bodies: &mut [AirlessBody],
-        time: &Time,
-        win: &Window,
+        time: &mut Time,
+        win: Option<&Window>,
     ) {
-        if cfg.simulation.pause_after_first_iteration && time.iteration() == 0
-            || time.time_step() == 0
-        {
-            win.toggle_pause();
+        if let Some(true) = config.preferences.debug.simulation_time {
+            let freq = config
+                .preferences
+                .debug
+                .simulation_time_frequency
+                .unwrap_or(SIMULATION_TIME_FREQUENCY);
+
+            let mut r =
+                time.elapsed_seconds() as Float / config.simulation.duration as Float * 100.0;
+
+            let s = numdigits_comma(freq);
+
+            if s > 0 {
+                let d = 10.0f64.powi(s as _);
+                r = (r * d).floor() / d;
+            }
+
+            let last = time.last_debug_time.unwrap_or(0.0);
+
+            if r >= last + freq {
+                time.last_debug_time = Some(r);
+
+                println!(
+                    "Simulated {:.s$}% ({}it {}/{}).",
+                    r,
+                    time.iteration(),
+                    time.elapsed_seconds(),
+                    config.simulation.duration,
+                );
+            }
+        }
+
+        if let Some(win) = win {
+            if config.simulation.pause_after_first_iteration && time.iteration() == 0
+                || time.time_step() == 0
+            {
+                win.toggle_pause();
+            }
         }
     }
 

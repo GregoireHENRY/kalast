@@ -10,8 +10,8 @@ pub const WINDOW_HEIGHT: usize = 480;
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Colormap {
-    #[serde(rename = "cividis")]
-    Cividis,
+    #[serde(rename = "viridis")]
+    Viridis,
 
     #[serde(rename = "plasma")]
     Plasma,
@@ -35,7 +35,7 @@ impl Default for Colormap {
 impl From<&str> for Colormap {
     fn from(value: &str) -> Self {
         match value {
-            "cividis" => Self::Cividis,
+            "viridis" => Self::Viridis,
             "plasma" => Self::Plasma,
             "magma" => Self::Magma,
             "inferno" => Self::Inferno,

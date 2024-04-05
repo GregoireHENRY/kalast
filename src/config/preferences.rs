@@ -3,6 +3,8 @@ use crate::util::*;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+pub const SIMULATION_TIME_FREQUENCY: Float = 1.0;
+
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct Preferences {
     pub debug: Debug,
@@ -12,6 +14,7 @@ pub struct Preferences {
     pub keys: Keys,
     pub sensitivity: Option<Float>,
     pub touchpad_controls: Option<bool>,
+    pub no_window: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -20,6 +23,8 @@ pub struct Debug {
     pub general: Option<bool>,
     pub window: Option<bool>,
     pub simulation: Option<bool>,
+    pub simulation_time: Option<bool>,
+    pub simulation_time_frequency: Option<Float>,
     pub thermal_stats: Option<bool>,
 }
 

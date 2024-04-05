@@ -10,6 +10,7 @@ pub struct Time {
     pub(crate) real_time: NaiveTime,
     pub(crate) used_time_step: usize,
     pub(crate) file_row: Option<usize>,
+    pub(crate) last_debug_time: Option<Float>,
 }
 
 impl Time {
@@ -22,6 +23,7 @@ impl Time {
             real_time: Utc::now().time(),
             used_time_step: 0,
             file_row: None,
+            last_debug_time: None,
         }
     }
 
@@ -34,6 +36,7 @@ impl Time {
             real_time: self.real_time,
             used_time_step: self.used_time_step,
             file_row: self.file_row,
+            last_debug_time: None,
         }
     }
 
@@ -46,6 +49,7 @@ impl Time {
             real_time: self.real_time,
             used_time_step: self.used_time_step,
             file_row: self.file_row,
+            last_debug_time: None,
         }
     }
 

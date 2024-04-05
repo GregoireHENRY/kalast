@@ -14,7 +14,7 @@ path_runs = path_data / "runs"
 path_draft = path_data / "graphs/draft"
 
 # path_run = path_runs / "Apophis flyby Hakan"
-path_run = path_desktop / "run #29"
+path_run = path_desktop / "run #6"
 
 path_cfg = path_run / "cfg/cfg.toml"
 path_simu = path_run / "simu"
@@ -57,7 +57,6 @@ tab = csv.read_csv(p_csv, read_options)
 df = tab.to_pandas()
 d["tmp-all"] = df["tmp"].array.reshape((d["nf"], -1)).T
 print(d["tmp-all"].shape)
-print(d["tmp-all"][0].min(), d["tmp-all"][0].max(), d["tmp-all"][0].mean())
 
 p_csv = path_date / d["body"] / "temperatures/temperatures-columns.csv"
 read_options = csv.ReadOptions()
@@ -65,6 +64,7 @@ tab = csv.read_csv(p_csv, read_options)
 df = tab.to_pandas()
 # d["tmp-cols"] = df["0"].array.reshape((d["nz"], -1)).T
 d["tmp-cols"] = df["0"].array.reshape((-1, d["nz"]))
+print(d["tmp-cols"][:, 0].min(), d["tmp-cols"][:, 0].max(), d["tmp-cols"][:, 0].mean())
 print(d["tmp-cols"].shape)
 
 # plot.smap.plot(d, save=True)

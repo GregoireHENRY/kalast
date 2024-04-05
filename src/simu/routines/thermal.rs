@@ -3,7 +3,7 @@ use crate::{
     config::Body, config::CfgScalar, config::Config, config::TemperatureInit,
     effective_temperature, flux_solar_radiation, newton_method_temperature, read_surface_low,
     shadows, update_colormap_scalar, util::*, AirlessBody, BodyData, FoldersRun, Routines, Surface,
-    Time, Window, WindowScene,
+    Time, Window,
 };
 
 use itertools::Itertools;
@@ -239,17 +239,12 @@ impl Routines for RoutinesThermalDefault {
         body: usize,
         bodies: &mut [AirlessBody],
         bodies_data: &mut [BodyData],
+        sun: &Vec3,
         time: &Time,
-        scene: &WindowScene,
     ) {
-        let sun_position = scene.light.position;
-
         if time.iteration == 0 {
-            let tmp = self.fn_compute_initial_temperatures(
-                &bodies[body],
-                &config.bodies[body],
-                &sun_position,
-            );
+            let tmp =
+                self.fn_compute_initial_temperatures(&bodies[body], &config.bodies[body], sun);
             self.data[body].tmp = tmp;
             return;
         }
@@ -258,19 +253,15 @@ impl Routines for RoutinesThermalDefault {
 
         let other_bodies = (0..bodies.len()).filter(|ii| *ii != body).collect_vec();
 
-        let mut fluxes_solar = self.fn_compute_solar_flux(
-            &bodies[body],
-            &bodies_data[body],
-            &self.data[body],
-            &sun_position,
-        );
+        let mut fluxes_solar =
+            self.fn_compute_solar_flux(&bodies[body], &bodies_data[body], &self.data[body], sun);
 
         if self.shadows_mutual {
             let shadows_self: Vec<usize> = vec![];
             let mut shadows_mutual: Vec<usize> = vec![];
 
             for other_body in other_bodies {
-                shadows_mutual = shadows(&sun_position, &bodies[body], &bodies[other_body]);
+                shadows_mutual = shadows(sun, &bodies[body], &bodies[other_body]);
             }
 
             for &index in shadows_mutual.iter().chain(&shadows_self).unique() {

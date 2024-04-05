@@ -1,1 +1,1 @@
-from plot import daily, depth, smap
+from plot import tool, smap

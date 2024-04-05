@@ -40,7 +40,7 @@ pub const ASTRONOMICAL_UNIT: Float = 1.495978707e11;
 pub const AU: Float = ASTRONOMICAL_UNIT;
 
 /// [Solar flux constant](https://en.wikipedia.org/wiki/Solar_constant)
-pub const SOLAR_CONSTANT: Float = 1363.0;
+pub const SOLAR_CONSTANT: Float = 1361.0;
 
 /// [Stefan-Boltzmann constant](https://en.wikipedia.org/wiki/Stefan-Boltzmann_constant)
 pub const STEFAN_BOLTZMANN: Float = 5.670374419e-8;
@@ -196,5 +196,22 @@ pub struct ReqwGitHubTag {
 impl ReqwGitHubTag {
     pub fn version(&self) -> Version {
         Version::parse(&self.name.chars().skip(1).collect::<String>()).unwrap()
+    }
+}
+
+pub fn numdigits(number: Float) -> usize {
+    numdigits_all(number) as usize + 1
+}
+
+pub fn numdigits_all(number: Float) -> isize {
+    number.log10().floor() as isize
+}
+
+pub fn numdigits_comma(number: Float) -> usize {
+    let d = numdigits_all(number);
+    if number < 1.0 {
+        d.abs() as usize
+    } else {
+        0
     }
 }

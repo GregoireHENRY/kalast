@@ -1,6 +1,6 @@
 use crate::{
     config::CfgTimeExport, config::Config, util::*, AirlessBody, BodyData, FoldersRun, Routines,
-    Time, Window, WindowScene,
+    Time, Window,
 };
 
 use polars::prelude::{df, CsvWriter, NamedFrom, SerWriter};
@@ -32,8 +32,9 @@ impl Export {
         cfg: &Config,
         bodies: &mut [AirlessBody],
         body_data: &[BodyData],
+        sun: &Vec3,
         time: &mut Time,
-        win: &Window,
+        win: Option<&Window>,
         folders: &FoldersRun,
         routines: &dyn Routines,
     ) {
@@ -67,17 +68,17 @@ impl Export {
                 self.exporting = true;
                 self.exporting_started_elapsed = elapsed as _;
                 self.remaining_duration_export = cfg.simulation.export.duration as _;
-                println!("Detected export time.");
-                println!("Simulation time step: {}", time.time_step);
+                println!("Start export time.");
+                // println!("Simulation time step: {}", time.time_step);
                 time.set_time_step(cfg.simulation.export.step);
-                println!("Export time step: {}", time.time_step);
+                // println!("Export time step: {}", time.time_step);
             } else if self.cooldown_export - (dt as i64) < 0 {
                 // So export does not really start here, but the time step is adapted to not miss the beginning of export
                 // (in case export time step is smaller than simulation time step).
-                println!("Detected pre-export time.");
-                println!("Simulation time step: {}", time.time_step);
+                println!("Start pre-export time.");
+                // println!("Simulation time step: {}", time.time_step);
                 time.set_time_step(cfg.simulation.export.step);
-                println!("Export time step: {}", time.time_step);
+                // println!("Export time step: {}", time.time_step);
             }
         }
 
@@ -92,19 +93,16 @@ impl Export {
                 let path = folders
                     .simu_rec_time_frames(self.exporting_started_elapsed as _)
                     .join(format!("{}.png", elapsed));
-                win.export_frame(path);
+
+                if let Some(win) = win {
+                    win.export_frame(path);
+                }
             }
 
             for body in 0..cfg.bodies.len() {
                 if self.is_first_it_export {
                     self.iteration_body_export_start_generic(
-                        cfg,
-                        body,
-                        bodies,
-                        body_data,
-                        time,
-                        &win.scene.borrow(),
-                        folders,
+                        cfg, body, bodies, body_data, sun, time, folders,
                     );
                 }
                 routines.fn_export_iteration_period(
@@ -128,9 +126,9 @@ impl Export {
                 self.cooldown_export =
                     (cfg.simulation.export.period - cfg.simulation.export.duration) as _;
                 println!("End of export.");
-                println!("Export time step: {}", time.time_step);
+                // println!("Export time step: {}", time.time_step);
                 time.set_time_step(cfg.simulation.step);
-                println!("Simulation time step: {}", time.time_step);
+                // println!("Simulation time step: {}", time.time_step);
 
                 // let _cvg = kalast::simu::converge::check_all(&mut bodies, &folder_tpm, &cfg.time.export);
             }
@@ -147,8 +145,8 @@ impl Export {
         body: usize,
         bodies: &mut [AirlessBody],
         body_data: &[BodyData],
+        sun: &Vec3,
         time: &Time,
-        scene: &WindowScene,
         folders: &FoldersRun,
     ) {
         let elapsed = time.elapsed_seconds();
@@ -178,7 +176,7 @@ impl Export {
         CsvWriter::new(&mut file).finish(&mut df).unwrap();
 
         let mut df = df!(
-            "sunpos" => scene.light.position.as_slice(),
+            "sunpos" => sun.as_slice(),
         )
         .unwrap();
         let mut file = std::fs::File::options()

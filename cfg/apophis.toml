@@ -1,0 +1,53 @@
+[window]
+colormap = { name = "inferno", vmax = 400.0, scalar = "temperature" }
+# export_frames = true
+high_dpi = true
+# width = 1024
+# height = 768
+
+[simulation]
+routines = "thermal"
+step = 600
+duration = 14167800
+file = { path = "/Users/gregoireh/data/kalast/runs/Apophis flyby Hakan/forkalast-2.csv", behavior = "loop" }
+
+[simulation.export]
+step = 60
+duration = 439200
+period = 25920000
+cooldown_start = 13618800
+
+# 1296000 = 360h
+# 109800 = 30.5h
+# 439200 = 30.5h * 4
+# 549000 = 30.5h * 5
+# 658800 = 30.5h * 6
+# 1098000 = 30.5h * 10
+# 12960000 = 3600h
+# 13399200 = 3600h * 1 + 30.5h * 4
+# 13618800 = 3600h * 1 + 30.5h * 6
+# 14167800 = 3600h * 1 + 30.5h * 11
+# 25920000 = 3600h * 2
+# 117079200 = 3600h * 9 + 30.5h * 4
+
+[scene]
+sun.position = "file"
+# camera.position.cartesian = [3.5, 3.5, 1.0]
+camera.position.cartesian = [3.5, 3.5, -1.0]
+camera.projection.perspective = 0.08726646259971647
+
+[[bodies]]
+name = "Apophis"
+color = "data"
+mesh = { shape.path = "/Users/gregoireh/data/kalast/runs/Apophis flyby Hakan/apophis_new.obj", factor = [1e-3, 1e-3, 1e-3] }
+interior.grid1d.linear = { size = 40, a = 2e-2 }
+state = "file"
+temperature.scalar = 150
+record = { rows = [0], columns = [2258, 1265, 2820, 3313], mesh = true, depth = true }
+
+[bodies.material]
+albedo = 0.3
+emissivity = 0.9
+thermal_inertia = 500.0
+density = 2100.0
+heat_capacity = 600.0

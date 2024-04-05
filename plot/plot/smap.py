@@ -63,8 +63,8 @@ def plot(d: dict[str, Data], save: bool = False):
 
     cmin = 0
     cmax = 400
-    vmin = d["tmp"].min()
-    vmax = d["tmp"].max()
+    vmin = d["tmp-all"].min()
+    vmax = d["tmp-all"].max()
 
     norm = matplotlib.colors.Normalize(vmin=cmin, vmax=cmax)
     cmap = matplotlib.cm.inferno
@@ -74,7 +74,7 @@ def plot(d: dict[str, Data], save: bool = False):
 
     p = d["sph"] * util.DPR
     xy = p[:, :2]
-    z = d["tmp"][0]
+    z = d["tmp-all"][0]
 
     # n = z.size
     nx = 50
@@ -102,7 +102,10 @@ def plot(d: dict[str, Data], save: bool = False):
         # shading="gouraud",
     )
 
-    # p = ax.scatter(*xy.T, c=z, s=50, ec="k", vmin=0, vmax=400)
+    for key, z in d["tmp-cols"].items():
+        print(key, z.shape)
+        xy = p[key, :2]
+        ax.scatter(*xy.T, s=50, c="none", ec="k", lw=2)
 
     if cbar_bottom:
         orientation = "horizontal"

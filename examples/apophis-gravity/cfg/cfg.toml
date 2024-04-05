@@ -1,6 +1,8 @@
 [window]
-# colormap = { name = "cividis", vmax = 100, scalar = "file" }
-colormap = { name = "cividis", vmax = 50, scalar = "file" }
+# 8
+# 14
+colormap = { name = "cividis", vmax = 8, scalar = "file" }
+
 export_frames = true
 high_dpi = true
 # width = 1024
@@ -13,7 +15,7 @@ duration = 12000
 [simulation.export]
 step = 60
 duration = 12000
-period = 12000
+period = 120000
 cooldown_start = 0
 
 [scene]
@@ -21,7 +23,9 @@ camera.position.cartesian = [0, 1, 0]
 
 [[bodies]]
 name = "Apophis"
-mesh = { shape.path = "/Users/gregoireh/data/kalast/runs/Apophis flyby Hakan/input/apophis_new.obj", factor = [1e-3, 1e-3, 1e-3] }
+mesh = { shape.path = "/Users/gregoireh/data/kalast/runs/Apophis flyby Hakan/apophis_new.obj", factor = [1e-3, 1e-3, 1e-3] }
 color = "data"
-# file_data = { path = "/Users/gregoireh/data/kalast/runs/Gravity Elisa/input/results_slope_change_percentage-2.csv" }
-file_data = { path = "/Users/gregoireh/data/kalast/runs/Gravity Elisa/input/results_slope_change-2.csv" }
+
+# /Users/gregoireh/data/kalast/runs/Apophis Elisa/results_slope_change3-2.csv
+# /Users/gregoireh/data/kalast/runs/Apophis Elisa/results_gravity_norm_change_percentage2-2.csv
+file_data = { path = "/Users/gregoireh/data/kalast/runs/Apophis Elisa/results_slope_change3-2.csv" }

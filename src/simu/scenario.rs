@@ -1,7 +1,7 @@
 use crate::{
     check_if_latest_version,
     config::{self, CfgRoutines, Config, InteriorGrid1D},
-    path_cfg_folder, read_surface_main, thermal_skin_depth_one, thermal_skin_depth_two_pi,
+    read_surface_main, thermal_skin_depth_one, thermal_skin_depth_two_pi,
     util::*,
     AirlessBody, BodyData, Export, FoldersRun, FrameEvent, Result, Routines,
     RoutinesThermalDefault, RoutinesViewerDefault, Time, Window, KEY_BACKWARD, KEY_FORWARD,
@@ -17,10 +17,11 @@ pub struct Scenario {
     pub config: Config,
     pub bodies: Vec<AirlessBody>,
     pub time: Time,
-    pub win: Window,
+    pub win: Option<Window>,
     pub folders: FoldersRun,
     pub routines: Box<dyn Routines>,
     pub pre_computed_bodies: Vec<BodyData>,
+    pub sun: Vec3,
 }
 
 impl Scenario {
@@ -31,20 +32,6 @@ impl Scenario {
     // }
 
     pub fn new(config: Config) -> Result<Self> {
-        let path_cfg = path_cfg_folder();
-
-        println!(
-            "kalast<{}> (built on {} with rustc<{}>)",
-            version(),
-            DATETIME,
-            RUSTC_VERSION
-        );
-
-        println!(
-            "Config initialized at {}",
-            dunce::canonicalize(&path_cfg).unwrap().to_str().unwrap()
-        );
-
         if let Some(true) = config.preferences.debug.config {
             println!("{:#?}", config);
         }
@@ -83,53 +70,55 @@ impl Scenario {
             }
         }
 
-        dbg!(&config.window.shadows);
+        let mut win = None;
 
-        let win = Window::with_settings(|s| {
-            s.width = config.window.width;
-            s.height = config.window.height;
-            s.background_color = config.window.background;
-            if config.window.high_dpi {
-                s.high_dpi();
-            }
-            s.colormap = config.window.colormap.name;
-            s.shadows = config.window.shadows;
-            s.ambient_light_color = config.window.ambient;
-            s.wireframe = config.window.wireframe;
-            s.draw_normals = config.window.normals;
-            s.normals_magnitude = config.window.normals_length;
-            s.debug = config.preferences.debug.window.unwrap_or_default();
-            s.sensitivity = config.preferences.sensitivity.unwrap_or(SENSITIVITY);
-            s.forward = config
-                .preferences
-                .keys
-                .forward
-                .as_ref()
-                .and_then(|s| Keycode::from_name(&s))
-                .unwrap_or(KEY_FORWARD);
-            s.left = config
-                .preferences
-                .keys
-                .left
-                .as_ref()
-                .and_then(|s| Keycode::from_name(&s))
-                .unwrap_or(KEY_LEFT);
-            s.backward = config
-                .preferences
-                .keys
-                .backward
-                .as_ref()
-                .and_then(|s| Keycode::from_name(&s))
-                .unwrap_or(KEY_BACKWARD);
-            s.right = config
-                .preferences
-                .keys
-                .right
-                .as_ref()
-                .and_then(|s| Keycode::from_name(&s))
-                .unwrap_or(KEY_RIGHT);
-            s.touchpad_controls = config.preferences.touchpad_controls.unwrap_or_default();
-        });
+        if !config.preferences.no_window.unwrap_or_default() {
+            win = Some(Window::with_settings(|s| {
+                s.width = config.window.width;
+                s.height = config.window.height;
+                s.background_color = config.window.background;
+                if config.window.high_dpi {
+                    s.high_dpi();
+                }
+                s.colormap = config.window.colormap.name;
+                s.shadows = config.window.shadows;
+                s.ambient_light_color = config.window.ambient;
+                s.wireframe = config.window.wireframe;
+                s.draw_normals = config.window.normals;
+                s.normals_magnitude = config.window.normals_length;
+                s.debug = config.preferences.debug.window.unwrap_or_default();
+                s.sensitivity = config.preferences.sensitivity.unwrap_or(SENSITIVITY);
+                s.forward = config
+                    .preferences
+                    .keys
+                    .forward
+                    .as_ref()
+                    .and_then(|s| Keycode::from_name(&s))
+                    .unwrap_or(KEY_FORWARD);
+                s.left = config
+                    .preferences
+                    .keys
+                    .left
+                    .as_ref()
+                    .and_then(|s| Keycode::from_name(&s))
+                    .unwrap_or(KEY_LEFT);
+                s.backward = config
+                    .preferences
+                    .keys
+                    .backward
+                    .as_ref()
+                    .and_then(|s| Keycode::from_name(&s))
+                    .unwrap_or(KEY_BACKWARD);
+                s.right = config
+                    .preferences
+                    .keys
+                    .right
+                    .as_ref()
+                    .and_then(|s| Keycode::from_name(&s))
+                    .unwrap_or(KEY_RIGHT);
+                s.touchpad_controls = config.preferences.touchpad_controls.unwrap_or_default();
+            }));
+        }
 
         let time_start = match config.simulation.start.seconds() {
             Ok(seconds) => seconds,
@@ -148,6 +137,7 @@ impl Scenario {
             folders,
             routines,
             pre_computed_bodies,
+            sun: Vec3::zeros(),
         })
     }
 
@@ -205,8 +195,9 @@ impl Scenario {
             self.bodies.push(asteroid);
         }
 
-        self.win
-            .load_surfaces(self.bodies.iter().map(|b| &b.surface));
+        if let Some(win) = self.win.as_mut() {
+            win.load_surfaces(self.bodies.iter().map(|b| &b.surface));
+        }
 
         Ok(())
     }
@@ -223,8 +214,12 @@ impl Scenario {
         let mut paused_stop = true;
         let mut export = Export::new(&self.config.simulation.export);
 
-        self.routines
-            .init(&self.config, &mut self.bodies, &self.time, &mut self.win);
+        self.routines.init(
+            &self.config,
+            &mut self.bodies,
+            &self.time,
+            self.win.as_mut(),
+        );
 
         for body in 0..self.bodies.len() {
             self.routines.fn_export_body_once(
@@ -237,18 +232,19 @@ impl Scenario {
         }
 
         'main_loop: loop {
-            // Register keyboard and mouse interactions.
-            let event = self.win.events();
+            if let Some(win) = self.win.as_mut() {
+                let event = win.events();
 
-            match event {
-                FrameEvent::Exit => break 'main_loop,
-                _ => (),
-            };
+                match event {
+                    FrameEvent::Exit => break 'main_loop,
+                    _ => (),
+                };
 
-            if self.win.is_paused() {
-                self.routines
-                    .fn_render(&self.config, &mut self.bodies, &self.time, &mut self.win);
-                continue;
+                if win.is_paused() {
+                    self.routines
+                        .fn_render(&self.config, &mut self.bodies, &self.time, win);
+                    continue;
+                }
             }
 
             if !export.is_first_it {
@@ -264,8 +260,9 @@ impl Scenario {
 
             self.routines.fn_update_scene(
                 &self.config,
+                &mut self.sun,
                 &self.time,
-                &mut self.win.scene.borrow_mut(),
+                self.win.as_mut(),
             );
 
             for body in 0..self.bodies.len() {
@@ -274,20 +271,24 @@ impl Scenario {
                     body,
                     &mut self.bodies,
                     &mut self.pre_computed_bodies,
+                    &self.sun,
                     &self.time,
-                    &self.win,
+                    self.win.as_ref(),
                 );
             }
 
-            self.routines
-                .fn_render(&self.config, &mut self.bodies, &self.time, &mut self.win);
+            if let Some(win) = self.win.as_mut() {
+                self.routines
+                    .fn_render(&self.config, &mut self.bodies, &self.time, win);
+            }
 
             export.iteration(
                 &self.config,
                 &mut self.bodies,
                 &self.pre_computed_bodies,
+                &self.sun,
                 &mut self.time,
-                &self.win,
+                self.win.as_ref(),
                 &self.folders,
                 self.routines.as_ref(),
             );
@@ -295,8 +296,8 @@ impl Scenario {
             self.routines.fn_iteration_finish(
                 &self.config,
                 &mut self.bodies,
-                &self.time,
-                &self.win,
+                &mut self.time,
+                self.win.as_ref(),
             );
 
             if elapsed > self.config.simulation.duration {
@@ -311,10 +312,12 @@ impl Scenario {
                 #[cfg(feature = "spice")]
                 spice::kclear();
 
-                if paused_stop {
-                    paused_stop = false;
-                    self.win.toggle_pause();
-                    continue;
+                if let Some(win) = self.win.as_ref() {
+                    if paused_stop {
+                        paused_stop = false;
+                        win.toggle_pause();
+                        continue;
+                    }
                 }
 
                 break 'main_loop;
