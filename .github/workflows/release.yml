@@ -30,7 +30,8 @@ jobs:
     - name: Get SDL2
       run: |
         if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
-          sudo apt install -y libsdl2-dev
+          sudo apt-get update
+          sudo apt-get install -y libsdl2-dev
         elif [ "${{ matrix.os }}" == "macos-latest" ]; then
           brew install SDL2
         elif [ "${{ matrix.os }}" == "windows-latest" ]; then
@@ -74,8 +75,8 @@ jobs:
         echo "Build main executable."
         cargo build -r --all-features && strip target/release/kalast$EXT
 
-        echo "Build custom executable for specific example." 
-        cargo build -r --all-features --example viewer-picker && strip target/release/examples/viewer-picker$EXT
+        # echo "Build custom executable for specific example." 
+        # cargo build -r --all-features --example viewer-picker && strip target/release/examples/viewer-picker$EXT
       shell: bash
       
     - name: Prepare bundle
@@ -83,10 +84,10 @@ jobs:
         mkdir -p bundle
         cp -r examples bundle
         cp target/release/kalast$EXT bundle
-        cp target/release/examples/viewer-picker$EXT bundle/examples/viewer-picker
+        # cp target/release/examples/viewer-picker$EXT bundle/examples/viewer-picker
         cp include/kalast.ico bundle
         cp -r include/assets bundle
-        cp preferences.yaml bundle
+        cp preferences.toml bundle
         cp README.md bundle
 
         if [ "${{ matrix.os }}" == "windows-latest" ]; then

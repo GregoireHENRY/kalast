@@ -1,10 +1,28 @@
+use figment::{
+    providers::{Format, Serialized, Toml},
+    Figment,
+};
+
 use kalast::{
-    util::*, AirlessBody, Cfg, ColorMode, Result, Routines, RoutinesViewer, RoutinesViewerDefault,
-    Scenario, Time, Window,
+    config::Config, util::*, AirlessBody, ColorMode, Result, Routines, RoutinesViewer,
+    RoutinesViewerDefault, Scenario, Time, Window,
 };
 
 fn main() -> Result<()> {
-    let mut sc = Scenario::new()?;
+    println!(
+        "kalast<{}> (built on {} with rustc<{}>)",
+        version(),
+        DATETIME,
+        RUSTC_VERSION
+    );
+
+    let config: Config = Figment::from(Serialized::defaults(Config::default()))
+        .merge(Toml::file("preferences.toml"))
+        .merge(Toml::file("cfg/cfg.toml"))
+        .extract()
+        .unwrap();
+
+    let mut sc = Scenario::new(config)?;
     sc.change_routines(RoutinesViewerCustom::new());
     sc.iterations()?;
     Ok(())
@@ -52,7 +70,13 @@ impl RoutinesViewerCustom {
 }
 
 impl Routines for RoutinesViewerCustom {
-    fn init(&mut self, cfg: &Cfg, bodies: &mut [AirlessBody], time: &Time, win: &mut Window) {
+    fn init(
+        &mut self,
+        cfg: &Cfg,
+        bodies: &mut [AirlessBody],
+        time: &Time,
+        win: Option<&mut Window>,
+    ) {
         self.default.init(cfg, bodies, time, win);
         let faces: Vec<_> = serde_yaml::from_value(cfg.bodies[0].extra()["faces"].clone())
             .expect("No value `faces` for body");
