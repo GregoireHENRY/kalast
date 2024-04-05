@@ -1,11 +1,12 @@
 [preferences]
 touchpad_controls = true
-no_window = true
+# no_window = true
 
 [preferences.debug]
 config = true
 general = true
 window = false
 thermal_stats = false
+simulation = false
 simulation_time = true
 simulation_time_frequency = 1

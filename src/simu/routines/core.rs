@@ -11,7 +11,7 @@ use crate::{
     find_ref_orbit, matrix_orientation_obliquity, matrix_spin, position_in_inertial_frame,
     update_colormap_scalar,
     util::*,
-    AirlessBody, BodyData, FoldersRun, Interior, MovementMode, Time, Window,
+    AirlessBody, BodyData, FoldersRun, Interior, MovementMode, ProjectionMode, Time, Window,
 };
 
 use downcast_rs::{impl_downcast, DowncastSync};
@@ -181,16 +181,18 @@ pub trait Routines: DowncastSync {
                 if let Some(body) = config.bodies.first() {
                     match &body.state {
                         State::Orbit(orbit) => match &orbit.frame {
-                            FrameCenter::Sun => -position_in_inertial_frame(
-                                orbit.a * AU,
-                                orbit.e,
-                                orbit.i * RPD,
-                                orbit.node * RPD,
-                                orbit.peri * RPD,
-                                elapsed_from_start as Float,
-                                orbit.tp,
-                                MU_SUN,
-                            ),
+                            FrameCenter::Sun => {
+                                -position_in_inertial_frame(
+                                    orbit.a * AU,
+                                    orbit.e,
+                                    orbit.i * RPD,
+                                    orbit.node * RPD,
+                                    orbit.peri * RPD,
+                                    elapsed_from_start as Float,
+                                    orbit.tp,
+                                    MU_SUN,
+                                ) * 1e-3
+                            }
                             FrameCenter::Body(_) => {
                                 if time.iteration() == 0 {
                                     println!("Warning: The Sun is set to be configured from the state of the primary body but only works if the state is an orbit centered on the Sun.");
@@ -347,7 +349,16 @@ pub trait Routines: DowncastSync {
                 };
                 scene.camera.up = config.scene.camera.up;
                 scene.camera.up_world = config.scene.camera.up;
-                scene.camera.projection = config.scene.camera.projection;
+                let mut projection = config.scene.camera.projection;
+
+                match &mut projection {
+                    ProjectionMode::Perspective(fovy) => {
+                        *fovy *= RPD;
+                    }
+                    _ => {}
+                }
+
+                scene.camera.projection = projection;
 
                 if let Some(near) = config.scene.camera.near {
                     scene.camera.near = Some(near);
@@ -438,8 +449,8 @@ pub trait Routines: DowncastSync {
                         elapsed_from_start as Float,
                         orbit.tp,
                         mu_ref,
-                    );
-                    matrix_translation = Mat4::new_translation(&(pos * 1e-3));
+                    ) * 1e-3;
+                    matrix_translation = Mat4::new_translation(&pos);
                 }
 
                 match &orbit.frame {

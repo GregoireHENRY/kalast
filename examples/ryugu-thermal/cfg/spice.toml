@@ -4,14 +4,21 @@ colormap = { name = "inferno", vmax = 400.0, scalar = "temperature" }
 width = 1024
 height = 768
 
+[spice]
+kernel = "/Users/gregoireh/data/spice/hayabusa2/mk/hyb2_v03.tm"
+frame = "ECLIPJ2000"
+origin = "RYUGU"
+
 [simulation]
 routines = "thermal"
+start = "2021-01-05 00:00"
 step = 600
 duration = 41071560
 
-# Annual period: 474.7286379896793 days = 41016554.322308294 s
+# Annual period: 474.7286379896793 days
+#   or 41016554.322308294 s
 #   rounded up to 60: 41016600 s
-# Spin period: 7.63262 h = 27477.432 s
+# Spin period: 7.63262 h
 #   2 periods: 54954.86 s
 #   rounded up to 60: 54960 s
 # (474.7286379896793 * 24 + 2 * 7.63262) * 3600 = 41071509.186308295 s
@@ -24,17 +31,17 @@ period = 41071560
 cooldown_start = 41016600
 
 [scene]
-sun.position = "origin"
-camera.position.cartesian = [0, -15, 0]
-camera.projection.perspective = 5.0
+sun.position = "spice"
+camera.position.cartesian = [5.0, 0.0, 0.0]
+camera.projection.perspective = 0.08726646259971647
 
 [[bodies]]
 name = "RYUGU"
+color = "data"
+state = "spice"
 mesh.shape.path = "/Users/gregoireh/data/meshes/ryugu/SHAPE_SFM_49k_v20180804.obj"
 interior.grid1d.linear = { size = 40, a = 2e-2 }
-spin = { period = 27477.432, obliquity = 171 }
 temperature.scalar = 150
-color = "data"
 record = { rows = [0], columns = [0], mesh = true, depth = true }
 
 [bodies.material]
@@ -43,7 +50,3 @@ emissivity = 0.9
 thermal_inertia = 500.0
 density = 2100.0
 heat_capacity = 600.0
-
-[bodies.state.orbit]
-a = 1.190962269512474
-e = 0.1910200912732423

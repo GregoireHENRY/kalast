@@ -1,0 +1,33 @@
+[window]
+ambient = [0.06, 0.06, 0.06]
+export_frames = true
+width = 328
+height = 248
+
+[spice]
+kernel = "/Users/gregoireh/data/spice/hayabusa2/mk/hyb2_v03.tm"
+frame = "HAYABUSA2_TIR-S"
+origin = "RYUGU"
+
+[simulation]
+start = "2018-08-01 21:41:21"
+
+[scene]
+sun.position = "spice"
+
+[scene.camera]
+name = "HAYABUSA2"
+position = "spice"
+up = [0, -1, 0]
+direction.vector = [0, 0, 1]
+projection.perspective = 0.220958683  # 12.66° FOVY
+
+[[bodies]]
+name = "RYUGU"
+frame = "RYUGU_FIXED"
+state = "spice"
+material.albedo = 0.1
+
+# /Users/gregoireh/data/meshes/ryugu/SHAPE_SPC_3M_v20190328.obj
+mesh.shape.path = "/Users/gregoireh/data/meshes/ryugu/SHAPE_SFM_49k_v20180804.obj"
+

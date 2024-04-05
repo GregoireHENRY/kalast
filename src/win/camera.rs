@@ -10,7 +10,7 @@ pub const POSITION: Vec3 = Vec3::new(5.0, 0.0, 0.0);
 pub const ANCHOR: Vec3 = Vec3::new(0.0, 0.0, 0.0);
 pub const NEAR_FACTOR: Float = 1e-5;
 pub const FAR_FACTOR: Float = 2.0;
-pub const FOVY: Float = 40.0 * RPD;
+pub const FOVY: Float = 30.0;
 
 pub const SENSITIVITY: Float = 1.0;
 pub const SENSITIVITY_CORRECTION: Float = 1e-3;

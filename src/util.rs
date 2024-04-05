@@ -38,6 +38,7 @@ pub const ASTRONOMICAL_UNIT: Float = 1.495978707e11;
 
 /// Alias to ASTRONOMICAL_UNIT.
 pub const AU: Float = ASTRONOMICAL_UNIT;
+pub const AU_KM: Float = AU * 1e-3;
 
 /// [Solar flux constant](https://en.wikipedia.org/wiki/Solar_constant)
 pub const SOLAR_CONSTANT: Float = 1361.0;
