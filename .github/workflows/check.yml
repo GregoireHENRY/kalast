@@ -27,8 +27,8 @@ jobs:
     - name: Get SDL2
       run: |
         if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
-          sudo apt update
-          sudo apt install -y libsdl2-dev
+          sudo apt-get update
+          sudo apt-get install -y libsdl2-dev
         elif [ "${{ matrix.os }}" == "macos-latest" ]; then
           brew install SDL2
         elif [ "${{ matrix.os }}" == "windows-latest" ]; then
