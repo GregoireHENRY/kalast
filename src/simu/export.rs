@@ -1,8 +1,10 @@
 use crate::{
-    config::CfgTimeExport, config::Config, util::*, AirlessBody, BodyData, FoldersRun, Routines,
-    Time, Window,
+    config::{CfgTimeExport, Config},
+    util::*,
+    AirlessBody, BodyData, FoldersRun, Interior, Routines, Time, Window,
 };
 
+use itertools::Itertools;
 use polars::prelude::{df, CsvWriter, NamedFrom, SerWriter};
 use std::fs;
 
@@ -23,15 +25,83 @@ impl Export {
             exporting: false,
             exporting_started_elapsed: 0,
             remaining_duration_export: 0,
-            cooldown_export: cfg.cooldown_start.unwrap_or(cfg.period) as _,
+            cooldown_export: cfg.cooldown_start.unwrap_or_default() as _,
+        }
+    }
+
+    fn init_body(
+        &mut self,
+        config: &Config,
+        body: usize,
+        bodies: &[AirlessBody],
+        _bodies_data: &[BodyData],
+        folders: &FoldersRun,
+    ) {
+        if config.bodies[body].record.mesh {
+            let faces = bodies[body].surface.faces.clone();
+            let sph = faces.iter().map(|f| f.vertex.sph()).collect_vec();
+            let mut df = df!(
+                "x" => faces.iter().map(|f| f.vertex.position.x).collect_vec(),
+                "y" => faces.iter().map(|f| f.vertex.position.y).collect_vec(),
+                "z" => faces.iter().map(|f| f.vertex.position.z).collect_vec(),
+                "lon" => sph.iter().map(|sph| sph[1]).collect_vec(),
+                "lat" => sph.iter().map(|sph| sph[2]).collect_vec(),
+                "rad" => sph.iter().map(|sph| sph[0]).collect_vec(),
+            )
+            .unwrap();
+
+            let folder_simu = folders.simu_body(&config.bodies[body].name);
+            fs::create_dir_all(&folder_simu).unwrap();
+
+            let mut file = std::fs::File::options()
+                .append(true)
+                .create(true)
+                .open(folder_simu.join("mesh.csv"))
+                .unwrap();
+            CsvWriter::new(&mut file)
+                .include_header(true)
+                .finish(&mut df)
+                .unwrap();
+        }
+
+        if config.bodies[body].record.depth {
+            let mut depth = None;
+
+            if let Some(interior) = bodies[body].interior.as_ref() {
+                match interior {
+                    Interior::Grid(grid) => {
+                        depth = Some(grid.depth.clone());
+                    }
+                }
+            }
+
+            if let Some(depth) = depth {
+                let mut df = df!(
+                    "depth" => depth,
+                )
+                .unwrap();
+
+                let folder_simu = folders.simu_body(&config.bodies[body].name);
+                fs::create_dir_all(&folder_simu).unwrap();
+
+                let mut file = std::fs::File::options()
+                    .append(true)
+                    .create(true)
+                    .open(folder_simu.join("depth.csv"))
+                    .unwrap();
+                CsvWriter::new(&mut file)
+                    .include_header(true)
+                    .finish(&mut df)
+                    .unwrap();
+            }
         }
     }
 
     pub fn iteration(
         &mut self,
-        cfg: &Config,
+        config: &Config,
         bodies: &mut [AirlessBody],
-        body_data: &[BodyData],
+        bodies_data: &[BodyData],
         sun: &Vec3,
         time: &mut Time,
         win: Option<&Window>,
@@ -45,16 +115,15 @@ impl Export {
             fs::create_dir_all(&folders.path).unwrap();
         }
 
-        for body in 0..cfg.bodies.len() {
-            if body > 0 {
-                // print!(" ");
+        if self.is_first_it {
+            for body in 0..config.bodies.len() {
+                self.init_body(config, body, bodies, bodies_data, folders);
             }
-            // let np_elapsed = elapsed as Float / cb.spin.period;
-            // print!("{:8.4}", np_elapsed);
-
-            routines.fn_export_iteration(body, cfg, time, folders, self.is_first_it);
         }
-        // print!(">");
+
+        for body in 0..config.bodies.len() {
+            routines.fn_export_iteration(body, config, time, folders, self.is_first_it);
+        }
 
         if !self.exporting {
             if !self.is_first_it {
@@ -67,17 +136,17 @@ impl Export {
                 // print!(" began exporting..");
                 self.exporting = true;
                 self.exporting_started_elapsed = elapsed as _;
-                self.remaining_duration_export = cfg.simulation.export.duration as _;
+                self.remaining_duration_export = config.simulation.export.duration as _;
                 println!("Start export time.");
                 // println!("Simulation time step: {}", time.time_step);
-                time.set_time_step(cfg.simulation.export.step);
+                time.set_time_step(config.simulation.export.step);
                 // println!("Export time step: {}", time.time_step);
             } else if self.cooldown_export - (dt as i64) < 0 {
                 // So export does not really start here, but the time step is adapted to not miss the beginning of export
                 // (in case export time step is smaller than simulation time step).
                 println!("Start pre-export time.");
                 // println!("Simulation time step: {}", time.time_step);
-                time.set_time_step(cfg.simulation.export.step);
+                time.set_time_step(config.simulation.export.step);
                 // println!("Export time step: {}", time.time_step);
             }
         }
@@ -89,7 +158,7 @@ impl Export {
 
             // print!(" remaining duration export({})..", self.remaining_duration_export);
 
-            if cfg.window.export_frames {
+            if config.window.export_frames {
                 let path = folders
                     .simu_rec_time_frames(self.exporting_started_elapsed as _)
                     .join(format!("{}.png", elapsed));
@@ -99,16 +168,22 @@ impl Export {
                 }
             }
 
-            for body in 0..cfg.bodies.len() {
+            for body in 0..config.bodies.len() {
                 if self.is_first_it_export {
                     self.iteration_body_export_start_generic(
-                        cfg, body, bodies, body_data, sun, time, folders,
+                        config,
+                        body,
+                        bodies,
+                        bodies_data,
+                        sun,
+                        time,
+                        folders,
                     );
                 }
                 routines.fn_export_iteration_period(
                     body,
                     bodies,
-                    cfg,
+                    config,
                     folders,
                     self.exporting_started_elapsed,
                     self.is_first_it_export,
@@ -124,10 +199,10 @@ impl Export {
                 self.exporting = false;
                 self.is_first_it_export = true;
                 self.cooldown_export =
-                    (cfg.simulation.export.period - cfg.simulation.export.duration) as _;
+                    (config.simulation.export.period - config.simulation.export.duration) as _;
                 println!("End of export.");
                 // println!("Export time step: {}", time.time_step);
-                time.set_time_step(cfg.simulation.step);
+                time.set_time_step(config.simulation.step);
                 // println!("Simulation time step: {}", time.time_step);
 
                 // let _cvg = kalast::simu::converge::check_all(&mut bodies, &folder_tpm, &cfg.time.export);

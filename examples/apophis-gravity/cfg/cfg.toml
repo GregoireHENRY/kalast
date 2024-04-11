@@ -1,31 +1,30 @@
 [window]
-# 8
-# 14
-colormap = { name = "cividis", vmax = 8, scalar = "file" }
+colormap = { name = "viridis", vmax = 2, scalar = "file" }
 
 export_frames = true
 high_dpi = true
-# width = 1024
-# height = 768
+width = 1512
+height = 982
 
 [simulation]
-step = 60
-duration = 12000
+step = 1
+duration = 999
+read_file_data_only = true
 
 [simulation.export]
-step = 60
-duration = 12000
-period = 120000
+step = 1
+duration = 999
+period = 999
 cooldown_start = 0
 
 [scene]
-camera.position.cartesian = [0, 1, 0]
+camera.position.cartesian = [0, 6, 0]
+camera.projection.perspective = 4
 
 [[bodies]]
 name = "Apophis"
 mesh = { shape.path = "/Users/gregoireh/data/kalast/runs/Apophis flyby Hakan/apophis_new.obj", factor = [1e-3, 1e-3, 1e-3] }
 color = "data"
+file_data = { path = "/Users/gregoireh/data/kalast/runs/Apophis Elisa/satis/for_plot2/delta slope °/results_slope_change3_35364_960_100801.csv" }
+faces_selected = [2752, 2764, 2180, 1987, 2878, 1635, 2103, 2040, 2969, 1682, 3168, 1800]
 
-# /Users/gregoireh/data/kalast/runs/Apophis Elisa/results_slope_change3-2.csv
-# /Users/gregoireh/data/kalast/runs/Apophis Elisa/results_gravity_norm_change_percentage2-2.csv
-file_data = { path = "/Users/gregoireh/data/kalast/runs/Apophis Elisa/results_slope_change3-2.csv" }

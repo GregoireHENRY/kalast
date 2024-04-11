@@ -2,24 +2,25 @@
 colormap = { name = "inferno", vmax = 400.0, scalar = "temperature" }
 export_frames = true
 high_dpi = true
-# width = 1024
-# height = 768
+width = 1512
+height = 982
 
 [simulation]
 routines = "thermal"
 step = 600
-duration = 25920000
-file = { path = "/Users/gregoireh/Downloads/hakan/forkalast-2.csv", behavior = "loop" }
+duration = 90720000
+file = { path = "/Users/gregoireh/data/kalast/runs/Apophis flyby Hakan/tumbling/apophis_tumbling2.csv", behavior = "loop" }
 
 [simulation.export]
-step = 60
-duration = 109800
-period = 1296000
-cooldown_start = 13399200
+step = 600
+duration = 3024000
+period = 3024000
+cooldown_start = 87696000
 
-# 1296000 = 360h
-# 12960000 = 3600h
-# 25920000 = 3600h * 2
+# Duration file: 840h = 3024000s
+# *29 = 87696000s
+# *30 = 90720000s
+#
 # 109800 = 30.5h
 # 439200 = 30.5h * 4
 # 549000 = 30.5h * 5
@@ -29,15 +30,17 @@ cooldown_start = 13399200
 
 [scene]
 sun.position = "file"
-camera.position.cartesian = [-1, 0, 0]
+camera.position.cartesian = [-10, 0, 0]
+camera.projection.perspective = 3
 
 [[bodies]]
 name = "Apophis"
 color = "data"
-mesh = { shape.path = "/Users/gregoireh/Downloads/hakan/apophis_new.obj", factor = [1e-3, 1e-3, 1e-3] }
+mesh = { shape.path = "/Users/gregoireh/data/kalast/runs/Apophis flyby Hakan/apophis_new.obj", factor = [1e-3, 1e-3, 1e-3] }
 interior.grid1d.linear = { size = 40, a = 2e-2 }
 state = "file"
-record = { rows = [0], mesh = true, depth = true }
+record = { rows = [0], columns = [2288, 1556, 333, 907, 1188, 1169, 1235], mesh = true, depth = true }
+temperature.scalar = 150
 
 [bodies.material]
 albedo = 0.3

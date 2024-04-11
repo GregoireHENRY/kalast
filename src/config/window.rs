@@ -2,6 +2,9 @@ use crate::{util::*, Colormap, WINDOW_HEIGHT, WINDOW_WIDTH};
 
 use serde::{Deserialize, Serialize};
 
+pub const CMAP_VMIN: Float = 0.0;
+pub const CMAP_VMAX: Float = 1.0;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CfgWindow {
     #[serde(default = "default_width")]
@@ -32,7 +35,7 @@ pub struct CfgWindow {
     pub wireframe: bool,
 
     #[serde(default)]
-    pub colormap: CfgColormap,
+    pub colormap: Option<CfgColormap>,
 
     #[serde(default)]
     pub normals: bool,
@@ -42,6 +45,9 @@ pub struct CfgWindow {
 
     #[serde(default)]
     pub export_frames: bool,
+
+    #[serde(default)]
+    pub color_selection: Vec3,
 }
 
 impl Default for CfgWindow {
@@ -56,10 +62,11 @@ impl Default for CfgWindow {
             shadows: false,
             ambient: Vec3::zeros(),
             wireframe: false,
-            colormap: CfgColormap::default(),
+            colormap: None,
             normals: false,
             normals_length: default_normals_length(),
             export_frames: false,
+            color_selection: default_color_selection(),
         }
     }
 }
@@ -80,42 +87,26 @@ fn default_normals_length() -> Float {
     0.02
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+pub fn default_color_selection() -> Vec3 {
+    Vec3::new(1.0, 1.0, 0.0)
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct CfgColormap {
     #[serde(default)]
-    pub name: Colormap,
+    pub name: Option<Colormap>,
 
-    #[serde(default = "default_colormap_vmin")]
-    pub vmin: Float,
+    #[serde(default)]
+    pub vmin: Option<Float>,
 
-    #[serde(default = "default_colormap_vmax")]
-    pub vmax: Float,
+    #[serde(default)]
+    pub vmax: Option<Float>,
 
     #[serde(default)]
     pub scalar: Option<CfgScalar>,
 
     #[serde(default)]
-    pub reverse: bool,
-}
-
-impl Default for CfgColormap {
-    fn default() -> Self {
-        Self {
-            name: Colormap::default(),
-            vmin: default_colormap_vmin(),
-            vmax: default_colormap_vmax(),
-            scalar: None,
-            reverse: false,
-        }
-    }
-}
-
-fn default_colormap_vmin() -> Float {
-    0.0
-}
-
-fn default_colormap_vmax() -> Float {
-    1.0
+    pub reverse: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

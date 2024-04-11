@@ -120,6 +120,13 @@ pub fn shadows(
     asteroid1: &AirlessBody,
     asteroid2: &AirlessBody,
 ) -> Vec<usize> {
+    let surf1 = &asteroid1.surface;
+    let surf2 = asteroid1
+        .lowres
+        .as_ref()
+        .or(Some(&asteroid1.surface))
+        .unwrap();
+
     if asteroid1.surface.is_smooth() || asteroid2.surface.is_smooth() {
         unimplemented!("Shadowing by ray-casting is only implemented for flat surface.");
     }
@@ -148,8 +155,7 @@ pub fn shadows(
     let lightpos_f1 = (inv_m1 * vec3_to_4_one(&sun_position)).xyz();
 
     // Filtering out faces that cannot be shadowed because they don't see the Sun.
-    for (index, face) in asteroid1
-        .surface
+    for (index, face) in surf1
         .faces
         .iter()
         .enumerate()
@@ -161,19 +167,16 @@ pub fn shadows(
         let raydist = (center_f2 - lightpos_f2).magnitude();
         let raydir = (center_f2 - lightpos_f2).normalize();
 
-        let surf = izip!(
-            asteroid2.surface.vertices.chunks_exact(3),
-            &asteroid2.surface.faces
-        )
-        //
-        // filters facets with distance closer than studied facet.
-        .filter(|(_, f)| (f.vertex.position - lightpos_f2).magnitude() < raydist)
-        //
-        // filters TO BE CONFIRMED
-        // .filter(|(_, f)| (f.vertex.position - center_f2).magnitude() > area_sqrt)
-        //
-        .map(|(vf, _)| (&vf[0].position, &vf[1].position, &vf[2].position))
-        .collect();
+        let surf = izip!(surf2.vertices.chunks_exact(3), &surf2.faces)
+            //
+            // filters facets with distance closer than studied facet.
+            .filter(|(_, f)| (f.vertex.position - lightpos_f2).magnitude() < raydist)
+            //
+            // filters TO BE CONFIRMED
+            // .filter(|(_, f)| (f.vertex.position - center_f2).magnitude() > area_sqrt)
+            //
+            .map(|(vf, _)| (&vf[0].position, &vf[1].position, &vf[2].position))
+            .collect();
 
         if let Some(_) = intersect_surface(&lightpos_f2, &raydir, surf, true) {
             shadowed.push(index);

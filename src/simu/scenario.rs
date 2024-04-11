@@ -16,11 +16,11 @@ use sdl2::keyboard::Keycode;
 pub struct Scenario {
     pub config: Config,
     pub bodies: Vec<AirlessBody>,
+    pub bodies_data: Vec<BodyData>,
     pub time: Time,
     pub win: Option<Window>,
     pub folders: FoldersRun,
     pub routines: Box<dyn Routines>,
-    pub pre_computed_bodies: Vec<BodyData>,
     pub sun: Vec3,
 }
 
@@ -31,7 +31,7 @@ impl Scenario {
     //     Self::new_with(path)
     // }
 
-    pub fn new(config: Config) -> Result<Self> {
+    pub fn new(mut config: Config) -> Result<Self> {
         if let Some(true) = config.preferences.debug.config {
             println!("{:#?}", config);
         }
@@ -40,14 +40,14 @@ impl Scenario {
             check_if_latest_version(&config);
         }
 
-        let mut folders = FoldersRun::new(&config);
+        let mut folders = FoldersRun::from_cfg(&config);
         // folders.save_cfgs(&path_cfg);
-        folders.save_cfgs("cfg");
+        folders.save_cfg(&config);
 
         // folders.save_src(&path_mainrs);
 
         let bodies = vec![];
-        let pre_computed_bodies = vec![];
+        let bodies_data = vec![];
 
         let routines = match &config.simulation.routines {
             CfgRoutines::Viewer => Box::new(RoutinesViewerDefault::new()) as Box<dyn Routines>,
@@ -80,7 +80,9 @@ impl Scenario {
                 if config.window.high_dpi {
                     s.high_dpi();
                 }
-                s.colormap = config.window.colormap.name;
+                if let Some(cmap) = config.window.colormap.as_ref() {
+                    s.colormap = cmap.name.unwrap_or(crate::Colormap::default());
+                }
                 s.shadows = config.window.shadows;
                 s.ambient_light_color = config.window.ambient;
                 s.wireframe = config.window.wireframe;
@@ -120,23 +122,37 @@ impl Scenario {
             }));
         }
 
-        let time_start = match config.simulation.start.seconds() {
-            Ok(seconds) => seconds,
-            Err(e) => panic!("{e} Spice is required to convert the starting date of the simulation to ephemeris time."),
-        } as usize;
+        let time_start = {
+            let mut time_start = match config.simulation.start.seconds() {
+                Ok(seconds) => seconds,
+                Err(e) => panic!("{e} Spice is required to convert the starting date of the simulation to ephemeris time."),
+            };
 
-        let time = Time::new()
+            time_start = (time_start as isize + config.simulation.start_offset) as usize;
+
+            time_start
+        };
+
+        if let Some(restart) = config.restart.as_ref() {
+            config.simulation.step = (config.simulation.step as Float
+                * restart.time_step_factor.unwrap_or(1.0))
+                as usize;
+        }
+
+        let mut time = Time::new()
             .with_time_step(config.simulation.step)
             .with_time_start(time_start);
+
+        time.elapsed_time = config.simulation.elapsed;
 
         Ok(Self {
             config,
             bodies,
+            bodies_data,
             time,
             win,
             folders,
             routines,
-            pre_computed_bodies,
             sun: Vec3::zeros(),
         })
     }
@@ -191,7 +207,7 @@ impl Scenario {
             };
 
             self.routines.load(&asteroid, &cb);
-            self.pre_computed_bodies.push(BodyData::new(&asteroid, &cb));
+            self.bodies_data.push(BodyData::new(&asteroid, &cb));
             self.bodies.push(asteroid);
         }
 
@@ -214,23 +230,6 @@ impl Scenario {
         let mut paused_stop = true;
         let mut export = Export::new(&self.config.simulation.export);
 
-        self.routines.init(
-            &self.config,
-            &mut self.bodies,
-            &self.time,
-            self.win.as_mut(),
-        );
-
-        for body in 0..self.bodies.len() {
-            self.routines.fn_export_body_once(
-                &self.config,
-                body,
-                &mut self.bodies,
-                &self.pre_computed_bodies,
-                &self.folders,
-            )
-        }
-
         'main_loop: loop {
             if let Some(win) = self.win.as_mut() {
                 let event = win.events();
@@ -241,8 +240,14 @@ impl Scenario {
                 };
 
                 if win.is_paused() {
-                    self.routines
-                        .fn_render(&self.config, &mut self.bodies, &self.time, win);
+                    self.routines.fn_render(
+                        &self.config,
+                        &mut self.bodies,
+                        &mut self.bodies_data,
+                        win,
+                        &self.time,
+                        &export,
+                    );
                     continue;
                 }
             }
@@ -263,6 +268,7 @@ impl Scenario {
                 &mut self.sun,
                 &self.time,
                 self.win.as_mut(),
+                &export,
             );
 
             for body in 0..self.bodies.len() {
@@ -270,7 +276,7 @@ impl Scenario {
                     &self.config,
                     body,
                     &mut self.bodies,
-                    &mut self.pre_computed_bodies,
+                    &mut self.bodies_data,
                     &self.sun,
                     &self.time,
                     self.win.as_ref(),
@@ -278,14 +284,21 @@ impl Scenario {
             }
 
             if let Some(win) = self.win.as_mut() {
-                self.routines
-                    .fn_render(&self.config, &mut self.bodies, &self.time, win);
+                self.routines.fn_render(
+                    &self.config,
+                    &mut self.bodies,
+                    &mut self.bodies_data,
+                    win,
+                    &self.time,
+                    &export,
+                );
             }
 
+            // is_first_it turned to false at the end of this routine after the first iteration.
             export.iteration(
                 &self.config,
                 &mut self.bodies,
-                &self.pre_computed_bodies,
+                &self.bodies_data,
                 &self.sun,
                 &mut self.time,
                 self.win.as_ref(),

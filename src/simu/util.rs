@@ -3,6 +3,7 @@ use crate::{
     config::Config, cosine_angle, util::*, AirlessBody, Material, Result, Surface, Window,
 };
 
+use cg::{CMAP_VMAX, CMAP_VMIN};
 use itertools::{izip, Itertools};
 
 pub fn read_surface(cb: &cg::Body, kind: cg::MeshKind) -> Result<Surface> {
@@ -77,23 +78,25 @@ pub fn find_ref_orbit(orbit: &cg::StateOrbit, cfgs: &[&cg::Body]) -> (Float, Flo
 }
 
 pub fn update_colormap_scalar(
-    win: &Window,
-    cfg: &Config,
+    _win: &Window,
+    config: &Config,
     scalars: &[Float],
     asteroid: &mut AirlessBody,
-    ii_body: usize,
+    _ii_body: usize,
 ) {
-    let cmap = &cfg.window.colormap;
-
-    for (element, scalar) in izip!(asteroid.surface.elements_mut(), scalars) {
-        let mut data = (scalar - cmap.vmin) / (cmap.vmax - cmap.vmin);
-        if cmap.reverse {
-            data = 1.0 - data;
+    if let Some(cmap) = config.window.colormap.as_ref() {
+        for (element, scalar) in izip!(asteroid.surface.elements_mut(), scalars) {
+            let vmin = cmap.vmin.unwrap_or(CMAP_VMIN);
+            let vmax = cmap.vmax.unwrap_or(CMAP_VMAX);
+            let mut data = (scalar - vmin) / (vmax - vmin);
+            if let Some(true) = cmap.reverse {
+                data = 1.0 - data;
+            }
+            element.data = data;
         }
-        element.data = data;
     }
 
-    win.update_vao(ii_body, &mut asteroid.surface);
+    // win.update_vao(ii_body, &mut asteroid.surface);
 }
 
 pub fn compute_cosine_incidence_angle(

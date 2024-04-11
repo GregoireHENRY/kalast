@@ -1,4 +1,4 @@
-use std::{fs, path::Path};
+use std::path::Path;
 
 use crate::{
     compute_cosine_emission_angle, compute_cosine_incidence_angle, compute_cosine_phase_angle,
@@ -11,7 +11,8 @@ use crate::{
     find_ref_orbit, matrix_orientation_obliquity, matrix_spin, position_in_inertial_frame,
     update_colormap_scalar,
     util::*,
-    AirlessBody, BodyData, FoldersRun, Interior, MovementMode, ProjectionMode, Time, Window,
+    AirlessBody, BodyData, ColorMode, Export, FoldersRun, MovementMode, ProjectionMode,
+    SelectedFace, Time, Window,
 };
 
 use downcast_rs::{impl_downcast, DowncastSync};
@@ -21,18 +22,9 @@ use polars::prelude::*;
 pub trait Routines: DowncastSync {
     fn load(&mut self, _body: &AirlessBody, _cb: &Body) {}
 
-    fn init(
-        &mut self,
-        _config: &Config,
-        _bodies: &mut [AirlessBody],
-        _time: &Time,
-        _win: Option<&mut Window>,
-    ) {
-    }
-
     fn fn_update_file_index_core(
         &self,
-        _config: &Config,
+        config: &Config,
         time: &mut Time,
         file: &Path,
         opt_loop: bool,
@@ -56,6 +48,15 @@ pub trait Routines: DowncastSync {
                 .try_extract::<usize>()
                 .unwrap();
             time_elapsed = time_elapsed % last;
+        }
+
+        if config.simulation.read_file_data_only {
+            time.file_row = Some(time.iteration);
+            found = true;
+        }
+
+        if found {
+            return;
         }
 
         if let Some(&(mut index)) = time.file_row.as_ref() {
@@ -82,8 +83,11 @@ pub trait Routines: DowncastSync {
         // let skip = time.file_row.unwrap_or_default();
         let skip = 0;
 
-        if !found {
-            time.file_row = Some(
+        if found {
+            return;
+        }
+
+        time.file_row = Some(
                 elapsed
                     .iter()
                     .skip(skip)
@@ -102,7 +106,6 @@ pub trait Routines: DowncastSync {
                         next_tried_time_file
                     )),
             );
-        }
 
         // println!(
         //     "{:?} {} {} {}",
@@ -128,12 +131,53 @@ pub trait Routines: DowncastSync {
         }
     }
 
+    fn fn_update_scene_core_first_it(
+        &self,
+        config: &Config,
+        _sun: &mut Vec3,
+        _time: &Time,
+        win: &Option<&mut Window>,
+        // bodies: &mut [AirlessBody],
+        // bodies_data: &mut [BodyData],
+    ) {
+        if let Some(win) = win {
+            // scope for scene mut borrow
+            {
+                let mut scene = win.scene.borrow_mut();
+                scene.camera.direction = match config.scene.camera.direction {
+                    CfgCameraDirection::Cartesian(v) => v,
+                    CfgCameraDirection::TargetAnchor => -scene.camera.position.normalize(),
+                };
+                scene.camera.up = config.scene.camera.up;
+                scene.camera.up_world = config.scene.camera.up;
+                let mut projection = config.scene.camera.projection;
+
+                match &mut projection {
+                    ProjectionMode::Perspective(fovy) => {
+                        *fovy *= RPD;
+                    }
+                    _ => {}
+                }
+
+                scene.camera.projection = projection;
+
+                if let Some(near) = config.scene.camera.near {
+                    scene.camera.near = Some(near);
+                }
+
+                if let Some(far) = config.scene.camera.far {
+                    scene.camera.far = Some(far);
+                }
+            }
+        }
+    }
+
     fn fn_update_scene_core(
         &self,
         config: &Config,
         sun: &mut Vec3,
         time: &Time,
-        win: Option<&mut Window>,
+        win: &Option<&mut Window>,
     ) {
         let elapsed_from_start = time.elapsed_seconds_from_start();
 
@@ -227,8 +271,9 @@ pub trait Routines: DowncastSync {
         };
 
         let cam_pos = match &config.scene.camera.position {
-            CfgCameraPosition::Cartesian(p) => *p,
-            CfgCameraPosition::FromSun => {
+            None => CfgCamera::default_position(),
+            Some(CfgCameraPosition::Cartesian(p)) => *p,
+            Some(CfgCameraPosition::FromSun) => {
                 sun_pos.normalize()
                     * config
                         .scene
@@ -236,7 +281,7 @@ pub trait Routines: DowncastSync {
                         .distance_origin
                         .unwrap_or(CfgCamera::default_distance())
             }
-            CfgCameraPosition::Spice => {
+            Some(CfgCameraPosition::Spice) => {
                 let name = config.scene.camera.name.as_ref().unwrap();
                 let frame = config
                     .spice
@@ -265,7 +310,7 @@ pub trait Routines: DowncastSync {
 
                 position
             }
-            CfgCameraPosition::SpicePos(SpicePosition { origin, abcorr }) => {
+            Some(CfgCameraPosition::SpicePos(SpicePosition { origin, abcorr })) => {
                 #[cfg(not(feature = "spice"))]
                 {
                     panic!("Feature `spice` is not enabled. This is required to compute the position of the camera using SPICE.")
@@ -306,7 +351,7 @@ pub trait Routines: DowncastSync {
                     }
                 }
             }
-            CfgCameraPosition::Reference => {
+            Some(CfgCameraPosition::Reference) => {
                 if let Some(body) = config.bodies.first() {
                     match &body.state {
                         State::Equatorial(coords) => {
@@ -316,7 +361,9 @@ pub trait Routines: DowncastSync {
                             sun_pos += position;
                             position
                         }
-                        _ => panic!("Camera on reference mode only work with primary body state equatorial."),
+                        _ => panic!(
+                        "Camera on reference mode only work with primary body state equatorial."
+                    ),
                     }
                 } else {
                     panic!("No body has been loaded to compute camera position.")
@@ -341,38 +388,22 @@ pub trait Routines: DowncastSync {
             {
                 scene.camera.target_anchor();
             }
-
-            if time.iteration == 0 {
-                scene.camera.direction = match config.scene.camera.direction {
-                    CfgCameraDirection::Cartesian(v) => v,
-                    CfgCameraDirection::TargetAnchor => -scene.camera.position.normalize(),
-                };
-                scene.camera.up = config.scene.camera.up;
-                scene.camera.up_world = config.scene.camera.up;
-                let mut projection = config.scene.camera.projection;
-
-                match &mut projection {
-                    ProjectionMode::Perspective(fovy) => {
-                        *fovy *= RPD;
-                    }
-                    _ => {}
-                }
-
-                scene.camera.projection = projection;
-
-                if let Some(near) = config.scene.camera.near {
-                    scene.camera.near = Some(near);
-                }
-
-                if let Some(far) = config.scene.camera.far {
-                    scene.camera.far = Some(far);
-                }
-            }
         }
     }
 
-    fn fn_update_scene(&self, cfg: &Config, sun: &mut Vec3, time: &Time, win: Option<&mut Window>) {
-        self.fn_update_scene_core(cfg, sun, time, win);
+    fn fn_update_scene(
+        &self,
+        cfg: &Config,
+        sun: &mut Vec3,
+        time: &Time,
+        win: Option<&mut Window>,
+        export: &Export,
+    ) {
+        if export.is_first_it {
+            self.fn_update_scene_core_first_it(cfg, sun, time, &win);
+        }
+
+        self.fn_update_scene_core(cfg, sun, time, &win);
     }
 
     fn fn_update_body_matrix_model(
@@ -494,6 +525,18 @@ pub trait Routines: DowncastSync {
         matrix_model_reference * bodies[body].matrix_model
     }
 
+    fn fn_update_body_data_core(
+        &mut self,
+        _config: &Config,
+        _body: usize,
+        _bodies: &mut [AirlessBody],
+        _bodies_data: &mut [BodyData],
+        _sun: &Vec3,
+        _time: &Time,
+        _window: Option<&Window>,
+    ) {
+    }
+
     fn fn_update_body_data(
         &mut self,
         _config: &Config,
@@ -502,6 +545,7 @@ pub trait Routines: DowncastSync {
         _bodies_data: &mut [BodyData],
         _sun: &Vec3,
         _time: &Time,
+        _win: Option<&Window>,
     ) {
     }
 
@@ -539,33 +583,35 @@ pub trait Routines: DowncastSync {
         time: &Time,
         win: &Window,
     ) {
-        let scalars = match &config.window.colormap.scalar {
-            Some(CfgScalar::AngleIncidence) => compute_cosine_incidence_angle(
-                &bodies[body],
-                &pre_computed_bodies[body].normals,
-                &win.scene.borrow().light.position.normalize(),
-            )
-            .map(|a| a.acos() * DPR),
-            Some(CfgScalar::AngleEmission) => compute_cosine_emission_angle(
-                &bodies[body],
-                &pre_computed_bodies[body].normals,
-                &win.scene.borrow().camera.position.normalize(),
-            )
-            .map(|a| a.acos() * DPR),
-            Some(CfgScalar::AnglePhase) => compute_cosine_phase_angle(
-                &bodies[body],
-                &win.scene.borrow().camera.position.normalize(),
-                &win.scene.borrow().light.position.normalize(),
-            )
-            .map(|a| a.acos() * DPR),
-            None => return,
-            Some(CfgScalar::File) => {
-                let v = self.read_file_data(config, body, time);
-                DRVector::from_row_slice(&v)
-            }
-            _ => unreachable!(),
-        };
-        update_colormap_scalar(win, config, scalars.as_slice(), &mut bodies[body], body);
+        if let Some(cmap) = config.window.colormap.as_ref() {
+            let scalars = match cmap.scalar {
+                Some(CfgScalar::AngleIncidence) => compute_cosine_incidence_angle(
+                    &bodies[body],
+                    &pre_computed_bodies[body].normals,
+                    &win.scene.borrow().light.position.normalize(),
+                )
+                .map(|a| a.acos() * DPR),
+                Some(CfgScalar::AngleEmission) => compute_cosine_emission_angle(
+                    &bodies[body],
+                    &pre_computed_bodies[body].normals,
+                    &win.scene.borrow().camera.position.normalize(),
+                )
+                .map(|a| a.acos() * DPR),
+                Some(CfgScalar::AnglePhase) => compute_cosine_phase_angle(
+                    &bodies[body],
+                    &win.scene.borrow().camera.position.normalize(),
+                    &win.scene.borrow().light.position.normalize(),
+                )
+                .map(|a| a.acos() * DPR),
+                None => return,
+                Some(CfgScalar::File) => {
+                    let v = self.read_file_data(config, body, time);
+                    DRVector::from_row_slice(&v)
+                }
+                _ => unreachable!(),
+            };
+            update_colormap_scalar(win, config, scalars.as_slice(), &mut bodies[body], body);
+        }
     }
 
     fn fn_update_body(
@@ -579,90 +625,11 @@ pub trait Routines: DowncastSync {
         window: Option<&Window>,
     ) {
         self.fn_update_body_matrix_model(config, body, bodies, bodies_data, time);
-        self.fn_update_body_data(config, body, bodies, bodies_data, sun, time);
+        self.fn_update_body_data(config, body, bodies, bodies_data, sun, time, window);
 
         if let Some(window) = window {
             self.fn_update_body_colormap(config, body, bodies, bodies_data, time, window);
         }
-    }
-
-    fn fn_export_body_once_core(
-        &self,
-        config: &Config,
-        body: usize,
-        bodies: &[AirlessBody],
-        _bodies_data: &[BodyData],
-        folders: &FoldersRun,
-    ) {
-        if config.bodies[body].record.mesh {
-            let faces = bodies[body].surface.faces.clone();
-            let sph = faces.iter().map(|f| f.vertex.sph()).collect_vec();
-            let mut df = df!(
-                "x" => faces.iter().map(|f| f.vertex.position.x).collect_vec(),
-                "y" => faces.iter().map(|f| f.vertex.position.y).collect_vec(),
-                "z" => faces.iter().map(|f| f.vertex.position.z).collect_vec(),
-                "lon" => sph.iter().map(|sph| sph[1]).collect_vec(),
-                "lat" => sph.iter().map(|sph| sph[2]).collect_vec(),
-                "rad" => sph.iter().map(|sph| sph[0]).collect_vec(),
-            )
-            .unwrap();
-
-            let folder_simu = folders.simu_body(&config.bodies[body].name);
-            fs::create_dir_all(&folder_simu).unwrap();
-
-            let mut file = std::fs::File::options()
-                .append(true)
-                .create(true)
-                .open(folder_simu.join("mesh.csv"))
-                .unwrap();
-            CsvWriter::new(&mut file)
-                .include_header(true)
-                .finish(&mut df)
-                .unwrap();
-        }
-
-        if config.bodies[body].record.depth {
-            let mut depth = None;
-
-            if let Some(interior) = bodies[body].interior.as_ref() {
-                match interior {
-                    Interior::Grid(grid) => {
-                        depth = Some(grid.depth.clone());
-                    }
-                }
-            }
-
-            if let Some(depth) = depth {
-                let mut df = df!(
-                    "depth" => depth,
-                )
-                .unwrap();
-
-                let folder_simu = folders.simu_body(&config.bodies[body].name);
-                fs::create_dir_all(&folder_simu).unwrap();
-
-                let mut file = std::fs::File::options()
-                    .append(true)
-                    .create(true)
-                    .open(folder_simu.join("depth.csv"))
-                    .unwrap();
-                CsvWriter::new(&mut file)
-                    .include_header(true)
-                    .finish(&mut df)
-                    .unwrap();
-            }
-        }
-    }
-
-    fn fn_export_body_once(
-        &self,
-        config: &Config,
-        body: usize,
-        bodies: &[AirlessBody],
-        bodies_data: &[BodyData],
-        folders: &FoldersRun,
-    ) {
-        self.fn_export_body_once_core(config, body, bodies, bodies_data, folders);
     }
 
     fn fn_export_iteration(
@@ -726,7 +693,7 @@ pub trait Routines: DowncastSync {
         }
 
         if let Some(win) = win {
-            if config.simulation.pause_after_first_iteration && time.iteration() == 0
+            if config.simulation.pause_first_it.unwrap_or_default() && time.iteration() == 0
                 || time.time_step() == 0
             {
                 win.toggle_pause();
@@ -738,12 +705,25 @@ pub trait Routines: DowncastSync {
         &mut self,
         config: &Config,
         bodies: &mut [AirlessBody],
+        bodies_data: &mut [BodyData],
+        window: &mut Window,
         time: &Time,
-        win: &mut Window,
+        export: &Export,
     ) {
-        // self.win.update_vaos(self.bodies.iter_mut().map(|b| &mut b.asteroid_mut().surface));
-        win.render_asteroids(&bodies);
-        win.swap_window();
+        if export.is_first_it {
+            for body in 0..bodies.len() {
+                let faces = &config.bodies[body].faces_selected;
+                update_surf_selected_faces(config, bodies, bodies_data, window, faces, body);
+            }
+        }
+
+        if let Some((ii_face, body)) = window.picked() {
+            update_surf_selected_faces(config, bodies, bodies_data, window, &vec![ii_face], body);
+        }
+
+        window.update_vaos(bodies.iter_mut().map(|b| &mut b.surface));
+        window.render_asteroids(&bodies);
+        window.swap_window();
         if let Some(true) = config.preferences.debug.window {
             println!("New frame: {}.", time.elapsed_seconds());
         }
@@ -866,4 +846,39 @@ pub fn read_state_file(
     }
 
     out
+}
+
+pub fn update_surf_selected_faces(
+    config: &Config,
+    bodies: &mut [AirlessBody],
+    bodies_data: &mut [BodyData],
+    _win: &Window,
+    faces: &[usize],
+    ii_body: usize,
+) {
+    let selected = &mut bodies_data[ii_body].selected;
+
+    for &face in faces {
+        if !selected.iter().any(|f| f.index == face) {
+            selected.push(SelectedFace::set(&bodies[ii_body], face));
+            let v = &mut bodies[ii_body].surface.faces[face].vertex;
+            v.color_mode = ColorMode::Color;
+            v.color = config.window.color_selection;
+        } else {
+            let selected = selected.remove(selected.iter().position(|f| f.index == face).unwrap());
+            let v = &mut bodies[ii_body].surface.faces[face].vertex;
+            v.color_mode = selected.mode;
+            match selected.mode {
+                ColorMode::Color => v.color = selected.color,
+                _ => {}
+            };
+        }
+    }
+    let s = &mut bodies[ii_body].surface;
+    s.apply_facedata_to_vertices();
+    // win.update_vao(ii_body, s);
+    println!(
+        "Selected faces: {:?}\n",
+        selected.iter().map(|f| f.index).collect_vec()
+    );
 }

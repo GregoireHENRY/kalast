@@ -57,11 +57,14 @@ def read_tmp_cols(
 
 @dataclass
 class Config:
-    path: Path = path_desktop / "run #1"
+    path: Path = None
     data: dict = None
 
     def read_cfg(self):
-        with open(self.path / "cfg/cfg.toml", "rb") as f:
+        if self.path is None:
+            raise Exception("Config path not set.")
+
+        with open(self.path / "cfg/full.toml", "rb") as f:
             self.data = tomllib.load(f)
 
     def read(self) -> Out:
@@ -113,9 +116,9 @@ class Config:
         d["tmp-all"] = df["tmp"].array.reshape((d["nf"], -1)).T
         print(
             "TMP all: ",
-            d["tmp-all"][:, 0].min(),
-            d["tmp-all"][:, 0].max(),
-            d["tmp-all"][:, 0].mean(),
+            d["tmp-all"][0, :].min(),
+            d["tmp-all"][0, :].max(),
+            d["tmp-all"][0, :].mean(),
             d["tmp-all"].shape,
         )
 

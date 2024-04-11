@@ -2,12 +2,14 @@ use crate::{
     compute_cosine_emission_angle, compute_cosine_incidence_angle, compute_cosine_phase_angle,
     config::Body, config::CfgScalar, config::Config, config::TemperatureInit,
     effective_temperature, flux_solar_radiation, newton_method_temperature, read_surface_low,
-    shadows, update_colormap_scalar, util::*, AirlessBody, BodyData, FoldersRun, Routines, Surface,
-    Time, Window,
+    update_colormap_scalar, util::*, AirlessBody, BodyData, FoldersRun, Routines, Surface, Time,
+    Window,
 };
 
 use itertools::Itertools;
-use polars::prelude::{df, CsvWriter, DataFrame, NamedFrom, SerWriter, Series};
+use polars::prelude::{
+    df, CsvReader, CsvWriter, DataFrame, NamedFrom, SerReader, SerWriter, Series,
+};
 use std::fs;
 
 pub struct ThermalBodyData {
@@ -111,32 +113,58 @@ impl ThermalBodyData {
 pub trait RoutinesThermal: Routines {
     fn fn_compute_initial_temperatures(
         &self,
-        body: &AirlessBody,
-        cb: &Body,
+        config: &Config,
+        bodies: &[AirlessBody],
+        body: usize,
         sun_position: &Vec3,
+        time: &Time,
     ) -> DMatrix<Float> {
-        let depth_grid = &body.interior.as_ref().unwrap().as_grid().depth;
+        let depth_grid = &bodies[body].interior.as_ref().unwrap().as_grid().depth;
         let depth_size = depth_grid.len();
-        let surf_size = body.surface.faces.len();
+        let surf_size = bodies[body].surface.faces.len();
 
-        match &cb.temperature {
-            TemperatureInit::Effective(ratio) => {
-                let ratio = ratio.unwrap_or((1, 4));
-                let ratio = ratio.0 as Float / ratio.1 as Float;
+        if let Some(restart) = config.restart.as_ref() {
+            let folders = FoldersRun::new(restart.path.as_ref().unwrap());
+            let p = folders
+                .simu_rec_time_body_temperatures(time.elapsed_time, &config.bodies[body].name)
+                .join("temperatures-all.csv");
 
-                let mat = body.surface.faces[0].vertex.material;
-                let init = effective_temperature(
-                    sun_position.magnitude() * 1e3,
-                    mat.albedo,
-                    mat.emissivity,
-                    ratio,
-                );
-                DMatrix::<Float>::from_element(depth_size, surf_size, init)
+            dbg!(&p);
+
+            let df = CsvReader::from_path(p).unwrap().finish().unwrap();
+
+            // Temperatures exported as f32 to save space but read as f64.
+            DMatrix::<Float>::from_iterator(
+                depth_size,
+                surf_size,
+                df.column("tmp")
+                    .unwrap()
+                    .f64()
+                    .unwrap()
+                    .into_iter()
+                    .map(|t| t.unwrap()),
+            )
+        } else {
+            let cb = &config.bodies[body];
+            match &cb.temperature {
+                TemperatureInit::Effective(ratio) => {
+                    let ratio = ratio.unwrap_or((1, 4));
+                    let ratio = ratio.0 as Float / ratio.1 as Float;
+
+                    let mat = bodies[body].surface.faces[0].vertex.material;
+                    let init = effective_temperature(
+                        sun_position.magnitude() * 1e3,
+                        mat.albedo,
+                        mat.emissivity,
+                        ratio,
+                    );
+                    DMatrix::<Float>::from_element(depth_size, surf_size, init)
+                }
+                TemperatureInit::Scalar(scalar) => {
+                    DMatrix::<Float>::from_element(depth_size, surf_size, *scalar)
+                }
+                TemperatureInit::File(_p) => unimplemented!(),
             }
-            TemperatureInit::Scalar(scalar) => {
-                DMatrix::<Float>::from_element(depth_size, surf_size, *scalar)
-            }
-            TemperatureInit::File(_p) => unimplemented!(),
         }
     }
 
@@ -207,15 +235,11 @@ pub trait RoutinesThermal: Routines {
 
 pub struct RoutinesThermalDefault {
     pub data: Vec<ThermalBodyData>,
-    pub shadows_mutual: bool,
 }
 
 impl RoutinesThermalDefault {
     pub fn new() -> Self {
-        Self {
-            data: vec![],
-            shadows_mutual: false,
-        }
+        Self { data: vec![] }
     }
 }
 
@@ -241,30 +265,29 @@ impl Routines for RoutinesThermalDefault {
         bodies_data: &mut [BodyData],
         sun: &Vec3,
         time: &Time,
+        _window: Option<&Window>,
     ) {
         if time.iteration == 0 {
-            let tmp =
-                self.fn_compute_initial_temperatures(&bodies[body], &config.bodies[body], sun);
+            let tmp = self.fn_compute_initial_temperatures(config, bodies, body, sun, time);
             self.data[body].tmp = tmp;
             return;
         }
 
         let dt = time.used_time_step();
 
-        let other_bodies = (0..bodies.len()).filter(|ii| *ii != body).collect_vec();
-
         let mut fluxes_solar =
             self.fn_compute_solar_flux(&bodies[body], &bodies_data[body], &self.data[body], sun);
 
-        if self.shadows_mutual {
-            let shadows_self: Vec<usize> = vec![];
-            let mut shadows_mutual: Vec<usize> = vec![];
+        let other_bodies = (0..bodies.len()).collect_vec();
+
+        if config.window.shadows {
+            let mut shadows: Vec<usize> = vec![];
 
             for other_body in other_bodies {
-                shadows_mutual = shadows(sun, &bodies[body], &bodies[other_body]);
+                shadows = crate::body::shadows(sun, &bodies[body], &bodies[other_body]);
             }
 
-            for &index in shadows_mutual.iter().chain(&shadows_self).unique() {
+            for &index in &shadows {
                 fluxes_solar[index] = 0.0;
             }
         }
@@ -326,43 +349,44 @@ impl Routines for RoutinesThermalDefault {
 
     fn fn_update_body_colormap(
         &self,
-        cfg: &Config,
+        config: &Config,
         body: usize,
         bodies: &mut [AirlessBody],
         pre_computed_bodies: &[BodyData],
         _time: &Time,
         win: &Window,
     ) {
-        let cmap = &cfg.window.colormap;
-        let scalars = match &cmap.scalar {
-            Some(CfgScalar::AngleIncidence) => compute_cosine_incidence_angle(
-                &bodies[body],
-                &pre_computed_bodies[body].normals,
-                &win.scene.borrow().light.position.normalize(),
-            )
-            .map(|a| a.acos() * DPR),
-            Some(CfgScalar::AngleEmission) => compute_cosine_emission_angle(
-                &bodies[body],
-                &pre_computed_bodies[body].normals,
-                &win.scene.borrow().camera.position.normalize(),
-            )
-            .map(|a| a.acos() * DPR),
-            Some(CfgScalar::AnglePhase) => compute_cosine_phase_angle(
-                &bodies[body],
-                &win.scene.borrow().camera.position.normalize(),
-                &win.scene.borrow().light.position.normalize(),
-            )
-            .map(|a| a.acos() * DPR),
-            Some(CfgScalar::FluxSolar) => self.data[body].fluxes_solar.clone(),
-            Some(CfgScalar::FluxSurface) => self.data[body].fluxes.clone(),
-            Some(CfgScalar::FluxEmitted) => unimplemented!(),
-            Some(CfgScalar::FluxSelf) => unimplemented!(),
-            Some(CfgScalar::FluxMutual) => unimplemented!(),
-            Some(CfgScalar::File) => unimplemented!(),
-            None | Some(CfgScalar::Temperature) => self.data[body].tmp.row(0).into_owned(),
-        };
+        if let Some(cmap) = config.window.colormap.as_ref() {
+            let scalars = match &cmap.scalar {
+                Some(CfgScalar::AngleIncidence) => compute_cosine_incidence_angle(
+                    &bodies[body],
+                    &pre_computed_bodies[body].normals,
+                    &win.scene.borrow().light.position.normalize(),
+                )
+                .map(|a| a.acos() * DPR),
+                Some(CfgScalar::AngleEmission) => compute_cosine_emission_angle(
+                    &bodies[body],
+                    &pre_computed_bodies[body].normals,
+                    &win.scene.borrow().camera.position.normalize(),
+                )
+                .map(|a| a.acos() * DPR),
+                Some(CfgScalar::AnglePhase) => compute_cosine_phase_angle(
+                    &bodies[body],
+                    &win.scene.borrow().camera.position.normalize(),
+                    &win.scene.borrow().light.position.normalize(),
+                )
+                .map(|a| a.acos() * DPR),
+                Some(CfgScalar::FluxSolar) => self.data[body].fluxes_solar.clone(),
+                Some(CfgScalar::FluxSurface) => self.data[body].fluxes.clone(),
+                Some(CfgScalar::FluxEmitted) => unimplemented!(),
+                Some(CfgScalar::FluxSelf) => unimplemented!(),
+                Some(CfgScalar::FluxMutual) => unimplemented!(),
+                Some(CfgScalar::File) => unimplemented!(),
+                None | Some(CfgScalar::Temperature) => self.data[body].tmp.row(0).into_owned(),
+            };
 
-        update_colormap_scalar(win, cfg, scalars.as_slice(), &mut bodies[body], body);
+            update_colormap_scalar(win, config, scalars.as_slice(), &mut bodies[body], body);
+        }
     }
 
     fn fn_export_iteration(

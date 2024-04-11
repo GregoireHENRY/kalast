@@ -17,6 +17,9 @@ pub const STR_SHAPE_MODEL_CUBE: &str = include_str!("../../assets/mesh/cube.obj"
 pub const STR_SHAPE_MODEL_ICOSPHERE: &str = include_str!("../../assets/mesh/icosphere.obj");
 pub const STR_SHAPE_MODEL_PLANE: &str = include_str!("../../assets/mesh/plane.obj");
 pub const STR_SHAPE_MODEL_SPHERE: &str = include_str!("../../assets/mesh/sphere.obj");
+pub const STR_SHAPE_MODEL_SPHERE_M1: &str = include_str!("../../assets/mesh/sphere_m1.obj");
+pub const STR_SHAPE_MODEL_SPHERE_S1: &str = include_str!("../../assets/mesh/sphere_s1.obj");
+pub const STR_SHAPE_MODEL_SPHERE_S2: &str = include_str!("../../assets/mesh/sphere_s2.obj");
 pub const STR_SHAPE_MODEL_TRIANGLE: &str = include_str!("../../assets/mesh/triangle.obj");
 
 pub type SurfaceResult<T, E = SurfaceError> = std::result::Result<T, E>;
@@ -69,6 +72,15 @@ pub enum Shapes {
     #[serde(rename = "sphere")]
     Sphere,
 
+    #[serde(rename = "sphere_m1")]
+    SphereM1,
+
+    #[serde(rename = "sphere_s1")]
+    SphereS1,
+
+    #[serde(rename = "sphere_s2")]
+    SphereS2,
+
     #[serde(rename = "triangle")]
     Triangle,
 }
@@ -81,6 +93,9 @@ impl Shapes {
             Self::Icosphere => STR_SHAPE_MODEL_ICOSPHERE,
             Self::Plane => STR_SHAPE_MODEL_PLANE,
             Self::Sphere => STR_SHAPE_MODEL_SPHERE,
+            Self::SphereM1 => STR_SHAPE_MODEL_SPHERE_M1,
+            Self::SphereS1 => STR_SHAPE_MODEL_SPHERE_S1,
+            Self::SphereS2 => STR_SHAPE_MODEL_SPHERE_S2,
             Self::Triangle => STR_SHAPE_MODEL_TRIANGLE,
         }
     }

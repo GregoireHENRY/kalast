@@ -1,5 +1,6 @@
 import glm
 import numpy
+import itertools
 
 RPD = numpy.pi / 180
 DPR = 1 / RPD
@@ -94,3 +95,6 @@ def sha(ha: str) -> float:
 
 def sva(ha: str) -> float:
     return 1 if ha == "bottom" else -1
+
+def flatten(l: list) -> list:
+    return list(itertools.chain.from_iterable(l))

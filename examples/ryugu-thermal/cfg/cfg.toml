@@ -3,6 +3,7 @@ colormap = { name = "inferno", vmax = 400.0, scalar = "temperature" }
 # export_frames = true
 width = 1024
 height = 768
+shadows = true
 
 [simulation]
 routines = "thermal"
@@ -30,7 +31,9 @@ camera.projection.perspective = 5.0
 
 [[bodies]]
 name = "RYUGU"
-mesh.shape.path = "/Users/gregoireh/data/meshes/ryugu/SHAPE_SFM_49k_v20180804.obj"
+# mesh.shape.path = "/Users/gregoireh/data/meshes/ryugu/SHAPE_SFM_49k_v20180804.obj"
+mesh = { shape.shape = "sphere_m1", factor = [450e-3, 450e-3, 450e-3] } 
+mesh_low = { shape.shape = "sphere_m1", factor = [450e-3, 450e-3, 450e-3] } 
 interior.grid1d.linear = { size = 40, a = 2e-2 }
 spin = { period = 27477.432, obliquity = 171 }
 temperature.scalar = 150

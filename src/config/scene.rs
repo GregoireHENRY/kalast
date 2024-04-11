@@ -69,7 +69,7 @@ pub struct CfgCamera {
     pub name: Option<String>,
 
     #[serde(default)]
-    pub position: CfgCameraPosition,
+    pub position: Option<CfgCameraPosition>,
 
     // In case position OPT is not cartesian we need that.
     #[serde(default)]
@@ -110,7 +110,7 @@ impl Default for CfgCamera {
     fn default() -> Self {
         Self {
             name: None,
-            position: CfgCameraPosition::default(),
+            position: None,
             distance_origin: None,
             direction: CfgCameraDirection::default(),
             anchor: default_camera_anchor(),

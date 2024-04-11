@@ -1,6 +1,6 @@
 [package]
 name = "kalast"
-version = "0.5.1"
+version = "0.5.2"
 authors = ["Grégoire Henry <gregoire.henry@oma.be>"]
 edition = "2021"
 description = "Thermophysical Model for Binary Asteroids"
@@ -27,8 +27,10 @@ float_eq = "1.0"
 
 # I/O
 serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
 figment = { version = "0.10", features = ["yaml", "toml", "env", "json"] }
 polars = { version = "0.37", features = [] }
+tobj = { version = "4.0", features = ["ahash", "use_f64"] }
 
 # Log
 log = "0.4"
@@ -42,10 +44,10 @@ color-eyre = "0.6"
 # Maths / algebra
 nalgebra = { version = "0.32", features = ["serde-serialize"] }
 nalgebra-glm = "0.18"
-uom = "0.35"
+uom = "0.36"
 
 # Features ++
-reqwest = { version = "0.11", features = ["blocking", "json"] }
+reqwest = { version = "0.12", features = ["blocking", "json"] }
 chrono = "0.4.24"
 notify-rust = "4"
 directories = "5.0"
@@ -65,13 +67,12 @@ stb_image = "0.3"
 image = "0.25"
 
 # Kalast specials
-tobj = { version = "4.0", features = ["ahash", "use_f64"] }
 rust-spice = { version = "0.7", features = ["download"], optional = true }
 kalast_macros = { path = "macros", version = "0.4.0-beta" }
 
 
 [dev-dependencies]
-rstest = "0.18"
+rstest = "0.19"
 serial_test = "3.0"
 
 [profile.release]

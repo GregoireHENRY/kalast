@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use figment::{
     providers::{Format, Serialized, Toml},
     Figment,
@@ -13,11 +15,27 @@ fn main() -> Result<()> {
         RUSTC_VERSION
     );
 
-    let config: Config = Figment::from(Serialized::defaults(Config::default()))
-        .merge(Toml::file("preferences.toml"))
-        .merge(Toml::file("cfg/cfg.toml"))
-        .extract()
-        .unwrap();
+    // Config file must be named cfg.toml inside cfg/ folder next to executable calling path.
+    let mut builder = Figment::from(Serialized::defaults(Config::default()));
+
+    let preferences = Path::new("preferences.toml");
+    if preferences.exists() {
+        builder = builder.merge(Toml::file(preferences));
+    } else {
+        println!("Preferences not found, using defaults.")
+    }
+
+    let path = Path::new("cfg/cfg.toml");
+    if path.exists() {
+        builder = builder.merge(Toml::file(path));
+    } else {
+        panic!("Config not found.")
+    }
+
+    let mut config: Config = builder.extract().unwrap();
+
+    // In case it's a restart config.
+    config = config.maybe_restarting();
 
     let mut sc = Scenario::new(config)?;
 

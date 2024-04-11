@@ -1,4 +1,4 @@
-use crate::{config::Error, config::FileSetup, util::*};
+use crate::{config::Error, config::FileSetup};
 
 use serde::{Deserialize, Serialize};
 use snafu::prelude::*;
@@ -26,6 +26,14 @@ pub struct CfgSimulation {
     #[serde(default)]
     pub start: TimeOption,
 
+    // In seconds.
+    #[serde(default)]
+    pub start_offset: isize,
+
+    // In seconds.
+    #[serde(default)]
+    pub elapsed: usize,
+
     #[serde(default)]
     pub step: usize,
 
@@ -36,10 +44,13 @@ pub struct CfgSimulation {
     pub export: CfgTimeExport,
 
     #[serde(default)]
-    pub pause_after_first_iteration: bool,
+    pub pause_first_it: Option<bool>,
 
     #[serde(default)]
     pub file: Option<FileSetup>,
+
+    #[serde(default)]
+    pub read_file_data_only: bool,
 }
 
 impl Default for CfgSimulation {
@@ -47,11 +58,14 @@ impl Default for CfgSimulation {
         Self {
             routines: CfgRoutines::default(),
             start: TimeOption::default(),
+            start_offset: 0,
+            elapsed: 0,
             step: 0,
             duration: 0,
             export: CfgTimeExport::default(),
-            pause_after_first_iteration: false,
+            pause_first_it: None,
             file: None,
+            read_file_data_only: false,
         }
     }
 }
@@ -61,19 +75,19 @@ impl Default for CfgSimulation {
 // #[serde(tag = "type", content = "args")]
 pub enum TimeOption {
     #[serde(rename = "seconds")]
-    Seconds(Float),
+    Seconds(usize),
 
     #[serde(rename = "time")]
     Time(String),
 }
 
 impl TimeOption {
-    pub fn seconds(&self) -> CfgSimulationResult<Float> {
+    pub fn seconds(&self) -> CfgSimulationResult<usize> {
         match self {
             Self::Seconds(v) => Ok(*v),
             Self::Time(_s) => {
                 #[cfg(feature = "spice")]
-                return Ok(spice::str2et(_s));
+                return Ok(spice::str2et(_s) as usize);
                 #[cfg(not(feature = "spice"))]
                 return Err(CfgError::FeatureSpiceNotEnabled {}).context(CfgSpiceSnafu);
             }
@@ -83,7 +97,7 @@ impl TimeOption {
 
 impl Default for TimeOption {
     fn default() -> Self {
-        Self::Seconds(0.0)
+        Self::Seconds(0)
     }
 }
 

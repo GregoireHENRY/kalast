@@ -7,6 +7,7 @@ use std::path::Path;
 #[derive(Debug, Clone)]
 pub struct AirlessBody {
     pub surface: Surface,
+    pub lowres: Option<Surface>,
     pub interior: Option<Interior>,
     pub matrix_model: Mat4,
 }
@@ -15,6 +16,7 @@ impl AirlessBody {
     pub fn new(surface: Surface) -> Self {
         Self {
             surface,
+            lowres: None,
             interior: None,
             matrix_model: Mat4::identity(),
         }
@@ -23,6 +25,7 @@ impl AirlessBody {
     pub fn with_matrix_model(self, matrix: Mat4) -> Self {
         Self {
             surface: self.surface,
+            lowres: self.lowres,
             interior: self.interior,
             matrix_model: matrix,
         }
@@ -31,6 +34,7 @@ impl AirlessBody {
     pub fn with_interior_grid(self, interior: InteriorGrid) -> Self {
         Self {
             surface: self.surface,
+            lowres: self.lowres,
             interior: Some(Interior::Grid(interior)),
             matrix_model: self.matrix_model,
         }
@@ -39,6 +43,7 @@ impl AirlessBody {
     pub fn with_interior_grid_depth(self, depth: Vec<Float>) -> Self {
         Self {
             surface: self.surface,
+            lowres: self.lowres,
             interior: Some(Interior::Grid(InteriorGrid { depth })),
             matrix_model: self.matrix_model,
         }
@@ -50,6 +55,7 @@ impl AirlessBody {
     {
         Self {
             surface: self.surface,
+            lowres: self.lowres,
             interior: Some(Interior::Grid(InteriorGrid::from_fn(depth, size))),
             matrix_model: self.matrix_model,
         }

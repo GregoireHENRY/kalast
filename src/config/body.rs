@@ -199,6 +199,9 @@ pub struct Body {
     #[serde(default)]
     pub file_data: Option<FileSetup>,
 
+    #[serde(default)]
+    pub faces_selected: Vec<usize>,
+
     #[serde(flatten)]
     extra: HashMap<String, Value>,
 }
