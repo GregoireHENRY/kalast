@@ -50,7 +50,7 @@ pub trait Routines: DowncastSync {
             time_elapsed = time_elapsed % last;
         }
 
-        if config.simulation.read_file_data_only {
+        if let Some(true) = config.simulation.read_file_data_only.as_ref() {
             time.file_row = Some(time.iteration);
             found = true;
         }

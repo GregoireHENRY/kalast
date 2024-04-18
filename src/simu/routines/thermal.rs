@@ -10,7 +10,7 @@ use itertools::Itertools;
 use polars::prelude::{
     df, CsvReader, CsvWriter, DataFrame, NamedFrom, SerReader, SerWriter, Series,
 };
-use std::fs;
+use std::{collections::HashSet, fs};
 
 pub struct ThermalBodyData {
     pub depth_size: usize,
@@ -278,21 +278,71 @@ impl Routines for RoutinesThermalDefault {
         let mut fluxes_solar =
             self.fn_compute_solar_flux(&bodies[body], &bodies_data[body], &self.data[body], sun);
 
-        let other_bodies = (0..bodies.len()).collect_vec();
+        let mut other_bodies_shadowing = HashSet::new();
 
-        if config.window.shadows {
-            let mut shadows: Vec<usize> = vec![];
-
-            for other_body in other_bodies {
-                shadows = crate::body::shadows(sun, &bodies[body], &bodies[other_body]);
-            }
-
-            for &index in &shadows {
-                fluxes_solar[index] = 0.0;
-            }
+        if let Some(true) = config.simulation.mutual_shadowing.as_ref() {
+            other_bodies_shadowing.extend(0..bodies.len());
         }
 
-        let fluxes = fluxes_solar.clone();
+        match config.simulation.self_shadowing.as_ref() {
+            None | Some(false) => {
+                other_bodies_shadowing.remove(&body);
+            }
+            _ => {}
+        };
+
+        let mut other_bodies_heating = HashSet::new();
+
+        if let Some(true) = config.simulation.mutual_heating.as_ref() {
+            other_bodies_heating.extend(0..bodies.len());
+        }
+
+        match config.simulation.self_heating.as_ref() {
+            None | Some(false) => {
+                other_bodies_heating.remove(&body);
+            }
+            _ => {}
+        };
+
+        let mut shadows = HashSet::new();
+
+        for other_body in other_bodies_shadowing {
+            let shadows_mutual = crate::shadows(sun, &bodies[body], &bodies[other_body]);
+            shadows.extend(shadows_mutual);
+        }
+
+        for index in shadows {
+            fluxes_solar[index] = 0.0;
+        }
+
+        self.data[body].fluxes_solar = fluxes_solar.clone();
+
+        let mut fluxes = fluxes_solar;
+
+        for other_body in other_bodies_heating {
+            // maybe mut
+            let vfs = crate::view_factor(&bodies[body], &bodies[other_body], true);
+
+            // Pas sûr...
+            // for (mut vf, face) in izip!(vfs.column_iter_mut(), &b1.surface.faces) {
+            //     vf *= face.area;
+            // }
+            // let vfmax = vfs.max();
+
+            let diffuse = crate::diffuse_solar_radiation(
+                &vfs,
+                &self.data[other_body].fluxes_solar,
+                &self.data[other_body].albedos,
+            );
+
+            let direct = crate::direct_thermal_heating(
+                &vfs,
+                &self.data[other_body].tmp.row(0).clone_owned(),
+                &self.data[other_body].emissivities,
+            );
+
+            fluxes += diffuse + direct;
+        }
 
         let temperatures_surface =
             self.fn_compute_surface_temperatures(&bodies[body], &self.data[body], &fluxes);
@@ -317,10 +367,10 @@ impl Routines for RoutinesThermalDefault {
             println!(
                 "Update: {:.0} SF: {:.1}±({:.1})/{:.1}/{:.1} | T: {:.1}±({:.1})/{:.1}/{:.1}",
                 time.elapsed_seconds(),
-                fluxes_solar.mean(),
-                fluxes_solar.variance().sqrt(),
-                fluxes_solar.max(),
-                fluxes_solar.min(),
+                self.data[body].fluxes_solar.mean(),
+                self.data[body].fluxes_solar.variance().sqrt(),
+                self.data[body].fluxes_solar.max(),
+                self.data[body].fluxes_solar.min(),
                 temperatures_surface.mean(),
                 temperatures_surface.variance().sqrt(),
                 temperatures_surface.max(),
@@ -344,7 +394,6 @@ impl Routines for RoutinesThermalDefault {
         }
 
         self.data[body].fluxes = fluxes;
-        self.data[body].fluxes_solar = fluxes_solar;
     }
 
     fn fn_update_body_colormap(

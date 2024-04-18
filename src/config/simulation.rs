@@ -50,7 +50,19 @@ pub struct CfgSimulation {
     pub file: Option<FileSetup>,
 
     #[serde(default)]
-    pub read_file_data_only: bool,
+    pub read_file_data_only: Option<bool>,
+
+    #[serde(default)]
+    pub self_shadowing: Option<bool>,
+
+    #[serde(default)]
+    pub mutual_shadowing: Option<bool>,
+
+    #[serde(default)]
+    pub self_heating: Option<bool>,
+
+    #[serde(default)]
+    pub mutual_heating: Option<bool>,
 }
 
 impl Default for CfgSimulation {
@@ -65,7 +77,11 @@ impl Default for CfgSimulation {
             export: CfgTimeExport::default(),
             pause_first_it: None,
             file: None,
-            read_file_data_only: false,
+            read_file_data_only: None,
+            self_shadowing: None,
+            mutual_shadowing: None,
+            self_heating: None,
+            mutual_heating: None,
         }
     }
 }
