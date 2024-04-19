@@ -198,7 +198,7 @@ impl Config {
             }
 
             if let Some(elapsed) = new.simulation.elapsed {
-                config.simulation.elapsed = elapsed;
+                config.simulation.elapsed = Some(elapsed);
             }
 
             if let Some(cooldown) = new.simulation.export.cooldown_start {
