@@ -217,6 +217,11 @@ impl Config {
                 config.scene.camera.far = Some(far);
             }
 
+            // Restart parameters to be applied at the end.
+            if let Some(duration_more) = restart.duration_more {
+                config.simulation.duration += duration_more;
+            }
+
             config.restart = Some(restart);
             config.preferences = new.preferences.clone();
 
