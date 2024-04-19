@@ -158,7 +158,7 @@ impl Config {
             // and apply restart settings later.
             // Depth TODO
 
-            // Restart parameters re-application.
+            // New restart parameters.
 
             if let Some(factor) = restart.time_step_factor {
                 config.simulation.step = (config.simulation.step as Float * factor) as usize;
@@ -169,7 +169,31 @@ impl Config {
                     (config.simulation.export.step as Float * factor) as usize;
             }
 
-            // Not in restart parameters - General cfg.toml
+            // Restart parameters that are already in main config without restart.
+
+            if let Some(elapsed) = new.simulation.elapsed {
+                config.simulation.elapsed = Some(elapsed);
+            }
+
+            if let Some(pause) = new.simulation.pause_first_it {
+                config.simulation.pause_first_it = Some(pause);
+            }
+
+            if let Some(cooldown) = new.simulation.export.cooldown_start {
+                config.simulation.export.cooldown_start = Some(cooldown);
+            }
+
+            if let Some(p) = new.scene.camera.position.clone() {
+                config.scene.camera.position = Some(p);
+            }
+
+            if let Some(near) = new.scene.camera.near {
+                config.scene.camera.near = Some(near);
+            }
+
+            if let Some(far) = new.scene.camera.far {
+                config.scene.camera.far = Some(far);
+            }
 
             if let Some(new_cmap) = new.window.colormap {
                 if let Some(cmap) = config.window.colormap.as_mut() {
@@ -193,31 +217,8 @@ impl Config {
                 }
             }
 
-            if let Some(pause) = new.simulation.pause_first_it {
-                config.simulation.pause_first_it = Some(pause);
-            }
-
-            if let Some(elapsed) = new.simulation.elapsed {
-                config.simulation.elapsed = Some(elapsed);
-            }
-
-            if let Some(cooldown) = new.simulation.export.cooldown_start {
-                config.simulation.export.cooldown_start = Some(cooldown);
-            }
-
-            if let Some(p) = new.scene.camera.position.clone() {
-                config.scene.camera.position = Some(p);
-            }
-
-            if let Some(near) = new.scene.camera.near {
-                config.scene.camera.near = Some(near);
-            }
-
-            if let Some(far) = new.scene.camera.far {
-                config.scene.camera.far = Some(far);
-            }
-
             // Restart parameters to be applied at the end.
+
             if let Some(duration_more) = restart.duration_more {
                 config.simulation.duration += duration_more;
             }
