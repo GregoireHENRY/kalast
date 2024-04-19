@@ -143,7 +143,7 @@ impl Scenario {
             .with_time_step(config.simulation.step)
             .with_time_start(time_start);
 
-        time.elapsed_time = config.simulation.elapsed;
+        time.elapsed_time = config.simulation.elapsed.unwrap_or_default();
 
         Ok(Self {
             config,

@@ -160,10 +160,6 @@ impl Config {
 
             // Restart parameters re-application.
 
-            if let Some(elapsed) = restart.elapsed {
-                config.simulation.elapsed = elapsed;
-            }
-
             if let Some(factor) = restart.time_step_factor {
                 config.simulation.step = (config.simulation.step as Float * factor) as usize;
             }
@@ -199,6 +195,10 @@ impl Config {
 
             if let Some(pause) = new.simulation.pause_first_it {
                 config.simulation.pause_first_it = Some(pause);
+            }
+
+            if let Some(elapsed) = new.simulation.elapsed {
+                config.simulation.elapsed = elapsed;
             }
 
             if let Some(cooldown) = new.simulation.export.cooldown_start {

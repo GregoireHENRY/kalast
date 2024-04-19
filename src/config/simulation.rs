@@ -32,7 +32,7 @@ pub struct CfgSimulation {
 
     // In seconds.
     #[serde(default)]
-    pub elapsed: usize,
+    pub elapsed: Option<usize>,
 
     #[serde(default)]
     pub step: usize,
@@ -71,7 +71,7 @@ impl Default for CfgSimulation {
             routines: CfgRoutines::default(),
             start: TimeOption::default(),
             start_offset: 0,
-            elapsed: 0,
+            elapsed: None,
             step: 0,
             duration: 0,
             export: CfgTimeExport::default(),
