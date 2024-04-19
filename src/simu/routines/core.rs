@@ -225,7 +225,7 @@ pub trait Routines: DowncastSync {
                 if let Some(body) = config.bodies.first() {
                     match &body.state {
                         State::Orbit(orbit) => match &orbit.frame {
-                            FrameCenter::Sun => {
+                            None | Some(FrameCenter::Sun) => {
                                 -position_in_inertial_frame(
                                     orbit.a * AU,
                                     orbit.e,
@@ -237,7 +237,7 @@ pub trait Routines: DowncastSync {
                                     MU_SUN,
                                 ) * 1e-3
                             }
-                            FrameCenter::Body(_) => {
+                            Some(FrameCenter::Body(_)) => {
                                 if time.iteration() == 0 {
                                     println!("Warning: The Sun is set to be configured from the state of the primary body but only works if the state is an orbit centered on the Sun.");
                                 }
@@ -413,7 +413,7 @@ pub trait Routines: DowncastSync {
         bodies: &mut [AirlessBody],
         bodies_data: &mut [BodyData],
         time: &Time,
-    ) -> Mat4 {
+    ) {
         let elapsed_from_start = time.elapsed_seconds_from_start();
 
         let mut matrix_model_reference = Mat4::identity();
@@ -485,8 +485,8 @@ pub trait Routines: DowncastSync {
                 }
 
                 match &orbit.frame {
-                    FrameCenter::Sun => {}
-                    FrameCenter::Body(id) => {
+                    None | Some(FrameCenter::Sun) => {}
+                    Some(FrameCenter::Body(id)) => {
                         for (pre, cb) in izip!(bodies_data.iter_mut(), &config.bodies) {
                             if cb.name == *id {
                                 matrix_model_reference = pre.orientation;
@@ -520,9 +520,10 @@ pub trait Routines: DowncastSync {
         bodies_data[body].translation = matrix_translation;
         bodies_data[body].orientation = matrix_orientation * matrix_spin_tilt;
 
-        bodies[body].matrix_model =
-            bodies_data[body].translation * bodies_data[body].orientation * matrix_spin;
-        matrix_model_reference * bodies[body].matrix_model
+        bodies[body].matrix_model = matrix_model_reference
+            * bodies_data[body].translation
+            * bodies_data[body].orientation
+            * matrix_spin;
     }
 
     fn fn_update_body_data_core(

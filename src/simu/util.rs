@@ -54,10 +54,10 @@ pub fn read_surface_low(cb: &cg::Body) -> Result<Surface> {
 /// return MU and factor for distances.
 pub fn find_ref_orbit(orbit: &cg::StateOrbit, cfgs: &[&cg::Body]) -> (Float, Float) {
     match &orbit.frame {
-        cg::FrameCenter::Sun => (MU_SUN, AU),
-        cg::FrameCenter::Body(id) => (
+        None | Some(cg::FrameCenter::Sun) => (MU_SUN, AU),
+        Some(cg::FrameCenter::Body(id)) => (
             match orbit.control {
-                cg::OrbitSpeedControl::Mass(None) | cg::OrbitSpeedControl::Period(_) => {
+                None | Some(cg::OrbitSpeedControl::Period(_)) => {
                     let mut mu = 0.0;
                     for cfg in cfgs {
                         if cfg.name == *id {
@@ -70,7 +70,7 @@ pub fn find_ref_orbit(orbit: &cg::StateOrbit, cfgs: &[&cg::Body]) -> (Float, Flo
                     }
                     mu
                 }
-                cg::OrbitSpeedControl::Mass(Some(mass)) => GRAVITATIONAL_CONSTANT * mass,
+                Some(cg::OrbitSpeedControl::Mass(mass)) => GRAVITATIONAL_CONSTANT * mass,
             },
             1e3,
         ),

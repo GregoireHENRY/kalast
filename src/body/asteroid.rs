@@ -21,6 +21,14 @@ impl AirlessBody {
             matrix_model: Mat4::identity(),
         }
     }
+    pub fn with_lowres(self, surface: Surface) -> Self {
+        Self {
+            surface: self.surface,
+            lowres: Some(surface),
+            interior: self.interior,
+            matrix_model: self.matrix_model,
+        }
+    }
 
     pub fn with_matrix_model(self, matrix: Mat4) -> Self {
         Self {

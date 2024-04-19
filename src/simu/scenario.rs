@@ -1,7 +1,7 @@
 use crate::{
     check_if_latest_version,
     config::{self, CfgRoutines, Config, InteriorGrid1D},
-    read_surface_main, thermal_skin_depth_one, thermal_skin_depth_two_pi,
+    read_surface_low, read_surface_main, thermal_skin_depth_one, thermal_skin_depth_two_pi,
     util::*,
     AirlessBody, BodyData, Export, FoldersRun, FrameEvent, Result, Routines,
     RoutinesThermalDefault, RoutinesViewerDefault, Time, Window, KEY_BACKWARD, KEY_FORWARD,
@@ -164,7 +164,8 @@ impl Scenario {
     pub fn load_bodies(&mut self) -> Result<()> {
         for (_ii, cb) in self.config.bodies.iter().enumerate() {
             let surface = read_surface_main(cb)?;
-            let asteroid = AirlessBody::new(surface);
+            let surface_lowres = read_surface_low(cb)?;
+            let asteroid = AirlessBody::new(surface).with_lowres(surface_lowres);
 
             let asteroid = match &cb.interior {
                 None => asteroid,

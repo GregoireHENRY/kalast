@@ -9,4 +9,4 @@ window = false
 thermal_stats = false
 simulation = false
 simulation_time = true
-simulation_time_frequency = 1
+simulation_time_frequency = 0.1

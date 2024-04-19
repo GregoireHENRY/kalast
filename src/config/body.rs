@@ -676,12 +676,12 @@ pub struct StateOrbit {
 
     /// Center of frame. Default is [the `Sun`][CfgFrameCenter::Sun].
     #[serde(default)]
-    pub frame: FrameCenter,
+    pub frame: Option<FrameCenter>,
 
     /// Configuration of the orbital speed of the body.
     /// [Default is the mass of the frame center][CfgOrbitSpeedControl#default].
     #[serde(default)]
-    pub control: OrbitSpeedControl,
+    pub control: Option<OrbitSpeedControl>,
 }
 
 impl Default for StateOrbit {
@@ -693,8 +693,8 @@ impl Default for StateOrbit {
             peri: default_orbit_peri(),
             node: 0.0,
             tp: 0.0,
-            frame: FrameCenter::default(),
-            control: OrbitSpeedControl::default(),
+            frame: None,
+            control: None,
         }
     }
 }
@@ -753,19 +753,13 @@ pub enum OrbitSpeedControl {
     /// This is used to compute GM of orbit and orbital speed.
     /// In configuration, use `mass`.
     #[serde(rename = "mass")]
-    Mass(Option<Float>),
+    Mass(Float),
 
     /// ! unimplemented !
     /// Orbital period (in seconds).
     /// In configuration, use `period`.
     #[serde(rename = "period")]
     Period(Float),
-}
-
-impl Default for OrbitSpeedControl {
-    fn default() -> Self {
-        Self::Mass(None)
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

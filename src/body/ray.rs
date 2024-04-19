@@ -121,13 +121,13 @@ pub fn shadows(
     asteroid2: &AirlessBody,
 ) -> Vec<usize> {
     let surf1 = &asteroid1.surface;
-    let surf2 = asteroid1
+    let surf2 = asteroid2
         .lowres
         .as_ref()
-        .or(Some(&asteroid1.surface))
+        .or(Some(&asteroid2.surface))
         .unwrap();
 
-    if asteroid1.surface.is_smooth() || asteroid2.surface.is_smooth() {
+    if surf1.is_smooth() || surf2.is_smooth() {
         unimplemented!("Shadowing by ray-casting is only implemented for flat surface.");
     }
 

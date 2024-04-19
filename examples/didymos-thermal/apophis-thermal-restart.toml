@@ -1,0 +1,15 @@
+[restart]
+path = "/Users/gregoireh/data/kalast/runs/Apophis flyby Hakan/tumbling/run #2 back"
+elapsed = 87696000
+# time_step_factor = 0.1
+# depth_step_factor = 4
+
+[window]
+colormap = { name = "inferno", vmin = 150.0, vmax = 350.0, scalar = "temperature" }
+
+[scene]
+camera.position.cartesian = [10, 0, 0]
+
+[simulation]
+pause_first_it = true
+export.cooldown_start = 0
