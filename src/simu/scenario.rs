@@ -5,11 +5,11 @@ use crate::{
     util::*,
     AirlessBody, BodyData, Export, FoldersRun, FrameEvent, Result, Routines,
     RoutinesThermalDefault, RoutinesViewerDefault, Time, Window, KEY_BACKWARD, KEY_FORWARD,
-    KEY_LEFT, KEY_RIGHT, SENSITIVITY,
+    KEY_LEFT, KEY_RIGHT, SENSITIVITY, WINDOW_HEIGHT, WINDOW_WIDTH,
 };
 
 use chrono::Utc;
-use config::SkinDepth;
+use config::{SkinDepth, NORMAL_LENGTH};
 use itertools::Itertools;
 use sdl2::keyboard::Keycode;
 
@@ -72,21 +72,29 @@ impl Scenario {
 
         if !config.preferences.no_window.unwrap_or_default() {
             win = Some(Window::with_settings(|s| {
-                s.width = config.window.width;
-                s.height = config.window.height;
-                s.background_color = config.window.background;
-                if config.window.high_dpi {
+                s.width = config.window.width.unwrap_or(WINDOW_WIDTH);
+                s.height = config.window.height.unwrap_or(WINDOW_HEIGHT);
+                s.background_color = config.window.background.unwrap_or_default();
+                s.ambient_light_color = config.window.ambient.unwrap_or_default();
+                if let Some(true) = config.window.high_dpi {
                     s.high_dpi();
                 }
                 if let Some(cmap) = config.window.colormap.as_ref() {
                     s.colormap = cmap.name.unwrap_or(crate::Colormap::default());
                 }
-                s.shadows = config.window.shadows;
-                s.ambient_light_color = config.window.ambient;
-                s.wireframe = config.window.wireframe;
-                s.draw_normals = config.window.normals;
-                s.normals_magnitude = config.window.normals_length;
-                s.debug = config.preferences.debug.window.unwrap_or_default();
+                if let Some(true) = config.window.shadows {
+                    s.shadows = true;
+                }
+                if let Some(true) = config.window.wireframe {
+                    s.wireframe = true;
+                }
+                if let Some(true) = config.window.normals {
+                    s.draw_normals = true;
+                }
+                if let Some(true) = config.preferences.debug.window {
+                    s.debug = true;
+                }
+                s.normals_magnitude = config.window.normals_length.unwrap_or(NORMAL_LENGTH);
                 s.sensitivity = config.preferences.sensitivity.unwrap_or(SENSITIVITY);
                 s.forward = config
                     .preferences

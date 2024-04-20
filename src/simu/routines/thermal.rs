@@ -511,91 +511,85 @@ impl Routines for RoutinesThermalDefault {
             CsvWriter::new(&mut file).finish(&mut df).unwrap();
         }
 
-        if !cfg.bodies[body].record.faces.is_empty() {
-            let dfcols = cfg.bodies[body]
-                .record
-                .faces
-                .iter()
-                .map(|&face| Series::new(&format!("{}", face), &vec![data.tmp.row(0)[face]]))
-                .collect_vec();
-            let mut df = DataFrame::new(dfcols).unwrap();
-            let p = folder_tpm.join("temperatures-faces.csv");
-            let mut file = std::fs::File::options()
-                .append(true)
-                .create(true)
-                .open(&p)
-                .unwrap();
-            CsvWriter::new(&mut file)
-                .include_header(is_first_it_export)
-                .finish(&mut df)
-                .unwrap();
-        }
+        if let Some(record) = cfg.bodies[body].record.as_ref() {
+            if let Some(faces) = record.faces.as_ref() {
+                let dfcols = faces
+                    .iter()
+                    .map(|&face| Series::new(&format!("{}", face), &vec![data.tmp.row(0)[face]]))
+                    .collect_vec();
+                let mut df = DataFrame::new(dfcols).unwrap();
+                let p = folder_tpm.join("temperatures-faces.csv");
+                let mut file = std::fs::File::options()
+                    .append(true)
+                    .create(true)
+                    .open(&p)
+                    .unwrap();
+                CsvWriter::new(&mut file)
+                    .include_header(is_first_it_export)
+                    .finish(&mut df)
+                    .unwrap();
+            }
 
-        if !cfg.bodies[body].record.cells.is_empty() {
-            let dfcols = cfg.bodies[body]
-                .record
-                .cells
-                .iter()
-                .map(|&cell| Series::new(&format!("{}", cell), &vec![data.tmp[cell]]))
-                .collect_vec();
-            let mut df = DataFrame::new(dfcols).unwrap();
-            let p = folder_tpm.join("temperatures-cells.csv");
-            let mut file = std::fs::File::options()
-                .append(true)
-                .create(true)
-                .open(&p)
-                .unwrap();
-            CsvWriter::new(&mut file)
-                .include_header(is_first_it_export)
-                .finish(&mut df)
-                .unwrap();
-        }
+            if let Some(cells) = record.cells.as_ref() {
+                let dfcols = cells
+                    .iter()
+                    .map(|&cell| Series::new(&format!("{}", cell), &vec![data.tmp[cell]]))
+                    .collect_vec();
+                let mut df = DataFrame::new(dfcols).unwrap();
+                let p = folder_tpm.join("temperatures-cells.csv");
+                let mut file = std::fs::File::options()
+                    .append(true)
+                    .create(true)
+                    .open(&p)
+                    .unwrap();
+                CsvWriter::new(&mut file)
+                    .include_header(is_first_it_export)
+                    .finish(&mut df)
+                    .unwrap();
+            }
 
-        if !cfg.bodies[body].record.columns.is_empty() {
-            let dfcols = cfg.bodies[body]
-                .record
-                .columns
-                .iter()
-                .map(|&column| {
-                    Series::new(&format!("{}", column), data.tmp.column(column).as_slice())
-                })
-                .collect_vec();
-            let mut df = DataFrame::new(dfcols).unwrap();
-            let p = folder_tpm.join("temperatures-columns.csv");
-            let mut file = std::fs::File::options()
-                .append(true)
-                .create(true)
-                .open(&p)
-                .unwrap();
-            CsvWriter::new(&mut file)
-                .include_header(is_first_it_export)
-                .finish(&mut df)
-                .unwrap();
-        }
+            if let Some(columns) = record.columns.as_ref() {
+                let dfcols = columns
+                    .iter()
+                    .map(|&column| {
+                        Series::new(&format!("{}", column), data.tmp.column(column).as_slice())
+                    })
+                    .collect_vec();
+                let mut df = DataFrame::new(dfcols).unwrap();
+                let p = folder_tpm.join("temperatures-columns.csv");
+                let mut file = std::fs::File::options()
+                    .append(true)
+                    .create(true)
+                    .open(&p)
+                    .unwrap();
+                CsvWriter::new(&mut file)
+                    .include_header(is_first_it_export)
+                    .finish(&mut df)
+                    .unwrap();
+            }
 
-        if !cfg.bodies[body].record.rows.is_empty() {
-            let dfcols = cfg.bodies[body]
-                .record
-                .rows
-                .iter()
-                .map(|&row| {
-                    Series::new(
-                        &format!("{}", row),
-                        data.tmp.row(row).transpose().as_slice(),
-                    )
-                })
-                .collect_vec();
-            let mut df = DataFrame::new(dfcols).unwrap();
-            let p = folder_tpm.join("temperatures-rows.csv");
-            let mut file = std::fs::File::options()
-                .append(true)
-                .create(true)
-                .open(&p)
-                .unwrap();
-            CsvWriter::new(&mut file)
-                .include_header(is_first_it_export)
-                .finish(&mut df)
-                .unwrap();
+            if let Some(rows) = record.rows.as_ref() {
+                let dfcols = rows
+                    .iter()
+                    .map(|&row| {
+                        Series::new(
+                            &format!("{}", row),
+                            data.tmp.row(row).transpose().as_slice(),
+                        )
+                    })
+                    .collect_vec();
+                let mut df = DataFrame::new(dfcols).unwrap();
+                let p = folder_tpm.join("temperatures-rows.csv");
+                let mut file = std::fs::File::options()
+                    .append(true)
+                    .create(true)
+                    .open(&p)
+                    .unwrap();
+                CsvWriter::new(&mut file)
+                    .include_header(is_first_it_export)
+                    .finish(&mut df)
+                    .unwrap();
+            }
         }
     }
 }

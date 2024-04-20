@@ -5,7 +5,7 @@ use crate::{
     config::{
         Body, CfgCamera, CfgCameraDirection, CfgCameraPosition, CfgScalar, CfgSun, CfgSunPosition,
         Config, FileBehavior, FileColumns, FileColumnsOut, FileSetup, FrameCenter, SpicePosition,
-        SpiceState, State, StateCartesian, DEFAULT_ABCORR, DEFAULT_FRAME,
+        SpiceState, State, StateCartesian, COLOR_SELECTION, DEFAULT_ABCORR, DEFAULT_FRAME,
         SIMULATION_TIME_FREQUENCY,
     },
     find_ref_orbit, matrix_orientation_obliquity, matrix_spin, position_in_inertial_frame,
@@ -150,7 +150,7 @@ pub trait Routines: DowncastSync {
                 };
                 scene.camera.up = config.scene.camera.up;
                 scene.camera.up_world = config.scene.camera.up;
-                let mut projection = config.scene.camera.projection;
+                let mut projection = config.scene.camera.projection.unwrap_or_default();
 
                 match &mut projection {
                     ProjectionMode::Perspective(fovy) => {
@@ -862,7 +862,7 @@ pub fn update_surf_selected_faces(
             selected.push(SelectedFace::set(&bodies[ii_body], face));
             let v = &mut bodies[ii_body].surface.faces[face].vertex;
             v.color_mode = ColorMode::Color;
-            v.color = config.window.color_selection;
+            v.color = config.window.color_selection.unwrap_or(COLOR_SELECTION);
 
             println!(
                 "Selected faces: {:?} (added new).\n",

@@ -160,6 +160,33 @@ impl Config {
 
             // Restart parameters that are already in main config without restart.
 
+            for body in 0..new.bodies.len() {
+                if let Some(new_record) = new.bodies[body].record.clone() {
+                    if let Some(record) = config.bodies[body].record.as_mut() {
+                        if let Some(faces) = new_record.faces {
+                            record.faces = Some(faces);
+                        }
+                        if let Some(columns) = new_record.columns {
+                            record.columns = Some(columns);
+                        }
+                        if let Some(rows) = new_record.rows {
+                            record.rows = Some(rows);
+                        }
+                        if let Some(cells) = new_record.cells {
+                            record.cells = Some(cells);
+                        }
+                        if let Some(mesh) = new_record.mesh {
+                            record.mesh = Some(mesh);
+                        }
+                        if let Some(depth) = new_record.depth {
+                            record.depth = Some(depth);
+                        }
+                    } else {
+                        config.bodies[body].record = Some(new_record);
+                    }
+                }
+            }
+
             if let Some(elapsed) = new.simulation.elapsed {
                 config.simulation.elapsed = Some(elapsed);
             }
@@ -215,12 +242,68 @@ impl Config {
                 config.scene.camera.position = Some(p);
             }
 
+            if let Some(projection) = new.scene.camera.projection {
+                config.scene.camera.projection = Some(projection);
+            }
+
             if let Some(near) = new.scene.camera.near {
                 config.scene.camera.near = Some(near);
             }
 
             if let Some(far) = new.scene.camera.far {
                 config.scene.camera.far = Some(far);
+            }
+
+            if let Some(width) = new.window.width {
+                config.window.width = Some(width);
+            }
+
+            if let Some(height) = new.window.height {
+                config.window.height = Some(height);
+            }
+
+            if let Some(fullscreen) = new.window.fullscreen {
+                config.window.fullscreen = Some(fullscreen);
+            }
+
+            if let Some(background) = new.window.background {
+                config.window.background = Some(background);
+            }
+
+            if let Some(high_dpi) = new.window.high_dpi {
+                config.window.high_dpi = Some(high_dpi);
+            }
+
+            if let Some(shadow_dpi) = new.window.shadow_dpi {
+                config.window.shadow_dpi = Some(shadow_dpi);
+            }
+
+            if let Some(shadows) = new.window.shadows {
+                config.window.shadows = Some(shadows);
+            }
+
+            if let Some(ambient) = new.window.ambient {
+                config.window.ambient = Some(ambient);
+            }
+
+            if let Some(wireframe) = new.window.wireframe {
+                config.window.wireframe = Some(wireframe);
+            }
+
+            if let Some(normals) = new.window.normals {
+                config.window.normals = Some(normals);
+            }
+
+            if let Some(normals_length) = new.window.normals_length {
+                config.window.normals_length = Some(normals_length);
+            }
+
+            if let Some(export_frames) = new.window.export_frames {
+                config.window.export_frames = Some(export_frames);
+            }
+
+            if let Some(color_selection) = new.window.color_selection {
+                config.window.color_selection = Some(color_selection);
             }
 
             if let Some(new_cmap) = new.window.colormap {

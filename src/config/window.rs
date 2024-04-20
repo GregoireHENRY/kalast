@@ -1,94 +1,57 @@
-use crate::{util::*, Colormap, WINDOW_HEIGHT, WINDOW_WIDTH};
+use crate::{util::*, Colormap};
 
 use serde::{Deserialize, Serialize};
 
 pub const CMAP_VMIN: Float = 0.0;
 pub const CMAP_VMAX: Float = 1.0;
+pub const DPI: usize = 100;
+pub const NORMAL_LENGTH: Float = 0.02;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+pub const COLOR_SELECTION: Vec3 = Vec3::new(1.0, 1.0, 0.0);
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct CfgWindow {
-    #[serde(default = "default_width")]
-    pub width: usize,
-
-    #[serde(default = "default_height")]
-    pub height: usize,
+    #[serde(default)]
+    pub width: Option<usize>,
 
     #[serde(default)]
-    pub fullscreen: bool,
+    pub height: Option<usize>,
 
     #[serde(default)]
-    pub background: Vec3,
+    pub fullscreen: Option<bool>,
 
     #[serde(default)]
-    pub high_dpi: bool,
-
-    #[serde(default = "default_dpi")]
-    pub shadow_dpi: usize,
+    pub background: Option<Vec3>,
 
     #[serde(default)]
-    pub shadows: bool,
+    pub high_dpi: Option<bool>,
 
     #[serde(default)]
-    pub ambient: Vec3,
+    pub shadow_dpi: Option<usize>,
 
     #[serde(default)]
-    pub wireframe: bool,
+    pub shadows: Option<bool>,
+
+    #[serde(default)]
+    pub ambient: Option<Vec3>,
+
+    #[serde(default)]
+    pub wireframe: Option<bool>,
 
     #[serde(default)]
     pub colormap: Option<CfgColormap>,
 
     #[serde(default)]
-    pub normals: bool,
-
-    #[serde(default = "default_normals_length")]
-    pub normals_length: Float,
+    pub normals: Option<bool>,
 
     #[serde(default)]
-    pub export_frames: bool,
+    pub normals_length: Option<Float>,
 
     #[serde(default)]
-    pub color_selection: Vec3,
-}
+    pub export_frames: Option<bool>,
 
-impl Default for CfgWindow {
-    fn default() -> Self {
-        Self {
-            width: default_width(),
-            height: default_height(),
-            fullscreen: false,
-            background: Vec3::zeros(),
-            high_dpi: false,
-            shadow_dpi: default_dpi(),
-            shadows: false,
-            ambient: Vec3::zeros(),
-            wireframe: false,
-            colormap: None,
-            normals: false,
-            normals_length: default_normals_length(),
-            export_frames: false,
-            color_selection: default_color_selection(),
-        }
-    }
-}
-
-fn default_width() -> usize {
-    WINDOW_WIDTH
-}
-
-fn default_height() -> usize {
-    WINDOW_HEIGHT
-}
-
-pub fn default_dpi() -> usize {
-    100
-}
-
-fn default_normals_length() -> Float {
-    0.02
-}
-
-pub fn default_color_selection() -> Vec3 {
-    Vec3::new(1.0, 1.0, 0.0)
+    #[serde(default)]
+    pub color_selection: Option<Vec3>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]

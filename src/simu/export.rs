@@ -36,47 +36,17 @@ impl Export {
         _bodies_data: &[BodyData],
         folders: &FoldersRun,
     ) {
-        if config.bodies[body].record.mesh {
-            let faces = bodies[body].surface.faces.clone();
-            let sph = faces.iter().map(|f| f.vertex.sph()).collect_vec();
-            let mut df = df!(
-                "x" => faces.iter().map(|f| f.vertex.position.x).collect_vec(),
-                "y" => faces.iter().map(|f| f.vertex.position.y).collect_vec(),
-                "z" => faces.iter().map(|f| f.vertex.position.z).collect_vec(),
-                "lon" => sph.iter().map(|sph| sph[1]).collect_vec(),
-                "lat" => sph.iter().map(|sph| sph[2]).collect_vec(),
-                "rad" => sph.iter().map(|sph| sph[0]).collect_vec(),
-            )
-            .unwrap();
-
-            let folder_simu = folders.simu_body(&config.bodies[body].name);
-            fs::create_dir_all(&folder_simu).unwrap();
-
-            let mut file = std::fs::File::options()
-                .append(true)
-                .create(true)
-                .open(folder_simu.join("mesh.csv"))
-                .unwrap();
-            CsvWriter::new(&mut file)
-                .include_header(true)
-                .finish(&mut df)
-                .unwrap();
-        }
-
-        if config.bodies[body].record.depth {
-            let mut depth = None;
-
-            if let Some(interior) = bodies[body].interior.as_ref() {
-                match interior {
-                    Interior::Grid(grid) => {
-                        depth = Some(grid.depth.clone());
-                    }
-                }
-            }
-
-            if let Some(depth) = depth {
+        if let Some(record) = config.bodies[body].record.as_ref() {
+            if let Some(true) = record.mesh {
+                let faces = bodies[body].surface.faces.clone();
+                let sph = faces.iter().map(|f| f.vertex.sph()).collect_vec();
                 let mut df = df!(
-                    "depth" => depth,
+                    "x" => faces.iter().map(|f| f.vertex.position.x).collect_vec(),
+                    "y" => faces.iter().map(|f| f.vertex.position.y).collect_vec(),
+                    "z" => faces.iter().map(|f| f.vertex.position.z).collect_vec(),
+                    "lon" => sph.iter().map(|sph| sph[1]).collect_vec(),
+                    "lat" => sph.iter().map(|sph| sph[2]).collect_vec(),
+                    "rad" => sph.iter().map(|sph| sph[0]).collect_vec(),
                 )
                 .unwrap();
 
@@ -86,12 +56,44 @@ impl Export {
                 let mut file = std::fs::File::options()
                     .append(true)
                     .create(true)
-                    .open(folder_simu.join("depth.csv"))
+                    .open(folder_simu.join("mesh.csv"))
                     .unwrap();
                 CsvWriter::new(&mut file)
                     .include_header(true)
                     .finish(&mut df)
                     .unwrap();
+            }
+
+            if let Some(true) = record.depth {
+                let mut depth = None;
+
+                if let Some(interior) = bodies[body].interior.as_ref() {
+                    match interior {
+                        Interior::Grid(grid) => {
+                            depth = Some(grid.depth.clone());
+                        }
+                    }
+                }
+
+                if let Some(depth) = depth {
+                    let mut df = df!(
+                        "depth" => depth,
+                    )
+                    .unwrap();
+
+                    let folder_simu = folders.simu_body(&config.bodies[body].name);
+                    fs::create_dir_all(&folder_simu).unwrap();
+
+                    let mut file = std::fs::File::options()
+                        .append(true)
+                        .create(true)
+                        .open(folder_simu.join("depth.csv"))
+                        .unwrap();
+                    CsvWriter::new(&mut file)
+                        .include_header(true)
+                        .finish(&mut df)
+                        .unwrap();
+                }
             }
         }
     }
@@ -154,7 +156,7 @@ impl Export {
         }
 
         if self.exporting {
-            if config.window.export_frames {
+            if let Some(true) = config.window.export_frames {
                 let path = folders
                     .simu_rec_time_frames(self.exporting_started_elapsed as _)
                     .join(format!("{}.png", elapsed));

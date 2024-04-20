@@ -87,7 +87,7 @@ pub struct CfgCamera {
     pub up: Vec3,
 
     #[serde(default)]
-    pub projection: ProjectionMode,
+    pub projection: Option<ProjectionMode>,
 
     #[serde(default)]
     pub near: Option<Float>,
@@ -115,7 +115,7 @@ impl Default for CfgCamera {
             direction: CfgCameraDirection::default(),
             anchor: default_camera_anchor(),
             up: default_camera_up(),
-            projection: ProjectionMode::default(),
+            projection: None,
             near: None,
             far: None,
         }

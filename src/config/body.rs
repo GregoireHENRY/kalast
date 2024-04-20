@@ -194,7 +194,7 @@ pub struct Body {
     /// Configuration of the record of the data. Default is nothing is recorded.
     /// Read [`CfgRecord`] for configuration options and examples.
     #[serde(default)]
-    pub record: Record,
+    pub record: Option<Record>,
 
     #[serde(default)]
     pub file_data: Option<FileSetup>,
@@ -931,25 +931,25 @@ Idem for [`columns`][CfgRecord::columns], [`rows`][CfgRecord::rows] and [`cells`
 You can also mention multiple fields at the same time if you want to record some columns and specific cells.
 
 */
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Record {
     #[serde(default)]
-    pub faces: Vec<usize>,
+    pub faces: Option<Vec<usize>>,
 
     #[serde(default)]
-    pub columns: Vec<usize>,
+    pub columns: Option<Vec<usize>>,
 
     #[serde(default)]
-    pub rows: Vec<usize>,
+    pub rows: Option<Vec<usize>>,
 
     #[serde(default)]
-    pub cells: Vec<usize>,
+    pub cells: Option<Vec<usize>>,
 
     #[serde(default)]
-    pub mesh: bool,
+    pub mesh: Option<bool>,
 
     #[serde(default)]
-    pub depth: bool,
+    pub depth: Option<bool>,
 }
 
 fn default_mesh_factor() -> Vec3 {
