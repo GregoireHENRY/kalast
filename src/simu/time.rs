@@ -95,4 +95,8 @@ impl Time {
         self.used_time_step = self.time_step;
         (self.iteration, self.elapsed_time, self.time_step)
     }
+
+    pub fn is_first_it(&self) -> bool {
+        self.iteration == 0
+    }
 }

@@ -11,8 +11,8 @@ use crate::{
     find_ref_orbit, matrix_orientation_obliquity, matrix_spin, position_in_inertial_frame,
     update_colormap_scalar,
     util::*,
-    AirlessBody, BodyData, ColorMode, Export, FoldersRun, MovementMode, ProjectionMode,
-    SelectedFace, Time, Window,
+    AirlessBody, BodyData, ColorMode, FoldersRun, MovementMode, ProjectionMode, SelectedFace, Time,
+    Window,
 };
 
 use downcast_rs::{impl_downcast, DowncastSync};
@@ -391,15 +391,8 @@ pub trait Routines: DowncastSync {
         }
     }
 
-    fn fn_update_scene(
-        &self,
-        cfg: &Config,
-        sun: &mut Vec3,
-        time: &Time,
-        win: Option<&mut Window>,
-        export: &Export,
-    ) {
-        if export.is_first_it {
+    fn fn_update_scene(&self, cfg: &Config, sun: &mut Vec3, time: &Time, win: Option<&mut Window>) {
+        if time.is_first_it() {
             self.fn_update_scene_core_first_it(cfg, sun, time, &win);
         }
 
@@ -639,7 +632,6 @@ pub trait Routines: DowncastSync {
         _cfg: &Config,
         _time: &Time,
         _folders: &FoldersRun,
-        _is_first_it: bool,
     ) {
     }
 
@@ -668,28 +660,31 @@ pub trait Routines: DowncastSync {
                 .simulation_time_frequency
                 .unwrap_or(SIMULATION_TIME_FREQUENCY);
 
-            let mut r =
-                time.elapsed_seconds() as Float / config.simulation.duration as Float * 100.0;
+            let duration = config.simulation.duration.unwrap_or_default();
 
-            let s = numdigits_comma(freq);
+            if duration > 0 {
+                let mut r = time.elapsed_seconds() as Float / duration as Float * 100.0;
 
-            if s > 0 {
-                let d = 10.0f64.powi(s as _);
-                r = (r * d).floor() / d;
-            }
+                let s = numdigits_comma(freq);
 
-            let last = time.last_debug_time.unwrap_or(0.0);
+                if s > 0 {
+                    let d = 10.0f64.powi(s as _);
+                    r = (r * d).floor() / d;
+                }
 
-            if r >= last + freq {
-                time.last_debug_time = Some(r);
+                let last = time.last_debug_time.unwrap_or(0.0);
 
-                println!(
-                    "Simulated {:.s$}% ({}it {}/{}).",
-                    r,
-                    time.iteration(),
-                    time.elapsed_seconds(),
-                    config.simulation.duration,
-                );
+                if r >= last + freq {
+                    time.last_debug_time = Some(r);
+
+                    println!(
+                        "Simulated {:.s$}% ({}it {}/{}).",
+                        r,
+                        time.iteration(),
+                        time.elapsed_seconds(),
+                        duration,
+                    );
+                }
             }
         }
 
@@ -709,9 +704,8 @@ pub trait Routines: DowncastSync {
         bodies_data: &mut [BodyData],
         window: &mut Window,
         time: &Time,
-        export: &Export,
     ) {
-        if export.is_first_it {
+        if time.is_first_it() {
             for body in 0..bodies.len() {
                 let faces = &config.bodies[body].faces_selected;
                 update_surf_selected_faces(config, bodies, bodies_data, window, faces, body);

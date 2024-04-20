@@ -8,10 +8,11 @@ use itertools::Itertools;
 use polars::prelude::{df, CsvWriter, NamedFrom, SerWriter};
 use std::fs;
 
+#[derive(Clone, Debug, Default)]
 pub struct Export {
-    pub is_first_it: bool,
     pub is_first_it_export: bool,
     pub exporting: bool,
+    pub ready_to_export: bool,
     pub exporting_started_elapsed: i64,
     pub remaining_duration_export: i64,
     pub cooldown_export: i64,
@@ -19,14 +20,12 @@ pub struct Export {
 
 impl Export {
     pub fn new(cfg: &CfgTimeExport) -> Self {
-        Self {
-            is_first_it: true,
-            is_first_it_export: true,
-            exporting: false,
-            exporting_started_elapsed: 0,
-            remaining_duration_export: 0,
-            cooldown_export: cfg.cooldown_start.unwrap_or_default() as _,
+        let mut export = Self::default();
+        if let Some(cd) = cfg.cooldown_start {
+            export.cooldown_export = cd as i64;
         }
+        export.ready_to_export = true;
+        export
     }
 
     fn init_body(
@@ -115,49 +114,46 @@ impl Export {
             fs::create_dir_all(&folders.path).unwrap();
         }
 
-        if self.is_first_it {
+        if time.is_first_it() {
             for body in 0..config.bodies.len() {
                 self.init_body(config, body, bodies, bodies_data, folders);
             }
         }
 
         for body in 0..config.bodies.len() {
-            routines.fn_export_iteration(body, config, time, folders, self.is_first_it);
+            routines.fn_export_iteration(body, config, time, folders);
         }
 
         if !self.exporting {
-            if !self.is_first_it {
-                self.cooldown_export -= dt as i64;
-            }
-            // print!(" cooldown export({})..", self.cooldown_export);
+            self.cooldown_export -= dt as i64;
 
-            // if self.cooldown_export <= 0 && dt > 0 {
-            if self.cooldown_export <= 0 {
-                // print!(" began exporting..");
-                self.exporting = true;
-                self.exporting_started_elapsed = elapsed as _;
-                self.remaining_duration_export = config.simulation.export.duration as _;
-                println!("Start export time.");
-                // println!("Simulation time step: {}", time.time_step);
-                time.set_time_step(config.simulation.export.step);
-                // println!("Export time step: {}", time.time_step);
+            if self.cooldown_export <= 0 && self.ready_to_export {
+                if let Some(export) = config.simulation.export.as_ref() {
+                    println!("Start export time.");
+                    self.exporting = true;
+                    self.is_first_it_export = true;
+                    self.exporting_started_elapsed = elapsed as _;
+                    self.remaining_duration_export = export.duration.unwrap_or(
+                        config.simulation.duration.unwrap_or_default() - time.elapsed_seconds(),
+                    ) as _;
+
+                    if let Some(step) = export.step {
+                        time.set_time_step(step);
+                    }
+                }
             } else if self.cooldown_export - (dt as i64) < 0 {
-                // So export does not really start here, but the time step is adapted to not miss the beginning of export
-                // (in case export time step is smaller than simulation time step).
-                println!("Start pre-export time.");
-                // println!("Simulation time step: {}", time.time_step);
-                time.set_time_step(config.simulation.export.step);
-                // println!("Export time step: {}", time.time_step);
+                if let Some(export) = config.simulation.export.as_ref() {
+                    // So export does not really start here, but the time step is adapted to not miss the beginning of export
+                    // (in case export time step is smaller than simulation time step).
+                    println!("Start pre-export time.");
+                    if let Some(step) = export.step {
+                        time.set_time_step(step);
+                    }
+                }
             }
         }
 
         if self.exporting {
-            if !self.is_first_it_export {
-                self.remaining_duration_export -= dt as i64;
-            }
-
-            // print!(" remaining duration export({})..", self.remaining_duration_export);
-
             if config.window.export_frames {
                 let path = folders
                     .simu_rec_time_frames(self.exporting_started_elapsed as _)
@@ -190,27 +186,29 @@ impl Export {
                 );
             }
 
+            if self.remaining_duration_export <= 0 {
+                if let Some(export) = config.simulation.export.as_ref() {
+                    println!("End of export.");
+                    self.exporting = false;
+
+                    if let Some(period) = export.period {
+                        self.cooldown_export = period as _;
+                        self.ready_to_export = true;
+                    }
+
+                    if let Some(step) = config.simulation.step {
+                        time.set_time_step(step);
+                    }
+
+                    // let _cvg = kalast::simu::converge::check_all(&mut bodies, &folder_tpm, &cfg.time.export);
+                }
+            }
+
+            self.remaining_duration_export -= dt as i64;
+
             if self.is_first_it_export {
                 self.is_first_it_export = false;
             }
-
-            if self.remaining_duration_export <= 0 {
-                // print!(" finished exporting..");
-                self.exporting = false;
-                self.is_first_it_export = true;
-                self.cooldown_export =
-                    (config.simulation.export.period - config.simulation.export.duration) as _;
-                println!("End of export.");
-                // println!("Export time step: {}", time.time_step);
-                time.set_time_step(config.simulation.step);
-                // println!("Simulation time step: {}", time.time_step);
-
-                // let _cvg = kalast::simu::converge::check_all(&mut bodies, &folder_tpm, &cfg.time.export);
-            }
-        }
-
-        if self.is_first_it {
-            self.is_first_it = false;
         }
     }
 

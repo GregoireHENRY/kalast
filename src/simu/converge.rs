@@ -1,4 +1,8 @@
-use crate::{config::Body, config::CfgTimeExport, util::*, AirlessBody, ThermalBodyData};
+/*
+
+use crate::{
+    config::Body, config::CfgTimeExport, config::Config, util::*, AirlessBody, ThermalBodyData,
+};
 
 use itertools::izip;
 use notify_rust::Notification;
@@ -13,7 +17,7 @@ pub fn check<P: AsRef<Path>>(
     cb: &Body,
     info: &mut ThermalBodyData,
     path: P,
-    ct: &CfgTimeExport,
+    config: &Config,
 ) -> bool {
     let path = path.as_ref();
 
@@ -37,9 +41,11 @@ pub fn check<P: AsRef<Path>>(
 
     let zdepth = &asteroid.interior.as_ref().unwrap().as_grid().depth;
 
-    let len_time = (ct.duration / ct.step) as usize + 1;
-    let len_spin = (cb.spin.period / ct.step as Float).ceil() as usize + 1;
-    let n_spins = (ct.duration as Float / cb.spin.period).floor() as usize;
+    let export_step = export.step.unwrap_or(default)
+
+    let len_time = (export.duration / export.step) as usize + 1;
+    let len_spin = (cb.spin.period / export.step as Float).ceil() as usize + 1;
+    let n_spins = (export.duration as Float / cb.spin.period).floor() as usize;
     let n_spins_elapsed = time_elapsed / cb.spin.period;
 
     let c0_ii = cb.record.columns[0];
@@ -202,3 +208,5 @@ pub fn check_all<P: AsRef<Path>>(
 
     converged_all
 }
+
+*/

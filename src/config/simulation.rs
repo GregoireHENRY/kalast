@@ -17,31 +17,31 @@ impl From<Error> for CfgSimulationError {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct CfgSimulation {
     #[serde(default)]
-    pub routines: CfgRoutines,
+    pub routines: Option<CfgRoutines>,
 
     // In seconds.
     #[serde(default)]
-    pub start: TimeOption,
+    pub start: Option<TimeOption>,
 
     // In seconds.
     #[serde(default)]
-    pub start_offset: isize,
+    pub start_offset: Option<isize>,
 
     // In seconds.
     #[serde(default)]
     pub elapsed: Option<usize>,
 
     #[serde(default)]
-    pub step: usize,
+    pub step: Option<usize>,
 
     #[serde(default)]
-    pub duration: usize,
+    pub duration: Option<usize>,
 
     #[serde(default)]
-    pub export: CfgTimeExport,
+    pub export: Option<CfgTimeExport>,
 
     #[serde(default)]
     pub pause_first_it: Option<bool>,
@@ -63,27 +63,6 @@ pub struct CfgSimulation {
 
     #[serde(default)]
     pub mutual_heating: Option<bool>,
-}
-
-impl Default for CfgSimulation {
-    fn default() -> Self {
-        Self {
-            routines: CfgRoutines::default(),
-            start: TimeOption::default(),
-            start_offset: 0,
-            elapsed: None,
-            step: 0,
-            duration: 0,
-            export: CfgTimeExport::default(),
-            pause_first_it: None,
-            file: None,
-            read_file_data_only: None,
-            self_shadowing: None,
-            mutual_shadowing: None,
-            self_heating: None,
-            mutual_heating: None,
-        }
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -132,28 +111,17 @@ impl Default for CfgRoutines {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct CfgTimeExport {
     #[serde(default)]
-    pub step: usize,
+    pub step: Option<usize>,
 
     #[serde(default)]
-    pub duration: usize,
+    pub duration: Option<usize>,
 
     #[serde(default)]
-    pub period: usize,
+    pub period: Option<usize>,
 
     #[serde(default)]
     pub cooldown_start: Option<usize>,
-}
-
-impl Default for CfgTimeExport {
-    fn default() -> Self {
-        Self {
-            step: 0,
-            duration: 0,
-            period: 0,
-            cooldown_start: None,
-        }
-    }
 }

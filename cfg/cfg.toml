@@ -14,7 +14,6 @@ mutual_shadowing = true
 [simulation.export]
 step = 60
 duration = 429120
-period = 66528000
 cooldown_start = 66441600
 
 # 769 * 86400 = 66441600
@@ -37,8 +36,8 @@ camera.projection.perspective = 3
 [[bodies]]
 name = "Didymos"
 # mesh.shape.path = "/Users/gregoireh/data/spice/hera/kernels/dsk/g_01165mm_spc_obj_didy_0000n00000_v003.obj"
-mesh.shape.path = "/Users/gregoireh/data/DART/meshes/didymos-model-v002/9740mm/g_09740mm_spc_obj_didy_0000n00000_v002.obj"
-# mesh = { shape.shape = "sphere_m1", factor = [0.4095, 0.4005, 0.3035] } 
+# mesh.shape.path = "/Users/gregoireh/data/DART/meshes/didymos-model-v002/9740mm/g_09740mm_spc_obj_didy_0000n00000_v002.obj"
+mesh = { shape.shape = "sphere_m1", factor = [0.4095, 0.4005, 0.3035] } 
 mesh_low = { shape.shape = "sphere_m1", factor = [0.4095, 0.4005, 0.3035] } 
 interior.grid1d.linear = { size = 40, a = 2e-2 }
 spin = { period = 8136, obliquity = 162 }
@@ -51,8 +50,8 @@ record = { rows = [0], columns = [0], mesh = true, depth = true }
 [[bodies]]
 name = "Dimorphos"
 # mesh.shape.path = "/Users/gregoireh/data/spice/hera/kernels/dsk/g_00243mm_spc_obj_dimo_0000n00000_v004.obj"
-mesh.shape.path = "/Users/gregoireh/data/DART/meshes/dimorphos-model-v003/1960mm/g_01960mm_spc_obj_dimo_0000n00000_v003.obj"
-# mesh = { shape.shape = "sphere_m1", factor = [0.0895165, 0.0825, 0.0575] } 
+# mesh.shape.path = "/Users/gregoireh/data/DART/meshes/dimorphos-model-v003/1960mm/g_01960mm_spc_obj_dimo_0000n00000_v003.obj"
+mesh = { shape.shape = "sphere_m1", factor = [0.0895165, 0.0825, 0.0575] } 
 mesh_low = { shape.shape = "sphere_m1", factor = [0.0895165, 0.0825, 0.0575] } 
 interior.grid1d.linear = { size = 40, a = 2e-2 }
 spin = { period = 42912 }

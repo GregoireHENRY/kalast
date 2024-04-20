@@ -438,14 +438,7 @@ impl Routines for RoutinesThermalDefault {
         }
     }
 
-    fn fn_export_iteration(
-        &self,
-        body: usize,
-        cfg: &Config,
-        time: &Time,
-        folders: &FoldersRun,
-        is_first_it: bool,
-    ) {
+    fn fn_export_iteration(&self, body: usize, cfg: &Config, time: &Time, folders: &FoldersRun) {
         let np_elapsed = time.elapsed_seconds() as Float / cfg.bodies[body].spin.period;
 
         let data = &self.data[body];
@@ -474,13 +467,16 @@ impl Routines for RoutinesThermalDefault {
         let folder_simu = folders.simu_body(&cfg.bodies[body].name);
         fs::create_dir_all(&folder_simu).unwrap();
 
+        let path = folder_simu.join("progress.csv");
+        let exists = path.exists();
+
         let mut file = std::fs::File::options()
             .append(true)
             .create(true)
-            .open(folder_simu.join("progress.csv"))
+            .open(path)
             .unwrap();
         CsvWriter::new(&mut file)
-            .include_header(is_first_it)
+            .include_header(!exists)
             .finish(&mut df)
             .unwrap();
     }

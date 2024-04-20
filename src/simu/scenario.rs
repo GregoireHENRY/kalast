@@ -25,13 +25,7 @@ pub struct Scenario {
 }
 
 impl Scenario {
-    // pub fn new() -> Result<Self> {
-    //     let path_exe = env::current_exe().unwrap();
-    //     let path = path_exe.parent().unwrap();
-    //     Self::new_with(path)
-    // }
-
-    pub fn new(mut config: Config) -> Result<Self> {
+    pub fn new(config: Config) -> Result<Self> {
         if let Some(true) = config.preferences.debug.config {
             println!("{:#?}", config);
         }
@@ -50,8 +44,12 @@ impl Scenario {
         let bodies_data = vec![];
 
         let routines = match &config.simulation.routines {
-            CfgRoutines::Viewer => Box::new(RoutinesViewerDefault::new()) as Box<dyn Routines>,
-            CfgRoutines::Thermal => Box::new(RoutinesThermalDefault::new()) as Box<dyn Routines>,
+            None | Some(CfgRoutines::Viewer) => {
+                Box::new(RoutinesViewerDefault::new()) as Box<dyn Routines>
+            }
+            Some(CfgRoutines::Thermal) => {
+                Box::new(RoutinesThermalDefault::new()) as Box<dyn Routines>
+            }
         };
 
         #[cfg(feature = "spice")]
@@ -123,25 +121,26 @@ impl Scenario {
         }
 
         let time_start = {
-            let mut time_start = match config.simulation.start.seconds() {
-                Ok(seconds) => seconds,
-                Err(e) => panic!("{e} Spice is required to convert the starting date of the simulation to ephemeris time."),
+            let mut time_start = match &config.simulation.start {
+                None => 0,
+                Some(start) => match start.seconds() {
+                    Ok(seconds) => seconds,
+                    Err(e) => panic!("{e} Spice is required to convert the starting date of the simulation to ephemeris time."),
+                }
             };
 
-            time_start = (time_start as isize + config.simulation.start_offset) as usize;
-
+            let offset = config.simulation.start_offset.unwrap_or_default();
+            time_start = (time_start as isize + offset) as usize;
             time_start
         };
 
-        if let Some(restart) = config.restart.as_ref() {
-            config.simulation.step = (config.simulation.step as Float
-                * restart.time_step_factor.unwrap_or(1.0))
-                as usize;
+        let mut time = Time::new();
+
+        if let Some(step) = config.simulation.step {
+            time = time.with_time_step(step);
         }
 
-        let mut time = Time::new()
-            .with_time_step(config.simulation.step)
-            .with_time_start(time_start);
+        time = time.with_time_start(time_start);
 
         time.elapsed_time = config.simulation.elapsed.unwrap_or_default();
 
@@ -164,8 +163,12 @@ impl Scenario {
     pub fn load_bodies(&mut self) -> Result<()> {
         for (_ii, cb) in self.config.bodies.iter().enumerate() {
             let surface = read_surface_main(cb)?;
-            let surface_lowres = read_surface_low(cb)?;
-            let asteroid = AirlessBody::new(surface).with_lowres(surface_lowres);
+            let mut asteroid = AirlessBody::new(surface);
+
+            if cb.mesh_low.is_some() {
+                let surface_lowres = read_surface_low(cb)?;
+                asteroid = asteroid.with_lowres(surface_lowres);
+            }
 
             let asteroid = match &cb.interior {
                 None => asteroid,
@@ -228,8 +231,12 @@ impl Scenario {
             self.load_bodies()?;
         }
 
+        let mut first_it = true;
         let mut paused_stop = true;
-        let mut export = Export::new(&self.config.simulation.export);
+        let mut export = match &self.config.simulation.export {
+            None => Export::default(),
+            Some(config) => Export::new(config),
+        };
 
         'main_loop: loop {
             if let Some(win) = self.win.as_mut() {
@@ -247,13 +254,12 @@ impl Scenario {
                         &mut self.bodies_data,
                         win,
                         &self.time,
-                        &export,
                     );
                     continue;
                 }
             }
 
-            if !export.is_first_it {
+            if !first_it {
                 self.time.next_iteration();
             }
 
@@ -269,7 +275,6 @@ impl Scenario {
                 &mut self.sun,
                 &self.time,
                 self.win.as_mut(),
-                &export,
             );
 
             for body in 0..self.bodies.len() {
@@ -291,7 +296,6 @@ impl Scenario {
                     &mut self.bodies_data,
                     win,
                     &self.time,
-                    &export,
                 );
             }
 
@@ -314,7 +318,11 @@ impl Scenario {
                 self.win.as_ref(),
             );
 
-            if elapsed > self.config.simulation.duration {
+            if first_it {
+                first_it = false;
+            }
+
+            if elapsed > self.config.simulation.duration.unwrap_or_default() {
                 let time_calc = Utc::now().time() - *self.time.real_time();
                 println!(
                     "\nSimulation finished at JD: {}.\nComputation time: {:.3}s ({}it).",

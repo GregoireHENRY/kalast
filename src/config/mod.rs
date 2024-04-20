@@ -158,29 +158,57 @@ impl Config {
             // and apply restart settings later.
             // Depth TODO
 
-            // New restart parameters.
-
-            if let Some(factor) = restart.time_step_factor {
-                config.simulation.step = (config.simulation.step as Float * factor) as usize;
-            }
-
-            if let Some(factor) = restart.time_step_export_factor {
-                config.simulation.export.step =
-                    (config.simulation.export.step as Float * factor) as usize;
-            }
-
             // Restart parameters that are already in main config without restart.
 
             if let Some(elapsed) = new.simulation.elapsed {
                 config.simulation.elapsed = Some(elapsed);
             }
 
+            if let Some(step) = new.simulation.step {
+                config.simulation.step = Some(step);
+            }
+
+            if let Some(duration) = new.simulation.duration {
+                config.simulation.duration = Some(duration);
+            }
+
             if let Some(pause) = new.simulation.pause_first_it {
                 config.simulation.pause_first_it = Some(pause);
             }
 
-            if let Some(cooldown) = new.simulation.export.cooldown_start {
-                config.simulation.export.cooldown_start = Some(cooldown);
+            if let Some(shadow) = new.simulation.self_shadowing {
+                config.simulation.self_shadowing = Some(shadow);
+            }
+
+            if let Some(shadow) = new.simulation.mutual_shadowing {
+                config.simulation.mutual_shadowing = Some(shadow);
+            }
+
+            if let Some(heating) = new.simulation.self_heating {
+                config.simulation.self_heating = Some(heating);
+            }
+
+            if let Some(heating) = new.simulation.mutual_heating {
+                config.simulation.mutual_heating = Some(heating);
+            }
+
+            if let Some(new_export) = new.simulation.export {
+                if let Some(export) = config.simulation.export.as_mut() {
+                    if let Some(step) = new_export.step {
+                        export.step = Some(step);
+                    }
+                    if let Some(duration) = new_export.duration {
+                        export.duration = Some(duration);
+                    }
+                    if let Some(period) = new_export.period {
+                        export.period = Some(period);
+                    }
+                    if let Some(cooldown) = new_export.cooldown_start {
+                        export.cooldown_start = Some(cooldown);
+                    }
+                } else {
+                    config.simulation.export = Some(new_export);
+                }
             }
 
             if let Some(p) = new.scene.camera.position.clone() {
@@ -220,7 +248,23 @@ impl Config {
             // Restart parameters to be applied at the end.
 
             if let Some(duration_more) = restart.duration_more {
-                config.simulation.duration += duration_more;
+                if let Some(duration) = config.simulation.duration.as_mut() {
+                    *duration += duration_more;
+                }
+            }
+
+            if let Some(factor) = restart.time_step_factor {
+                if let Some(step) = config.simulation.step.as_mut() {
+                    *step = (*step as Float * factor) as usize;
+                }
+            }
+
+            if let Some(factor) = restart.time_step_export_factor {
+                if let Some(export) = config.simulation.export.as_mut() {
+                    if let Some(step) = export.step.as_mut() {
+                        *step = (*step as Float * factor) as usize;
+                    }
+                }
             }
 
             config.restart = Some(restart);
