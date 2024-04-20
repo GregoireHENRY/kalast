@@ -254,6 +254,7 @@ impl Scenario {
                         &mut self.bodies_data,
                         win,
                         &self.time,
+                        first_it,
                     );
                     continue;
                 }
@@ -296,6 +297,7 @@ impl Scenario {
                     &mut self.bodies_data,
                     win,
                     &self.time,
+                    first_it,
                 );
             }
 

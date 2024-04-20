@@ -704,8 +704,9 @@ pub trait Routines: DowncastSync {
         bodies_data: &mut [BodyData],
         window: &mut Window,
         time: &Time,
+        main_loop_first_it: bool,
     ) {
-        if time.is_first_it() {
+        if main_loop_first_it {
             for body in 0..bodies.len() {
                 let faces = &config.bodies[body].faces_selected;
                 update_surf_selected_faces(config, bodies, bodies_data, window, faces, body);
@@ -719,6 +720,7 @@ pub trait Routines: DowncastSync {
         window.update_vaos(bodies.iter_mut().map(|b| &mut b.surface));
         window.render_asteroids(&bodies);
         window.swap_window();
+
         if let Some(true) = config.preferences.debug.window {
             println!("New frame: {}.", time.elapsed_seconds());
         }
@@ -853,6 +855,8 @@ pub fn update_surf_selected_faces(
 ) {
     let selected = &mut bodies_data[ii_body].selected;
 
+    // println!("Debug 1: {:?} {:?}", faces, selected);
+
     for &face in faces {
         if !selected.iter().any(|f| f.index == face) {
             selected.push(SelectedFace::set(&bodies[ii_body], face));
@@ -861,7 +865,7 @@ pub fn update_surf_selected_faces(
             v.color = config.window.color_selection;
 
             println!(
-                "Selected faces: {:?}\n",
+                "Selected faces: {:?} (added new).\n",
                 selected.iter().map(|f| f.index).collect_vec()
             );
         } else {
@@ -875,12 +879,17 @@ pub fn update_surf_selected_faces(
             };
 
             println!(
-                "Selected faces: {:?}\n",
-                selected.iter().map(|f| f.index).collect_vec()
+                "Selected faces: {:?} (removed {}).\n",
+                selected.iter().map(|f| f.index).collect_vec(),
+                selected_face.index,
             );
         }
     }
+
+    //println!("Debug 2: {:?} {:?}", faces, selected);
+
     let s = &mut bodies[ii_body].surface;
     s.apply_facedata_to_vertices();
+
     // win.update_vao(ii_body, s);
 }
