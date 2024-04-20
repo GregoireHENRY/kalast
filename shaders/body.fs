@@ -97,7 +97,14 @@ vec3 colormap(int code, float t) {
 }
 
 float normalize_value(float value, vec2 bounds) {
-    return (value - bounds.x) / (bounds.y - bounds.x);
+    float v = (value - bounds.x) / (bounds.y - bounds.x);
+    if (v < bounds.x) {
+        v = bounds.x
+    }
+    else if (v > bounds.y) {
+        v = bounds.y
+    }
+    return v
 }
 
 float calculate_shadow(float cos_incidence) {
