@@ -859,21 +859,28 @@ pub fn update_surf_selected_faces(
             let v = &mut bodies[ii_body].surface.faces[face].vertex;
             v.color_mode = ColorMode::Color;
             v.color = config.window.color_selection;
+
+            println!(
+                "Selected faces: {:?}\n",
+                selected.iter().map(|f| f.index).collect_vec()
+            );
         } else {
-            let selected = selected.remove(selected.iter().position(|f| f.index == face).unwrap());
+            let selected_face =
+                selected.remove(selected.iter().position(|f| f.index == face).unwrap());
             let v = &mut bodies[ii_body].surface.faces[face].vertex;
-            v.color_mode = selected.mode;
-            match selected.mode {
-                ColorMode::Color => v.color = selected.color,
+            v.color_mode = selected_face.mode;
+            match selected_face.mode {
+                ColorMode::Color => v.color = selected_face.color,
                 _ => {}
             };
+
+            println!(
+                "Selected faces: {:?}\n",
+                selected.iter().map(|f| f.index).collect_vec()
+            );
         }
     }
     let s = &mut bodies[ii_body].surface;
     s.apply_facedata_to_vertices();
     // win.update_vao(ii_body, s);
-    println!(
-        "Selected faces: {:?}\n",
-        selected.iter().map(|f| f.index).collect_vec()
-    );
 }
