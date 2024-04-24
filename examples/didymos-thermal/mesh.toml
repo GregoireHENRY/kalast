@@ -7,7 +7,7 @@ wireframe = true
 
 [scene]
 sun.position.cartesian = [1, 0, 0]
-camera.position.cartesian = [-15, 0, 0]
+camera.position.cartesian = [-10, 0, 0]
 camera.projection.perspective = 3
 
 [[bodies]]
@@ -23,4 +23,4 @@ mesh.shape.path = "C:/data/meshes/didymos_g_9309mm_spc_obj_0000n00000_v003.obj"
 # [29, 107, 450, 417, 31, 336, 281, 412, 30, 165, 105, 288, 221, 158, 327, 65, 230, 94]
 # mesh = { shape.shape = "sphere_m1", factor = [0.4095, 0.4005, 0.3035] }
 
-# faces_selected = [25533, 17341, 9917, 34621, 25489, 17159, 9867, 34579, 5910, 2214, 3299, 7123, 4411]
+faces_selected = [25533, 17341, 9917, 34621, 25489, 17159, 9867, 34579, 5910, 2214, 3299, 7123, 4411]

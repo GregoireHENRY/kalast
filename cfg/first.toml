@@ -1,0 +1,62 @@
+[window]
+colormap = { name = "inferno", vmin = 150, vmax = 350, scalar = "temperature" }
+export_frames = true
+# high_dpi = true
+# 1920 1200 400
+width = 400
+# 1080 900 300
+height = 200
+# fullscreen = true
+
+[simulation]
+routines = "thermal"
+step = 600
+duration = 67046400
+# mutual_shadowing = true
+export = { step = 60, duration = 429120, cooldown_start = 66441600 }
+
+# 769 * 86400 = 66441600
+# 769.0037817510336 * 86400 = 66441926.7432893
+# 770 * 86400 = 66528000
+# 776 * 86400 = 67046400
+
+# 11.92 * 3600 = 42912
+# 600s above: 72 * 600 = 43200
+# 60s above: 716 * 60 = 42960
+
+# 2.26 * 3600 = 8136
+# 600s above: 14 * 600 = 8400
+# 60s above: 136 * 60 = 8160
+
+[scene]
+sun.position = "origin"
+camera.position.cartesian = [-32, 0, 0]
+camera.projection.perspective = 3
+
+[[bodies]]
+name = "Didymos"
+# mesh.shape.path = "/Users/gregoireh/data/spice/hera/kernels/dsk/g_01165mm_spc_obj_didy_0000n00000_v003.obj"
+# mesh.shape.path = "/Users/gregoireh/data/DART/meshes/didymos-model-v002/9740mm/g_09740mm_spc_obj_didy_0000n00000_v002.obj"
+mesh = { shape.shape = "sphere_m1", factor = [0.4095, 0.4005, 0.3035] } 
+mesh_low = { shape.shape = "sphere_m1", factor = [0.4095, 0.4005, 0.3035] } 
+interior.grid1d.linear = { size = 40, a = 2e-2 }
+spin = { period = 8136, obliquity = 162 }
+state.orbit = { a = 1.642681498762402, e = 0.383230249847736 }
+temperature.scalar = 150
+material = { albedo = 0.1, emissivity = 0.9, thermal_inertia = 500, density = 2100, heat_capacity = 600 }
+color = "data"
+record = { rows = [0], columns = [0], mesh = true, depth = true }
+
+[[bodies]]
+name = "Dimorphos"
+# mesh.shape.path = "/Users/gregoireh/data/spice/hera/kernels/dsk/g_00243mm_spc_obj_dimo_0000n00000_v004.obj"
+mesh.shape.path = "/Users/gregoireh/data/DART/meshes/dimorphos-model-v003/1960mm/g_01960mm_spc_obj_dimo_0000n00000_v003.obj"
+# mesh = { shape.shape = "sphere_m1", factor = [0.0895165, 0.0825, 0.0575] } 
+mesh_low = { shape.shape = "sphere_m1", factor = [0.0895165, 0.0825, 0.0575] } 
+interior.grid1d.linear = { size = 40, a = 2e-2 }
+spin = { period = 42912 }
+state.orbit = { a = 1.2, e = 0.0, frame.body = "Didymos", control.mass = 5.2e11 }
+temperature.scalar = 150
+material = { albedo = 0.1, emissivity = 0.9, thermal_inertia = 500, density = 2100, heat_capacity = 600 }
+color = "data"
+record = { rows = [0], columns = [0], mesh = true, depth = true }

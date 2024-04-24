@@ -1,0 +1,29 @@
+[window]
+ambient = [0.3, 0.3, 0.3]
+width = 1512
+height = 982
+fullscreen = true
+# wireframe = true
+
+[scene]
+sun.position.cartesian = [1, 0, 0]
+camera.position.cartesian = [-30, 0, 0]
+camera.projection.perspective = 3
+
+[[bodies]]
+name = "Didymos"
+color = "diffuse"
+material.albedo = 0.1
+
+# [25533, 17341, 9917, 34621, 25489, 17159, 9867, 34579, 5910, 2214, 3299, 7123, 4411]
+mesh.shape.path = "C:/data/meshes/didymos_g_9309mm_spc_obj_0000n00000_v003.obj"
+faces_selected = []
+
+[[bodies]]
+name = "Dimorphos"
+color = "diffuse"
+material.albedo = 0.1
+state.cartesian = { position = [1, 0, 0], reference = "Didymos" }
+
+mesh.shape.path = "C:/data/meshes/dimorphos_g_1940mm_spc_obj_0000n00000_v004.obj"
+faces_selected = []
