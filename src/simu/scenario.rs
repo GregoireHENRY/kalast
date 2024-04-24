@@ -332,7 +332,7 @@ impl Scenario {
                 first_it = false;
             }
 
-            if elapsed > self.config.simulation.duration.unwrap_or_default() {
+            if elapsed >= self.config.simulation.duration.unwrap_or_default() {
                 let time_calc = Utc::now().time() - *self.time.real_time();
                 println!(
                     "\nSimulation finished at JD: {}.\nComputation time: {:.3}s ({}it).",

@@ -282,6 +282,10 @@ impl Window {
     }
 
     pub fn picked(&self) -> Option<(usize, usize)> {
+        self.graphical_pipeline.picker.borrow_mut().picked_on
+    }
+
+    pub fn picked_take(&self) -> Option<(usize, usize)> {
         self.graphical_pipeline.picker.borrow_mut().picked_on.take()
     }
 

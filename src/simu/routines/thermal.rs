@@ -1,8 +1,9 @@
 use crate::{
     compute_cosine_emission_angle, compute_cosine_incidence_angle, compute_cosine_phase_angle,
-    config::Body, config::CfgScalar, config::Config, config::TemperatureInit,
+    config::{Body, CfgColormap, CfgScalar, Config, TemperatureInit},
     effective_temperature, flux_solar_radiation, newton_method_temperature, read_surface_low,
-    update_colormap_scalar, util::*, AirlessBody, BodyData, FoldersRun, Routines, Surface, Time,
+    util::*,
+    AirlessBody, BodyData, ColorMode, FacetColorChanged, FoldersRun, Routines, Surface, Time,
     Window,
 };
 
@@ -10,7 +11,10 @@ use itertools::Itertools;
 use polars::prelude::{
     df, CsvReader, CsvWriter, DataFrame, NamedFrom, SerReader, SerWriter, Series,
 };
-use std::{collections::HashSet, fs};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+};
 
 pub struct ThermalBodyData {
     pub depth_size: usize,
@@ -23,6 +27,7 @@ pub struct ThermalBodyData {
     pub tmp: DMatrix<Float>,
     pub fluxes: DRVector<Float>,
     pub fluxes_solar: DRVector<Float>,
+    pub view_factors: HashMap<usize, DMatrix<Float>>,
 }
 
 impl ThermalBodyData {
@@ -106,6 +111,7 @@ impl ThermalBodyData {
             tmp,
             fluxes,
             fluxes_solar,
+            view_factors: HashMap::new(),
         }
     }
 }
@@ -323,6 +329,11 @@ impl Routines for RoutinesThermalDefault {
             // maybe mut
             let vfs = crate::view_factor(&bodies[body], &bodies[other_body], true);
 
+            if self.data[body].view_factors.contains_key(&other_body) {
+                self.data[body].view_factors.remove(&other_body);
+            }
+            self.data[body].view_factors.insert(other_body, vfs.clone());
+
             // Pas sûr...
             // for (mut vf, face) in izip!(vfs.column_iter_mut(), &b1.surface.faces) {
             //     vf *= face.area;
@@ -396,46 +407,166 @@ impl Routines for RoutinesThermalDefault {
         self.data[body].fluxes = fluxes;
     }
 
-    fn fn_update_body_colormap(
+    fn fn_compute_body_colormap(
         &self,
-        config: &Config,
+        _config: &Config,
         body: usize,
         bodies: &mut [AirlessBody],
-        pre_computed_bodies: &[BodyData],
+        bodies_data: &[BodyData],
         _time: &Time,
         win: &Window,
-    ) {
-        if let Some(cmap) = config.window.colormap.as_ref() {
-            let scalars = match &cmap.scalar {
-                Some(CfgScalar::AngleIncidence) => compute_cosine_incidence_angle(
+        cmap: &CfgColormap,
+    ) -> Option<DRVector<Float>> {
+        match &cmap.scalar {
+            Some(CfgScalar::AngleIncidence) => Some(
+                compute_cosine_incidence_angle(
                     &bodies[body],
-                    &pre_computed_bodies[body].normals,
+                    &bodies_data[body].normals,
                     &win.scene.borrow().light.position.normalize(),
                 )
                 .map(|a| a.acos() * DPR),
-                Some(CfgScalar::AngleEmission) => compute_cosine_emission_angle(
+            ),
+            Some(CfgScalar::AngleEmission) => Some(
+                compute_cosine_emission_angle(
                     &bodies[body],
-                    &pre_computed_bodies[body].normals,
+                    &bodies_data[body].normals,
                     &win.scene.borrow().camera.position.normalize(),
                 )
                 .map(|a| a.acos() * DPR),
-                Some(CfgScalar::AnglePhase) => compute_cosine_phase_angle(
+            ),
+            Some(CfgScalar::AnglePhase) => Some(
+                compute_cosine_phase_angle(
                     &bodies[body],
                     &win.scene.borrow().camera.position.normalize(),
                     &win.scene.borrow().light.position.normalize(),
                 )
                 .map(|a| a.acos() * DPR),
-                Some(CfgScalar::FluxSolar) => self.data[body].fluxes_solar.clone(),
-                Some(CfgScalar::FluxSurface) => self.data[body].fluxes.clone(),
-                Some(CfgScalar::FluxEmitted) => unimplemented!(),
-                Some(CfgScalar::FluxSelf) => unimplemented!(),
-                Some(CfgScalar::FluxMutual) => unimplemented!(),
-                Some(CfgScalar::File) => unimplemented!(),
-                None | Some(CfgScalar::Temperature) => self.data[body].tmp.row(0).into_owned(),
-            };
-
-            update_colormap_scalar(win, config, scalars.as_slice(), &mut bodies[body], body);
+            ),
+            Some(CfgScalar::FluxSolar) => Some(self.data[body].fluxes_solar.clone()),
+            Some(CfgScalar::FluxSurface)
+            | Some(CfgScalar::FluxEmitted)
+            | Some(CfgScalar::FluxSelf)
+            | Some(CfgScalar::FluxMutual)
+            | Some(CfgScalar::File) => Some(self.data[body].fluxes.clone()),
+            None | Some(CfgScalar::Temperature) => Some(self.data[body].tmp.row(0).into_owned()),
+            Some(CfgScalar::ViewFactor) => {
+                // move than to thermal impl of fn on selected
+                // if none of that, changed all facets to diffuse, change them back when on selected
+                None
+            }
         }
+    }
+
+    fn fn_render_on_facet_selected(
+        &mut self,
+        config: &Config,
+        body: usize,
+        _face: usize,
+        bodies: &mut [AirlessBody],
+        bodies_data: &mut [BodyData],
+        window: &Window,
+        _time: &Time,
+    ) {
+        // Goal here is to have an entry point in Thermal Routines for showing view-factor when a facet is
+        // clicked.
+        //
+        // Once a facet is clicked, this function is called. This function searches for the first selected
+        // facet for the body clicked-on to color the facets of the other body contributing in view-factor
+        // to the identified facet.
+        //
+        // This function can also be called when a facet is clicked for the second time and then
+        // de-selected and maybe no facet anymore is selected. In this case, no view-factor should be
+        // displayed.
+        //
+        // All facets not displaying view-factor should display diffuse lighting.
+        let other_body = (body + 1).rem_euclid(2);
+
+        println!("Body: {}, other body: {}", body, other_body);
+
+        if let Some(first_selected) = bodies_data[body].facets_selected.first().map(|f| f.index) {
+            // let first_selected_other = bodies_data[other_body].selected.first().unwrap().index;
+
+            println!("First selected facet: {}", first_selected);
+
+            if let (Some(cmap), Some(true)) = (
+                config.window.colormap.as_ref(),
+                config.window.selecting_facet_shows_view_factor,
+            ) {
+                if window.is_paused() {
+                    println!("Cmap found, window paused and selecting facets to show view factor is enabled!");
+
+                    match &cmap.scalar {
+                        Some(CfgScalar::ViewFactor) => {
+                            println!("Cmap scalar is view-factor");
+
+                            let scalar = self.data[other_body]
+                                .view_factors
+                                .get(&body)
+                                .unwrap()
+                                .column(first_selected)
+                                .transpose()
+                                .into_owned();
+
+                            println!("Scalar length: {}", scalar.len());
+                            println!(
+                                "Mean: {}, max: {}, min: {}, std: {}",
+                                scalar.mean(),
+                                scalar.max(),
+                                scalar.min(),
+                                scalar.variance().sqrt()
+                            );
+
+                            // Register facets that will be colored to be able to revert them later.
+                            for face in 0..scalar.len() {
+                                if scalar[face] > 0.0 {
+                                    let test = bodies_data[other_body]
+                                        .facets_showing_view_factor
+                                        .iter()
+                                        .any(|f| f.index == face);
+                                    println!("vf #{} = {}", face, scalar[face]);
+                                    if !test {
+                                        let facet_changed =
+                                            FacetColorChanged::set(&bodies[other_body], face);
+                                        bodies_data[other_body]
+                                            .facets_showing_view_factor
+                                            .push(facet_changed);
+                                        bodies[other_body].surface.faces[face].vertex.color_mode =
+                                            ColorMode::Data;
+                                    }
+                                    bodies[other_body].surface.faces[face].vertex.data =
+                                        scalar[face];
+                                }
+                            }
+
+                            println!(
+                                "Facets colored for view-factor: {}",
+                                bodies_data[other_body].facets_showing_view_factor.len()
+                            );
+
+                            // Then it will be render later in routine calling this function.
+                        }
+                        None | Some(_) => {}
+                    };
+                }
+            }
+        } else {
+            println!("All facets de-selected.");
+
+            // No facet selected. Happens when de-selecting last facet.
+            // Here we revert all changed facets back to how they were.
+            for face in 0..bodies_data[other_body].facets_showing_view_factor.len() {
+                let facet_changed = &bodies_data[other_body].facets_showing_view_factor[face];
+                let v = &mut bodies[other_body].surface.faces[facet_changed.index].vertex;
+                v.color_mode = facet_changed.mode;
+                match facet_changed.mode {
+                    ColorMode::Color => v.color = facet_changed.color,
+                    _ => {}
+                };
+            }
+            bodies_data[other_body].facets_showing_view_factor.clear();
+        }
+        println!("End fn_render_on_facet_selected Thermal routines");
+        println!("");
     }
 
     fn fn_export_iteration(&self, body: usize, cfg: &Config, time: &Time, folders: &FoldersRun) {

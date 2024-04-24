@@ -52,9 +52,12 @@ pub struct CfgWindow {
 
     #[serde(default)]
     pub color_selection: Option<Vec3>,
+
+    #[serde(default)]
+    pub selecting_facet_shows_view_factor: Option<bool>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct CfgColormap {
     #[serde(default)]
     pub name: Option<Colormap>,
@@ -103,10 +106,7 @@ pub enum CfgScalar {
 
     #[serde(rename = "file")]
     File,
-}
 
-impl Default for CfgScalar {
-    fn default() -> Self {
-        Self::AngleIncidence
-    }
+    #[serde(rename = "view_factor")]
+    ViewFactor,
 }

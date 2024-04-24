@@ -3,16 +3,16 @@ use std::path::Path;
 use crate::{
     compute_cosine_emission_angle, compute_cosine_incidence_angle, compute_cosine_phase_angle,
     config::{
-        Body, CfgCamera, CfgCameraDirection, CfgCameraPosition, CfgScalar, CfgSun, CfgSunPosition,
-        Config, FileBehavior, FileColumns, FileColumnsOut, FileSetup, FrameCenter, SpicePosition,
-        SpiceState, State, StateCartesian, COLOR_SELECTION, DEFAULT_ABCORR, DEFAULT_FRAME,
-        SIMULATION_TIME_FREQUENCY,
+        Body, CfgCamera, CfgCameraDirection, CfgCameraPosition, CfgColormap, CfgScalar, CfgSun,
+        CfgSunPosition, Config, FileBehavior, FileColumns, FileColumnsOut, FileSetup, FrameCenter,
+        SpicePosition, SpiceState, State, StateCartesian, COLOR_SELECTION, DEFAULT_ABCORR,
+        DEFAULT_FRAME, SIMULATION_TIME_FREQUENCY,
     },
     find_ref_orbit, matrix_orientation_obliquity, matrix_spin, position_in_inertial_frame,
     update_colormap_scalar,
     util::*,
-    AirlessBody, BodyData, ColorMode, FoldersRun, MovementMode, ProjectionMode, SelectedFace, Time,
-    Window,
+    AirlessBody, BodyData, ColorMode, FacetColorChanged, FoldersRun, MovementMode, ProjectionMode,
+    Time, Window,
 };
 
 use downcast_rs::{impl_downcast, DowncastSync};
@@ -568,43 +568,72 @@ pub trait Routines: DowncastSync {
         }
     }
 
+    fn fn_compute_body_colormap(
+        &self,
+        config: &Config,
+        body: usize,
+        bodies: &mut [AirlessBody],
+        bodies_data: &[BodyData],
+        time: &Time,
+        window: &Window,
+        cmap: &CfgColormap,
+    ) -> Option<DRVector<Float>> {
+        match cmap.scalar {
+            Some(CfgScalar::AngleIncidence) => Some(
+                compute_cosine_incidence_angle(
+                    &bodies[body],
+                    &bodies_data[body].normals,
+                    &window.scene.borrow().light.position.normalize(),
+                )
+                .map(|a| a.acos() * DPR),
+            ),
+            Some(CfgScalar::AngleEmission) => Some(
+                compute_cosine_emission_angle(
+                    &bodies[body],
+                    &bodies_data[body].normals,
+                    &window.scene.borrow().camera.position.normalize(),
+                )
+                .map(|a| a.acos() * DPR),
+            ),
+            Some(CfgScalar::AnglePhase) => Some(
+                compute_cosine_phase_angle(
+                    &bodies[body],
+                    &window.scene.borrow().camera.position.normalize(),
+                    &window.scene.borrow().light.position.normalize(),
+                )
+                .map(|a| a.acos() * DPR),
+            ),
+            Some(CfgScalar::File) => {
+                let v = self.read_file_data(config, body, time);
+                Some(DRVector::from_row_slice(&v))
+            }
+            None => None,
+            _ => unreachable!(),
+        }
+    }
+
     fn fn_update_body_colormap(
         &self,
         config: &Config,
         body: usize,
         bodies: &mut [AirlessBody],
-        pre_computed_bodies: &[BodyData],
+        bodies_data: &[BodyData],
         time: &Time,
-        win: &Window,
+        window: &Window,
     ) {
         if let Some(cmap) = config.window.colormap.as_ref() {
-            let scalars = match cmap.scalar {
-                Some(CfgScalar::AngleIncidence) => compute_cosine_incidence_angle(
-                    &bodies[body],
-                    &pre_computed_bodies[body].normals,
-                    &win.scene.borrow().light.position.normalize(),
-                )
-                .map(|a| a.acos() * DPR),
-                Some(CfgScalar::AngleEmission) => compute_cosine_emission_angle(
-                    &bodies[body],
-                    &pre_computed_bodies[body].normals,
-                    &win.scene.borrow().camera.position.normalize(),
-                )
-                .map(|a| a.acos() * DPR),
-                Some(CfgScalar::AnglePhase) => compute_cosine_phase_angle(
-                    &bodies[body],
-                    &win.scene.borrow().camera.position.normalize(),
-                    &win.scene.borrow().light.position.normalize(),
-                )
-                .map(|a| a.acos() * DPR),
-                None => return,
-                Some(CfgScalar::File) => {
-                    let v = self.read_file_data(config, body, time);
-                    DRVector::from_row_slice(&v)
-                }
-                _ => unreachable!(),
-            };
-            update_colormap_scalar(win, config, scalars.as_slice(), &mut bodies[body], body);
+            let scalars = self.fn_compute_body_colormap(
+                config,
+                body,
+                bodies,
+                bodies_data,
+                time,
+                window,
+                cmap,
+            );
+            if let Some(scalars) = scalars {
+                update_colormap_scalar(window, config, scalars.as_slice(), &mut bodies[body], body);
+            }
         }
     }
 
@@ -697,6 +726,18 @@ pub trait Routines: DowncastSync {
         }
     }
 
+    fn fn_render_on_facet_selected(
+        &mut self,
+        _config: &Config,
+        _body: usize,
+        _face: usize,
+        _bodies: &mut [AirlessBody],
+        _bodies_data: &mut [BodyData],
+        _window: &Window,
+        _time: &Time,
+    ) {
+    }
+
     fn fn_render(
         &mut self,
         config: &Config,
@@ -713,11 +754,15 @@ pub trait Routines: DowncastSync {
             }
         }
 
-        if let Some((ii_face, body)) = window.picked() {
-            update_surf_selected_faces(config, bodies, bodies_data, window, &vec![ii_face], body);
+        if let Some((face, body)) = window.picked_take() {
+            update_surf_selected_faces(config, bodies, bodies_data, window, &vec![face], body);
+            self.fn_render_on_facet_selected(config, body, face, bodies, bodies_data, window, time);
         }
 
-        window.update_vaos(bodies.iter_mut().map(|b| &mut b.surface));
+        for body in 0..bodies.len() {
+            bodies[body].surface.apply_facedata_to_vertices();
+            window.update_vao(body, &mut bodies[body].surface);
+        }
         window.render_asteroids(&bodies);
         window.swap_window();
 
@@ -853,13 +898,13 @@ pub fn update_surf_selected_faces(
     faces: &[usize],
     ii_body: usize,
 ) {
-    let selected = &mut bodies_data[ii_body].selected;
+    let selected = &mut bodies_data[ii_body].facets_selected;
 
     // println!("Debug 1: {:?} {:?}", faces, selected);
 
     for &face in faces {
         if !selected.iter().any(|f| f.index == face) {
-            selected.push(SelectedFace::set(&bodies[ii_body], face));
+            selected.push(FacetColorChanged::set(&bodies[ii_body], face));
             let v = &mut bodies[ii_body].surface.faces[face].vertex;
             v.color_mode = ColorMode::Color;
             v.color = config.window.color_selection.unwrap_or(COLOR_SELECTION);
@@ -888,8 +933,8 @@ pub fn update_surf_selected_faces(
 
     //println!("Debug 2: {:?} {:?}", faces, selected);
 
-    let s = &mut bodies[ii_body].surface;
-    s.apply_facedata_to_vertices();
+    // let s = &mut bodies[ii_body].surface;
+    // s.apply_facedata_to_vertices();
 
     // win.update_vao(ii_body, s);
 }
