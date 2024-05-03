@@ -2,6 +2,12 @@ use crate::util::*;
 
 use serde::{Deserialize, Serialize};
 
+pub const DEFAULT_ALBEDO: Float = 0.0;
+pub const DEFAULT_EMISSIVITY: Float = 1.0;
+pub const DEFAULT_THERMAL_INERTIA: Float = 500.0;
+pub const DEFAULT_DENSITY: Float = 2000.0;
+pub const DEFAULT_HEAT_CAPACITY: Float = 600.0;
+
 pub fn thermal_skin_depth_one(diffusivity: Float, period: Float) -> Float {
     (diffusivity * period / PI).sqrt()
 }
@@ -33,16 +39,16 @@ heat_capacity: 0.0
 ```
 
 */
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub struct Material {
     /// The surface albedo defines the capacity to reflect the light.
     #[serde(default)]
     pub albedo: Float,
 
     /// Surface emissivity. For a black body it is 1.0.
-    #[serde(default = "default_emissivity")]
+    #[serde(default)]
     pub emissivity: Float,
-
+    // pub emissivity: Option<Float>,
     /// The thermal inertia characterizes the sensitivity to temperature changes.
     /// units: kg/s^{5/2}/K or J/m^2/s^0.5/K
     /// dimensions: M.T^{-5/2}.Θ^{-1}).
@@ -62,29 +68,34 @@ pub struct Material {
     pub heat_capacity: Float,
 }
 
-impl Default for Material {
-    fn default() -> Self {
-        Self {
-            albedo: 0.0,
-            emissivity: default_emissivity(),
-            thermal_inertia: 0.0,
-            density: 0.0,
-            heat_capacity: 0.0,
-        }
-    }
-}
-
-fn default_emissivity() -> Float {
-    1.0
-}
-
 impl Material {
+    pub fn albedo(&self) -> Float {
+        self.albedo
+    }
+
+    pub fn emissivity(&self) -> Float {
+        self.emissivity
+        // self.emissivity.unwrap_or(DEFAULT_EMISSIVITY)
+    }
+
+    pub fn thermal_inertia(&self) -> Float {
+        self.thermal_inertia
+    }
+
+    pub fn density(&self) -> Float {
+        self.density
+    }
+
+    pub fn heat_capacity(&self) -> Float {
+        self.heat_capacity
+    }
+
     pub fn conductivity(&self) -> Float {
-        conductivity(self.thermal_inertia, self.density, self.heat_capacity)
+        conductivity(self.thermal_inertia(), self.density(), self.heat_capacity())
     }
 
     pub fn diffusivity(&self) -> Float {
-        diffusivity(self.conductivity(), self.density, self.heat_capacity)
+        diffusivity(self.conductivity(), self.density(), self.heat_capacity())
     }
 
     pub fn thermal_skin_depth_one(&self, period: Float) -> Float {

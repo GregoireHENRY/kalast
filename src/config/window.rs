@@ -54,7 +54,7 @@ pub struct CfgWindow {
     pub color_selection: Option<Vec3>,
 
     #[serde(default)]
-    pub selecting_facet_shows_view_factor: Option<bool>,
+    pub selecting_facet_shows_data: Option<bool>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

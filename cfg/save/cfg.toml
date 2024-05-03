@@ -1,0 +1,21 @@
+[restart]
+path = "/Users/gregoireh/data/kalast/runs/didymos thermal/init"
+duration_more = 429120
+
+[window]
+colormap = { name = "inferno", vmin = 160, vmax = 360, scalar = "temperature" }
+
+[scene]
+camera.position.cartesian = [-19.9, -19.8, -3.7]
+
+[simulation]
+pause_first_it = true
+elapsed = 66441600
+export = { cooldown_start = 0, step = 600 }
+# mutual_shadowing = true
+
+[[bodies]]
+name = "Didymos"
+# record = { rows = [0, 3], columns = [25533, 17341, 9917, 34621, 25489, 17159, 9867, 34579, 5910, 2214, 3299, 7123, 4411], mesh = true, depth = true }
+
+material = { albedo = 0.1, emissivity = 0.9, thermal_inertia = 550, density = 2100, heat_capacity = 600 }

@@ -30,14 +30,15 @@ impl Default for ColorMode {
 }
 
 fn averaged_material(a: &Material, b: &Material, c: &Material) -> Material {
-    let albedo = (a.albedo + b.albedo + c.albedo) / 3.0;
-    let emissivity = (a.emissivity + b.emissivity + c.emissivity) / 3.0;
-    let thermal_inertia = (a.thermal_inertia + b.thermal_inertia + c.thermal_inertia) / 3.0;
-    let density = (a.density + b.density + c.density) / 3.0;
-    let heat_capacity = (a.heat_capacity + b.heat_capacity + c.heat_capacity) / 3.0;
+    let albedo = (a.albedo() + b.albedo() + c.albedo()) / 3.0;
+    let emissivity = (a.emissivity() + b.emissivity() + c.emissivity()) / 3.0;
+    let thermal_inertia = (a.thermal_inertia() + b.thermal_inertia() + c.thermal_inertia()) / 3.0;
+    let density = (a.density() + b.density() + c.density()) / 3.0;
+    let heat_capacity = (a.heat_capacity() + b.heat_capacity() + c.heat_capacity()) / 3.0;
     Material {
         albedo,
         emissivity,
+        // emissivity: Some(emissivity),
         thermal_inertia,
         density,
         heat_capacity,
@@ -69,13 +70,7 @@ impl Default for Vertex {
             normal: Vec3::zeros(),
             color: vec3(1.0, 1.0, 1.0),
             data: 0.0,
-            material: Material {
-                albedo: 0.0,
-                emissivity: 1.0,
-                thermal_inertia: 0.0,
-                density: 0.0,
-                heat_capacity: 0.0,
-            },
+            material: Material::default(),
             color_mode: ColorMode::default(),
         }
     }

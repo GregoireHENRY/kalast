@@ -185,6 +185,22 @@ impl Config {
                         config.bodies[body].record = Some(new_record);
                     }
                 }
+
+                if let Some(new_material) = new.bodies[body].material.clone() {
+                    if let Some(material) = config.bodies[body].material.as_mut() {
+                        material.albedo = new_material.albedo;
+                        material.emissivity = new_material.emissivity;
+                        material.thermal_inertia = new_material.thermal_inertia;
+                        material.density = new_material.density;
+                        material.heat_capacity = new_material.heat_capacity;
+
+                        // if let Some(emissivity) = new_material.emissivity {
+                        //     material.emissivity = Some(emissivity);
+                        // }
+                    } else {
+                        config.bodies[body].material = Some(new_material);
+                    }
+                }
             }
 
             if let Some(elapsed) = new.simulation.elapsed {

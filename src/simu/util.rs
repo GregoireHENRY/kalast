@@ -23,19 +23,18 @@ pub fn read_surface(cb: &cg::Body, kind: cg::MeshKind) -> Result<Surface> {
 
     let surface = builder
         .update_all(|v| {
-            // v.position.x = mesh.orientation * mesh.factor.x * v.position.x + mesh.position.x;
-            // v.position.y *= mesh.factor.y;
-            // v.position.z *= mesh.factor.z;
-
             v.position = mesh.orientation * v.position.component_mul(&mesh.factor) + mesh.position;
 
-            v.material = Material {
-                albedo: cb.material.albedo,
-                emissivity: cb.material.emissivity,
-                thermal_inertia: cb.material.thermal_inertia,
-                density: cb.material.density,
-                heat_capacity: cb.material.heat_capacity,
-            };
+            if let Some(material) = cb.material.as_ref() {
+                v.material = Material {
+                    albedo: material.albedo,
+                    emissivity: material.emissivity,
+                    thermal_inertia: material.thermal_inertia,
+                    density: material.density,
+                    heat_capacity: material.heat_capacity,
+                };
+            }
+
             v.color_mode = cb.color;
         })
         .build();

@@ -47,6 +47,10 @@ impl Export {
                     "lon" => sph.iter().map(|sph| sph[1]).collect_vec(),
                     "lat" => sph.iter().map(|sph| sph[2]).collect_vec(),
                     "rad" => sph.iter().map(|sph| sph[0]).collect_vec(),
+                    "nx" => faces.iter().map(|f| f.vertex.normal.x).collect_vec(),
+                    "ny" => faces.iter().map(|f| f.vertex.normal.y).collect_vec(),
+                    "nz" => faces.iter().map(|f| f.vertex.normal.z).collect_vec(),
+                    "area" => faces.iter().map(|f| f.area).collect_vec(),
                 )
                 .unwrap();
 

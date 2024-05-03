@@ -1,0 +1,39 @@
+[window]
+ambient = [0.1, 0.1, 0.1]
+width = 1512
+height = 982
+high_dpi = true
+# fullscreen = true
+# wireframe = true
+colormap = { name = "inferno", vmax = 1250, scalar = "flux_solar" }
+# selecting_facet_shows_data = true
+
+[simulation]
+routines = "thermal"
+step = 1
+duration = 1
+# mutual_heating = true
+
+[scene]
+sun.position.cartesian = [1.5e8, 0, 0]
+camera.position.cartesian = [-30, 0, 0]
+camera.projection.perspective = 3
+
+[[bodies]]
+name = "Didymos"
+material = { albedo = 0.1, emissivity = 0.9, thermal_inertia = 500, density = 2100, heat_capacity = 600 }
+color = "data"
+temperature.scalar = 250
+interior.grid1d.linear = { size = 40, a = 2e-2 }
+mesh = { shape.shape = "sphere", factor = [0.4095, 0.4005, 0.3035] }
+# mesh.shape.path = "/Users/gregoireh/data/DART/meshes/didymos-model-v002/9740mm/g_09740mm_spc_obj_didy_0000n00000_v002.obj"
+
+[[bodies]]
+name = "Dimorphos"
+material = { albedo = 0.1, emissivity = 0.9, thermal_inertia = 500, density = 2100, heat_capacity = 600 }
+color = "data"
+temperature.scalar = 250
+state.cartesian = { position = [1, 0, 0], reference = "Didymos" }
+interior.grid1d.linear = { size = 40, a = 2e-2 }
+mesh = { shape.shape = "sphere", factor = [0.0895165, 0.0825, 0.0575] }
+# mesh.shape.path = "/Users/gregoireh/data/DART/meshes/dimorphos-model-v003/1960mm/g_01960mm_spc_obj_dimo_0000n00000_v003.obj"

@@ -159,7 +159,7 @@ pub struct Body {
     /// Material of the surface.
     /// Read [`Material`] for configuration options and examples.
     #[serde(default)]
-    pub material: Material,
+    pub material: Option<Material>,
 
     /// Color mode. See [possibilities][ColorMode#variants].
     #[serde(default)]

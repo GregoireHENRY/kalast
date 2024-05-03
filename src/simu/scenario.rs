@@ -347,7 +347,9 @@ impl Scenario {
                 if let Some(win) = self.win.as_ref() {
                     if paused_stop {
                         paused_stop = false;
-                        win.toggle_pause();
+                        if !win.is_paused() {
+                            win.toggle_pause();
+                        }
                         continue;
                     }
                 }

@@ -98,3 +98,17 @@ def sva(ha: str) -> float:
 
 def flatten(l: list) -> list:
     return list(itertools.chain.from_iterable(l))
+
+def find_closest(
+    m: numpy.ndarray,
+    refv1: float,
+    i1: int,
+    threshold: int,
+    refv2: float,
+    i2: int,
+    N: int = 1,
+) -> list[tuple[int, numpy.ndarray]]:
+    ii = numpy.where(numpy.abs(refv1 - m[:, i1]) < threshold)[0]
+    jj = numpy.argsort(numpy.abs(refv2 - m[ii, i2]))[:N]
+    kk = ii[jj]
+    return [(kkk, m[kkk]) for kkk in kk]

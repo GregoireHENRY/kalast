@@ -1,5 +1,5 @@
 use crate::{
-    compute_cosine_emission_angle, compute_cosine_incidence_angle, compute_cosine_phase_angle,
+    compute_cosine_incidence_angle,
     config::{Body, CfgColormap, CfgScalar, Config, TemperatureInit},
     effective_temperature, flux_solar_radiation, newton_method_temperature, read_surface_low,
     util::*,
@@ -46,7 +46,7 @@ impl ThermalBodyData {
                 .surface
                 .faces
                 .iter()
-                .map(|f| f.vertex.material.albedo)
+                .map(|f| f.vertex.material.albedo())
                 .collect_vec(),
         );
         let emissivities = DRVector::from_row_slice(
@@ -54,7 +54,7 @@ impl ThermalBodyData {
                 .surface
                 .faces
                 .iter()
-                .map(|f| f.vertex.material.emissivity)
+                .map(|f| f.vertex.material.emissivity())
                 .collect_vec(),
         );
         let conductivities = DRVector::from_row_slice(
@@ -135,8 +135,6 @@ pub trait RoutinesThermal: Routines {
                 .simu_rec_time_body_temperatures(time.elapsed_time, &config.bodies[body].name)
                 .join("temperatures-all.csv");
 
-            dbg!(&p);
-
             let df = CsvReader::from_path(p).unwrap().finish().unwrap();
 
             // Temperatures exported as f32 to save space but read as f64.
@@ -160,8 +158,8 @@ pub trait RoutinesThermal: Routines {
                     let mat = bodies[body].surface.faces[0].vertex.material;
                     let init = effective_temperature(
                         sun_position.magnitude() * 1e3,
-                        mat.albedo,
-                        mat.emissivity,
+                        mat.albedo(),
+                        mat.emissivity(),
                         ratio,
                     );
                     DMatrix::<Float>::from_element(depth_size, surf_size, init)
@@ -409,52 +407,44 @@ impl Routines for RoutinesThermalDefault {
 
     fn fn_compute_body_colormap(
         &self,
-        _config: &Config,
+        config: &Config,
         body: usize,
         bodies: &mut [AirlessBody],
         bodies_data: &[BodyData],
-        _time: &Time,
-        win: &Window,
+        time: &Time,
+        window: &Window,
         cmap: &CfgColormap,
     ) -> Option<DRVector<Float>> {
-        match &cmap.scalar {
-            Some(CfgScalar::AngleIncidence) => Some(
-                compute_cosine_incidence_angle(
-                    &bodies[body],
-                    &bodies_data[body].normals,
-                    &win.scene.borrow().light.position.normalize(),
-                )
-                .map(|a| a.acos() * DPR),
-            ),
-            Some(CfgScalar::AngleEmission) => Some(
-                compute_cosine_emission_angle(
-                    &bodies[body],
-                    &bodies_data[body].normals,
-                    &win.scene.borrow().camera.position.normalize(),
-                )
-                .map(|a| a.acos() * DPR),
-            ),
-            Some(CfgScalar::AnglePhase) => Some(
-                compute_cosine_phase_angle(
-                    &bodies[body],
-                    &win.scene.borrow().camera.position.normalize(),
-                    &win.scene.borrow().light.position.normalize(),
-                )
-                .map(|a| a.acos() * DPR),
-            ),
-            Some(CfgScalar::FluxSolar) => Some(self.data[body].fluxes_solar.clone()),
-            Some(CfgScalar::FluxSurface)
-            | Some(CfgScalar::FluxEmitted)
-            | Some(CfgScalar::FluxSelf)
-            | Some(CfgScalar::FluxMutual)
-            | Some(CfgScalar::File) => Some(self.data[body].fluxes.clone()),
-            None | Some(CfgScalar::Temperature) => Some(self.data[body].tmp.row(0).into_owned()),
-            Some(CfgScalar::ViewFactor) => {
-                // move than to thermal impl of fn on selected
-                // if none of that, changed all facets to diffuse, change them back when on selected
-                None
-            }
+        let scalar = self.fn_compute_body_colormap_core(
+            config,
+            body,
+            bodies,
+            bodies_data,
+            time,
+            window,
+            cmap,
+        );
+
+        if scalar.is_some() {
+            return scalar;
         }
+
+        if !window.is_paused() {
+            return match &cmap.scalar {
+                Some(CfgScalar::FluxSolar) => Some(self.data[body].fluxes_solar.clone()),
+                Some(CfgScalar::FluxSurface) => Some(self.data[body].fluxes.clone()),
+                Some(CfgScalar::Temperature) => Some(self.data[body].tmp.row(0).into_owned()),
+                None
+                | Some(CfgScalar::ViewFactor)
+                | Some(CfgScalar::FluxEmitted)
+                | Some(CfgScalar::FluxSelf)
+                | Some(CfgScalar::FluxMutual)
+                | Some(CfgScalar::File)
+                | Some(_) => None,
+            };
+        }
+
+        return None;
     }
 
     fn fn_render_on_facet_selected(
@@ -481,24 +471,16 @@ impl Routines for RoutinesThermalDefault {
         // All facets not displaying view-factor should display diffuse lighting.
         let other_body = (body + 1).rem_euclid(2);
 
-        println!("Body: {}, other body: {}", body, other_body);
-
         if let Some(first_selected) = bodies_data[body].facets_selected.first().map(|f| f.index) {
             // let first_selected_other = bodies_data[other_body].selected.first().unwrap().index;
 
-            println!("First selected facet: {}", first_selected);
-
             if let (Some(cmap), Some(true)) = (
                 config.window.colormap.as_ref(),
-                config.window.selecting_facet_shows_view_factor,
+                config.window.selecting_facet_shows_data,
             ) {
                 if window.is_paused() {
-                    println!("Cmap found, window paused and selecting facets to show view factor is enabled!");
-
                     match &cmap.scalar {
                         Some(CfgScalar::ViewFactor) => {
-                            println!("Cmap scalar is view-factor");
-
                             let scalar = self.data[other_body]
                                 .view_factors
                                 .get(&body)
@@ -507,15 +489,6 @@ impl Routines for RoutinesThermalDefault {
                                 .transpose()
                                 .into_owned();
 
-                            println!("Scalar length: {}", scalar.len());
-                            println!(
-                                "Mean: {}, max: {}, min: {}, std: {}",
-                                scalar.mean(),
-                                scalar.max(),
-                                scalar.min(),
-                                scalar.variance().sqrt()
-                            );
-
                             // Register facets that will be colored to be able to revert them later.
                             for face in 0..scalar.len() {
                                 if scalar[face] > 0.0 {
@@ -523,7 +496,6 @@ impl Routines for RoutinesThermalDefault {
                                         .facets_showing_view_factor
                                         .iter()
                                         .any(|f| f.index == face);
-                                    println!("vf #{} = {}", face, scalar[face]);
                                     if !test {
                                         let facet_changed =
                                             FacetColorChanged::set(&bodies[other_body], face);
@@ -538,11 +510,6 @@ impl Routines for RoutinesThermalDefault {
                                 }
                             }
 
-                            println!(
-                                "Facets colored for view-factor: {}",
-                                bodies_data[other_body].facets_showing_view_factor.len()
-                            );
-
                             // Then it will be render later in routine calling this function.
                         }
                         None | Some(_) => {}
@@ -550,8 +517,6 @@ impl Routines for RoutinesThermalDefault {
                 }
             }
         } else {
-            println!("All facets de-selected.");
-
             // No facet selected. Happens when de-selecting last facet.
             // Here we revert all changed facets back to how they were.
             for face in 0..bodies_data[other_body].facets_showing_view_factor.len() {
@@ -565,8 +530,6 @@ impl Routines for RoutinesThermalDefault {
             }
             bodies_data[other_body].facets_showing_view_factor.clear();
         }
-        println!("End fn_render_on_facet_selected Thermal routines");
-        println!("");
     }
 
     fn fn_export_iteration(&self, body: usize, cfg: &Config, time: &Time, folders: &FoldersRun) {

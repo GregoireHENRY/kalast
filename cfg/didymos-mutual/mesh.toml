@@ -1,0 +1,28 @@
+[window]
+ambient = [0.3, 0.3, 0.3]
+width = 1600
+height = 900
+fullscreen = true
+wireframe = true
+
+[scene]
+sun.position.cartesian = [1, 0, 0]
+camera.position.cartesian = [-10, 0, 0]
+camera.projection.perspective = 3
+
+[[bodies]]
+name = "Didymos"
+color = "diffuse"
+material.albedo = 0.1
+
+# mesh.shape.path = "/Users/gregoireh/data/DART/meshes/didymos-v3/9309mm/didymos_g_9309mm_spc_obj_0000n00000_v003.obj"
+# faces_selected = [25533, 17341, 9917, 34621, 25360, 17159, 9995, 34579, 6168, 2214, 3299, 7123, 4796, 25453, 17395, 9967, 34664, 47208, 43098, 43930, 48041, 45634]
+
+# 1-2° error getting 0,90,180,270° lon & 0,45,95,N° (+south symmetric) lat
+
+# mesh = { shape.shape = "sphere_m1", factor = [0.4095, 0.4005, 0.3035] }
+# faces_selected = [29, 107, 450, 417, 31, 336, 281, 412, 30, 165, 105, 288, 221, 158, 327, 65, 230, 94]
+
+mesh.shape.path = "/Users/gregoireh/data/DART/meshes/dimorphos-v4/1940mm/dimorphos_g_1940mm_spc_obj_0000n00000_v004.obj"
+faces_selected = [25533, 17341, 9917, 34621, 25360, 17159, 9995, 34579, 6168, 2214, 3299, 7123, 4796, 25453, 17395, 9967, 34664, 47208, 43098, 43930, 48041, 45634]
+

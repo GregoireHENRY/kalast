@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy
+import pyarrow
 import tomllib
 from natsort import natsorted
 from pyarrow import csv
@@ -55,6 +56,14 @@ def read_tmp_cols(
     return d
 
 
+def write_csv(
+    path: Path, columns: list[str], data: list[numpy.ndarray], no_header: bool = False
+):
+    opt = csv.WriteOptions(include_header=not no_header)
+    tab = pyarrow.table(data, names=columns)
+    csv.write_csv(tab, path, write_options=opt)
+
+
 @dataclass
 class Config:
     path: Path = None
@@ -74,84 +83,85 @@ class Config:
         path_simu = self.path / "simu"
         path_rec = path_simu / "rec"
 
-        # d["body"] = "Apophis"
-        d["body"] = self.data["bodies"][0]["name"]
-        path_setup_body = path_simu / f"{d['body']}"
-        # path_progress = path_simu / "progress.csv"
+        for body in self.data["bodies"]:
+            name = body["name"]
+            d[name] = dict()
+            path_setup_body = path_simu / name
+            # path_progress = path_simu / "progress.csv"
 
-        path_sph = path_setup_body / "mesh.csv"
-        read_options = csv.ReadOptions(
-            column_names=["x", "y", "z", "lon", "lat", "rad"], skip_rows=1
-        )
-        tab = csv.read_csv(path_sph, read_options)
-        df = tab.to_pandas()
-        d["centers"] = numpy.array(
-            [df["x"].to_numpy(), df["y"].to_numpy(), df["z"].to_numpy()]
-        ).T
-        d["sph"] = numpy.array(
-            [df["lon"].to_numpy(), df["lat"].to_numpy(), df["rad"].to_numpy()]
-        ).T
-        d["nf"] = d["centers"].shape[0]
+            path_sph = path_setup_body / "mesh.csv"
+            read_options = csv.ReadOptions(
+                column_names=["x", "y", "z", "lon", "lat", "rad"], skip_rows=1
+            )
+            tab = csv.read_csv(path_sph, read_options)
+            df = tab.to_pandas()
+            d[name]["centers"] = numpy.array(
+                [df["x"].to_numpy(), df["y"].to_numpy(), df["z"].to_numpy()]
+            ).T
+            d[name]["sph"] = numpy.array(
+                [df["lon"].to_numpy(), df["lat"].to_numpy(), df["rad"].to_numpy()]
+            ).T
+            d[name]["nf"] = d[name]["centers"].shape[0]
 
-        path_depth = path_setup_body / "depth.csv"
-        read_options = csv.ReadOptions(column_names=["depth"], skip_rows=1)
-        tab = csv.read_csv(path_depth, read_options)
-        df = tab.to_pandas()
-        d["depth"] = df["depth"].to_numpy()
-        d["nz"] = d["depth"].size
+            path_depth = path_setup_body / "depth.csv"
+            read_options = csv.ReadOptions(column_names=["depth"], skip_rows=1)
+            tab = csv.read_csv(path_depth, read_options)
+            df = tab.to_pandas()
+            d[name]["depth"] = df["depth"].to_numpy()
+            d[name]["nz"] = d[name]["depth"].size
 
-        print(path_rec)
-        list_path_date = [
-            p for p in natsorted((path_rec).glob("*"), key=str) if p.is_dir()
-        ]
-        it_list_path_date = iter(list_path_date)
-        # list_elapsed = [int(p.name) for p in list_path_date]
+            print(path_rec)
+            list_path_date = [
+                p for p in natsorted((path_rec).glob("*"), key=str) if p.is_dir()
+            ]
+            it_list_path_date = iter(list_path_date)
+            # list_elapsed = [int(p.name) for p in list_path_date]
 
-        path_date = next(it_list_path_date)
+            path_date = next(it_list_path_date)
 
-        p_csv = path_date / d["body"] / "temperatures/temperatures-all.csv"
-        read_options = csv.ReadOptions()
-        tab = csv.read_csv(p_csv, read_options)
-        df = tab.to_pandas()
-        d["tmp-all"] = df["tmp"].array.reshape((d["nf"], -1)).T
-        print(
-            "TMP all: ",
-            d["tmp-all"][0, :].min(),
-            d["tmp-all"][0, :].max(),
-            d["tmp-all"][0, :].mean(),
-            d["tmp-all"].shape,
-        )
-
-        p_csv = path_date / d["body"] / "temperatures/temperatures-rows.csv"
-        if p_csv.exists():
+            p_csv = path_date / name / "temperatures/temperatures-all.csv"
             read_options = csv.ReadOptions()
             tab = csv.read_csv(p_csv, read_options)
             df = tab.to_pandas()
-            if len(df.keys()) > 0:
-                d["tmp-rows"] = dict()
-            for key in df.keys():
-                t = df[key].array.reshape((-1, d["nf"]))
-                key = int(key)
-                d["tmp-rows"][key] = t
-                print(f"TMP rows #{key}: {t.min()} {t.max()} {t.mean()} {t.shape}")
-                if key == "0":
-                    d["tmp-surf"] = dict()
-                    d["tmp-surf"]["min"] = t.min()
-                    d["tmp-surf"]["min"] = t.min()
-                    d["tmp-surf"]["max"] = t.max()
-                    d["tmp-surf"]["mean"] = t.mean()
+            d[name]["tmp-all"] = df["tmp"].array.reshape((d[name]["nf"], -1)).T
+            print(
+                "TMP all: ",
+                d[name]["tmp-all"][0, :].min(),
+                d[name]["tmp-all"][0, :].max(),
+                d[name]["tmp-all"][0, :].mean(),
+                d[name]["tmp-all"].shape,
+            )
 
-        p_csv = path_date / d["body"] / "temperatures/temperatures-columns.csv"
-        if p_csv.exists():
-            read_options = csv.ReadOptions()
-            tab = csv.read_csv(p_csv, read_options)
-            df = tab.to_pandas()
-            if len(df.keys()) > 0:
-                d["tmp-cols"] = dict()
-            for key in df.keys():
-                t = df[key].array.reshape((-1, d["nz"]))
-                key = int(key)
-                d["tmp-cols"][key] = t
-                print(f"TMP cols #{key}: {t.min()} {t.max()} {t.mean()} {t.shape}")
+            p_csv = path_date / name / "temperatures/temperatures-rows.csv"
+            if p_csv.exists():
+                read_options = csv.ReadOptions()
+                tab = csv.read_csv(p_csv, read_options)
+                df = tab.to_pandas()
+                if len(df.keys()) > 0:
+                    d[name]["tmp-rows"] = dict()
+                for key in df.keys():
+                    t = df[key].array.reshape((-1, d[name]["nf"]))
+                    key = int(key)
+                    d[name]["tmp-rows"][key] = t
+                    print(f"TMP rows #{key}: {t.min()} {t.max()} {t.mean()} {t.shape}")
+                    if key == 0:
+                        d[name]["tmp-surf"] = dict()
+                        d[name]["tmp-surf"]["min"] = t.min()
+                        d[name]["tmp-surf"]["min"] = t.min()
+                        d[name]["tmp-surf"]["max"] = t.max()
+                        d[name]["tmp-surf"]["mean"] = t.mean()
+
+            p_csv = path_date / name / "temperatures/temperatures-columns.csv"
+            if p_csv.exists():
+                read_options = csv.ReadOptions()
+                tab = csv.read_csv(p_csv, read_options)
+                df = tab.to_pandas()
+                if len(df.keys()) > 0:
+                    d[name]["tmp-cols"] = dict()
+                for key in df.keys():
+                    t = df[key].array.reshape((-1, d[name]["nz"]))
+                    key = int(key)
+                    d[name]["tmp-cols"][key] = t
+                    print(f"TMP cols #{key}: {t.min()} {t.max()} {t.mean()} {t.shape}")
 
         return d

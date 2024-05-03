@@ -272,7 +272,7 @@ def plot(cfg: Config):
             out.mkdir(parents=True)
 
         fig.savefig(out / f"{cfg.name}.png", bbox_inches="tight", dpi=300)
-        fig.savefig(out / f"{cfg.name}.pdf", bbox_inches="tight")
+        # fig.savefig(out / f"{cfg.name}.pdf", bbox_inches="tight")
 
     if cfg.write:
         write(cfg)

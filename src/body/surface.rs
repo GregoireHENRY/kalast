@@ -15,6 +15,10 @@ use std::mem::{size_of, size_of_val};
 pub const STR_SHAPE_MODEL_CRATER: &str = include_str!("../../assets/mesh/crater.obj");
 pub const STR_SHAPE_MODEL_CUBE: &str = include_str!("../../assets/mesh/cube.obj");
 pub const STR_SHAPE_MODEL_ICOSPHERE: &str = include_str!("../../assets/mesh/icosphere.obj");
+pub const STR_SHAPE_MODEL_ICOSPHERE_S1: &str = include_str!("../../assets/mesh/icosphere_s1.obj");
+pub const STR_SHAPE_MODEL_ICOSPHERE_S2: &str = include_str!("../../assets/mesh/icosphere_s2.obj");
+pub const STR_SHAPE_MODEL_ICOSPHERE_S3: &str = include_str!("../../assets/mesh/icosphere_s3.obj");
+pub const STR_SHAPE_MODEL_ICOSPHERE_S4: &str = include_str!("../../assets/mesh/icosphere_s4.obj");
 pub const STR_SHAPE_MODEL_PLANE: &str = include_str!("../../assets/mesh/plane.obj");
 pub const STR_SHAPE_MODEL_SPHERE: &str = include_str!("../../assets/mesh/sphere.obj");
 pub const STR_SHAPE_MODEL_SPHERE_M1: &str = include_str!("../../assets/mesh/sphere_m1.obj");
@@ -66,6 +70,18 @@ pub enum Shapes {
     #[serde(rename = "icosphere")]
     Icosphere,
 
+    #[serde(rename = "icosphere_s1")]
+    IcosphereS1,
+
+    #[serde(rename = "icosphere_s2")]
+    IcosphereS2,
+
+    #[serde(rename = "icosphere_s3")]
+    IcosphereS3,
+
+    #[serde(rename = "icosphere_s4")]
+    IcosphereS4,
+
     #[serde(rename = "plane")]
     Plane,
 
@@ -91,6 +107,10 @@ impl Shapes {
             Self::Crater => STR_SHAPE_MODEL_CRATER,
             Self::Cube => STR_SHAPE_MODEL_CUBE,
             Self::Icosphere => STR_SHAPE_MODEL_ICOSPHERE,
+            Self::IcosphereS1 => STR_SHAPE_MODEL_ICOSPHERE_S1,
+            Self::IcosphereS2 => STR_SHAPE_MODEL_ICOSPHERE_S2,
+            Self::IcosphereS3 => STR_SHAPE_MODEL_ICOSPHERE_S3,
+            Self::IcosphereS4 => STR_SHAPE_MODEL_ICOSPHERE_S4,
             Self::Plane => STR_SHAPE_MODEL_PLANE,
             Self::Sphere => STR_SHAPE_MODEL_SPHERE,
             Self::SphereM1 => STR_SHAPE_MODEL_SPHERE_M1,

@@ -578,15 +578,28 @@ pub trait Routines: DowncastSync {
         window: &Window,
         cmap: &CfgColormap,
     ) -> Option<DRVector<Float>> {
+        self.fn_compute_body_colormap_core(config, body, bodies, bodies_data, time, window, cmap)
+    }
+
+    fn fn_compute_body_colormap_core(
+        &self,
+        config: &Config,
+        body: usize,
+        bodies: &mut [AirlessBody],
+        bodies_data: &[BodyData],
+        time: &Time,
+        window: &Window,
+        cmap: &CfgColormap,
+    ) -> Option<DRVector<Float>> {
         match cmap.scalar {
-            Some(CfgScalar::AngleIncidence) => Some(
+            Some(CfgScalar::AngleIncidence) => (!window.is_paused()).then(|| {
                 compute_cosine_incidence_angle(
                     &bodies[body],
                     &bodies_data[body].normals,
                     &window.scene.borrow().light.position.normalize(),
                 )
-                .map(|a| a.acos() * DPR),
-            ),
+                .map(|a| a.acos() * DPR)
+            }),
             Some(CfgScalar::AngleEmission) => Some(
                 compute_cosine_emission_angle(
                     &bodies[body],
@@ -603,12 +616,11 @@ pub trait Routines: DowncastSync {
                 )
                 .map(|a| a.acos() * DPR),
             ),
-            Some(CfgScalar::File) => {
+            Some(CfgScalar::File) => (!window.is_paused()).then(|| {
                 let v = self.read_file_data(config, body, time);
-                Some(DRVector::from_row_slice(&v))
-            }
-            None => None,
-            _ => unreachable!(),
+                DRVector::from_row_slice(&v)
+            }),
+            None | Some(_) => None,
         }
     }
 
@@ -649,10 +661,6 @@ pub trait Routines: DowncastSync {
     ) {
         self.fn_update_body_matrix_model(config, body, bodies, bodies_data, time);
         self.fn_update_body_data(config, body, bodies, bodies_data, sun, time, window);
-
-        if let Some(window) = window {
-            self.fn_update_body_colormap(config, body, bodies, bodies_data, time, window);
-        }
     }
 
     fn fn_export_iteration(
@@ -721,7 +729,9 @@ pub trait Routines: DowncastSync {
             if config.simulation.pause_first_it.unwrap_or_default() && time.iteration() == 0
                 || time.time_step() == 0
             {
-                win.toggle_pause();
+                if !win.is_paused() {
+                    win.toggle_pause();
+                }
             }
         }
     }
@@ -760,6 +770,7 @@ pub trait Routines: DowncastSync {
         }
 
         for body in 0..bodies.len() {
+            self.fn_update_body_colormap(config, body, bodies, bodies_data, time, window);
             bodies[body].surface.apply_facedata_to_vertices();
             window.update_vao(body, &mut bodies[body].surface);
         }

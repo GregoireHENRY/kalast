@@ -15,8 +15,6 @@ name = "A"
 color = "diffuse"
 material.albedo = 0.1
 
-mesh.shape.shape = "icosphere_s4"
-
-# faces_selected = [114, 124, 115, 123, 116, 499, 509, 508, 375, 369, 368, 252, 246, 245]
+faces_selected = [114, 124, 115, 123, 116, 499, 509, 508, 375, 369, 368, 252, 246, 245]
 
 
