@@ -57,7 +57,10 @@ def read_tmp_cols(
 
 
 def write_csv(
-    path: Path, columns: list[str], data: list[numpy.ndarray], no_header: bool = False
+    path: Path,
+    columns: list[str],
+    data: list[numpy.ndarray],
+    no_header: bool = False,
 ):
     opt = csv.WriteOptions(include_header=not no_header)
     tab = pyarrow.table(data, names=columns)
@@ -91,7 +94,19 @@ class Config:
 
             path_sph = path_setup_body / "mesh.csv"
             read_options = csv.ReadOptions(
-                column_names=["x", "y", "z", "lon", "lat", "rad"], skip_rows=1
+                column_names=[
+                    "x",
+                    "y",
+                    "z",
+                    "lon",
+                    "lat",
+                    "rad",
+                    "nx",
+                    "ny",
+                    "nz",
+                    "a",
+                ],
+                skip_rows=1,
             )
             tab = csv.read_csv(path_sph, read_options)
             df = tab.to_pandas()

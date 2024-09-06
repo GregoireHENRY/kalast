@@ -4,8 +4,8 @@ use crate::{
     read_surface_low, read_surface_main, thermal_skin_depth_one, thermal_skin_depth_two_pi,
     util::*,
     AirlessBody, BodyData, Export, FoldersRun, FrameEvent, Result, Routines,
-    RoutinesThermalDefault, RoutinesViewerDefault, Time, Window, KEY_BACKWARD, KEY_FORWARD,
-    KEY_LEFT, KEY_RIGHT, SENSITIVITY, WINDOW_HEIGHT, WINDOW_WIDTH,
+    RoutinesThermalDefault, RoutinesViewerDefault, State, Time, Window, GUI, KEY_BACKWARD,
+    KEY_FORWARD, KEY_LEFT, KEY_RIGHT, SENSITIVITY, WINDOW_HEIGHT, WINDOW_WIDTH,
 };
 
 use chrono::Utc;
@@ -19,9 +19,11 @@ pub struct Scenario {
     pub bodies_data: Vec<BodyData>,
     pub time: Time,
     pub win: Option<Window>,
+    pub gui: Option<GUI>,
     pub folders: FoldersRun,
     pub routines: Box<dyn Routines>,
     pub sun: Vec3,
+    pub state: State,
 }
 
 impl Scenario {
@@ -69,6 +71,7 @@ impl Scenario {
         }
 
         let mut win = None;
+        let mut gui = None;
 
         if !config.preferences.no_window.unwrap_or_default() {
             win = Some(Window::with_settings(|s| {
@@ -126,6 +129,8 @@ impl Scenario {
                     .unwrap_or(KEY_RIGHT);
                 s.touchpad_controls = config.preferences.touchpad_controls.unwrap_or_default();
             }));
+
+            gui = Some(GUI::new());
         }
 
         let time_start = {
@@ -152,15 +157,26 @@ impl Scenario {
 
         time.elapsed_time = config.simulation.elapsed.unwrap_or_default();
 
+        let sun = Vec3::zeros();
+        let mut state = State::default();
+
+        if let Some(duration) = config.simulation.init_spin_duration {
+            if duration > 0 {
+                state.init_spin = true;
+            }
+        }
+
         Ok(Self {
             config,
             bodies,
             bodies_data,
             time,
             win,
+            gui,
             folders,
             routines,
-            sun: Vec3::zeros(),
+            sun,
+            state,
         })
     }
 
@@ -247,7 +263,11 @@ impl Scenario {
         };
 
         'main_loop: loop {
-            if let Some(win) = self.win.as_mut() {
+            if let (Some(win), Some(gui)) = (self.win.as_mut(), self.gui.as_mut()) {
+                win.render_gui(|ui| gui.central_panel(ui));
+                win.swap_window();
+                // win.render_gui_finish();
+
                 let event = win.events();
 
                 match event {
@@ -273,7 +293,6 @@ impl Scenario {
             }
 
             let it = self.time.iteration();
-            let elapsed = self.time.elapsed_seconds();
             let jd = self.time.jd();
 
             self.routines
@@ -284,6 +303,7 @@ impl Scenario {
                 &mut self.sun,
                 &self.time,
                 self.win.as_mut(),
+                &self.state,
             );
 
             for body in 0..self.bodies.len() {
@@ -295,6 +315,7 @@ impl Scenario {
                     &self.sun,
                     &self.time,
                     self.win.as_ref(),
+                    &self.state,
                 );
             }
 
@@ -319,6 +340,7 @@ impl Scenario {
                 self.win.as_ref(),
                 &self.folders,
                 self.routines.as_ref(),
+                &self.state,
             );
 
             self.routines.fn_iteration_finish(
@@ -326,13 +348,17 @@ impl Scenario {
                 &mut self.bodies,
                 &mut self.time,
                 self.win.as_ref(),
+                &mut self.state,
             );
 
             if first_it {
                 first_it = false;
             }
 
-            if elapsed >= self.config.simulation.duration.unwrap_or_default() {
+            let elapsed = self.time.elapsed_seconds();
+            if elapsed >= self.config.simulation.duration.unwrap_or_default()
+                && !self.state.init_spin
+            {
                 let time_calc = Utc::now().time() - *self.time.real_time();
                 println!(
                     "\nSimulation finished at JD: {}.\nComputation time: {:.3}s ({}it).",

@@ -1,0 +1,45 @@
+[window]
+[window.colormap]
+name = "inferno"
+vmax = 400.0
+scalar = "temperature"
+
+[simulation]
+routines = "thermal"
+step = 300
+duration = 2160000
+
+[simulation.export]
+duration = 43200
+cooldown_start = 2116800
+
+[scene]
+sun.position.cartesian = [1.495978707e8, 0.0, 0.0]
+
+[[bodies]]
+name = "A"
+color = "data"
+
+[bodies.mesh]
+shape.path = "/Users/gregoireh/data/meshes/sphere4.obj"
+
+[bodies.material]
+albedo = 0.1
+emissivity = 0.9
+thermal_inertia = 500.0
+density = 2100.0
+heat_capacity = 600.0
+
+[bodies.interior.grid1d.linear]
+size = 40
+a = 1e-2
+
+[bodies.spin]
+period = 21600
+obliquity = 0
+
+[bodies.record]
+rows = [0]
+# columns = [114, 124, 115, 123, 116, 499, 509, 508, 375, 369, 368, 252, 246, 245]
+mesh = true
+depth = true

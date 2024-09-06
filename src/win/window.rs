@@ -4,6 +4,7 @@ use crate::{
     SENSITIVITY_ROTATE_MOUSEWHEEL_CORRECTION, SPEED, SPEED_FAST_FACTOR,
 };
 
+use egui_sdl2_gl::egui::ahash::HashMapExt;
 use sdl2;
 use sdl2::event::{Event, WindowEvent};
 use sdl2::keyboard::Keycode;
@@ -18,12 +19,21 @@ use sdl2::Sdl;
 
 use gl::types::*;
 
+use egui_backend::egui;
+use egui_backend::{DpiScaling, ShaderVersion};
+// Alias the backend to something less mouthful
+use egui_backend::egui::FullOutput;
+use egui_sdl2_gl::egui::{Context, Ui, ViewportIdMap, ViewportOutput};
+use egui_sdl2_gl::painter::Painter;
+use egui_sdl2_gl::{self as egui_backend, EguiStateHandler};
+
 use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::ffi::CStr;
 use std::fmt::Debug;
 use std::fs;
 use std::path::Path;
+use std::time::Instant;
 
 use itertools::{izip, Itertools};
 
@@ -45,12 +55,14 @@ pub enum FrameEvent {
 
 #[derive(Debug)]
 pub struct Clock {
+    pub start: Instant,
     pub now: RefCell<u64>,
 }
 
 impl Clock {
     pub fn new() -> Self {
         Self {
+            start: Instant::now(),
             now: RefCell::new(unsafe { sdl2_sys::SDL_GetPerformanceCounter() }),
         }
     }
@@ -67,12 +79,40 @@ impl Clock {
 
         dt
     }
+
+    pub fn elapsed(&self) -> f64 {
+        self.start.elapsed().as_secs_f64()
+    }
+}
+
+pub struct EGui {
+    pub painter: Painter,
+    pub state: EguiStateHandler,
+    pub ctx: Context,
+    pub viewport_output: ViewportIdMap<ViewportOutput>,
+}
+
+impl EGui {
+    pub fn new(win: &SDL_Window) -> Self {
+        let shader_ver = ShaderVersion::Default;
+        let (painter, state) = egui_backend::with_sdl2(&win, shader_ver, DpiScaling::Default);
+        let ctx = egui::Context::default();
+        let viewport_output = ViewportIdMap::new();
+
+        Self {
+            painter,
+            state,
+            ctx,
+            viewport_output,
+        }
+    }
 }
 
 pub struct RawWindow {
     pub sdl: Sdl,
     pub win: SDL_Window,
     pub ctx: GLContext,
+    pub egui: EGui,
 }
 
 impl Debug for RawWindow {
@@ -117,7 +157,13 @@ impl RawWindow {
         let ctx = win.gl_create_context().unwrap();
         gl::load_with(|name| video.gl_get_proc_address(name) as _);
 
-        video.gl_set_swap_interval(SwapInterval::VSync).unwrap();
+        let egui = EGui::new(&win);
+
+        if settings.vsync {
+            video.gl_set_swap_interval(SwapInterval::VSync).unwrap();
+        } else {
+            video.gl_set_swap_interval(SwapInterval::Immediate).unwrap();
+        }
 
         unsafe {
             gl::Enable(gl::DEPTH_TEST);
@@ -159,7 +205,12 @@ impl RawWindow {
             (settings.height / 2) as i32,
         );
 
-        Self { sdl, win, ctx }
+        Self {
+            sdl,
+            win,
+            ctx,
+            egui,
+        }
     }
 }
 
@@ -360,6 +411,10 @@ impl Window {
             let s = self.settings.borrow();
             (s.forward, s.left, s.backward, s.right)
         };
+
+        if self.state.borrow().quit {
+            return FrameEvent::Exit;
+        }
 
         for event in event_pump.poll_iter() {
             match event {
@@ -571,6 +626,8 @@ impl Window {
                     direction,
                     precise_x,
                     precise_y,
+                    mouse_x: _mouse_x,
+                    mouse_y: _mouse_y,
                 } => {
                     if self.settings.borrow().debug {
                         println!(
@@ -601,7 +658,9 @@ impl Window {
                 Event::Quit {
                     timestamp: _timestamp,
                 } => return FrameEvent::Exit,
-                _ => (),
+                thing => {
+                    dbg!(thing);
+                }
             }
         }
 
@@ -637,6 +696,10 @@ impl Window {
                 self.scene.borrow_mut().camera.free_movement(x, y);
             }
             _ => {}
+        }
+
+        if self.state.borrow().quit {
+            return FrameEvent::Exit;
         }
 
         FrameEvent::Continue
@@ -1000,5 +1063,73 @@ impl Window {
                 picker.picked_on = None;
             }
         }
+    }
+
+    pub fn render_gui<R>(&mut self, add_contents: impl FnOnce(&mut Ui) -> R) {
+        unsafe {
+            // Clear the screen to green
+            gl::ClearColor(0.3, 0.6, 0.3, 1.0);
+            gl::Clear(gl::COLOR_BUFFER_BIT);
+        }
+
+        let elapsed = self.clock.elapsed();
+        let gui = &mut self.win.egui;
+        gui.state.input.time = Some(elapsed);
+        gui.ctx.begin_frame(gui.state.input.take());
+
+        egui::CentralPanel::default().show(&gui.ctx, |ui| {
+            add_contents(ui);
+        });
+
+        let FullOutput {
+            platform_output,
+            textures_delta,
+            shapes,
+            pixels_per_point,
+            viewport_output,
+        } = gui.ctx.end_frame();
+
+        gui.state.process_output(&self.win.win, &platform_output);
+
+        let paint_jobs = gui.ctx.tessellate(shapes, pixels_per_point);
+        gui.painter.paint_jobs(None, textures_delta, paint_jobs);
+
+        gui.viewport_output = viewport_output;
+    }
+
+    pub fn render_gui_finish(&mut self) {
+        // let gui = &mut self.win.egui;
+        // let repaint_after = gui
+        //     .viewport_output
+        //     .get(&egui::ViewportId::ROOT)
+        //     .expect("Missing ViewportId::ROOT")
+        //     .repaint_delay;
+
+        // let quit = &mut self.state.borrow_mut().quit;
+        // let mut event_pump = self.win.sdl.event_pump().unwrap();
+
+        /*
+        if !repaint_after.is_zero() {
+            if let Some(event) = event_pump.wait_event_timeout(5) {
+                match event {
+                    Event::Quit { .. } => *quit = true,
+                    _ => {
+                        gui.state
+                            .process_input(&self.win.win, event, &mut gui.painter);
+                    }
+                }
+            }
+        } else {
+            for event in event_pump.poll_iter() {
+                match event {
+                    Event::Quit { .. } => *quit = true,
+                    _ => {
+                        gui.state
+                            .process_input(&self.win.win, event, &mut gui.painter);
+                    }
+                }
+            }
+        }
+        */
     }
 }

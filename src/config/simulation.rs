@@ -63,6 +63,9 @@ pub struct CfgSimulation {
 
     #[serde(default)]
     pub mutual_heating: Option<bool>,
+
+    #[serde(default)]
+    pub init_spin_duration: Option<usize>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]

@@ -1,0 +1,72 @@
+[window]
+ambient = [0.0, 0.0, 0.0]
+width = 2048
+height = 1536
+# shadows = true
+export_frames = true
+
+[simulation]
+step = 1
+
+# duration = 26700
+duration = 26754
+# duration = 29990
+
+[simulation.export]
+step = 1
+
+# duration = 26700
+duration = 26754
+# duration = 29990
+
+[simulation.file]
+# path = "/Users/gregoireh/projects/juventas-entry/view.csv"
+path = "/Users/gregoireh/data/kalast/runs/juventas/gmv_landing.csv"
+
+[scene]
+sun.position = "file"
+
+[scene.camera]
+name = "Juventas Navcam"
+position.cartesian = [0, 0, 0]
+near = 0.01
+far = 5
+
+# up = [0, 0, 1]
+# direction.vector = [1, 0, 0]
+
+up = [0, 1, 0]
+direction.vector = [0, 0, 1]
+
+# up = [0, 0, 1]
+# direction.vector = [0, -1, 0]
+
+[scene.camera.projection]
+# 38 x 28.5
+perspective = 28.5
+
+[[bodies]]
+name = "Didymos"
+state = "file"
+
+[bodies.material]
+albedo = 0.1
+
+[bodies.mesh.shape]
+# path = "/Users/gregoireh/data/meshes/didymos/didymos_g_9309mm_spc_obj_0000n00000_v003.obj"
+# path = "/Users/gregoireh/data/meshes/didymos/didymos_g_9309mm_spc_obj_0000n00000_v003_decimated_3072.obj"
+path = "/Users/gregoireh/data/meshes/didymos/didymos_g_1165mm_spc_obj_0000n00000_v003.obj"
+
+[[bodies]]
+name = "Dimorphos"
+state = "file"
+# state.cartesian.position = [-0.2, 0, 0]
+
+[bodies.material]
+albedo = 0.1
+
+[bodies.mesh.shape]
+# path = "/Users/gregoireh/data/meshes/dimorphos/dimorphos_g_1940mm_spc_obj_0000n00000_v004.obj"
+# path = "/Users/gregoireh/data/meshes/dimorphos/dimorphos_g_1940mm_spc_obj_0000n00000_v004_decimated_3072.obj"
+path = "/Users/gregoireh/data/meshes/dimorphos/dimorphos_g_0243mm_spc_obj_0000n00000_v004.obj"
+

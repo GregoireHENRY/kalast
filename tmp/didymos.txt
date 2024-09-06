@@ -1,0 +1,28 @@
+import numpy
+import read_kalast
+
+import plot
+
+path_root = read_kalast.path_runs / "didymos thermal"
+path_run = path_root / "mutual"
+cfg = read_kalast.Config(path=path_run)
+d = cfg.read()
+
+nt = 865
+x = numpy.linspace(0, cfg.data["simulation"]["export"]["duration"], nt)
+x /= 3600
+
+data = [
+    kalast.plot.tool.Data(x=x, y=d["tmp-rows"][0][:, 0], label="kalast"),
+]
+
+cfg_daily = kalast.plot.tool.Config(data=data)
+cfg_daily.xax.label = "Hours elapsed"
+cfg_daily.xax.lim = (0, x.max())
+cfg_daily.yax.label = "Temperature (K)"
+cfg_daily.yax.lim = (200, 400)
+cfg_daily.yax.loc = 50
+cfg_daily.name = "daily"
+cfg_daily.show = False
+
+# kalast.plot.tool.plot(cfg_daily)

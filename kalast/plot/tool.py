@@ -3,15 +3,15 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import itertools
 import matplotlib
 import numpy
 import scipy
 import util
 from matplotlib import pyplot, ticker
-from mpl_toolkits.basemap import Basemap
 from pyarrow import csv
 import pyarrow
+
+# import itertools
 
 
 @dataclass
@@ -26,6 +26,7 @@ class Axis:
     lim: tuple[float, float] = None
     loc: float = None
     scale: str = None
+
 
 @dataclass
 class Map:
@@ -66,42 +67,42 @@ class Config:
 
 
 def plot(cfg: Config):
-    pyplot.style.use("plot/main.mplstyle")
-    fig, ax = pyplot.subplots(figsize=(15, 7.3))
+    pyplot.plot.style.use("plot/main.mplstyle")
+    fig, ax = pyplot.plot.subplots(figsize=(15, 7.3))
 
     if cfg.map is not None:
-        if cfg.map.proj == "cyl":
-            map = Basemap(
-                ax=ax,
-                projection="cyl",
-                llcrnrlat=-90,
-                urcrnrlat=90,
-                llcrnrlon=-180,
-                urcrnrlon=180,
-                resolution="c",
-            )
-        elif cfg.map.proj == "moll":
-            map = Basemap(
-                ax=ax,
-                projection="moll",
-                lon_0=0,
-                resolution="c",
-            )
-        elif cfg.map.proj == "ortho":
-            map = Basemap(ax=ax, projection="ortho", lon_0=40, lat_0=20, resolution="l")
-        elif cfg.map.proj == "nsper":
-            map = Basemap(
-                ax=ax,
-                projection="nsper",
-                lon_0=40,
-                lat_0=40,
-                satellite_height=3000 * 1000.0,
-                resolution="l",
-            )
+        # if cfg.map.proj == "cyl":
+        #     map = Basemap(
+        #         ax=ax,
+        #         projection="cyl",
+        #         llcrnrlat=-90,
+        #         urcrnrlat=90,
+        #         llcrnrlon=-180,
+        #         urcrnrlon=180,
+        #         resolution="c",
+        #     )
+        # elif cfg.map.proj == "moll":
+        #     map = Basemap(
+        #         ax=ax,
+        #         projection="moll",
+        #         lon_0=0,
+        #         resolution="c",
+        #     )
+        # elif cfg.map.proj == "ortho":
+        #     map = Basemap(ax=ax, projection="ortho", lon_0=40, lat_0=20, resolution="l")
+        # elif cfg.map.proj == "nsper":
+        #     map = Basemap(
+        #         ax=ax,
+        #         projection="nsper",
+        #         lon_0=40,
+        #         lat_0=40,
+        #         satellite_height=3000 * 1000.0,
+        #         resolution="l",
+        #     )
 
-        if cfg.map.proj is not None and cfg.map.proj != "cyl":
-            map.drawparallels(numpy.arange(-90.0, 120.0, 30.0))
-            map.drawmeridians(numpy.arange(0.0, 420.0, 60.0))
+        # if cfg.map.proj is not None and cfg.map.proj != "cyl":
+        #     map.drawparallels(numpy.arange(-90.0, 120.0, 30.0))
+        #     map.drawmeridians(numpy.arange(0.0, 420.0, 60.0))
 
         norm = matplotlib.colors.Normalize(
             vmin=cfg.map.ax.lim[0], vmax=cfg.map.ax.lim[1]
@@ -144,7 +145,8 @@ def plot(cfg: Config):
                 # pcolormesh
                 # contourf
                 # shading="gouraud",
-                tmap = map.contourf(
+                # tmap = map.contourf(
+                tmap = ax.contourf(
                     *grid,
                     zgrid,
                     cmap=cfg.map.cmap,
@@ -278,7 +280,7 @@ def plot(cfg: Config):
         write(cfg)
 
     if cfg.show:
-        pyplot.show()
+        pyplot.plot.show()
 
 
 def write(cfg: Config):

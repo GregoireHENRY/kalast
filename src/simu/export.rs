@@ -1,7 +1,7 @@
 use crate::{
     config::{CfgTimeExport, Config},
     util::*,
-    AirlessBody, BodyData, FoldersRun, Interior, Routines, Time, Window,
+    AirlessBody, BodyData, FoldersRun, Interior, Routines, State, Time, Window,
 };
 
 use itertools::Itertools;
@@ -112,6 +112,7 @@ impl Export {
         win: Option<&Window>,
         folders: &FoldersRun,
         routines: &dyn Routines,
+        state: &State,
     ) {
         let dt = time.used_time_step();
         let elapsed = time.elapsed_seconds();
@@ -131,9 +132,11 @@ impl Export {
         }
 
         if !self.exporting {
-            self.cooldown_export -= dt as i64;
+            if !state.init_spin {
+                self.cooldown_export -= dt as i64;
+            }
 
-            if self.cooldown_export <= 0 && self.ready_to_export {
+            if self.cooldown_export <= 0 && self.ready_to_export && !state.init_spin {
                 if let Some(export) = config.simulation.export.as_ref() {
                     println!("Start export time.");
                     self.exporting = true;
@@ -147,7 +150,10 @@ impl Export {
                         time.set_time_step(step);
                     }
                 }
-            } else if self.cooldown_export - (dt as i64) < 0 {
+            } else if self.cooldown_export - (dt as i64) < 0
+                && self.ready_to_export
+                && !state.init_spin
+            {
                 if let Some(export) = config.simulation.export.as_ref() {
                     // So export does not really start here, but the time step is adapted to not miss the beginning of export
                     // (in case export time step is smaller than simulation time step).

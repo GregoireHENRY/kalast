@@ -54,6 +54,7 @@ pub struct WindowState {
     pub difference_in_height_from_ratio_after_resize: i32,
     pub pre_record: bool,
     pub pause: bool,
+    pub quit: bool,
     pub export_quit: bool,
     pub keys_down: Vec<Keycode>,
 }
@@ -64,6 +65,7 @@ impl Default for WindowState {
             difference_in_height_from_ratio_after_resize: 0,
             pre_record: false,
             pause: false,
+            quit: false,
             export_quit: false,
             keys_down: vec![],
         }
@@ -95,6 +97,7 @@ pub struct WindowSettings {
     pub height: usize,
     pub fullscreen: FullscreenType,
     pub multisampling: Option<u8>,
+    pub vsync: bool,
     pub background_color: Vec3,
     pub directional_light_color: Vec3,
     pub ambient_light_color: Vec3,
@@ -131,6 +134,7 @@ impl Default for WindowSettings {
             height: WINDOW_HEIGHT,
             fullscreen: FullscreenType::Off,
             multisampling: Some(16),
+            vsync: true,
             background_color: vec3(0.0, 0.0, 0.0),
             directional_light_color: vec3(1.0, 1.0, 1.0),
             ambient_light_color: vec3(0.0, 0.0, 0.0),

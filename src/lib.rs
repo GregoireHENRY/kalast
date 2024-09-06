@@ -22,12 +22,14 @@ Information on the configuration of your **kalast** scenarios are located at the
 
 pub mod body;
 pub mod config;
+pub mod gui;
 pub mod simu;
 pub mod thermal;
 pub mod util;
 pub mod win;
 
 pub use body::*;
+pub use gui::*;
 pub use simu::*;
 pub use thermal::*;
 pub use util::*;

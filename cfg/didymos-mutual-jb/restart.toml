@@ -1,0 +1,8 @@
+[restart]
+path = "/Users/gregoireh/data/kalast/runs/didymos thermal/mutual 4"
+
+[simulation]
+pause_first_it = true
+elapsed = 300
+cooldown_start = 0
+mutual_shadowing = true

@@ -1,0 +1,85 @@
+[window]
+export_frames = true
+# high_dpi = true
+# 1920 1200 400
+width = 1024
+# 1080 900 300
+height = 768
+# fullscreen = true
+
+[window.colormap]
+name = "inferno"
+vmin = 150
+vmax = 350
+scalar = "temperature"
+
+[spice]
+kernel = "/Users/gregoireh/data/spice/hera/kernels/mk/hera_study_PO_EMA_2024.tm"
+origin = "DIDYMOS"
+frame = "HERA_TIRI"
+# frame = "ECLIPJ2000"
+
+[simulation]
+routines = "thermal"
+# start = "2026-12-02T02:00"
+start = "2027-03-01"
+step = 300
+duration = 432000
+# mutual_shadowing = true
+init_spin_duration = 2188512
+
+[simulation.export]
+step = 300
+duration = 432000
+cooldown_start = 0
+
+# 5 * 86400 = 432000
+# 42912 * 51 = 2188512 ( 42912 * 51 / 8136 = 268.9911504424779 )
+
+# 11.92 * 3600 = 42912
+# 600s above: 72 * 600 = 43200
+# 60s above: 716 * 60 = 42960
+
+# 2.26 * 3600 = 8136
+# 600s above: 14 * 600 = 8400
+# 60s above: 136 * 60 = 8160
+
+[scene]
+sun.position = "spice"
+
+[scene.camera]
+name = "HERA_TIRI"
+position = "spice"
+projection.perspective = 10
+up = [1, 0, 0]
+direction.vector = [0, 0, 1]
+
+[[bodies]]
+name = "DIDYMOS"
+frame = "DIDYMOS_FIXED"
+# mesh.shape.path = "/Users/gregoireh/data/spice/hera/kernels/dsk/g_01165mm_spc_obj_didy_0000n00000_v003.obj"
+mesh.shape.path = "/Users/gregoireh/data/DART/meshes/didymos-model-v002/9740mm/g_09740mm_spc_obj_didy_0000n00000_v002.obj"
+# mesh = { shape.shape = "sphere_m1", factor = [0.4095, 0.4005, 0.3035] } 
+mesh_low = { shape.shape = "sphere_m1", factor = [0.4095, 0.4005, 0.3035] } 
+interior.grid1d.linear = { size = 40, a = 2e-2 }
+spin = { period = 8136, obliquity = 0 }
+state = "spice"
+temperature.scalar = 150
+material = { albedo = 0.1, emissivity = 0.9, thermal_inertia = 500, density = 2100, heat_capacity = 600 }
+color = "data"
+record = { rows = [0], columns = [0], mesh = true, depth = true }
+
+[[bodies]]
+name = "DIMORPHOS"
+frame = "DIMORPHOS_FIXED"
+# mesh.shape.path = "/Users/gregoireh/data/spice/hera/kernels/dsk/g_00243mm_spc_obj_dimo_0000n00000_v004.obj"
+mesh.shape.path = "/Users/gregoireh/data/DART/meshes/dimorphos-model-v003/1960mm/g_01960mm_spc_obj_dimo_0000n00000_v003.obj"
+# mesh = { shape.shape = "sphere_m1", factor = [0.0895165, 0.0825, 0.0575] } 
+mesh_low = { shape.shape = "sphere_m1", factor = [0.0895165, 0.0825, 0.0575] } 
+interior.grid1d.linear = { size = 40, a = 2e-2 }
+spin = { period = 42912 }
+state = "spice"
+temperature.scalar = 150
+material = { albedo = 0.1, emissivity = 0.9, thermal_inertia = 500, density = 2100, heat_capacity = 600 }
+color = "data"
+record = { rows = [0], columns = [0], mesh = true, depth = true }

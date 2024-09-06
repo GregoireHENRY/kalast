@@ -2,7 +2,7 @@ import numpy
 import matplotlib
 import read_kalast
 
-import plot
+import kalast
 
 path_root = read_kalast.path_runs / "didymos thermal"
 path_run = path_root / "mutual"
@@ -53,8 +53,8 @@ N = len(facets)
 cmap = matplotlib.colormaps["cividis"]
 
 data = [
-    plot.tool.Data(x=x, y=d["Dimorphos"]["tmp-rows"][0][:, 25533]),
-    # plot.tool.Data(
+    kalast.plot.tool.Data(x=x, y=d["Dimorphos"]["tmp-rows"][0][:, 25533]),
+    # kalast.plot.tool.Data(
     #     x=x,
     #     y=d["Dimorphos"]["tmp-rows"][0][:, facet],
     #     color=cmap.colors[int(ii / (N - 1) * 255)],
@@ -62,7 +62,7 @@ data = [
     # for ii, facet in enumerate(facets)
 ]
 
-cfg_daily = plot.tool.Config(data=data)
+cfg_daily = kalast.plot.tool.Config(data=data)
 cfg_daily.xax.label = "Hours elapsed"
 cfg_daily.xax.lim = (0, x.max())
 cfg_daily.yax.label = "Temperature (K)"
@@ -72,4 +72,4 @@ cfg_daily.name = "daily"
 cfg_daily.legend.show = False
 cfg_daily.show = False
 
-plot.tool.plot(cfg_daily)
+kalast.plot.tool.plot(cfg_daily)

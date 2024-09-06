@@ -5,15 +5,17 @@ use crate::{
     config::{
         Body, CfgCamera, CfgCameraDirection, CfgCameraPosition, CfgColormap, CfgScalar, CfgSun,
         CfgSunPosition, Config, FileBehavior, FileColumns, FileColumnsOut, FileSetup, FrameCenter,
-        SpicePosition, SpiceState, State, StateCartesian, COLOR_SELECTION, DEFAULT_ABCORR,
-        DEFAULT_FRAME, SIMULATION_TIME_FREQUENCY,
+        SpicePosition, SpiceState, StateCartesian, COLOR_SELECTION, DEFAULT_ABCORR, DEFAULT_FRAME,
+        SIMULATION_TIME_FREQUENCY,
     },
     find_ref_orbit, matrix_orientation_obliquity, matrix_spin, position_in_inertial_frame,
     update_colormap_scalar,
     util::*,
     AirlessBody, BodyData, ColorMode, FacetColorChanged, FoldersRun, MovementMode, ProjectionMode,
-    Time, Window,
+    State, Time, Window,
 };
+
+use crate::config as modcfg;
 
 use downcast_rs::{impl_downcast, DowncastSync};
 use itertools::{izip, Itertools};
@@ -178,6 +180,7 @@ pub trait Routines: DowncastSync {
         sun: &mut Vec3,
         time: &Time,
         win: &Option<&mut Window>,
+        state: &State,
     ) {
         let elapsed_from_start = time.elapsed_seconds_from_start();
 
@@ -224,7 +227,7 @@ pub trait Routines: DowncastSync {
             CfgSunPosition::Origin => {
                 if let Some(body) = config.bodies.first() {
                     match &body.state {
-                        State::Orbit(orbit) => match &orbit.frame {
+                        modcfg::State::Orbit(orbit) => match &orbit.frame {
                             None | Some(FrameCenter::Sun) => {
                                 -position_in_inertial_frame(
                                     orbit.a * AU,
@@ -244,11 +247,11 @@ pub trait Routines: DowncastSync {
                                 CfgSun::default_position()
                             }
                         },
-                        State::Cartesian(_)
-                        | State::Equatorial(_)
-                        | State::File
-                        | State::Spice
-                        | State::SpiceState(_) => {
+                        modcfg::State::Cartesian(_)
+                        | modcfg::State::Equatorial(_)
+                        | modcfg::State::File
+                        | modcfg::State::Spice
+                        | modcfg::State::SpiceState(_) => {
                             if time.iteration() == 0 {
                                 println!("Warning: The Sun is set to be configured from the state of the primary body but only works if the state is an orbit centered on the Sun.");
                             }
@@ -354,7 +357,7 @@ pub trait Routines: DowncastSync {
             Some(CfgCameraPosition::Reference) => {
                 if let Some(body) = config.bodies.first() {
                     match &body.state {
-                        State::Equatorial(coords) => {
+                        modcfg::State::Equatorial(coords) => {
                             let position = -coords.xyz_with_distance(
                                 coords.distance.unwrap_or(CfgCamera::default_distance()),
                             );
@@ -376,12 +379,17 @@ pub trait Routines: DowncastSync {
             println!("sun: {:?}", sun_pos.as_slice());
         }
 
-        *sun = sun_pos;
+        if !state.init_spin || time.is_first_it() {
+            *sun = sun_pos;
+        }
+
         if let Some(win) = win {
             let mut scene = win.scene.borrow_mut();
 
-            scene.light.position = sun_pos;
-            scene.camera.position = cam_pos;
+            if !state.init_spin || time.is_first_it() {
+                scene.light.position = sun_pos;
+                scene.camera.position = cam_pos;
+            }
 
             if scene.camera.movement_mode == MovementMode::Lock
                 && config.scene.camera.direction == CfgCameraDirection::TargetAnchor
@@ -391,12 +399,19 @@ pub trait Routines: DowncastSync {
         }
     }
 
-    fn fn_update_scene(&self, cfg: &Config, sun: &mut Vec3, time: &Time, win: Option<&mut Window>) {
+    fn fn_update_scene(
+        &self,
+        cfg: &Config,
+        sun: &mut Vec3,
+        time: &Time,
+        win: Option<&mut Window>,
+        state: &State,
+    ) {
         if time.is_first_it() {
             self.fn_update_scene_core_first_it(cfg, sun, time, &win);
         }
 
-        self.fn_update_scene_core(cfg, sun, time, &win);
+        self.fn_update_scene_core(cfg, sun, time, &win, state);
     }
 
     fn fn_update_body_matrix_model(
@@ -406,6 +421,7 @@ pub trait Routines: DowncastSync {
         bodies: &mut [AirlessBody],
         bodies_data: &mut [BodyData],
         time: &Time,
+        state: &State,
     ) {
         let elapsed_from_start = time.elapsed_seconds_from_start();
 
@@ -420,10 +436,18 @@ pub trait Routines: DowncastSync {
             elapsed as Float / config.bodies[body].spin.period
         };
         let spin_angle = (TAU * np_elapsed + config.bodies[body].spin.spin0 * RPD) % TAU;
-        let matrix_spin = matrix_spin(spin_angle, config.bodies[body].spin.axis);
 
-        let matrix_spin_tilt =
+        let mut matrix_spin = matrix_spin(spin_angle, config.bodies[body].spin.axis);
+
+        let mut matrix_spin_tilt =
             matrix_orientation_obliquity(0.0, config.bodies[body].spin.obliquity * RPD);
+
+        if let Some(_) = config.simulation.init_spin_duration {
+            if !state.init_spin {
+                matrix_spin = Mat4::identity();
+                matrix_spin_tilt = Mat4::identity();
+            }
+        }
 
         let other_bodies = config
             .bodies
@@ -434,7 +458,7 @@ pub trait Routines: DowncastSync {
             .collect_vec();
 
         match &config.bodies[body].state {
-            State::Cartesian(StateCartesian {
+            modcfg::State::Cartesian(StateCartesian {
                 position,
                 orientation,
                 reference,
@@ -460,8 +484,8 @@ pub trait Routines: DowncastSync {
                     println!("matrix model reference: {}", matrix_model_reference);
                 }
             }
-            State::Equatorial(_) => {}
-            State::Orbit(orbit) => {
+            modcfg::State::Equatorial(_) => {}
+            modcfg::State::Orbit(orbit) => {
                 let (mu_ref, factor) = find_ref_orbit(&orbit, &other_bodies);
                 if mu_ref != MU_SUN {
                     let pos = position_in_inertial_frame(
@@ -489,7 +513,7 @@ pub trait Routines: DowncastSync {
                     }
                 }
             }
-            State::File => {
+            modcfg::State::File => {
                 let mut out = read_state_file(
                     config.simulation.file.as_ref().unwrap(),
                     time,
@@ -499,14 +523,22 @@ pub trait Routines: DowncastSync {
                 matrix_orientation = glm::mat3_to_mat4(&out.pop().unwrap().mat());
                 matrix_translation = Mat4::new_translation(&out.pop().unwrap().vec());
             }
-            State::Spice => {
-                let state = SpiceState::default();
+            modcfg::State::Spice => {
+                let spice_state = SpiceState::default();
+                let mut elapsed = elapsed_from_start;
+                if state.init_spin {
+                    elapsed = time.time_start;
+                }
                 (matrix_translation, matrix_orientation) =
-                    spice_state(&config, &state, body, elapsed_from_start as f64);
+                    compute_spice_state(&config, &spice_state, body, elapsed as f64);
             }
-            State::SpiceState(state) => {
+            modcfg::State::SpiceState(spice_state) => {
+                let mut elapsed = elapsed_from_start;
+                if state.init_spin {
+                    elapsed = time.time_start;
+                }
                 (matrix_translation, matrix_orientation) =
-                    spice_state(&config, &state, body, elapsed_from_start as f64);
+                    compute_spice_state(&config, &spice_state, body, elapsed as f64);
             }
         };
 
@@ -658,8 +690,9 @@ pub trait Routines: DowncastSync {
         sun: &Vec3,
         time: &Time,
         window: Option<&Window>,
+        state: &State,
     ) {
-        self.fn_update_body_matrix_model(config, body, bodies, bodies_data, time);
+        self.fn_update_body_matrix_model(config, body, bodies, bodies_data, time, state);
         self.fn_update_body_data(config, body, bodies, bodies_data, sun, time, window);
     }
 
@@ -689,6 +722,7 @@ pub trait Routines: DowncastSync {
         _bodies: &mut [AirlessBody],
         time: &mut Time,
         win: Option<&Window>,
+        state: &mut State,
     ) {
         if let Some(true) = config.preferences.debug.simulation_time {
             let freq = config
@@ -697,7 +731,13 @@ pub trait Routines: DowncastSync {
                 .simulation_time_frequency
                 .unwrap_or(SIMULATION_TIME_FREQUENCY);
 
-            let duration = config.simulation.duration.unwrap_or_default();
+            let duration = {
+                if let Some(duration) = config.simulation.init_spin_duration {
+                    duration
+                } else {
+                    config.simulation.duration.unwrap_or_default()
+                }
+            };
 
             if duration > 0 {
                 let mut r = time.elapsed_seconds() as Float / duration as Float * 100.0;
@@ -731,6 +771,16 @@ pub trait Routines: DowncastSync {
             {
                 if !win.is_paused() {
                     win.toggle_pause();
+                }
+            }
+        }
+
+        if state.init_spin {
+            if let Some(duration) = config.simulation.init_spin_duration {
+                if time.elapsed_seconds() >= duration {
+                    state.init_spin = false;
+                    time.elapsed_time = 0;
+                    time.iteration = 0;
                 }
             }
         }
@@ -774,8 +824,8 @@ pub trait Routines: DowncastSync {
             bodies[body].surface.apply_facedata_to_vertices();
             window.update_vao(body, &mut bodies[body].surface);
         }
-        window.render_asteroids(&bodies);
-        window.swap_window();
+        // window.render_asteroids(&bodies);
+        // window.swap_window();
 
         if let Some(true) = config.preferences.debug.window {
             println!("New frame: {}.", time.elapsed_seconds());
@@ -785,7 +835,12 @@ pub trait Routines: DowncastSync {
 
 impl_downcast!(sync Routines);
 
-pub fn spice_state(config: &Config, state: &SpiceState, body: usize, et: f64) -> (Mat4, Mat4) {
+pub fn compute_spice_state(
+    config: &Config,
+    state: &SpiceState,
+    body: usize,
+    et: f64,
+) -> (Mat4, Mat4) {
     #[cfg(not(feature = "spice"))]
     panic!(
         "Feature `spice` is not enabled. The feature is required to compute the state of the body."
