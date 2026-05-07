@@ -7,14 +7,15 @@ pub struct Globals {
     pub color: Vec3,
 
     // Control fragment color
-    // - 0: vertex/instance color + lighting
+    // - 0: vertex/instance color + lighting + shadow
     // - 1: vertex/instance color, no lighting, show raw color
     // - 2: globals color
-    // - 3: texture sample
+    // - 3: same as 0 but without shadow
     // - else: default to 0
     pub color_mode: u32,
 
     pub ambient_strength: f32,
+    pub light_cube_scale: f32,
 
     pub shadow_resolution: u32,
     pub shadow_bias_scale: f32,

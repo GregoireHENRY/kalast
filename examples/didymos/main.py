@@ -14,14 +14,14 @@ app.config.shadow_normal_offset_scale = 2e-4
 app.config.shadow_bias_scale = 1e-3
 app.config.shadow_bias_minimum = 5e-4
 
-app.simulation.sun = [0.0, 20.0, 0.0]
-# app.config.light_up = [0.0, 1.0, 0.0]
-app.config.light_side = 6.0
-app.config.light_znear = 10.0
-app.config.light_zfar = 30.0
+app.simulation.sun.pos = [0.0, 50.0, 0.0]
+app.simulation.sun.look_anchor()
+app.simulation.sun.projection.set_orthographic()
+app.simulation.sun.projection.side = 2.0
+app.simulation.sun.projection.near = 0.1
+app.simulation.sun.projection.far = 100.0
 
 app.simulation.camera.pos = [0.0, 10.0, 0.0]
-app.simulation.camera.up = [0.0, 0.0, 1.0]
 app.simulation.camera.look_anchor()
 
 mat_spin_tilt = numpy.eye(4)

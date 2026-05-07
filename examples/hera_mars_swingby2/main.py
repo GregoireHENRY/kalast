@@ -8,12 +8,15 @@ import kalast
 
 
 app = kalast.app.App()
+# app.config.debug_app = True
+# app.config.debug_window = True
+# app.config.debug_simulation = True
+app.config.debug_light_cube_show = True
 
 app.config.width = 1024
 app.config.height = 768
 
-app.config.global_color_mode = 3
-app.config.debug_light_cube_show = False
+app.config.global_color_mode = 0
 
 app.config.shadow_normal_offset_scale = 2e-4
 app.config.shadow_bias_scale = 1e-3
@@ -28,7 +31,7 @@ df = pandas.read_csv(
 images = df["image"].to_list()
 et_images = df["et"].to_numpy()
 
-et0 = spice.str2et("2025-03-12 12:40:18 UTC")
+et0 = spice.str2et("2025-03-12 12:09:00 UTC")
 et = et0
 
 # deltet = spice.deltet(et, "et")
@@ -41,31 +44,38 @@ instr = "hera_tiri"
 (p_phobos, _lt) = spice.spkpos("phobos", et, instr, "none", instr)
 (p_deimos, _lt) = spice.spkpos("deimos", et, instr, "none", instr)
 
+p_sun = [0.0, 0.0, -1.0 * kalast.util.AU / 1e3]
+
 d_sun_au = numpy.linalg.norm(p_sun) * 1e3 / kalast.util.AU
 d_mars = numpy.linalg.norm(p_mars)
 d_phobos = numpy.linalg.norm(p_phobos)
 d_deimos = numpy.linalg.norm(p_deimos)
 
-print(f"sun={d_sun_au:.5f}AU")
+m_mars_tiri = spice.pxform("iau_mars", instr, et)
+m_deimos_tiri = spice.pxform("iau_deimos", instr, et)
+m_phobos_tiri = spice.pxform("iau_phobos", instr, et)
+
+print(f"sun={d_sun_au:.5f}AU, p={p_sun}")
 print(f"mars={d_mars:.5e}km p={p_mars}")
 print(f"phobos={d_phobos:.5e}km p={p_phobos} ")
 print(f"deimos={d_deimos:.5e}km p={p_deimos} ")
 print()
 
 znear = 1.0e2
-zfar = 1.0e5
+zfar = 1.0e9
 
 # add sun pos (not cube light pos) in shader for correct light dir to each facets
 # create light and camera adaptative znear/zfar
 # link both in a fov/proj struct? or light should use proj
 # light should also use pos/up/dir like camera, and view proj calculation
 app.simulation.sun = p_sun
-app.config.light_distance = 1.0
+# app.config.light_distance = 1.0
 app.config.light_up = [0.0, 1.0, 0.0]
 app.config.light_target = p_mars
 app.config.light_side = 4.0e3
 app.config.light_znear = znear
 app.config.light_zfar = zfar
+app.config.light_cube_scale = 10.0
 
 app.simulation.camera.pos = [0.0, 0.0, 0.0]
 app.simulation.camera.up = [0.0, 1.0, 0.0]
@@ -96,7 +106,7 @@ app.simulation.load_mesh(
 )
 
 mat_resize = numpy.eye(4)
-mat_resize[:3, :3] *= 1.0
+mat_resize[:3, :3] *= 50.0
 
 mat = mat_resize @ mat_spin_tilt
 mat[0:3, 3] = p_phobos
@@ -108,9 +118,10 @@ app.simulation.load_mesh(
 )
 
 mat_resize = numpy.eye(4)
-mat_resize[:3, :3] *= 1.0
+mat_resize[:3, :3] *= 50.0
 
 mat = mat_resize @ mat_spin_tilt
+mat[0:3, 0:3] = mat[0:3, 0:3] @ m_deimos_tiri
 mat[0:3, 3] = p_deimos
 
 app.simulation.load_mesh(
@@ -121,6 +132,9 @@ app.simulation.load_mesh(
 
 
 def tick(sim: kalast.app.simulation.Simulation, dt: float):
+    if sim.state.iteration == 0:
+        sim.export_once()
+
     if sim.state.is_paused:
         return
 

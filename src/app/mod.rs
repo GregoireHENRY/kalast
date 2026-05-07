@@ -1,6 +1,6 @@
 pub mod body;
-pub mod camera;
 pub mod config;
+pub mod frame;
 pub mod gpu;
 pub mod pass;
 pub mod simulation;
@@ -22,7 +22,7 @@ pub struct App {
     pub simulation: Rc<RefCell<crate::app::simulation::Simulation>>,
     pub tick: Option<Tick>,
 
-    pub controller: camera::Controller,
+    pub controller: frame::Controller,
 }
 
 impl App {
@@ -31,7 +31,7 @@ impl App {
     }
 
     pub fn new_with_config(config: crate::app::config::Config) -> Self {
-        let controller = camera::Controller::new(
+        let controller = frame::Controller::new(
             config.sensitivity_move,
             config.sensitivity_look,
             config.sensitivity_rotate,
@@ -88,13 +88,17 @@ impl App {
     pub fn exit(&self, ev: &winit::event_loop::ActiveEventLoop) {
         let win = self.window.as_ref().unwrap();
 
-        if self.simulation.borrow().camera.control == camera::Control::WASD {
+        if self.simulation.borrow().camera.control == frame::Control::WASD {
             win.reset_cursor();
         }
-        
+
         // win.get_window().screenshot()
 
         ev.exit()
+    }
+
+    pub fn toggle_export_frame(&mut self) {
+        self.window.as_mut().unwrap().toggle_export_frame();
     }
 }
 
@@ -128,6 +132,24 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 win.resize(size.width, size.height, &self.config);
             }
             winit::event::WindowEvent::RedrawRequested => {
+                let texture = {
+                    let win = self.window.as_mut().unwrap();
+                    win.window.request_redraw();
+
+                    if !win.is_surface_configured {
+                        if self.config.debug_window {
+                            println!("[WINDOW] surface is not configured yet")
+                        }
+                        return;
+                    }
+
+                    if let Some(texture) = win.get_surface_texture(&self.config) {
+                        texture
+                    } else {
+                        return;
+                    }
+                };
+
                 let now = std::time::Instant::now();
                 self.dt = (now - self.now).as_secs_f64() as _;
                 self.now = now;
@@ -148,22 +170,17 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 };
 
                 {
-                    self.simulation
-                        .borrow_mut()
-                        .camera
+                    let mut sim = self.simulation.borrow_mut();
+                    let win = self.window.as_mut().unwrap();
+
+                    sim.camera
                         .update_with_controller(&mut self.controller, self.dt);
 
-                    self.simulation.borrow_mut().update();
-                }
+                    sim.update();
+                    win.update(&sim, &self.config);
+                    win.render(texture, &self.config);
 
-                {
-                    let win = self.window.as_mut().unwrap();
-                    win.update(&mut self.simulation.borrow_mut(), &self.config);
-                    win.render(&self.config);
-                }
-
-                if self.config.debug_app {
-                    // println!("[APP][WindowEvent::RedrawRequested] hello");
+                    sim.export_once = false;
                 }
             }
 
@@ -186,23 +203,26 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         // win.toggle_color_xy = !win.toggle_color_xy;
                     }
                     (winit::keyboard::KeyCode::KeyP, true) => {
-                        self.simulation.borrow_mut().state.toggle_pause();
+                        let pause = self.simulation.borrow_mut().state.toggle_pause();
+                        if self.config.debug_app {
+                            println!("[APP] Simulation paused={}", pause);
+                        }
                     }
 
                     (winit::keyboard::KeyCode::KeyT, true) => {
                         // switch camera type
-                        self.simulation.borrow_mut().camera.toggle_control();
+                        self.simulation.borrow_mut().camera.control.toggle();
                         let control = self.simulation.borrow().camera.control;
                         if self.config.debug_app {
                             println!("[APP] Camera control changed, now is {:?}", control);
                         }
                         match control {
-                            camera::Control::Arcball => {
+                            frame::Control::Arcball => {
                                 // reset cursor middle
                                 let win = self.window.as_ref().unwrap();
                                 win.reset_cursor();
                             }
-                            camera::Control::WASD => {
+                            frame::Control::WASD => {
                                 // no cursor in WASD
                                 let win = self.window.as_ref().unwrap();
                                 win.center_cursor();
@@ -215,7 +235,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                                     })
                                     .unwrap();
                             }
-                            camera::Control::None => {}
+                            frame::Control::None => {}
                         }
                     }
 
@@ -224,7 +244,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
             }
 
             winit::event::WindowEvent::PinchGesture { delta, .. } => {
-                if self.simulation.borrow().camera.control == camera::Control::Arcball {
+                if self.simulation.borrow().camera.control == frame::Control::Arcball {
                     self.controller.zoom(delta as Float);
                 }
             }
@@ -247,7 +267,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
     ) {
         match ev {
             winit::event::DeviceEvent::MouseMotion { delta: (dx, dy) } => {
-                if self.simulation.borrow().camera.control == camera::Control::WASD {
+                if self.simulation.borrow().camera.control == frame::Control::WASD {
                     self.controller.mouse_motion(dx as Float, dy as Float);
                 }
             }
@@ -263,7 +283,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     }) => (x as Float, y as Float),
                 };
 
-                if self.simulation.borrow().camera.control == camera::Control::Arcball {
+                if self.simulation.borrow().camera.control == frame::Control::Arcball {
                     self.controller.mouse_motion(-dx, -dy);
                 }
             }

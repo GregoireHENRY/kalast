@@ -1,4 +1,4 @@
-use crate::{Float, Vec3};
+use crate::Float;
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -25,15 +25,9 @@ pub struct Config {
     pub global_color_mode: u32,
     pub global_extra: u32,
 
-    pub light_distance: Option<Float>,
-    pub light_color: wgpu::Color,
-    pub light_target: Vec3,
-    pub light_up: Vec3,
-    pub light_side: Float,
-    pub light_znear: Float,
-    pub light_zfar: Float,
-
     pub ambient_strength: f32,
+    pub light_color: wgpu::Color,
+    pub light_cube_scale: Float,
 
     pub shadow_resolution: u32,
     pub shadow_pcf: u32,
@@ -68,15 +62,14 @@ impl Default for Config {
             global_color_mode: 0,
             global_extra: 0,
 
-            light_distance: None,
-            light_color: wgpu::Color::WHITE,
-            light_target: Vec3::new(0.0, 0.0, 0.0),
-            light_up: Vec3::new(0.0, 0.0, 1.0),
-            light_side: 10.0,
-            light_znear: 0.1,
-            light_zfar: 100.0,
-
             ambient_strength: 0.002,
+            light_color: wgpu::Color::WHITE,
+            // light_target: Vec3::new(0.0, 0.0, 0.0),
+            // light_up: Vec3::new(0.0, 0.0, 1.0),
+            // light_side: 10.0,
+            // light_znear: 0.1,
+            // light_zfar: 100.0,
+            light_cube_scale: 0.25,
 
             shadow_resolution: 8192,
             shadow_pcf: 0,

@@ -6,47 +6,9 @@ pub mod spice;
 pub mod tpm;
 pub mod util;
 
-use std::sync::Mutex;
-
-use once_cell::sync::Lazy;
 use pyo3::prelude::*;
 
-#[macro_export]
-macro_rules! pyadd_c {
-    ($m:expr, $p:ident $(::$c:tt)+) => {
-        // 1) receive `pyadd_c!(crate::tpm::core::NEWTON_METHOD_MAX_ITERATION);`
-        // split $p and send to 2)
-        pyadd_c!($m, $p::, $($c),*);
-    };
-
-    ($m:expr, $($p:ident::)+, $head:ident, $($tail:ident),+) => {
-        // 2) receive $p + a split version of it.
-        // The first time it isolate the head `tpm` and call 2) again.
-        // The second time it isolate the new head `core` and only one tail so it will call 3).
-        pyadd_c!($m, $($p::)* $head::, $($tail),*);
-    };
-
-    ($m:expr, $($p:ident::)+ , $c:ident) => {
-        // 3) this is called when $method is NEWTON_METHOD_MAX_ITERATION and $module is the full
-        // path before.
-        $m.add(stringify!($c), $($p::)+ $c)?;
-    };
-}
-
-#[macro_export]
-macro_rules! pyadd_f {
-    ($m:expr, $f:path) => {
-        $m.add_function(wrap_pyfunction!($f, &$m)?)?;
-    };
-}
-
-pub fn pyadd_c_lazy<'py, T>(m: &Bound<'py, PyModule>, name: &str, lazy_data: &Lazy<Mutex<T>>)
-where
-    T: Clone + std::fmt::Debug + IntoPyObject<'py>,
-{
-    let locked = lazy_data.lock().unwrap();
-    m.add(name, locked.clone()).unwrap();
-}
+use crate::{pyadd_c, pyadd_f};
 
 #[pymodule]
 #[pyo3(name = "_rs")]
@@ -262,13 +224,15 @@ fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
         .getattr("modules")?
         .set_item("kalast._rs.app.body", &body)?;
 
-    let camera = PyModule::new(app.py(), "camera")?;
-    camera.add_class::<app::camera::Camera>()?;
-    camera.add_class::<app::camera::Projection>()?;
-    app.add_submodule(&camera)?;
+    let frame = PyModule::new(app.py(), "frame")?;
+    frame.add_class::<app::frame::Eye>()?;
+    frame.add_class::<app::frame::EyeRef>()?;
+    frame.add_class::<app::frame::Projection>()?;
+    frame.add_class::<app::frame::ProjectionRef>()?;
+    app.add_submodule(&frame)?;
     py.import("sys")?
         .getattr("modules")?
-        .set_item("kalast._rs.app.camera", &camera)?;
+        .set_item("kalast._rs.app.frame", &frame)?;
 
     let config = PyModule::new(app.py(), "config")?;
     config.add_class::<app::config::Config>()?;

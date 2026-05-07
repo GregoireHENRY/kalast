@@ -2,6 +2,7 @@ struct Globals {
     color: vec3<f32>,
     color_mode: u32,
     ambient_strength: f32,
+    light_cube_scale: f32,
     shadow_resolution: u32,
     shadow_bias_scale: f32,
     shadow_bias_minimum: f32,

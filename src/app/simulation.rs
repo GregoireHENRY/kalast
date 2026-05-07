@@ -1,20 +1,28 @@
-use crate::{Mat4, Vec3};
+use crate::Mat4;
 
 #[derive(Debug)]
 pub struct Simulation {
     pub state: State,
+
     pub bodies: Vec<crate::app::body::Body>,
-    pub camera: crate::app::camera::Camera,
-    pub sun: Vec3,
+    pub camera: crate::app::frame::Eye,
+    pub sun: crate::app::frame::Eye,
+
+    pub export: bool,
+    pub export_once: bool,
 }
 
 impl Simulation {
     pub fn new() -> Self {
         Self {
             state: State::new(),
+
             bodies: vec![],
-            camera: crate::app::camera::Camera::new(),
-            sun: Vec3::new(-100.0, 0.0, 0.0),
+            camera: crate::app::frame::Eye::new(),
+            sun: crate::app::frame::Eye::new(),
+
+            export: false,
+            export_once: false,
         }
     }
 
@@ -50,6 +58,14 @@ impl Simulation {
 
         self.state.iteration += 1;
     }
+
+    pub fn toggle_export(&mut self) {
+        self.export = !self.export;
+    }
+
+    pub fn export_once(&mut self) {
+        self.export_once = true;
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -67,7 +83,7 @@ impl State {
             pause_at: None,
         }
     }
-    
+
     // return pause state after toggle
     pub fn toggle_pause(&mut self) -> bool {
         self.is_paused = !self.is_paused;

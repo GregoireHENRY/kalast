@@ -1,7 +1,7 @@
 from kalast.app import (  # noqa
     _core,
     body,
-    camera,
+    frame,
     config,
     gpu,
     simulation,

@@ -1,4 +1,4 @@
-use image::GenericImageView;
+use image::{GenericImageView, ImageBuffer, Rgba};
 use wgpu::util::DeviceExt;
 
 use crate::{Mat4, Vec3};
@@ -603,4 +603,93 @@ impl Texture {
 
 pub fn color_vec3(c: &wgpu::Color) -> Vec3 {
     Vec3::new(c.r as _, c.g as _, c.b as _)
+}
+
+pub fn export_frame(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    texture: &wgpu::Texture,
+    width: u32,
+    height: u32,
+) {
+    let bytes_per_pixel = 4;
+    let unpadded_bytes_per_row = bytes_per_pixel * width;
+    let padding = (256 - unpadded_bytes_per_row % 256) % 256;
+    let padded_bytes_per_row = unpadded_bytes_per_row + padding;
+
+    let buffer_size = (padded_bytes_per_row * height) as wgpu::BufferAddress;
+
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        size: buffer_size,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+        label: None,
+    });
+
+    let mut encoder =
+        device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+
+    encoder.copy_texture_to_buffer(
+        wgpu::TexelCopyTextureInfo {
+            texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyBufferInfo {
+            buffer: &buffer,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(padded_bytes_per_row),
+                rows_per_image: Some(height),
+            },
+        },
+        wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+    );
+
+    queue.submit(Some(encoder.finish()));
+
+    let buffer_slice = buffer.slice(..);
+    buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: None,
+        })
+        .unwrap();
+
+    let data = buffer_slice.get_mapped_range();
+
+    let mut pixels = vec![0u8; (width * height * 4) as usize];
+
+    for y in 0..height as usize {
+        let src_offset = y * padded_bytes_per_row as usize;
+        let dst_offset = y * (width as usize * 4);
+
+        pixels[dst_offset..dst_offset + (width as usize * 4)]
+            .copy_from_slice(&data[src_offset..src_offset + (width as usize * 4)]);
+    }
+
+    drop(data);
+    buffer.unmap();
+
+    let img = ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, pixels).unwrap();
+
+    let mut ii = 0usize;
+    let mut path;
+
+    loop {
+        path = std::path::PathBuf::from(format!("out/frames/{ii}.png"));
+
+        if !path.exists() {
+            break;
+        }
+        ii += 1;
+    }
+
+    img.save(path).unwrap();
 }

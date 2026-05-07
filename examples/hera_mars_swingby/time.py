@@ -71,7 +71,7 @@ print()
 print("Formatting sc clk hex str")
 scs_hex = "00042818b2617f"
 print(scs_hex)
-print("   -----****")
+print("--------****")
 print("seconds  sub-seconds")
 print("=42818   =b261")
 scs_sec = int(scs_hex[:8], 16)
@@ -80,7 +80,7 @@ scs_fmt = f"{scs_sec}:{scs_sub}"
 print(f"-> {scs_fmt}")
 
 # 00042818b2617f
-#    -----****
+# --------****
 # seconds  sub-seconds
 # =42818   =b261
 # -> 272408:45665

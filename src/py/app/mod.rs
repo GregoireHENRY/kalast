@@ -1,5 +1,5 @@
 pub mod body;
-pub mod camera;
+pub mod frame;
 pub mod config;
 pub mod gpu;
 pub mod simulation;

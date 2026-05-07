@@ -34,6 +34,8 @@ pub struct Window {
 
     pub uniforms: super::uniform::Uniforms,
     pub passes: super::pass::Passes,
+
+    pub export_frame: bool,
 }
 
 impl Window {
@@ -103,7 +105,7 @@ impl Window {
         let size = window.inner_size();
 
         let surface_config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             format: format,
             width: size.width,
             height: size.height,
@@ -125,9 +127,9 @@ impl Window {
 
         let mut meshes = vec![];
 
-        // TODO: ADD COLOR PER MESH? ask GPT why model matrix is not a uniform
-        // if has to stay like that then ignore color per mesh
-        // render light cube
+        // TODO: ADD COLOR PER MESH?
+        // InstanceInput is full in location (16)
+        // need to move that to uniform or something else
 
         meshes.push(super::gpu::MeshBuffer::new(
             &device,
@@ -175,6 +177,7 @@ impl Window {
                 color_mode: config.global_color_mode,
 
                 ambient_strength: config.ambient_strength,
+                light_cube_scale: config.light_cube_scale,
 
                 shadow_resolution: config.shadow_resolution,
                 shadow_bias_scale: config.shadow_bias_scale,
@@ -194,24 +197,17 @@ impl Window {
                 .unwrap(),
         };
 
-        let light_pos = {
-            if let Some(d) = config.light_distance {
-                simulation.sun.normalize() * d
-            } else {
-                simulation.sun
-            }
-        };
-        let light_vp = light_view_proj(
-            light_pos,
-            config.light_target,
-            config.light_up,
-            config.light_side,
-            config.light_znear,
-            config.light_zfar,
-        );
+        // Light needsmto be optimized in pos/proj znear/far/side
+        // to have optimized shadow mapping resolution and reduce bias effects.
+
         let light = super::uniform::Light {
-            view_proj: light_vp,
-            pos: light_pos,
+            view_proj: simulation
+                .sun
+                // .view_proj(size.width as Float / size.height as Float)
+                .view_proj(1.0)
+                .unwrap(),
+
+            pos: simulation.sun.pos,
             color: super::gpu::color_vec3(&config.light_color),
             ..Default::default()
         };
@@ -244,6 +240,8 @@ impl Window {
             meshes,
             uniforms,
             passes,
+
+            export_frame: false,
         }
     }
 
@@ -272,6 +270,10 @@ impl Window {
             .unwrap();
     }
 
+    pub fn toggle_export_frame(&mut self) {
+        self.export_frame = !self.export_frame;
+    }
+
     pub fn resize(&mut self, width: u32, height: u32, config: &crate::app::config::Config) {
         self.surface_config.width = width;
         self.surface_config.height = height;
@@ -291,7 +293,7 @@ impl Window {
     pub fn update(
         &mut self,
         simulation: &crate::app::simulation::Simulation,
-        config: &crate::app::config::Config,
+        _config: &crate::app::config::Config,
     ) {
         let width = self.surface_config.width;
         let height = self.surface_config.height;
@@ -301,23 +303,13 @@ impl Window {
             .view_proj(width as Float / height as Float)
             .unwrap();
 
-        let light_pos = {
-            if let Some(d) = config.light_distance {
-                simulation.sun.normalize() * d
-            } else {
-                simulation.sun
-            }
-        };
-        let light_vp = light_view_proj(
-            light_pos,
-            config.light_target,
-            config.light_up,
-            config.light_side,
-            config.light_znear,
-            config.light_zfar,
-        );
-        self.uniforms.view.uniform.light.view_proj = light_vp;
-        self.uniforms.view.uniform.light.pos = light_pos;
+        self.uniforms.view.uniform.light.view_proj = simulation
+            .sun
+            // .view_proj(size.width as Float / size.height as Float)
+            .view_proj(1.0)
+            .unwrap();
+
+        self.uniforms.view.uniform.light.pos = simulation.sun.pos;
 
         self.queue.write_buffer(
             &self.uniforms.view.buffer,
@@ -331,26 +323,20 @@ impl Window {
             self.meshes[1 + ii].update_instance_buffer(&self.device, &instance);
         }
 
-        // self.queue.write_buffer(
-        //     &self.uniforms.view.buffer,
-        //     0,
-        //     bytemuck::bytes_of(&self.uniforms.view.uniform),
-        // );
+        if simulation.export_once {
+            self.export_frame = true;
+        } else {
+            self.export_frame = simulation.export;
+        }
     }
 
-    pub fn render(&mut self, config: &crate::app::config::Config) {
-        self.window.request_redraw();
-
-        if !self.is_surface_configured {
-            if config.debug_window {
-                println!("[WINDOW] surface is not configured yet")
-            }
-            return;
-        }
-
-        let texture = match self.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(texture) => texture,
-            wgpu::CurrentSurfaceTexture::Occluded | wgpu::CurrentSurfaceTexture::Timeout => return,
+    pub fn get_surface_texture(
+        &mut self,
+        config: &crate::app::config::Config,
+    ) -> Option<wgpu::SurfaceTexture> {
+        match self.surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(texture) => Some(texture),
+            wgpu::CurrentSurfaceTexture::Occluded | wgpu::CurrentSurfaceTexture::Timeout => None,
             wgpu::CurrentSurfaceTexture::Suboptimal(_) | wgpu::CurrentSurfaceTexture::Outdated => {
                 if config.debug_window {
                     println!(
@@ -358,7 +344,7 @@ impl Window {
                     )
                 }
                 self.configure_surface();
-                return;
+                None
             }
             wgpu::CurrentSurfaceTexture::Validation => {
                 unreachable!("No error scope registered, so validation errors will panic")
@@ -369,10 +355,12 @@ impl Window {
                 }
                 self.surface = self.instance.create_surface(self.window.clone()).unwrap();
                 self.configure_surface();
-                return;
+                None
             }
-        };
+        }
+    }
 
+    pub fn render(&mut self, texture: wgpu::SurfaceTexture, config: &crate::app::config::Config) {
         let view = texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -390,6 +378,17 @@ impl Window {
         );
 
         self.queue.submit([encoder.finish()]);
+
+        if self.export_frame {
+            super::gpu::export_frame(
+                &self.device,
+                &self.queue,
+                &texture.texture,
+                self.surface_config.width,
+                self.surface_config.height,
+            );
+        }
+
         texture.present();
     }
 }

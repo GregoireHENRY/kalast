@@ -5,6 +5,57 @@ pub const SENSITIVITY_LOOK: Float = 0.1;
 pub const SENSITIVITY_ROTATE: Float = 0.1;
 pub const SENSITIVITY_ZOOM: Float = 1.0e1;
 
+#[derive(Debug, Clone)]
+pub struct Projection {
+    pub mode: ProjectionMode,
+    pub fovy: Float, // radian
+    pub near: Float,
+    pub far: Float,
+    pub side: Float,
+}
+
+impl Projection {
+    pub fn new() -> Self {
+        Self {
+            mode: ProjectionMode::Perspective,
+            fovy: 0.5236, // ~45 degrees
+            near: 0.01,
+            far: 100.0,
+            side: 5.0,
+        }
+    }
+
+    // right-handed, Z axis points out of the screen
+    // aspect: window width / height
+    pub fn mat(&self, aspect: Float) -> Mat4 {
+        match self.mode {
+            ProjectionMode::Orthographic => {
+                let half_height = self.side;
+                let half_width = half_height * aspect;
+
+                Mat4::orthographic_rh(
+                    -half_width,
+                    half_width,
+                    -half_height,
+                    half_height,
+                    self.near,
+                    self.far,
+                )
+            }
+            ProjectionMode::Perspective => {
+                Mat4::perspective_rh(self.fovy, aspect, self.near, self.far)
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ProjectionMode {
+    Orthographic,
+
+    Perspective,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Control {
     Arcball,
@@ -12,19 +63,28 @@ pub enum Control {
     None,
 }
 
+impl Control {
+    pub fn toggle(&mut self) {
+        match self {
+            Self::Arcball | Self::None => Self::WASD,
+            Self::WASD => Self::Arcball,
+        };
+    }
+}
+
 // if unit vectors are not normalized, results are gonna be wrong
 #[derive(Debug, Clone)]
-pub struct Camera {
+pub struct Eye {
     pub pos: Vec3,
     pub dir: Vec3, // unit vector
     pub up: Vec3,  // unit vector
     pub anchor: Vec3,
     pub up_world: Vec3, // unit vector
-    pub control: Control,
     pub projection: Projection,
+    pub control: Control,
 }
 
-impl Camera {
+impl Eye {
     pub fn new() -> Self {
         Self {
             pos: Vec3::new(0.0, 0.0, 0.0),
@@ -32,8 +92,8 @@ impl Camera {
             up: Vec3::new(0.0, 0.0, 1.0),
             anchor: Vec3::new(0.0, 0.0, 0.0),
             up_world: Vec3::new(0.0, 0.0, 1.0),
-            control: Control::Arcball,
             projection: Projection::new(),
+            control: Control::Arcball,
         }
     }
 
@@ -103,26 +163,6 @@ impl Camera {
         self.fix_up();
     }
 
-    pub fn toggle_control(&mut self) {
-        self.control = match self.control {
-            Control::Arcball | Control::None => Control::WASD,
-            Control::WASD => Control::Arcball,
-        };
-    }
-
-    pub fn update_with_controller(&mut self, ctrl: &mut Controller, dt: Float) {
-        match self.control {
-            Control::Arcball => self.arcball_rotate(ctrl, dt),
-            Control::WASD => self.wasd_with_conroller(ctrl, dt),
-            Control::None => {}
-        };
-
-        // reset mouse amounts
-        ctrl.horizontal = 0.0;
-        ctrl.vertical = 0.0;
-        ctrl.zoom = 0.0;
-    }
-
     pub fn arcball_rotate(&mut self, ctrl: &mut Controller, dt: Float) {
         // zoom
         self.pos += self.dir
@@ -172,57 +212,20 @@ impl Camera {
         self.up = m * self.up;
         self.dir = m * self.dir;
     }
-}
 
-#[derive(Debug, Clone)]
-pub struct Projection {
-    pub mode: ProjectionMode,
-    pub fovy: Float, // radian
-    pub znear: Float,
-    pub zfar: Float,
-    pub side: Float,
-}
 
-impl Projection {
-    pub fn new() -> Self {
-        Self {
-            mode: ProjectionMode::Perspective,
-            fovy: 0.5236, // ~45 degrees
-            znear: 0.01,
-            zfar: 100.0,
-            side: 5.0,
-        }
+    pub fn update_with_controller(&mut self, ctrl: &mut Controller, dt: Float) {
+        match self.control {
+            Control::Arcball => self.arcball_rotate(ctrl, dt),
+            Control::WASD => self.wasd_with_conroller(ctrl, dt),
+            Control::None => {}
+        };
+
+        // reset mouse amounts
+        ctrl.horizontal = 0.0;
+        ctrl.vertical = 0.0;
+        ctrl.zoom = 0.0;
     }
-
-    // right-handed, Z axis points out of the screen
-    // aspect: window width / height
-    pub fn mat(&self, aspect: Float) -> Mat4 {
-        match self.mode {
-            ProjectionMode::Orthographic => {
-                let half_height = self.side;
-                let half_width = half_height * aspect;
-
-                Mat4::orthographic_rh(
-                    -half_width,
-                    half_width,
-                    -half_height,
-                    half_height,
-                    self.znear,
-                    self.zfar,
-                )
-            }
-            ProjectionMode::Perspective => {
-                Mat4::perspective_rh(self.fovy, aspect, self.znear, self.zfar)
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ProjectionMode {
-    Orthographic,
-
-    Perspective,
 }
 
 #[derive(Debug)]

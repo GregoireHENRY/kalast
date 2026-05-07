@@ -21,13 +21,6 @@ impl Simulation {
     }
 
     #[getter]
-    fn camera(&self) -> super::camera::Camera {
-        super::camera::Camera {
-            simulation: self.inner.clone(),
-        }
-    }
-
-    #[getter]
     fn bodies(&mut self) -> Vec<super::body::Body> {
         self.inner
             .borrow()
@@ -39,6 +32,22 @@ impl Simulation {
                 index,
             })
             .collect()
+    }
+
+    #[getter]
+    fn camera(&self) -> super::frame::EyeRef {
+        super::frame::EyeRef {
+            simulation: self.inner.clone(),
+            field: super::frame::EyeType::Camera,
+        }
+    }
+
+    #[getter]
+    fn sun(&self) -> super::frame::EyeRef {
+        super::frame::EyeRef {
+            simulation: self.inner.clone(),
+            field: super::frame::EyeType::Sun,
+        }
     }
 
     #[pyo3(signature = (
@@ -72,67 +81,25 @@ impl Simulation {
     }
 
     #[getter]
-    fn sun<'py>(slf: pyo3::Bound<'py, Self>) -> pyo3::Bound<'py, numpy::PyArray1<Float>> {
-        let inner = &slf.borrow().inner;
-        let v = &inner.borrow().sun;
-        let arr = ndarray::ArrayView1::from(v.as_ref());
-        unsafe { numpy::PyArray1::borrow_from_array(&arr, slf.into_any()) }
+    fn export(&self) -> bool {
+        self.inner.borrow().export
     }
 
     #[setter]
-    fn set_sun(&self, v: [Float; 3]) {
-        self.inner.borrow_mut().sun = v.into();
+    fn set_export(&mut self, v: bool) {
+        self.inner.borrow_mut().export = v;
     }
-
-    /*
-    #[pyo3(signature = (
-        mesh=None,
-        instance=None,
-        mat=None,
-        // color=None,
-        // color_mode=None,
-        entity=None,
-        body=None
-    ))]
-    fn add_body(
-        &mut self,
-        mesh: Option<crate::py::mesh::Mesh>,
-        instance: Option<super::gpu::InstanceInput>,
-        mat: Option<Bound<'_, numpy::PyArray2<Float>>>,
-        // color: Option<Bound<'_, numpy::PyArray1<Float>>>,
-        // color_mode: Option<u32>,
-        entity: Option<crate::py::entity::Body>,
-        body: Option<super::body::Body>,
-    ) {
-        self.inner
-            .borrow_mut()
-            .bodies
-            .push(if let Some(body) = body {
-                body.inner.clone()
-            } else {
-                let instance = instance.unwrap_or(super::gpu::InstanceInput::new(mat));
-                super::body::Body::new(mesh, Some(instance), entity)
-                    .inner
-                    .clone()
-            });
-    }
-
-    fn get_matrix_model<'py>(
-        slf: pyo3::Bound<'py, Self>,
-        index: usize,
-    ) -> Bound<'py, numpy::PyArray2<Float>> {
-        let inner = &slf.borrow().inner;
-        let body = &inner.borrow().bodies[index];
-        let slice = body.borrow().instance.mat;
-        let arr = ndarray::ArrayView1::from(slice.as_ref())
-            .into_shape_with_order((4, 4))
-            .unwrap();
-        unsafe { numpy::PyArray2::borrow_from_array(&arr, slf.into_any()) }
-    }
-    */
 
     fn update(&mut self) {
         self.inner.borrow_mut().update();
+    }
+
+    fn toggle_export(&mut self) {
+        self.inner.borrow_mut().toggle_export();
+    }
+
+    fn export_once(&mut self) {
+        self.inner.borrow_mut().export_once();
     }
 
     fn __repr__(&self) -> String {
