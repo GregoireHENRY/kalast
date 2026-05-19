@@ -65,7 +65,7 @@ pub enum Control {
 
 impl Control {
     pub fn toggle(&mut self) {
-        match self {
+        *self = match self {
             Self::Arcball | Self::None => Self::WASD,
             Self::WASD => Self::Arcball,
         };
@@ -212,7 +212,6 @@ impl Eye {
         self.up = m * self.up;
         self.dir = m * self.dir;
     }
-
 
     pub fn update_with_controller(&mut self, ctrl: &mut Controller, dt: Float) {
         match self.control {

@@ -8,7 +8,7 @@ import kalast
 
 
 app = kalast.app.App()
-# app.config.debug_app = True
+app.config.debug_app = True
 # app.config.debug_window = True
 # app.config.debug_simulation = True
 app.config.debug_light_cube_show = True
@@ -31,7 +31,7 @@ df = pandas.read_csv(
 images = df["image"].to_list()
 et_images = df["et"].to_numpy()
 
-et0 = spice.str2et("2025-03-12 12:09:00 UTC")
+et0 = spice.str2et("2025-03-12 12:07:00 UTC")
 et = et0
 
 # deltet = spice.deltet(et, "et")
@@ -61,30 +61,24 @@ print(f"phobos={d_phobos:.5e}km p={p_phobos} ")
 print(f"deimos={d_deimos:.5e}km p={p_deimos} ")
 print()
 
-znear = 1.0e2
-zfar = 1.0e9
-
-# add sun pos (not cube light pos) in shader for correct light dir to each facets
-# create light and camera adaptative znear/zfar
-# link both in a fov/proj struct? or light should use proj
-# light should also use pos/up/dir like camera, and view proj calculation
-app.simulation.sun = p_sun
-# app.config.light_distance = 1.0
-app.config.light_up = [0.0, 1.0, 0.0]
-app.config.light_target = p_mars
-app.config.light_side = 4.0e3
-app.config.light_znear = znear
-app.config.light_zfar = zfar
 app.config.light_cube_scale = 10.0
+
+app.simulation.sun.pos = p_sun
+app.simulation.sun.up = [0.0, 1.0, 0.0]
+app.simulation.sun.set_target(p_mars)
+app.simulation.sun.projection.side = 4.0e4
+app.simulation.sun.projection.near = 1.0e7
+app.simulation.sun.projection.far = 1.0e9
 
 app.simulation.camera.pos = [0.0, 0.0, 0.0]
 app.simulation.camera.up = [0.0, 1.0, 0.0]
 app.simulation.camera.dir = [0.0, 0.0, 1.0]
 app.simulation.camera.anchor = p_mars
 app.simulation.camera.set_control_none()
-app.simulation.camera.projection.znear = znear
-app.simulation.camera.projection.zfar = zfar
+app.simulation.camera.projection.near = 1.0e2
+app.simulation.camera.projection.far = 1.0e5
 app.simulation.camera.projection.fovy = 10.0 * kalast.util.RPD
+# app.simulation.camera.projection.fovy = 5.5 * kalast.util.RPD
 app.simulation.camera.up_world = [0.0, 1.0, 0.0]
 
 mat_resize = numpy.eye(4)
@@ -106,7 +100,7 @@ app.simulation.load_mesh(
 )
 
 mat_resize = numpy.eye(4)
-mat_resize[:3, :3] *= 50.0
+mat_resize[:3, :3] *= 1.0
 
 mat = mat_resize @ mat_spin_tilt
 mat[0:3, 3] = p_phobos
@@ -118,7 +112,7 @@ app.simulation.load_mesh(
 )
 
 mat_resize = numpy.eye(4)
-mat_resize[:3, :3] *= 50.0
+mat_resize[:3, :3] *= 1.0
 
 mat = mat_resize @ mat_spin_tilt
 mat[0:3, 0:3] = mat[0:3, 0:3] @ m_deimos_tiri

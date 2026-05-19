@@ -35,18 +35,18 @@ impl Simulation {
     }
 
     #[getter]
-    fn camera(&self) -> super::frame::EyeRef {
-        super::frame::EyeRef {
+    fn camera(&self) -> super::frame::Eye {
+        super::frame::Eye {
             simulation: self.inner.clone(),
-            field: super::frame::EyeType::Camera,
+            field: super::frame::EyeField::Camera,
         }
     }
 
     #[getter]
-    fn sun(&self) -> super::frame::EyeRef {
-        super::frame::EyeRef {
+    fn sun(&self) -> super::frame::Eye {
+        super::frame::Eye {
             simulation: self.inner.clone(),
-            field: super::frame::EyeType::Sun,
+            field: super::frame::EyeField::Sun,
         }
     }
 

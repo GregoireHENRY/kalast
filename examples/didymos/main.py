@@ -16,13 +16,15 @@ app.config.shadow_bias_minimum = 5e-4
 
 app.simulation.sun.pos = [0.0, 50.0, 0.0]
 app.simulation.sun.look_anchor()
-app.simulation.sun.projection.set_orthographic()
 app.simulation.sun.projection.side = 2.0
 app.simulation.sun.projection.near = 0.1
 app.simulation.sun.projection.far = 100.0
 
 app.simulation.camera.pos = [0.0, 10.0, 0.0]
 app.simulation.camera.look_anchor()
+
+# app.simulation.camera.projection.set_orthographic()
+# app.simulation.camera.projection.side = 2.0
 
 mat_spin_tilt = numpy.eye(4)
 mat_spin_tilt[:3, :3] = kalast.util.mat_axis_angle(

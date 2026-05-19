@@ -14,12 +14,16 @@ pub struct Simulation {
 
 impl Simulation {
     pub fn new() -> Self {
+
+        let mut sun = crate::app::frame::Eye::new();
+        sun.projection.mode = crate::app::frame::ProjectionMode::Orthographic;
+
         Self {
             state: State::new(),
 
             bodies: vec![],
             camera: crate::app::frame::Eye::new(),
-            sun: crate::app::frame::Eye::new(),
+            sun,
 
             export: false,
             export_once: false,

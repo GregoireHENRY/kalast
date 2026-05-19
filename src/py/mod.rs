@@ -226,9 +226,7 @@ fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     let frame = PyModule::new(app.py(), "frame")?;
     frame.add_class::<app::frame::Eye>()?;
-    frame.add_class::<app::frame::EyeRef>()?;
     frame.add_class::<app::frame::Projection>()?;
-    frame.add_class::<app::frame::ProjectionRef>()?;
     app.add_submodule(&frame)?;
     py.import("sys")?
         .getattr("modules")?
