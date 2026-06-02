@@ -31,7 +31,7 @@ df = pandas.read_csv(
 images = df["image"].to_list()
 et_images = df["et"].to_numpy()
 
-et0 = spice.str2et("2025-03-12 12:07:00 UTC")
+et0 = spice.str2et("2025-03-12 12:09:00 UTC")
 et = et0
 
 # deltet = spice.deltet(et, "et")
@@ -73,7 +73,7 @@ app.simulation.sun.projection.far = 1.0e9
 app.simulation.camera.pos = [0.0, 0.0, 0.0]
 app.simulation.camera.up = [0.0, 1.0, 0.0]
 app.simulation.camera.dir = [0.0, 0.0, 1.0]
-app.simulation.camera.anchor = p_mars
+app.simulation.camera.anchor = p_deimos
 app.simulation.camera.set_control_none()
 app.simulation.camera.projection.near = 1.0e2
 app.simulation.camera.projection.far = 1.0e5
