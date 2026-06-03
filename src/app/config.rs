@@ -21,6 +21,7 @@ pub struct Config {
     pub sensitivity_rotate: Float,
     pub sensitivity_zoom: Float,
 
+    // See app/uniform.rs Globals struct
     pub global_color: wgpu::Color,
     pub global_color_mode: u32,
     pub global_extra: u32,

@@ -25,10 +25,22 @@ spice.kclear()
 spice.furnsh("/Users/gregoireh/data/spice/hera/kernels/mk/hera_ops_local.tm")
 frame = "j2000"
 
-
 # Body
 deimos = kalast.entity.DEIMOS
+
+# Surface
+mesh = kalast.mesh.Mesh(
+    "/Users/gregoireh/data/spice/hera/kernels/dsk/deimos_k005_tho_v02.obj"
+)
+nface = len(mesh.facets)
+nvert = len(mesh.vertices)
+print(f"nfaces={nface} nvert={nvert}")
+
+# Thermal properties
 prop = kalast.tpm.properties.DEIMOS
+prop.se = STEFAN_BOLTZMANN * prop.emissivity
+prop.compute_conductivity_diffusivity()
+print(f"k={prop.conductivity:.6e} d={prop.diffusivity:.6e}")
 
 # Time
 date_start_pre = "2025-03-09 00:00"
@@ -50,18 +62,8 @@ nit_tot = nit_pre + nit_sim
 print(f"t_pre={t_pre}s ={t_pre / DAY:.3}d ({nit_pre}it)")
 print(f"t_sim={t_sim}s ={t_sim / DAY:.3}d ({nit_sim}it)")
 
-# Thermal properties.
-prop.se = STEFAN_BOLTZMANN * prop.emissivity
-print(f"k={prop.k:.6e} d={prop.d:.6e}")
 
 exit()
-
-# Surface.
-body.surf.mesh = trimesh.load("work/deimos.obj")
-nface = body.surf.nfaces()
-nvert = body.surf.nvertices()
-body.surf.set_props_constant_face(prop)
-print(f"nfaces={nface} nvert={nvert}")
 
 equator = numpy.load("work/scene/equator.npy")
 meridian0 = numpy.load("work/scene/meridian0.npy")

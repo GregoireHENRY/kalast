@@ -8,7 +8,7 @@ use crate::{
     entity::Spacecraft as RsSpacecraft,
 };
 
-#[pyclass(from_py_object, unsendable)]
+#[pyclass(from_py_object, unsendable, dict)]
 #[derive(Clone)]
 pub struct Entity {
     pub inner: Rc<RefCell<RsEntity>>,
@@ -72,7 +72,7 @@ impl Entity {
     }
 }
 
-#[pyclass(from_py_object, unsendable)]
+#[pyclass(from_py_object, unsendable, dict)]
 #[derive(Clone)]
 pub struct Body {
     pub inner: Rc<RefCell<RsBody>>,
@@ -197,7 +197,7 @@ impl Body {
     }
 }
 
-#[pyclass(from_py_object, unsendable)]
+#[pyclass(from_py_object, unsendable, dict)]
 #[derive(Clone)]
 pub struct Camera {
     pub inner: Rc<RefCell<RsCamera>>,
@@ -314,7 +314,7 @@ impl Camera {
     }
 }
 
-#[pyclass(unsendable)]
+#[pyclass(unsendable, dict)]
 pub struct Spacecraft {
     pub entity: Entity,
 

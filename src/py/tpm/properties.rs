@@ -4,7 +4,7 @@ use pyo3::prelude::*;
 
 use crate::{Float, tpm::properties::Properties as RsProperties};
 
-#[pyclass(from_py_object, unsendable)]
+#[pyclass(from_py_object, unsendable, dict)]
 #[derive(Clone)]
 pub struct Properties {
     pub inner: Rc<RefCell<RsProperties>>,
@@ -112,6 +112,22 @@ impl Properties {
     #[setter]
     fn set_diffusivity(&self, v: Float) {
         self.inner.borrow_mut().diffusivity = v;
+    }
+
+    pub fn compute_thermal_inertia(&mut self) {
+        self.inner.borrow_mut().compute_thermal_inertia();
+    }
+
+    pub fn compute_conductivity(&mut self) {
+        self.inner.borrow_mut().compute_conductivity();
+    }
+
+    pub fn compute_diffusivity(&mut self) {
+        self.inner.borrow_mut().compute_diffusivity();
+    }
+
+    pub fn compute_conductivity_diffusivity(&mut self) {
+        self.inner.borrow_mut().compute_conductivity_diffusivity();
     }
 
     pub fn __repr__(&self) -> String {
