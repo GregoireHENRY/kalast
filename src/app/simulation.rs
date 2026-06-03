@@ -1,4 +1,5 @@
 use crate::Mat4;
+use std::{cell::RefCell, rc::Rc};
 
 #[derive(Debug)]
 pub struct Simulation {
@@ -41,7 +42,7 @@ impl Simulation {
         }
 
         self.bodies.push(super::body::Body {
-            mesh: Some(mesh),
+            mesh: Some(Rc::new(RefCell::new(mesh))),
             mat,
             ..Default::default()
         });
@@ -49,7 +50,7 @@ impl Simulation {
 
     pub fn add_mesh(&mut self, mesh: crate::mesh::Mesh, mat: Mat4) {
         self.bodies.push(super::body::Body {
-            mesh: Some(mesh),
+            mesh: Some(Rc::new(RefCell::new(mesh))),
             mat,
             ..Default::default()
         });

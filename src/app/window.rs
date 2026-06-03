@@ -141,6 +141,8 @@ impl Window {
 
         for body in &simulation.bodies {
             if let Some(mesh) = body.mesh.as_ref() {
+                let mesh = mesh.borrow();
+
                 if config.debug_window_mesh {
                     for v in &mesh.vertices {
                         println!("v: {}", v.pos);

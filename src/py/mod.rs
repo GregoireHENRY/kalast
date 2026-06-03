@@ -52,6 +52,8 @@ fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     pyadd_f!(math, crate::math::py::cosine_angle_vectors);
     pyadd_f!(math, crate::math::py::cosine_incidence);
     pyadd_f!(math, crate::math::py::flattening_radius);
+    pyadd_f!(math, crate::math::py::cart2sph);
+    pyadd_f!(math, crate::math::py::sph2cart);
     pyadd_f!(math, crate::math::py::trapez);
     pyadd_f!(math, crate::math::py::simpson_1_3);
     pyadd_f!(math, crate::math::py::simpson_3_8);

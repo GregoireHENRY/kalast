@@ -26,6 +26,15 @@ impl Body {
 
     #[setter]
     fn set_mat(&mut self, m: [[Float; 4]; 4]) {
-        self.simulation.borrow_mut().bodies[self.index].mat = Mat4::from_cols_array_2d(&m).transpose();
+        self.simulation.borrow_mut().bodies[self.index].mat =
+            Mat4::from_cols_array_2d(&m).transpose();
+    }
+
+    #[getter]
+    fn mesh(&self) -> Option<crate::py::mesh::Mesh> {
+        self.simulation.borrow().bodies[self.index]
+            .mesh
+            .as_ref()
+            .and_then(|m| Some(crate::py::mesh::Mesh { inner: m.clone() }))
     }
 }

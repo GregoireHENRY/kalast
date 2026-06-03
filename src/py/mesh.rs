@@ -488,11 +488,7 @@ impl Mesh {
     fn get_facet_positions(
         slf: Bound<'_, Self>,
         facet: isize,
-    ) -> (
-        Bound<'_, numpy::PyArray1<Float>>,
-        Bound<'_, numpy::PyArray1<Float>>,
-        Bound<'_, numpy::PyArray1<Float>>,
-    ) {
+    ) -> [Bound<'_, numpy::PyArray1<Float>>; 3] {
         let n = slf.borrow().inner.borrow().facets.len();
         let facet = super::util::isize_to_usize(facet, n).unwrap();
         facets_matrix_array(slf, crate::mesh::POS_OFFSET, 3, facet)
@@ -501,18 +497,25 @@ impl Mesh {
     fn get_facet_normals(
         slf: Bound<'_, Self>,
         facet: isize,
-    ) -> (
-        Bound<'_, numpy::PyArray1<Float>>,
-        Bound<'_, numpy::PyArray1<Float>>,
-        Bound<'_, numpy::PyArray1<Float>>,
-    ) {
+    ) -> [Bound<'_, numpy::PyArray1<Float>>; 3] {
         let n = slf.borrow().inner.borrow().facets.len();
         let facet = super::util::isize_to_usize(facet, n).unwrap();
         facets_matrix_array(slf, crate::mesh::NORMAL_OFFSET, 3, facet)
     }
 
-    fn update_colors(&mut self, mode: u32, color: [Float; 3]) {
-        self.inner.borrow_mut().update_colors(mode, color.into());
+    fn get_facet_colors(
+        slf: Bound<'_, Self>,
+        facet: isize,
+    ) -> [Bound<'_, numpy::PyArray1<Float>>; 3] {
+        let n = slf.borrow().inner.borrow().facets.len();
+        let facet = super::util::isize_to_usize(facet, n).unwrap();
+        facets_matrix_array(slf, crate::mesh::COLOR_OFFSET, 3, facet)
+    }
+
+    fn update_all_vertices_colors(&mut self, mode: u32, color: [Float; 3]) {
+        self.inner
+            .borrow_mut()
+            .update_all_vertices_colors(mode, color.into());
     }
 
     #[pyo3(signature = (p, u, exit_first=false))]
@@ -607,11 +610,7 @@ fn facets_matrix_array<'a>(
     start: usize,
     size: usize,
     facet: usize,
-) -> (
-    Bound<'_, numpy::PyArray1<Float>>,
-    Bound<'_, numpy::PyArray1<Float>>,
-    Bound<'_, numpy::PyArray1<Float>>,
-) {
+) -> [Bound<'_, numpy::PyArray1<Float>>; 3] {
     let mesh = slf.borrow();
     let mesh = mesh.inner.borrow();
     let indices = mesh.get_facet_indices(facet).map(|i| i as usize);
@@ -623,11 +622,11 @@ fn facets_matrix_array<'a>(
     let arr2 = arr.slice(ndarray::s![indices[2], ..]);
 
     unsafe {
-        (
+        [
             numpy::PyArray1::borrow_from_array(&arr0, slf.clone().into_any()),
             numpy::PyArray1::borrow_from_array(&arr1, slf.clone().into_any()),
             numpy::PyArray1::borrow_from_array(&arr2, slf.into_any()),
-        )
+        ]
     }
 }
 

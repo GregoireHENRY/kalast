@@ -1,3 +1,4 @@
+use glam::Vec3Swizzles;
 use numpy::ndarray::ArrayView1;
 
 use crate::{Float, Vec3};
@@ -12,6 +13,22 @@ pub fn cosine_incidence(sundir: &Vec3, normal: &Vec3) -> Float {
 
 pub fn flattening_radius(radii: &Vec3) -> Float {
     (radii.x - radii.z) / radii.x
+}
+
+pub fn cart2sph(v: &Vec3) -> Vec3 {
+    let r = v.length();
+    let theta = v.y.atan2(v.x);
+    let phi = v.z.atan2(v.xy().length());
+
+    Vec3::new(r, theta, phi)
+}
+
+pub fn sph2cart(v: &Vec3) -> Vec3 {
+    let x = v.x * v.z.cos() * v.y.cos();
+    let y = v.x * v.z.cos() * v.y.sin();
+    let z = v.x * v.z.sin();
+
+    Vec3::new(x, y, z)
 }
 
 pub fn trapez(y: ArrayView1<Float>, x: ArrayView1<Float>) -> Float {
@@ -62,7 +79,7 @@ pub fn boole(y: ArrayView1<Float>, x: ArrayView1<Float>) -> Float {
 }
 
 pub(crate) mod py {
-    use numpy::PyReadonlyArray1;
+    use numpy::{PyReadonlyArray1, ToPyArray};
     use pyo3::prelude::*;
 
     use crate::{Float, Vec3};
@@ -90,6 +107,22 @@ pub(crate) mod py {
         Ok(super::flattening_radius(&Vec3::from_slice(
             radii.as_slice().unwrap(),
         )))
+    }
+
+    #[pyfunction]
+    pub fn cart2sph<'py>(
+        v: [Float; 3],
+        py: Python<'py>,
+    ) -> pyo3::Bound<'py, numpy::PyArray1<Float>> {
+        super::cart2sph(&v.into()).to_array().to_pyarray(py)
+    }
+
+    #[pyfunction]
+    pub fn sph2cart<'py>(
+        v: [Float; 3],
+        py: Python<'py>,
+    ) -> pyo3::Bound<'py, numpy::PyArray1<Float>> {
+        super::sph2cart(&v.into()).to_array().to_pyarray(py)
     }
 
     #[pyfunction]

@@ -445,7 +445,7 @@ impl Mesh {
         self.get_facet_vertices(facet).map(|v| &v.normal)
     }
 
-    pub fn update_colors(&mut self, mode: u32, color: Vec3) {
+    pub fn update_all_vertices_colors(&mut self, mode: u32, color: Vec3) {
         for v in &mut self.vertices {
             v.color_mode = mode;
             v.color = color;
