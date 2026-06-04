@@ -19,8 +19,9 @@ from kalast.util import (  # noqa
 
 # Spice setup
 spice.kclear()
+kernel_file = "/Users/gregoireh/data/spice/hera/kernels/mk/hera_ops_local.tm"
+spice.furnsh(kernel_file)
 # spice.furnsh("/Users/gregoireh/data/spice/wgc/mk/solar_system_v0060.tm")
-spice.furnsh("/Users/gregoireh/data/spice/hera/kernels/mk/hera_ops_local.tm")
 frame = "j2000"
 
 # Body
@@ -28,9 +29,9 @@ deimos = kalast.entity.DEIMOS
 deimos.solar_orbit_period = kalast.entity.MARS.orbit_period
 
 # Surface
-mesh = kalast.mesh.Mesh(
-    "/Users/gregoireh/data/spice/hera/kernels/dsk/deimos_k005_tho_v02.obj"
-)
+
+mesh_file = "/Users/gregoireh/data/spice/hera/kernels/dsk/deimos_k005_tho_v02.obj"
+mesh = kalast.mesh.Mesh(mesh_file)
 nface = len(mesh.facets)
 nvert = len(mesh.vertices)
 print(f"nfaces={nface} nvert={nvert}")
@@ -43,11 +44,11 @@ print(f"k={prop.conductivity:.6e} d={prop.diffusivity:.6e}")
 
 # Time
 date_start_pre = "2025-03-09 00:00"
-date_start_simu = "2025-03-12 00:00"
+date_start_sim = "2025-03-12 00:00"
 date_stop = "2025-03-12 15:00"
 
 et_start_pre = spice.str2et(date_start_pre)
-et_start_sim = spice.str2et(date_start_simu)
+et_start_sim = spice.str2et(date_start_sim)
 et_stop = spice.str2et(date_stop)
 
 dt_pre = 300  # 30 120 300
@@ -79,7 +80,7 @@ z = numpy.arange(0, maxdepth + dx0, dx0, dtype=numpy.float32)
 nx = z.size
 nx_ls1 = (z <= ls1).sum()
 nx_ls2pi = (z <= ls2pi).sum()
-nx_save = (z <= 4 * ls1).sum()
+nx_rec = (z <= 4 * ls1).sum()
 dx = numpy.diff(z)
 dx2in = dx[:-1] * dx[:-1]
 dtpdx2in_pre = dt_pre / dx2in
@@ -89,16 +90,17 @@ print(
     f"dx={dx0:.4f} ls1={ls1:.4f}({nx_ls1}) ls2pi={ls2pi:.4f}({nx_ls2pi}) ls2pi_orb={ls2pi_orb:.4f} maxdepth={maxdepth:.4f}({nx})"
 )
 
-column = kalast.tpm.column.Column(z, prop, t_init=200.0)
+t_init = 200.0
+column = kalast.tpm.column.Column(z, prop, t_init)
 columns = []
 for ii in range(0, nface):
     columns.append(column.clone())
 
 # Check convergence.
-maxdt = kalast.tpm.core.stability_maxdt(prop.diffusivity, dx02)
+maxdt_stable = kalast.tpm.core.stability_maxdt(prop.diffusivity, dx02)
 S_pre = kalast.tpm.core.stability(prop.diffusivity, dt_pre, dx02)
 S_sim = kalast.tpm.core.stability(prop.diffusivity, dt_sim, dx02)
-print(f"max dt stable: {maxdt:.2f}")
+print(f"max dt stable: {maxdt_stable:.2f}")
 print(
     f"Using dt={dt_pre}, stability={S_pre:.2f}, spin={deimos.spin_period / 3600:.3f}h({deimos.spin_period // dt_pre:.0f})"
 )
@@ -109,7 +111,6 @@ if S_pre > 0.5:
     raise ValueError("Stability criteria not valid.")
 if S_sim > 0.5:
     raise ValueError("Stability criteria not valid.")
-
 
 # Time loop progress.
 progress_freq = "1"
@@ -126,8 +127,8 @@ ndigits = kalast.util.numdigits_comma(freqv)
 digit = 10**ndigits
 
 # Saving.
-save_face = equator_meridian0[0]
-et_sim = numpy.zeros(nit_sim)
+face_rec = equator_meridian0[0]
+ets_sim = numpy.zeros(nit_sim)
 sun_sim = numpy.zeros((nit_sim, 3))
 tmp_surf_sim = numpy.zeros((nit_sim, nface))
 tmp_cols_sim = numpy.zeros((nit_sim, nx))
@@ -137,7 +138,7 @@ print()
 # Loop variables.
 t = 0
 it = 0
-it_sim = 0
+it_rec = 0
 exporting = False
 dtpdx2in = dtpdx2in_pre
 dt = dt_pre
@@ -149,7 +150,7 @@ while True:
     sun *= 1e3
     sun = sun.astype(numpy.float32)
 
-    # Prepare save data
+    # Prepare recording data
     if not exporting and et >= et_start_sim:
         exporting = True
         dt = dt_sim
@@ -157,7 +158,7 @@ while True:
         print("Recording started.")
 
     if exporting:
-        et_sim[it_sim] = et
+        ets_sim[it_rec] = et
 
     for ii in range(0, nface):
         p = mesh.facets[ii].pos
@@ -191,9 +192,9 @@ while True:
 
     # Save data
     if exporting:
-        tmp_surf_sim[it_sim] = numpy.array([column.t[0] for column in columns])
-        tmp_cols_sim[it_sim] = columns[save_face].t
-        sun_sim[it_sim] = sun
+        tmp_surf_sim[it_rec] = numpy.array([column.t[0] for column in columns])
+        tmp_cols_sim[it_rec] = columns[face_rec].t
+        sun_sim[it_rec] = sun
 
     # Show progress
     progress = it / (nit_tot - 1) * 100
@@ -211,7 +212,7 @@ while True:
     it += 1
 
     if exporting:
-        it_sim += 1
+        it_rec += 1
 
     if it == 1:
         timer_1 = time.perf_counter()
@@ -231,33 +232,94 @@ print(
 )
 print(f"Record completed ({nit_sim}it)")
 
-exit()
+ets = ets_sim
+z = columns[face_rec].z
 
-et = et_save
-z = body.inte[save_face].z
+n_saved = it_rec + 1
+ets = ets[:n_saved]
+sun = sun_sim[:n_saved]
+tmp_surf = tmp_surf_sim[:n_saved]
+tmp_cols = tmp_cols_sim[:n_saved]
 
-n_saved = it_save + 1
-et = et[:n_saved]
-sun_save = sun_save[:n_saved]
-tmp_surf_save = tmp_surf_save[:n_saved]
-tmp_cols_save = tmp_cols_save[:n_saved]
-
-tmp_state_save = numpy.zeros((len(body.inte), len(body.inte[0].t)))
-for ii in range(len(body.inte)):
-    tmp_state_save[ii] = body.inte[ii].t
+tmp_state = numpy.zeros((nface, nx))
+for ii in range(nface):
+    tmp_state[ii] = columns[ii].t
 
 nbytes = 0
 nbytes += et.nbytes
 nbytes += z.nbytes
-nbytes += sun_save.nbytes
-nbytes += tmp_surf_save.nbytes
-nbytes += tmp_cols_save.nbytes
-nbytes += tmp_state_save.nbytes
+nbytes += sun.nbytes
+nbytes += tmp_surf.nbytes
+nbytes += tmp_cols.nbytes
+nbytes += tmp_state.nbytes
 print(f"Exporting {nbytes / 1e6:.3f}MB of data")
 
-numpy.save("et_simu.npy", et)
-numpy.save("z.npy", z)
-numpy.save("sun_simu.npy", sun_save)
-numpy.save("tmp_surf.npy", tmp_surf_save)
-numpy.save("tmp_cols.npy", tmp_cols_save)
-numpy.save("tmp_state.npy", tmp_state_save)
+df = {}
+df["kernel"] = kernel_file
+df["body"] = deimos.name
+df["spin_period"] = deimos.spin_period
+df["solar_orbit_period"] = deimos.solar_orbit_period
+df["mesh"] = mesh_file
+df["nface"] = nface
+df["nvert"] = nvert
+df["albedo"] = prop.albedo
+df["emissivity"] = prop.emissivity
+df["conductivity"] = prop.conductivity
+df["diffusivity"] = prop.diffusivity
+df["thermal_inertia"] = prop.thermal_inertia
+df["date_start_pre"] = date_start_pre
+df["date_start_sim"] = date_start_sim
+df["date_stop"] = date_stop
+df["et_start_pre"] = et_start_pre
+df["et_start_sim"] = et_start_sim
+df["et_stop"] = et_stop
+df["dt_pre"] = dt_pre
+df["dt_sim"] = dt_sim
+df["nit_sim"] = nit_sim
+df["dx0"] = dx0
+df["ls1"] = ls1
+df["ls2pi"] = ls2pi
+df["ls2pi_orb"] = ls2pi_orb
+df["maxdepth"] = maxdepth
+df["nx"] = nx
+df["t_init"] = t_init
+df["maxdt_stable"] = maxdt_stable
+df["S_pre"] = S_pre
+df["S_sim"] = S_sim
+df = pandas.DataFrame(df, index=[0])
+df.to_csv("out/settings.csv", index=False, encoding="utf-8-sig")
+
+df = {}
+df["time"] = ets_sim
+df = pandas.DataFrame(df)
+df.to_csv("out/ets_sim.csv", index=False, encoding="utf-8-sig")
+
+df = {}
+df["depth"] = z
+df = pandas.DataFrame(df)
+df.to_csv("out/z.csv", index=False, encoding="utf-8-sig")
+
+df = {}
+df["x"] = sun_sim[:, 0]
+df["y"] = sun_sim[:, 1]
+df["z"] = sun_sim[:, 2]
+df = pandas.DataFrame(df)
+df.to_csv("out/sun_sim.csv", index=False, encoding="utf-8-sig")
+
+df = {}
+for iif in range(nface):
+    df[iif] = tmp_surf[:, iif]
+df = pandas.DataFrame(df)
+df.to_csv("out/tmp_surf.csv", index=False, encoding="utf-8-sig")
+
+df = {}
+for iiz in range(nx):
+    df[iiz] = tmp_cols[:, iiz]
+df = pandas.DataFrame(df)
+df.to_csv("out/tmp_cols.csv", index=False, encoding="utf-8-sig")
+
+df = {}
+for iiz in range(nx):
+    df[iiz] = tmp_state[:, iiz]
+df = pandas.DataFrame(df)
+df.to_csv("out/tmp_state.csv", index=False, encoding="utf-8-sig")
