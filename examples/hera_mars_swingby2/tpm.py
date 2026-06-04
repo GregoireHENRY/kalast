@@ -5,7 +5,7 @@
 # import time
 # from pathlib import Path
 
-# import pandas
+import pandas
 import numpy
 import spiceypy as spice
 
@@ -27,6 +27,7 @@ frame = "j2000"
 
 # Body
 deimos = kalast.entity.DEIMOS
+deimos.solar_orbit_period = kalast.entity.MARS.orbit_period
 
 # Surface
 mesh = kalast.mesh.Mesh(
@@ -62,38 +63,40 @@ nit_tot = nit_pre + nit_sim
 print(f"t_pre={t_pre}s ={t_pre / DAY:.3}d ({nit_pre}it)")
 print(f"t_sim={t_sim}s ={t_sim / DAY:.3}d ({nit_sim}it)")
 
-
-exit()
-
-equator = numpy.load("work/scene/equator.npy")
-meridian0 = numpy.load("work/scene/meridian0.npy")
-equator_meridian0 = numpy.load("work/scene/equator_meridian0.npy")
+equator = pandas.read_csv("out/equator.csv")["index"].to_numpy()
+meridian0 = pandas.read_csv("out/meridian0.csv")["index"].to_numpy()
+mix_equator_meridian0 = pandas.read_csv("out/mix_equator_meridian0.csv")[
+    "index"
+].to_numpy()
 
 # Interior, properties, initial temperatures.
-c = Column()
 dx0 = 2e-3
 twodx0 = 2 * dx0
 dx02 = dx0 * dx0
-ls1 = skin_depth_1(prop.d, spin_period)
-ls2pi = skin_depth_2pi(prop.d, spin_period)
-ls2pi_orb = skin_depth_2pi(prop.d, solar_orbit_period)
+ls1 = kalast.tpm.properties.skin_depth_1(prop.diffusivity, deimos.spin_period)
+ls2pi = kalast.tpm.properties.skin_depth_2pi(prop.diffusivity, deimos.spin_period)
+ls2pi_orb = kalast.tpm.properties.skin_depth_2pi(
+    prop.diffusivity, deimos.solar_orbit_period
+)
 maxdepth = ls2pi
-c.z = numpy.arange(0, maxdepth + dx0, dx0)
-nx = c.z.size
-nx_ls1 = (c.z <= ls1).sum()
-nx_ls2pi = (c.z <= ls2pi).sum()
-nx_save = (c.z <= 4 * ls1).sum()
-# nx_save = nx
-dx = numpy.diff(c.z)
+z = numpy.arange(0, maxdepth + dx0, dx0)
+nx = z.size
+nx_ls1 = (z <= ls1).sum()
+nx_ls2pi = (z <= ls2pi).sum()
+nx_save = (z <= 4 * ls1).sum()
+dx = numpy.diff(z)
 dx2in = dx[:-1] * dx[:-1]
-dtpdx2in = dt / dx2in
-dtpdx2in_save = dt_save / dx2in
+dtpdx2in_pre = dt_pre / dx2in
+dtpdx2in_sim = dt_sim / dx2in
 
-c.set_temp_constant(200.0)
-c.set_props_constant(prop)
+tmp = z.copy()
+tmp[:] = 200.0
+
 print(
     f"dx={dx0:.4f} ls1={ls1:.4f}({nx_ls1}) ls2pi={ls2pi:.4f}({nx_ls2pi}) ls2pi_orb={ls2pi_orb:.4f} maxdepth={maxdepth:.4f}({nx})"
 )
+
+exit()
 
 for ii in range(0, nface):
     body.inte.append(copy.deepcopy(c))
