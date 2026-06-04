@@ -75,6 +75,7 @@ pub fn stability(d: Float, dt: Float, dx2: Float) -> Float {
 }
 
 #[pyfunction]
+#[pyo3(signature = (d, dx2, s=0.5))]
 pub fn stability_maxdt(d: Float, dx2: Float, s: Float) -> Float {
     // Find largest dt for conduction_1d to be stable considering depth step and diffusivity.
     // s is usually 0.5

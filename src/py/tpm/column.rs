@@ -1,25 +1,14 @@
 use std::{cell::RefCell, rc::Rc};
 
-use numpy::{PyArrayMethods, PyReadonlyArray1, ToPyArray};
+use numpy::{PyArrayMethods, PyReadonlyArray1};
 use pyo3::prelude::*;
 
-use crate::{
-    Float,
-    tpm::column::{Column as RsColumn, Interior as RsInterior},
-};
+use crate::{Float, tpm::column::Column as RsColumn};
 
 #[pyclass(from_py_object, unsendable, dict)]
 #[derive(Clone)]
 pub struct Column {
     pub inner: Rc<RefCell<RsColumn>>,
-}
-
-impl Column {
-    pub(crate) fn from_raw(p: RsColumn) -> Self {
-        Self {
-            inner: Rc::new(RefCell::new(p)),
-        }
-    }
 }
 
 #[pymethods]
@@ -34,6 +23,28 @@ impl Column {
                 t_init,
             ))),
         }
+    }
+
+    #[getter]
+    fn z<'py>(slf: pyo3::Bound<'py, Self>) -> pyo3::Bound<'py, numpy::PyArray1<Float>> {
+        let inner = &slf.borrow().inner;
+        unsafe { numpy::PyArray1::borrow_from_array(&inner.borrow().z, slf.into_any()) }
+    }
+
+    #[getter]
+    fn t<'py>(slf: pyo3::Bound<'py, Self>) -> pyo3::Bound<'py, numpy::PyArray1<Float>> {
+        let inner = &slf.borrow().inner;
+        unsafe { numpy::PyArray1::borrow_from_array(&inner.borrow().t, slf.into_any()) }
+    }
+
+    #[getter]
+    fn d<'py>(slf: pyo3::Bound<'py, Self>) -> pyo3::Bound<'py, numpy::PyArray1<Float>> {
+        let inner = &slf.borrow().inner;
+        unsafe { numpy::PyArray1::borrow_from_array(&inner.borrow().d, slf.into_any()) }
+    }
+    
+    fn clone(&self) -> Self {
+        Self { inner: Rc::new(RefCell::new(self.inner.borrow().clone())) }
     }
 
     pub fn __repr__(&self) -> String {

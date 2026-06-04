@@ -30,7 +30,7 @@ sph = numpy.array([kalast.math.cart2sph(v) for v in centers])
 
 equator = numpy.where(numpy.abs(sph[:, 2]) < 4 * RPD)[0]
 meridian0 = numpy.where(numpy.abs(sph[:, 1]) < 4 * RPD)[0]
-mix = numpy.intersect1d(equator, meridian0)
+equator_meridian0 = numpy.intersect1d(equator, meridian0)
 
 df = {}
 df["index"] = equator
@@ -43,9 +43,9 @@ df = pandas.DataFrame(df)
 df.to_csv("out/meridian0.csv", index=False, encoding="utf-8-sig")
 
 df = {}
-df["index"] = mix
+df["index"] = equator_meridian0
 df = pandas.DataFrame(df)
-df.to_csv("out/mix_equator_meridian0.csv", index=False, encoding="utf-8-sig")
+df.to_csv("out/equator_meridian0.csv", index=False, encoding="utf-8-sig")
 
 # When mesh is flatten, vertices are duplicated by 3 times number of facets and their normals are fixed to facet's normal.
 # This is so GPU can read mesh without a list of indices.

@@ -168,7 +168,6 @@ fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
         .set_item("kalast._rs.tpm.core", core)?;
 
     let properties = PyModule::new(tpm.py(), "properties")?;
-
     let r = |x| tpm::properties::Properties::from_raw(x);
     properties.add("DIDYMOS", r(crate::tpm::properties::DIDYMOS))?;
     properties.add("DIMORPHOS", r(crate::tpm::properties::DIMORPHOS))?;
@@ -185,6 +184,13 @@ fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     py.import("sys")?
         .getattr("modules")?
         .set_item("kalast._rs.tpm.properties", properties)?;
+
+    let column = PyModule::new(tpm.py(), "column")?;
+    column.add_class::<tpm::column::Column>()?;
+    tpm.add_submodule(&column)?;
+    py.import("sys")?
+        .getattr("modules")?
+        .set_item("kalast._rs.tpm.column", column)?;
 
     let emit = PyModule::new(tpm.py(), "emit")?;
     pyadd_f!(emit, crate::tpm::emit::planck);

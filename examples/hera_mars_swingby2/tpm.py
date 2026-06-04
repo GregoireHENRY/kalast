@@ -1,9 +1,7 @@
 #!/usr/bin/env python
 
-# import copy
-# import math
-# import time
-# from pathlib import Path
+import time
+from pathlib import Path  # noqa
 
 import pandas
 import numpy
@@ -65,9 +63,7 @@ print(f"t_sim={t_sim}s ={t_sim / DAY:.3}d ({nit_sim}it)")
 
 equator = pandas.read_csv("out/equator.csv")["index"].to_numpy()
 meridian0 = pandas.read_csv("out/meridian0.csv")["index"].to_numpy()
-mix_equator_meridian0 = pandas.read_csv("out/mix_equator_meridian0.csv")[
-    "index"
-].to_numpy()
+equator_meridian0 = pandas.read_csv("out/equator_meridian0.csv")["index"].to_numpy()
 
 # Interior, properties, initial temperatures.
 dx0 = 2e-3
@@ -79,7 +75,7 @@ ls2pi_orb = kalast.tpm.properties.skin_depth_2pi(
     prop.diffusivity, deimos.solar_orbit_period
 )
 maxdepth = ls2pi
-z = numpy.arange(0, maxdepth + dx0, dx0)
+z = numpy.arange(0, maxdepth + dx0, dx0, dtype=numpy.float32)
 nx = z.size
 nx_ls1 = (z <= ls1).sum()
 nx_ls2pi = (z <= ls2pi).sum()
@@ -89,27 +85,31 @@ dx2in = dx[:-1] * dx[:-1]
 dtpdx2in_pre = dt_pre / dx2in
 dtpdx2in_sim = dt_sim / dx2in
 
-tmp = z.copy()
-tmp[:] = 200.0
-
 print(
     f"dx={dx0:.4f} ls1={ls1:.4f}({nx_ls1}) ls2pi={ls2pi:.4f}({nx_ls2pi}) ls2pi_orb={ls2pi_orb:.4f} maxdepth={maxdepth:.4f}({nx})"
 )
 
-exit()
-
+column = kalast.tpm.column.Column(z, prop, t_init=200.0)
+columns = []
 for ii in range(0, nface):
-    body.inte.append(copy.deepcopy(c))
+    columns.append(column.clone())
 
 # Check convergence.
-maxdt = stability_maxdt(dx02, prop.d)
+maxdt = kalast.tpm.core.stability_maxdt(prop.diffusivity, dx02)
+S_pre = kalast.tpm.core.stability(prop.diffusivity, dt_pre, dx02)
+S_sim = kalast.tpm.core.stability(prop.diffusivity, dt_sim, dx02)
 print(f"max dt stable: {maxdt:.2f}")
-S = stability(prop.d, dt, dx02)
 print(
-    f"Using dt={dt}, stability={S:.2f}, spin={spin_period / 3600:.3f}h({spin_period // dt:.0f})"
+    f"Using dt={dt_pre}, stability={S_pre:.2f}, spin={deimos.spin_period / 3600:.3f}h({deimos.spin_period // dt_pre:.0f})"
 )
-if S > 0.5:
+print(
+    f"Using dt={dt_sim}, stability={S_sim:.2f}, spin={deimos.spin_period / 3600:.3f}h({deimos.spin_period // dt_sim:.0f})"
+)
+if S_pre > 0.5:
     raise ValueError("Stability criteria not valid.")
+if S_sim > 0.5:
+    raise ValueError("Stability criteria not valid.")
+
 
 # Time loop progress.
 progress_freq = "1"
@@ -122,109 +122,116 @@ if len(digits) == 2:
         digits_full += digits_decimal + 1
 freqv = float(progress_freq)
 last_freq_reached = -freqv
-ndigits = numdigits_comma(freqv)
+ndigits = kalast.util.numdigits_comma(freqv)
 digit = 10**ndigits
 
 # Saving.
 save_face = equator_meridian0[0]
-et_save = numpy.zeros(nit_save)
-sun_save = numpy.zeros((nit_save, 3))
-tmp_surf_save = numpy.zeros((nit_save, nface))
-tmp_cols_save = numpy.zeros((nit_save, nx))
-print(f"Recording: {nit_save}it (update: {progress_freq}%)")
+et_sim = numpy.zeros(nit_sim)
+sun_sim = numpy.zeros((nit_sim, 3))
+tmp_surf_sim = numpy.zeros((nit_sim, nface))
+tmp_cols_sim = numpy.zeros((nit_sim, nx))
+print(f"Recording: {nit_sim}it (update: {progress_freq}%)")
 print()
 
 # Loop variables.
 t = 0
 it = 0
-it_save = 0
+it_sim = 0
 exporting = False
+dtpdx2in = dtpdx2in_pre
+dt = dt_pre
 
 while True:
-    et = et_start + t
+    et = et_start_pre + t
 
-    (sun, _lt) = spice.spkpos("sun", et, bod.frame, "none", bod.name)
+    (sun, _lt) = spice.spkpos("sun", et, deimos.frame, "none", deimos.name)
     sun *= 1e3
+    sun = sun.astype(numpy.float32)
 
     # Prepare save data
-    if not exporting and et >= et_start_export:
+    if not exporting and et >= et_start_sim:
         exporting = True
-        dt = dt_save
-        dtpdx2in = dtpdx2in_save
+        dt = dt_sim
+        dtpdx2in = dtpdx2in_sim
         print("Recording started.")
 
     if exporting:
-        et_save[it_save] = et
+        et_sim[it_sim] = et
 
     for ii in range(0, nface):
-        p = body.surf.mesh.triangles_center[ii]
-        n = body.surf.mesh.face_normals[ii]
+        p = mesh.facets[ii].pos
+        n = mesh.facets[ii].normal
 
         v_sun = sun - p
-        d_sun = glm.length(v_sun)
+        d_sun = numpy.linalg.norm(v_sun)
         dau_sun = d_sun / AU
         u_sun = v_sun / d_sun
-        cosi = cosinc(u_sun, n)
+        cosi = kalast.math.cosine_incidence(u_sun, n)
 
         # Get surface flux
-        sflux = solar_radiation(dau_sun, cosi, body.surf.a[ii])
+        sflux = kalast.tpm.core.radiation_sun(dau_sun, cosi, prop.albedo)
 
         # Conduction of temperature
-        body.inte[ii].t[0] = newton_method(
-            body.inte[ii].t[0],
+        columns[ii].t[0] = kalast.tpm.core.newton_method(
+            columns[ii].t[0],
             sflux,
-            se,
-            body.inte[ii].k[0],
-            body.inte[ii].t[1:3],
+            prop.se,
+            prop.conductivity,
+            columns[ii].t[1],
+            columns[ii].t[2],
             twodx0,
         )
-        body.inte[ii].t[1:-1] = conduction_1d(
-            body.inte[ii].t, body.inte[ii].d, dtpdx2in
+        columns[ii].t[1:-1] = kalast.tpm.core.conduction_1d(
+            columns[ii].t, columns[ii].d, dtpdx2in
         )
-        body.inte[ii].t[-1] = body.inte[ii].t[-2]
-        if body.inte[ii].t[0] is None:
+        columns[ii].t[-1] = columns[ii].t[-2]
+        if columns[ii].t[0] is None:
             raise ValueError("Newton method never converged.")
 
     # Save data
     if exporting:
-        tmp_surf_save[it_save] = numpy.array([c.t[0] for c in body.inte])
-        tmp_cols_save[it_save] = body.inte[save_face].t
-        sun_save[it_save] = sun
+        tmp_surf_sim[it_sim] = numpy.array([column.t[0] for column in columns])
+        tmp_cols_sim[it_sim] = columns[save_face].t
+        sun_sim[it_sim] = sun
 
     # Show progress
-    progress = it / (nit - 1) * 100
+    progress = it / (nit_tot - 1) * 100
     if ndigits > 0:
         progress = numpy.floor(progress * digit) / digit
     if progress >= last_freq_reached + freqv:
         last_freq_reached += freqv
-        print(f"{progress:{digits_full}.{digits_decimal}f}% ({it:,}/{nit - 1:,}it)")
+        print(f"{progress:{digits_full}.{digits_decimal}f}% ({it:,}/{nit_tot - 1:,}it)")
 
     # Update loop
-    if t >= tf:
+    if t >= t_tot:
         break
 
     t += dt
     it += 1
 
     if exporting:
-        it_save += 1
+        it_sim += 1
 
     if it == 1:
         timer_1 = time.perf_counter()
 
+
 # Final show progress
 if last_freq_reached < 100:
-    print(f"{100:{digits_full}.{digits_decimal}f}% ({it:,}/{nit - 1:,}it)")
+    print(f"{100:{digits_full}.{digits_decimal}f}% ({it:,}/{nit_tot - 1:,}it)")
 print()
 timer_2 = time.perf_counter()
 timer_elapsed = timer_2 - timer_1
 print(
-    f"Simulation duration: {timer_elapsed:.4f}s ({math.floor((nit - 1) / timer_elapsed):,}it/s)"
+    f"Simulation duration: {timer_elapsed:.4f}s ({numpy.floor((nit_tot - 1) / timer_elapsed):,}it/s)"
 )
 print(
-    f"Avg surf temps: mean={tmp_surf_save.mean():.2f} min={tmp_surf_save.min():.2f} max={tmp_surf_save.max():.2f}"
+    f"Avg surf temps: mean={tmp_surf_sim.mean():.2f} min={tmp_surf_sim.min():.2f} max={tmp_surf_sim.max():.2f}"
 )
-print(f"Record completed ({nit_save}it)")
+print(f"Record completed ({nit_sim}it)")
+
+exit()
 
 et = et_save
 z = body.inte[save_face].z
