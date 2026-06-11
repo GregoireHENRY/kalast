@@ -23,12 +23,11 @@ class MidPointLogNorm(matplotlib.colors.LogNorm):
 
 
 def smap(
-    # mesh: trimesh.Geometry,
     mesh: kalast.mesh.Mesh,
     colors: numpy.array,
     label: str = None,
     mappable: matplotlib.cm.ScalarMappable = None,
-    name: str = "smap",
+    name: str = "smap.png",
 ):
     fig, axs = pyplot.subplots(2, 1, figsize=(15, 7.3), height_ratios=[9.5, 0.5])
     ax = axs[0]
@@ -45,11 +44,13 @@ def smap(
     loc = matplotlib.ticker.MultipleLocator(base=30)
     ax.yaxis.set_major_locator(loc)
 
-    for jj in range(0, len(mesh.facets)):
-        a, b, c = mesh.get_positions_facet(jj)
-        a = kalast.util.cart2sph(a)[:2] * DPR
-        b = kalast.util.cart2sph(b)[:2] * DPR
-        c = kalast.util.cart2sph(c)[:2] * DPR
+    for iif in range(0, len(mesh.facets)):
+        a = mesh.positions[iif * 3 + 0, :]
+        b = mesh.positions[iif * 3 + 1, :]
+        c = mesh.positions[iif * 3 + 2, :]
+        a = kalast.math.cart2sph(a)[1:] * DPR
+        b = kalast.math.cart2sph(b)[1:] * DPR
+        c = kalast.math.cart2sph(c)[1:] * DPR
         trisph = numpy.array([a, b, c])
         trisph2 = None
         s1 = b - a
@@ -85,7 +86,7 @@ def smap(
         ax.fill(
             trisph[:, 0],
             trisph[:, 1],
-            color=colors[jj],
+            color=colors[iif],
             edgecolor="k",
             lw=1,
             joinstyle="bevel",
@@ -94,7 +95,7 @@ def smap(
             ax.fill(
                 trisph2[:, 0],
                 trisph2[:, 1],
-                color=colors[jj],
+                color=colors[iif],
                 edgecolor="k",
                 lw=1,
                 joinstyle="bevel",
@@ -112,7 +113,7 @@ def smap(
     fig.savefig(name, bbox_inches="tight", dpi=300)
 
 
-def depth(z, tmp, ylim=None, unity="cm"):
+def depth(z, tmp, ylim=None, unity="cm", name="depth.png"):
     fig, ax = pyplot.subplots(figsize=(6, 4))
     ax.set_xlabel("Temperature [K]")
     if unity is not None:
@@ -122,10 +123,12 @@ def depth(z, tmp, ylim=None, unity="cm"):
     # ax.set_xlim(0, None)
     if ylim is not None:
         ax.set_ylim(ylim)
-    fig.savefig("depth.png", bbox_inches="tight", dpi=300)
+    fig.savefig(name, bbox_inches="tight", dpi=300)
 
 
-def daily_surf(et, y, xlim=None, ylim=None, xlabel=None, ylabel=None, legend=None):
+def daily_surf(
+    et, y, xlim=None, ylim=None, xlabel=None, ylabel=None, legend=None, name="surf.png"
+):
     fig, ax = pyplot.subplots(figsize=(6, 4))
     if xlabel is not None:
         ax.set_xlabel(xlabel)
@@ -147,7 +150,7 @@ def daily_surf(et, y, xlim=None, ylim=None, xlabel=None, ylabel=None, legend=Non
 
     if legend is not None:
         pyplot.legend(frameon=False)
-    fig.savefig("surf.png", bbox_inches="tight", dpi=300)
+    fig.savefig(name, bbox_inches="tight", dpi=300)
     # pyplot.show()
 
 

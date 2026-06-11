@@ -47,7 +47,6 @@ impl Passes {
         self.shadow.render(encoder, shadow, meshes, &self.bindings);
 
         self.render.render(
-            view,
             encoder,
             &self.depth.texture.view,
             &mut self.light_cube,

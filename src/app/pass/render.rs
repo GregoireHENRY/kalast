@@ -1,14 +1,44 @@
 use crate::app::gpu;
 
+pub fn create_render_target(
+    device: &wgpu::Device,
+    format: wgpu::TextureFormat,
+    width: u32,
+    height: u32,
+) -> (wgpu::Texture, wgpu::TextureView) {
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: None,
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+            | wgpu::TextureUsages::COPY_SRC
+            | wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+
+    let view = texture.create_view(&Default::default());
+
+    (texture, view)
+}
+
 pub struct Pass {
     pub pipeline: gpu::RenderPipeline,
+    pub render_texture: wgpu::Texture,
+    pub render_view: wgpu::TextureView,
 }
 
 impl Pass {
     pub fn new(
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
-        _config: &crate::app::config::Config,
+        config: &crate::app::config::Config,
         layouts: &[Option<&wgpu::BindGroupLayout>],
     ) -> Self {
         let pipeline = gpu::RenderPipeline::new(
@@ -21,14 +51,24 @@ impl Pass {
             true,
         );
 
-        Self { pipeline }
+        let (render_texture, render_view) =
+            create_render_target(device, format, config.width, config.height);
+
+        Self {
+            pipeline,
+            render_texture,
+            render_view,
+        }
     }
 
-    pub fn resize(&self) {}
+    pub fn resize(&mut self, device: &wgpu::Device, format: wgpu::TextureFormat, width: u32, height: u32) {
+        let (render_texture, render_view) = create_render_target(device, format, width, height);
+        self.render_texture = render_texture;
+        self.render_view = render_view;
+    }
 
     pub fn render(
         &self,
-        view: &wgpu::TextureView,
         encoder: &mut wgpu::CommandEncoder,
         depth_view: &wgpu::TextureView,
         light: &super::light_cube::Pass,
@@ -38,7 +78,7 @@ impl Pass {
     ) {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &view,
+                view: &self.render_view,
                 depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations {

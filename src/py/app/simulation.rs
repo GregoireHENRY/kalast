@@ -144,6 +144,10 @@ impl State {
         self.simulation.borrow_mut().state.pause_at = pause_at;
     }
 
+    pub fn toggle_pause(&mut self) -> bool {
+        self.simulation.borrow_mut().state.toggle_pause()
+    }
+
     fn __repr__(&self) -> String {
         format!("{:?}", self.simulation.borrow().state)
     }

@@ -3,6 +3,7 @@
 import time
 from pathlib import Path  # noqa
 
+import matplotlib
 import pandas
 import numpy
 import spiceypy as spice
@@ -32,6 +33,7 @@ deimos.solar_orbit_period = kalast.entity.MARS.orbit_period
 
 mesh_file = "/Users/gregoireh/data/spice/hera/kernels/dsk/deimos_k005_tho_v02.obj"
 mesh = kalast.mesh.Mesh(mesh_file)
+mesh.flatten()
 nface = len(mesh.facets)
 nvert = len(mesh.vertices)
 print(f"nfaces={nface} nvert={nvert}")
@@ -62,6 +64,7 @@ nit_tot = nit_pre + nit_sim
 print(f"t_pre={t_pre}s ={t_pre / DAY:.3}d ({nit_pre}it)")
 print(f"t_sim={t_sim}s ={t_sim / DAY:.3}d ({nit_sim}it)")
 
+sph = pandas.read_csv("out/sph.csv").to_numpy()
 equator = pandas.read_csv("out/equator.csv")["index"].to_numpy()
 meridian0 = pandas.read_csv("out/meridian0.csv")["index"].to_numpy()
 equator_meridian0 = pandas.read_csv("out/equator_meridian0.csv")["index"].to_numpy()
@@ -246,7 +249,7 @@ for ii in range(nface):
     tmp_state[ii] = columns[ii].t
 
 nbytes = 0
-nbytes += et.nbytes
+nbytes += ets.nbytes
 nbytes += z.nbytes
 nbytes += sun.nbytes
 nbytes += tmp_surf.nbytes
@@ -300,13 +303,6 @@ df = pandas.DataFrame(df)
 df.to_csv("out/z.csv", index=False, encoding="utf-8-sig")
 
 df = {}
-df["x"] = sun_sim[:, 0]
-df["y"] = sun_sim[:, 1]
-df["z"] = sun_sim[:, 2]
-df = pandas.DataFrame(df)
-df.to_csv("out/sun_sim.csv", index=False, encoding="utf-8-sig")
-
-df = {}
 for iif in range(nface):
     df[iif] = tmp_surf[:, iif]
 df = pandas.DataFrame(df)
@@ -323,3 +319,54 @@ for iiz in range(nx):
     df[iiz] = tmp_state[:, iiz]
 df = pandas.DataFrame(df)
 df.to_csv("out/tmp_state.csv", index=False, encoding="utf-8-sig")
+
+df = {}
+df["sun_x"] = sun_sim[:, 0]
+df["sun_y"] = sun_sim[:, 1]
+df["sun_z"] = sun_sim[:, 2]
+df[f"{deimos.name}_x"] = numpy.zeros(nit_sim)
+df[f"{deimos.name}_y"] = numpy.zeros(nit_sim)
+df[f"{deimos.name}_z"] = numpy.zeros(nit_sim)
+df[f"{deimos.name}_m00"] = numpy.ones(nit_sim)
+df[f"{deimos.name}_m01"] = numpy.zeros(nit_sim)
+df[f"{deimos.name}_m02"] = numpy.zeros(nit_sim)
+df[f"{deimos.name}_m10"] = numpy.zeros(nit_sim)
+df[f"{deimos.name}_m11"] = numpy.ones(nit_sim)
+df[f"{deimos.name}_m12"] = numpy.zeros(nit_sim)
+df[f"{deimos.name}_m20"] = numpy.zeros(nit_sim)
+df[f"{deimos.name}_m21"] = numpy.zeros(nit_sim)
+df[f"{deimos.name}_m22"] = numpy.ones(nit_sim)
+df = pandas.DataFrame(df)
+df.to_csv("out/state.csv", index=False, encoding="utf-8-sig")
+
+kalast.plot.style.load()
+kalast.plot.util.depth(
+    z * 100, tmp_cols[:, :], ylim=(z[-1] * 100, 0), name="out/depth.png"
+)
+kalast.plot.util.daily_surf(
+    ets,
+    tmp_cols[:, 0],
+    # xlim=(0, None),
+    xlabel="Ephemeris time",
+    ylabel="Temperature [K]",
+    name="out/surf.png",
+)
+
+
+mappable = matplotlib.cm.ScalarMappable(
+    cmap=matplotlib.cm.inferno.resampled(100), norm=None
+)
+colors = mappable.to_rgba(tmp_surf[-1, :])
+kalast.plot.util.smap(
+    mesh, colors, label="temperature [K]", mappable=mappable, name="out/smap.png"
+)
+
+# cnorm = matplotlib.colors.Normalize(vmin=stmp.min(), vmax=stmp.max())
+# cmap = matplotlib.cm.inferno
+# mappable = matplotlib.cm.ScalarMappable(cmap=cmap, norm=cnorm)
+# cnormv = cnorm(stmp)
+# cmapv = cmap(cnormv)
+# mesh.vertices = mesh.vertices * 1e-3
+# mesh.unmerge_vertices()
+# mesh.visual.face_colors = cmapv
+# mesh.show()

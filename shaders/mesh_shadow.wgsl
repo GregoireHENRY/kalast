@@ -1,6 +1,8 @@
 struct Globals {
     color: vec3<f32>,
     color_mode: u32,
+    srgb_mode: u32,
+    gamma: f32,
     ambient_strength: f32,
     light_cube_scale: f32,
     shadow_resolution: u32,
@@ -62,6 +64,10 @@ struct VertexOutput {
     @location(3) world_pos: vec3<f32>,
 };
 
+fn srgb_to_linear(color: vec3<f32>, gamma: f32) -> vec3<f32> {
+    return pow(color, vec3<f32>(gamma));
+}
+
 @vertex
 fn vs_main(
     vertex: VertexInput,
@@ -108,20 +114,26 @@ var s_shadow: sampler_comparison;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    var object_color: vec4<f32>;
-
     if globals.color_mode == 1 {
-        return vec4<f32>(in.color, 1.0);
+        var color = in.color;
+        if globals.srgb_mode == 0 {
+            color = srgb_to_linear(color, globals.gamma);
+        }
+        return vec4<f32>(color, 1.0);
     } else if globals.color_mode == 2 {
-        return vec4<f32>(globals.color.x, globals.color.y, globals.color.z, 1.0);
+        var color = globals.color;
+        if globals.srgb_mode == 0 {
+            color = srgb_to_linear(color, globals.gamma);
+        }
+        return vec4<f32>(color, 1.0);
     }
     // } else if globals.color_mode == ??? {
     // object_color = textureSample(t_diffuse, s_diffuse, in.tex);
 
     // 0 or else
-    else {
-        object_color = vec4<f32>(in.color, 1.0);
-    }
+    //
+    // else {
+    let object_color = vec4<f32>(in.color, 1.0);
 
     let light_dir = normalize(view.light.pos - in.world_pos);
     let ndotl = max(dot(in.world_normal, light_dir), 0.0);
@@ -167,7 +179,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // lighting
     let ambient_color = view.light.color * globals.ambient_strength;
     let diffuse_color = view.light.color * ndotl;
-    let result = (ambient_color + diffuse_color * shadow) * object_color.xyz;
+    var color = (ambient_color + diffuse_color * shadow) * object_color.xyz;
+    
+    if globals.srgb_mode == 1 {
+        color = srgb_to_linear(color, globals.gamma);
+    }
 
-    return vec4<f32>(result, object_color.a);
+    return vec4<f32>(color, object_color.a);
 }

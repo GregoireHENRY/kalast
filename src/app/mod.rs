@@ -132,7 +132,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 win.resize(size.width, size.height, &self.config);
             }
             winit::event::WindowEvent::RedrawRequested => {
-                let texture = {
+                let surface_texture = {
                     let win = self.window.as_mut().unwrap();
                     win.window.request_redraw();
 
@@ -143,8 +143,8 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         return;
                     }
 
-                    if let Some(texture) = win.get_surface_texture(&self.config) {
-                        texture
+                    if let Some(surface_texture) = win.get_surface_texture(&self.config) {
+                        surface_texture
                     } else {
                         return;
                     }
@@ -178,7 +178,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
 
                     sim.update();
                     win.update(&sim, &self.config);
-                    win.render(texture, &self.config);
+                    win.render(surface_texture, &self.config);
 
                     sim.export_once = false;
                 }

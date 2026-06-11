@@ -167,14 +167,14 @@ impl Config {
     }
 
     #[getter]
-    pub fn global_color(&self) -> [Float; 4] {
-        let v = self.app.borrow().config.global_color;
+    pub fn color(&self) -> [Float; 4] {
+        let v = self.app.borrow().config.color;
         [v.r as Float, v.g as Float, v.b as Float, v.a as Float]
     }
 
     #[setter]
-    pub fn set_global_color(&mut self, v: [Float; 4]) {
-        let c = &mut self.app.borrow_mut().config.global_color;
+    pub fn set_color(&mut self, v: [Float; 4]) {
+        let c = &mut self.app.borrow_mut().config.color;
         c.r = v[0] as f64;
         c.g = v[1] as f64;
         c.b = v[2] as f64;
@@ -182,23 +182,43 @@ impl Config {
     }
 
     #[getter]
-    fn global_color_mode(&self) -> u32 {
-        self.app.borrow().config.global_color_mode
+    fn color_mode(&self) -> u32 {
+        self.app.borrow().config.color_mode
     }
 
     #[setter]
-    fn set_global_color_mode(&mut self, v: u32) {
-        self.app.borrow_mut().config.global_color_mode = v;
+    fn set_color_mode(&mut self, v: u32) {
+        self.app.borrow_mut().config.color_mode = v;
     }
 
     #[getter]
-    fn global_extra(&self) -> u32 {
-        self.app.borrow().config.global_extra
+    fn extra(&self) -> u32 {
+        self.app.borrow().config.extra
     }
 
     #[setter]
-    fn set_global_extra(&mut self, v: u32) {
-        self.app.borrow_mut().config.global_extra = v;
+    fn set_extra(&mut self, v: u32) {
+        self.app.borrow_mut().config.extra = v;
+    }
+
+    #[getter]
+    fn srgb_mode(&self) -> u32 {
+        self.app.borrow().config.srgb_mode
+    }
+
+    #[setter]
+    fn set_srgb_mode(&mut self, v: u32) {
+        self.app.borrow_mut().config.srgb_mode = v;
+    }
+
+    #[getter]
+    fn gamma(&self) -> Float {
+        self.app.borrow().config.gamma
+    }
+
+    #[setter]
+    fn set_gamma(&mut self, v: Float) {
+        self.app.borrow_mut().config.gamma = v;
     }
 
     #[getter]

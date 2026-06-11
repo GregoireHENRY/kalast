@@ -102,10 +102,16 @@ impl Window {
             .find(|f| f.is_srgb())
             .unwrap_or(caps.formats[0]);
 
+        if config.debug_window {
+            println!("{:?}", format);
+        }
+
         let size = window.inner_size();
 
         let surface_config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::COPY_DST,
             format: format,
             width: size.width,
             height: size.height,
@@ -175,8 +181,11 @@ impl Window {
         let globals = super::gpu::UniformBuffer::new(
             &device,
             super::uniform::Globals {
-                color: super::gpu::color_vec3(&config.global_color),
-                color_mode: config.global_color_mode,
+                color: super::gpu::color_vec3(&config.color),
+                color_mode: config.color_mode,
+
+                srgb_mode: config.srgb_mode,
+                gamma: config.gamma,
 
                 ambient_strength: config.ambient_strength,
                 light_cube_scale: config.light_cube_scale,
@@ -187,7 +196,7 @@ impl Window {
                 shadow_normal_offset_scale: config.shadow_normal_offset_scale,
                 shadow_pcf: config.shadow_pcf,
 
-                extra: config.global_extra,
+                extra: config.extra,
                 ..Default::default()
             },
         );
@@ -281,6 +290,9 @@ impl Window {
         self.surface_config.height = height;
         self.surface.configure(&self.device, &self.surface_config);
 
+        self.passes
+            .render
+            .resize(&self.device, self.surface_config.format, width, height);
         self.passes.depth.resize(&self.device, width, height);
 
         let is_surface_configured = self.is_surface_configured;
@@ -323,6 +335,15 @@ impl Window {
         for ii in 0..simulation.bodies.len() {
             let instance = super::gpu::InstanceInput::new(simulation.bodies[ii].mat);
             self.meshes[1 + ii].update_instance_buffer(&self.device, &instance);
+            self.meshes[1 + ii].update_vertex_buffer(
+                &self.device,
+                &simulation.bodies[ii]
+                    .mesh
+                    .as_ref()
+                    .unwrap()
+                    .borrow()
+                    .vertices,
+            );
         }
 
         if simulation.export_once {
@@ -362,8 +383,12 @@ impl Window {
         }
     }
 
-    pub fn render(&mut self, texture: wgpu::SurfaceTexture, config: &crate::app::config::Config) {
-        let view = texture
+    pub fn render(
+        &mut self,
+        surface_texture: wgpu::SurfaceTexture,
+        config: &crate::app::config::Config,
+    ) {
+        let surface_view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -373,10 +398,30 @@ impl Window {
 
         self.passes.render(
             &mut encoder,
-            &view,
+            &surface_view,
             &self.uniforms.shadow,
             &self.meshes,
             config,
+        );
+
+        encoder.copy_texture_to_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.passes.render.render_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyTextureInfo {
+                texture: &surface_texture.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::Extent3d {
+                width: self.surface_config.width,
+                height: self.surface_config.height,
+                depth_or_array_layers: 1,
+            },
         );
 
         self.queue.submit([encoder.finish()]);
@@ -385,12 +430,12 @@ impl Window {
             super::gpu::export_frame(
                 &self.device,
                 &self.queue,
-                &texture.texture,
+                &self.passes.render.render_texture,
                 self.surface_config.width,
                 self.surface_config.height,
             );
         }
 
-        texture.present();
+        surface_texture.present();
     }
 }

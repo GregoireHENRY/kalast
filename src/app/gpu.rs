@@ -306,6 +306,18 @@ impl MeshBuffer {
     //     (self.index_buffer.size() / 4) as _
     // }
 
+    pub fn update_vertex_buffer(
+        &mut self,
+        device: &wgpu::Device,
+        vertices: &[crate::mesh::Vertex],
+    ) {
+        self.vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            contents: bytemuck::cast_slice(vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+            label: None,
+        });
+    }
+
     pub fn update_instance_buffer(&mut self, device: &wgpu::Device, instance: &InstanceInput) {
         self.instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             contents: bytemuck::bytes_of(instance),
@@ -353,12 +365,15 @@ impl Texture {
             depth_or_array_layers: 1,
         };
 
+        // Bgra8Unorm to see the exact color you ask
+        // Rgba8UnormSrgb to have physically correct lighting
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             size,
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            // format: wgpu::TextureFormat::Bgra8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
             label: None,
@@ -605,6 +620,12 @@ pub fn color_vec3(c: &wgpu::Color) -> Vec3 {
     Vec3::new(c.r as _, c.g as _, c.b as _)
 }
 
+pub fn linear_to_srgb_u8(x: u8) -> u8 {
+    let f = (x as f32) / 255.0;
+    let srgb = f.powf(1.0 / 2.2);
+    (srgb * 255.0).min(255.0) as u8
+}
+
 pub fn export_frame(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -668,10 +689,20 @@ pub fn export_frame(
 
     for y in 0..height as usize {
         let src_offset = y * padded_bytes_per_row as usize;
-        let dst_offset = y * (width as usize * 4);
 
-        pixels[dst_offset..dst_offset + (width as usize * 4)]
-            .copy_from_slice(&data[src_offset..src_offset + (width as usize * 4)]);
+        let dst_offset = y * unpadded_bytes_per_row as usize;
+        pixels[dst_offset..dst_offset + unpadded_bytes_per_row as usize]
+            .copy_from_slice(&data[src_offset..src_offset + unpadded_bytes_per_row as usize]);
+    }
+
+    // Swap R and B if texture format is Bgra instead of Rgba.
+    if matches!(
+        texture.format(),
+        wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb
+    ) {
+        for i in (0..pixels.len()).step_by(4) {
+            pixels.swap(i, i + 2);
+        }
     }
 
     drop(data);

@@ -21,10 +21,13 @@ pub struct Config {
     pub sensitivity_rotate: Float,
     pub sensitivity_zoom: Float,
 
-    // See app/uniform.rs Globals struct
-    pub global_color: wgpu::Color,
-    pub global_color_mode: u32,
-    pub global_extra: u32,
+    // See app/uniform.rs Globals struct for shader
+    pub color: wgpu::Color,
+    pub color_mode: u32,
+    pub extra: u32,
+
+    pub srgb_mode: u32,
+    pub gamma: Float,
 
     pub ambient_strength: f32,
     pub light_color: wgpu::Color,
@@ -59,9 +62,12 @@ impl Default for Config {
             sensitivity_rotate: 1.0,
             sensitivity_zoom: 1.0,
 
-            global_color: wgpu::Color::WHITE,
-            global_color_mode: 0,
-            global_extra: 0,
+            color: wgpu::Color::WHITE,
+            color_mode: 0,
+            extra: 0,
+
+            srgb_mode: 0,
+            gamma: 2.2,
 
             ambient_strength: 0.002,
             light_color: wgpu::Color::WHITE,

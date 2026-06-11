@@ -33,6 +33,13 @@ meridian0 = numpy.where(numpy.abs(sph[:, 1]) < 4 * RPD)[0]
 equator_meridian0 = numpy.intersect1d(equator, meridian0)
 
 df = {}
+df["r"] = sph[:, 0]
+df["theta"] = sph[:, 1]
+df["phi"] = sph[:, 2]
+df = pandas.DataFrame(df)
+df.to_csv("out/sph.csv", index=False, encoding="utf-8-sig")
+
+df = {}
 df["index"] = equator
 df = pandas.DataFrame(df)
 df.to_csv("out/equator.csv", index=False, encoding="utf-8-sig")
@@ -61,7 +68,7 @@ for iif in meridian0:
     mesh.colors[iif * 3 + 1, :] = [0.0, 1.0, 0.0]
     mesh.colors[iif * 3 + 2, :] = [0.0, 1.0, 0.0]
 
-for iif in mix:
+for iif in equator_meridian0:
     mesh.colors[iif * 3 + 0, :] = [0.0, 0.0, 1.0]
     mesh.colors[iif * 3 + 1, :] = [0.0, 0.0, 1.0]
     mesh.colors[iif * 3 + 2, :] = [0.0, 0.0, 1.0]

@@ -14,6 +14,11 @@ pub struct Globals {
     // - else: default to 0
     pub color_mode: u32,
 
+    // 0: convert srgb to linear to show raw color
+    // 1: use srgb
+    pub srgb_mode: u32,
+    pub gamma: f32,
+
     pub ambient_strength: f32,
     pub light_cube_scale: f32,
 
