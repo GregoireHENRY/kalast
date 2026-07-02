@@ -34,6 +34,7 @@ from kalast._rs.util import (  # noqa
     DPR,
     RPD,
     AU,
+    AU_KM,
     SOLAR_CONSTANT,
     STEFAN_BOLTZMANN,
     PLANK_CONSTANT,

@@ -10,23 +10,23 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
 dependencies = [
-	"matplotlib>=3.10.8",
-    "numpy>=2.4.2",
-    "pandas>=3.0",
-    "pyarrow>=23.0",
+	"matplotlib>=3.10",
+    "numpy>=2.5",
+    "pandas>=3",
+    "pyarrow>=24",
     "scipy>=1.16",
-    "spiceypy>=8.0",
+    "spiceypy>=8",
     "symfit>=0.5",
 ]
 
 [dependency-groups]
 dev = [
-    "ipython>=9.10.0",
-    "maturin>=1.8.7",
-    "mypy>=1.19.0",
-    "ptpython>=3.0.32",
-    "pygments>=2.19.2",
-    "ruff>=0.12.1",
+    "ipython>=9.10",
+    "maturin>=1.8",
+    "mypy>=2",
+    "ptpython>=3.0",
+    "pygments>=2.19",
+    "ruff>=0.12",
 ]
 
 [tool.maturin]

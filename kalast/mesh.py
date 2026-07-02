@@ -5,6 +5,7 @@ from kalast._rs.mesh import (  # noqa
     Mesh,
     # Model,
     load_image,
+    compute_facets,
     normal_facet,
     area_facet,
     is_point_in_or_on,

@@ -22,8 +22,8 @@ app.config.shadow_normal_offset_scale = 2e-4
 app.config.shadow_bias_scale = 1e-3
 app.config.shadow_bias_minimum = 5e-4
 
-
-spice.furnsh("/Users/gregoireh/data/spice/hera/kernels/mk/hera_ops_local.tm")
+spice.kclear()
+spice.furnsh("/Users/gregoireh/data/spice/hera/kernels/mk/hera_plan_local.tm")
 
 df = pandas.read_csv(
     "/Users/gregoireh/data/hera/tiri/tiri_images_mars_swing-by_deimos.csv"

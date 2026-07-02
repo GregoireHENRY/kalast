@@ -21,6 +21,7 @@ fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     pyadd_c!(util, crate::util::DPR);
     pyadd_c!(util, crate::util::RPD);
     pyadd_c!(util, crate::util::AU);
+    pyadd_c!(util, crate::util::AU_KM);
     pyadd_c!(util, crate::util::SOLAR_CONSTANT);
     pyadd_c!(util, crate::util::STEFAN_BOLTZMANN);
     pyadd_c!(util, crate::util::PLANK_CONSTANT);
@@ -108,6 +109,7 @@ fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // mesh.add_class::<crate::mesh::Model>()?;
 
     pyadd_f!(mesh, mesh::load_image);
+    pyadd_f!(mesh, mesh::compute_facets);
     pyadd_f!(mesh, mesh::normal_facet);
     pyadd_f!(mesh, mesh::area_facet);
     pyadd_f!(mesh, mesh::is_point_in_or_on);

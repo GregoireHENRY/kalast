@@ -409,6 +409,12 @@ impl Mesh {
         }
     }
 
+    // Recompute facets (pos, normal, area) from current vertices positions and indices.
+    // Call after mutating vertex positions in place, since facets are not kept in sync automatically.
+    pub fn recompute_facets(&mut self) {
+        self.facets = compute_facets(&self.vertices, &self.indices);
+    }
+
     pub fn is_flat(&self) -> bool {
         // temporary until better solution is found
         !self._vertices_before_flatten.is_empty()
@@ -553,25 +559,7 @@ impl Model {
                 let mut facets: Vec<Facet> = vec![];
                 if texcoords.is_empty() {
                     if normals.is_empty() {
-                        for fv in indices.chunks(3) {
-                            let a = vertices[fv[0] as usize].pos;
-                            let b = vertices[fv[1] as usize].pos;
-                            let c = vertices[fv[2] as usize].pos;
-
-                            let pos = (a + b + c) / 3.0;
-
-                            let ab = b - a;
-                            let ac = c - a;
-                            let normal = normal_facet(&ab, &ac);
-                            let area = area_facet(&ab, &ac);
-
-                            // println!(
-                            //     "calc facet {} ({}, {}, {}): normal={}",
-                            //     fi, fv[0], fv[1], fv[2], n
-                            // );
-
-                            facets.push(Facet { pos, normal, area })
-                        }
+                        facets = compute_facets(&vertices, &indices);
                     }
                 }
                 // Calculate tangents and bitangets for texture normal mapping.
@@ -663,6 +651,32 @@ impl Model {
 
         Self { meshes, materials }
     }
+}
+
+pub fn compute_facets(vertices: &[Vertex], indices: &[u32]) -> Vec<Facet> {
+    let mut facets: Vec<Facet> = vec![];
+
+    for fv in indices.chunks(3) {
+        let a = vertices[fv[0] as usize].pos;
+        let b = vertices[fv[1] as usize].pos;
+        let c = vertices[fv[2] as usize].pos;
+
+        let pos = (a + b + c) / 3.0;
+
+        let ab = b - a;
+        let ac = c - a;
+        let normal = normal_facet(&ab, &ac);
+        let area = area_facet(&ab, &ac);
+
+        // println!(
+        //     "calc facet {} ({}, {}, {}): normal={}",
+        //     fi, fv[0], fv[1], fv[2], n
+        // );
+
+        facets.push(Facet { pos, normal, area })
+    }
+    
+    facets
 }
 
 pub fn normal_facet(ab: &Vec3, ac: &Vec3) -> Vec3 {

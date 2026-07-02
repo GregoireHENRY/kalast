@@ -1,7 +1,5 @@
 #!/usr/bin/env python
 
-# import numpy
-
 import kalast
 
 
@@ -19,26 +17,24 @@ f = kalast.mesh.Facet(
     area=0.05,
 )
 
-# create a mesh from vertices and indices
+# create a mesh from vertices
 m = kalast.mesh.Mesh(
     vertices=[
         kalast.mesh.Vertex(
             pos=[0.0, 0.0, 0.0],
-            normal=[1.0, 1.0, 1.0],
+            normal=[0.0, 0.0, 1.0],
         ),
         kalast.mesh.Vertex(
-            pos=[3.0, 3.0, 3.0],
-            normal=[4.0, 4.0, 4.0],
+            pos=[1.0, 0.0, 0.0],
+            normal=[0.0, 0.0, 1.0],
         ),
         kalast.mesh.Vertex(
-            pos=[5.0, 5.0, 5.0],
-            normal=[6.0, 6.0, 6.0],
+            pos=[0.0, 1.0, 0.0],
+            normal=[0.0, 0.0, 1.0],
         ),
     ],
+    indices=[0, 1, 2],
 )
-
-# can change x composant of position of 1st vertex
-m.vertices[0].pos[0] = 1.0
 
 # can access all positions
 m.positions
@@ -52,5 +48,11 @@ m.facets
 # all indices
 m.indices
 
+# can change position of 1st vertex
+m.vertices[0].pos[:] = [1.0, 1.0, 0.0]
+
+# can call this after update vertices to keep facets up to date.
+m.recompute_facets()
+
 # load a mesh wavefront file
-m = kalast.mesh.Mesh.load("res/cube.obj")
+cube = kalast.mesh.Mesh.load("res/cube.obj")

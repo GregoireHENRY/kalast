@@ -12,6 +12,7 @@ pub const DPR: Float = 180.0 / crate::consts::PI;
 pub const RPD: Float = 1.0 / DPR;
 
 pub const AU: Float = 1.495978707e11;
+pub const AU_KM: Float = 1.495978707e8;
 
 // integrated solar flux at 1 AU (W/m2)
 pub const SOLAR_CONSTANT: Float = 1369.0;

@@ -338,8 +338,12 @@ impl Mesh {
                 mesh.facets = fs.into_iter().map(|f| f.inner.borrow().clone()).collect();
             }
 
+            if let (true, Some(idx)) = (!mesh.vertices.is_empty(), indices.as_ref()) {
+                mesh.facets = crate::mesh::compute_facets(&mesh.vertices, idx);
+            }
+
             if let Some(idx) = indices {
-                mesh.indices = idx;
+                mesh.indices = idx.clone();
             }
 
             if let Some(id) = material_id {
@@ -464,6 +468,10 @@ impl Mesh {
 
     fn smoothen(&mut self) {
         self.inner.borrow_mut().smoothen();
+    }
+
+    fn recompute_facets(&mut self) {
+        self.inner.borrow_mut().recompute_facets();
     }
 
     fn is_flat(&self) -> bool {
@@ -762,6 +770,19 @@ pub fn intersect_mesh<'py>(
         exit_first,
     )
     .map(|(ii, v)| (ii, v.to_array().to_pyarray(mesh.py())))
+}
+
+#[pyfunction]
+pub fn compute_facets(vertices: Vec<Vertex>, indices: Vec<u32>) -> Vec<Facet> {
+    let vertices: Vec<crate::mesh::Vertex> =
+        vertices.iter().map(|v| v.inner.borrow().clone()).collect();
+
+    crate::mesh::compute_facets(&vertices, &indices)
+        .into_iter()
+        .map(|f| Facet {
+            inner: Rc::new(RefCell::new(f)),
+        })
+        .collect()
 }
 
 #[pyfunction]

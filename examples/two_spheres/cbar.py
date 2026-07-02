@@ -19,3 +19,4 @@ p.mappable = mappable
 
 kalast.plot.style.load()
 kalast.plot.cbar.create(p)
+matplotlib.pyplot.show()

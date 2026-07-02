@@ -239,6 +239,17 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         }
                     }
 
+                    (winit::keyboard::KeyCode::KeyH, true) => {
+                        println!(
+                            "camera: pos={} up={} dir={} anchor={} projection={:?}",
+                            self.simulation.borrow().camera.pos,
+                            self.simulation.borrow().camera.up,
+                            self.simulation.borrow().camera.dir,
+                            self.simulation.borrow().camera.anchor,
+                            self.simulation.borrow().camera.projection
+                        );
+                    }
+
                     _ => {}
                 };
             }
