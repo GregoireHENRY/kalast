@@ -45,7 +45,7 @@ prop.compute_conductivity_diffusivity()
 print(f"k={prop.conductivity:.6e} d={prop.diffusivity:.6e}")
 
 # Time
-date_start_pre = "2025-03-09 00:00"
+date_start_pre = "2025-03-06 00:00"
 date_start_sim = "2025-03-12 00:00"
 date_stop = "2025-03-12 15:00"
 
@@ -54,7 +54,7 @@ et_start_sim = spice.str2et(date_start_sim)
 et_stop = spice.str2et(date_stop)
 
 dt_pre = 300  # 30 120 300
-dt_sim = 120
+dt_sim = 300  # 120
 t_tot = et_stop - et_start_pre
 t_pre = et_start_sim - et_start_pre
 t_sim = et_stop - et_start_sim
@@ -255,7 +255,7 @@ nbytes += sun.nbytes
 nbytes += tmp_surf.nbytes
 nbytes += tmp_cols.nbytes
 nbytes += tmp_state.nbytes
-print(f"Exporting {nbytes / 1e6:.3f}MB of data")
+print(f"Exporting {nbytes / 1e6:.1f}MB of data")
 
 df = {}
 df["kernel"] = kernel_file

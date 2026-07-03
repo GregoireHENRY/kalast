@@ -710,6 +710,8 @@ pub fn export_frame(
 
     let img = ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, pixels).unwrap();
 
+    std::fs::create_dir_all("out/frames").unwrap();
+
     let mut ii = 0usize;
     let mut path;
 

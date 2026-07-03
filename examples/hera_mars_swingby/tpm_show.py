@@ -9,10 +9,26 @@ import kalast
 from kalast.util import AU, RPD, DPR  # noqa
 
 
+def tick(sim: kalast.app.simulation.Simulation, dt: float):
+    if sim.state.iteration == nit and not sim.state.is_paused:
+        sim.state.is_paused = True
+
+    if sim.state.is_paused:
+        return
+
+    print(f"{sim.state.iteration}/{nit}")
+
+    # sun = state[sim.state.iteration, :3]
+    colors = mappable.to_rgba(tmp_surf[sim.state.iteration, :])
+    for iif in range(nface):
+        mesh.colors[iif * 3 + 0, :] = colors[iif, :3]
+        mesh.colors[iif * 3 + 1, :] = colors[iif, :3]
+        mesh.colors[iif * 3 + 2, :] = colors[iif, :3]
+
+    sim.export_once()
+
+
 app = kalast.app.App()
-app.config.debug_app = True
-# app.config.debug_window = True
-app.config.debug_light_cube_show = True
 app.config.width = 1024
 app.config.height = 768
 app.config.color_mode = 1
@@ -40,33 +56,12 @@ mappable = matplotlib.cm.ScalarMappable(
 
 # app.simulation.state.is_paused = True
 
-
 # Should be in time loop
 # colors = mappable.to_rgba(tmp_surf[0, :])
 # for iif in range(nface):
 #     mesh.colors[iif * 3 + 0, :] = colors[iif, :3]
 #     mesh.colors[iif * 3 + 1, :] = colors[iif, :3]
 #     mesh.colors[iif * 3 + 2, :] = colors[iif, :3]
-
-
-def tick(sim: kalast.app.simulation.Simulation, dt: float):
-    if sim.state.iteration == nit and not sim.state.is_paused:
-        sim.state.is_paused = True
-
-    if sim.state.is_paused:
-        return
-
-    print(f"{sim.state.iteration}/{nit}")
-
-    # sun = state[sim.state.iteration, :3]
-    colors = mappable.to_rgba(tmp_surf[sim.state.iteration, :])
-    for iif in range(nface):
-        mesh.colors[iif * 3 + 0, :] = colors[iif, :3]
-        mesh.colors[iif * 3 + 1, :] = colors[iif, :3]
-        mesh.colors[iif * 3 + 2, :] = colors[iif, :3]
-
-    sim.export_once()
-
 
 app.tick = tick
 app.start()
