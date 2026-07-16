@@ -1,8 +1,12 @@
 #!/usr/bin/env python
 
-# Scaffold: port of examples/old/hera_mars_swingby_old/rad.py to the current
-# kalast API. Computes per-facet spectral/band radiance seen by TIRI from
-# Deimos surface temperatures already simulated by tpm.py.
+# Port of examples/old/hera_mars_swingby_old/rad.py to the current kalast
+# API. Computes per-facet spectral/band radiance seen by TIRI from Deimos
+# surface temperatures already simulated by tpm.py.
+#
+# Wide band filter only for now (TIRI "Filter g (wide)" / Response_Fil-g in
+# response.csv). Per-image/per-filter selection (fwpos) is not done yet --
+# see TODO below.
 #
 # Direct replacements applied (old -> new):
 #   trimesh.load(...) + mesh.triangles_center/face_normals/area_faces
@@ -14,23 +18,23 @@
 #   kalast.tpm.core.planck(t, wl)          -> kalast.tpm.emit.planck(t, w)
 #   manual ster_ = area / d**2             -> kalast.tpm.emit.steradian(area, d)
 #   manual rad_ * ster_                    -> kalast.tpm.emit.irradiance(f, sr)
-#   scipy.integrate.simpson(spec*resp, wl) -> kalast.tpm.emit.radiance(f, r, w)
-#     (Simpson-integrates a response-weighted spectral radiance; same method
-#     as the old script, just wrapped on the Rust side)
+#   RESP/WLU npy arrays                    -> /Users/gregoireh/data/hera/tiri/response.csv
+#     ("#Wavelength[um]" + one "Response_Fil-x" column per filter)
 #
-# NOT YET REPLACED / MISSING -- needs sourcing before this runs end-to-end:
-#   - TIRI spectral response function arrays (`resp`, `wlu` in the old code).
-#     kalast.entity.TIRI only carries filter *names* (see TIRI.filters in
-#     src/entity.rs), not the response curves themselves. The old pipeline
-#     loaded these from "work/scene/resp.npy" / "wlu.npy", produced by
-#     cam_scene.py / scene.py (not ported). You need to find/regenerate the
-#     TIRI filter response calibration data (e.g. from the instrument team)
-#     and load it here -- see RESP/WLU placeholders below.
-#   - `fwpos` (which filter was used per image) can be rebuilt without the
-#     old scene arrays: the images CSV already has a "filter" column
-#     (see examples/hera_mars_swingby/main.py loading
-#     ".../tiri_images_mars_swing-by_deimos.csv"), matched against
-#     kalast.entity.TIRI.filters to get an index.
+# Note: kalast.tpm.emit.planck/spectral_radiance/radiance all take a scalar
+# wavelength/spectral-radiance (see src/tpm/emit.rs), not an array -- they
+# are NOT a drop-in replacement for scipy.integrate.simpson(spec*resp, wl).
+# The per-wavelength spectral radiance is still built with a Python loop
+# calling planck/spectral_radiance scalar-wise (as in the older, already
+# ported examples/old/hera_necp_moon/rad.py), then band-integrated with
+# scipy.integrate.simpson directly.
+#
+# STILL TODO:
+#   - Only the wide filter (Response_Fil-g) is used, applied to every TPM
+#     timestep. To simulate actual TIRI images instead, switch the loop to
+#     iterate over the images CSV (see commented block below) and pick the
+#     response column matching each image's filter, matched against
+#     kalast.entity.TIRI.filters.
 #   - Camera/observer position per image (`po`, `ds` in the old code): can be
 #     rebuilt with spice.spkpos(HERA.name, et, DEIMOS.frame, "none", DEIMOS.name),
 #     as already done for the sun vector in tpm.py -- scaffolded below.
@@ -46,6 +50,7 @@ from pathlib import Path  # noqa
 
 import numpy
 import pandas
+import scipy
 import spiceypy as spice
 
 import kalast
@@ -66,43 +71,56 @@ mesh.flatten()
 nface = len(mesh.facets)
 
 # --- TPM output (from tpm.py, e.g. a saved run copied into out/deimos_tpm) ---
-out_dir = Path("out/deimos_tpm")
-ets_sim = pandas.read_csv(out_dir / "ets_sim.csv")["time"].to_numpy()
-tmp_surf = pandas.read_csv(out_dir / "tmp_surf.csv").to_numpy()
+tpm_dir = Path("out/hera_mars_swingby/deimos_tpm_3")
+ets_sim = pandas.read_csv(tpm_dir / "ets_sim.csv")["time"].to_numpy()
+tmp_surf = pandas.read_csv(tpm_dir / "tmp_surf.csv").to_numpy()
 assert tmp_surf.shape[1] == nface, "tmp_surf.csv facet count != mesh facet count"
 
 # --- Images to simulate: reuse the same CSV as main.py ---
-df_images = pandas.read_csv(
-    "/Users/gregoireh/data/hera/tiri/tiri_images_mars_swing-by_deimos.csv"
-)
-images = df_images["image"].to_list()
-et_images = df_images["et"].to_numpy()
-filter_images = df_images["filter"].to_list()
-fwpos = numpy.array([cam.filters.index(f) for f in filter_images])
+# TODO later, for the moment use TPM ets_sim directly (one "image" per
+# TPM-recorded timestep, all with the wide filter).
+# df_images = pandas.read_csv(
+#     "/Users/gregoireh/data/hera/tiri/tiri_images_mars_swing-by_deimos.csv"
+# )
+# images = df_images["image"].to_list()
+# et_images = df_images["et"].to_numpy()
+# filter_images = df_images["filter"].to_list()
+# fwpos = numpy.array([cam.filters.index(f) for f in filter_images])
 
-# --- TODO: load real TIRI spectral response function per filter ---
-# RESP: shape (n_wavelengths, n_filters), WLU: shape (n_wavelengths,) in microns
-# wl = WLU * 1e-6
-# resp = RESP
-raise NotImplementedError(
-    "Load TIRI response function (resp, wlu) before running -- see header comment."
-)
-
-n = len(images)
+# --- TIRI spectral response function (wide filter only for now) ---
+df_resp = pandas.read_csv("/Users/gregoireh/data/hera/tiri/response.csv")
+wl = df_resp["#Wavelength[um]"].to_numpy() * 1e-6
+resp = df_resp["Response_Fil-g"].to_numpy()
 nw = wl.size
 
-rad_all = numpy.zeros((n, nface))
-irrad_all = numpy.zeros((n, nface))
-tmp_all = numpy.zeros((n, nface))
-inc_all = numpy.zeros((n, nface))
-emi_all = numpy.zeros((n, nface))
+nit = len(ets_sim)
+
+rad_all = numpy.zeros((nit, nface))
+irrad_all = numpy.zeros((nit, nface))
+tmp_all = numpy.zeros((nit, nface))
+inc_all = numpy.zeros((nit, nface))
+emi_all = numpy.zeros((nit, nface))
 
 # Roughness correction placeholder (old code also left this as ones).
-R = numpy.ones((n, nface))
+R = numpy.ones((nit, nface))
 
-for it, image in enumerate(images):
-    et = et_images[it]
-    ii_simu = numpy.argmin(numpy.abs(ets_sim - et))
+# Time loop progress (same pattern as tpm.py).
+progress_freq = "1"
+digits = [len(_d) for _d in progress_freq.split(".")]
+digits_full = 3
+digits_decimal = 0
+if len(digits) == 2:
+    digits_decimal = digits[1]
+    if digits_decimal > 0:
+        digits_full += digits_decimal + 1
+freqv = float(progress_freq)
+last_freq_reached = -freqv
+ndigits = kalast.util.numdigits_comma(freqv)
+digit = 10**ndigits
+
+for it, et in enumerate(ets_sim):
+    # interpolation between ets_sim from TPM simu and real TIRI images
+    # ii_simu = numpy.argmin(numpy.abs(ets_sim - et))
 
     (p_sc, _lt) = spice.spkpos(sc.name, et, deimos.frame, "none", deimos.name)
     p_sc *= 1e3
@@ -117,21 +135,31 @@ for it, image in enumerate(images):
         v_sun = p_sun - p
         d_sun = numpy.linalg.norm(v_sun)
         u_sun = v_sun / d_sun
-        cosi = kalast.math.cosine_incidence(u_sun, n_)
+        cosi = kalast.math.cosine_incidence(u_sun.astype(numpy.float32), n_)
 
         v_sc = p_sc - p
         d_sc = numpy.linalg.norm(v_sc)
         u_sc = v_sc / d_sc
-        cose = kalast.math.cosine_incidence(u_sc, n_)
+        cose = kalast.math.cosine_incidence(u_sc.astype(numpy.float32), n_)
 
-        tmp_ = tmp_surf[ii_simu, iif]
+        tmp_ = tmp_surf[it, iif]
+        emissivity = 0.95
 
-        spec_rad = numpy.array([kalast.tpm.emit.planck(tmp_, w_) for w_ in wl])
-        spec_rad = kalast.tpm.emit.spectral_radiance(
-            spec_rad, prop_emissivity := 0.95, cose, R[it, iif]
+        # kalast.tpm.emit.planck/spectral_radiance take a scalar wavelength,
+        # so build the per-wavelength spectral radiance array in Python (same
+        # pattern as examples/old/hera_necp_moon/rad.py), then band-integrate
+        # against the response function with scipy (kalast.tpm.emit.radiance
+        # also expects a scalar f, not an array -- not usable here).
+        spec_rad = numpy.array(
+            [
+                kalast.tpm.emit.spectral_radiance(
+                    kalast.tpm.emit.planck(tmp_, w_), emissivity, cose, R[it, iif]
+                )
+                for w_ in wl
+            ]
         )
 
-        rad_ = kalast.tpm.emit.radiance(spec_rad, resp[:, fwpos[it]], wl)
+        rad_ = scipy.integrate.simpson(spec_rad * resp, wl)
         sr_ = kalast.tpm.emit.steradian(area, d_sc)
         irrad_ = kalast.tpm.emit.irradiance(rad_, sr_)
 
@@ -141,8 +169,27 @@ for it, image in enumerate(images):
         inc_all[it, iif] = numpy.arccos(cosi)
         emi_all[it, iif] = numpy.arccos(cose)
 
-numpy.save(out_dir / "rad_all.npy", rad_all)
-numpy.save(out_dir / "irrad_all.npy", irrad_all)
-numpy.save(out_dir / "tmp_all.npy", tmp_all)
-numpy.save(out_dir / "inc_all.npy", inc_all)
-numpy.save(out_dir / "emi_all.npy", emi_all)
+    # Show progress
+    progress = it / (nit - 1) * 100
+    if ndigits > 0:
+        progress = numpy.floor(progress * digit) / digit
+    if progress >= last_freq_reached + freqv:
+        last_freq_reached += freqv
+        print(f"{progress:{digits_full}.{digits_decimal}f}% ({it:,}/{nit - 1:,}it)")
+
+
+def save_per_facet_csv(name, data):
+    # Same row/col convention as tpm.py's tmp_surf.csv: one row per
+    # timestep, one column per facet index (0..nface-1).
+    df = {}
+    for iif in range(nface):
+        df[iif] = data[:, iif]
+    df = pandas.DataFrame(df)
+    df.to_csv(tpm_dir / f"{name}.csv", index=False, encoding="utf-8-sig")
+
+
+save_per_facet_csv("rad_all", rad_all)
+save_per_facet_csv("irrad_all", irrad_all)
+save_per_facet_csv("tmp_all", tmp_all)
+save_per_facet_csv("inc_all", inc_all)
+save_per_facet_csv("emi_all", emi_all)

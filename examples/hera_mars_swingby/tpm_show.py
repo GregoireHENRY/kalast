@@ -3,6 +3,7 @@
 import matplotlib
 import numpy
 import pandas
+from pathlib import Path  # noqa
 
 import kalast
 
@@ -16,11 +17,11 @@ def tick(sim: kalast.app.simulation.Simulation, dt: float):
     if sim.state.is_paused:
         return
 
-    print(f"{sim.state.iteration}/{nit}")
+    print(f"{sim.state.iteration}/{nit - 1}")
 
     # sun = state[sim.state.iteration, :3]
     colors = mappable.to_rgba(tmp_surf[sim.state.iteration, :])
-    for iif in range(nface):
+    for iif in range(nf):
         mesh.colors[iif * 3 + 0, :] = colors[iif, :3]
         mesh.colors[iif * 3 + 1, :] = colors[iif, :3]
         mesh.colors[iif * 3 + 2, :] = colors[iif, :3]
@@ -43,25 +44,22 @@ app.simulation.load_mesh(
     flatten=True,
 )
 mesh = app.simulation.bodies[0].mesh
-ets = pandas.read_csv("out/ets_sim.csv").to_numpy()
-state = pandas.read_csv("out/state.csv").to_numpy()
-tmp_surf = pandas.read_csv("out/tmp_surf.csv").to_numpy()
 
-nface = len(mesh.facets)
+# Load TPM
+#
+# ets:
+#   date_start_sim = "2025-03-12 00:00"
+#   date_stop = "2025-03-12 15:00"
+#   dt_sim = 300
+path = Path("out/hera_mars_swingby/deimos_tpm_2")
+ets = pandas.read_csv(path / "ets_sim.csv").to_numpy()
+state = pandas.read_csv(path / "state.csv").to_numpy()
+tmp_surf = pandas.read_csv(path / "tmp_surf.csv").to_numpy()
+nf = len(mesh.facets)
 nit = ets.size
-
 mappable = matplotlib.cm.ScalarMappable(
     cmap=matplotlib.cm.inferno.resampled(100), norm=None
 )
-
-# app.simulation.state.is_paused = True
-
-# Should be in time loop
-# colors = mappable.to_rgba(tmp_surf[0, :])
-# for iif in range(nface):
-#     mesh.colors[iif * 3 + 0, :] = colors[iif, :3]
-#     mesh.colors[iif * 3 + 1, :] = colors[iif, :3]
-#     mesh.colors[iif * 3 + 2, :] = colors[iif, :3]
 
 app.tick = tick
 app.start()

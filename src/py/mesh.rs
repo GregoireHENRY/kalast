@@ -563,6 +563,7 @@ crate::impl_mesh_field_scalar!(VertexView, vertices, color_mode, u32);
 
 crate::impl_mesh_field_vec!(FacetView, facets, pos);
 crate::impl_mesh_field_vec!(FacetView, facets, normal);
+crate::impl_mesh_field_scalar!(FacetView, facets, area, Float);
 
 #[pyclass(unsendable)]
 pub struct FacetVerticesView {

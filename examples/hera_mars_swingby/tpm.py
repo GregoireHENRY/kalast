@@ -45,16 +45,16 @@ prop.compute_conductivity_diffusivity()
 print(f"k={prop.conductivity:.6e} d={prop.diffusivity:.6e}")
 
 # Time
-date_start_pre = "2025-03-06 00:00"
-date_start_sim = "2025-03-12 00:00"
-date_stop = "2025-03-12 15:00"
+date_start_pre = "2025-03-01 00:00"
+date_start_sim = "2025-03-11 00:00"
+date_stop = "2025-03-13 00:00"
 
 et_start_pre = spice.str2et(date_start_pre)
 et_start_sim = spice.str2et(date_start_sim)
 et_stop = spice.str2et(date_stop)
 
-dt_pre = 300  # 30 120 300
-dt_sim = 300  # 120
+dt_pre = 300.0  # 30 120 300
+dt_sim = 300.0  # 120
 t_tot = et_stop - et_start_pre
 t_pre = et_start_sim - et_start_pre
 t_sim = et_stop - et_start_sim
