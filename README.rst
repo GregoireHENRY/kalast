@@ -43,10 +43,10 @@ Structure
 Compilation
 ===========
 
-Build the kalast rust dynamic library `kalast/_rs.cpython-314-darwin.so` (example for Mac)
-
 Create a virtual environment to install dependencies and compile code, I recommend astral uv for Python.
-Then, from within you venv, run these:
+Then, from within you venv, run the following.
+
+Build the kalast rust dynamic library `kalast/_rs.cpython-314-darwin.so` (example for Mac)
 
 .. code:: sh
 
