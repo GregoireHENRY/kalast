@@ -1,0 +1,16 @@
+Loading the two largest shape models for didymos and dimorphos at the same time
+result in wgpu panic:
+
+thread '<unnamed>' (21141316) panicked at /Users/gregoireh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/wgpu-29.0.4/src/backend/wgpu_core.rs:1614:18:
+wgpu error: Validation Error
+
+Caused by:
+  In Device::create_buffer
+    Buffer size 717225984 is greater than the maximum buffer size (268435456)
+
+/Users/gregoireh/data/spice/hera/kernels/dsk/g_01165mm_spc_obj_didy_0000n00000_v003.obj
+/Users/gregoireh/data/spice/hera/kernels/dsk/g_00243mm_spc_obj_dimo_0000n00000_v004.obj
+
+These meshes are decimated using meshlab:
+/Users/gregoireh/data/mesh/didymos/g_01165mm_spc_obj_didy_0000n00000_v003_decimated_100k.obj
+/Users/gregoireh/data/mesh/dimorphos/g_00243mm_spc_obj_dimo_0000n00000_v004_decimated_100k.obj

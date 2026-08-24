@@ -58,9 +58,7 @@ app.simulation.camera.dir=[0.2894826, 0.7908329, -0.53924316]
 # app.simulation.camera.projection.side = 2.0
 
 spice.kclear()
-spice.furnsh(
-    "/Users/gregoireh/data/spice/hera/kernels/mk/hera_study_PO_EMA_2024_local.tm"
-)
+spice.furnsh("/Users/gregoireh/data/spice/hera/kernels/mk/hera_plan_local.tm")
 
 et0 = spice.str2et("2027-03-01 12:00:00 UTC")
 et = et0
