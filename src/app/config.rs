@@ -38,6 +38,12 @@ pub struct Config {
     pub shadow_normal_offset_scale: f32,
     pub shadow_bias_scale: f32,
     pub shadow_bias_minimum: f32,
+
+    // Directory frame exports (export/export_once) are written to, as
+    // "{export_dir}/{N}.png". Override per-app (e.g. to a scratch
+    // directory) to keep test/dev runs from colliding with real ones
+    // sharing the default "out/frames".
+    pub export_dir: String,
 }
 
 impl Default for Config {
@@ -83,6 +89,8 @@ impl Default for Config {
             shadow_normal_offset_scale: 2e-4,
             shadow_bias_scale: 1e-5,
             shadow_bias_minimum: 1e-5,
+
+            export_dir: "out/frames".to_string(),
         }
     }
 }

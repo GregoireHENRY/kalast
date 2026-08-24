@@ -85,14 +85,21 @@ impl App {
         self
     }
 
-    pub fn exit(&self, ev: &winit::event_loop::ActiveEventLoop) {
-        let win = self.window.as_ref().unwrap();
+    pub fn exit(&mut self, ev: &winit::event_loop::ActiveEventLoop) {
+        let win = self.window.as_mut().unwrap();
 
         if self.simulation.borrow().camera.control == frame::Control::WASD {
             win.reset_cursor();
         }
 
         // win.get_window().screenshot()
+
+        // Block until every queued/in-flight frame export has actually been
+        // written to disk, otherwise anything still in the pipeline when
+        // this process exits is silently lost -- there is no resuming a
+        // killed background thread.
+        let device = win.device.clone();
+        win.frame_exporter.finish(&device);
 
         ev.exit()
     }

@@ -306,6 +306,16 @@ impl Config {
         self.app.borrow_mut().config.shadow_pcf = v;
     }
 
+    #[getter]
+    fn export_dir(&self) -> String {
+        self.app.borrow().config.export_dir.clone()
+    }
+
+    #[setter]
+    fn set_export_dir(&mut self, v: &str) {
+        self.app.borrow_mut().config.export_dir = v.to_string();
+    }
+
     fn __repr__(&self) -> String {
         format!("{:?}", self.app.borrow().config)
     }

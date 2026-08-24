@@ -254,7 +254,7 @@ impl Window {
             passes,
 
             export_frame: false,
-            frame_exporter: super::gpu::FrameExporter::new(),
+            frame_exporter: super::gpu::FrameExporter::new(config.export_dir.clone()),
         }
     }
 

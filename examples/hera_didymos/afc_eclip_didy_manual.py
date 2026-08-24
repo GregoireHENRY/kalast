@@ -11,15 +11,13 @@ from kalast.util import AU_KM, RPD
 def tick(sim: kalast.app.simulation.Simulation, dt: float):
     if sim.state.is_paused:
         return
-    # if sim.state.iteration > 0:
-    #     return
-
-    sim.export_once()
 
     et = et0 + sim.state.iteration * simu_dt
 
     if et > etf:
         return
+
+    sim.export_once()
 
     (p_sun, _lt) = spice.spkpos("SUN", et, "ECLIPJ2000", "none", "DIDYMOS")
     (p_dimo, _lt) = spice.spkpos("DIMORPHOS", et, "ECLIPJ2000", "none", "DIDYMOS")
