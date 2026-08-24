@@ -626,103 +626,249 @@ pub fn linear_to_srgb_u8(x: u8) -> u8 {
     (srgb * 255.0).min(255.0) as u8
 }
 
-pub fn export_frame(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    texture: &wgpu::Texture,
+struct PooledBuffer {
+    buffer: wgpu::Buffer,
+    size: wgpu::BufferAddress,
+}
+
+struct InFlightExport {
+    buffer: wgpu::Buffer,
+    buffer_size: wgpu::BufferAddress,
+    ready: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    padded_bytes_per_row: u32,
+    unpadded_bytes_per_row: u32,
     width: u32,
     height: u32,
-) {
-    let bytes_per_pixel = 4;
-    let unpadded_bytes_per_row = bytes_per_pixel * width;
-    let padding = (256 - unpadded_bytes_per_row % 256) % 256;
-    let padded_bytes_per_row = unpadded_bytes_per_row + padding;
+    bgra_swap: bool,
+    path: std::path::PathBuf,
+}
 
-    let buffer_size = (padded_bytes_per_row * height) as wgpu::BufferAddress;
+struct SaveJob {
+    buffer: wgpu::Buffer,
+    buffer_size: wgpu::BufferAddress,
+    pool_tx: std::sync::mpsc::Sender<PooledBuffer>,
+    padded_bytes_per_row: u32,
+    unpadded_bytes_per_row: u32,
+    width: u32,
+    height: u32,
+    bgra_swap: bool,
+    path: std::path::PathBuf,
+}
 
-    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-        size: buffer_size,
-        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-        mapped_at_creation: false,
-        label: None,
-    });
+/// Exports render-target frames to PNG (`out/frames/N.png`) without
+/// blocking the render loop.
+///
+/// The old `export_frame` free function did a full GPU pipeline stall
+/// every call (`device.poll(PollType::Wait { timeout: None })`) followed by
+/// synchronous PNG encoding + disk I/O on the render thread -- ~25x slower
+/// than rendering with export disabled. This spreads the GPU->CPU copy
+/// across frames (drained non-blockingly by `poll`) and moves the
+/// encode/write work to a background thread, so `export_frame` only ever
+/// costs a buffer copy + a cheap ownership handoff on the render thread.
+pub struct FrameExporter {
+    in_flight: Vec<InFlightExport>,
+    pool_tx: std::sync::mpsc::Sender<PooledBuffer>,
+    pool_rx: std::sync::mpsc::Receiver<PooledBuffer>,
+    save_tx: std::sync::mpsc::Sender<SaveJob>,
+    next_index: usize,
+}
 
-    let mut encoder =
-        device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+impl FrameExporter {
+    pub fn new() -> Self {
+        std::fs::create_dir_all("out/frames").unwrap();
 
-    encoder.copy_texture_to_buffer(
-        wgpu::TexelCopyTextureInfo {
-            texture,
-            mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
-        },
-        wgpu::TexelCopyBufferInfo {
-            buffer: &buffer,
-            layout: wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(padded_bytes_per_row),
-                rows_per_image: Some(height),
+        // Resume numbering after files already in out/frames (matches the
+        // old behavior of never overwriting a previous run's frames),
+        // scanned once here instead of on every export.
+        let mut next_index = 0usize;
+        if let Ok(entries) = std::fs::read_dir("out/frames") {
+            for entry in entries.flatten() {
+                if let Some(stem) = entry.path().file_stem().and_then(|s| s.to_str()) {
+                    if let Ok(n) = stem.parse::<usize>() {
+                        next_index = next_index.max(n + 1);
+                    }
+                }
+            }
+        }
+
+        let (pool_tx, pool_rx) = std::sync::mpsc::channel::<PooledBuffer>();
+        let (save_tx, save_rx) = std::sync::mpsc::channel::<SaveJob>();
+
+        // Worker thread: reads the (already-mapped) buffer, unpads rows,
+        // swaps channels if needed, PNG-encodes and writes to disk -- all
+        // off the render thread. The buffer is unmapped and handed back
+        // through pool_tx once done, for reuse by future exports.
+        std::thread::spawn(move || {
+            for job in save_rx {
+                let data = job.buffer.slice(..).get_mapped_range();
+
+                let mut pixels = vec![0u8; (job.width * job.height * 4) as usize];
+
+                for y in 0..job.height as usize {
+                    let src_offset = y * job.padded_bytes_per_row as usize;
+                    let dst_offset = y * job.unpadded_bytes_per_row as usize;
+                    pixels[dst_offset..dst_offset + job.unpadded_bytes_per_row as usize]
+                        .copy_from_slice(
+                            &data[src_offset..src_offset + job.unpadded_bytes_per_row as usize],
+                        );
+                }
+
+                if job.bgra_swap {
+                    for i in (0..pixels.len()).step_by(4) {
+                        pixels.swap(i, i + 2);
+                    }
+                }
+
+                drop(data);
+                job.buffer.unmap();
+
+                if let Some(img) =
+                    ImageBuffer::<Rgba<u8>, _>::from_raw(job.width, job.height, pixels)
+                {
+                    if let Err(e) = img.save(&job.path) {
+                        eprintln!("[EXPORT] failed to save {:?}: {e}", job.path);
+                    }
+                }
+
+                let _ = job.pool_tx.send(PooledBuffer {
+                    buffer: job.buffer,
+                    size: job.buffer_size,
+                });
+            }
+        });
+
+        Self {
+            in_flight: Vec::new(),
+            pool_tx,
+            pool_rx,
+            save_tx,
+            next_index,
+        }
+    }
+
+    /// Non-blocking: drains any GPU->CPU copies that have completed since
+    /// the last call and hands them off to the save worker. Call once per
+    /// frame regardless of whether an export was requested this frame, so
+    /// in-flight exports from previous frames keep progressing.
+    pub fn poll(&mut self, device: &wgpu::Device) {
+        device.poll(wgpu::PollType::Poll).unwrap();
+
+        let mut ii = 0;
+        while ii < self.in_flight.len() {
+            if self.in_flight[ii]
+                .ready
+                .load(std::sync::atomic::Ordering::Acquire)
+            {
+                let job = self.in_flight.remove(ii);
+                let _ = self.save_tx.send(SaveJob {
+                    buffer: job.buffer,
+                    buffer_size: job.buffer_size,
+                    pool_tx: self.pool_tx.clone(),
+                    padded_bytes_per_row: job.padded_bytes_per_row,
+                    unpadded_bytes_per_row: job.unpadded_bytes_per_row,
+                    width: job.width,
+                    height: job.height,
+                    bgra_swap: job.bgra_swap,
+                    path: job.path,
+                });
+            } else {
+                ii += 1;
+            }
+        }
+    }
+
+    /// Queues a non-blocking export of `texture`. The GPU->CPU copy
+    /// completes over the following frames (drained by `poll`), and PNG
+    /// encoding + the disk write happen on a background thread -- this
+    /// call never blocks the render loop.
+    pub fn export_frame(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        texture: &wgpu::Texture,
+        width: u32,
+        height: u32,
+    ) {
+        let bytes_per_pixel = 4;
+        let unpadded_bytes_per_row = bytes_per_pixel * width;
+        let padding = (256 - unpadded_bytes_per_row % 256) % 256;
+        let padded_bytes_per_row = unpadded_bytes_per_row + padding;
+        let buffer_size = (padded_bytes_per_row * height) as wgpu::BufferAddress;
+
+        // Reuse a pooled buffer of the right size if one's available
+        // (stale sizes, e.g. after a resize, are just dropped), else
+        // allocate a new one.
+        let buffer = loop {
+            match self.pool_rx.try_recv() {
+                Ok(pooled) if pooled.size == buffer_size => break pooled.buffer,
+                Ok(_) => continue,
+                Err(_) => {
+                    break device.create_buffer(&wgpu::BufferDescriptor {
+                        size: buffer_size,
+                        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                        mapped_at_creation: false,
+                        label: None,
+                    });
+                }
+            }
+        };
+
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
             },
-        },
-        wgpu::Extent3d {
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_bytes_per_row),
+                    rows_per_image: Some(height),
+                },
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        queue.submit(Some(encoder.finish()));
+
+        let bgra_swap = matches!(
+            texture.format(),
+            wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb
+        );
+
+        let ready = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let ready_cb = ready.clone();
+
+        // Cheap: just flips a flag, invoked from within device.poll() on
+        // the render thread once the copy is done. No I/O, no encoding.
+        buffer.slice(..).map_async(wgpu::MapMode::Read, move |result| {
+            if result.is_ok() {
+                ready_cb.store(true, std::sync::atomic::Ordering::Release);
+            }
+        });
+
+        let path = std::path::PathBuf::from(format!("out/frames/{}.png", self.next_index));
+        self.next_index += 1;
+
+        self.in_flight.push(InFlightExport {
+            buffer,
+            buffer_size,
+            ready,
+            padded_bytes_per_row,
+            unpadded_bytes_per_row,
             width,
             height,
-            depth_or_array_layers: 1,
-        },
-    );
-
-    queue.submit(Some(encoder.finish()));
-
-    let buffer_slice = buffer.slice(..);
-    buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
-    device
-        .poll(wgpu::PollType::Wait {
-            submission_index: None,
-            timeout: None,
-        })
-        .unwrap();
-
-    let data = buffer_slice.get_mapped_range();
-
-    let mut pixels = vec![0u8; (width * height * 4) as usize];
-
-    for y in 0..height as usize {
-        let src_offset = y * padded_bytes_per_row as usize;
-
-        let dst_offset = y * unpadded_bytes_per_row as usize;
-        pixels[dst_offset..dst_offset + unpadded_bytes_per_row as usize]
-            .copy_from_slice(&data[src_offset..src_offset + unpadded_bytes_per_row as usize]);
+            bgra_swap,
+            path,
+        });
     }
-
-    // Swap R and B if texture format is Bgra instead of Rgba.
-    if matches!(
-        texture.format(),
-        wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb
-    ) {
-        for i in (0..pixels.len()).step_by(4) {
-            pixels.swap(i, i + 2);
-        }
-    }
-
-    drop(data);
-    buffer.unmap();
-
-    let img = ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, pixels).unwrap();
-
-    std::fs::create_dir_all("out/frames").unwrap();
-
-    let mut ii = 0usize;
-    let mut path;
-
-    loop {
-        path = std::path::PathBuf::from(format!("out/frames/{ii}.png"));
-
-        if !path.exists() {
-            break;
-        }
-        ii += 1;
-    }
-
-    img.save(path).unwrap();
 }

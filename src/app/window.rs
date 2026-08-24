@@ -36,6 +36,7 @@ pub struct Window {
     pub passes: super::pass::Passes,
 
     pub export_frame: bool,
+    pub frame_exporter: super::gpu::FrameExporter,
 }
 
 impl Window {
@@ -253,6 +254,7 @@ impl Window {
             passes,
 
             export_frame: false,
+            frame_exporter: super::gpu::FrameExporter::new(),
         }
     }
 
@@ -426,8 +428,14 @@ impl Window {
 
         self.queue.submit([encoder.finish()]);
 
+        // Non-blocking: drains any exports whose GPU->CPU copy finished
+        // since the last frame. Runs every frame (not just when exporting)
+        // so in-flight exports keep progressing even after export_frame
+        // turns back off.
+        self.frame_exporter.poll(&self.device);
+
         if self.export_frame {
-            super::gpu::export_frame(
+            self.frame_exporter.export_frame(
                 &self.device,
                 &self.queue,
                 &self.passes.render.render_texture,
