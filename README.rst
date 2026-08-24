@@ -46,21 +46,20 @@ Compilation
 Create a virtual environment to install dependencies and compile code, I recommend astral uv for Python.
 Then, from within you venv, run the following.
 
-Build the kalast rust dynamic library `kalast/_rs.cpython-314-darwin.so` (example for Mac)
+Build the kalast rust dynamic library `kalast/_rs.cpython-314-darwin.so` (example for Mac).
 
 .. code:: sh
 
     maturin develop
 
-Run an example.
+Run a Python example.
 
 .. code:: sh
 
-    python -i examples/two_spheres/illum.py
+    python -i examples/two_spheres/main.py
 
-Import kalast from Python.
+Import kalast from Python and start writing your own scripts.
 
 .. code:: python
    
-   # uv run python
    import kalast;
