@@ -15,7 +15,6 @@ pub struct Simulation {
 
 impl Simulation {
     pub fn new() -> Self {
-
         let mut sun = crate::app::frame::Eye::new();
         sun.projection.mode = crate::app::frame::ProjectionMode::Orthographic;
 

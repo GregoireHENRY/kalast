@@ -531,6 +531,11 @@ impl Model {
                     ..
                 } = mesh;
 
+                // println!("MESH LOADING DEBUG");
+                // println!("pos:{}", positions.len());
+                // println!("indices:{}", indices.len());
+                // println!("normals:{}", normals.len());
+
                 let mut vertices = (0..positions.len() / 3)
                     .map(|i| {
                         let pos = update_pos(
@@ -545,9 +550,8 @@ impl Model {
                             v.tex = [texcoords[i * 2], 1.0 - texcoords[i * 2 + 1]].into();
                         }
                         if !normals.is_empty() {
-                            println!("why did it reach here?");
-                            v.normal =
-                                [normals[i * 3], normals[i * 3 + 1], normals[i * 3 + 2]].into();
+                            unimplemented!("Mesh has normals per vertices but will be ignored cus not implemented to read them.");
+                            // v.normal = [normals[i * 3], normals[i * 3 + 1], normals[i * 3 + 2]].into();
                         }
                         v
                     })
@@ -675,7 +679,7 @@ pub fn compute_facets(vertices: &[Vertex], indices: &[u32]) -> Vec<Facet> {
 
         facets.push(Facet { pos, normal, area })
     }
-    
+
     facets
 }
 
