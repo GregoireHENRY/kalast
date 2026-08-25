@@ -63,7 +63,7 @@ app.simulation.camera.projection.fovy = 5.5 * RPD
 mat = numpy.eye(4)
 mat[:3, :3] = m_didy_ej2k
 app.simulation.load_mesh(
-    path="/Users/gregoireh/data/mesh/didymos/g_01165mm_spc_obj_didy_0000n00000_v003_decimated_100k.obj",
+    path="/Users/gregoireh/data/spice/hera/kernels/dsk/g_01165mm_spc_obj_didy_0000n00000_v003.obj",
     mat=mat,
     flatten=True,
 )
@@ -72,7 +72,7 @@ mat = numpy.eye(4)
 mat[:3, 3] = p_dimo
 mat[:3, :3] = m_dimo_ej2k
 app.simulation.load_mesh(
-    path="/Users/gregoireh/data/mesh/dimorphos/g_00243mm_spc_obj_dimo_0000n00000_v004_decimated_100k.obj",
+    path="/Users/gregoireh/data/spice/hera/kernels/dsk/g_00243mm_spc_obj_dimo_0000n00000_v004.obj",
     mat=mat,
     flatten=True,
 )
