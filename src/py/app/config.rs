@@ -307,6 +307,36 @@ impl Config {
     }
 
     #[getter]
+    fn vsync(&self) -> bool {
+        self.app.borrow().config.vsync
+    }
+
+    #[setter]
+    fn set_vsync(&mut self, v: bool) {
+        self.app.borrow_mut().config.vsync = v;
+    }
+
+    #[getter]
+    fn export_sync(&self) -> bool {
+        self.app.borrow().config.export_sync
+    }
+
+    #[setter]
+    fn set_export_sync(&mut self, v: bool) {
+        self.app.borrow_mut().config.export_sync = v;
+    }
+
+    #[getter]
+    fn export_max_queued(&self) -> u32 {
+        self.app.borrow().config.export_max_queued
+    }
+
+    #[setter]
+    fn set_export_max_queued(&mut self, v: u32) {
+        self.app.borrow_mut().config.export_max_queued = v;
+    }
+
+    #[getter]
     fn export_dir(&self) -> String {
         self.app.borrow().config.export_dir.clone()
     }

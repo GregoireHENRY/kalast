@@ -741,6 +741,43 @@ struct SaveJob {
     path: std::path::PathBuf,
 }
 
+/// Unpads rows, fixes channel order, PNG-encodes and writes one already-
+/// mapped frame, then returns its buffer to the pool. Shared by the async
+/// worker pool and the synchronous export path so both produce byte-for-
+/// byte identical files.
+fn save_job(job: SaveJob) {
+    let data = job.buffer.slice(..).get_mapped_range();
+
+    let mut pixels = vec![0u8; (job.width * job.height * 4) as usize];
+
+    for y in 0..job.height as usize {
+        let src_offset = y * job.padded_bytes_per_row as usize;
+        let dst_offset = y * job.unpadded_bytes_per_row as usize;
+        pixels[dst_offset..dst_offset + job.unpadded_bytes_per_row as usize]
+            .copy_from_slice(&data[src_offset..src_offset + job.unpadded_bytes_per_row as usize]);
+    }
+
+    if job.bgra_swap {
+        for i in (0..pixels.len()).step_by(4) {
+            pixels.swap(i, i + 2);
+        }
+    }
+
+    drop(data);
+    job.buffer.unmap();
+
+    if let Some(img) = ImageBuffer::<Rgba<u8>, _>::from_raw(job.width, job.height, pixels) {
+        if let Err(e) = img.save(&job.path) {
+            eprintln!("[EXPORT] failed to save {:?}: {e}", job.path);
+        }
+    }
+
+    let _ = job.pool_tx.send(PooledBuffer {
+        buffer: job.buffer,
+        size: job.buffer_size,
+    });
+}
+
 /// Exports render-target frames to PNG (`{export_dir}/N.png`) without
 /// blocking the render loop.
 ///
@@ -763,6 +800,12 @@ pub struct FrameExporter {
     // Queued-or-encoding job count, for finish()'s progress message.
     pending: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     next_index: usize,
+    // When set, export_frame blocks until the frame is on disk instead of
+    // queueing it -- see Config::export_sync.
+    sync: bool,
+    // Max frames outstanding before export_frame blocks; 0 = unbounded.
+    // See Config::export_max_queued.
+    max_queued: usize,
 }
 
 impl FrameExporter {
@@ -772,7 +815,15 @@ impl FrameExporter {
     /// same directory concurrently will race on both the initial index
     /// scan and any cleanup (`rm -rf` of one process's directory can
     /// delete files a concurrently-running process just wrote).
-    pub fn new(export_dir: impl Into<std::path::PathBuf>) -> Self {
+    ///
+    /// `sync` trades throughput for bounded memory -- see `Config::export_sync`.
+    /// The worker pool is still spawned when set, so the mode is only read
+    /// per-export and the two paths share all their machinery.
+    ///
+    /// `max_queued` bounds the async path's backlog -- see
+    /// `Config::export_max_queued`. Ignored when `sync` is set, which already
+    /// bounds the backlog to nothing.
+    pub fn new(export_dir: impl Into<std::path::PathBuf>, sync: bool, max_queued: usize) -> Self {
         let export_dir = export_dir.into();
         std::fs::create_dir_all(&export_dir).unwrap();
 
@@ -823,41 +874,7 @@ impl FrameExporter {
                         };
                         let Ok(job) = job else { break };
 
-                        let data = job.buffer.slice(..).get_mapped_range();
-
-                        let mut pixels = vec![0u8; (job.width * job.height * 4) as usize];
-
-                        for y in 0..job.height as usize {
-                            let src_offset = y * job.padded_bytes_per_row as usize;
-                            let dst_offset = y * job.unpadded_bytes_per_row as usize;
-                            pixels[dst_offset..dst_offset + job.unpadded_bytes_per_row as usize]
-                                .copy_from_slice(
-                                    &data[src_offset
-                                        ..src_offset + job.unpadded_bytes_per_row as usize],
-                                );
-                        }
-
-                        if job.bgra_swap {
-                            for i in (0..pixels.len()).step_by(4) {
-                                pixels.swap(i, i + 2);
-                            }
-                        }
-
-                        drop(data);
-                        job.buffer.unmap();
-
-                        if let Some(img) =
-                            ImageBuffer::<Rgba<u8>, _>::from_raw(job.width, job.height, pixels)
-                        {
-                            if let Err(e) = img.save(&job.path) {
-                                eprintln!("[EXPORT] failed to save {:?}: {e}", job.path);
-                            }
-                        }
-
-                        let _ = job.pool_tx.send(PooledBuffer {
-                            buffer: job.buffer,
-                            size: job.buffer_size,
-                        });
+                        save_job(job);
 
                         pending.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
                     }
@@ -874,6 +891,8 @@ impl FrameExporter {
             save_workers,
             pending,
             next_index,
+            sync,
+            max_queued,
         }
     }
 
@@ -903,7 +922,8 @@ impl FrameExporter {
                     bgra_swap: job.bgra_swap,
                     path: job.path,
                 });
-                self.pending.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+                self.pending
+                    .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
             } else {
                 ii += 1;
             }
@@ -1024,11 +1044,13 @@ impl FrameExporter {
 
         // Cheap: just flips a flag, invoked from within device.poll() on
         // the render thread once the copy is done. No I/O, no encoding.
-        buffer.slice(..).map_async(wgpu::MapMode::Read, move |result| {
-            if result.is_ok() {
-                ready_cb.store(true, std::sync::atomic::Ordering::Release);
-            }
-        });
+        buffer
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |result| {
+                if result.is_ok() {
+                    ready_cb.store(true, std::sync::atomic::Ordering::Release);
+                }
+            });
 
         let path = self.export_dir.join(format!("{}.png", self.next_index));
         self.next_index += 1;
@@ -1043,6 +1065,95 @@ impl FrameExporter {
             height,
             bgra_swap,
             path,
+        });
+
+        if self.sync {
+            self.save_last_blocking(device);
+        } else {
+            self.apply_backpressure(device);
+        }
+    }
+
+    /// Number of frames exported but not yet on disk: copies still running on
+    /// the GPU, plus jobs queued for or being encoded by the worker pool.
+    fn outstanding(&self) -> usize {
+        self.in_flight.len() + self.pending.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    /// Blocks the render loop while more than `max_queued` frames are
+    /// outstanding, so export memory stays bounded.
+    ///
+    /// Without this the queue is unbounded: whenever the render loop is
+    /// faster than the encoders -- which it is by ~100x on a fast GPU -- the
+    /// backlog grows until the process dies, and every frame still queued at
+    /// that point is lost. Blocking here trades the (fictitious) uncapped
+    /// frame rate for one that reflects what actually reaches disk.
+    ///
+    /// `Wait` rather than `Poll` so a blocked render thread isn't spinning:
+    /// `drain_ready` can only make progress once copies actually complete.
+    fn apply_backpressure(&mut self, device: &wgpu::Device) {
+        if self.max_queued == 0 {
+            return;
+        }
+
+        while self.outstanding() > self.max_queued {
+            // If the copies are all done and the workers are the bottleneck,
+            // there is nothing for the device to wait on -- yield instead of
+            // burning the core.
+            if self.in_flight.is_empty() {
+                std::thread::yield_now();
+            } else {
+                device
+                    .poll(wgpu::PollType::Wait {
+                        submission_index: None,
+                        timeout: None,
+                    })
+                    .unwrap();
+            }
+
+            if !self.drain_ready() {
+                return;
+            }
+        }
+    }
+
+    /// Force-completes the copy just queued by `export_frame` and saves it
+    /// on the calling (render) thread, so no more than one frame's buffer
+    /// is ever alive. This is the whole cost of `Config::export_sync`: a
+    /// full GPU stall plus PNG encode and disk write inline, per frame.
+    ///
+    /// Encoding here rather than handing off to the worker pool is
+    /// deliberate -- a handoff plus a wait would pay the same stall and
+    /// still need the render thread parked until the workers drained.
+    fn save_last_blocking(&mut self, device: &wgpu::Device) {
+        while !self
+            .in_flight
+            .last()
+            .is_some_and(|f| f.ready.load(std::sync::atomic::Ordering::Acquire))
+        {
+            if self.in_flight.is_empty() {
+                return;
+            }
+
+            device
+                .poll(wgpu::PollType::Wait {
+                    submission_index: None,
+                    timeout: None,
+                })
+                .unwrap();
+        }
+
+        let job = self.in_flight.pop().unwrap();
+        save_job(SaveJob {
+            buffer: job.buffer,
+            buffer_size: job.buffer_size,
+            pool_tx: self.pool_tx.clone(),
+            padded_bytes_per_row: job.padded_bytes_per_row,
+            unpadded_bytes_per_row: job.unpadded_bytes_per_row,
+            width: job.width,
+            height: job.height,
+            bgra_swap: job.bgra_swap,
+            path: job.path,
         });
     }
 }

@@ -39,6 +39,33 @@ pub struct Config {
     pub shadow_bias_scale: f32,
     pub shadow_bias_minimum: f32,
 
+    // Present with vsync (wgpu Fifo) instead of uncapped (Immediate).
+    // On a fast GPU vsync silently caps the render loop at the display
+    // refresh rate, which makes render benchmarks measure the monitor
+    // rather than the scene -- set false when timing. Falls back to the
+    // surface's preferred mode if the requested one isn't supported.
+    pub vsync: bool,
+
+    // Export frames synchronously: block the render loop on each frame's
+    // GPU->CPU copy, PNG encode and disk write instead of handing them to
+    // the background worker pool. Much slower, but bounds memory to a
+    // single frame buffer -- the async path's queue is unbounded, so if
+    // the render loop outruns the encoders (easy on a fast GPU) the
+    // backlog grows without limit, each queued frame pinning a mapped
+    // buffer, and anything still queued when the process dies is lost.
+    pub export_sync: bool,
+
+    // Upper bound on frames queued for export but not yet written, before
+    // export_frame blocks the render loop waiting for the encoders to catch
+    // up. Each outstanding frame pins a mapped GPU buffer of one frame, so
+    // this caps export memory at roughly export_max_queued * width * height
+    // * 4 bytes. 0 disables the bound entirely (the original behaviour):
+    // measured at 1020x1020 with vsync off, an unbounded queue grew ~2 GB/s
+    // and reached 30 GB in 16 s, because the render loop outran the PNG
+    // encoders by ~100x. Blocking is what makes the reported frame rate
+    // honest -- it becomes the rate frames actually reach disk.
+    pub export_max_queued: u32,
+
     // Directory frame exports (export/export_once) are written to, as
     // "{export_dir}/{N}.png". Override per-app (e.g. to a scratch
     // directory) to keep test/dev runs from colliding with real ones
@@ -89,6 +116,10 @@ impl Default for Config {
             shadow_normal_offset_scale: 2e-4,
             shadow_bias_scale: 1e-5,
             shadow_bias_minimum: 1e-5,
+
+            vsync: true,
+            export_sync: false,
+            export_max_queued: 64,
 
             export_dir: "out/frames".to_string(),
         }

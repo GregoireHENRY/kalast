@@ -124,7 +124,7 @@ impl Window {
             format: format,
             width: size.width,
             height: size.height,
-            present_mode: caps.present_modes[0],
+            present_mode: pick_present_mode(&caps, config.vsync),
             desired_maximum_frame_latency: 2,
             alpha_mode: caps.alpha_modes[0],
             view_formats: vec![],
@@ -262,7 +262,11 @@ impl Window {
             passes,
 
             export_frame: false,
-            frame_exporter: super::gpu::FrameExporter::new(config.export_dir.clone()),
+            frame_exporter: super::gpu::FrameExporter::new(
+                config.export_dir.clone(),
+                config.export_sync,
+                config.export_max_queued as usize,
+            ),
         }
     }
 
@@ -450,5 +454,26 @@ impl Window {
         }
 
         surface_texture.present();
+    }
+}
+
+/// Picks a present mode honouring `vsync`, falling back to the surface's
+/// preferred mode (`present_modes[0]`, always supported) when the one we'd
+/// want isn't available.
+///
+/// Note `present_modes[0]` is typically `Fifo` -- it was the unconditional
+/// choice before this was configurable, which meant a GPU fast enough to
+/// beat the display refresh rate was silently capped by it.
+fn pick_present_mode(caps: &wgpu::SurfaceCapabilities, vsync: bool) -> wgpu::PresentMode {
+    let wanted = if vsync {
+        wgpu::PresentMode::Fifo
+    } else {
+        wgpu::PresentMode::Immediate
+    };
+
+    if caps.present_modes.contains(&wanted) {
+        wanted
+    } else {
+        caps.present_modes[0]
     }
 }

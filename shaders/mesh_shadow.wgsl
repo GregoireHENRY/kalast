@@ -161,14 +161,19 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         );
     }
     else {
+        // Accumulate into a separate sum: `shadow` starts at 1.0 (the
+        // no-shadow default) and adding taps onto it biased every filtered
+        // result brighter by 1/(2*pcf+1)^2 -- ~+11% at pcf=1.
+        var sum = 0.0;
         let texel_size = 1.0 / vec2<f32>(f32(globals.shadow_resolution));
         for (var x = -i32(globals.shadow_pcf); x <= i32(globals.shadow_pcf); x++) {
             for (var y = -i32(globals.shadow_pcf); y <= i32(globals.shadow_pcf); y++) {
                 let offset = vec2<f32>(f32(x), f32(y)) * texel_size;
-                shadow += textureSampleCompare(t_shadow, s_shadow, uv + offset, depth - bias);
+                sum += textureSampleCompare(t_shadow, s_shadow, uv + offset, depth - bias);
             }
         }
-        shadow /= pow(f32(globals.shadow_pcf * 2 + 1), 2.0);
+        let taps = f32(globals.shadow_pcf * 2u + 1u);
+        shadow = sum / (taps * taps);
     }
 
     // no shadow

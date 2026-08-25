@@ -41,10 +41,19 @@ impl Pass {
         config: &crate::app::config::Config,
         layouts: &[Option<&wgpu::BindGroupLayout>],
     ) -> Self {
+        // Culling is a main-pass-only decision: the shadow pass deliberately
+        // stays unculled so non-closed geometry still casts from whichever
+        // side faces the light.
+        let cull_mode = if config.render_back_face {
+            None
+        } else {
+            Some(wgpu::Face::Back)
+        };
+
         let pipeline = gpu::RenderPipeline::new(
             &device,
             format,
-            None, // Some(wgpu::Face::Back),
+            cull_mode,
             gpu::SHADER_MESH_SHADOW,
             layouts,
             true,
@@ -61,7 +70,13 @@ impl Pass {
         }
     }
 
-    pub fn resize(&mut self, device: &wgpu::Device, format: wgpu::TextureFormat, width: u32, height: u32) {
+    pub fn resize(
+        &mut self,
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        width: u32,
+        height: u32,
+    ) {
         let (render_texture, render_view) = create_render_target(device, format, width, height);
         self.render_texture = render_texture;
         self.render_view = render_view;
