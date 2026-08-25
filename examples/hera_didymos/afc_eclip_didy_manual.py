@@ -49,7 +49,10 @@ spice.furnsh("/Users/gregoireh/data/spice/hera/kernels/mk/hera_plan_local.tm")
 et0 = spice.str2et("2026-11-05 00:00:00 UTC")
 et = et0
 simu_dt = 15.0 * 60.0
-etf = spice.str2et("2027-05-01 00:00:00 UTC")
+# Hera's own kernels run out before 2027-05-01: HERA_AFC-1 orientation (CK)
+# stops at 2027-04-30T10:33:51 and the HERA SPK at 10:40, so sweeping to May
+# throws SPKINSUFFDATA near the end of the run.
+etf = spice.str2et("2027-04-30 00:00:00 UTC")
 (p_sun, _lt) = spice.spkpos("SUN", et, "ECLIPJ2000", "none", "DIDYMOS")
 (p_dimo, _lt) = spice.spkpos("DIMORPHOS", et, "ECLIPJ2000", "none", "DIDYMOS")
 m_didy_ej2k = spice.pxform("DIDYMOS_FIXED", "ECLIPJ2000", et)

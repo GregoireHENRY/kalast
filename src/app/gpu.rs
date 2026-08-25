@@ -273,6 +273,14 @@ pub struct InstanceInput {
     normal: Mat4,
     //
 
+    // Per-mesh flags. Bit 0 marks the mesh as flat (one vertex per triangle
+    // corner, drawn non-indexed), which is what lets the shader recover
+    // barycentric coordinates from vertex_index for the wireframe. Indexed
+    // meshes share vertices, so the shader must skip wireframing them rather
+    // than draw nonsense -- hence a per-mesh flag and not a global uniform.
+    pub flags: u32,
+
+    _padding: [u32; 3],
     // instance color used in vertex if color mode is 1
     // pub color: Vec3,
 
@@ -282,11 +290,15 @@ pub struct InstanceInput {
     // pub color_mode: u32,
 }
 
+pub const INSTANCE_FLAG_FLAT: u32 = 1;
+
 impl Default for InstanceInput {
     fn default() -> Self {
         Self {
             mat: Mat4::IDENTITY,
             normal: Mat4::IDENTITY,
+            flags: 0,
+            _padding: [0; 3],
             // color: Vec3::new(1.0, 1.0, 1.0),
             // color_mode: 0,
         }
@@ -295,8 +307,13 @@ impl Default for InstanceInput {
 
 impl InstanceInput {
     pub fn new(mat: Mat4) -> Self {
+        Self::new_with_flags(mat, 0)
+    }
+
+    pub fn new_with_flags(mat: Mat4, flags: u32) -> Self {
         let mut instance = Self {
             mat,
+            flags,
             ..Default::default()
         };
         instance.compute_normal();
@@ -329,7 +346,7 @@ pub struct MeshBuffer {
 
 impl MeshBuffer {
     // matrix model
-    pub const ATTRIBS: [wgpu::VertexAttribute; 8] = wgpu::vertex_attr_array![
+    pub const ATTRIBS: [wgpu::VertexAttribute; 9] = wgpu::vertex_attr_array![
         8  => Float32x4,
         9  => Float32x4,
         10 => Float32x4,
@@ -338,7 +355,7 @@ impl MeshBuffer {
         13  => Float32x4,
         14 => Float32x4,
         15 => Float32x4,
-        // 16 => Float32x3,
+        16 => Uint32,
         // 17 => Uint32,
     ];
 

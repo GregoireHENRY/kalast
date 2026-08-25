@@ -30,10 +30,18 @@ pub struct Globals {
 
     pub extra: u32,
 
+    // 0: shaded mesh only
+    // 1: wireframe only
+    // 2: wireframe over the shaded mesh
+    pub wireframe_mode: u32,
+    // Half-width in pixels (screen space).
+    pub wireframe_width: f32,
+
+    // Must start on a 16-byte boundary (WGSL vec3 alignment), which the four
+    // u32/f32 rows above land on exactly. Keep new scalars ahead of it.
+    pub wireframe_color: Vec3,
+
     pub _padding1: u32,
-    pub _padding2: u32,
-    // pub _padding3: u32,
-    // pub _padding4: u32,
 }
 
 #[repr(C)]

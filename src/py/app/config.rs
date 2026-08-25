@@ -266,34 +266,73 @@ impl Config {
         self.app.borrow_mut().config.shadow_resolution = v;
     }
 
+    // The three shadow constants below are Option: None (the default) means
+    // "derive from the fitted light frustum", and assigning None again puts a
+    // manually-pinned one back on automatic.
     #[getter]
-    fn shadow_bias_scale(&self) -> Float {
+    fn shadow_bias_scale(&self) -> Option<f32> {
         self.app.borrow().config.shadow_bias_scale
     }
 
     #[setter]
-    fn set_shadow_bias_scale(&mut self, v: Float) {
+    fn set_shadow_bias_scale(&mut self, v: Option<f32>) {
         self.app.borrow_mut().config.shadow_bias_scale = v;
     }
 
     #[getter]
-    fn shadow_bias_minimum(&self) -> Float {
+    fn shadow_bias_minimum(&self) -> Option<f32> {
         self.app.borrow().config.shadow_bias_minimum
     }
 
     #[setter]
-    fn set_shadow_bias_minimum(&mut self, v: Float) {
+    fn set_shadow_bias_minimum(&mut self, v: Option<f32>) {
         self.app.borrow_mut().config.shadow_bias_minimum = v;
     }
 
     #[getter]
-    fn shadow_normal_offset_scale(&self) -> Float {
+    fn shadow_normal_offset_scale(&self) -> Option<f32> {
         self.app.borrow().config.shadow_normal_offset_scale
     }
 
     #[setter]
-    fn set_shadow_normal_offset_scale(&mut self, v: Float) {
+    fn set_shadow_normal_offset_scale(&mut self, v: Option<f32>) {
         self.app.borrow_mut().config.shadow_normal_offset_scale = v;
+    }
+
+    #[getter]
+    fn wireframe_mode(&self) -> u32 {
+        self.app.borrow().config.wireframe_mode
+    }
+
+    #[setter]
+    fn set_wireframe_mode(&mut self, v: u32) {
+        self.app.borrow_mut().config.wireframe_mode = v;
+    }
+
+    #[getter]
+    fn wireframe_width(&self) -> f32 {
+        self.app.borrow().config.wireframe_width
+    }
+
+    #[setter]
+    fn set_wireframe_width(&mut self, v: f32) {
+        self.app.borrow_mut().config.wireframe_width = v;
+    }
+
+    #[getter]
+    fn wireframe_color(&self) -> (f64, f64, f64, f64) {
+        let c = self.app.borrow().config.wireframe_color;
+        (c.r, c.g, c.b, c.a)
+    }
+
+    #[setter]
+    fn set_wireframe_color(&mut self, v: (f64, f64, f64, f64)) {
+        self.app.borrow_mut().config.wireframe_color = wgpu::Color {
+            r: v.0,
+            g: v.1,
+            b: v.2,
+            a: v.3,
+        };
     }
 
     #[getter]

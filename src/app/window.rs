@@ -154,9 +154,22 @@ impl Window {
             false,
         ));
 
+        let mut warned_wireframe = false;
+
         for body in &simulation.bodies {
             if let Some(mesh) = body.mesh.as_ref() {
                 let mesh = mesh.borrow();
+
+                // The wireframe recovers barycentrics from vertex_index,
+                // which only holds for flat (non-indexed) meshes. Say so
+                // once rather than silently dropping the overlay.
+                if config.wireframe_mode != 0 && !mesh.is_flat() && !warned_wireframe {
+                    warned_wireframe = true;
+                    println!(
+                        "[WINDOW] wireframe needs flat meshes (load with flatten=True); \
+                         smooth meshes render shaded only"
+                    );
+                }
 
                 if config.debug_window_mesh {
                     for v in &mesh.vertices {
@@ -187,28 +200,7 @@ impl Window {
         let textures = vec![texture];
         */
 
-        let globals = super::gpu::UniformBuffer::new(
-            &device,
-            super::uniform::Globals {
-                color: super::gpu::color_vec3(&config.color),
-                color_mode: config.color_mode,
-
-                srgb_mode: config.srgb_mode,
-                gamma: config.gamma,
-
-                ambient_strength: config.ambient_strength,
-                light_cube_scale: config.light_cube_scale,
-
-                shadow_resolution: config.shadow_resolution,
-                shadow_bias_scale: config.shadow_bias_scale,
-                shadow_bias_minimum: config.shadow_bias_minimum,
-                shadow_normal_offset_scale: config.shadow_normal_offset_scale,
-                shadow_pcf: config.shadow_pcf,
-
-                extra: config.extra,
-                ..Default::default()
-            },
-        );
+        let globals = super::gpu::UniformBuffer::new(&device, build_globals(config, None));
 
         let camera = super::uniform::Camera {
             view_proj: simulation
@@ -320,11 +312,42 @@ impl Window {
 
     pub fn update(
         &mut self,
-        simulation: &crate::app::simulation::Simulation,
-        _config: &crate::app::config::Config,
+        simulation: &mut crate::app::simulation::Simulation,
+        config: &crate::app::config::Config,
     ) {
         let width = self.surface_config.width;
         let height = self.surface_config.height;
+
+        // Fit the frustums to wherever the bodies are now, then derive the
+        // shadow constants from the light's fitted frustum. Both run every
+        // frame because bodies and the sun move; user-pinned values survive
+        // this untouched (see Projection::resolve_with).
+        let shadow_fit = if let Some(bounds) = simulation.scene_bounds() {
+            simulation.camera.fit_projection(&bounds, None);
+            simulation
+                .sun
+                .fit_projection(&bounds, Some(config.shadow_resolution));
+
+            Some(super::frame::fit_shadow(
+                &simulation.sun.projection.resolved(),
+                config.shadow_resolution,
+            ))
+        } else {
+            simulation.camera.projection.resolve_manual();
+            simulation.sun.projection.resolve_manual();
+            None
+        };
+
+        // Globals used to be uploaded once at startup, which silently froze
+        // every shading option after start(). The automatic shadow constants
+        // change as the scene moves, so it now goes up every frame -- 80
+        // bytes, and it makes the other options live as a side effect.
+        self.uniforms.globals.uniform = build_globals(config, shadow_fit);
+        self.queue.write_buffer(
+            &self.uniforms.globals.buffer,
+            0,
+            bytemuck::bytes_of(&self.uniforms.globals.uniform),
+        );
 
         self.uniforms.view.uniform.camera.view_proj = simulation
             .camera
@@ -347,7 +370,14 @@ impl Window {
 
         // skip light cube
         for ii in 0..simulation.bodies.len() {
-            let instance = super::gpu::InstanceInput::new(simulation.bodies[ii].mat);
+            let flags = if self.meshes[1 + ii].is_flat {
+                super::gpu::INSTANCE_FLAG_FLAT
+            } else {
+                0
+            };
+
+            let instance =
+                super::gpu::InstanceInput::new_with_flags(simulation.bodies[ii].mat, flags);
             self.meshes[1 + ii].update_instance_buffer(&self.queue, &instance);
 
             let mesh = simulation.bodies[ii].mesh.as_ref().unwrap();
@@ -454,6 +484,51 @@ impl Window {
         }
 
         surface_texture.present();
+    }
+}
+
+/// Builds the globals uniform from config, filling in any shadow constant the
+/// user left automatic from `shadow`.
+///
+/// `shadow` is `None` before the first fit (or when there is no geometry to
+/// fit against), in which case an automatic parameter falls back to 0.0 --
+/// i.e. no bias, which shows acne rather than silently hiding a failed fit.
+fn build_globals(
+    config: &crate::app::config::Config,
+    shadow: Option<super::frame::ShadowFit>,
+) -> super::uniform::Globals {
+    super::uniform::Globals {
+        color: super::gpu::color_vec3(&config.color),
+        color_mode: config.color_mode,
+
+        srgb_mode: config.srgb_mode,
+        gamma: config.gamma,
+
+        ambient_strength: config.ambient_strength,
+        light_cube_scale: config.light_cube_scale,
+
+        shadow_resolution: config.shadow_resolution,
+        shadow_bias_scale: config
+            .shadow_bias_scale
+            .or(shadow.map(|s| s.bias_scale))
+            .unwrap_or(0.0),
+        shadow_bias_minimum: config
+            .shadow_bias_minimum
+            .or(shadow.map(|s| s.bias_minimum))
+            .unwrap_or(0.0),
+        shadow_normal_offset_scale: config
+            .shadow_normal_offset_scale
+            .or(shadow.map(|s| s.normal_offset_scale))
+            .unwrap_or(0.0),
+        shadow_pcf: config.shadow_pcf,
+
+        extra: config.extra,
+
+        wireframe_mode: config.wireframe_mode,
+        wireframe_width: config.wireframe_width,
+        wireframe_color: super::gpu::color_vec3(&config.wireframe_color),
+
+        ..Default::default()
     }
 }
 

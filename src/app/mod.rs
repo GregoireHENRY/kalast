@@ -184,7 +184,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         .update_with_controller(&mut self.controller, self.dt);
 
                     sim.update();
-                    win.update(&sim, &self.config);
+                    win.update(&mut sim, &self.config);
                     win.render(surface_texture, &self.config);
 
                     sim.export_once = false;
@@ -267,11 +267,15 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 }
             }
 
-            winit::event::WindowEvent::MouseInput {
-                state: _state,
-                button: _button,
-                ..
-            } => {}
+            winit::event::WindowEvent::MouseInput { state, button, .. } => {
+                if button == winit::event::MouseButton::Middle {
+                    self.controller.middle_pressed = state.is_pressed();
+                }
+            }
+
+            winit::event::WindowEvent::ModifiersChanged(modifiers) => {
+                self.controller.shift_pressed = modifiers.state().shift_key();
+            }
 
             _ => {}
         };
@@ -285,24 +289,36 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
     ) {
         match ev {
             winit::event::DeviceEvent::MouseMotion { delta: (dx, dy) } => {
-                if self.simulation.borrow().camera.control == frame::Control::WASD {
-                    self.controller.mouse_motion(dx as Float, dy as Float);
+                match self.simulation.borrow().camera.control {
+                    // WASD grabs the cursor, so every motion is a look.
+                    frame::Control::WASD => {
+                        self.controller.mouse_motion(dx as Float, dy as Float);
+                    }
+                    // Arcball only reacts while the middle button is held,
+                    // leaving the cursor free for everything else.
+                    frame::Control::Arcball if self.controller.middle_pressed => {
+                        self.controller.drag(dx as Float, dy as Float);
+                    }
+                    _ => {}
                 }
             }
 
             winit::event::DeviceEvent::MouseWheel { delta } => {
-                let (dx, dy) = match delta {
-                    winit::event::MouseScrollDelta::LineDelta(dx, dy) => {
-                        (dx as Float * 100.0, dy as Float * 100.0)
-                    }
+                // A wheel reports discrete notches, a trackpad reports
+                // pixels. Normalising them here is what lets one sensitivity
+                // constant feel right on both -- previously a notch was
+                // multiplied by 100 and fed to rotation, so a mouse could
+                // only spin the camera in huge single-axis jumps.
+                let notches = match delta {
+                    winit::event::MouseScrollDelta::LineDelta(_, dy) => dy as Float,
                     winit::event::MouseScrollDelta::PixelDelta(winit::dpi::PhysicalPosition {
-                        x,
                         y,
-                    }) => (x as Float, y as Float),
+                        ..
+                    }) => y as Float / 50.0,
                 };
 
                 if self.simulation.borrow().camera.control == frame::Control::Arcball {
-                    self.controller.mouse_motion(-dx, -dy);
+                    self.controller.zoom(notches);
                 }
             }
             _ => {}

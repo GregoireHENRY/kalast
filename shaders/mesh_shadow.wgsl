@@ -11,6 +11,10 @@ struct Globals {
     shadow_normal_offset_scale: f32,
     shadow_pcf: u32,
     extra: u32,
+    // 0: shaded only, 1: wireframe only, 2: wireframe over shaded
+    wireframe_mode: u32,
+    wireframe_width: f32,
+    wireframe_color: vec3<f32>,
 };
 @group(0) @binding(0)
 var<uniform> globals: Globals;
@@ -41,7 +45,9 @@ struct InstanceInput {
     @location(13) normal_row_1: vec4<f32>,
     @location(14) normal_row_2: vec4<f32>,
     @location(15) normal_row_3: vec4<f32>,
-    // @location(16) color: vec3<f32>,
+    // Bit 0: mesh is flat (non-indexed), so barycentrics can be recovered
+    // from vertex_index. See INSTANCE_FLAG_FLAT in app/gpu.rs.
+    @location(16) flags: u32,
     // @location(17) color_mode: u32,
 };
 
@@ -62,6 +68,12 @@ struct VertexOutput {
     @location(1) color: vec3<f32>,
     @location(2) world_normal: vec3<f32>,
     @location(3) world_pos: vec3<f32>,
+    // Barycentric coordinate of this corner, interpolated across the
+    // triangle so the fragment shader knows its distance to each edge.
+    @location(4) bary: vec3<f32>,
+    // Flat-shaded (per-face) interpolation: a flag must not be blended
+    // across the triangle.
+    @location(5) @interpolate(flat) flags: u32,
 };
 
 fn srgb_to_linear(color: vec3<f32>, gamma: f32) -> vec3<f32> {
@@ -72,6 +84,7 @@ fn srgb_to_linear(color: vec3<f32>, gamma: f32) -> vec3<f32> {
 fn vs_main(
     vertex: VertexInput,
     instance: InstanceInput,
+    @builtin(vertex_index) vertex_index: u32,
 ) -> VertexOutput {
     let model_matrix = mat4x4<f32>(
         instance.mat_row_0,
@@ -104,7 +117,34 @@ fn vs_main(
 
     out.clip_position = view.camera.view_proj * world_pos;
 
+    // Flattened meshes store one vertex per triangle corner and are drawn
+    // non-indexed, so vertex_index modulo 3 *is* the corner index -- giving
+    // barycentric coordinates for free, with no extra vertex attribute.
+    // Indexed (smooth) meshes share vertices, so this is meaningless for
+    // them; the CPU side falls back to a line-mode pass there.
+    let corner = vertex_index % 3u;
+    out.bary = vec3<f32>(
+        f32(corner == 0u),
+        f32(corner == 1u),
+        f32(corner == 2u),
+    );
+    out.flags = instance.flags;
+
     return out;
+}
+
+/// Coverage of the wireframe at this fragment, 0 (interior) to 1 (on an edge).
+///
+/// Dividing the barycentric by its screen-space derivative converts it to an
+/// approximate distance in pixels, so a given width looks the same however
+/// far away or however large the triangle is. smoothstep then antialiases the
+/// line for free.
+fn wireframe_edge(bary: vec3<f32>) -> f32 {
+    let d = fwidth(bary);
+    let px = bary / max(d, vec3<f32>(1e-8));
+    let nearest = min(min(px.x, px.y), px.z);
+
+    return 1.0 - smoothstep(globals.wireframe_width - 1.0, globals.wireframe_width, nearest);
 }
 
 @group(2) @binding(0)
@@ -114,6 +154,38 @@ var s_shadow: sampler_comparison;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    // Indexed meshes share vertices, so vertex_index is not a triangle
+    // corner and the barycentrics above are meaningless -- draw them shaded
+    // rather than covered in noise. The CPU side warns once when this hits.
+    let can_wireframe = (in.flags & 1u) != 0u;
+
+    // Wireframe-only: keep just the edge fragments, so the mesh reads as a
+    // pure line drawing with the geometry still depth-tested behind it.
+    //
+    // Thresholded rather than alpha-blended because the pipeline blend state
+    // is REPLACE, so a fractional alpha would simply be ignored. That costs
+    // antialiasing here; the overlay path below still gets it, since it mixes
+    // against a colour it actually has in hand.
+    if globals.wireframe_mode == 1u && can_wireframe {
+        if wireframe_edge(in.bary) < 0.5 {
+            discard;
+        }
+        return vec4<f32>(globals.wireframe_color, 1.0);
+    }
+
+    let shaded = fs_shaded(in);
+
+    // Overlay: composite the line over the shaded surface in the same pass,
+    // so there is no second draw and therefore no depth fighting.
+    if globals.wireframe_mode == 2u && can_wireframe {
+        let edge = wireframe_edge(in.bary);
+        return vec4<f32>(mix(shaded.rgb, globals.wireframe_color, edge), shaded.a);
+    }
+
+    return shaded;
+}
+
+fn fs_shaded(in: VertexOutput) -> vec4<f32> {
     if globals.color_mode == 1 {
         var color = in.color;
         if globals.srgb_mode == 0 {

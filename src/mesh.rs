@@ -53,6 +53,96 @@ pub const MESH_CUBE: &'static str = include_str!("../res/cube.obj");
 //     v.to_array().into_bound_py_any(py)
 // }
 
+/// Axis-aligned bounding box, used to fit camera and light frustums to the
+/// scene instead of making the user supply near/far/side by hand.
+///
+/// An empty box is `min > max` on every axis, so `union` with anything gives
+/// that thing back and `is_empty` stays cheap.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Aabb {
+    pub min: Vec3,
+    pub max: Vec3,
+}
+
+impl Aabb {
+    pub fn empty() -> Self {
+        Self {
+            min: Vec3::splat(Float::INFINITY),
+            max: Vec3::splat(Float::NEG_INFINITY),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.min.x > self.max.x || self.min.y > self.max.y || self.min.z > self.max.z
+    }
+
+    pub fn from_vertices(vertices: &[Vertex]) -> Self {
+        let mut aabb = Self::empty();
+        for v in vertices {
+            aabb.min = aabb.min.min(v.pos);
+            aabb.max = aabb.max.max(v.pos);
+        }
+        aabb
+    }
+
+    pub fn union(&self, other: &Self) -> Self {
+        if self.is_empty() {
+            return *other;
+        }
+        if other.is_empty() {
+            return *self;
+        }
+        Self {
+            min: self.min.min(other.min),
+            max: self.max.max(other.max),
+        }
+    }
+
+    pub fn center(&self) -> Vec3 {
+        (self.min + self.max) * 0.5
+    }
+
+    /// Half the length of the box diagonal -- the radius of the bounding
+    /// sphere. Rotation-invariant, which is what makes it usable for a light
+    /// frustum that has to stay stable as the sun moves.
+    pub fn radius(&self) -> Float {
+        if self.is_empty() {
+            return 0.0;
+        }
+        (self.max - self.min).length() * 0.5
+    }
+
+    pub fn corners(&self) -> [Vec3; 8] {
+        let (a, b) = (self.min, self.max);
+        [
+            Vec3::new(a.x, a.y, a.z),
+            Vec3::new(b.x, a.y, a.z),
+            Vec3::new(a.x, b.y, a.z),
+            Vec3::new(b.x, b.y, a.z),
+            Vec3::new(a.x, a.y, b.z),
+            Vec3::new(b.x, a.y, b.z),
+            Vec3::new(a.x, b.y, b.z),
+            Vec3::new(b.x, b.y, b.z),
+        ]
+    }
+
+    /// Bounding box of this box's corners after `mat`. Re-fitting the corners
+    /// (rather than transforming min/max) keeps the result correct under
+    /// rotation, at the cost of being conservative.
+    pub fn transform(&self, mat: &Mat4) -> Self {
+        if self.is_empty() {
+            return *self;
+        }
+        let mut out = Self::empty();
+        for c in self.corners() {
+            let p = mat.transform_point3(c);
+            out.min = out.min.min(p);
+            out.max = out.max.max(p);
+        }
+        out
+    }
+}
+
 // Do not reorder Vertex fields without updating offsets in GPU code and Pyo3 POD bindings.
 #[repr(C)]
 #[derive(Copy, Clone, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
@@ -187,6 +277,12 @@ pub struct Mesh {
     // mesh is first loaded into a MeshBuffer, this flag only matters for
     // updates after that.
     pub colors_dirty: bool,
+
+    // Model-space bounds, used to fit camera/light frustums. Computed once
+    // per load rather than per frame -- a full pass over 9.4M vertices is
+    // milliseconds at load time but would be nonsense every frame.
+    // Call `recompute_bounds` after mutating vertex positions in place.
+    pub bounds: Aabb,
 }
 
 impl Mesh {
@@ -198,7 +294,18 @@ impl Mesh {
             material_id: None,
             _vertices_before_flatten: vec![],
             colors_dirty: false,
+            bounds: Aabb {
+                min: Vec3::ZERO,
+                max: Vec3::ZERO,
+            },
         }
+    }
+
+    /// Recomputes model-space bounds from current vertex positions. Call
+    /// after mutating positions in place, the same way `recompute_facets` is
+    /// needed for facet data.
+    pub fn recompute_bounds(&mut self) {
+        self.bounds = Aabb::from_vertices(&self.vertices);
     }
 
     pub fn load<P, F>(path: P, update_pos: F) -> Self
@@ -643,6 +750,8 @@ impl Model {
                     }
                 }
 
+                let bounds = Aabb::from_vertices(&vertices);
+
                 let mut mesh = Mesh {
                     vertices,
                     indices,
@@ -652,6 +761,7 @@ impl Model {
                     // temporary until better solution is found
                     _vertices_before_flatten: vec![],
                     colors_dirty: false,
+                    bounds,
                 };
 
                 // Can now use normals per facet (if computed) to compute normals per vertex.

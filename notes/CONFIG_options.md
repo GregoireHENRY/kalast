@@ -17,18 +17,27 @@ print(app.config)          # __repr__ dumps the whole struct
 **Timing matters -- most options are read once.** The config is consumed when
 the window is created, inside `app.start()`. Set everything before calling it.
 
-- *(startup only)* -- read once during setup and then baked in. Assigning to
-  these after `start()` still updates the Python-visible field, but **has no
-  effect on rendering**. This is the large majority of options, because all the
-  shading and shadow parameters live in the `Globals` uniform buffer, which is
-  built once in `Window::new` (`src/app/window.rs:190`) and never rewritten --
-  `update()` only re-uploads camera/light matrices and per-instance transforms,
-  never `Globals`. Likewise the camera sensitivities are copied to the
-  controller once, by `apply_config_at_start` (`src/app/mod.rs:66`).
-- *(live)* -- genuinely re-read every frame, because `&self.config` is passed
-  into `render` each frame. Only a handful qualify: `background`,
-  `debug_depth_show`, `debug_light_cube_show`, and the `debug_app` /
-  `debug_window` event logging.
+- *(live)* -- re-read by the renderer every frame. `Globals` is rebuilt and
+  re-uploaded each frame (it has to be, since the automatic shadow constants
+  change as the scene moves), so all the shading and shadow settings are read
+  fresh; `background` and the debug-draw flags are read straight from the
+  config during the pass.
+
+  **This does not mean you can animate them from Python.** `app.config` cannot
+  be touched inside `tick` -- the app is already mutably borrowed for the
+  duration of the callback, so any access raises
+  `RuntimeError: Already mutably borrowed`. In practice you still set
+  everything before `app.start()`. What *(live)* buys you is that the renderer
+  picks up values derived internally per frame, which is what makes automatic
+  shadow fitting possible.
+- *(startup only)* -- read once during setup and baked into GPU resources or
+  window state. Assigning to these after `start()` still updates the
+  Python-visible field but **has no effect on rendering**. These are the ones
+  that size a GPU resource (`width`, `height`, `shadow_resolution`), pick a
+  pipeline (`render_back_face`), configure the surface (`vsync`, `title`), set
+  up the exporter (`export_dir`, `export_sync`, `export_max_queued`), or are
+  copied to the controller once by `apply_config_at_start`
+  (`src/app/mod.rs:66`) -- the four `sensitivity_*` values.
 
 If you need to vary a startup-only parameter, do it across runs, not from
 `tick`.
@@ -241,12 +250,28 @@ many frames a crash can lose; a normal exit loses nothing.
 
 ## Camera controls
 
-All four scale a corresponding built-in constant, so `1.0` means "the default
-feel" and `2.0` means "twice as fast". Copied onto the controller **once**, by
-`apply_config_at_start` (`src/app/mod.rs:66-70`); the controller is then
-applied each frame via `sim.camera.update_with_controller`
+Bindings in the default Arcball mode:
+
+| Input | Action |
+|---|---|
+| Middle-drag | orbit |
+| Shift + middle-drag | pan |
+| Wheel / two-finger scroll | zoom |
+| Pinch gesture | zoom (trackpad) |
+| `T` | toggle Arcball / WASD |
+
+WASD mode grabs the cursor and uses `W A S D` + `Space` / `LeftShift` to fly.
+
+All four sensitivities scale a corresponding built-in constant, so `1.0` means
+"the default feel" and `2.0` means "twice as fast". Copied onto the controller
+**once**, by `apply_config_at_start` (`src/app/mod.rs:66-70`); the controller
+is then applied each frame via `sim.camera.update_with_controller`
 (`src/app/mod.rs:184`) using the arithmetic in `src/app/frame.rs`. Changing
 them after `start()` does nothing.
+
+Pointer-driven terms are deliberately **not** scaled by frame time -- a mouse
+delta is a displacement, not a rate. `sensitivity_move` doubles as the pan
+scale; `sensitivity_look` applies to WASD only.
 
 ### `sensitivity_move: Float` — default `1.0` *(startup only)*
 Translation speed. `src/app/frame.rs:197`.
@@ -266,31 +291,39 @@ Note these only affect interactive control. Scripts that set
 `sim.camera.pos` / `.dir` / `.up` from `tick` -- as the Hera examples do --
 overwrite the controller's result every frame and are unaffected.
 
+The arcball now only touches the camera when there is actual pointer input.
+It previously ran `look_anchor()` every frame, silently discarding any `dir` a
+script had just assigned and re-aiming the camera at the anchor. If you want
+that auto-centring back, call `sim.camera.look_anchor()` at the end of `tick`
+or `sim.camera.set_control_none()`.
+
 ---
 
 ## Color and shading
 
 Most of these are packed into the `Globals` uniform
-(`src/app/uniform.rs`) at `src/app/window.rs:193-208` and consumed by
-`shaders/mesh_shadow.wgsl` (and `shaders/mesh.wgsl`, `light_render.wgsl`).
+(`src/app/uniform.rs`) by `build_globals` in `src/app/window.rs` and consumed
+by `shaders/mesh_shadow.wgsl` (and `shaders/mesh.wgsl`, `light_render.wgsl`).
 
-That buffer is written **once**, when the window is built. Nothing re-uploads
-it, so every option in this section and the two below it is startup-only --
-`background` is the one exception, because it is read from the config directly
-in the render pass rather than going through `Globals`.
+That buffer is rebuilt and re-uploaded **every frame** -- it has to be, since
+the automatic shadow constants change as the scene moves -- so everything in
+this section is read fresh each frame. It used to be written once at startup.
+Note this still does not let a script change them mid-run: see the *(live)*
+caveat at the top. `background` never went through `Globals` at all; it is
+read from the config directly in the render pass.
 
 ### `background: wgpu::Color` — default `BLACK` *(live)*
 Clear color for the render pass. Used as `LoadOp::Clear(config.background)` at
 `src/app/pass/render.rs:85`.
 Accepted: `(r, g, b, a)` floats, normally 0.0-1.0.
 
-### `color: wgpu::Color` — default `WHITE` *(startup only)*
+### `color: wgpu::Color` — default `WHITE` *(live)*
 A single global color. **Only used when `color_mode == 2`.** Passed as
 `color_vec3(&config.color)` at `src/app/window.rs:193`; read in the shader's
 `color_mode == 2` branch.
 Accepted: `(r, g, b, a)`; alpha is dropped (converted to `Vec3`).
 
-### `color_mode: u32` — default `0` *(startup only)*
+### `color_mode: u32` — default `0` *(live)*
 Selects the fragment color path. Documented on the `Globals` struct in
 `src/app/uniform.rs` and branched in `shaders/mesh_shadow.wgsl:117-128` (and `:175` for mode 3).
 
@@ -308,7 +341,7 @@ Mode `3` is the cheap way to answer "how much is the shadow pass costing me?"
 without touching code -- though note it only disables the shadow *lookup* in
 the fragment shader, it does not skip rendering the shadow map.
 
-### `extra: u32` — default `0` *(startup only)*
+### `extra: u32` — default `0` *(live)*
 A spare uniform slot. Plumbed all the way through -- config ->
 `src/app/window.rs:208` -> `Globals` -> declared in `shaders/mesh.wgsl:7` and
 `shaders/mesh_shadow.wgsl:13` -- but **no shader currently reads it**. It
@@ -316,7 +349,7 @@ exists so a scratch value can be pushed to the GPU without changing the
 uniform layout.
 Accepted: any `int`.
 
-### `srgb_mode: u32` — default `0` *(startup only)*
+### `srgb_mode: u32` — default `0` *(live)*
 Controls where the sRGB/linear conversion happens. `src/app/window.rs:196`.
 
 | Value | Meaning |
@@ -327,7 +360,7 @@ Controls where the sRGB/linear conversion happens. `src/app/window.rs:196`.
 Accepted: `0` or `1`. Both branches call `srgb_to_linear(color, gamma)`, so
 this picks which color gets converted, not whether conversion happens.
 
-### `gamma: Float` — default `2.2` *(startup only)*
+### `gamma: Float` — default `2.2` *(live)*
 Exponent used by `srgb_to_linear` in the shader. `src/app/window.rs:197`.
 Accepted: any positive float. `2.2` is the standard sRGB approximation; `1.0`
 makes the conversion a no-op.
@@ -336,7 +369,7 @@ makes the conversion a no-op.
 
 ## Lighting
 
-### `ambient_strength: f32` — default `0.002` *(startup only)*
+### `ambient_strength: f32` — default `0.002` *(live)*
 Scales the light color into an ambient term added to every fragment
 regardless of shadowing: `ambient_color = light.color * ambient_strength`.
 `src/app/window.rs:199`.
@@ -344,12 +377,12 @@ Accepted: any float `>= 0.0`. The default is deliberately tiny -- airless
 bodies have essentially no ambient fill, and raising it washes out the
 terminator.
 
-### `light_color: wgpu::Color` — default `WHITE` *(startup only)*
+### `light_color: wgpu::Color` — default `WHITE` *(live)*
 The light's color, feeding both the ambient and diffuse terms. Passed at
 `src/app/window.rs:231` as part of the `Light` uniform.
 Accepted: `(r, g, b, a)`; alpha dropped.
 
-### `light_cube_scale: Float` — default `0.25` *(startup only)*
+### `light_cube_scale: Float` — default `0.25` *(live)*
 Size of the debug light cube, in world units. Only visible when
 `debug_light_cube_show` is on. Applied in the vertex shader at
 `shaders/light_render.wgsl:47`:
@@ -375,7 +408,7 @@ powers of two are the sane choice. `8192` is a 256 MB-class depth target --
 lowering it to `4096` or `2048` is the first thing to try if you are tight on
 VRAM.
 
-### `shadow_pcf: u32` — default `0` *(startup only)*
+### `shadow_pcf: u32` — default `0` *(live)*
 Percentage-closer-filtering kernel *radius*.
 
 | Value | Behaviour |
@@ -398,7 +431,7 @@ unshadowed light to every filtered fragment -- the umbra measured 93/255
 instead of 7/255 at `shadow_pcf = 1`, a 13x over-brightening. If you have
 older rendered output with `shadow_pcf > 0`, its shadows are too light.
 
-### `shadow_normal_offset_scale: f32` — default `2e-4` *(startup only)*
+### `shadow_normal_offset_scale: Optional[float]` — default `None` (automatic) *(live)*
 Pushes the sample position along the surface normal before projecting into
 light space, scaled by `k = 1 - N·L` so the offset grows at grazing angles:
 `offset_pos = world_pos + world_normal * shadow_normal_offset_scale * k`.
@@ -406,8 +439,8 @@ light space, scaled by `k = 1 - N·L` so the offset grows at grazing angles:
 Accepted: any float. Too small leaves shadow acne; too large detaches shadows
 from their casters (peter-panning).
 
-### `shadow_bias_scale: f32` — default `1e-5` *(startup only)*
-### `shadow_bias_minimum: f32` — default `1e-5` *(startup only)*
+### `shadow_bias_scale: Optional[float]` — default `None` (automatic) *(live)*
+### `shadow_bias_minimum: Optional[float]` — default `None` (automatic) *(live)*
 Depth-comparison bias, combined in the shader as
 `bias = max(shadow_bias_scale * k2, shadow_bias_minimum)` where `k2 = (1 - N·L)^2`.
 So `shadow_bias_scale` sets the angle-dependent term and
@@ -415,12 +448,80 @@ So `shadow_bias_scale` sets the angle-dependent term and
 `src/app/window.rs:203,204`.
 Accepted: any float `>= 0.0`.
 
-Note the struct defaults (`1e-5`) are much smaller than what the Hera examples
-actually use -- `examples/hera_didymos/afc_eclip_didy_manual.py` sets
-`shadow_bias_scale = 1e-3` and `shadow_bias_minimum = 5e-4`, with
-`shadow_normal_offset_scale = 2e-4`. Those are the values tuned for
-Didymos/Dimorphos at that camera distance; treat them, not the defaults, as
-the starting point for asteroid scenes.
+**All three default to `None`, meaning automatic.** They are derived every
+frame from the fitted light frustum and `shadow_resolution`, expressed
+relative to one shadow texel so they stay correct at any scene scale. Setting
+one pins it and leaves the others automatic; assigning `None` again restores
+automatic. Derivation and measurements in `renderer_auto_fit_wireframe/`.
+
+You should not normally need to touch these -- they exist for debugging a
+suspected shadow problem, not as part of ordinary setup.
+
+---
+
+## Wireframe
+
+Barycentric edge detection in the main fragment shader -- a single pass, so
+the overlay cannot z-fight. Full write-up in `renderer_auto_fit_wireframe/`.
+
+**Requires flat meshes** (`load_mesh(..., flatten=True)`). The barycentrics
+come from `vertex_index % 3`, which is only a triangle corner for
+non-indexed geometry. Smooth meshes render shaded with a one-time warning
+rather than noise; the check is per mesh, via `INSTANCE_FLAG_FLAT` in
+`InstanceInput.flags`.
+
+### `wireframe_mode: u32` — default `0` *(live)*
+
+| Value | Meaning |
+|---|---|
+| `0` | shaded mesh only |
+| `1` | wireframe only -- edges kept, interior discarded |
+| `2` | wireframe composited over the shaded mesh |
+
+Accepted: `0`, `1` or `2`; anything else behaves as `0`.
+
+### `wireframe_width: f32` — default `1.0` *(live)*
+Line half-width in **pixels**. Screen-space, so thickness is constant
+regardless of distance or zoom.
+Accepted: any float `> 0`.
+
+Note the visible blur depends on triangle size on screen: on a mesh finer than
+the framebuffer (100k+ facets seen from far away) every fragment is within
+`wireframe_width` of an edge and the body renders solid. Zoom in or use a
+decimated mesh.
+
+### `wireframe_color: wgpu::Color` — default `BLACK` *(live)*
+Accepted: `(r, g, b, a)` floats; alpha is dropped.
+
+Mode `2` blends the colour by edge coverage, so it is antialiased. Mode `1`
+thresholds instead, because the pipeline blend state is `REPLACE` and a
+fractional alpha would be ignored -- so mode `1` edges are aliased.
+
+---
+
+## Automatic frustum fitting
+
+Not config fields -- these live on `app.simulation.camera.projection` and
+`app.simulation.sun.projection` -- but they follow the same `None` = automatic
+rule, so they are documented here.
+
+`near`, `far` and `side` default to `None` and are fitted every frame to the
+bounding box of all loaded bodies (`Eye::fit_projection`, `src/app/frame.rs`).
+Set one to pin it; assign `None` to restore automatic.
+
+```python
+app.simulation.sun.projection.near          # -> None (automatic)
+app.simulation.sun.projection.resolved_near # -> 7.70341 (what the fit chose)
+app.simulation.sun.projection.near = 0.1    # pin it; far and side stay automatic
+```
+
+`fovy` and the projection mode are **not** automatic -- they are real
+instrument properties, not scene-derived.
+
+The orthographic (light) fit sizes itself from the bounding *sphere*, which is
+rotation-invariant, and quantises to whole shadow texels so the shadow edge
+does not crawl as the sun moves. `shadow_resolution` therefore feeds both the
+fit and the derived bias.
 
 ---
 

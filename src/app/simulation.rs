@@ -55,6 +55,23 @@ impl Simulation {
         });
     }
 
+    /// World-space bounds of every body, or `None` when there is nothing to
+    /// bound. Feeds the automatic camera/light frustum fitting -- 8 corners
+    /// per body per frame, so it is cheap enough to redo every frame as
+    /// bodies move.
+    pub fn scene_bounds(&self) -> Option<crate::mesh::Aabb> {
+        let mut bounds = crate::mesh::Aabb::empty();
+
+        for body in &self.bodies {
+            let Some(mesh) = body.mesh.as_ref() else {
+                continue;
+            };
+            bounds = bounds.union(&mesh.borrow().bounds.transform(&body.mat));
+        }
+
+        (!bounds.is_empty()).then_some(bounds)
+    }
+
     pub fn update(&mut self) {
         if self.state.is_paused {
             return;

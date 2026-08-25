@@ -35,9 +35,23 @@ pub struct Config {
 
     pub shadow_resolution: u32,
     pub shadow_pcf: u32,
-    pub shadow_normal_offset_scale: f32,
-    pub shadow_bias_scale: f32,
-    pub shadow_bias_minimum: f32,
+
+    // None means "derive from the fitted light frustum and shadow_resolution"
+    // (the default). These are scale-dependent -- values tuned for a 780 m
+    // body seen from 25 km are wrong for any other scene -- so deriving them
+    // per frame is both more correct and less work than hand-tuning. Set one
+    // to pin it and leave the rest automatic; see app/frame.rs::fit_shadow.
+    pub shadow_normal_offset_scale: Option<f32>,
+    pub shadow_bias_scale: Option<f32>,
+    pub shadow_bias_minimum: Option<f32>,
+
+    // Wireframe overlay. 0 = shaded mesh only, 1 = wireframe only,
+    // 2 = wireframe drawn over the shaded mesh.
+    pub wireframe_mode: u32,
+    pub wireframe_color: wgpu::Color,
+    // Line half-width in pixels. Screen-space, so thickness stays constant
+    // regardless of distance or zoom.
+    pub wireframe_width: f32,
 
     // Present with vsync (wgpu Fifo) instead of uncapped (Immediate).
     // On a fast GPU vsync silently caps the render loop at the display
@@ -113,9 +127,13 @@ impl Default for Config {
 
             shadow_resolution: 8192,
             shadow_pcf: 0,
-            shadow_normal_offset_scale: 2e-4,
-            shadow_bias_scale: 1e-5,
-            shadow_bias_minimum: 1e-5,
+            shadow_normal_offset_scale: None,
+            shadow_bias_scale: None,
+            shadow_bias_minimum: None,
+
+            wireframe_mode: 0,
+            wireframe_color: wgpu::Color::BLACK,
+            wireframe_width: 1.0,
 
             vsync: true,
             export_sync: false,

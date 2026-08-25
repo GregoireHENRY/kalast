@@ -241,34 +241,52 @@ impl Projection {
         self.with_mut(|p| p.fovy = v);
     }
 
+    // near/far/side are Option: None (the default) fits them to the scene
+    // bounds every frame, and assigning None puts a pinned plane back on
+    // automatic. Use `resolved_*` to read what the fit actually chose.
     #[getter]
-    fn near(&self) -> Float {
+    fn near(&self) -> Option<Float> {
         self.with(|p| p.near)
     }
 
     #[setter]
-    fn set_near(&self, v: Float) {
+    fn set_near(&self, v: Option<Float>) {
         self.with_mut(|p| p.near = v);
     }
 
     #[getter]
-    fn far(&self) -> Float {
+    fn far(&self) -> Option<Float> {
         self.with(|p| p.far)
     }
 
     #[setter]
-    fn set_far(&self, v: Float) {
+    fn set_far(&self, v: Option<Float>) {
         self.with_mut(|p| p.far = v);
     }
 
     #[getter]
-    fn side(&self) -> Float {
+    fn side(&self) -> Option<Float> {
         self.with(|p| p.side)
     }
 
     #[setter]
-    fn set_side(&self, v: Float) {
+    fn set_side(&self, v: Option<Float>) {
         self.with_mut(|p| p.side = v);
+    }
+
+    #[getter]
+    fn resolved_near(&self) -> Float {
+        self.with(|p| p.resolved().near)
+    }
+
+    #[getter]
+    fn resolved_far(&self) -> Float {
+        self.with(|p| p.resolved().far)
+    }
+
+    #[getter]
+    fn resolved_side(&self) -> Float {
+        self.with(|p| p.resolved().side)
     }
 
     fn mat<'py>(&self, py: Python<'py>, aspect: Float) -> pyo3::Bound<'py, numpy::PyArray2<Float>> {
