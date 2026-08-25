@@ -55,6 +55,7 @@ def tick(sim: kalast.app.simulation.Simulation, dt: float):
         mesh2.colors[iif * 3 + 0, :] = colors[iif, :3]
         mesh2.colors[iif * 3 + 1, :] = colors[iif, :3]
         mesh2.colors[iif * 3 + 2, :] = colors[iif, :3]
+    mesh2.mark_colors_dirty()
 
     print(
         f"it={sim.state.iteration} d_mars={d_mars:.5e} d_deimos={d_deimos:.5e} d_phobos={d_phobos:.5e}"

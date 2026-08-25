@@ -180,6 +180,13 @@ pub struct Mesh {
 
     // temporary until better solution is found
     pub(crate) _vertices_before_flatten: Vec<Vertex>,
+
+    // Set by mutating vertex color/color_mode/extra in place (e.g.
+    // per-facet colormaps) to request a GPU re-upload on the next frame.
+    // Starts false: the initial upload happens unconditionally when the
+    // mesh is first loaded into a MeshBuffer, this flag only matters for
+    // updates after that.
+    pub colors_dirty: bool,
 }
 
 impl Mesh {
@@ -190,6 +197,7 @@ impl Mesh {
             facets: vec![],
             material_id: None,
             _vertices_before_flatten: vec![],
+            colors_dirty: false,
         }
     }
 
@@ -334,6 +342,7 @@ impl Mesh {
 
             // temporary until better solution is found
             _vertices_before_flatten: vec![],
+            colors_dirty: false,
         };
 
         // Can now use normals per facet (if computed) to compute normals per vertex.
@@ -642,6 +651,7 @@ impl Model {
 
                     // temporary until better solution is found
                     _vertices_before_flatten: vec![],
+                    colors_dirty: false,
                 };
 
                 // Can now use normals per facet (if computed) to compute normals per vertex.

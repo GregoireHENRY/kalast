@@ -100,7 +100,11 @@ impl RenderPipeline {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[crate::mesh::Vertex::desc(), MeshBuffer::desc()],
+                buffers: &[
+                    crate::mesh::Vertex::geometry_desc(),
+                    crate::mesh::Vertex::attrib_desc(),
+                    MeshBuffer::desc(),
+                ],
                 compilation_options: Default::default(),
             },
             fragment,
@@ -175,23 +179,88 @@ impl<U: bytemuck::NoUninit> UniformBuffer<U> {
     }
 }
 
+// crate::mesh::Vertex interleaves static geometry (pos/tex/normal/tangent/
+// bitangent) with attributes that some scripts mutate every frame (color/
+// color_mode/extra, e.g. a per-facet colormap). Uploading that whole
+// interleaved struct to the GPU on every change meant re-uploading
+// geometry that never changes just because a color did. These two packed
+// structs mirror the same fields split into two GPU buffers instead, so
+// geometry can be uploaded once while attributes get updated independently
+// -- see MeshBuffer's geometry_buffer/attrib_buffer.
+//
+// crate::mesh::Vertex itself (and the CPU-side Python API built on its
+// interleaved layout, e.g. kalast.mesh.Mesh.positions/.colors) is
+// unchanged; this split only affects how it's uploaded to the GPU.
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct GeometryVertex {
+    pub pos: Vec3,
+    pub tex: crate::Vec2,
+    pub normal: Vec3,
+    pub tangent: Vec3,
+    pub bitangent: Vec3,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct AttribVertex {
+    pub color: Vec3,
+    pub color_mode: u32,
+    pub extra: u32,
+}
+
+fn extract_geometry(vertices: &[crate::mesh::Vertex]) -> Vec<GeometryVertex> {
+    vertices
+        .iter()
+        .map(|v| GeometryVertex {
+            pos: v.pos,
+            tex: v.tex,
+            normal: v.normal,
+            tangent: v.tangent,
+            bitangent: v.bitangent,
+        })
+        .collect()
+}
+
+fn extract_attribs(vertices: &[crate::mesh::Vertex]) -> Vec<AttribVertex> {
+    vertices
+        .iter()
+        .map(|v| AttribVertex {
+            color: v.color,
+            color_mode: v.color_mode,
+            extra: v.extra,
+        })
+        .collect()
+}
+
 impl crate::mesh::Vertex {
-    pub const ATTRIBS: [wgpu::VertexAttribute; 8] = wgpu::vertex_attr_array![
+    pub const GEOMETRY_ATTRIBS: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
         0 => Float32x3,
         1 => Float32x2,
         2 => Float32x3,
         3 => Float32x3,
         4 => Float32x3,
+    ];
+
+    pub const ATTRIB_ATTRIBS: [wgpu::VertexAttribute; 3] = wgpu::vertex_attr_array![
         5 => Float32x3,
         6 => Uint32,
         7 => Uint32,
     ];
 
-    pub fn desc() -> wgpu::VertexBufferLayout<'static> {
+    pub fn geometry_desc() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Self>() as wgpu::BufferAddress,
+            array_stride: std::mem::size_of::<GeometryVertex>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &Self::ATTRIBS,
+            attributes: &Self::GEOMETRY_ATTRIBS,
+        }
+    }
+
+    pub fn attrib_desc() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<AttribVertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &Self::ATTRIB_ATTRIBS,
         }
     }
 }
@@ -244,9 +313,17 @@ pub struct MeshBuffer {
     pub n_indices: u32,
     pub is_flat: bool,
 
-    pub vertex_buffer: wgpu::Buffer,
+    // Static: uploaded once in `new`, never re-uploaded -- no script
+    // mutates vertex positions/normals/tex at runtime.
+    pub geometry_buffer: wgpu::Buffer,
+    // Dynamic: some scripts recolor every frame (e.g. a per-facet
+    // colormap). Persistent buffer, updated in place via write_buffer
+    // rather than reallocated -- see update_attrib_buffer.
+    pub attrib_buffer: wgpu::Buffer,
     pub index_buffer: wgpu::Buffer,
 
+    // Dynamic: the body's transform, changes every frame it moves.
+    // Persistent buffer, updated in place via write_buffer.
     pub instance_buffer: wgpu::Buffer,
 }
 
@@ -272,9 +349,15 @@ impl MeshBuffer {
         instance: &InstanceInput,
         is_flat: bool,
     ) -> Self {
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            contents: bytemuck::cast_slice(vertices),
+        let geometry_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            contents: bytemuck::cast_slice(&extract_geometry(vertices)),
             usage: wgpu::BufferUsages::VERTEX,
+            label: None,
+        });
+
+        let attrib_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            contents: bytemuck::cast_slice(&extract_attribs(vertices)),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             label: None,
         });
 
@@ -286,7 +369,7 @@ impl MeshBuffer {
 
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             contents: bytemuck::bytes_of(instance),
-            usage: wgpu::BufferUsages::VERTEX,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             label: None,
         });
 
@@ -295,7 +378,8 @@ impl MeshBuffer {
             n_indices: indices.len() as _,
             is_flat,
 
-            vertex_buffer,
+            geometry_buffer,
+            attrib_buffer,
             index_buffer,
 
             instance_buffer,
@@ -306,29 +390,31 @@ impl MeshBuffer {
     //     (self.index_buffer.size() / 4) as _
     // }
 
-    pub fn update_vertex_buffer(
-        &mut self,
-        device: &wgpu::Device,
-        vertices: &[crate::mesh::Vertex],
-    ) {
-        self.vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            contents: bytemuck::cast_slice(vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-            label: None,
-        });
+    /// Re-uploads color/color_mode/extra for all vertices, in place (no
+    /// reallocation). Only call when they've actually changed -- e.g. a
+    /// per-facet colormap script sets Mesh::colors_dirty after mutating
+    /// `mesh.colors`, and Window::update checks that flag before calling
+    /// this, so a static-colored mesh never pays this cost after its
+    /// initial upload in `new`.
+    pub fn update_attrib_buffer(&mut self, queue: &wgpu::Queue, vertices: &[crate::mesh::Vertex]) {
+        queue.write_buffer(
+            &self.attrib_buffer,
+            0,
+            bytemuck::cast_slice(&extract_attribs(vertices)),
+        );
     }
 
-    pub fn update_instance_buffer(&mut self, device: &wgpu::Device, instance: &InstanceInput) {
-        self.instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            contents: bytemuck::bytes_of(instance),
-            usage: wgpu::BufferUsages::VERTEX,
-            label: None,
-        });
+    /// Re-uploads the instance transform in place (no reallocation) --
+    /// cheap (64 bytes), safe to call unconditionally every frame a body
+    /// might have moved.
+    pub fn update_instance_buffer(&mut self, queue: &wgpu::Queue, instance: &InstanceInput) {
+        queue.write_buffer(&self.instance_buffer, 0, bytemuck::bytes_of(instance));
     }
 
     pub fn render(&self, pass: &mut wgpu::RenderPass) {
-        pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+        pass.set_vertex_buffer(0, self.geometry_buffer.slice(..));
+        pass.set_vertex_buffer(1, self.attrib_buffer.slice(..));
+        pass.set_vertex_buffer(2, self.instance_buffer.slice(..));
         pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
 
         if self.is_flat {

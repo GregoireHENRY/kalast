@@ -83,12 +83,20 @@ impl Window {
         // Features::DEPTH_CLIP_CONTROL
         // Requires Features::CONSERVATIVE_RASTERIZATION
 
+        // Default::default() for required_limits is wgpu::Limits::default(),
+        // the conservative cross-backend-safe limits (e.g. 256 MiB max
+        // buffer size) -- too small for full-resolution shape models
+        // (unflattened Didymos alone needs a ~717 MB vertex buffer), and
+        // needlessly so, since native backends (Metal here) typically
+        // support far larger buffers. Request the adapter's actual limits
+        // instead.
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 required_features: wgpu::Features {
                     features_wgpu,
                     features_webgpu,
                 },
+                required_limits: adapter.limits(),
                 ..Default::default()
             })
             .await
@@ -336,16 +344,13 @@ impl Window {
         // skip light cube
         for ii in 0..simulation.bodies.len() {
             let instance = super::gpu::InstanceInput::new(simulation.bodies[ii].mat);
-            self.meshes[1 + ii].update_instance_buffer(&self.device, &instance);
-            self.meshes[1 + ii].update_vertex_buffer(
-                &self.device,
-                &simulation.bodies[ii]
-                    .mesh
-                    .as_ref()
-                    .unwrap()
-                    .borrow()
-                    .vertices,
-            );
+            self.meshes[1 + ii].update_instance_buffer(&self.queue, &instance);
+
+            let mesh = simulation.bodies[ii].mesh.as_ref().unwrap();
+            if mesh.borrow().colors_dirty {
+                self.meshes[1 + ii].update_attrib_buffer(&self.queue, &mesh.borrow().vertices);
+                mesh.borrow_mut().colors_dirty = false;
+            }
         }
 
         if simulation.export_once {

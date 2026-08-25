@@ -474,6 +474,16 @@ impl Mesh {
         self.inner.borrow_mut().recompute_facets();
     }
 
+    /// Call after mutating vertex color/color_mode/extra in place (e.g. a
+    /// per-facet colormap) to request a GPU re-upload on the next frame.
+    /// The renderer only re-uploads a mesh's color data when this has been
+    /// set, so a static-colored mesh never pays that cost after its
+    /// initial upload -- a script that recolors every frame needs to call
+    /// this every frame too, the same way sim.export_once() works.
+    fn mark_colors_dirty(&mut self) {
+        self.inner.borrow_mut().colors_dirty = true;
+    }
+
     fn is_flat(&self) -> bool {
         self.inner.borrow().is_flat()
     }
