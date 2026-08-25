@@ -15,7 +15,7 @@ app.config.debug_window = True
 app.config.width = 1024
 app.config.height = 768
 app.config.color_mode = 1
-
+app.config.wireframe_mode = 2
 app.simulation.camera.pos = [10.0, 0.0, 0.0]
 app.simulation.camera.dir = [-1.0, 0.0, 0.0]
 
