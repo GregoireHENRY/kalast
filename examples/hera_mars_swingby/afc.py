@@ -9,7 +9,7 @@ from kalast.util import AU, AU_KM, RPD, DPR, PI  # noqa
 from kalast.entity import MARS, DEIMOS, PHOBOS  # noqa
 
 
-def tick(sim: kalast.app.simulation.Simulation, dt: float):
+def before_render(sim: kalast.app.simulation.Simulation, dt: float):
     global et
 
     if sim.state.is_paused:
@@ -152,5 +152,5 @@ app.simulation.load_mesh(
     flatten=True,
 )
 
-app.tick = tick
+app.before_render = before_render
 app.start()

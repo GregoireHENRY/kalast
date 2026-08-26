@@ -5,7 +5,7 @@ import numpy
 import kalast
 
 
-def tick(sim: kalast.app.simulation.Simulation, dt: float):
+def before_render(sim: kalast.app.simulation.Simulation, dt: float):
     pass
 
 
@@ -34,5 +34,5 @@ for iif in range(nface):
     mesh.colors[iif * 3 + 1, :] = color
     mesh.colors[iif * 3 + 2, :] = color
 
-app.tick = tick
+app.before_render = before_render
 app.start()

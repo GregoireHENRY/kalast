@@ -5,7 +5,7 @@ import numpy
 import kalast
 
 
-def tick(sim, dt):
+def before_render(sim, dt):
     if sim.state.is_paused:
         return
 
@@ -35,5 +35,5 @@ app.simulation.load_mesh(path="res/ico3.obj", mat=mat, flatten=True)
 mat = numpy.eye(4)
 mat[:3, :3] = kalast.util.mat_axis_angle(numpy.array([0.0, 0.0, 1.0]), 0.01)
 
-app.tick = tick
+app.before_render = before_render
 app.start()

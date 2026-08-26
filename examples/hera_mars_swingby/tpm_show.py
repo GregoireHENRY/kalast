@@ -10,7 +10,7 @@ import kalast
 from kalast.util import AU, RPD, DPR  # noqa
 
 
-def tick(sim: kalast.app.simulation.Simulation, dt: float):
+def before_render(sim: kalast.app.simulation.Simulation, dt: float):
     if sim.state.iteration == nit and not sim.state.is_paused:
         sim.state.is_paused = True
 
@@ -62,5 +62,5 @@ mappable = matplotlib.cm.ScalarMappable(
     cmap=matplotlib.cm.inferno.resampled(100), norm=None
 )
 
-app.tick = tick
+app.before_render = before_render
 app.start()

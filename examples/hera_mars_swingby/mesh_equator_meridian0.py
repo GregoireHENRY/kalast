@@ -87,7 +87,7 @@ for iif in equator_meridian0:
 #         f[:] = [0.0, 0.0, 1.0]
 
 
-def tick(sim: kalast.app.simulation.Simulation, dt: float):
+def before_render(sim: kalast.app.simulation.Simulation, dt: float):
     if sim.state.iteration == 0:
         sim.export_once()
 
@@ -95,5 +95,5 @@ def tick(sim: kalast.app.simulation.Simulation, dt: float):
         return
 
 
-app.tick = tick
+app.before_render = before_render
 app.start()

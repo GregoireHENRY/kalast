@@ -5,7 +5,7 @@ import numpy
 import kalast
 
 
-def tick(sim: kalast.app.simulation.Simulation, dt: float):
+def before_render(sim: kalast.app.simulation.Simulation, dt: float):
     pass
 
 
@@ -57,5 +57,5 @@ app.simulation.load_mesh(
     path="res/plane_crater_1024-5000_h=0.437.obj", mat=mat, flatten=True
 )
 
-app.tick = tick
+app.before_render = before_render
 app.start()

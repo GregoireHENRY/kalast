@@ -8,7 +8,7 @@ import kalast
 from kalast.util import AU_KM, RPD
 
 
-def tick(sim: kalast.app.simulation.Simulation, dt: float):
+def before_render(sim: kalast.app.simulation.Simulation, dt: float):
     if sim.state.is_paused:
         return
 
@@ -84,6 +84,6 @@ app.simulation.load_mesh(
     flatten=True,
     shadow_path="/Users/gregoireh/data/mesh/dimorphos/g_00243mm_spc_obj_dimo_0000n00000_v004_decimated_100k.obj",
 )
-app.tick = tick
+app.before_render = before_render
 app.start()
 spice.kclear()

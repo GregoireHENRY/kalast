@@ -11,7 +11,7 @@ from kalast.util import AU, AU_KM, RPD, DPR, PI  # noqa
 from kalast.entity import MARS, DEIMOS, PHOBOS  # noqa
 
 
-def tick(sim: kalast.app.simulation.Simulation, dt: float):
+def before_render(sim: kalast.app.simulation.Simulation, dt: float):
     global et
 
     if sim.state.is_paused:
@@ -163,6 +163,15 @@ app.simulation.load_mesh(
 
 # Get Deimos mesh and change color mode from diffuse lighting with shadows to custom color per facet.
 mesh2 = app.simulation.bodies[2].mesh
+# WARNING: this line currently has no effect. The fragment shader reads only
+# the scene-wide `globals.color_mode` uniform; the per-vertex `color_mode`
+# attribute is passed to the GPU but never read (shaders/mesh_shadow.wgsl).
+# So with config.color_mode = 0 below, the radiance colormap on Deimos is
+# multiplied by diffuse lighting and shadow as if it were an albedo, rather
+# than shown raw. tiri_data_deimos_only.py avoids this by setting
+# config.color_mode = 1 globally, which it can do because Deimos is the only
+# body there. Getting raw colours on Deimos *and* lit Mars/Phobos in one
+# scene needs per-body colour mode, which does not exist yet.
 mesh2.color_modes[:] = 1
 
 # Load TPM
@@ -204,7 +213,7 @@ mappable = matplotlib.cm.ScalarMappable(
     cmap=matplotlib.cm.gray.resampled(100), norm=norm
 )
 
-app.tick = tick
+app.before_render = before_render
 app.start()
 
 # To export colormap:

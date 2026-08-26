@@ -8,7 +8,7 @@ import kalast
 from kalast.util import AU_KM
 
 
-def tick(sim: kalast.app.simulation.Simulation, dt: float):
+def before_render(sim: kalast.app.simulation.Simulation, dt: float):
     if sim.state.is_paused:
         return
 
@@ -107,7 +107,7 @@ app.simulation.load_mesh(
 # mat = numpy.eye(4)
 # mat[:3, :3] = kalast.util.mat_axis_angle(numpy.array([0.0, 0.0, 1.0]), 0.01)
 
-app.tick = tick
+app.before_render = before_render
 app.start()
 
 spice.kclear()
