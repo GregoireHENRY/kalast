@@ -211,11 +211,27 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     win.render(surface_texture, &self.config);
 
                     // After render: the shadow map now holds this frame's
-                    // geometry, so a query here answers for the scene the
-                    // tick just set up.
-                    if let Some(body) = sim.facet_shadow_request.take() {
-                        sim.facet_shadow_result = win.facet_shadow_fractions(body);
-                        sim.facet_shadow_body = Some(body);
+                    // geometry, so a query here answers for the scene
+                    // before_render just set up.
+                    let one_off = sim.facet_shadow_request.take();
+                    if self.config.facet_shadow || one_off.is_some() {
+                        let n = sim.bodies.len();
+                        sim.facet_shadow_result.resize(n, vec![]);
+
+                        for body in 0..n {
+                            let wanted =
+                                self.config.facet_shadow || one_off == Some(body);
+                            if wanted {
+                                sim.facet_shadow_result[body] =
+                                    win.facet_shadow_fractions(body);
+                            } else {
+                                // Stale results would silently describe an
+                                // older frame's geometry.
+                                sim.facet_shadow_result[body].clear();
+                            }
+                        }
+                    } else if !sim.facet_shadow_result.is_empty() {
+                        sim.facet_shadow_result.clear();
                     }
 
                     sim.export_once = false;

@@ -127,25 +127,25 @@ impl Simulation {
         self.inner.borrow_mut().request_facet_shadow(body);
     }
 
-    /// Most recent per-facet occluded fractions, or `None` if nothing has
-    /// been read back yet. One entry per facet, in `Mesh.facets` order:
-    /// 0.0 fully lit, 1.0 fully shadowed, and quarter steps in between for
-    /// facets straddling a shadow boundary (4 samples per facet).
-    #[pyo3(signature = ())]
+    /// Per-facet occluded fractions for `body`, or `None` if they were not
+    /// computed this frame.
+    ///
+    /// One entry per facet, in `Mesh.facets` order: 0.0 fully lit, 1.0 fully
+    /// shadowed, quarter steps between for facets straddling a shadow
+    /// boundary (4 samples per facet). `1.0 - frac` is the lit fraction.
+    ///
+    /// Set `app.config.facet_shadow = True` to have every body computed each
+    /// frame, then read this from `after_render`.
+    #[pyo3(signature = (body=0))]
     fn facet_shadow<'py>(
         slf: pyo3::Bound<'py, Self>,
+        body: usize,
     ) -> Option<pyo3::Bound<'py, numpy::PyArray1<f32>>> {
         let py = slf.py();
         let self_ = slf.borrow();
         let sim = self_.inner.borrow();
-        sim.facet_shadow_body?;
-        Some(numpy::PyArray1::from_slice(py, &sim.facet_shadow_result))
-    }
-
-    /// Body index the last `facet_shadow()` result belongs to.
-    #[getter]
-    fn facet_shadow_body(&self) -> Option<usize> {
-        self.inner.borrow().facet_shadow_body
+        let v = sim.facet_shadow(body)?;
+        Some(numpy::PyArray1::from_slice(py, v))
     }
 
     fn __repr__(&self) -> String {

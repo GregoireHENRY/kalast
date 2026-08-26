@@ -376,6 +376,16 @@ impl Config {
     }
 
     #[getter]
+    fn facet_shadow(&self) -> bool {
+        self.app.borrow().config.facet_shadow
+    }
+
+    #[setter]
+    fn set_facet_shadow(&mut self, v: bool) {
+        self.app.borrow_mut().config.facet_shadow = v;
+    }
+
+    #[getter]
     fn export_dir(&self) -> String {
         self.app.borrow().config.export_dir.clone()
     }

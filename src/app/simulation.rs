@@ -12,15 +12,14 @@ pub struct Simulation {
     pub export: bool,
     pub export_once: bool,
 
-    /// Body index whose per-facet shadow fractions were asked for this
-    /// frame. Consumed by the app after rendering, which is the first
-    /// moment the shadow map reflects this frame's geometry.
+    /// One-off request for a single body's fractions, for callers that only
+    /// want them at particular epochs. `config.facet_shadow` is the usual
+    /// route and covers every body every frame.
     pub facet_shadow_request: Option<usize>,
-    /// Most recent per-facet occluded fractions, and which body they are
-    /// for. Written after the render pass, so a tick reads the result of
-    /// the request it made on the previous tick.
-    pub facet_shadow_result: Vec<f32>,
-    pub facet_shadow_body: Option<usize>,
+    /// Per-facet occluded fractions, indexed by body. Empty for bodies not
+    /// queried this frame. Written after the render pass, which is the first
+    /// moment the shadow map reflects this frame's geometry.
+    pub facet_shadow_result: Vec<Vec<f32>>,
 }
 
 impl Simulation {
@@ -40,7 +39,6 @@ impl Simulation {
 
             facet_shadow_request: None,
             facet_shadow_result: vec![],
-            facet_shadow_body: None,
         }
     }
 
@@ -132,9 +130,19 @@ impl Simulation {
     }
 
     /// Ask for `body`'s per-facet occluded fractions to be read back from
-    /// the shadow map after this frame renders.
+    /// the shadow map after this frame renders. Only needed when
+    /// `config.facet_shadow` is off and you want them for one frame.
     pub fn request_facet_shadow(&mut self, body: usize) {
         self.facet_shadow_request = Some(body);
+    }
+
+    /// Per-facet occluded fractions for `body`, or `None` if they were not
+    /// computed this frame.
+    pub fn facet_shadow(&self, body: usize) -> Option<&[f32]> {
+        self.facet_shadow_result
+            .get(body)
+            .filter(|v| !v.is_empty())
+            .map(|v| v.as_slice())
     }
 }
 

@@ -17,18 +17,28 @@ against an extrapolated ~36 days for the brute-force ray trace.**
 The app runs two callbacks per frame, either of which may be left unset:
 
 ```python
+app.config.facet_shadow = True     # compute for every body, every frame
+
 def before_render(sim, dt):        # set the scene
     et = et0 + sim.state.iteration * dt_sim
     # ... position bodies / sun / camera from spice ...
-    sim.request_facet_shadow(0)    # body index
 
-def after_render(sim, dt):         # GPU results for THIS frame exist here
-    lit = 1.0 - sim.facet_shadow() # per facet, Mesh.facets order
+def after_render(sim, dt):          # GPU results for THIS frame exist here
+    lit = 1.0 - sim.facet_shadow(0) # per facet, Mesh.facets order
     # ... TPM step / radiance accumulation ...
 
 app.before_render = before_render
 app.after_render = after_render
 ```
+
+`config.facet_shadow` is off by default because the query is not free (~1.6 ms
+per body at 100k facets, ~7.3 ms at 3.1M), and most runs only want images.
+One flag at setup turns it on for every body; `sim.facet_shadow(body)` returns
+`None` for anything not computed this frame, never a stale array.
+
+For sparse use — only particular epochs — leave the flag off and call
+`sim.request_facet_shadow(body)` from `before_render` for the frames you
+want.
 
 `frac[i]` is the occluded fraction of facet `i`: `0.0` fully lit, `1.0` fully
 shadowed, quarter steps between for facets straddling a shadow boundary
@@ -184,12 +194,21 @@ stops being terminator-only.
   self-occultation, and reserve a depth test for *inter-body* occultation
   (Dimorphos in front of Didymos), which is a coarse-scale question. Limb
   facets stay ambiguous either way at that range.
-- **The shadow proxy interacts with this.** If a body was loaded with
-  `shadow_path` (see `notes/shadow_mesh_comparison/`), the *map* was built
-  from the coarser mesh, so the query answers "occluded by the proxy". The
-  query always runs against the full-resolution facets, but the occluder is
-  whatever went into the map. For science use, prefer no proxy, or verify the
-  proxy does not move the terminator.
+- **A `shadow_path` proxy is fine to combine with this** — measured, not
+  assumed. The query always tests the real full-resolution facets; only the
+  *depths* in the map come from the coarser occluder. At the transit epoch,
+  3.1M-facet bodies with a 100k proxy versus a full-resolution occluder:
+
+  | | |
+  |---|---|
+  | binary agreement | 3,145,091 / 3,145,728 (**99.98%**) |
+  | facets differing at all | 2,272 (0.07%) |
+  | mean fraction difference | 0.0002 |
+
+  637 facets flip lit/shadowed — 60x smaller than the 1.28% the shadow map
+  itself disagrees with ray tracing (section 4), so the proxy is well inside
+  the method's own noise and buys ~1.5x. Re-check if you decimate much below
+  100k, where the occluder silhouette starts to move.
 
 ## 7. Future work: the Sun is not a point source
 
