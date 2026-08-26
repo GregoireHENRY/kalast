@@ -13,7 +13,7 @@ pub struct Simulation {
     pub export_once: bool,
 
     /// One-off request for a single body's fractions, for callers that only
-    /// want them at particular epochs. `config.facet_shadow` is the usual
+    /// want them at particular epochs. `config.access_shadow_map` is the usual
     /// route and covers every body every frame.
     pub facet_shadow_request: Option<usize>,
     /// Per-facet occluded fractions, indexed by body. Empty for bodies not
@@ -131,7 +131,7 @@ impl Simulation {
 
     /// Ask for `body`'s per-facet occluded fractions to be read back from
     /// the shadow map after this frame renders. Only needed when
-    /// `config.facet_shadow` is off and you want them for one frame.
+    /// `config.access_shadow_map` is off and you want them for one frame.
     pub fn request_facet_shadow(&mut self, body: usize) {
         self.facet_shadow_request = Some(body);
     }

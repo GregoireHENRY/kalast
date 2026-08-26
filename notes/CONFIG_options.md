@@ -24,8 +24,8 @@ the window is created, inside `app.start()`. Set everything before calling it.
   config during the pass.
 
   **This does not mean you can animate them from Python.** `app.config` cannot
-  be touched inside `tick` -- the app is already mutably borrowed for the
-  duration of the callback, so any access raises
+  be touched inside `before_render`/`after_render` -- the app is already
+  mutably borrowed for the duration of the callback, so any access raises
   `RuntimeError: Already mutably borrowed`. In practice you still set
   everything before `app.start()`. What *(live)* buys you is that the renderer
   picks up values derived internally per frame, which is what makes automatic
@@ -39,8 +39,21 @@ the window is created, inside `app.start()`. Set everything before calling it.
   copied to the controller once by `apply_config_at_start`
   (`src/app/mod.rs:66`) -- the four `sensitivity_*` values.
 
-If you need to vary a startup-only parameter, do it across runs, not from
-`tick`.
+If you need to vary a startup-only parameter, do it across runs, not from a
+callback.
+
+**Frame callbacks.** The app runs two per frame, either optional:
+
+| | when | for |
+|---|---|---|
+| `app.before_render` | before the frame is drawn | positioning bodies, sun, camera |
+| `app.after_render` | after it is drawn | consuming GPU results for *that* frame, e.g. `sim.facet_shadow(body)` |
+
+`app.tick` is an alias for `before_render`. Both see the same
+`state.iteration` for a given frame -- the counter advances only once both
+have run -- so a loop deriving an epoch from it cannot see two different
+times within one frame. Scene changes made in `after_render` take effect on
+the next frame, and heavy CPU work there blocks the render loop.
 
 Rust types map to Python as: `bool` -> `bool`, `u32` -> `int`,
 `f32`/`Float` -> `float`, `String` -> `str`, `wgpu::Color` -> a 4-tuple of
@@ -170,6 +183,26 @@ Exporting is triggered per-frame from the simulation, not from the config:
 `sim.export_once()` for a single frame, `sim.toggle_export()` for continuous
 export. See `src/app/simulation.rs:70` and `src/app/window.rs:359`.
 
+### `access_shadow_map: bool` — default `false` *(live)*
+Read the shadow map back per facet: computes solar occlusion for **every**
+body each frame, read from
+`after_render` with `sim.facet_shadow(body)` -- an array of occluded
+fractions in `Mesh.facets` order, `0.0` fully lit to `1.0` fully shadowed in
+quarter steps. Bodies not computed this frame return `None` rather than a
+stale array.
+
+Off by default because it is not free: ~1.6 ms per body at 100k facets and
+~7.3 ms at 3.1M, dominated by the blocking readback. Turn it on for
+thermophysical or radiance work, leave it off when you only want images.
+
+For sparse use -- only particular epochs -- leave it off and call
+`sim.request_facet_shadow(body)` from `before_render` for the frames you
+want.
+
+Full write-up, validation against ray tracing and accuracy budget in
+`facet_shadow_query/`.
+Accepted: `True` / `False`.
+
 ### `export_dir: String` — default `"out/frames"` *(startup only)*
 Destination directory, created if absent (`src/app/gpu.rs`,
 `FrameExporter::new`). Numbering **resumes after any files already present**,
@@ -288,14 +321,15 @@ Zoom speed. `src/app/frame.rs:170`.
 Accepted: any float. `0.0` disables that input; negatives invert it.
 
 Note these only affect interactive control. Scripts that set
-`sim.camera.pos` / `.dir` / `.up` from `tick` -- as the Hera examples do --
+`sim.camera.pos` / `.dir` / `.up` from `before_render` -- as the Hera
+examples do --
 overwrite the controller's result every frame and are unaffected.
 
 The arcball now only touches the camera when there is actual pointer input.
 It previously ran `look_anchor()` every frame, silently discarding any `dir` a
 script had just assigned and re-aiming the camera at the anchor. If you want
-that auto-centring back, call `sim.camera.look_anchor()` at the end of `tick`
-or `sim.camera.set_control_none()`.
+that auto-centring back, call `sim.camera.look_anchor()` at the end of
+`before_render` or `sim.camera.set_control_none()`.
 
 ---
 

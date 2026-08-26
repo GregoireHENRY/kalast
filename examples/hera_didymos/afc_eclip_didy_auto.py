@@ -43,11 +43,6 @@ def after_render(sim: kalast.app.simulation.Simulation, dt: float):
     if et > etf:
         return
 
-    # Available for every body each frame because config.facet_shadow is on.
-    # Facets the shadow map reports as at least partly occluded from the Sun:
-    # roughly half is simply the night side, and a rise above that baseline is
-    # a mutual event. `1.0 - frac` is the lit fraction the thermophysical
-    # boundary condition wants.
     didy = sim.facet_shadow(0)
     dimo = sim.facet_shadow(1)
     if didy is None or dimo is None:
@@ -66,13 +61,7 @@ app = kalast.app.App()
 app.config.width = 1020
 app.config.height = 1020
 app.config.color_mode = 0
-# Per-facet solar occlusion for every body, every frame, readable from
-# after_render. Off by default: it costs ~7 ms per body at this resolution,
-# which only pays for itself if you actually consume the result.
-app.config.facet_shadow = True
-# Leave vsync on for interactive viewing; set False for any timing work,
-# otherwise the loop just reports the display refresh rate.
-# app.config.vsync = False
+app.config.access_shadow_map = True
 app.simulation.camera.projection.fovy = 5.5 * RPD
 
 spice.kclear()
@@ -80,7 +69,6 @@ spice.furnsh("/Users/gregoireh/data/spice/hera/kernels/mk/hera_plan_local.tm")
 et0 = spice.str2et("2026-11-05 00:00:00 UTC")
 et = et0
 simu_dt = 15.0 * 60.0
-# Hera's own kernels run out before 2027-05-01, so stop just short of it.
 etf = spice.str2et("2027-04-30 00:00:00 UTC")
 (p_sun, _lt) = spice.spkpos("SUN", et, "ECLIPJ2000", "none", "DIDYMOS")
 (p_dimo, _lt) = spice.spkpos("DIMORPHOS", et, "ECLIPJ2000", "none", "DIDYMOS")

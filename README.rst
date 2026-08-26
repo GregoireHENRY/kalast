@@ -52,6 +52,21 @@ Build the kalast rust dynamic library `kalast/_rs.cpython-314-darwin.so` (exampl
 
     maturin develop
 
+Use ``--release`` for anything measured or run in earnest -- debug is 2-15x
+slower, worst on the per-pixel frame-export loops (measured 22.6 -> 53.1 it/s
+at 3.1M facets with export on). Keep plain ``maturin develop`` while
+implementing a feature, and rebuild with ``--release`` once it works.
+
+.. code:: sh
+
+    maturin develop --release
+
+Beyond the default ``opt-level = 3`` there is nothing worth adding:
+``lto = "fat"`` + ``codegen-units = 1`` was measured on this project and gave
+no improvement (render loop 52.7 vs 55.1 it/s, mesh load+flatten 1.07 vs
+1.10 s, both inside run-to-run noise) while pushing the build from ~59 s to
+~87 s. Recorded in ``Cargo.toml`` so it is not retried blindly.
+
 Run a Python example.
 
 .. code:: sh

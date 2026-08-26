@@ -17,7 +17,7 @@ against an extrapolated ~36 days for the brute-force ray trace.**
 The app runs two callbacks per frame, either of which may be left unset:
 
 ```python
-app.config.facet_shadow = True     # compute for every body, every frame
+app.config.access_shadow_map = True   # compute for every body, every frame
 
 def before_render(sim, dt):        # set the scene
     et = et0 + sim.state.iteration * dt_sim
@@ -31,7 +31,7 @@ app.before_render = before_render
 app.after_render = after_render
 ```
 
-`config.facet_shadow` is off by default because the query is not free (~1.6 ms
+`config.access_shadow_map` is off by default because the query is not free (~1.6 ms
 per body at 100k facets, ~7.3 ms at 3.1M), and most runs only want images.
 One flag at setup turns it on for every body; `sim.facet_shadow(body)` returns
 `None` for anything not computed this frame, never a stale array.

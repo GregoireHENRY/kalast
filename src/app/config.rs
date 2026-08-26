@@ -86,14 +86,15 @@ pub struct Config {
     // sharing the default "out/frames".
     pub export_dir: String,
 
-    /// Compute per-facet solar occlusion for every body each frame, readable
-    /// from `after_render` via `Simulation::facet_shadow`.
+    /// Read the shadow map back per facet: computes solar occlusion for every
+    /// body each frame, readable from `after_render` via
+    /// `Simulation::facet_shadow`.
     ///
     /// Off by default because it is not free: the query costs ~1.6 ms per
     /// body at 100k facets and ~7.3 ms at 3.1M, dominated by the blocking
     /// readback. Turn it on for thermophysical or radiance work; leave it off
     /// when you only want images.
-    pub facet_shadow: bool,
+    pub access_shadow_map: bool,
 }
 
 impl Default for Config {
@@ -150,7 +151,7 @@ impl Default for Config {
 
             export_dir: "out/frames".to_string(),
 
-            facet_shadow: false,
+            access_shadow_map: false,
         }
     }
 }

@@ -376,13 +376,13 @@ impl Config {
     }
 
     #[getter]
-    fn facet_shadow(&self) -> bool {
-        self.app.borrow().config.facet_shadow
+    fn access_shadow_map(&self) -> bool {
+        self.app.borrow().config.access_shadow_map
     }
 
     #[setter]
-    fn set_facet_shadow(&mut self, v: bool) {
-        self.app.borrow_mut().config.facet_shadow = v;
+    fn set_access_shadow_map(&mut self, v: bool) {
+        self.app.borrow_mut().config.access_shadow_map = v;
     }
 
     #[getter]
