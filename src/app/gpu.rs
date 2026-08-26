@@ -33,6 +33,9 @@ pub const SHADER_LIGHT_RENDER: wgpu::ShaderModuleDescriptor =
 pub const SHADER_SHADOW: wgpu::ShaderModuleDescriptor =
     wgpu::include_wgsl!("../../shaders/shadow.wgsl");
 
+pub const SHADER_FACET_SHADOW: wgpu::ShaderModuleDescriptor =
+    wgpu::include_wgsl!("../../shaders/facet_shadow.wgsl");
+
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
 pub struct Pipelines {
@@ -368,7 +371,10 @@ impl MeshBuffer {
     ) -> Self {
         let geometry_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             contents: bytemuck::cast_slice(&extract_geometry(vertices)),
-            usage: wgpu::BufferUsages::VERTEX,
+            // STORAGE so the per-facet shadow query can read exactly the
+            // geometry that gets drawn, rather than a second upload that
+            // could drift out of sync.
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::STORAGE,
             label: None,
         });
 
@@ -380,7 +386,7 @@ impl MeshBuffer {
 
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             contents: bytemuck::cast_slice(indices),
-            usage: wgpu::BufferUsages::INDEX,
+            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::STORAGE,
             label: None,
         });
 
@@ -400,6 +406,17 @@ impl MeshBuffer {
             index_buffer,
 
             instance_buffer,
+        }
+    }
+
+    /// Facet count as the compute pass indexes them: a flat mesh is
+    /// triangle-major so every 3 vertices are one facet, an indexed one
+    /// uses every 3 indices.
+    pub fn n_facets(&self) -> u32 {
+        if self.is_flat {
+            self.n_vertices / 3
+        } else {
+            self.n_indices / 3
         }
     }
 

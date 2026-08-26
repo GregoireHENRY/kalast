@@ -116,6 +116,37 @@ impl Simulation {
         self.inner.borrow_mut().export_once();
     }
 
+    /// Ask for `body`'s per-facet occluded fractions, read back from the GPU
+    /// shadow map after this frame renders.
+    ///
+    /// The result is not available until the frame has been drawn, so read it
+    /// with `facet_shadow()` on the *next* tick. Requesting every tick gives
+    /// a steady stream one tick behind the geometry that produced it.
+    fn request_facet_shadow(&mut self, body: usize) {
+        self.inner.borrow_mut().request_facet_shadow(body);
+    }
+
+    /// Most recent per-facet occluded fractions, or `None` if nothing has
+    /// been read back yet. One entry per facet, in `Mesh.facets` order:
+    /// 0.0 fully lit, 1.0 fully shadowed, and quarter steps in between for
+    /// facets straddling a shadow boundary (4 samples per facet).
+    #[pyo3(signature = ())]
+    fn facet_shadow<'py>(
+        slf: pyo3::Bound<'py, Self>,
+    ) -> Option<pyo3::Bound<'py, numpy::PyArray1<f32>>> {
+        let py = slf.py();
+        let self_ = slf.borrow();
+        let sim = self_.inner.borrow();
+        sim.facet_shadow_body?;
+        Some(numpy::PyArray1::from_slice(py, &sim.facet_shadow_result))
+    }
+
+    /// Body index the last `facet_shadow()` result belongs to.
+    #[getter]
+    fn facet_shadow_body(&self) -> Option<usize> {
+        self.inner.borrow().facet_shadow_body
+    }
+
     fn __repr__(&self) -> String {
         format!("{:?}", self.inner.borrow())
     }

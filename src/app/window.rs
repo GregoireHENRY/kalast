@@ -43,6 +43,15 @@ pub struct Window {
 
     pub export_frame: bool,
     pub frame_exporter: super::gpu::FrameExporter,
+
+    // Built lazily: most runs never ask for a per-facet shadow query, and
+    // compiling the compute pipeline is not free.
+    pub facet_shadow: Option<super::facet_shadow::FacetShadowQuery>,
+
+    // Body model matrices as of the last `update`. The facet shadow query
+    // needs the same transform the shadow map was built with, and it is
+    // called from outside the borrow of `Simulation`.
+    pub last_body_mats: Vec<Mat4>,
 }
 
 impl Window {
@@ -280,7 +289,41 @@ impl Window {
                 config.export_sync,
                 config.export_max_queued as usize,
             ),
+
+            facet_shadow: None,
+            last_body_mats: vec![],
         }
+    }
+
+    /// Occluded fraction per facet for `body` (index into
+    /// `simulation.bodies`), read back from the current shadow map.
+    ///
+    /// Reads the shadow map as it stands after the last rendered frame, so
+    /// call it after at least one frame has been drawn for the epoch you
+    /// care about. Blocking -- see `FacetShadowQuery::query`.
+    ///
+    /// Always queries the full-resolution render mesh, never the coarser
+    /// `shadow_path` proxy: the proxy decides what the *map* contains, but
+    /// the answer is wanted per real facet.
+    pub fn facet_shadow_fractions(&mut self, body: usize) -> Vec<f32> {
+        if self.facet_shadow.is_none() {
+            self.facet_shadow = Some(super::facet_shadow::FacetShadowQuery::new(&self.device));
+        }
+
+        let Some(mesh) = self.meshes.get(1 + body) else {
+            return vec![];
+        };
+
+        self.facet_shadow.as_ref().unwrap().query(
+            &self.device,
+            &self.queue,
+            &self.uniforms.shadow,
+            mesh,
+            self.last_body_mats.get(body).copied().unwrap_or(Mat4::IDENTITY),
+            self.uniforms.view.uniform.light.view_proj,
+            self.uniforms.view.uniform.light.pos,
+            &self.uniforms.globals.uniform,
+        )
     }
 
     pub fn get_window(&self) -> &winit::window::Window {
@@ -388,6 +431,10 @@ impl Window {
             0,
             bytemuck::bytes_of(&self.uniforms.view.uniform),
         );
+
+        self.last_body_mats.clear();
+        self.last_body_mats
+            .extend(simulation.bodies.iter().map(|b| b.mat));
 
         // skip light cube
         for ii in 0..simulation.bodies.len() {

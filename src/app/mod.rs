@@ -1,5 +1,6 @@
 pub mod body;
 pub mod config;
+pub mod facet_shadow;
 pub mod frame;
 pub mod gpu;
 pub mod pass;
@@ -186,6 +187,14 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     sim.update();
                     win.update(&mut sim, &self.config);
                     win.render(surface_texture, &self.config);
+
+                    // After render: the shadow map now holds this frame's
+                    // geometry, so a query here answers for the scene the
+                    // tick just set up.
+                    if let Some(body) = sim.facet_shadow_request.take() {
+                        sim.facet_shadow_result = win.facet_shadow_fractions(body);
+                        sim.facet_shadow_body = Some(body);
+                    }
 
                     sim.export_once = false;
                 }
