@@ -14,27 +14,53 @@ against an extrapolated ~36 days for the brute-force ray trace.**
 
 ## 1. API
 
-```python
-def tick(sim, dt):
-    sim.request_facet_shadow(0)        # body index
+The app runs two callbacks per frame, either of which may be left unset:
 
-    frac = sim.facet_shadow()          # None until a frame has rendered
-    if frac is not None:
-        lit = 1.0 - frac               # per facet, Mesh.facets order
+```python
+def before_render(sim, dt):        # set the scene
+    et = et0 + sim.state.iteration * dt_sim
+    # ... position bodies / sun / camera from spice ...
+    sim.request_facet_shadow(0)    # body index
+
+def after_render(sim, dt):         # GPU results for THIS frame exist here
+    lit = 1.0 - sim.facet_shadow() # per facet, Mesh.facets order
+    # ... TPM step / radiance accumulation ...
+
+app.before_render = before_render
+app.after_render = after_render
 ```
 
 `frac[i]` is the occluded fraction of facet `i`: `0.0` fully lit, `1.0` fully
 shadowed, quarter steps between for facets straddling a shadow boundary
 (4 samples per facet — the 3 vertices and the centroid).
 
-**One-tick latency.** The shadow map only reflects a frame's geometry after
-that frame renders, and the Python `App` is mutably borrowed for the whole
-event loop, so the query cannot run inside `tick`. `request_facet_shadow`
-sets a flag, the app services it right after the render pass, and
-`facet_shadow()` returns it from the *next* tick. Request every tick and you
-get a steady stream one tick behind the geometry that produced it.
+**Why two callbacks.** The dependency is ordered: `before_render` sets the
+geometry, the shadow pass builds the map from it, and only then can the map
+be queried. `after_render` runs once that has happened, so it sees the
+current frame's answer with no lag. (The query cannot simply run inside
+`before_render`: the Python `App` is mutably borrowed for the whole event
+loop, which is also why results are delivered through `Simulation` rather
+than off the app.)
 
-Rust: `Window::facet_shadow_fractions(body)`, or
+`app.tick` remains as an alias for `before_render`, so existing scripts are
+unaffected.
+
+Both callbacks see the same `state.iteration` for a given frame — the counter
+advances only once both have run, so a loop deriving an epoch from it cannot
+see two different times within one frame.
+
+Reading `facet_shadow()` from `before_render` still works and returns the
+*previous* frame's result. Occasionally that is what you want (comparing
+consecutive steps); mostly it is a trap.
+
+Two caveats for `after_render`:
+
+- **Scene changes there take effect next frame** — this frame's GPU work is
+  already submitted.
+- **Heavy CPU work there blocks the render loop.** Fine for a simulation run,
+  but frame rate stops being a meaningful number once a TPM step dominates.
+
+Rust: `App::set_after_render`, `Window::facet_shadow_fractions(body)`, or
 `FacetShadowQuery::query(...)` directly.
 
 ## 2. How it works
@@ -148,7 +174,6 @@ stops being terminator-only.
 
 ## 6. Limitations
 
-- **One-tick latency** (section 1).
 - **Blocking readback** — do not call per frame in an interactive session at
   3.1M facets; 7 ms is a third of the frame budget.
 - **Occultation from the camera is a different query.** This one is from the

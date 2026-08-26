@@ -119,9 +119,10 @@ impl Simulation {
     /// Ask for `body`'s per-facet occluded fractions, read back from the GPU
     /// shadow map after this frame renders.
     ///
-    /// The result is not available until the frame has been drawn, so read it
-    /// with `facet_shadow()` on the *next* tick. Requesting every tick gives
-    /// a steady stream one tick behind the geometry that produced it.
+    /// Request from `before_render`, read from `after_render`: the shadow map
+    /// only holds this frame's geometry once it has been drawn. Reading from
+    /// `before_render` instead still works but returns the *previous* frame's
+    /// result.
     fn request_facet_shadow(&mut self, body: usize) {
         self.inner.borrow_mut().request_facet_shadow(body);
     }

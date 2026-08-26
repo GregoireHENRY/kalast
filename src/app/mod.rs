@@ -21,7 +21,16 @@ pub struct App {
     pub dt: Float,
 
     pub simulation: Rc<RefCell<crate::app::simulation::Simulation>>,
-    pub tick: Option<Tick>,
+    /// Runs before the frame is drawn: set body transforms, camera and
+    /// sun here. Exposed to Python as `before_render` (and `tick`).
+    pub before_render: Option<Tick>,
+    /// Runs after the frame is drawn, once GPU results for this frame
+    /// exist -- notably `Simulation::facet_shadow_result`, which is only
+    /// filled once the shadow map holds this frame's geometry.
+    ///
+    /// Scene changes made here take effect on the *next* frame: the GPU
+    /// work for this one is already submitted.
+    pub after_render: Option<Tick>,
 
     pub controller: frame::Controller,
 }
@@ -47,7 +56,8 @@ impl App {
             dt: 0.0,
 
             simulation: Rc::new(RefCell::new(crate::app::simulation::Simulation::new())),
-            tick: None,
+            before_render: None,
+            after_render: None,
 
             controller,
         }
@@ -75,7 +85,7 @@ impl App {
     where
         F: Fn(&mut simulation::Simulation, Float) + 'static,
     {
-        self.tick = Some(Tick::Rust(Box::new(f)));
+        self.before_render = Some(Tick::Rust(Box::new(f)));
     }
 
     pub fn with_tick<F>(mut self, f: F) -> Self
@@ -84,6 +94,32 @@ impl App {
     {
         self.set_tick(f);
         self
+    }
+
+    pub fn set_after_render<F>(&mut self, f: F)
+    where
+        F: Fn(&mut simulation::Simulation, Float) + 'static,
+    {
+        self.after_render = Some(Tick::Rust(Box::new(f)));
+    }
+
+    /// Invokes one of the two frame callbacks. Both take the same arguments
+    /// and differ only in when the app calls them.
+    fn run_callback(callback: &Option<Tick>, sim: &Rc<RefCell<simulation::Simulation>>, dt: Float) {
+        match callback {
+            Some(Tick::Rust(f)) => {
+                f(&mut sim.borrow_mut(), dt);
+            }
+            Some(Tick::Python {
+                callback,
+                simulation,
+            }) => {
+                Python::attach(|py: Python<'_>| {
+                    callback.call1(py, (simulation.clone(), dt)).unwrap();
+                });
+            }
+            None => {}
+        }
     }
 
     pub fn exit(&mut self, ev: &winit::event_loop::ActiveEventLoop) {
@@ -162,20 +198,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 self.dt = (now - self.now).as_secs_f64() as _;
                 self.now = now;
 
-                match &self.tick {
-                    Some(Tick::Rust(f)) => {
-                        f(&mut self.simulation.borrow_mut(), self.dt);
-                    }
-                    Some(Tick::Python {
-                        callback,
-                        simulation,
-                    }) => {
-                        Python::attach(|py: Python<'_>| {
-                            callback.call1(py, (simulation.clone(), self.dt)).unwrap();
-                        });
-                    }
-                    None => {}
-                };
+                Self::run_callback(&self.before_render, &self.simulation, self.dt);
 
                 {
                     let mut sim = self.simulation.borrow_mut();
@@ -184,7 +207,6 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     sim.camera
                         .update_with_controller(&mut self.controller, self.dt);
 
-                    sim.update();
                     win.update(&mut sim, &self.config);
                     win.render(surface_texture, &self.config);
 
@@ -198,6 +220,16 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
 
                     sim.export_once = false;
                 }
+
+                // Outside the borrow above: the callback takes the
+                // Simulation itself, so it cannot run while it is held.
+                Self::run_callback(&self.after_render, &self.simulation, self.dt);
+
+                // Advance only now that both callbacks have run, so they
+                // agree on which frame they are in -- a loop deriving an
+                // epoch from `state.iteration` would otherwise see two
+                // different times within one frame.
+                self.simulation.borrow_mut().update();
             }
 
             winit::event::WindowEvent::KeyboardInput {
