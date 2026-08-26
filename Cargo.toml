@@ -66,3 +66,17 @@ image = { version = "0.25.10", default-features = false, features = [
 [dev-dependencies]
 rstest = "0.26.1"
 serial_test = "3.4.0"
+
+# Release (`maturin develop --release`) is what every benchmark and every
+# production run should use; debug is 2-15x slower here, worst on the
+# per-pixel export loops.
+#
+# Beyond the default opt-level = 3 there is nothing worth adding: `lto = "fat"`
+# + `codegen-units = 1` was measured on this project and gave no improvement
+# (render loop 52.7 vs 55.1 it/s, mesh load+flatten 1.07 vs 1.10 s -- both
+# inside run-to-run noise) while pushing the build from ~59 s to ~87 s. The
+# render path is GPU-bound and the hot CPU loops are already vectorised at
+# opt-level 3.
+#
+# Deliberately NOT set: panic = "abort" -- PyO3 turns Rust panics into Python
+# exceptions, which needs unwinding.

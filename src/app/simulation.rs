@@ -34,14 +34,43 @@ impl Simulation {
     where
         P: AsRef<std::path::Path>,
     {
+        self.load_mesh_with_shadow(path, mat, flatten, None::<&std::path::Path>);
+    }
+
+    /// As `load_mesh`, but renders `shadow_path` into the shadow map instead
+    /// of the main mesh. See `Body::shadow_mesh` for why that is safe for
+    /// facet-indexed data when swapping the main mesh would not be.
+    pub fn load_mesh_with_shadow<P, S>(
+        &mut self,
+        path: P,
+        mat: Mat4,
+        flatten: bool,
+        shadow_path: Option<S>,
+    ) where
+        P: AsRef<std::path::Path>,
+        S: AsRef<std::path::Path>,
+    {
         let mut mesh = crate::mesh::Mesh::load(path, |x| x);
 
         if flatten {
             mesh.flatten();
         }
 
+        let shadow_mesh = shadow_path.map(|p| {
+            let mut shadow = crate::mesh::Mesh::load(p, |x| x);
+
+            // Match the main mesh's flattening: the shadow pass shares the
+            // render pipeline's vertex layout and flat/indexed draw path.
+            if flatten {
+                shadow.flatten();
+            }
+
+            Rc::new(RefCell::new(shadow))
+        });
+
         self.bodies.push(super::body::Body {
             mesh: Some(Rc::new(RefCell::new(mesh))),
+            shadow_mesh,
             mat,
             ..Default::default()
         });

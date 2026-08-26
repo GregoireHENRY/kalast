@@ -50,17 +50,31 @@ impl Simulation {
         }
     }
 
+    /// `shadow_path` optionally names a lower-resolution mesh to render into
+    /// the shadow map in place of `path`. The shadow map only decides which
+    /// fragments are lit, so a coarser occluder buys performance without
+    /// touching per-facet science data -- unlike loading a coarser `path`,
+    /// which would invalidate facet-indexed results. Omit it (the default)
+    /// to shadow with the main mesh.
     #[pyo3(signature = (
         path,
         mat=None,
         flatten=None,
+        shadow_path=None,
     ))]
-    fn load_mesh(&mut self, path: &str, mat: Option<[[Float; 4]; 4]>, flatten: Option<bool>) {
-        self.inner.borrow_mut().load_mesh(
+    fn load_mesh(
+        &mut self,
+        path: &str,
+        mat: Option<[[Float; 4]; 4]>,
+        flatten: Option<bool>,
+        shadow_path: Option<&str>,
+    ) {
+        self.inner.borrow_mut().load_mesh_with_shadow(
             path,
             mat.map(|m| Mat4::from_cols_array_2d(&m).transpose())
                 .unwrap_or(Mat4::IDENTITY),
             flatten.unwrap_or(false),
+            shadow_path,
         );
     }
 

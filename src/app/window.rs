@@ -32,6 +32,12 @@ pub struct Window {
     // 1..: loaded by user in app.simulation.bodies
     pub meshes: Vec<super::gpu::MeshBuffer>,
 
+    // Parallel to `meshes`: `Some` where a body supplied a lower-resolution
+    // shadow stand-in, `None` to fall back to the entry in `meshes`. Same
+    // indexing (element 0 is the light cube), so the shadow pass can pick
+    // per body without a second lookup.
+    pub shadow_meshes: Vec<Option<super::gpu::MeshBuffer>>,
+
     pub uniforms: super::uniform::Uniforms,
     pub passes: super::pass::Passes,
 
@@ -154,6 +160,9 @@ impl Window {
             false,
         ));
 
+        // Element 0 pairs with the light cube, which the shadow pass skips.
+        let mut shadow_meshes: Vec<Option<super::gpu::MeshBuffer>> = vec![None];
+
         let mut warned_wireframe = false;
 
         for body in &simulation.bodies {
@@ -188,6 +197,17 @@ impl Window {
                     &instance,
                     mesh.is_flat(),
                 ));
+
+                shadow_meshes.push(body.shadow_mesh.as_ref().map(|shadow| {
+                    let shadow = shadow.borrow();
+                    super::gpu::MeshBuffer::new(
+                        &device,
+                        &shadow.vertices,
+                        &shadow.indices,
+                        &instance,
+                        shadow.is_flat(),
+                    )
+                }));
             }
         }
 
@@ -250,6 +270,7 @@ impl Window {
             is_surface_configured: false,
 
             meshes,
+            shadow_meshes,
             uniforms,
             passes,
 
@@ -380,6 +401,22 @@ impl Window {
                 super::gpu::InstanceInput::new_with_flags(simulation.bodies[ii].mat, flags);
             self.meshes[1 + ii].update_instance_buffer(&self.queue, &instance);
 
+            // The shadow stand-in has to follow the same transform, or its
+            // occluder would sit somewhere the visible body is not. Its own
+            // flat flag applies, since it may be flattened differently.
+            if let Some(shadow_buffer) = self.shadow_meshes[1 + ii].as_mut() {
+                let shadow_flags = if shadow_buffer.is_flat {
+                    super::gpu::INSTANCE_FLAG_FLAT
+                } else {
+                    0
+                };
+                let shadow_instance = super::gpu::InstanceInput::new_with_flags(
+                    simulation.bodies[ii].mat,
+                    shadow_flags,
+                );
+                shadow_buffer.update_instance_buffer(&self.queue, &shadow_instance);
+            }
+
             let mesh = simulation.bodies[ii].mesh.as_ref().unwrap();
             if mesh.borrow().colors_dirty {
                 self.meshes[1 + ii].update_attrib_buffer(&self.queue, &mesh.borrow().vertices);
@@ -442,6 +479,7 @@ impl Window {
             &surface_view,
             &self.uniforms.shadow,
             &self.meshes,
+            &self.shadow_meshes,
             config,
         );
 

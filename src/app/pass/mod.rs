@@ -42,9 +42,11 @@ impl Passes {
         view: &wgpu::TextureView,
         shadow: &super::gpu::Texture,
         meshes: &[super::gpu::MeshBuffer],
+        shadow_meshes: &[Option<super::gpu::MeshBuffer>],
         config: &crate::app::config::Config,
     ) {
-        self.shadow.render(encoder, shadow, meshes, &self.bindings);
+        self.shadow
+            .render(encoder, shadow, meshes, shadow_meshes, &self.bindings);
 
         self.render.render(
             encoder,

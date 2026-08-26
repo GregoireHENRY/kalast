@@ -65,10 +65,14 @@ app.simulation.camera.projection.fovy = 5.5 * RPD
 
 mat = numpy.eye(4)
 mat[:3, :3] = m_didy_ej2k
+# shadow_path renders a 100k-facet stand-in into the shadow map instead of
+# the full 3.1M mesh: 1.5x faster overall, and 9 of 1,040,400 pixels differ
+# from the full-resolution shadow. See notes/BENCH_shadow_mesh.md.
 app.simulation.load_mesh(
     path="/Users/gregoireh/data/spice/hera/kernels/dsk/g_01165mm_spc_obj_didy_0000n00000_v003.obj",
     mat=mat,
     flatten=True,
+    shadow_path="/Users/gregoireh/data/mesh/didymos/g_01165mm_spc_obj_didy_0000n00000_v003_decimated_100k.obj",
 )
 
 mat = numpy.eye(4)
@@ -78,8 +82,8 @@ app.simulation.load_mesh(
     path="/Users/gregoireh/data/spice/hera/kernels/dsk/g_00243mm_spc_obj_dimo_0000n00000_v004.obj",
     mat=mat,
     flatten=True,
+    shadow_path="/Users/gregoireh/data/mesh/dimorphos/g_00243mm_spc_obj_dimo_0000n00000_v004_decimated_100k.obj",
 )
-
 app.tick = tick
 app.start()
 spice.kclear()

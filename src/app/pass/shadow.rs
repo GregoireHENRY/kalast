@@ -21,11 +21,15 @@ impl Pass {
 
     // pub fn resize(&self) {}
 
+    /// `shadow_meshes` is parallel to `meshes`: where it holds a buffer,
+    /// that lower-resolution stand-in is rendered into the shadow map
+    /// instead of the full-resolution mesh at the same index.
     pub fn render(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         shadow: &gpu::Texture,
         meshes: &[gpu::MeshBuffer],
+        shadow_meshes: &[Option<gpu::MeshBuffer>],
         bindings: &super::Bindings,
     ) {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -45,8 +49,12 @@ impl Pass {
 
         bindings.for_shadow(&mut render_pass);
 
-        for mesh in &meshes[1..] {
-            mesh.render(&mut render_pass);
+        for (ii, mesh) in meshes.iter().enumerate().skip(1) {
+            let occluder = shadow_meshes
+                .get(ii)
+                .and_then(|m| m.as_ref())
+                .unwrap_or(mesh);
+            occluder.render(&mut render_pass);
         }
     }
 }
