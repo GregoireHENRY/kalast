@@ -12,51 +12,12 @@ facets of Didymos the shadow map says are shadowed, which over this sweep
 picks out the Dimorphos eclipses.
 """
 
-from pathlib import Path
-
 import numpy
 import spiceypy as spice
 
 import kalast
 
 from kalast.util import AU_KM, RPD
-
-# Examples hardcode absolute data paths; these two machines disagree about
-# where that root is, so pick whichever exists rather than only running on
-# one of them.
-DATA = next(
-    (p for p in (Path("/Users/gregoireh/data"), Path("C:/data")) if p.is_dir()),
-    Path("/Users/gregoireh/data"),
-)
-
-KERNEL = next(
-    (
-        p
-        for p in (
-            DATA / "spice/hera/kernels/mk/hera_plan_local.tm",
-            DATA / "spice/hera/kernels/mk/hera_plan.tm",
-        )
-        if p.is_file()
-    ),
-    DATA / "spice/hera/kernels/mk/hera_plan.tm",
-)
-
-
-def find_mesh(*candidates):
-    for c in candidates:
-        if (DATA / c).is_file():
-            return str(DATA / c)
-    raise FileNotFoundError(f"none of {candidates} under {DATA}")
-
-
-MESH_DIDY = find_mesh(
-    "spice/hera/kernels/dsk/g_01165mm_spc_obj_didy_0000n00000_v003.obj",
-    "mesh/g_01165mm_spc_obj_didy_0000n00000_v003.obj",
-)
-MESH_DIMO = find_mesh(
-    "spice/hera/kernels/dsk/g_00243mm_spc_obj_dimo_0000n00000_v004.obj",
-    "mesh/g_00243mm_spc_obj_dimo_0000n00000_v004.obj",
-)
 
 
 def before_render(sim: kalast.app.simulation.Simulation, dt: float):
@@ -125,7 +86,7 @@ app.config.color_mode = 0
 app.simulation.camera.projection.fovy = 5.5 * RPD
 
 spice.kclear()
-spice.furnsh(str(KERNEL))
+spice.furnsh("/Users/gregoireh/data/spice/hera/kernels/mk/hera_plan_local.tm")
 et0 = spice.str2et("2026-11-05 00:00:00 UTC")
 et = et0
 simu_dt = 15.0 * 60.0
@@ -142,12 +103,20 @@ m_dimo_ej2k = spice.pxform("DIMORPHOS_FIXED", "ECLIPJ2000", et)
 # the proxy's shadow rather than the real one. Add it for pure-render runs.
 mat = numpy.eye(4)
 mat[:3, :3] = m_didy_ej2k
-app.simulation.load_mesh(path=MESH_DIDY, mat=mat, flatten=True)
+app.simulation.load_mesh(
+    path="/Users/gregoireh/data/spice/hera/kernels/dsk/g_01165mm_spc_obj_didy_0000n00000_v003.obj",
+    mat=mat,
+    flatten=True,
+)
 
 mat = numpy.eye(4)
 mat[:3, 3] = p_dimo
 mat[:3, :3] = m_dimo_ej2k
-app.simulation.load_mesh(path=MESH_DIMO, mat=mat, flatten=True)
+app.simulation.load_mesh(
+    path="/Users/gregoireh/data/spice/hera/kernels/dsk/g_00243mm_spc_obj_dimo_0000n00000_v004.obj",
+    mat=mat,
+    flatten=True,
+)
 
 app.before_render = before_render
 app.after_render = after_render
