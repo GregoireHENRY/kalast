@@ -288,7 +288,9 @@ Bindings in the default Arcball mode:
 | Input | Action |
 |---|---|
 | Middle-drag | orbit |
+| Alt + left-drag | orbit (when `emulate_middle_button`) |
 | Shift + middle-drag | pan |
+| Shift + alt + left-drag | pan (when `emulate_middle_button`) |
 | Wheel / two-finger scroll | zoom |
 | Pinch gesture | zoom (trackpad) |
 | `T` | toggle Arcball / WASD |
@@ -305,6 +307,16 @@ them after `start()` does nothing.
 Pointer-driven terms are deliberately **not** scaled by frame time -- a mouse
 delta is a displacement, not a rate. `sensitivity_move` doubles as the pan
 scale; `sensitivity_look` applies to WASD only.
+
+### `emulate_middle_button: bool` — default `true` on macOS, `false` elsewhere *(startup only)*
+Treat **alt + left-drag** as a middle-drag, so the arcball can be orbited on
+hardware with no middle button -- a trackpad. Blender calls the same setting
+"Emulate 3 Button Mouse", and the binding matches, so the muscle memory
+carries over. The real middle button keeps working either way; turning this
+off only makes alt + left inert.
+Accepted: `True` / `False`.
+Copied onto the controller once by `apply_config_at_start`, like the
+`sensitivity_*` values, so set it before `app.start()`.
 
 ### `sensitivity_move: Float` — default `1.0` *(startup only)*
 Translation speed. `src/app/frame.rs:197`.
@@ -324,6 +336,17 @@ Note these only affect interactive control. Scripts that set
 `sim.camera.pos` / `.dir` / `.up` from `before_render` -- as the Hera
 examples do --
 overwrite the controller's result every frame and are unaffected.
+
+**A script that assigns `camera.pos`/`.dir`/`.up` every frame cannot be
+orbited** -- the assignment overwrites whatever the drag just did, so the
+camera appears frozen. This is not a controller bug; the Hera examples do
+exactly this to follow the spacecraft. Assign the camera only on the frames
+where you want it driven (e.g. `if sim.state.iteration == 0:`) if you also
+want to orbit it by hand.
+
+The camera basis is re-orthonormalised before each arcball update, so an
+assigned `up` that is not perpendicular to `dir` -- or is parallel to it, which
+used to produce NaN and permanently freeze the camera -- is handled.
 
 The arcball now only touches the camera when there is actual pointer input.
 It previously ran `look_anchor()` every frame, silently discarding any `dir` a

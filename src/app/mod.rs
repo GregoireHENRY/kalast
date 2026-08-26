@@ -79,6 +79,7 @@ impl App {
         self.controller.sensitivity_look = self.config.sensitivity_look;
         self.controller.sensitivity_rotate = self.config.sensitivity_rotate;
         self.controller.sensitivity_zoom = self.config.sensitivity_zoom;
+        self.controller.emulate_middle_button = self.config.emulate_middle_button;
     }
 
     pub fn set_tick<F>(&mut self, f: F)
@@ -324,14 +325,19 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 }
             }
 
-            winit::event::WindowEvent::MouseInput { state, button, .. } => {
-                if button == winit::event::MouseButton::Middle {
+            winit::event::WindowEvent::MouseInput { state, button, .. } => match button {
+                winit::event::MouseButton::Middle => {
                     self.controller.middle_pressed = state.is_pressed();
                 }
-            }
+                winit::event::MouseButton::Left => {
+                    self.controller.left_pressed = state.is_pressed();
+                }
+                _ => {}
+            },
 
             winit::event::WindowEvent::ModifiersChanged(modifiers) => {
                 self.controller.shift_pressed = modifiers.state().shift_key();
+                self.controller.alt_pressed = modifiers.state().alt_key();
             }
 
             _ => {}
@@ -351,9 +357,10 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     frame::Control::WASD => {
                         self.controller.mouse_motion(dx as Float, dy as Float);
                     }
-                    // Arcball only reacts while the middle button is held,
+                    // Arcball only reacts during a drag -- middle button, or
+                    // alt + left where there is no middle button to press --
                     // leaving the cursor free for everything else.
-                    frame::Control::Arcball if self.controller.middle_pressed => {
+                    frame::Control::Arcball if self.controller.is_dragging() => {
                         self.controller.drag(dx as Float, dy as Float);
                     }
                     _ => {}

@@ -215,8 +215,29 @@ impl Eye {
         -self.dir
     }
 
+    /// Unit vector to the camera's right.
+    ///
+    /// Normalised because this is used as a rotation axis: `dir x up` is only
+    /// unit-length when `up` is exactly perpendicular to `dir`, and a script
+    /// is free to assign one that is not. Feeding a short axis to
+    /// `Mat3::from_axis_angle` yields a matrix that scales as well as
+    /// rotates, so orbiting would shrink the anchor distance a little on
+    /// every event until the camera collapsed onto the anchor and appeared
+    /// stuck.
     pub fn right(&self) -> Vec3 {
-        self.dir.cross(self.up)
+        let right = self.dir.cross(self.up);
+        if right.length_squared() > 1e-12 {
+            return right.normalize();
+        }
+
+        // dir and up are parallel: any axis not parallel to dir will do.
+        for candidate in [self.up_world, Vec3::Z, Vec3::Y, Vec3::X] {
+            let right = self.dir.cross(candidate);
+            if right.length_squared() > 1e-12 {
+                return right.normalize();
+            }
+        }
+        Vec3::X
     }
 
     pub fn left(&self) -> Vec3 {
@@ -246,8 +267,53 @@ impl Eye {
         Mat3::from_cols(self.dir, self.right(), self.up)
     }
 
+    /// Rebuilds `up` perpendicular to `dir`, preserving roll where possible.
+    ///
+    /// Falls back through `up_world` and the world axes when the current `up`
+    /// is parallel to `dir`: there `dir x up` is the zero vector, and
+    /// normalising it yields NaN, which then propagates into `pos` and `dir`
+    /// and leaves the camera permanently stuck. A script is free to assign
+    /// any `up` it likes -- including one parallel to `dir` -- so this cannot
+    /// assume the caller supplied a usable basis.
     pub fn fix_up(&mut self) {
-        self.up = self.right().cross(self.dir).normalize();
+        let up = self.right().cross(self.dir);
+        if up.is_finite() && up.length_squared() > 1e-12 {
+            self.up = up.normalize();
+        }
+    }
+
+    /// Forces `pos`/`dir`/`up` into a usable state before the controller acts
+    /// on them, so that whatever a script assigned -- an unnormalised `dir`,
+    /// an `up` parallel to it, a NaN left over from an earlier frame -- the
+    /// camera still responds instead of silently locking up.
+    pub fn sanitize_basis(&mut self) {
+        if !self.pos.is_finite() {
+            self.pos = Vec3::ZERO;
+        }
+        if !self.anchor.is_finite() {
+            self.anchor = Vec3::ZERO;
+        }
+        if !self.up_world.is_finite() || self.up_world.length_squared() < 1e-12 {
+            self.up_world = Vec3::Z;
+        }
+
+        if !self.dir.is_finite() || self.dir.length_squared() < 1e-12 {
+            // Prefer facing the anchor; fall back to a fixed axis when the
+            // eye sits exactly on it.
+            let to_anchor = self.anchor - self.pos;
+            self.dir = if to_anchor.length_squared() > 1e-12 {
+                to_anchor.normalize()
+            } else {
+                Vec3::X
+            };
+        } else {
+            self.dir = self.dir.normalize();
+        }
+
+        // Unconditionally, not just when degenerate: an `up` that is merely
+        // off-perpendicular is enough to make `right()` non-unit, which is
+        // what breaks orbiting.
+        self.fix_up();
     }
 
     pub fn look_anchor(&mut self) {
@@ -350,6 +416,11 @@ impl Eye {
     /// make the same physical gesture do different amounts of work depending
     /// on the frame rate.
     pub fn arcball_update(&mut self, ctrl: &mut Controller) {
+        // A script may have assigned pos/dir/up this frame (the Hera examples
+        // do, from spice). Repair the basis before orbiting rather than
+        // trusting it.
+        self.sanitize_basis();
+
         // Geometric zoom: each notch scales the distance by a constant
         // factor, so zooming never overshoots through the anchor the way a
         // linear step does, and feels the same at any scale.
@@ -371,7 +442,12 @@ impl Eye {
             self.anchor += offset;
         }
 
-        if ctrl.horizontal != 0.0 || ctrl.vertical != 0.0 {
+        // Orbiting rotates `pos` about `anchor`; with the eye sitting on the
+        // anchor there is no radius to rotate and the camera would appear
+        // frozen, so leave it alone rather than pretending to move.
+        if (ctrl.horizontal != 0.0 || ctrl.vertical != 0.0)
+            && self.distance_anchor() > 1e-9
+        {
             let m1 = Mat3::from_axis_angle(
                 self.up_world,
                 -ctrl.horizontal * ctrl.sensitivity_rotate * SENSITIVITY_ORBIT,
@@ -449,6 +525,12 @@ pub struct Controller {
     // deliver on one axis and in coarse notches.
     pub middle_pressed: bool,
     pub shift_pressed: bool,
+    pub left_pressed: bool,
+    pub alt_pressed: bool,
+
+    /// Treat alt + left-drag as a middle-drag, for hardware with no middle
+    /// button -- a trackpad. Blender calls this "Emulate 3 Button Mouse".
+    pub emulate_middle_button: bool,
 
     pub sensitivity_move: Float,
     pub sensitivity_look: Float,
@@ -477,6 +559,9 @@ impl Controller {
             zoom: 0.0,
             middle_pressed: false,
             shift_pressed: false,
+            left_pressed: false,
+            alt_pressed: false,
+            emulate_middle_button: cfg!(target_os = "macos"),
             sensitivity_move,
             sensitivity_look,
             sensitivity_rotate,
@@ -529,6 +614,12 @@ impl Controller {
 
     pub fn zoom(&mut self, delta: Float) {
         self.zoom += delta;
+    }
+
+    /// Whether the pointer is currently in an orbit/pan drag: the middle
+    /// button, or alt + left when middle-button emulation is on.
+    pub fn is_dragging(&self) -> bool {
+        self.middle_pressed || (self.emulate_middle_button && self.left_pressed && self.alt_pressed)
     }
 
     /// Routes a pointer drag to orbit or pan depending on the shift key.
@@ -680,5 +771,154 @@ mod tests {
         ctrl.drag(5.0, 7.0);
         assert_eq!((ctrl.horizontal, ctrl.vertical), (0.0, 0.0));
         assert_eq!((ctrl.pan_horizontal, ctrl.pan_vertical), (5.0, 7.0));
+    }
+
+    /// A trackpad has no middle button, so alt + left has to stand in for it
+    /// -- otherwise the arcball cannot be orbited at all on that hardware,
+    /// which is exactly what regressed when drag-to-orbit was introduced.
+    #[test]
+    fn alt_left_drag_substitutes_for_the_middle_button() {
+        let mut ctrl = controller();
+        ctrl.emulate_middle_button = true;
+
+        assert!(!ctrl.is_dragging(), "idle pointer must not orbit");
+
+        ctrl.left_pressed = true;
+        assert!(!ctrl.is_dragging(), "plain left-drag must not orbit");
+
+        ctrl.alt_pressed = true;
+        assert!(ctrl.is_dragging(), "alt + left must orbit when emulating");
+
+        // The real middle button keeps working regardless of alt.
+        let mut ctrl = controller();
+        ctrl.emulate_middle_button = true;
+        ctrl.middle_pressed = true;
+        assert!(ctrl.is_dragging());
+    }
+
+    /// A script assigning `up` parallel to `dir` used to make `fix_up`
+    /// normalise a zero vector, poisoning the camera with NaN for the rest of
+    /// the run -- the reported "orbit gets stuck".
+    #[test]
+    fn parallel_up_and_dir_do_not_poison_the_camera() {
+        let mut eye = Eye::new();
+        // Off the up_world axis, or a horizontal orbit would correctly be a
+        // no-op and the test would prove nothing.
+        eye.pos = Vec3::new(10.0, 0.0, 0.0);
+        eye.anchor = Vec3::ZERO;
+        eye.dir = Vec3::new(-1.0, 0.0, 0.0);
+        eye.up = Vec3::new(-1.0, 0.0, 0.0); // degenerate: parallel to dir
+
+        eye.sanitize_basis();
+        assert!(eye.up.is_finite(), "up went NaN: {}", eye.up);
+        assert!(
+            eye.dir.cross(eye.up).length_squared() > 1e-6,
+            "up must end up perpendicular to dir"
+        );
+
+        let mut ctrl = controller();
+        ctrl.mouse_motion(30.0, 0.0);
+        eye.arcball_update(&mut ctrl);
+
+        assert!(eye.pos.is_finite() && eye.dir.is_finite() && eye.up.is_finite());
+        assert!(
+            (eye.pos - Vec3::new(10.0, 0.0, 0.0)).length() > 1e-3,
+            "camera should have orbited, stayed at {}",
+            eye.pos
+        );
+    }
+
+    /// The Hera examples assign pos/dir/up from spice every frame. Orbiting
+    /// has to work from whatever basis that leaves behind.
+    #[test]
+    fn orbit_works_from_a_script_assigned_basis() {
+        let mut eye = Eye::new();
+        // Roughly the AFC case: far from the body, boresight pointing back at
+        // it, up taken from the instrument frame rather than the world.
+        eye.pos = Vec3::new(20.0, 12.0, -6.0);
+        eye.anchor = Vec3::ZERO;
+        eye.dir = (eye.anchor - eye.pos).normalize();
+        eye.up = Vec3::new(0.3, -0.9, 0.31).normalize();
+
+        let start = eye.pos;
+        let start_distance = eye.distance_anchor();
+
+        let mut ctrl = controller();
+        ctrl.mouse_motion(25.0, 10.0);
+        eye.arcball_update(&mut ctrl);
+
+        assert!(eye.pos.is_finite());
+        assert!(
+            (eye.pos - start).length() > 1e-3,
+            "orbit did nothing from a custom basis"
+        );
+        assert!(
+            (eye.distance_anchor() - start_distance).abs() < 1e-4,
+            "orbit must preserve the anchor distance"
+        );
+    }
+
+    /// Guard, not a reproduction: `look_anchor` re-orthonormalises `up` after
+    /// every event, so a non-unit rotation axis only ever distorted the first
+    /// one and never accumulated. This pins the invariant anyway, since the
+    /// orbit is a rigid rotation about the anchor and any future change that
+    /// makes it scale would be a bug.
+    #[test]
+    fn repeated_orbit_does_not_drift_the_anchor_distance() {
+        let mut eye = Eye::new();
+        eye.pos = Vec3::new(25.8, 4.0, -3.0);
+        eye.anchor = Vec3::ZERO;
+        eye.dir = (eye.anchor - eye.pos).normalize();
+        // Deliberately not perpendicular to dir, as a script assigning an
+        // instrument-frame up may well leave it.
+        eye.up = Vec3::new(0.1, 0.2, 0.97).normalize();
+
+        let start_distance = eye.distance_anchor();
+
+        for _ in 0..200 {
+            let mut ctrl = controller();
+            ctrl.mouse_motion(7.0, 3.0);
+            eye.arcball_update(&mut ctrl);
+        }
+
+        let drift = (eye.distance_anchor() - start_distance).abs() / start_distance;
+        assert!(
+            drift < 1e-3,
+            "anchor distance drifted {:.3}% over 200 orbits ({} -> {})",
+            100.0 * drift,
+            start_distance,
+            eye.distance_anchor()
+        );
+        assert!(eye.pos.is_finite() && eye.up.is_finite());
+    }
+
+    /// Eye sitting exactly on the anchor: there is no radius to orbit, which
+    /// must leave the camera untouched rather than emit NaN.
+    #[test]
+    fn orbit_on_top_of_the_anchor_is_inert_not_nan() {
+        let mut eye = Eye::new();
+        eye.pos = Vec3::new(3.0, 3.0, 3.0);
+        eye.anchor = eye.pos;
+
+        let mut ctrl = controller();
+        ctrl.mouse_motion(20.0, 20.0);
+        eye.arcball_update(&mut ctrl);
+
+        assert!(eye.pos.is_finite() && eye.up.is_finite() && eye.dir.is_finite());
+        assert_eq!(eye.pos, Vec3::new(3.0, 3.0, 3.0));
+    }
+
+    /// With emulation off, alt + left must stay inert, or a user who wants
+    /// alt for something else silently loses it.
+    #[test]
+    fn alt_left_drag_is_inert_without_emulation() {
+        let mut ctrl = controller();
+        ctrl.emulate_middle_button = false;
+        ctrl.left_pressed = true;
+        ctrl.alt_pressed = true;
+        assert!(!ctrl.is_dragging());
+
+        ctrl.middle_pressed = true;
+        assert!(ctrl.is_dragging(), "middle button must still work");
     }
 }

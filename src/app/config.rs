@@ -95,6 +95,12 @@ pub struct Config {
     /// readback. Turn it on for thermophysical or radiance work; leave it off
     /// when you only want images.
     pub access_shadow_map: bool,
+
+    /// Treat alt + left-drag as a middle-drag, so the arcball can be orbited
+    /// on hardware with no middle button. Blender calls the same setting
+    /// "Emulate 3 Button Mouse". Defaults on for macOS, where a trackpad is
+    /// the common case, and off elsewhere.
+    pub emulate_middle_button: bool,
 }
 
 impl Default for Config {
@@ -152,6 +158,8 @@ impl Default for Config {
             export_dir: "out/frames".to_string(),
 
             access_shadow_map: false,
+
+            emulate_middle_button: cfg!(target_os = "macos"),
         }
     }
 }

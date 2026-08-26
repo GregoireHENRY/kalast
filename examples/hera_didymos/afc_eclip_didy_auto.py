@@ -75,12 +75,6 @@ etf = spice.str2et("2027-04-30 00:00:00 UTC")
 m_didy_ej2k = spice.pxform("DIDYMOS_FIXED", "ECLIPJ2000", et)
 m_dimo_ej2k = spice.pxform("DIMORPHOS_FIXED", "ECLIPJ2000", et)
 
-# A 100k `shadow_path` proxy is ~1.5x faster (notes/shadow_mesh_comparison/)
-# and safe to combine with the facet query: the query still tests the real
-# 3.1M facets, only the *depths* in the map come from the coarser occluder.
-# Measured at the transit epoch, proxy vs full-res occluder: 99.98% of facets
-# agree, 637 of 3,145,728 differ -- 60x smaller than the shadow map's own
-# 1.28% disagreement with ray tracing, so it is well inside the noise.
 mat = numpy.eye(4)
 mat[:3, :3] = m_didy_ej2k
 app.simulation.load_mesh(

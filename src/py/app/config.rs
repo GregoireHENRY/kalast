@@ -376,6 +376,16 @@ impl Config {
     }
 
     #[getter]
+    fn emulate_middle_button(&self) -> bool {
+        self.app.borrow().config.emulate_middle_button
+    }
+
+    #[setter]
+    fn set_emulate_middle_button(&mut self, v: bool) {
+        self.app.borrow_mut().config.emulate_middle_button = v;
+    }
+
+    #[getter]
     fn access_shadow_map(&self) -> bool {
         self.app.borrow().config.access_shadow_map
     }
