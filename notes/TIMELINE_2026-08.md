@@ -178,3 +178,50 @@ Two recurring measurement traps, both now documented:
   edge — an order of magnitude larger than any sampling error measured here.
   Fixing it has to change the TPM illumination term at the same time to stay
   consistent. See `facet_shadow_query/` §7.
+
+---
+
+## Open at the end of 26 August
+
+Status as reviewed at the close of the 26th, so the thread can be picked up
+without re-deriving it.
+
+### Active
+
+- **Deimos / TIRI swing-by — the original objective, still mostly ahead.**
+  The TPM convergence rerun (`deimos_tpm_4`, 2025-03-11 → 03-13) never
+  completed; only `deimos_tpm_1/2/3` exist. `rad_sum.py` is written but has
+  never been run. `rad.py` works but is wide-filter only, iterates TPM
+  timesteps rather than the real image epochs, and computes `fwpos` without
+  using it. `rad_campx.py` (per-pixel projection) is still only in
+  `examples/old/`. The comparison against the real TIRI FITS has not started.
+- **Per-body colour mode.** `mesh.color_modes[:] = 1` in
+  `examples/hera_mars_swingby/tiri_data.py` has no effect: the fragment
+  shader reads only the scene-wide `globals.color_mode`, and the per-vertex
+  attribute is uploaded but never read. That scene therefore renders the
+  Deimos radiance colormap multiplied by diffuse lighting and shadow instead
+  of raw — a physical error in frames intended for comparison against real
+  TIRI data, and it affects everything already in
+  `out/hera_mars_swingby/frames_1000_to_1400_rad_gray/`. Fixing it means
+  either wiring the per-vertex attribute into the shader or adding a per-body
+  mode; `tiri_data_deimos_only.py` sidesteps it with a global
+  `color_mode = 1`, which only works because Deimos is the sole body there.
+
+### Paused deliberately
+
+- **Solar penumbra** (`facet_shadow_query/` §7) — the largest remaining
+  approximation, and it has to change the TPM illumination term at the same
+  time to stay consistent.
+- **LOD**, including interpolating per-facet data between resolutions. The
+  ~4 km break-even distance is the number to key it off.
+- **Camera-POV occultation query** for dropping occulted facets in the
+  radiance step. The light-POV query exists; this one does not.
+- **`~/.claude/CLAUDE.md`** — the destructive-command rule exists only on the
+  macOS laptop, not on the Windows machine.
+
+### Closed
+
+- Cosmographia cross-check: concluded and positive, no further work planned.
+- Arcball camera on trackpad: fixed and confirmed working.
+- `intersect_mesh` allocating a `Vec` per call: known, left as is — it is not
+  on any active path now that the GPU query replaced it.
