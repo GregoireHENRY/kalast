@@ -1,9 +1,11 @@
 # Results: mesh-resolution render benchmark (100k vs 3.1M facets)
 
 Answers the benchmark requested in `HANDOFF_bench_100k_vs_3M.md`, run on
-gregoireh's personal machine (Windows 11). Headline: the benchmark as
-specified does **not** measure mesh throughput on fast hardware, because the
-render loop was silently vsync-capped. Numbers below are the corrected ones.
+gregoireh's personal machine (Windows 11), then re-run on the work laptop
+(macOS, M1 Pro) to settle the open question below. Headline: the benchmark as
+specified does **not** measure mesh throughput on *either* machine, because
+the render loop was silently vsync-capped. Numbers below are the corrected
+ones.
 
 All runs are `maturin develop` **debug** builds, matching the handoff's
 methodology (and therefore the work laptop's numbers). Absolute rates would
@@ -50,19 +52,49 @@ export off, for ~31x the vertices. Not the ~2x the handoff expected.
 Full-res is the only config here that is actually GPU-bound; export costs it
 just 9%, whereas it *halves* the 100k rate (1133 -> 592).
 
-## The work laptop's reference numbers are suspect too
+## The work laptop's reference numbers were also artifacts — CONFIRMED
 
-119.5 it/s is very close to a 120 Hz vsync cap, and 60 is exactly the Fifo
-half-rate cliff you fall to when you miss a vblank. If that is what happened,
-its 100k figure was never a GPU measurement, and the handoff's conclusion that
-the "~2x slowdown is expected, not a bug" was reading a vsync artifact rather
-than vertex cost.
+**Settled 2026-08-26 by re-running on the work laptop.** The hypothesis above
+was right, and the counter-evidence resolves in its favour too.
 
-Counter-evidence: the shadow-off diagnostic there gave ~97 it/s, which is not
-a clean divisor of 120 and does not fit a pure-Fifo story.
+Work laptop hardware: Apple M1 Pro, built-in Liquid Retina XDR (ProMotion,
+**120 Hz**). `debug_window = True` reports its surface present modes as
+`[Fifo, Immediate]` — so the old `caps.present_modes[0]` did select `Fifo`,
+exactly as diagnosed on the Windows machine.
 
-So this is a hypothesis, not a finding. It is now cheap to settle: set
-`config.vsync = False` (see below) and re-run on the work laptop.
+Same 600-iteration methodology, `maturin develop` debug build, at `a7b0dc9`:
+
+| Config | vsync on, export on | vsync off, export on | vsync off, export off |
+|---|---|---|---|
+| 100k facets/body | 28.8 it/s | 22.9 it/s | **333.4 it/s** |
+| 3.1M facets/body | 27.7 it/s | 22.6 it/s | **55.2 it/s** |
+
+Clean GPU measurement (export off, vsync off): **333.4 vs 55.2 = 6.0x** for
+~31x the vertices. The original handoff reported 119.5 / 60 and concluded the
+"~2x slowdown is expected, not a bug, nothing needs reworking". That was wrong
+on the measurement, and therefore on the conclusion:
+
+- **119.5 ≈ 120 Hz**, this panel's exact refresh rate.
+- **60 = exactly half of 120**, the Fifo half-rate cliff.
+
+True cost of full-res is ~6x here, ~4.9x on the RTX 5080 — consistent, and
+both far from 2x.
+
+The "counter-evidence" (shadow-off giving ~97 it/s, not a clean divisor of
+120) does not rescue the old numbers: under Fifo, when frame time straddles
+the vblank boundary some frames hit it and some miss, so a *cumulative
+average* lands between the quantised rates. 97 sits between 60 and 120, which
+is what a mixed-regime run looks like.
+
+**Second, independent artifact in the old numbers.** 119.5 was measured with
+export on, back when the async queue was unbounded — so it partly counted
+queue growth rather than completed work, the same effect measured on the
+Windows machine. With today's bounded queue the equivalent config is 22.9
+it/s. Two separate measurement errors happened to stack in the same
+direction.
+
+Both root causes are now fixed: `vsync` (default `true`, set `False` for
+timing) and `export_max_queued` (default `64`).
 
 ## Frame export: unbounded queue, measured
 
