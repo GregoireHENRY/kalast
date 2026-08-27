@@ -27,6 +27,7 @@ from matplotlib import pyplot
 import kalast
 import kalast.tpm.nonuniform as nonuniform
 import kalast.tpm.properties as properties
+import kalast.tpm.implicit as implicit
 import kalast.tpm.routine as routine
 
 # --- Didymos, so this validates the setup we actually intend to use ---
@@ -130,6 +131,43 @@ snaps_fix, _, err_fix = run(
     z_geo, dt_fix, "geometric grid, variable stencil", stencil="nonuniform"
 )
 
+# --- 5. implicit on the same grid, at a timestep explicit cannot reach -----
+# Backward Euler is unconditionally stable, so dt follows accuracy rather
+# than the thinnest layer. Use spin/100, the diurnal resolution that matters.
+dt_imp = P / 100.0
+
+
+def run_implicit(z, dt, label):
+    z = numpy.asarray(z, dtype=numpy.float64)
+    ab = implicit.banded_matrix(z, D, dt)
+    T = analytical(z, 0.0)
+
+    t_end = N_PERIODS * P
+    snap_times = numpy.linspace(t_end - P, t_end, N_SNAPSHOTS, endpoint=False)
+    snaps = numpy.zeros((N_SNAPSHOTS, z.size))
+    taken = 0
+
+    t = 0.0
+    while t < t_end:
+        t += dt
+        T = implicit.step_dirichlet(ab, T, analytical(0.0, t))
+        if taken < N_SNAPSHOTS and t >= snap_times[taken]:
+            snaps[taken] = T
+            taken += 1
+
+    err = numpy.array(
+        [numpy.abs(snaps[i] - analytical(z, snap_times[i])) for i in range(taken)]
+    )
+    print(
+        f"{label:38s} nodes={z.size:4d}  dt={dt:7.2f}s  "
+        f"max|err|={err.max():7.3f} K  mean|err|={err.mean():6.3f} K"
+    )
+    return snaps, err.max()
+
+
+snaps_imp, err_imp = run_implicit(z_geo, dt_imp, "geometric grid, IMPLICIT")
+_, err_imp_same = run_implicit(z_geo, dt_fix, "geometric grid, implicit @ explicit dt")
+
 print()
 print(f"geometric grid spans {z_geo[-1] * 100:.2f} cm in {z_geo.size} nodes "
       f"(first layer {dz_geo[0] * 1000:.2f} mm, last {dz_geo[-1] * 1000:.1f} mm)")
@@ -140,15 +178,22 @@ print(
     f"rather than {z_uni.size}"
 )
 routine.print_resolution_report(z_geo, D, P, "geometric")
+print(
+    f"-> implicit at dt={dt_imp:.1f}s (spin/100): {err_imp:.2f} K, "
+    f"{dt_imp / dt_fix:.1f}x the explicit timestep\n"
+    f"   implicit at the explicit dt={dt_fix:.1f}s: {err_imp_same:.2f} K "
+    "(agrees with explicit, so the scheme is consistent)"
+)
 
 # --- figure ---------------------------------------------------------------
 kalast.plot.style.load()
-fig, axes = pyplot.subplots(1, 4, figsize=(17.5, 4.6), sharey=True)
+fig, axes = pyplot.subplots(1, 5, figsize=(21.0, 4.6), sharey=True)
 cases = [
-    (axes[0], z_uni, snaps_uni, "uniform grid, 10 nodes/ls", err_uni),
-    (axes[1], z_coarse, snaps_coarse, "uniform grid, 4 nodes/ls", err_coarse),
-    (axes[2], z_geo, snaps_geo, "geometric grid, uniform stencil", err_geo),
-    (axes[3], z_geo, snaps_fix, "geometric grid, variable stencil", err_fix),
+    (axes[0], z_uni, snaps_uni, f"uniform, 10 nodes/ls\ndt={dt_uni:.1f}s", err_uni),
+    (axes[1], z_coarse, snaps_coarse, f"uniform, 4 nodes/ls\ndt={dt_coarse:.1f}s", err_coarse),
+    (axes[2], z_geo, snaps_geo, f"geometric, uniform stencil\ndt={dt_geo:.1f}s", err_geo),
+    (axes[3], z_geo, snaps_fix, f"geometric, variable stencil\ndt={dt_fix:.1f}s", err_fix),
+    (axes[4], z_geo, snaps_imp, f"geometric, implicit\ndt={dt_imp:.1f}s", err_imp),
 ]
 for ax, z, snaps, title, err in cases:
     for i in range(N_SNAPSHOTS):
@@ -157,7 +202,7 @@ for ax, z, snaps, title, err in cases:
     l1.set_label("numerical")
     l2.set_label("analytical")
     ax.set_xlabel("temperature [K]")
-    ax.set_title(f"{title}\nmax error {err:.2f} K", fontsize=10)
+    ax.set_title(f"{title}  -  max error {err:.2f} K", fontsize=9.5)
     ax.set_ylim(ZF * 100, 0)
     ax.grid(alpha=0.3)
 axes[0].set_ylabel("depth [cm]")
