@@ -164,6 +164,7 @@ fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     pyadd_f!(core, crate::tpm::core::newton_method_dfn);
     pyadd_f!(core, crate::tpm::core::py::newton_method);
     pyadd_f!(core, crate::tpm::core::py::conduction_1d);
+    pyadd_f!(core, crate::tpm::core::py::conduction_1d_nonuniform);
     tpm.add_submodule(&core)?;
     py.import("sys")?
         .getattr("modules")?

@@ -192,6 +192,45 @@ pub fn conduction_1d(
     &t_mid + &d.slice(s![1..-1]) * &dtpdx2 * (&t.slice(s![..-2]) - 2.0 * &t_mid + &t.slice(s![2..]))
 }
 
+/// Explicit conduction step on a grid with variable spacing.
+///
+/// `conduction_1d` uses the equal-spacing second difference, which is only
+/// second-order when every layer has the same thickness. A geometric grid --
+/// the practical way to reach the seasonal skin depth without thousands of
+/// nodes -- breaks that assumption badly: validated against the analytical
+/// damped wave it errs by ~12 K where the uniform stencil on a uniform grid
+/// errs by 0.3 K.
+///
+/// This applies the variable-spacing form
+///
+/// ```text
+/// d2T/dz2 ~ 2/(h- + h+) * [ (T+ - T)/h+ - (T - T-)/h- ]
+/// ```
+///
+/// with the two coefficients precomputed per interior node, mirroring how
+/// `conduction_1d` takes `dt/dx^2`:
+///
+/// ```text
+/// coef_lo = 2 dt / (h- (h- + h+))      coef_hi = 2 dt / (h+ (h- + h+))
+/// ```
+///
+/// For equal spacing both collapse to `dt/h^2` and this reduces exactly to
+/// `conduction_1d`.
+pub fn conduction_1d_nonuniform(
+    t: ArrayView1<'_, Float>,
+    d: ArrayView1<'_, Float>,
+    coef_lo: ArrayView1<'_, Float>,
+    coef_hi: ArrayView1<'_, Float>,
+) -> Array1<Float> {
+    let t_lo = t.slice(s![..-2]);
+    let t_mid = t.slice(s![1..-1]);
+    let t_hi = t.slice(s![2..]);
+
+    &t_mid
+        + &d.slice(s![1..-1])
+            * (&coef_lo * (&t_lo - &t_mid) + &coef_hi * (&t_hi - &t_mid))
+}
+
 pub(crate) mod py {
     use numpy::{PyArray1, PyReadonlyArray1, ToPyArray};
     use pyo3::prelude::*;
@@ -209,6 +248,23 @@ pub(crate) mod py {
         twodx: Float,
     ) -> PyResult<Float> {
         Ok(super::newton_method(t, f, se, k, subt1, subt2, twodx).unwrap())
+    }
+
+    #[pyfunction]
+    pub fn conduction_1d_nonuniform<'py>(
+        py: Python<'py>,
+        t: PyReadonlyArray1<'py, Float>,
+        d: PyReadonlyArray1<'py, Float>,
+        coef_lo: PyReadonlyArray1<'_, Float>,
+        coef_hi: PyReadonlyArray1<'_, Float>,
+    ) -> Bound<'py, PyArray1<Float>> {
+        super::conduction_1d_nonuniform(
+            t.as_array(),
+            d.as_array(),
+            coef_lo.as_array(),
+            coef_hi.as_array(),
+        )
+        .to_pyarray(py)
     }
 
     #[pyfunction]

@@ -11,4 +11,5 @@ from kalast._rs.tpm.core import (  # noqa
     newton_method_dfn,
     newton_method,
     conduction_1d,
+    conduction_1d_nonuniform,
 )
