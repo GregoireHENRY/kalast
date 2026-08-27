@@ -89,7 +89,7 @@ at ~1 unit, camera 2.6 units out): fitted `side = 0.7355`, `near/far =
 
 `Globals` used to be built once in `Window::new` and never re-uploaded, which
 silently froze every shading option after `start()` (documented in
-`../2026-08-27_CONFIG_options.md`). The automatic constants change as the scene moves, so
+`../2026-08-25_CONFIG_options.md`). The automatic constants change as the scene moves, so
 it now goes up each frame — 80 bytes. Side effect: `color_mode`, `gamma`,
 `shadow_pcf` and the rest are now re-read every frame instead of being frozen
 at startup.
@@ -286,4 +286,4 @@ not something derivable from the scene.
 Reading a field that is automatic returns `None`. To see what the fit chose,
 use `projection.resolved_near` / `resolved_far` / `resolved_side`.
 
-See `../2026-08-27_CONFIG_options.md` for the full option reference.
+See `../2026-08-25_CONFIG_options.md` for the full option reference.

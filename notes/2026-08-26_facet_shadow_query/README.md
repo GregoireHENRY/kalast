@@ -125,7 +125,7 @@ validation path.
 
 ## 4. Validation
 
-`notes/2026-08-27_facet_shadow_query/validation.png`, at the Dimorphos-transit epoch
+`notes/2026-08-26_facet_shadow_query/validation.png`, at the Dimorphos-transit epoch
 (2027-01-21 05:36 UTC — a real cast shadow, not just terminators), 10k-facet
 meshes so the O(n²) reference is tractable. Reference: vectorised
 Möller-Trumbore from the same 4 sample points, against **both** bodies, so

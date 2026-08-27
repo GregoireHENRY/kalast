@@ -10,7 +10,7 @@
 //! It replaces an O(n_facets) ray/triangle sweep per ray (see
 //! `crate::mesh::intersect_mesh`), which for two 3.1M-facet bodies is ~10^13
 //! triangle tests. The trade-off is that the shadow map is a sampled
-//! approximation: see `notes/2026-08-27_facet_shadow_query/` for the resolution and
+//! approximation: see `notes/2026-08-26_facet_shadow_query/` for the resolution and
 //! bias analysis, and for why the point-source Sun assumption -- shared with
 //! the ray tracer -- currently dominates the error budget either way.
 

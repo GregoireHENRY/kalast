@@ -76,7 +76,7 @@ and **the list of present modes the surface supports**
 `src/app/mod.rs:147`.
 Accepted: `True` / `False`.
 Worth enabling once on any new machine -- it is how the vsync cap described in
-`2026-08-27_BENCH_mesh_resolution_results.md` was identified.
+`2026-08-25_BENCH_mesh_resolution_results.md` was identified.
 
 ### `debug_window_mesh: bool` — default `false` *(startup only)*
 Prints per-mesh detail as meshes are uploaded. Read at
@@ -169,7 +169,7 @@ Accepted: `True` / `False`.
 faster than the display simply reports the refresh rate: on a 239 Hz panel the
 render loop measured exactly 239.46 it/s regardless of scene complexity, which
 made a 3.1M-facet scene look identical to a 100k-facet one. Details in
-`2026-08-27_BENCH_mesh_resolution_results.md`.
+`2026-08-25_BENCH_mesh_resolution_results.md`.
 
 Before this option existed, `present_modes[0]` (typically `Fifo`) was the
 unconditional choice, so every run was vsync-capped.
@@ -200,7 +200,7 @@ For sparse use -- only particular epochs -- leave it off and call
 want.
 
 Full write-up, validation against ray tracing and accuracy budget in
-`2026-08-27_facet_shadow_query/`.
+`2026-08-26_facet_shadow_query/`.
 Accepted: `True` / `False`.
 
 ### `export_dir: String` — default `"out/frames"` *(startup only)*
@@ -480,7 +480,7 @@ The blur you actually see scales with kernel radius *in shadow-map texels*,
 which at the Hera geometry is only ~0.1 image pixels per unit of `shadow_pcf`
 -- so small values look like no change at all. Softening becomes visible
 around `8` and obvious by `24`. Worked example, measurements and side-by-side
-renders in `2026-08-27_pcf_shadow_comparison/`.
+renders in `2026-08-25_pcf_shadow_comparison/`.
 
 **Previously buggy.** Before the current fix, the `N > 0` branch accumulated
 taps onto `var shadow = 1.0` instead of a zeroed sum, adding `1/(2N+1)^2` of
@@ -509,7 +509,7 @@ Accepted: any float `>= 0.0`.
 frame from the fitted light frustum and `shadow_resolution`, expressed
 relative to one shadow texel so they stay correct at any scene scale. Setting
 one pins it and leaves the others automatic; assigning `None` again restores
-automatic. Derivation and measurements in `2026-08-27_renderer_auto_fit_wireframe/`.
+automatic. Derivation and measurements in `2026-08-25_renderer_auto_fit_wireframe/`.
 
 You should not normally need to touch these -- they exist for debugging a
 suspected shadow problem, not as part of ordinary setup.
@@ -519,7 +519,7 @@ suspected shadow problem, not as part of ordinary setup.
 ## Wireframe
 
 Barycentric edge detection in the main fragment shader -- a single pass, so
-the overlay cannot z-fight. Full write-up in `2026-08-27_renderer_auto_fit_wireframe/`.
+the overlay cannot z-fight. Full write-up in `2026-08-25_renderer_auto_fit_wireframe/`.
 
 **Requires flat meshes** (`load_mesh(..., flatten=True)`). The barycentrics
 come from `vertex_index % 3`, which is only a triangle corner for

@@ -148,4 +148,4 @@ app.simulation.camera.projection.fovy = 5.5 * RPD
 
 The crop used in the figures is `[385:455, 470:550]` of the 1020x1020 frame.
 
-See `../2026-08-27_CONFIG_options.md` for `shadow_pcf` and the other shadow parameters.
+See `../2026-08-25_CONFIG_options.md` for `shadow_pcf` and the other shadow parameters.
