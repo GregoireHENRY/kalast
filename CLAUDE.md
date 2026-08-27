@@ -24,6 +24,26 @@ looked like it had done nothing.
 
 `out/` in particular is real output, not scratch.
 
+## Test and benchmark runs
+
+**Never run against the project's real output directories.** Frame export
+defaults to `out/frames`, so a benchmark left at the default writes into
+whatever a real run is using, and two exporters pointed at one directory race
+on the startup index scan as well as on cleanup. Always redirect:
+
+```python
+app.config.export_dir = "/tmp/<something>/frames"
+```
+
+**Put throwaway scripts under `/tmp`, not in the repo.** Copy the example,
+instrument the copy, run it from there. That keeps `examples/` clean, and it
+means the scratch directory is one this session created and may therefore
+delete without asking (see above) — which the project's own directories are
+not.
+
+Do not benchmark by editing an example in place: the shortened sweep and the
+rate prints are not changes anyone wants committed.
+
 ## Benchmarking
 
 Two traps, both of which have silently corrupted results here:
