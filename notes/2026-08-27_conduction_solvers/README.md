@@ -223,3 +223,340 @@ cannot reach a two-orbit spin-up. `didymos_hor_000101_500101_v01.bsp`
 (Horizons, 1999-2050) is in the same directory but not in the meta-kernel;
 `tpm.py` furnishes it explicitly, after the meta-kernel so it takes precedence
 for Didymos throughout and the spin-up does not cross an ephemeris boundary.
+
+---
+
+# 7. Required before the production run
+
+The surface boundary condition in `examples/hera_didymos/tpm.py` is currently
+**direct insolation only**:
+
+```python
+sflux = kalast.tpm.core.radiation_sun(d_sun / AU, cosi, prop.albedo)
+```
+
+`cosi < 0` gives night, but nothing else darkens or warms a facet. Three terms
+are missing, and for a *binary* asteroid at a *mutual event epoch* they are
+not small. The 2027-01-21 target epoch was chosen precisely because Dimorphos
+transits — so the one thing that makes the scene interesting is the one thing
+the model does not yet contain.
+
+## 7.1 Eclipse shadowing, via the shadow map
+
+Dimorphos casts a real shadow on Didymos (and vice versa). A facet in umbra
+loses its entire solar term while its temperature keeps evolving, which is the
+signature a thermal camera actually sees during a mutual event.
+
+kalast already has the mechanism: `config.access_shadow_map = True` plus
+`sim.facet_shadow(body)` returns the occluded fraction per facet, validated
+to 0.013% on the absorbed-flux integral (`2026-08-26_facet_shadow_query/`).
+The boundary condition becomes
+
+```python
+lit = 1.0 - frac[ii]          # 0 fully shadowed, 1 fully lit
+sflux = radiation_sun(...) * lit
+```
+
+The quarter-step resolution (4 samples/facet) matters here: penumbral facets
+at the shadow rim get 0.25/0.5/0.75 rather than a hard flip.
+
+**Structural consequence.** The query reads the GPU shadow map, so the TPM has
+to run *inside* the render loop rather than headless — `before_render` sets
+the epoch and body transforms from spice, `after_render` reads the shadow
+fractions and takes the conduction step. This is exactly what the two-callback
+split was built for (`2026-08-26_facet_shadow_query/` §1), but it does mean
+the two-orbit run drives 2.16M rendered frames.
+
+Cheaper alternative worth measuring first: mutual events occupy a small
+fraction of the orbit. Detect the eclipse windows geometrically (angular
+separation of the Sun and the companion as seen from each body, as in
+`2026-08-25_pcf_shadow_comparison/`) and only pay for shadow queries inside
+them, using `lit = 1` elsewhere.
+
+## 7.2 Mutual heating
+
+Each body sees the other as an extended source of
+
+- **reflected sunlight**, `~ albedo * F_sun * view_factor`, and
+- **thermal emission**, `~ epsilon sigma T^4 * view_factor`.
+
+At the Didymos-Dimorphos separation (~1.15 km, bodies ~800 m and ~170 m
+across) the view factors are not negligible, and they peak exactly during the
+mutual events being modelled. `mesh.rs` already provides
+`view_factor_facets(face_a, face_b, trans_b2a)` and the scalar forms, so the
+missing piece is the per-timestep accumulation, not the geometry kernel.
+
+Cost scales as `n_facets(A) x n_facets(B)` per step if done naively — 10^8 for
+two 10k meshes, far too slow. The standard treatment is to precompute the
+view-factor matrix once in the body-fixed frames and re-use it, which works
+here because Dimorphos is tidally locked: the relative geometry repeats every
+orbit rather than every timestep.
+
+## 7.3 Self-heating
+
+Within one body, concave regions exchange radiation: a facet inside a
+depression sees other facets of the same body, receiving both reflected solar
+and thermal IR from them. This raises daytime temperatures in bowls and
+crater floors and is the same physics as roughness (§8) but at facet
+resolution rather than sub-facet.
+
+The view-factor machinery is shared with §7.2; the extra requirement is a
+visibility test between facet pairs of the same body, since a view factor is
+only valid if the two facets can actually see each other. `intersect_mesh`
+does this exactly but is brute force; the shadow-map query does it from one
+direction at a time. Precomputing the self-visibility matrix once per body is
+the tractable route, again exploiting that it is fixed in the body frame.
+
+**Ordering.** These three are the difference between "a 1D column model of a
+sphere" and "a thermophysical model of a binary system at a mutual event". Do
+7.1 first — it is a boolean multiplier on a term already present, uses
+machinery that is built and validated, and it dominates the signal during the
+transit. 7.2 and 7.3 both reduce to view-factor bookkeeping and can share one
+implementation.
+
+---
+
+# 8. Next steps: thermal surface roughness
+
+## 8.1 The science
+
+Real regolith is rough far below facet resolution — the 10k mesh resolves
+~10 m facets on Didymos, while the thermally relevant structure runs from
+centimetres (the diurnal skin depth is 1 cm) to metres. That unresolved
+roughness changes the emitted radiance in ways a smooth-facet model cannot
+reproduce:
+
+- **Thermal beaming.** Sunlit slopes tilted toward the observer are hotter
+  than the facet mean, and at small phase angle you preferentially see exactly
+  those slopes. A rough surface therefore appears *warmer* than a smooth one
+  of the same thermal inertia, and the effect is strongly phase-dependent.
+  This is what the NEATM beaming parameter eta absorbs empirically, and what a
+  thermophysical model should instead produce from geometry.
+- **Self-heating inside depressions.** Facets of a bowl irradiate one another
+  in the thermal IR and multiply-scatter sunlight, raising the floor
+  temperature above what an isolated flat element would reach.
+- **Sub-facet shadowing.** At grazing incidence, parts of each depression are
+  shadowed, which lowers the mean and — because shadowed and lit sub-elements
+  have very different temperatures — makes the *fourth-power* average diverge
+  from the average temperature. Radiance responds to `<T^4>`, not `<T>^4`, and
+  roughness widens that gap.
+- **Directional emissivity.** The angular distribution of emitted flux
+  departs from Lambertian, mattering most at high emission angle near the limb.
+
+The standard parameterisations treat each facet as carrying a sub-grid
+depression — a spherical-cap or hemispherical crater (Lagerros; Spencer;
+Rozitis & Green) — or a Gaussian random surface characterised by an RMS slope.
+kalast already carries much of this: `rms_slope`, `rms_slope_hemisphere`,
+`rms_slope_terrain`, `distribution_slope_angles`, `z_in_crater`,
+`curvature_radius`, `largest_slope_angle_sphere`, plus the whole
+`examples/crater_self_shadow/` study.
+
+## 8.2 Step one: a geometric correction to the radiance
+
+Keep the smooth-facet TPM exactly as it is; correct the emitted radiance
+afterwards. The hook already exists — `examples/hera_mars_swingby/rad.py`
+carries
+
+```python
+R = numpy.ones((nit, nface))   # roughness correction placeholder
+```
+
+and threads `R[it, iif]` into `spectral_radiance`. Today it is unity.
+
+Plan:
+
+1. Build a crater model once: a spherical-cap depression discretised into
+   sub-facets, parameterised by an opening angle (equivalently an RMS slope).
+   `z_in_crater` and `curvature_radius` already generate the geometry.
+2. For a grid of (incidence, emission, azimuth, RMS slope), solve the
+   sub-facet energy balance including shadowing, self-heating and multiple
+   scattering — steady state first, which is defensible when the depression is
+   small compared with the diurnal skin depth response time.
+3. Integrate sub-facet Planck emission weighted by projected area toward the
+   observer, and divide by what a smooth facet at the TPM temperature would
+   emit. That ratio is `R`.
+4. Store it as a lookup table, interpolate per facet per epoch in `rad.py`.
+
+Cheap, reversible, and directly testable: `R = 1` recovers today's result, so
+the change is isolated. Its limitation is conceptual and should be stated
+plainly — it corrects what is *emitted* while leaving the subsurface
+temperature field smooth, so it captures beaming but not the way roughness
+alters the mean temperature and thermal lag.
+
+## 8.3 Step two: roughness in the boundary condition
+
+Move the depression into the solver. Each facet carries N sub-facets, each with
+its own 1D column, and the surface boundary condition for sub-facet *j* becomes
+
+```
+absorbed_j = (1-A) [ F_sun cos i_j * lit_j  +  sum_k F_scat,k->j ]
+           + sum_k epsilon sigma T_k^4 * VF_k->j
+```
+
+with `lit_j` the sub-facet shadowing and `VF` the intra-crater view factors —
+the same bookkeeping as §7.3, one level down. Emitted radiance then integrates
+true `<T^4>` over sub-facets rather than applying a correction to `<T>`.
+
+This captures what step one cannot: self-heating raises the floor temperature
+throughout the diurnal cycle, which changes the subsurface gradient and hence
+the apparent thermal inertia retrieved from a lightcurve. Since retrieved
+inertia is the headline product of this kind of modelling, the difference
+between the two steps is not cosmetic.
+
+Cost is `N` times the columns — N ~ 50-100 in the literature, so 10k facets
+becomes 0.5-1M columns. **This is only tractable after the facet loop is
+vectorised** (§6), which is one more reason that work comes first.
+
+Validation path: with roughness switched off the two steps must agree with
+today's smooth result; against each other, step two minus step one isolates
+the thermal-history contribution that the geometric correction misses.
+
+## 8.4 Future work: Hapke bidirectional reflectance
+
+The reflected-solar term is currently a single Lambertian albedo. Hapke's
+bidirectional reflectance model instead describes the surface with single
+scattering albedo, an opposition-effect amplitude and width, a phase function,
+porosity, and a **macroscopic roughness** parameter — that last one describing
+the same unresolved topography as §8.1, from the optical side.
+
+Two reasons it belongs on this list:
+
+- TIRI's shorter filters and any AFC visible simulation both need a reflected
+  component that a Lambertian albedo gets wrong at non-trivial phase angle,
+  especially near opposition.
+- **Consistency.** The thermal roughness of §8.3 and Hapke's photometric
+  roughness are two views of one surface. Deriving each independently — thermal
+  from TIRI, optical from AFC — and checking that they agree is a genuine test
+  of the model rather than a fit. Disagreement would be informative about
+  either the roughness parameterisation or the scale each observable is
+  sensitive to.
+
+## 8.5 Future work: FEM and lateral heat transfer
+
+Everything above assumes heat flows only vertically: independent 1D columns,
+no lateral conduction between facets. That holds while the lateral temperature
+gradient varies slowly compared with the skin depth, which is fine for a large
+body at coarse resolution.
+
+It becomes questionable exactly where this project is heading:
+
+- **Dimorphos is small compared with its own seasonal skin depth.** With the
+  Didymos thermal properties above, `ls2pi_seasonal = 5.45 m` against
+  Dimorphos semi-axes of 88.5 x 84 x 57 m — the seasonal wave penetrates
+  roughly 6-10% of the body. A 1D column of that depth is no longer short
+  compared with the local radius of curvature, so the geometry the column
+  assumes is wrong, and the deep boundary is not an infinite half-space but
+  the rest of a small body.
+- **Sharp lateral gradients.** Across the terminator, and across the rim of an
+  eclipse shadow during a mutual event, the surface temperature changes by
+  ~100 K over a distance that can approach the skin depth. Lateral conduction
+  smooths precisely the feature a thermal camera is resolving.
+- **Tidal locking.** Dimorphos's spin equals its orbit (11.37 h), so it keeps a
+  fixed face toward Didymos. The sub-Didymos and anti-Didymos hemispheres see
+  systematically different mutual heating, sustaining a long-lived lateral
+  gradient that no set of independent columns can relax.
+
+A 3D conduction solver — finite elements on a tetrahedral mesh, or finite
+volumes on a voxelised interior — would capture lateral transport, curvature
+and whole-body seasonal storage together. The interesting comparison is not
+"FEM is more correct" but *where and by how much* the 1D approximation
+departs: quantifying that on Dimorphos, over a full orbit including mutual
+events, would be a result in its own right, and would tell every other 1D
+binary-asteroid model where its own validity ends.
+
+---
+
+# 9. Revisiting view factors
+
+§7.2, §7.3 and §8.3 all reduce to view-factor bookkeeping, so the current
+implementation is on the critical path three times over. It has problems worth
+fixing before building on it.
+
+## 9.1 What is there now
+
+`mesh.rs::view_factor_facets` computes the differential form
+
+```
+VF = cos(theta_a) cos(theta_b) / (pi d^2)
+```
+
+per unit area, guarded by two tests: both facets must face each other
+(`theta < 90 deg`), and
+
+```rust
+if distance_a2b < face_b.area.sqrt() {
+    return 0.0;
+}
+```
+
+## 9.2 Three problems
+
+**(a) The proximity guard returns zero where the view factor is largest.**
+The differential form assumes `d >> facet size`, and diverges as `d -> 0`, so
+a guard is needed. But returning **0** is the worst available answer. Adjacent
+facets have centroid separation of order `sqrt(area)` — exactly the threshold —
+so the guard fires on precisely the neighbours that dominate self-heating
+inside a concave region. Applied to §7.3 or §8.3 as written, most of the
+self-heating would silently vanish, and the model would run and produce
+plausible-looking, systematically cold results. The existing `TODO:
+subdivide the facet and recompute` is the right fix; until then the failure is
+biased, not merely approximate.
+
+**(b) No occlusion test.** The function is pure geometry: it never asks whether
+the two facets can actually see each other. The angle test catches facets that
+face away, but not an intervening ridge or crater rim between two facets that
+do face each other — which is the defining situation for concave terrain, and
+therefore for every case where self-heating matters. Radiative exchange
+between two facets separated by solid rock is currently counted in full.
+
+**(c) `acos` then `cos`.** `angle_between` computes an angle whose cosine is
+then taken. For unit vectors that round trip is exactly `dot(u, v)`. It costs
+two transcendentals per pair and loses precision at small angles, over an
+O(N^2) loop.
+
+## 9.3 The GPU route: hemicube
+
+(b) is the expensive problem — an exact visibility test between facet pairs is
+`O(N^2)` ray casts, which is the same wall we hit with per-facet shadowing
+before the shadow map replaced it (`2026-08-26_facet_shadow_query/`). The
+resolution is the same, and it is the classic radiosity technique:
+
+Place a **hemicube** at facet *i*, render the scene into it with each facet
+writing its own **index** rather than a colour, and read the buffer back. Then
+
+- every facet visible from *i* appears, and the depth test has already
+  resolved occlusion exactly — no separate visibility pass;
+- the number of pixels a facet covers, weighted by the per-pixel delta form
+  factor (a fixed function of hemicube geometry), *is* its view factor;
+- one render pass yields the entire row `VF[i, :]`, so the whole matrix costs
+  `O(N)` passes rather than `O(N^2)` pair tests;
+- the near-field problem (a) dissolves: a close facet simply covers many
+  pixels, with no singular `1/d^2` and no threshold to choose.
+
+kalast already has every piece: render-to-texture, a depth pass, per-facet
+attributes, and GPU readback with the blocking/async trade already measured.
+The facet-index render is the same shape as the facet-shadow compute pass,
+and the **shadow proxy** finding applies directly — the occluder written into
+the hemicube can be a decimated mesh, which was measured to shift results by
+9 pixels in 1,040,400 (`2026-08-26_shadow_mesh_comparison/`).
+
+## 9.4 Plan
+
+1. Fix (c) immediately — replace `angle_between().cos()` with a dot product.
+   Pure win, no behaviour change beyond precision.
+2. Fix (a) honestly in the CPU path: subdivide when `d < k sqrt(area)` and
+   sum the sub-pairs, rather than returning zero. Slower but correct, and it
+   provides the reference the GPU path must reproduce.
+3. Build the hemicube pass. Validate against (2) on a small mesh, then against
+   analytically known configurations — two coaxial parallel discs and
+   perpendicular unit squares both have closed-form view factors, which makes
+   this testable the same way §3 tested conduction.
+4. Exploit the invariance: for a tidally locked pair the relative geometry
+   repeats every orbit, and self-view-factors are fixed in the body frame
+   permanently. Compute once, reuse across 2.16M timesteps.
+
+Worth noting the reciprocity check `A_i VF_ij = A_j VF_ji` and the closure
+check `sum_j VF_ij <= 1` are cheap and catch most implementation errors — the
+current code satisfies neither by construction, since a zeroed near-field pair
+breaks reciprocity only if the guard fires asymmetrically, which it does
+whenever the two facets differ in area.
