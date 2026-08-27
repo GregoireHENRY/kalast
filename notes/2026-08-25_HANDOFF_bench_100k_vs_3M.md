@@ -36,7 +36,7 @@ change its performance characteristics:
 1. `src/app/window.rs`: device now requests `adapter.limits()` instead of
    wgpu's conservative default (256 MiB max buffer) — without this, loading
    the full-res mesh panics (`Buffer size 717225984 is greater than the
-   maximum buffer size`). See `examples/hera_didymos/notes.txt`.
+   maximum buffer size`). See `2026-08-24_hera_didymos_mesh_limits.md`.
 2. `src/app/gpu.rs` (`MeshBuffer`): vertex buffer split into a static
    `geometry_buffer` (pos/tex/normal/tangent/bitangent, uploaded once) and a
    dynamic `attrib_buffer` (color/color_mode/extra, only re-uploaded when
