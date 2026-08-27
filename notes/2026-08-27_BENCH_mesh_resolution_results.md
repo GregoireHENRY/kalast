@@ -1,6 +1,6 @@
 # Results: mesh-resolution render benchmark (100k vs 3.1M facets)
 
-Answers the benchmark requested in `HANDOFF_bench_100k_vs_3M.md`, run on
+Answers the benchmark requested in `2026-08-27_HANDOFF_bench_100k_vs_3M.md`, run on
 gregoireh's personal machine (Windows 11), then re-run on the work laptop
 (macOS, M1 Pro) to settle the open question below. Headline: the benchmark as
 specified does **not** measure mesh throughput on *either* machine, because
@@ -137,7 +137,7 @@ Both default to preserving existing behaviour.
   after the above. Blocks the render loop once more than N frames are
   outstanding. `0` restores the old unbounded behaviour.
 
-See `CONFIG_options.md` for the full reference.
+See `2026-08-27_CONFIG_options.md` for the full reference.
 
 `export_max_queued` turned out to be a **pure win**, not a trade-off:
 
@@ -166,7 +166,7 @@ properly elsewhere, noted here so the trail is not lost.
 - **PCF shadow filtering was wrong.** `shadow_pcf > 0` averaged onto a
   variable pre-set to 1.0, over-brightening every filtered shadow -- 13x at
   `shadow_pcf = 1`. Fixed; before/after renders and measurements in
-  `pcf_shadow_comparison/`.
+  `2026-08-27_pcf_shadow_comparison/`.
 - **`render_back_face` was never wired up.** Every pipeline hardcoded
   `cull_mode: None`. Now connected to the main render pass; culled vs unculled
   differ in 5 of 1,040,400 pixels on the closed Didymos/Dimorphos meshes.
