@@ -344,6 +344,67 @@ machinery that is built and validated, and it dominates the signal during the
 transit. 7.2 and 7.3 both reduce to view-factor bookkeeping and can share one
 implementation.
 
+## 7.4 Two-phase strategy, and whether spin-up can omit them
+
+The terms above are episodic or geometrically local, while the spin-up exists
+to settle the *deep, orbit-averaged* field. That motivates splitting the run:
+
+1. **Coarse spin-up.** Two orbits, 1D columns, direct insolation only. Save
+   the full equilibrated column state.
+2. **High-fidelity final segment.** Restart from that state a few diurnal
+   cycles before the study epoch and switch everything on — eclipse and self
+   shadowing, mutual and self heating, reflection and emission.
+
+This is cheap where it can be and exact where it matters, and it makes each
+effect separately measurable: run the final segment with terms enabled one at
+a time and difference the result. That ablation *is* the quantification of how
+much binary mutual effects contribute, which is a result worth publishing on
+its own rather than a diagnostic.
+
+**The catch to check first** is whether any facet's temperature is set by
+something other than direct sun. On the Moon, permanently shadowed crater
+floors are heated almost entirely by scattered light and thermal IR from their
+own walls; omit self-heating there and the model does not make a small error,
+it produces a qualitatively wrong, far-too-cold surface. Worse for a staged
+run, such a facet could not be repaired in a short final segment: its
+temperature is set by the *orbit-averaged* balance, so the deep field carries
+the bias and needs a seasonal timescale to relax.
+
+**Measured for Didymos.** Sampling one full orbit at 20,000 epochs
+(step 0.84 h, incommensurate with the 2.26 h spin so rotation and orbital
+phase are both covered), taking each facet's peak `cos i`:
+
+| | |
+|---|---|
+| facets never facing the Sun | **0 of 10,000** |
+| facets peaking below `cos i = 0.05` | **0** |
+| min / median / max peak `cos i` | 0.273 / 0.923 / 1.000 |
+| obliquity (spin axis vs orbit normal) | 165.4 deg |
+
+The worst-illuminated facet still reaches `cos i = 0.27`, i.e. 74 deg
+incidence, at some point in the orbit. There are no permanently shadowed
+regions in the lunar sense, and the reason is the obliquity: at 14.6 deg from
+the orbit normal (retrograde), the polar regions get a genuine seasonal sun
+cycle rather than the Moon's near-1.5 deg permanent grazing.
+
+**So self-heating is not required for the spin-up on Didymos.** Every facet is
+directly forced, so self-heating is a modest systematic warm bias — bounded by
+facet-scale concavity, which is limited at ~10 m resolution — rather than the
+dominant term for any facet. Omitting it during phase 1 and enabling it in
+phase 2 is defensible, and the ablation above measures what was left out.
+
+**Residual caveat.** This tests facet *orientation*, not terrain blocking: a
+facet can face the Sun and still be occluded by a ridge or boulder. Ruling
+that out needs the shadow-map query rather than `cos i`, which is cheap now
+that §7.1 exists — worth running once over an orbit before trusting the
+staged result. The conclusion would only change if that turned up facets
+shadowed for essentially all of the orbit.
+
+**Dimorphos is a separate question.** It is tidally locked, so it keeps one
+face toward Didymos permanently, and it is eclipsed regularly. Its illumination
+statistics need computing separately before assuming the same conclusion
+carries over.
+
 ---
 
 # 8. Next steps: thermal surface roughness
