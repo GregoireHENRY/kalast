@@ -184,8 +184,42 @@ The intended progression, in order:
 4. **Implicit** — the timestep gain, once the radiative surface boundary is
    written.
 
-One measured constraint carries into all of them: the TPM loops over facets
-in Python, calling into Rust per facet per step. Measured at 6.6 ms/step for
-3,072 facets and 10.4 ms for 5,040, both at 41 nodes. At 10k facets and two
-solar orbits that dominates everything above, so the solver choice only
-matters once that loop is vectorised or moved into Rust.
+### Measured, on the real problem
+
+`examples/hera_didymos/tpm.py`, 10,000 facets, two solar orbits
+(2023-03-23 -> 2027-01-21, 14,867 rotations), 4 nodes per diurnal skin depth,
+column reaching one seasonal `ls2pi` (5.45 m). Benchmarked over 200 steps and
+extrapolated:
+
+| grid | nodes | dt | ms/step | steps | total |
+|---|---|---|---|---|---|
+| uniform | 2,168 | 32.4 s | 66.1 | 3,736,551 | **68.6 h (2.9 d)** |
+| geometric | 34 | 55.9 s | 46.3 | 2,162,356 | **27.8 h (1.2 d)** |
+
+The geometric grid is 2.5x faster end to end — fewer nodes *and* a larger
+stable timestep, since the stability limit is `h- h+ / D` and the geometric
+grid's second layer is already thicker than the uniform spacing.
+
+**But look at the per-step column: 64x fewer nodes bought only 1.4x.** The
+cost is not the conduction arithmetic, it is the per-facet Python call
+overhead — roughly 4.6 us x 10,000 facets = 46 ms, with the node work nearly
+free on top. The TPM loops over facets in Python, calling into Rust once per
+facet per step.
+
+So the solver choice is second-order here. Vectorising that loop — stepping
+all facets as one array operation, or moving the loop into Rust — is worth
+more than everything measured above: the geometric case moves ~340,000 values
+per step, which numpy would handle in a millisecond or two rather than 46.
+Until that is done, the 28-hour figure stands regardless of which conduction
+scheme is used, and the implicit solver's timestep advantage would be largely
+wasted.
+
+### Coverage trap, worth recording
+
+The first attempt failed with `SPKINSUFFDATA` at 2023-03-23. `hera_plan_local.tm`
+loads only the Hera proximity-phase Didymos ephemeris
+(`didymos_flp_000007_260701_270701_v01.bsp`, 2026-07-01 -> 2027-07-01), which
+cannot reach a two-orbit spin-up. `didymos_hor_000101_500101_v01.bsp`
+(Horizons, 1999-2050) is in the same directory but not in the meta-kernel;
+`tpm.py` furnishes it explicitly, after the meta-kernel so it takes precedence
+for Didymos throughout and the spin-up does not cross an ephemeris boundary.
