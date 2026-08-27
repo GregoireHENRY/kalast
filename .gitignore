@@ -17,6 +17,10 @@ Cargo.lock
 
 out/
 
+# Per-machine data roots recorded during setup (see CLAUDE.md). Local by
+# definition -- committing it would push one machine's layout onto everyone.
+local_paths.toml
+
 # Windows debug symbols emitted next to the built extension module by
 # `maturin develop` (MSVC only -- macOS/Linux builds produce nothing here).
 kalast/*.pdb

@@ -24,6 +24,58 @@ looked like it had done nothing.
 
 `out/` in particular is real output, not scratch.
 
+## First-time setup, for a new user or a new machine
+
+Examples hardcode absolute data paths — twelve of them, under three roots
+(`.../spice`, `.../mesh`, `.../hera`) — written for the author's machine. So a
+fresh clone will not run until the paths are pointed somewhere real. Walk the
+user through this before trying to run anything, and **ask rather than guess**:
+these files are large downloads that live wherever the user put them.
+
+1. **SPICE kernels.** Ask for the kernel tree, and which meta-kernel (`.tm`)
+   to use. Then **open the `.tm` and check its `PATH_VALUES`** — it is usually
+   `'..'`, relative to the `mk/` directory, and if it does not resolve on this
+   machine every `furnsh` fails with an error that does not name the real
+   cause. Set it to the absolute kernel root; forward slashes work on Windows.
+   Keep the pristine original alongside if you edit one.
+2. **Shape models.** Ask where the `.obj` meshes live, full-resolution and any
+   decimated versions. Several examples want both — a full-res render mesh and
+   a 100k `shadow_path` proxy.
+3. **`res/`.** Ships with the repo. If it is missing, `README.rst` says to get
+   it from cloud-as.oma.be.
+4. **Verify, do not assume.** A path existing is not enough. Confirm the
+   kernels actually cover the epoch a script uses: `spice.furnsh` then a
+   `spkpos`/`pxform` at that time. Coverage gaps surface as `SPKINSUFFDATA`
+   much later, mid-run. Then run one example end to end before calling setup
+   done.
+
+### Record it, so `git pull` does not undo the work
+
+Write what you learn to **`local_paths.toml`** at the repo root. It is
+gitignored, so it never conflicts on pull and is never committed with someone
+else's directory layout in it:
+
+```toml
+[roots]
+spice = "/path/to/spice"
+mesh  = "/path/to/mesh"
+hera  = "/path/to/hera"
+
+[kernels]
+meta = "/path/to/spice/hera/kernels/mk/hera_plan_local.tm"
+
+[notes]
+# anything machine-specific worth remembering, e.g. a .tm whose PATH_VALUES
+# was edited, or a mesh stored under a different name here
+```
+
+Read it at the start of a session and use it instead of re-interviewing. When
+a pull brings in examples carrying the author's paths again, re-point them
+from this file rather than asking the user to redo the setup.
+
+This is a record, not a config the code reads — the examples still hardcode
+their paths. Making them read it would be a real improvement and is not done.
+
 ## Building
 
 - **`maturin develop`** (debug) while implementing a feature — fast to
