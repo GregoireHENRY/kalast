@@ -49,11 +49,47 @@ these files are large downloads that live wherever the user put them.
    much later, mid-run. Then run one example end to end before calling setup
    done.
 
+### Then point the examples at their data — do it for them
+
+Twelve example scripts carry the author's absolute paths, 42 of them across
+three roots. Do not hand a new user a list and leave them to it; make the
+edits, then show what changed.
+
+```sh
+grep -rl "/Users/gregoireh/data" examples --include=*.py | grep -v /old/
+```
+
+The three roots and what lives under each:
+
+| Root | Used for | Occurrences |
+|---|---|---|
+| `.../spice` | meta-kernels (`mk/*.tm`) and DSK shape models | 18 |
+| `.../mesh` | `.obj` shape models, full-res and decimated | 21 |
+| `.../hera` | TIRI image lists and instrument response CSVs | 3 |
+
+Work one root at a time and re-run the grep after each, so nothing is missed.
+A path may not map one-to-one: the same mesh can sit under a different
+filename, or under `spice/.../dsk/` on one machine and `mesh/` on another.
+Ask when a target is ambiguous instead of picking one.
+
+After editing, **run the script**. A wrong path fails immediately and clearly;
+a path that exists but points at the wrong file, or at kernels that do not
+cover the epoch, fails much later and confusingly. `examples/mesh/simple.py`
+needs no external data, so it is the right first check that the build itself
+works, before anything data-dependent.
+
+Start the user on an example that needs the least: `examples/cube/main.py` and
+`examples/two_spheres/main.py` use only `res/`, so they run on a fresh clone
+with no data paths at all. Use those to confirm the renderer works before
+touching a Hera script.
+
 ### Record it, so `git pull` does not undo the work
 
-Write what you learn to **`local_paths.toml`** at the repo root. It is
-gitignored, so it never conflicts on pull and is never committed with someone
-else's directory layout in it:
+Those edits are local modifications to tracked files, so every pull that
+touches an example will conflict, and `git status` will always look dirty.
+That is expected — do not offer to commit them, they are one machine's layout.
+
+Write what was decided to **`local_paths.toml`** at the repo root, gitignored:
 
 ```toml
 [roots]
@@ -65,16 +101,17 @@ hera  = "/path/to/hera"
 meta = "/path/to/spice/hera/kernels/mk/hera_plan_local.tm"
 
 [notes]
-# anything machine-specific worth remembering, e.g. a .tm whose PATH_VALUES
+# machine-specific gotchas worth remembering, e.g. a .tm whose PATH_VALUES
 # was edited, or a mesh stored under a different name here
 ```
 
-Read it at the start of a session and use it instead of re-interviewing. When
-a pull brings in examples carrying the author's paths again, re-point them
-from this file rather than asking the user to redo the setup.
+Read it at the start of a session. When a pull reintroduces the author's
+paths, re-apply from this file — a mechanical substitution, no interview
+needed. If a conflict is only about these paths, resolving in favour of the
+incoming version and re-applying the substitution is usually cleanest.
 
-This is a record, not a config the code reads — the examples still hardcode
-their paths. Making them read it would be a real improvement and is not done.
+This is a record, not a config the code reads. Making the examples read it
+instead of hardcoding would remove this whole problem, and is not done.
 
 ## Building
 
