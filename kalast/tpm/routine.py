@@ -105,3 +105,59 @@ def print_resolution_report(z, diffusivity, period, label=""):
         f"  max stable dt = {r['max_dt_stable']:.2f} s"
     )
     return r
+
+
+def step_surface_newton(temperature, flux, se, conductivity, twodz,
+                        max_iter=100, threshold=0.1):
+    """Solve the radiative surface boundary for every facet at once.
+
+    `temperature` is `(n_facets, n_nodes)`, modified in place at column 0.
+    Balances absorbed flux against emission and conduction into the column,
+
+        F - se T^4 + k (-3 T + 4 T1 - T2) / (2 dz) = 0
+
+    which is `core::newton_method` for one facet. Doing all facets as one
+    array is what makes a long run affordable: the per-facet call costs ~2 us
+    of Python and FFI overhead against a few flops of actual work, so at 10k
+    facets the loop dominates everything else in the timestep.
+    """
+    t = temperature[:, 0].copy()
+    t1 = temperature[:, 1]
+    t2 = temperature[:, 2]
+
+    for _ in range(max_iter):
+        se_t3 = se * t * t * t
+        fn = flux - se_t3 * t + conductivity * (-3.0 * t + 4.0 * t1 - t2) / twodz
+        dfn = -4.0 * se_t3 - 3.0 * conductivity / twodz
+        delta = fn / dfn
+        t -= delta
+        if numpy.abs(delta).max() < threshold:
+            break
+
+    temperature[:, 0] = t
+    return temperature
+
+
+def step_conduction(temperature, diffusivity, coefficients):
+    """Advance every facet's interior one explicit step, in place.
+
+    `coefficients` is what `uniform_coefficients` or
+    `nonuniform_coefficients` returned; the length of the tuple selects the
+    stencil, so the caller does not branch. The base node is held at zero
+    gradient.
+    """
+    d = numpy.asarray(diffusivity)
+    d_mid = d[1:-1] if d.ndim else d
+
+    lo = temperature[:, :-2]
+    mid = temperature[:, 1:-1]
+    hi = temperature[:, 2:]
+
+    if len(coefficients) == 1:
+        mid += d_mid * coefficients[0] * (lo - 2.0 * mid + hi)
+    else:
+        coef_lo, coef_hi = coefficients
+        mid += d_mid * (coef_lo * (lo - mid) + coef_hi * (hi - mid))
+
+    temperature[:, -1] = temperature[:, -2]
+    return temperature

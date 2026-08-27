@@ -207,12 +207,25 @@ free on top. The TPM loops over facets in Python, calling into Rust once per
 facet per step.
 
 So the solver choice is second-order here. Vectorising that loop — stepping
-all facets as one array operation, or moving the loop into Rust — is worth
-more than everything measured above: the geometric case moves ~340,000 values
-per step, which numpy would handle in a millisecond or two rather than 46.
-Until that is done, the 28-hour figure stands regardless of which conduction
-scheme is used, and the implicit solver's timestep advantage would be largely
-wasted.
+all facets as one array operation — is worth more than everything measured
+above.
+
+**Measured**, 10,000 facets on the 34-node geometric grid, Newton surface
+solve plus conduction:
+
+| | ms/step | 2,162,356 steps |
+|---|---|---|
+| per-facet Python loop | 20.04 | 12.0 h |
+| vectorised numpy | **1.49** | **0.89 h** |
+
+**13.5x**, and that is the conduction core alone — the per-facet insolation
+terms vectorise trivially too, so the full step should fall from ~46 ms to
+under 2 ms and the two-orbit run from ~28 h to about an hour. `routine.py`
+gains `step_surface_newton` and `step_conduction` for this.
+
+This also changes the case for the implicit solver: its advantage is a larger
+timestep, which only pays once the per-step cost is not dominated by Python
+overhead. Vectorise first, then re-evaluate.
 
 ### Coverage trap, worth recording
 
@@ -282,9 +295,19 @@ Each body sees the other as an extended source of
 
 At the Didymos-Dimorphos separation (~1.15 km, bodies ~800 m and ~170 m
 across) the view factors are not negligible, and they peak exactly during the
-mutual events being modelled. `mesh.rs` already provides
-`view_factor_facets(face_a, face_b, trans_b2a)` and the scalar forms, so the
-missing piece is the per-timestep accumulation, not the geometry kernel.
+mutual events being modelled.
+
+The radiative kernels already exist in `tpm/core.rs`:
+
+```rust
+radiation_sun_reflected(viewf, a, cosi, dau)      // reflected solar
+radiation_sun_reflected_reuse(viewf, f, a)        // reflected, flux reused
+radiation_emitted(viewf, t, e)                    // thermal IR, eps sigma T^4
+```
+
+and `mesh.rs` provides `view_factor_facets(face_a, face_b, trans_b2a)` plus
+the scalar forms. So the missing piece is the per-timestep accumulation and
+the view-factor matrix, not the physics kernels.
 
 Cost scales as `n_facets(A) x n_facets(B)` per step if done naively — 10^8 for
 two 10k meshes, far too slow. The standard treatment is to precompute the
@@ -300,9 +323,16 @@ and thermal IR from them. This raises daytime temperatures in bowls and
 crater floors and is the same physics as roughness (§8) but at facet
 resolution rather than sub-facet.
 
-The view-factor machinery is shared with §7.2; the extra requirement is a
-visibility test between facet pairs of the same body, since a view factor is
-only valid if the two facets can actually see each other. `intersect_mesh`
+**The near-field caveat is the crux here.** The view factor is a
+point-to-point approximation valid for `d >> facet size`, which is exactly
+what neighbouring facets violate — and neighbours are the dominant
+contributors inside a depression. Subdividing neighbouring facets and summing
+the sub-pairs is the honest treatment; see §9, where the current code instead
+returns zero in that regime.
+
+The view-factor machinery is otherwise shared with §7.2; the extra requirement
+is a visibility test between facet pairs of the same body, since a view factor
+is only valid if the two facets can actually see each other. `intersect_mesh`
 does this exactly but is brute force; the shadow-map query does it from one
 direction at a time. Precomputing the self-visibility matrix once per body is
 the tractable route, again exploiting that it is fixed in the body frame.

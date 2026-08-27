@@ -24,8 +24,10 @@ rather than committing to a run that may take a day.
 """
 
 import time
+from pathlib import Path
 
 import numpy
+import pandas
 import spiceypy as spice
 
 import kalast
@@ -35,8 +37,8 @@ import kalast.tpm.routine as routine
 from kalast.util import AU, STEFAN_BOLTZMANN
 
 # ---------------------------------------------------------------- settings
-GRID = "uniform"  # "uniform" | "geometric"
-BENCHMARK = True  # time a short run and extrapolate instead of running it all
+GRID = "geometric"  # "uniform" | "geometric"
+BENCHMARK = False  # time a short run and extrapolate instead of running it all
 BENCHMARK_STEPS = 200
 
 # Coarse first: 4 nodes per diurnal skin depth. Refine only once the coarse
@@ -175,5 +177,38 @@ else:
     temps = numpy.array([c.t[0] for c in columns])
     print(f"surface T: min {temps.min():.1f} K  max {temps.max():.1f} K  "
           f"mean {temps.mean():.1f} K")
+
+    # Save the full column state, not just the surface: this is a spin-up,
+    # and its whole purpose is the equilibrated subsurface profile that a
+    # later, shorter, higher-fidelity run restarts from. Losing it would mean
+    # repeating the spin-up.
+    out = Path(OUT)
+    out.mkdir(parents=True, exist_ok=True)
+
+    state = numpy.array([c.t for c in columns])  # (nface, nx)
+    pandas.DataFrame(state).to_csv(
+        out / "tmp_state.csv", index=False, encoding="utf-8-sig"
+    )
+    pandas.DataFrame({"depth": z}).to_csv(
+        out / "z.csv", index=False, encoding="utf-8-sig"
+    )
+    pandas.DataFrame({"facet": numpy.arange(nface), "t_surface": temps}).to_csv(
+        out / "tmp_surf_final.csv", index=False, encoding="utf-8-sig"
+    )
+    pandas.DataFrame({
+        "grid": [GRID], "nodes": [nx], "dt": [dt], "nface": [nface],
+        "et_start": [et_start], "et_end": [et_end],
+        "n_orbits_spinup": [N_ORBITS_SPINUP],
+        "nodes_per_skin_depth": [NODES_PER_SKIN_DEPTH],
+        "depth_in_seasonal": [DEPTH_IN_SEASONAL],
+        "depth_m": [float(z[-1])], "mesh": [MESH],
+        "thermal_inertia": [prop.thermal_inertia],
+        "albedo": [prop.albedo], "emissivity": [prop.emissivity],
+        "conductivity": [prop.conductivity], "diffusivity": [D],
+        "physics": ["direct insolation only -- no eclipse shadowing, "
+                    "mutual heating or self-heating (see notes section 7)"],
+        "elapsed_s": [elapsed],
+    }).to_csv(out / "settings.csv", index=False, encoding="utf-8-sig")
+    print(f"wrote {out}/ (tmp_state {state.shape}, z, tmp_surf_final, settings)")
 
 spice.kclear()
