@@ -24,6 +24,22 @@ looked like it had done nothing.
 
 `out/` in particular is real output, not scratch.
 
+## Building
+
+- **`maturin develop`** (debug) while implementing a feature — fast to
+  rebuild, and the only thing you want during the edit/run loop.
+- **`maturin develop --release`** once the feature works, and for **every**
+  benchmark or real data run. Not just timing work: any run whose output you
+  intend to keep or publish.
+
+Debug is 2-15x slower here, worst on the per-pixel frame-export loops
+(measured 22.6 -> 53.1 it/s at 3.1M facets with export on), so a debug data
+run wastes hours for nothing.
+
+Nothing else is worth adding to the release profile: `lto = "fat"` +
+`codegen-units = 1` were measured and gave no improvement while pushing the
+build from ~59 s to ~87 s. Recorded in `Cargo.toml` so it is not retried.
+
 ## Test and benchmark runs
 
 **Never run against the project's real output directories.** Frame export
@@ -46,14 +62,13 @@ rate prints are not changes anyone wants committed.
 
 ## Benchmarking
 
-Two traps, both of which have silently corrupted results here:
+Beyond building `--release` (above), one trap has silently corrupted results
+here more than once:
 
-- **Build with `--release`.** `maturin develop --release`. Debug is 2-15x
-  slower, worst on the per-pixel export loops. Plain `maturin develop` is for
-  implementing.
 - **Set `app.config.vsync = False`.** Otherwise the loop reports the display
   refresh rate rather than anything about the code — this produced a "3.1M
-  facets costs 2x" conclusion that was entirely an artifact.
+  facets costs 2x" conclusion that was entirely an artifact of a 120 Hz
+  panel.
 
 Also: keep the render window visible and frontmost. macOS throttles occluded
 windows, giving runs at 1.8-64 it/s beside siblings agreeing within 1 it/s.
