@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/gregoireh/data/spice/hera/kernels/ik/**)"
+    ]
+  }
+}

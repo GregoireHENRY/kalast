@@ -444,7 +444,19 @@ in two orbits, while reaching the 6.17 m base needs `z^2/D ~ 31 yr`, about 16
 orbits.
 
 Measured by continuing a **third orbit** from the saved state and differencing
-at the study epoch:
+at the study epoch. The two runs are
+
+| | |
+|---|---|
+| A | `out/hera_didymos/didymos_tpm_2orbit` — 2 orbits from a flat `T_INIT = 200 K` |
+| B | `out/hera_didymos/didymos_tpm_3orbit` — restarted from A, one more orbit |
+
+identical otherwise (geometric 34-node grid, 10,000 facets, vectorised,
+`dt = 55.94 s`, direct insolation only). Note 700 d / 2.26 h = 7433.6
+rotations, not an integer, so the restart lands ~0.6 rotation out of phase.
+That injects a surface transient which re-equilibrates within hours — the
+diurnal skin depth is 1 cm — so it is gone long before the study epoch a full
+orbit later.
 
 | | surface | z=1.42 m | z=3.56 m | z=6.17 m |
 |---|---|---|---|---|
@@ -456,10 +468,28 @@ at the study epoch:
 | mean / median | 0.51 / 0.34 K |
 | facets changing >1 K | 1,749 of 10,000 (17.5%) |
 
-So the shallow column (<= 1.4 m, ~1.6 seasonal skin depths) **is** converged,
-the deep layers are still climbing ~0.5 K per orbit off the initialisation,
-and that drift barely reaches the surface because the converged shallow
-layers buffer it.
+**Two different things are being conflated by the phrase "not converged", and
+only one of them matters.** Diffusion reaches depth `z` in `t ~ z^2/D`:
+
+| depth | in `ls1` | equilibration time | seasonal amplitude `exp(-z/ls1)` |
+|---|---|---|---|
+| 0.87 m | 1.0 | 0.32 orbit | 37% |
+| 2.2 m | 2.5 | **2.05 orbits** | 7.9% |
+| 6.17 m (base) | 7.1 | **16 orbits ~ 31 yr** | 0.08% |
+
+After two orbits the column has equilibrated to ~2.2 m, which is already past
+where the seasonal wave has decayed to 8%. So the **seasonal wave itself is
+converged**; what is not is the near-isothermal reservoir below it, where the
+wave is effectively dead and which acts only as a slowly drifting lower
+boundary. Its measured leak to the surface is 0.06 K per orbit.
+
+The irony is worth acting on: because `t ~ z^2`, **making the column deeper
+slows convergence quadratically while adding almost nothing physically**. At
+6.17 m we spend 16 orbits settling a layer that carries 0.08% of the seasonal
+amplitude. A column at `DEPTH_IN_SEASONAL ~ 0.55` (about 3 m, 3.5 `ls1`, where
+the wave is still 3%) would converge in roughly 4 orbits instead of 16 and
+lose nothing measurable — the adiabatic base is an equally good approximation
+either way once the wave has decayed.
 
 **Whether 1.7 K matters depends on the observable.** In the TIRI band it is not
 negligible: at 10 um and 300 K,
