@@ -419,6 +419,65 @@ face toward Didymos permanently, and it is eclipsed regularly. Its illumination
 statistics need computing separately before assuming the same conclusion
 carries over.
 
+## 7.5 Spin-up result and convergence
+
+Two-orbit spin-up, 10,000 facets, 34-node geometric grid, vectorised:
+**2,162,356 steps in ~55 min** (1.52 ms/step). Surface 88.3-346.3 K, mean
+265.2 K.
+
+Physically consistent where it can be checked independently: the study epoch
+falls at **1.025 AU**, near perihelion, where subsolar equilibrium is 392.6 K.
+The peak surface temperature is 346.3 K — below equilibrium, which is what
+thermal inertia must do. The diurnal spread damps monotonically from 258 K at
+the surface to 12 K at 6.17 m.
+
+**The deep field is not converged, and the initialisation disguises it.** The
+base node reported 200.11 K against a `T_INIT` of 200.0 — the number that
+looks most reassuring is the least informative, because it is the initial
+condition barely touched. Thermal information diffuses only
+
+```
+sqrt(D t) = sqrt(3.9e-8 * 1.21e8) ~ 2.2 m
+```
+
+in two orbits, while reaching the 6.17 m base needs `z^2/D ~ 31 yr`, about 16
+orbits.
+
+Measured by continuing a **third orbit** from the saved state and differencing
+at the study epoch:
+
+| | surface | z=1.42 m | z=3.56 m | z=6.17 m |
+|---|---|---|---|---|
+| change per orbit | +0.061 K | -0.069 K | +0.298 K | +0.540 K |
+
+| surface statistic | value |
+|---|---|
+| max abs change | **1.69 K** |
+| mean / median | 0.51 / 0.34 K |
+| facets changing >1 K | 1,749 of 10,000 (17.5%) |
+
+So the shallow column (<= 1.4 m, ~1.6 seasonal skin depths) **is** converged,
+the deep layers are still climbing ~0.5 K per orbit off the initialisation,
+and that drift barely reaches the surface because the converged shallow
+layers buffer it.
+
+**Whether 1.7 K matters depends on the observable.** In the TIRI band it is not
+negligible: at 10 um and 300 K,
+
+```
+dB/B ~ (hc / lambda k T) dT/T = 4.8 * 1.7/300 ~ 2.7 %
+```
+
+worst case, ~0.8% typical. That sits below the uncertainty from thermal
+inertia and unmodelled roughness, but it should be carried as a stated error
+term rather than called converged.
+
+**Use the 3-orbit state for phase 2** — it is strictly closer to equilibrium
+at no extra cost now that it exists. And for any future run, initialising the
+column at the estimated equilibrium temperature rather than a flat 200 K would
+remove most of this: the deep layers are slowly walking toward a value that
+can be estimated analytically in advance from the orbit-averaged insolation.
+
 ---
 
 # 8. Next steps: thermal surface roughness
