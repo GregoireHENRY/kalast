@@ -109,21 +109,38 @@ pub fn effective_temperature(dau: Float, r: Float, a: Float, e: Float) -> Float 
     .powf(0.25)
 }
 
+/// Absorbed solar flux on a surface element.
+///
+/// `cosi` is clamped at zero: a facet tilted away from the Sun receives
+/// nothing, it does not radiate *into* the Sun. Without the clamp a negative
+/// cosine yields negative insolation, which in a thermophysical model does
+/// not merely lose a term but actively drives night-side facets below their
+/// radiative balance.
+///
+/// `math::cosine_incidence` already clamps, so callers going through it were
+/// safe; anything computing a dot product directly -- a vectorised inner loop,
+/// for instance -- was not. The invariant belongs here rather than in each
+/// caller.
 #[pyfunction]
 pub fn radiation_sun(dau: Float, cosi: Float, a: Float) -> Float {
     // dau: distance of Sun is AU
     // cosi: cosine of incidence angle of local surface
     // a: albedo
-    crate::util::SOLAR_CONSTANT * (1.0 - a) * cosi / dau.powi(2)
+    crate::util::SOLAR_CONSTANT * (1.0 - a) * cosi.max(0.0) / dau.powi(2)
 }
 
+/// Sunlight reflected off one surface element toward another.
+///
+/// `cosi` is clamped for the same reason as `radiation_sun`: an element
+/// facing away from the Sun reflects nothing, and an unclamped negative would
+/// have a shadowed facet *removing* energy from whatever it illuminates.
 #[pyfunction]
 pub fn radiation_sun_reflected(viewf: Float, a: Float, cosi: Float, dau: Float) -> Float {
     // viewf: view-factor of local surface
     // a: albedo
     // cosi: cosine of incidence angle of local surface
     // dau: distance of Sun is AU
-    viewf * crate::util::SOLAR_CONSTANT * a * cosi / dau.powi(2)
+    viewf * crate::util::SOLAR_CONSTANT * a * cosi.max(0.0) / dau.powi(2)
 }
 
 /// care with albedos
@@ -275,5 +292,33 @@ pub(crate) mod py {
         dtpdx2: PyReadonlyArray1<'_, Float>,
     ) -> Bound<'py, PyArray1<Float>> {
         super::conduction_1d(t.as_array(), d.as_array(), dtpdx2.as_array()).to_pyarray(py)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A facet tilted away from the Sun absorbs nothing. Negative insolation
+    /// would drive night-side temperatures below the radiative balance rather
+    /// than simply leaving them unforced.
+    #[test]
+    fn insolation_is_never_negative() {
+        for cosi in [-1.0, -0.5, -1e-9] {
+            assert_eq!(radiation_sun(1.0, cosi, 0.07), 0.0, "cosi={cosi}");
+            assert_eq!(
+                radiation_sun_reflected(0.5, 0.07, cosi, 1.0),
+                0.0,
+                "cosi={cosi}"
+            );
+        }
+    }
+
+    /// The clamp must not disturb the lit case.
+    #[test]
+    fn insolation_unchanged_when_lit() {
+        let expected = crate::util::SOLAR_CONSTANT * (1.0 - 0.07) * 0.5 / 4.0;
+        assert!((radiation_sun(2.0, 0.5, 0.07) - expected).abs() < 1e-6);
+        assert!(radiation_sun(1.0, 1.0, 0.07) > 0.0);
     }
 }

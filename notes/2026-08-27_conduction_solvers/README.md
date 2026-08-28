@@ -227,6 +227,19 @@ This also changes the case for the implicit solver: its advantage is a larger
 timestep, which only pays once the per-step cost is not dominated by Python
 overhead. Vectorise first, then re-evaluate.
 
+**A bug the vectorisation exposed.** `math::cosine_incidence` clamps negative
+cosines to zero, but `core::radiation_sun` did not. Every existing caller went
+through the former, so the gap was invisible — until a vectorised inner loop
+computes the dot product directly and passes it straight in. A night-side
+facet would then receive *negative* insolation, which does not merely drop a
+term: it actively drives the surface below its radiative balance, and the
+error is largest exactly where the diurnal wave is coldest.
+
+Fixed at source rather than in the caller: `radiation_sun` and
+`radiation_sun_reflected` both clamp now, with tests. The reflected form
+matters for §7.2 — unclamped, a shadowed facet would have *removed* energy
+from whatever it illuminates, and that term is about to be built.
+
 ### Coverage trap, worth recording
 
 The first attempt failed with `SPKINSUFFDATA` at 2023-03-23. `hera_plan_local.tm`
@@ -297,7 +310,8 @@ At the Didymos-Dimorphos separation (~1.15 km, bodies ~800 m and ~170 m
 across) the view factors are not negligible, and they peak exactly during the
 mutual events being modelled.
 
-The radiative kernels already exist in `tpm/core.rs`:
+The radiative kernels already exist in `tpm/core.rs` (both solar terms now
+clamp `cosi` at zero — see the note at the end of §6):
 
 ```rust
 radiation_sun_reflected(viewf, a, cosi, dau)      // reflected solar
