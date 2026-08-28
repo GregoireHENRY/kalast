@@ -52,7 +52,11 @@ NODES_PER_SKIN_DEPTH = 4
 # How deep, in seasonal e-folding depths (ls2pi). 1.0 already reaches 5.45 m.
 DEPTH_IN_SEASONAL = 1.0
 
-N_ORBITS_SPINUP = 2  # 2 x 700 d, so the deep layers equilibrate
+N_ORBITS_SPINUP = 2  # 2 x 700 d
+# Restart from a previously saved column state instead of an isothermal start.
+# Phase 2 (the high-fidelity segment) needs this, and it is also how spin-up
+# convergence is measured: continue for another orbit and compare.
+RESTART_FROM = None  # e.g. "out/hera_didymos/didymos_tpm"
 DT_SAFETY = 0.4  # fraction of the stability limit
 
 MESH = (
@@ -144,7 +148,18 @@ normals = numpy.array(
 
 if VECTORISED:
     # One (n_facets, n_nodes) array instead of n_facets Column objects.
-    T = numpy.full((nface, nx), T_INIT, dtype=numpy.float64)
+    if RESTART_FROM:
+        T = pandas.read_csv(Path(RESTART_FROM) / "tmp_state.csv").to_numpy()
+        z_prev = pandas.read_csv(Path(RESTART_FROM) / "z.csv")["depth"].to_numpy()
+        if T.shape != (nface, nx) or not numpy.allclose(z_prev, z):
+            raise SystemExit(
+                f"restart state {T.shape} on a {len(z_prev)}-node grid does not "
+                f"match this run's ({nface}, {nx}) -- the grid must be identical"
+            )
+        print(f"  restarted from {RESTART_FROM}: surface mean "
+              f"{T[:, 0].mean():.2f} K, base mean {T[:, -1].mean():.2f} K")
+    else:
+        T = numpy.full((nface, nx), T_INIT, dtype=numpy.float64)
     d_nodes = numpy.full(nx, D, dtype=numpy.float64)
     coefs64 = tuple(numpy.asarray(c, dtype=numpy.float64) for c in coefs)
 else:
