@@ -390,6 +390,7 @@ impl Window {
         &mut self,
         body: usize,
         mesh: &crate::mesh::Mesh,
+        scene: Option<crate::mesh::Aabb>,
         facets: &[u32],
         resolution: u32,
         batch: u32,
@@ -413,7 +414,32 @@ impl Window {
             .max(Float::EPSILON)
             .sqrt();
         let near = (smallest * 1.0e-3).max(radius * 1.0e-7);
-        let far = radius * 4.0;
+
+        // The far plane has to reach the whole scene, not just this body. A
+        // companion sits at a distance set by the orbit, which for a small
+        // secondary is many times its own radius: sizing `far` from the
+        // requesting body alone put Didymos beyond Dimorphos's far plane at
+        // the real 1.15 km separation, leaving a clipped remnant that read as
+        // a mutual view factor 20x too small, and exactly zero past 1.5 km.
+        // Measured against `(R/d)^2` over a separation sweep -- the falloff
+        // now follows it instead of collapsing.
+        //
+        // Origins are spread over the body's surface rather than sitting at
+        // its centre, so the reach is measured from the centre and the body's
+        // own radius added back.
+        let far = scene
+            .map(|s| {
+                let own = mesh.bounds.transform(&model);
+                let c = own.center();
+                let reach = s
+                    .corners()
+                    .iter()
+                    .map(|p| (*p - c).length())
+                    .fold(0.0 as Float, Float::max);
+                (reach + own.radius()) * 1.01
+            })
+            .unwrap_or(0.0)
+            .max(radius * 4.0);
         let proj = Mat4::perspective_rh(std::f64::consts::FRAC_PI_2 as Float, 1.0, near, far);
 
         let mut views = Vec::with_capacity(facets.len() * super::hemicube::FACES as usize);

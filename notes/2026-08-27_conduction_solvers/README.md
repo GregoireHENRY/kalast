@@ -1864,7 +1864,11 @@ Re-validated through the multi-body path on the closed box: row sums
 | | hemicubes | self VF row sum | mutual VF row sum | facets seeing the companion |
 |---|---|---|---|---|
 | Didymos | 10,000 in 2.8 s | mean 0.0013, max 0.043 | mean 0.0013, max 0.0097 | 4,039 |
-| Dimorphos | 10,000 in 2.7 s | mean 0.034, max 0.996 | mean 0.0029, max 0.064 | 2,108 |
+| Dimorphos | 10,000 in 2.7 s | mean 0.034, max 0.996 | mean 0.0134, max 0.116 | 5,268 |
+
+The Dimorphos mutual row is **corrected from an earlier version of this table**
+that read mean 0.0029, max 0.064 over 2,108 facets. Those were a clipped
+remnant -- see "the far plane was sized from the wrong body" below.
 
 The Didymos mutual maximum, 0.0097, exceeds the `(R/d)^2 = 0.0055` bound
 quoted in 9.3c. That bound is not violated: it uses the centre-to-centre
@@ -1872,6 +1876,62 @@ separation, and a Didymos facet on the near side sits ~390 m closer, giving
 `(85/761)^2 = 0.0125`. The measured value is below *that*, as it must be.
 Worth noting because the discrepancy looks alarming until the bound is
 restated for the right distance.
+
+### The far plane was sized from the wrong body
+
+The first multi-body numbers had Dimorphos seeing Didymos at mean 0.0029, max
+0.064. They should have been challenged on sight: Dimorphos is a 180 m body
+1.15 km from a 780 m one, so a facet on the near side has a good fraction of
+its sky filled by the primary. `(R/d)^2 = 0.115` is the number to expect, and
+0.064 is half of it.
+
+The cause was in the hemicube frustum. `window.rs` sized it from the
+*requesting body's* model-space bounds:
+
+```rust
+let radius = mesh.bounds.radius();   // this body, not the scene
+let far = radius * 4.0;
+```
+
+For Didymos that is 2.60 km and reaches Dimorphos comfortably. For Dimorphos
+it is **0.545 km**, and Didymos sits at 1.15 km -- entirely beyond it. What
+survived was the thin sliver of the primary that happened to fall inside,
+which is why the number was not zero and so did not look like clipping.
+
+Measured by sweeping the separation and comparing against `(R/d)^2`, holding
+everything else fixed:
+
+| separation | mutual VF max, before | after | `(R/d)^2` |
+|---|---|---|---|
+| 0.9 km | 0.198 | 0.204 | 0.188 |
+| 1.0 km | 0.134 | 0.159 | 0.152 |
+| **1.151 km (actual)** | **0.017** | **0.115** | **0.115** |
+| 1.5 km | 0.000 | 0.060 | 0.068 |
+| 3.0 km | 0.000 | 0.014 | 0.017 |
+
+Before the fix the term collapses as the companion crosses the far plane and
+is **exactly zero past 1.5 km**. After it, the falloff follows `(R/d)^2` and
+the implied effective radius stays at 0.384-0.392 km across the whole orbital
+range 1.10-1.28 km, against Didymos's 0.39 km. At the study epoch the
+Dimorphos mutual mean rises 4.6x and the facets registering the primary at all
+go from 2,108 to 5,268.
+
+`far` is now fitted to `Simulation::scene_bounds()` -- the same scene fit the
+shadow pass was given in `b0a0ff4`, and for the same reason: **in a binary,
+one body's extent says nothing about where the other one is.** That is twice
+this exact assumption has been wrong in this codebase.
+
+Didymos's own numbers are unchanged, since its far plane already reached. An
+asymmetry between the two directions was the visible symptom, and reciprocity
+would have caught it: `A_i VF_ij = A_j VF_ji` fails badly when one direction
+is clipped and the other is not. It is cheap and it is still not asserted
+anywhere.
+
+One loose end: at a separation of 2.0 km the swept distribution drops ~4x
+below its neighbours at 1.5 and 2.5 km, while the maximum stays on the
+`(R/d)^2` curve. Every other distance has mean, median and max within a few
+percent of each other. It is outside this system's orbital range so it does
+not affect anything here, but it is unexplained.
 
 ### A defective shape model, found by an impossible number
 

@@ -247,9 +247,12 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                             .get(body)
                             .and_then(|b| b.mesh.as_ref())
                             .map(|m| m.borrow().clone());
+                        // Same scene fit the shadow pass uses: the frustum has
+                        // to cover the companion, not just the body it sits on.
+                        let scene = sim.scene_bounds();
                         sim.hemicube_result = mesh.map(|m| {
                             let (rows, offsets, n_total) =
-                                win.hemicube_rows(body, &m, &facets, res, batch);
+                                win.hemicube_rows(body, &m, scene, &facets, res, batch);
                             (rows, facets.len(), n_total as usize, offsets)
                         });
                     } else {
