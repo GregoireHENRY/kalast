@@ -34,8 +34,9 @@ pub struct Simulation {
     /// A one-off like the ID map, and for the same reason -- it is a
     /// precompute, not something a frame loop should carry.
     pub hemicube_request: Option<(usize, Vec<u32>, u32, u32)>,
-    /// Row-major `facets.len() * n_facets` view factors from the last request.
-    pub hemicube_result: Option<(Vec<f32>, usize, usize)>,
+    /// From the last request: row-major view factors, the number of rows,
+    /// the total facet count across bodies, and each body's index offset.
+    pub hemicube_result: Option<(Vec<f32>, usize, usize, Vec<u32>)>,
 }
 
 impl Simulation {
@@ -158,7 +159,7 @@ impl Simulation {
         self.hemicube_request = Some((body, facets, resolution, batch));
     }
 
-    pub fn hemicube_result(&self) -> Option<&(Vec<f32>, usize, usize)> {
+    pub fn hemicube_result(&self) -> Option<&(Vec<f32>, usize, usize, Vec<u32>)> {
         self.hemicube_result.as_ref()
     }
 

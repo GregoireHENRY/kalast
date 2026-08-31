@@ -527,6 +527,41 @@ impl Mesh {
 
     // Recompute facets (pos, normal, area) from current vertices positions and indices.
     // Call after mutating vertex positions in place, since facets are not kept in sync automatically.
+    /// Facets whose normal points into the body rather than out of it.
+    ///
+    /// A decimated shape model can carry a handful of triangles with reversed
+    /// winding, and they are quietly destructive. The thermophysical model
+    /// clamps `cos(incidence)` at zero, so such a facet is permanently dark
+    /// and sits at night temperature forever. A hemicube placed on one looks
+    /// *into* the body and reports a self view factor near 1, which would
+    /// pour a body's own thermal emission back into it.
+    ///
+    /// Detected by comparing each normal against the outward radial direction
+    /// from the mesh centroid. That test assumes a roughly star-shaped body,
+    /// which small asteroids are, and it will misjudge a deeply overhanging
+    /// facet -- so treat the result as a list to inspect rather than a
+    /// verdict. `g_00243mm_..._dimo_..._10k.obj` has 22 of 10,000, worst dot
+    /// -0.958, 0.114% of the surface area.
+    pub fn inward_facing_facets(&self) -> Vec<u32> {
+        if self.facets.is_empty() {
+            return vec![];
+        }
+        let centre = self
+            .facets
+            .iter()
+            .fold(Vec3::ZERO, |acc, f| acc + f.pos)
+            / self.facets.len() as Float;
+
+        self.facets
+            .iter()
+            .enumerate()
+            .filter_map(|(i, f)| {
+                let out = (f.pos - centre).normalize_or_zero();
+                (out.length_squared() > 0.5 && f.normal.dot(out) < 0.0).then_some(i as u32)
+            })
+            .collect()
+    }
+
     pub fn recompute_facets(&mut self) {
         self.facets = compute_facets(&self.vertices, &self.indices);
     }

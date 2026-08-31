@@ -308,6 +308,22 @@ impl Mesh {
 
 #[pymethods]
 impl Mesh {
+    /// Indices of facets whose normal points into the body.
+    ///
+    /// A quick shape-model sanity check. Reversed winding on a few triangles
+    /// is common in decimated models and is quietly destructive: such a facet
+    /// is permanently dark in the thermophysical model, and a hemicube placed
+    /// on it reports a self view factor near 1. Assumes a roughly star-shaped
+    /// body, so inspect the result rather than trusting it blindly.
+    fn inward_facing_facets<'py>(
+        slf: pyo3::Bound<'py, Self>,
+    ) -> pyo3::Bound<'py, numpy::PyArray1<u32>> {
+        let py = slf.py();
+        let self_ = slf.borrow();
+        let mesh = self_.inner.borrow();
+        numpy::PyArray1::from_slice(py, &mesh.inward_facing_facets())
+    }
+
     #[new]
     #[pyo3(signature = (
         path=None,

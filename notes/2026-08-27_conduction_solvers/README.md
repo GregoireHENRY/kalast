@@ -1844,6 +1844,71 @@ self-*viewing* needs genuine concavity. They are different geometric
 questions and there is no contradiction between a large one and a small
 other.
 
+## 9.3f Mutual view factors, and a shape-model defect they exposed
+
+The hemicube now renders **every loaded body** into one shared facet index
+space, exactly as the facet-id pass does, with a per-body offset supplied as
+a dynamic-offset uniform. One row therefore carries the self view factors and
+the mutual ones together, and splitting them is a slice --
+`sim.hemicube()` returns the offsets to do it with.
+
+Occlusion is shared too, which is the point: the depth test resolves the
+*other* body as readily as the body's own terrain, so a mutual eclipse blocks
+mutual heating without any extra machinery.
+
+Re-validated through the multi-body path on the closed box: row sums
+1.00001, self term 0. Unchanged, as it should be with one body loaded.
+
+### At the study epoch
+
+| | hemicubes | self VF row sum | mutual VF row sum | facets seeing the companion |
+|---|---|---|---|---|
+| Didymos | 10,000 in 2.8 s | mean 0.0013, max 0.043 | mean 0.0013, max 0.0097 | 4,039 |
+| Dimorphos | 10,000 in 2.7 s | mean 0.034, max 0.996 | mean 0.0029, max 0.064 | 2,108 |
+
+The Didymos mutual maximum, 0.0097, exceeds the `(R/d)^2 = 0.0055` bound
+quoted in 9.3c. That bound is not violated: it uses the centre-to-centre
+separation, and a Didymos facet on the near side sits ~390 m closer, giving
+`(85/761)^2 = 0.0125`. The measured value is below *that*, as it must be.
+Worth noting because the discrepancy looks alarming until the bound is
+restated for the right distance.
+
+### A defective shape model, found by an impossible number
+
+Dimorphos's self view factor peaked at **0.996** -- a facet seeing 99.6 % of
+its own hemisphere filled by its own body. Deep concavities exist, but not
+that deep on a decimated ellipsoid.
+
+The cause is in the mesh: **22 of Dimorphos's 10,000 facets have inward-
+pointing normals**, worst dot with the outward radial direction −0.958, i.e.
+aimed almost straight into the body. A hemicube on such a facet looks inward
+and sees the interior. Correlating directly:
+
+| | count | mean self-VF | max |
+|---|---|---|---|
+| inward-facing normals | 22 | 0.271 | 0.996 |
+| outward | 9,978 | 0.034 | 0.351 |
+
+The single facet above 0.5 is one of the 22. Excluding them, the maximum is
+0.351 -- a real concavity. Didymos's mesh has none.
+
+**This is quietly destructive beyond view factors.** The thermophysical model
+clamps `cos(incidence)` at zero, so a reversed facet never receives sunlight
+at all and sits at night temperature permanently. It has been doing so in
+every Dimorphos run so far, including the delivered FITS -- 22 facets,
+0.114 % of the surface area, so the effect on any integrated quantity is
+negligible, but the individual pixels are wrong.
+
+`Mesh.inward_facing_facets()` now reports them, in Rust so it is usable on
+the 3.1M meshes. It compares each normal against the outward radial
+direction from the mesh centroid, which assumes a roughly star-shaped body --
+true of small asteroids, and it will misjudge a deep overhang, so it is a
+list to inspect rather than a verdict.
+
+The general lesson is the one from the closed box again: **a number that
+cannot physically occur is the most informative test available.** Nothing
+about 0.996 required a reference value to interpret.
+
 ## 9.4 Plan
 
 1. Fix (c) immediately — replace `angle_between().cos()` with a dot product.

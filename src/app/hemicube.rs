@@ -32,6 +32,10 @@ use wgpu::util::DeviceExt;
 /// Faces per hemicube: the top, then four sides.
 pub const FACES: u32 = 5;
 
+/// Bodies a single hemicube pass will draw. Sized for a binary plus room to
+/// spare; the params buffer is allocated against it.
+pub const MAX_BODIES: u32 = 8;
+
 /// Matches `FIXED_SCALE` in the shaders. See there for why fixed point.
 const FIXED_SCALE: f32 = 1_073_741_824.0;
 
@@ -149,7 +153,9 @@ impl Hemicube {
         // One slot per face of every hemicube in a batch.
         let render_params = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("hemicube render params"),
-            size: STRIDE * (batch * FACES) as u64,
+            // One slot per (hemicube, face, body): every body is drawn with
+            // its own index offset, so each needs its own uniform.
+            size: STRIDE * (batch * FACES * MAX_BODIES) as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -311,16 +317,29 @@ impl Hemicube {
     /// View-factor rows for `views`, a flat list of `FACES` view-projection
     /// matrices per hemicube.
     ///
-    /// Returns `n_hemicubes * n_facets` values in row-major order: entry
-    /// `[i * n_facets + j]` is `VF(hemicube i -> facet j)`.
+    /// Every mesh in `meshes` is rendered, sharing one index space through a
+    /// per-body offset, so a single row carries both the self view factors
+    /// (to the body the hemicube sits on) and the mutual ones (to every other
+    /// body). Splitting them afterwards is a slice, and the caller gets the
+    /// offsets to do it with.
+    ///
+    /// Returns `(rows, offsets, n_total)`, with `rows` in row-major order:
+    /// entry `[i * n_total + j]` is `VF(hemicube i -> global facet j)`.
     pub fn rows(
         &self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         meshes: &[super::gpu::MeshBuffer],
         views: &[crate::Mat4],
-        n_facets: u32,
-    ) -> Vec<f32> {
+    ) -> (Vec<f32>, Vec<u32>, u32) {
+        // One index space across all bodies, exactly as the facet-id pass
+        // does: 0 stays reserved for "nothing here".
+        let mut offsets = Vec::with_capacity(meshes.len());
+        let mut n_facets = 0u32;
+        for mesh in meshes {
+            offsets.push(n_facets);
+            n_facets += mesh.n_facets();
+        }
         let n_cubes = (views.len() as u32) / FACES;
         let mut out = vec![0.0f32; (n_cubes * n_facets) as usize];
 
@@ -376,15 +395,17 @@ impl Hemicube {
                 let cube = done + slot;
                 for face in 0..FACES {
                     let m = views[(cube * FACES + face) as usize];
-                    queue.write_buffer(
-                        &self.render_params,
-                        STRIDE * (slot * FACES + face) as u64,
-                        bytemuck::bytes_of(&RenderParams {
-                            view_proj: to_cols_f32(m),
-                            facet_offset: 0,
-                            _pad: [0; 3],
-                        }),
-                    );
+                    for (body, &offset) in offsets.iter().enumerate() {
+                        queue.write_buffer(
+                            &self.render_params,
+                            STRIDE * param_slot(slot, face, body as u32),
+                            bytemuck::bytes_of(&RenderParams {
+                                view_proj: to_cols_f32(m),
+                                facet_offset: offset,
+                                _pad: [0; 3],
+                            }),
+                        );
+                    }
                 }
                 queue.write_buffer(
                     &self.accum_params,
@@ -439,15 +460,19 @@ impl Hemicube {
                             0.0,
                             1.0,
                         );
-                        pass.set_bind_group(
-                            0,
-                            &self.render_bind,
-                            &[(STRIDE * (slot * FACES + face) as u64) as u32],
-                        );
-                        for mesh in meshes {
-                            if mesh.is_flat {
-                                mesh.render(&mut pass);
+                        for (body, mesh) in meshes.iter().enumerate() {
+                            if !mesh.is_flat {
+                                // The facet index comes from the vertex
+                                // index, which only means anything when each
+                                // facet owns its three vertices.
+                                continue;
                             }
+                            pass.set_bind_group(
+                                0,
+                                &self.render_bind,
+                                &[(STRIDE * param_slot(slot, face, body as u32)) as u32],
+                            );
+                            mesh.render(&mut pass);
                         }
                     }
                 }
@@ -498,8 +523,13 @@ impl Hemicube {
             done += this;
         }
 
-        out
+        (out, offsets, n_facets)
     }
+}
+
+/// Index of the uniform slot for one (hemicube, face, body) draw.
+fn param_slot(slot: u32, face: u32, body: u32) -> u64 {
+    ((slot * FACES + face) * MAX_BODIES + body) as u64
 }
 
 fn to_cols_f32(m: crate::Mat4) -> [[f32; 4]; 4] {

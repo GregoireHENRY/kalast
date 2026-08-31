@@ -368,14 +368,19 @@ impl Window {
 
     /// View-factor rows for the given facets of `body`, by hemicube.
     ///
-    /// Returns `facets.len() * n_facets_total` values, row-major: entry
-    /// `[i * n + j]` is the fraction of energy leaving `facets[i]` that
-    /// reaches facet `j`. Occlusion is resolved by the depth test, so facets
-    /// hidden behind terrain simply do not appear.
+    /// Every loaded body is rendered into a shared index space, so one row
+    /// carries the self view factors alongside the mutual ones. Returns
+    /// `(rows, offsets, n_total)`; `rows` is row-major with entry
+    /// `[i * n_total + j]` the fraction of energy leaving `facets[i]` that
+    /// reaches global facet `j`, and `offsets[b]` is where body `b` starts.
+    /// Occlusion is resolved by the depth test -- including by the *other*
+    /// body, which is what makes a mutual eclipse block mutual heating.
     ///
     /// The CPU-side `mesh` is passed in rather than looked up: the window
     /// holds GPU buffers, and the facet centroids and normals the hemicubes
-    /// are built from live on the simulation side.
+    /// are built from live on the simulation side. They are in that body's
+    /// own frame, so the body's model matrix is applied here to place the
+    /// hemicubes in the same world the meshes are drawn in.
     ///
     /// `near` matters more than it looks. It is tied to the smallest facet,
     /// because a near plane larger than a facet clips away that facet's
@@ -388,11 +393,16 @@ impl Window {
         facets: &[u32],
         resolution: u32,
         batch: u32,
-    ) -> Vec<f32> {
+    ) -> (Vec<f32>, Vec<u32>, u32) {
         if self.meshes.len() <= 1 + body {
-            return vec![];
+            return (vec![], vec![], 0);
         }
-        let n_facets = self.meshes[1 + body].n_facets();
+        let model = self
+            .last_body_mats
+            .get(body)
+            .copied()
+            .unwrap_or(Mat4::IDENTITY);
+        let normal_mat = crate::Mat3::from_mat4(model);
 
         let radius = mesh.bounds.radius().max(Float::EPSILON);
         let smallest = mesh
@@ -429,6 +439,12 @@ impl Window {
             // Lift off the surface so the facet does not fill its own
             // hemicube through depth fighting.
             let o = facet.pos + n * near * 2.0;
+            let (o, n, t, b) = (
+                model.transform_point3(o),
+                (normal_mat * n).normalize_or_zero(),
+                (normal_mat * t).normalize_or_zero(),
+                (normal_mat * b).normalize_or_zero(),
+            );
             for (dir, up) in [(n, t), (t, n), (-t, n), (b, n), (-b, n)] {
                 views.push(proj * Mat4::look_to_rh(o, dir, up));
             }
@@ -443,13 +459,7 @@ impl Window {
             ));
         }
         let hc = self.hemicube.as_ref().unwrap();
-        hc.rows(
-            &self.device,
-            &self.queue,
-            &self.meshes[1 + body..2 + body],
-            &views,
-            n_facets,
-        )
+        hc.rows(&self.device, &self.queue, &self.meshes[1..], &views)
     }
 
     pub fn get_window(&self) -> &winit::window::Window {

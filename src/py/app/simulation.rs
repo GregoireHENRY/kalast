@@ -185,23 +185,32 @@ impl Simulation {
             .request_hemicube(body, list, resolution, batch);
     }
 
-    /// View factors from the last `request_hemicube`, or `None`.
+    /// `(view_factors, offsets)` from the last `request_hemicube`, or `None`.
     ///
-    /// Shape `(len(facets), n_facets)`: entry `[i, j]` is the fraction of
-    /// energy leaving `facets[i]` that reaches facet `j`. Rows sum to at most
-    /// 1; the shortfall is the fraction radiated to space.
+    /// `view_factors` has shape `(len(facets), n_total)` over a facet index
+    /// space shared by every loaded body, so one array carries self *and*
+    /// mutual view factors. `offsets[b]` is where body `b` starts, so
+    /// `vf[:, offsets[b]:offsets[b] + n_b]` is the block for body `b`.
+    ///
+    /// Rows sum to at most 1; the shortfall is the fraction radiated to
+    /// space. Occlusion is included, by the other body as well as by the
+    /// body's own terrain.
     fn hemicube<'py>(
         slf: pyo3::Bound<'py, Self>,
-    ) -> Option<pyo3::Bound<'py, numpy::PyArray2<f32>>> {
+    ) -> Option<(
+        pyo3::Bound<'py, numpy::PyArray2<f32>>,
+        pyo3::Bound<'py, numpy::PyArray1<u32>>,
+    )> {
         let py = slf.py();
         let self_ = slf.borrow();
         let sim = self_.inner.borrow();
-        let (rows, n_rows, n_cols) = sim.hemicube_result()?;
-        numpy::PyArray2::from_vec2(
+        let (rows, n_rows, n_cols, offsets) = sim.hemicube_result()?;
+        let vf = numpy::PyArray2::from_vec2(
             py,
             &rows.chunks(*n_cols).take(*n_rows).map(|r| r.to_vec()).collect::<Vec<_>>(),
         )
-        .ok()
+        .ok()?;
+        Some((vf, numpy::PyArray1::from_slice(py, offsets)))
     }
 
     /// Ask for a facet index map from the camera's point of view this frame.

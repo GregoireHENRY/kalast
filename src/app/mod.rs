@@ -248,9 +248,9 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                             .and_then(|b| b.mesh.as_ref())
                             .map(|m| m.borrow().clone());
                         sim.hemicube_result = mesh.map(|m| {
-                            let n = m.facets.len();
-                            let rows = win.hemicube_rows(body, &m, &facets, res, batch);
-                            (rows, facets.len(), n)
+                            let (rows, offsets, n_total) =
+                                win.hemicube_rows(body, &m, &facets, res, batch);
+                            (rows, facets.len(), n_total as usize, offsets)
                         });
                     } else {
                         sim.hemicube_result = None;
