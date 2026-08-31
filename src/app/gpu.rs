@@ -815,7 +815,7 @@ fn save_job(job: SaveJob) {
     });
 }
 
-/// Exports render-target frames to PNG (`{export_dir}/N.png`) without
+/// Exports render-target frames to PNG (`{export_dir}/000000.png`) without
 /// blocking the render loop.
 ///
 /// The old `export_frame` free function did a full GPU pipeline stall
@@ -846,7 +846,10 @@ pub struct FrameExporter {
 }
 
 impl FrameExporter {
-    /// `export_dir` is where frames get written, as "{export_dir}/{N}.png".
+    /// `export_dir` is where frames get written, as
+    /// "{export_dir}/{N:06}.png". The resume scan below parses the stem as a
+    /// number, which accepts both the padded form and the unpadded names
+    /// earlier runs wrote, so an existing directory still resumes correctly.
     /// Give test/dev instances their own directory (e.g. a scratch path)
     /// distinct from a real run's -- two FrameExporters writing into the
     /// same directory concurrently will race on both the initial index
@@ -1089,7 +1092,17 @@ impl FrameExporter {
                 }
             });
 
-        let path = self.export_dir.join(format!("{}.png", self.next_index));
+        // Zero-padded so the filenames sort the same way lexicographically
+        // as numerically. Unpadded names ("9.png", "10.png") scramble in any
+        // file browser, image viewer or shell glob -- 0, 1, 10, 100, ..., 11,
+        // 110 -- which silently reorders a frame sequence. That once made a
+        // 13-hour eclipse movie appear to contain fourteen separate eclipses
+        // instead of two, and looked convincingly like a rendering bug.
+        //
+        // Six digits also matches ffmpeg's "%06d" input pattern directly.
+        let path = self
+            .export_dir
+            .join(format!("{:06}.png", self.next_index));
         self.next_index += 1;
 
         self.in_flight.push(InFlightExport {

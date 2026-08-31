@@ -40,10 +40,10 @@ print(f"common crop rows {r0}-{r1}, cols {c0}-{c1} "
 cmap = matplotlib.colormaps["inferno"]
 for _, row in df.iterrows():
     k = int(row.frame)
-    # The renderer names its exports by its own counter, which starts at 0
-    # and increments per exported frame -- the same order as ours.
+    # The renderer names its exports by its own counter, zero-padded, which
+    # starts at 0 and increments per exported frame -- the same order as ours.
     imgs = [
-        matplotlib.image.imread(IN / "diffuse" / f"{k}.png"),
+        matplotlib.image.imread(IN / "diffuse" / f"{k:06d}.png"),
         matplotlib.image.imread(IN / "temperature" / f"{k:04d}.png"),
         matplotlib.image.imread(IN / "radiance" / f"{k:04d}.png"),
     ]

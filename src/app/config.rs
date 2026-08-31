@@ -81,7 +81,8 @@ pub struct Config {
     pub export_max_queued: u32,
 
     // Directory frame exports (export/export_once) are written to, as
-    // "{export_dir}/{N}.png". Override per-app (e.g. to a scratch
+    // "{export_dir}/{N:06}.png", zero-padded so lexicographic and numeric
+    // order agree. Override per-app (e.g. to a scratch
     // directory) to keep test/dev runs from colliding with real ones
     // sharing the default "out/frames".
     pub export_dir: String,

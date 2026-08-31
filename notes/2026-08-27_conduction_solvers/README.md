@@ -1190,6 +1190,40 @@ field instead of appearing still while the frame moves around them. The
 export writes full 1024x768 frames and the crop happens in a separate
 compose step, so the sequence can be recomposed without re-rendering.
 
+### A "second eclipse" that was filename sorting
+
+Reviewing the diffuse frames, an apparent extra eclipse of the secondary
+showed up between the first umbra passage and the shadow transit, which the
+geometry does not contain. The natural suspicions were a rendering artefact
+-- a wrong frustum, or spurious self-shadowing on Dimorphos.
+
+Both were wrong, and measuring rather than inspecting settled it. Sampling
+the diffuse frames at Dimorphos's *predicted* pixel position and taking the
+peak brightness in a 44 px box gives **zero frames dark outside the umbra
+windows**; peak brightness is 1.000 everywhere else. Independently, a
+one-minute-cadence geometric scan finds only the two umbra passages, no
+occultation before +4.62 h, and a phase angle staying within 27-31 deg, so
+the illuminated fraction never drops below 0.93. There was nothing to see.
+
+The cause was the **frame filenames**. `FrameExporter` wrote
+`{export_dir}/{N}.png` unpadded, so any file browser, image viewer or shell
+glob sorts them as strings: 0, 1, 10, 100, 101, ..., 109, 11, 110, ... In
+that order the 40 true umbra frames scatter into **14 separate clusters**, so
+stepping through the directory shows fourteen apparent eclipses rather than
+two. The temperature and radiance frames, written by this example with
+`f"{k:04d}.png"`, were correctly ordered -- which is why the artefact
+appeared only in the diffuse sequence and looked like a renderer problem.
+
+Fixed at the source: `FrameExporter` now writes `{N:06}.png`. The resume scan
+parses the stem as a number, so it still accepts the unpadded names earlier
+runs wrote, and six digits matches ffmpeg's `%06d` pattern directly.
+
+Worth recording as a class of bug: an ordering fault in a *sequence* presents
+as a physics fault in the *content*, and the natural debugging instinct --
+look harder at the rendering -- leads away from it. Predicting where the
+object should be and measuring the pixels there took a minute and pointed
+straight at the answer.
+
 TIRI needs no substitute pointing over this window: it is nadir-pointed at
 Didymos throughout, measured at 0.000 deg off-axis every hour.
 
