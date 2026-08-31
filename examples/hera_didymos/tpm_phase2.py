@@ -29,10 +29,23 @@ inside its own stability limit.
     "self"   -- each body alone, so only its own concavities shadow it
     "mutual" -- both loaded, adding the eclipses
 
-Mutual and self *heating* are still absent: both need the view-factor work in
-section 9, whose current implementation returns zero for neighbouring facets.
-Shadowing is done first because it is a multiplier on a term that already
+`HEATING` ablates the radiative coupling, which section 9's view factors now
+make available:
+
+    "none"   -- direct insolation only, as before
+    "self"   -- a facet is warmed by its own body's other facets
+    "mutual" -- and by the companion
+
+Both terms are first order in the view factors: thermal re-radiation
+`eps_i sum_j VF_ij eps_j sigma T_j^4` and scattered sunlight
+`(1 - A_i) sum_j VF_ij A_j S_j`. See `kalast.tpm.heating` for why a second
+bounce is dropped.
+
+Shadowing was done first because it is a multiplier on a term that already
 exists, and section 7.5b measures it as the dominant effect during a transit.
+Heating is the smaller correction, and on Didymos a very small one -- its self
+view-factor row sums are mean 0.0013. It is not small on Dimorphos, which sits
+1.15 km from a body four times its size.
 """
 
 import time
@@ -43,6 +56,7 @@ import pandas
 import spiceypy as spice
 
 import kalast
+import kalast.tpm.heating as heating
 import kalast.tpm.nonuniform as nonuniform
 import kalast.tpm.properties as properties
 import kalast.tpm.routine as routine
@@ -55,6 +69,36 @@ SHADOWING = SHADOW_MODE != "none"
 # to be alone in the scene -- the companion would otherwise occlude it. One
 # body per run, so the ablation takes two.
 SELF_BODY = "DIDYMOS"
+
+HEATING = "mutual"  # "none" | "self" | "mutual"
+# "mutual" heating needs both bodies loaded and stepped, so it is only
+# available when SHADOW_MODE is "mutual" -- checked below rather than left to
+# produce a silently self-only answer.
+
+VF_RES = 128     # hemicube face resolution; 3e-5 closure error at 128
+VF_CHUNK = 2500  # rows per frame. Sets peak memory: 2,500 x 20,000 float32 is
+                 # 200 MB, against 800 MB for all 10,000 at once.
+VF_EVERY = 25    # steps between view-factor recomputes; 0 = compute once.
+                 #
+                 # Self view factors are fixed in the body frame, so the only
+                 # reason to rebuild is the companion moving -- and it moves a
+                 # lot. Dimorphos is tidally locked, so Didymos holds still in
+                 # its sky, but Didymos *rotates* underneath in 2.26 h, so
+                 # which of the primary's facets Dimorphos sees, and whether
+                 # they are day side or night side, turns over completely each
+                 # rotation. Holding the rows fixed for one rotation costs
+                 # 0.69 K of Dimorphos's 2.29 K heating effect -- 30 % of the
+                 # term. Measured against a rebuild every 10 steps:
+                 #
+                 #     cadence   ms/step   Dimorphos mean error
+                 #     once          56          -0.689 K
+                 #     25           250          +0.055 K
+                 #     10           601           reference
+                 #
+                 # 25 is 2 % of the effect for a fifth of the cost. Didymos
+                 # does not care at any cadence: its own term is 0.07 K.
+                 # One hemicube pass yields both blocks, so the static self
+                 # block is rebuilt along with the mutual one for free.
 
 N_ROTATIONS = 6  # Didymos spins before the study epoch
 # Continue past it, to watch the eclipse scar fade. Didymos spins in 2.26 h
@@ -69,6 +113,8 @@ DT_SAFETY = 0.4
 
 OUT = ("out/hera_didymos/phase2_self_" + SELF_BODY.lower()
        if SHADOW_MODE == "self" else f"out/hera_didymos/phase2_{SHADOW_MODE}")
+if HEATING != "none":
+    OUT += f"_heat_{HEATING}"
 
 BODIES = ("DIDYMOS", "DIMORPHOS")
 MESH = {
@@ -210,6 +256,7 @@ history = {"et": []}
 for name in ACTIVE:
     history[f"{name.lower()}_shadowed"] = []
     history[f"{name.lower()}_t_mean"] = []
+    history[f"{name.lower()}_q_extra"] = []
 SNAP_EVERY = 5
 snapshots = {"et": [], **{n: [] for n in ACTIVE}}
 # The snapshot cadence is coarse (SNAP_EVERY * dt = 280 s), which is fine for
@@ -231,11 +278,79 @@ REF = ACTIVE[0] if SHADOW_MODE == "self" else "DIDYMOS"
 REF_FRAME = getattr(kalast.entity, REF).frame
 
 
+
+# --------------------------------------------------- view-factor driver
+HEATING_ON = HEATING != "none"
+if HEATING == "mutual" and SHADOW_MODE != "mutual":
+    raise SystemExit(
+        "HEATING='mutual' needs both bodies in the scene and stepped, which "
+        f"SHADOW_MODE='{SHADOW_MODE}' does not do. Set SHADOW_MODE='mutual', "
+        "or HEATING='self'."
+    )
+
+NFACE = [state[n]["nface"] for n in loaded]
+
+
+class ViewFactorDriver:
+    """Builds one body's rows at a time, a chunk per frame.
+
+    Only one hemicube request is in flight at a time -- the simulation holds a
+    single request slot -- so the bodies are worked through in order, and each
+    body's rows arrive `VF_CHUNK` at a time. The TPM does not step while this
+    is running, which is why the step index is its own counter rather than
+    `sim.state.iteration`.
+    """
+
+    def __init__(self):
+        self.rows = {}
+        self.queue = []
+        self.current = None
+
+    def start(self):
+        self.queue = list(ACTIVE)
+        self.current = None
+
+    @property
+    def busy(self):
+        return self.current is not None or bool(self.queue)
+
+    @property
+    def ready(self):
+        return len(self.rows) == len(ACTIVE)
+
+    def request(self, sim):
+        if self.current is None:
+            if not self.queue:
+                return
+            name = self.queue[0]
+            self.current = (name, heating.ViewFactorBuilder(
+                body=state[name]["index"], n_facets=state[name]["nface"],
+                resolution=VF_RES, chunk=VF_CHUNK,
+            ))
+        self.current[1].request(sim)
+
+    def collect(self, sim):
+        if self.current is None:
+            return
+        name, builder = self.current
+        if builder.collect(sim, NFACE):
+            self.rows[name] = builder.result
+            self.queue.pop(0)
+            self.current = None
+
+
+vf = ViewFactorDriver()
+if HEATING_ON:
+    vf.start()
+
+step = {"n": 0}
+
+
 def before_render(sim, dt_frame):
-    it = sim.state.iteration
-    if it > n_steps:
+    """Place the scene for this step, and keep the view-factor build fed."""
+    if step["n"] > n_steps:
         return
-    et = et_start + it * dt
+    et = et_start + step["n"] * dt
 
     # Body 0 sits at the origin unrotated and everything else moves around
     # it, so its facet positions -- which the TPM indexes -- stay static in
@@ -262,9 +377,20 @@ def before_render(sim, dt_frame):
     sim.camera.dir = -u_sun
     sim.camera.anchor = [0.0, 0.0, 0.0]
 
+    # Requested after the bodies are placed: the hemicube renders the scene
+    # this callback just positioned, so the mutual block belongs to this
+    # epoch and not the previous one.
+    if HEATING_ON and vf.busy:
+        vf.request(sim)
 
-def step_body(sim, s, et):
-    """Insolation, surface balance and conduction for one body."""
+
+def insolation(sim, s, et):
+    """Direct sunlight on each facet, before any radiative coupling.
+
+    Returns the *incident* flux rather than the absorbed one: the scattered
+    term needs what arrives at a facet before its own albedo takes a share,
+    since that is what it reflects onward.
+    """
     # Each body's columns live in its own frame, so the Sun direction is
     # taken there rather than transformed from Didymos's.
     (p_sun, _lt) = spice.spkpos(
@@ -283,36 +409,98 @@ def step_body(sim, s, et):
     else:
         lit = numpy.ones(s["nface"])
 
-    prop = s["prop"]
-    sflux = (SOLAR_CONSTANT * (1.0 - prop.albedo) * cosi * lit
-             / (d_sun / AU) ** 2)
+    incident = SOLAR_CONSTANT * cosi * lit / (d_sun / AU) ** 2
+    return {"cosi": cosi, "lit": lit, "incident": incident}
 
-    routine.step_surface_newton(
-        s["T"], sflux, prop.se, prop.conductivity, s["twodz"],
-        threshold=kalast.util.NEWTON_METHOD_THRESHOLD,
-    )
-    routine.step_conduction(s["T"], s["d_nodes"], s["coefs"])
-    return int(((lit < 1.0) & (cosi > 0)).sum())
+
+def coupling(ins):
+    """Absorbed flux added by radiative coupling, per body.
+
+    Both terms are first order and use the surface temperature at the start
+    of the step, which is what makes this a single matvec rather than an
+    implicit solve. `HEATING == "self"` differs from `"mutual"` only in which
+    bodies are allowed to contribute -- the view factors are the same rows,
+    and the companion's columns are simply left at zero.
+    """
+    out = {n: None for n in ACTIVE}
+    if not (HEATING_ON and vf.ready):
+        return out
+
+    emit, refl = [], []
+    for name in loaded:
+        s, prop = state[name], state[name]["prop"]
+        emit.append(heating.emitted(s["T"][:, 0], prop.emissivity))
+        refl.append(prop.albedo * ins[name]["incident"])
+
+    for name in ACTIVE:
+        rows = vf.rows[name]
+        keep = [name] if HEATING == "self" else list(loaded)
+        e = [emit[i] if loaded[i] in keep else None for i in range(len(loaded))]
+        r = [refl[i] if loaded[i] in keep else None for i in range(len(loaded))]
+        prop = state[name]["prop"]
+        out[name] = heating.absorbed(
+            rows, rows.stack(e), rows.stack(r),
+            emissivity=prop.emissivity, albedo=prop.albedo,
+        )
+    return out
 
 
 def after_render(sim, dt_frame):
-    it = sim.state.iteration
     if clock["done"]:
         return
     if clock["t0"] is None:
         clock["t0"] = time.perf_counter()
 
+    # A view-factor build owns the frame: the TPM must not advance while the
+    # rows it is about to use are half assembled.
+    if HEATING_ON and vf.busy:
+        vf.collect(sim)
+        if vf.busy:
+            return
+        print(f"  view factors ready at step {step['n']:,}: "
+              + ", ".join(
+                  f"{n} {vf.rows[n].nnz:,} nnz "
+                  f"(self {vf.rows[n].row_sums(state[n]['index']).mean():.4f}"
+                  + ("" if len(loaded) < 2 else
+                     f", mutual {vf.rows[n].row_sums(1 - state[n]['index']).mean():.4f}")
+                  + ")"
+                  for n in ACTIVE), flush=True)
+
+    it = step["n"]
     if it > n_steps:
         elapsed = time.perf_counter() - clock["t0"]
         print(f"\n{n_steps:,} steps in {elapsed:.1f}s "
               f"({elapsed / max(n_steps, 1) * 1000:.2f} ms/step)")
         save()
         clock["done"] = True
-        import os
+        # os._exit skips the interpreter's shutdown, buffered stdout included,
+        # so a piped run loses everything save() just printed.
+        import os, sys
+        sys.stdout.flush()
         os._exit(0)
 
     et = et_start + it * dt
-    shadowed = {n: step_body(sim, state[n], et) for n in ACTIVE}
+
+    # Insolation for every body before any of them steps: with heating on, a
+    # body's surface feeds the other's boundary condition, so stepping one
+    # first would advance it against a stale companion.
+    ins = {n: insolation(sim, state[n], et) for n in ACTIVE}
+    extra = coupling(ins)
+
+    shadowed = {}
+    for name in ACTIVE:
+        s, prop = state[name], state[name]["prop"]
+        flux = (1.0 - prop.albedo) * ins[name]["incident"]
+        if extra[name] is not None:
+            flux = flux + extra[name]
+
+        routine.step_surface_newton(
+            s["T"], flux, prop.se, prop.conductivity, s["twodz"],
+            threshold=kalast.util.NEWTON_METHOD_THRESHOLD,
+        )
+        routine.step_conduction(s["T"], s["d_nodes"], s["coefs"])
+        shadowed[name] = int(
+            ((ins[name]["lit"] < 1.0) & (ins[name]["cosi"] > 0)).sum())
 
     offset = et - et_study
     if at_epoch["dt"] is None or abs(offset) < abs(at_epoch["dt"]):
@@ -328,7 +516,18 @@ def after_render(sim, dt_frame):
         history["et"].append(et)
         for n in ACTIVE:
             history[f"{n.lower()}_shadowed"].append(shadowed[n])
-            history[f"{n.lower()}_t_mean"].append(float(state[n]["T"][:, 0].mean()))
+            history[f"{n.lower()}_t_mean"].append(
+                float(state[n]["T"][:, 0].mean()))
+            history[f"{n.lower()}_q_extra"].append(
+                0.0 if extra[n] is None else float(extra[n].mean()))
+
+    step["n"] += 1
+
+    # A periodic rebuild picks the companion up where it has moved to. The
+    # self block is fixed in the body frame and is rebuilt with it only
+    # because one hemicube pass produces both.
+    if HEATING == "mutual" and VF_EVERY and step["n"] % VF_EVERY == 0:
+        vf.start()
 
 
 def save():
