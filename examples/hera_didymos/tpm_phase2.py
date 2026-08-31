@@ -1,30 +1,38 @@
 #!/usr/bin/env python
 """Phase 2: high-fidelity TPM segment through the Dimorphos transit.
 
-Phase 1 (`tpm.py`) spins the column up over two solar orbits with direct
-insolation only. That is defensible for the deep, orbit-averaged field -- see
-`notes/2026-08-27_conduction_solvers/` section 7.4, which also measures that
-Didymos has no permanently shadowed regions, so no facet depends on
+Phase 1 (`tpm.py`) spins each body's column up over three solar orbits with
+direct insolation only. That is defensible for the deep, orbit-averaged field
+-- see `notes/2026-08-27_conduction_solvers/` section 7.4, which also measures
+that Didymos has no permanently shadowed regions, so no facet depends on
 self-heating to be warm at all.
 
-This restarts from that state a few rotations before 2027-01-21T05:36 UTC and
-adds the physics that only matters near a mutual event. It runs **inside the
-render loop**: eclipse shadowing comes from the GPU shadow map via
-`sim.facet_shadow`, which is why the app drives the timestep rather than a
-bare Python loop.
+This restarts *both* bodies from those states a few rotations before
+2027-01-21T05:36 UTC and adds the physics that only matters near a mutual
+event. It runs **inside the render loop**, because eclipse shadowing comes
+from the GPU shadow map:
 
     before_render : place Didymos, Dimorphos and the Sun from spice
     (renderer)    : shadow pass builds the depth map from the Sun's view
-    after_render  : read the occluded fraction per facet, take the TPM step
+    after_render  : read the occluded fraction per body, take the TPM steps
 
-`SHADOWING = False` reproduces phase 1 physics over the same interval, so
-differencing the two isolates exactly what the eclipse contributes. That
-ablation is the point of the run, not a diagnostic of it.
+Both bodies are stepped, on their own grids. They do not share one: the grid
+follows the diurnal skin depth, and Dimorphos is tidally locked at 11.37 h
+against Didymos's 2.26 h, so its skin depth is sqrt(5) larger and its column
+is coarser and its timestep longer. The run marches on Didymos's timestep and
+sub-cycles nothing -- Dimorphos simply takes the same dt, which is well
+inside its own stability limit.
 
-Mutual and self heating are **not** included yet: both need the view-factor
-work in section 9, whose current implementation returns zero for neighbouring
-facets. Eclipse shadowing is done first because it is a multiplier on a term
-that already exists, and it dominates the signal during a transit.
+`SHADOW_MODE` ablates the two shadowing terms:
+
+    "none"   -- phase 1 physics, direct insolation only
+    "self"   -- each body alone, so only its own concavities shadow it
+    "mutual" -- both loaded, adding the eclipses
+
+Mutual and self *heating* are still absent: both need the view-factor work in
+section 9, whose current implementation returns zero for neighbouring facets.
+Shadowing is done first because it is a multiplier on a term that already
+exists, and section 7.5b measures it as the dominant effect during a transit.
 """
 
 import time
@@ -41,35 +49,43 @@ import kalast.tpm.routine as routine
 from kalast.util import AU, RPD, SOLAR_CONSTANT, STEFAN_BOLTZMANN
 
 # ---------------------------------------------------------------- settings
-# Ablation. "mutual" is the real configuration; the other two isolate what
-# each shadowing term contributes:
-#   "none"   -- phase 1 physics, direct insolation only
-#   "self"   -- Didymos alone, so only its own concavities shadow it
-#   "mutual" -- Dimorphos loaded too, adding the eclipse
-SHADOW_MODE = "mutual"
+SHADOW_MODE = "mutual"  # "none" | "self" | "mutual"
 SHADOWING = SHADOW_MODE != "none"
-N_ROTATIONS = 6  # segment length before the study epoch
+# "self" means a body shadowed only by its own topography, which requires it
+# to be alone in the scene -- the companion would otherwise occlude it. One
+# body per run, so the ablation takes two.
+SELF_BODY = "DIDYMOS"
+
+N_ROTATIONS = 6  # Didymos spins before the study epoch
 # Continue past it, to watch the eclipse scar fade. Didymos spins in 2.26 h
 # while Dimorphos orbits in 11.37 h, so the shadow spot sweeps across the
 # surface rather than dwelling: each facet is darkened for ~10-16 min, and
-# whether that scar survives to the next rotation is a thermal-memory
-# question the model can answer directly.
+# section 7.5b measures the scar still at -10 K a full rotation later.
 SPINS_AFTER = 3
-RESTART_FROM = "out/hera_didymos/didymos_tpm_3orbit"
-OUT = f"out/hera_didymos/didymos_phase2_{SHADOW_MODE}"
 
 NODES_PER_SKIN_DEPTH = 4
 DEPTH_IN_SEASONAL = 1.0
 DT_SAFETY = 0.4
 
-MESH_DIDY = (
-    "/Users/gregoireh/data/mesh/didymos/"
-    "g_01165mm_spc_obj_didy_0000n00000_v003_decimated_10k.obj"
-)
-MESH_DIMO = (
-    "/Users/gregoireh/data/mesh/dimorphos/"
-    "g_00243mm_spc_obj_dimo_0000n00000_v004_decimated_10k.obj"
-)
+OUT = ("out/hera_didymos/phase2_self_" + SELF_BODY.lower()
+       if SHADOW_MODE == "self" else f"out/hera_didymos/phase2_{SHADOW_MODE}")
+
+BODIES = ("DIDYMOS", "DIMORPHOS")
+MESH = {
+    "DIDYMOS": (
+        "/Users/gregoireh/data/mesh/didymos/"
+        "g_01165mm_spc_obj_didy_0000n00000_v003_decimated_10k.obj"
+    ),
+    "DIMORPHOS": (
+        "/Users/gregoireh/data/mesh/dimorphos/"
+        "g_00243mm_spc_obj_dimo_0000n00000_v004_decimated_10k.obj"
+    ),
+}
+RESTART = {
+    "DIDYMOS": "out/hera_didymos/didymos_tpm_3orbit",
+    "DIMORPHOS": "out/hera_didymos/dimorphos_tpm",
+}
+
 KERNEL = "/Users/gregoireh/data/spice/hera/kernels/mk/hera_plan_local.tm"
 
 # Deliberately NOT the Horizons ephemeris that `tpm.py` furnishes. It carries
@@ -86,109 +102,160 @@ spice.kclear()
 spice.furnsh(KERNEL)
 
 didymos = kalast.entity.DIDYMOS
-prop = kalast.tpm.properties.DIDYMOS
-prop.se = STEFAN_BOLTZMANN * prop.emissivity
-prop.compute_conductivity_diffusivity()
-D = prop.diffusivity
+ORBIT_PERIOD = didymos.orbit_period  # heliocentric, shared by both bodies
 
 et_study = spice.str2et("2027-01-21 05:36:00 UTC")
 et_start = et_study - N_ROTATIONS * didymos.spin_period
 et_end = et_study + SPINS_AFTER * didymos.spin_period
 
-# Grid must match the spin-up exactly or the saved state cannot be reused.
-ls1_day = properties.skin_depth_1(D, didymos.spin_period)
-z = nonuniform.column(
-    ls1_day, m=NODES_PER_SKIN_DEPTH, n=5,
-    b=DEPTH_IN_SEASONAL * properties.skin_depth_2pi(D, didymos.orbit_period) / ls1_day,
-)
-nx = z.size
-dt = DT_SAFETY * routine.nonuniform_max_dt(z, D)
+
+def build(name):
+    """Grid, restart state and stepping coefficients for one body.
+
+    The grid is rebuilt exactly as `tpm.py` built it, and the saved `z.csv`
+    is checked against it -- a restart onto a different grid is silently
+    wrong, since the state is just an array of node temperatures.
+    """
+    body = getattr(kalast.entity, name)
+    prop = getattr(kalast.tpm.properties, name)
+    prop.se = STEFAN_BOLTZMANN * prop.emissivity
+    prop.compute_conductivity_diffusivity()
+    d = prop.diffusivity
+
+    ls1 = properties.skin_depth_1(d, body.spin_period)
+    z = nonuniform.column(
+        ls1, m=NODES_PER_SKIN_DEPTH, n=5,
+        b=DEPTH_IN_SEASONAL * properties.skin_depth_2pi(d, ORBIT_PERIOD) / ls1,
+    )
+
+    src = Path(RESTART[name])
+    t = pandas.read_csv(src / "tmp_state.csv").to_numpy()
+    z_prev = pandas.read_csv(src / "z.csv")["depth"].to_numpy()
+    if not numpy.allclose(z_prev, z):
+        raise SystemExit(f"{name}: restart grid does not match this run's grid")
+
+    return {
+        "name": name,
+        "body": body,
+        "prop": prop,
+        "z": z,
+        "T": t,
+        "nface": t.shape[0],
+        "max_dt": routine.nonuniform_max_dt(z, d),
+        "twodz": 2.0 * (z[1] - z[0]),
+        "d_nodes": numpy.full(z.size, d, dtype=numpy.float64),
+    }
+
+
+ACTIVE = BODIES if SHADOW_MODE != "self" else (SELF_BODY,)
+# Built for *every* body even when only one is stepped: the timestep is set
+# by the stiffest grid in the system, and it must not change between ablation
+# runs or their difference would measure the timestep as well as the physics.
+state = {n: build(n) for n in BODIES}
+
+# One timestep for both, set by whichever body is stiffer -- Didymos, whose
+# finer grid follows its shorter rotation.
+dt = DT_SAFETY * min(s["max_dt"] for s in state.values())
 n_steps = int(numpy.ceil((et_end - et_start) / dt))
 
-T = pandas.read_csv(Path(RESTART_FROM) / "tmp_state.csv").to_numpy()
-z_prev = pandas.read_csv(Path(RESTART_FROM) / "z.csv")["depth"].to_numpy()
-if not numpy.allclose(z_prev, z):
-    raise SystemExit("restart grid does not match this run's grid")
-nface = T.shape[0]
+for s in state.values():
+    s["coefs"] = tuple(
+        numpy.asarray(c, dtype=numpy.float64)
+        for c in routine.nonuniform_coefficients(s["z"], dt)
+    )
 
-coefs = tuple(
-    numpy.asarray(c, dtype=numpy.float64)
-    for c in routine.nonuniform_coefficients(z, dt)
-)
-d_nodes = numpy.full(nx, D, dtype=numpy.float64)
-twodz0 = 2.0 * (z[1] - z[0])
-
-print(f"phase 2, shadow mode = {SHADOW_MODE}")
-print(f"  restart {RESTART_FROM}: surface mean {T[:, 0].mean():.2f} K")
+print(f"phase 2, shadow mode = {SHADOW_MODE}"
+      + (f" ({SELF_BODY} alone)" if SHADOW_MODE == "self" else ""))
 print(f"  {spice.et2utc(et_start, 'C', 0)} -> {spice.et2utc(et_end, 'C', 0)}"
       f"  (study epoch {spice.et2utc(et_study, 'C', 0)}, "
       f"+{SPINS_AFTER} spins after)")
-print(f"  {N_ROTATIONS} rotations, dt={dt:.2f}s, {n_steps:,} steps, "
-      f"{nface:,} facets x {nx} nodes")
+print(f"  dt={dt:.2f}s, {n_steps:,} steps")
+for n in ACTIVE:
+    s = state[n]
+    print(f"  {s['name']:10s} {s['nface']:,} facets x {s['z'].size} nodes, "
+          f"own stability limit {s['max_dt']:.0f}s, "
+          f"restart surface mean {s['T'][:, 0].mean():.2f} K")
 
 # -------------------------------------------------------------- rendering
 app = kalast.app.App()
 app.config.width = 512
 app.config.height = 512
-app.config.color_mode = 0
 app.config.vsync = False
 app.config.export_dir = f"{OUT}/frames"
-# Per-facet occlusion from the shadow map, read in after_render. Off when
-# ablating, so the run costs nothing it does not use.
 app.config.access_shadow_map = SHADOWING
-
 app.simulation.camera.projection.fovy = 20.0 * RPD
 
-didy_mat = numpy.eye(4)
-app.simulation.load_mesh(path=MESH_DIDY, mat=didy_mat, flatten=True)
-if SHADOW_MODE == "mutual":
-    dimo_mat = numpy.eye(4)
-    app.simulation.load_mesh(path=MESH_DIMO, mat=dimo_mat, flatten=True)
-
-mesh = app.simulation.bodies[0].mesh
-if len(mesh.facets) != nface:
-    raise SystemExit(
-        f"renderer mesh has {len(mesh.facets):,} facets, restart state has "
-        f"{nface:,} -- phase 1 and phase 2 must use the same mesh"
+# In "self" mode each body must be alone in the scene, or the other would
+# occlude it. Two passes would be needed to do both; Didymos is the one the
+# deliverable is about, so it is the one kept.
+loaded = ACTIVE
+for i, name in enumerate(loaded):
+    app.simulation.load_mesh(path=MESH[name], mat=numpy.eye(4), flatten=True)
+    mesh = app.simulation.bodies[i].mesh
+    s = state[name]
+    if len(mesh.facets) != s["nface"]:
+        raise SystemExit(
+            f"{name}: renderer mesh has {len(mesh.facets):,} facets, restart "
+            f"state has {s['nface']:,} -- phase 1 and 2 must use one mesh"
+        )
+    s["index"] = i
+    s["positions"] = numpy.array(
+        [mesh.facets[k].pos for k in range(s["nface"])], dtype=numpy.float64
     )
-positions = numpy.array(
-    [mesh.facets[i].pos for i in range(nface)], dtype=numpy.float64
-)
-normals = numpy.array(
-    [mesh.facets[i].normal for i in range(nface)], dtype=numpy.float64
-)
+    s["normals"] = numpy.array(
+        [mesh.facets[k].normal for k in range(s["nface"])], dtype=numpy.float64
+    )
 
-history = {"et": [], "shadowed": [], "t_mean": [], "t_max": [], "t_min": []}
-# Full surface field every SNAP_EVERY steps, so two runs can be differenced
-# facet by facet as a function of time rather than only at the end.
+history = {"et": []}
+for name in ACTIVE:
+    history[f"{name.lower()}_shadowed"] = []
+    history[f"{name.lower()}_t_mean"] = []
 SNAP_EVERY = 5
-snapshots = {"et": [], "t": []}
-state = {"t0": None, "done": False}
+snapshots = {"et": [], **{n: [] for n in ACTIVE}}
+# The snapshot cadence is coarse (SNAP_EVERY * dt = 280 s), which is fine for
+# watching the scar decay but not for a data product: 280 s is a third of the
+# time the shadow spot needs to cross a facet. So the step landing nearest the
+# study epoch is captured separately, exactly.
+at_epoch = {"dt": None, **{n: None for n in ACTIVE}}
+clock = {"t0": None, "done": False}
+
+
+# The scene is built in the frame of whichever body sits at the origin. In
+# "mutual" that is Didymos, with Dimorphos placed relative to it. In "self"
+# it is the single loaded body, in *its own* frame -- getting this wrong puts
+# the shadow map and the TPM in different frames, so the facets the renderer
+# reports as shadowed are not the facets the physics thinks are lit. That
+# produced a "self" run colder than "mutual", which cannot happen, since
+# mutual is self plus an extra occluder.
+REF = ACTIVE[0] if SHADOW_MODE == "self" else "DIDYMOS"
+REF_FRAME = getattr(kalast.entity, REF).frame
 
 
 def before_render(sim, dt_frame):
     it = sim.state.iteration
     if it > n_steps:
         return
-
     et = et_start + it * dt
 
-    # Body-fixed frame of Didymos: the TPM columns live in it, so the Sun and
-    # Dimorphos are placed relative to Didymos rather than in an inertial frame.
-    (p_sun, _lt) = spice.spkpos("SUN", et, didymos.frame, "none", "DIDYMOS")
-    (p_dimo, _lt) = spice.spkpos("DIMORPHOS", et, didymos.frame, "none", "DIDYMOS")
-    m_dimo = spice.pxform("DIMORPHOS_FIXED", didymos.frame, et)
-
-    # The Sun drives the shadow map; keep it far away along its true direction
-    # so the light is effectively collimated across the system.
+    # Body 0 sits at the origin unrotated and everything else moves around
+    # it, so its facet positions -- which the TPM indexes -- stay static in
+    # the renderer and no per-frame vertex upload is needed.
+    (p_sun, _lt) = spice.spkpos("SUN", et, REF_FRAME, "none", REF)
     u_sun = numpy.asarray(p_sun) / numpy.linalg.norm(p_sun)
+
+    # The shadow projection is orthographic, so this distance sets only the
+    # view origin, not the shadow's divergence: the light is collimated, as
+    # sunlight at 1 AU effectively is.
     sim.sun.pos = u_sun * 50.0
     sim.sun.look_anchor()
 
     sim.bodies[0].mat[:3, :3] = numpy.eye(3)
     sim.bodies[0].mat[:3, 3] = [0.0, 0.0, 0.0]
     if len(sim.bodies) > 1:
-        sim.bodies[1].mat[:3, :3] = m_dimo
+        (p_dimo, _lt) = spice.spkpos(
+            "DIMORPHOS", et, REF_FRAME, "none", REF)
+        sim.bodies[1].mat[:3, :3] = spice.pxform(
+            "DIMORPHOS_FIXED", REF_FRAME, et)
         sim.bodies[1].mat[:3, 3] = p_dimo
 
     sim.camera.pos = u_sun * 30.0
@@ -196,80 +263,96 @@ def before_render(sim, dt_frame):
     sim.camera.anchor = [0.0, 0.0, 0.0]
 
 
+def step_body(sim, s, et):
+    """Insolation, surface balance and conduction for one body."""
+    # Each body's columns live in its own frame, so the Sun direction is
+    # taken there rather than transformed from Didymos's.
+    (p_sun, _lt) = spice.spkpos(
+        "SUN", et, s["body"].frame, "none", s["name"])
+    p_sun = numpy.asarray(p_sun, dtype=numpy.float64) * 1e3
+
+    v = p_sun[None, :] - s["positions"]
+    d_sun = numpy.linalg.norm(v, axis=1)
+    cosi = numpy.einsum("ij,ij->i", s["normals"], v / d_sun[:, None])
+    numpy.maximum(cosi, 0.0, out=cosi)
+
+    if SHADOWING and "index" in s:
+        frac = sim.facet_shadow(s["index"])
+        lit = (1.0 - numpy.asarray(frac, dtype=numpy.float64)
+               if frac is not None else numpy.ones(s["nface"]))
+    else:
+        lit = numpy.ones(s["nface"])
+
+    prop = s["prop"]
+    sflux = (SOLAR_CONSTANT * (1.0 - prop.albedo) * cosi * lit
+             / (d_sun / AU) ** 2)
+
+    routine.step_surface_newton(
+        s["T"], sflux, prop.se, prop.conductivity, s["twodz"],
+        threshold=kalast.util.NEWTON_METHOD_THRESHOLD,
+    )
+    routine.step_conduction(s["T"], s["d_nodes"], s["coefs"])
+    return int(((lit < 1.0) & (cosi > 0)).sum())
+
+
 def after_render(sim, dt_frame):
     it = sim.state.iteration
-    if state["done"]:
+    if clock["done"]:
         return
-    if state["t0"] is None:
-        state["t0"] = time.perf_counter()
+    if clock["t0"] is None:
+        clock["t0"] = time.perf_counter()
 
     if it > n_steps:
-        elapsed = time.perf_counter() - state["t0"]
+        elapsed = time.perf_counter() - clock["t0"]
         print(f"\n{n_steps:,} steps in {elapsed:.1f}s "
               f"({elapsed / max(n_steps, 1) * 1000:.2f} ms/step)")
         save()
-        state["done"] = True
+        clock["done"] = True
         import os
         os._exit(0)
 
     et = et_start + it * dt
-    (p_sun, _lt) = spice.spkpos("SUN", et, didymos.frame, "none", "DIDYMOS")
-    p_sun = numpy.asarray(p_sun, dtype=numpy.float64) * 1e3
+    shadowed = {n: step_body(sim, state[n], et) for n in ACTIVE}
 
-    v = p_sun[None, :] - positions
-    d_sun = numpy.linalg.norm(v, axis=1)
-    cosi = numpy.einsum("ij,ij->i", normals, v / d_sun[:, None])
-    numpy.maximum(cosi, 0.0, out=cosi)
-
-    # Occluded fraction from the shadow map: 0 lit, 1 fully in umbra, quarter
-    # steps between for facets straddling the shadow rim.
-    if SHADOWING:
-        frac = sim.facet_shadow(0)
-        lit = 1.0 - numpy.asarray(frac, dtype=numpy.float64) if frac is not None \
-            else numpy.ones(nface)
-    else:
-        lit = numpy.ones(nface)
-
-    sflux = SOLAR_CONSTANT * (1.0 - prop.albedo) * cosi * lit / (d_sun / AU) ** 2
-
-    routine.step_surface_newton(
-        T, sflux, prop.se, prop.conductivity, twodz0,
-        threshold=kalast.util.NEWTON_METHOD_THRESHOLD,
-    )
-    routine.step_conduction(T, d_nodes, coefs)
+    offset = et - et_study
+    if at_epoch["dt"] is None or abs(offset) < abs(at_epoch["dt"]):
+        at_epoch["dt"] = offset
+        for n in ACTIVE:
+            at_epoch[n] = state[n]["T"][:, 0].copy()
 
     if it % SNAP_EVERY == 0:
         snapshots["et"].append(et)
-        snapshots["t"].append(T[:, 0].copy())
-
+        for n in ACTIVE:
+            snapshots[n].append(state[n]["T"][:, 0].copy())
     if it % 10 == 0:
-        # `lit < 1` counts facets the shadow map finds even partly occluded;
-        # on the day side that is the eclipse.
-        day = cosi > 0
         history["et"].append(et)
-        history["shadowed"].append(int(((lit < 1.0) & day).sum()))
-        history["t_mean"].append(float(T[:, 0].mean()))
-        history["t_max"].append(float(T[:, 0].max()))
-        history["t_min"].append(float(T[:, 0].min()))
+        for n in ACTIVE:
+            history[f"{n.lower()}_shadowed"].append(shadowed[n])
+            history[f"{n.lower()}_t_mean"].append(float(state[n]["T"][:, 0].mean()))
 
 
 def save():
     out = Path(OUT)
     out.mkdir(parents=True, exist_ok=True)
-    pandas.DataFrame(T).to_csv(out / "tmp_state.csv", index=False,
-                               encoding="utf-8-sig")
-    pandas.DataFrame({"depth": z}).to_csv(out / "z.csv", index=False,
-                                          encoding="utf-8-sig")
-    pandas.DataFrame({"facet": numpy.arange(nface), "t_surface": T[:, 0]}).to_csv(
-        out / "tmp_surf_final.csv", index=False, encoding="utf-8-sig")
     pandas.DataFrame(history).to_csv(out / "history.csv", index=False,
                                      encoding="utf-8-sig")
     numpy.save(out / "snap_et.npy", numpy.array(snapshots["et"]))
-    numpy.save(out / "snap_tsurf.npy", numpy.array(snapshots["t"]))
-    peak = max(history["shadowed"]) if history["shadowed"] else 0
-    print(f"surface T: min {T[:, 0].min():.1f}  max {T[:, 0].max():.1f}  "
-          f"mean {T[:, 0].mean():.1f} K")
-    print(f"peak day-side facets shadowed in a sample: {peak:,}")
+    print(f"epoch snapshot taken {at_epoch['dt']:+.2f} s from the study epoch")
+    for n in ACTIVE:
+        d = out / n.lower()
+        d.mkdir(exist_ok=True)
+        s = state[n]
+        pandas.DataFrame(s["T"]).to_csv(d / "tmp_state.csv", index=False,
+                                        encoding="utf-8-sig")
+        pandas.DataFrame({"depth": s["z"]}).to_csv(d / "z.csv", index=False,
+                                                   encoding="utf-8-sig")
+        pandas.DataFrame(
+            {"facet": numpy.arange(s["nface"]), "t_surface": s["T"][:, 0]}
+        ).to_csv(d / "tmp_surf_final.csv", index=False, encoding="utf-8-sig")
+        numpy.save(d / "snap_tsurf.npy", numpy.array(snapshots[n]))
+        numpy.save(d / "tsurf_at_epoch.npy", at_epoch[n])
+        print(f"{n:10s} surface T: min {s['T'][:, 0].min():6.1f}  "
+              f"max {s['T'][:, 0].max():6.1f}  mean {s['T'][:, 0].mean():6.1f} K")
     print(f"wrote {out}/")
 
 

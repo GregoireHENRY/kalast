@@ -36,6 +36,9 @@ pub const SHADER_SHADOW: wgpu::ShaderModuleDescriptor =
 pub const SHADER_FACET_SHADOW: wgpu::ShaderModuleDescriptor =
     wgpu::include_wgsl!("../../shaders/facet_shadow.wgsl");
 
+pub const SHADER_FACET_ID: wgpu::ShaderModuleDescriptor =
+    wgpu::include_wgsl!("../../shaders/facet_id.wgsl");
+
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
 pub struct Pipelines {

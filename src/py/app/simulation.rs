@@ -148,6 +148,54 @@ impl Simulation {
         Some(numpy::PyArray1::from_slice(py, v))
     }
 
+    /// Ask for a facet index map from the camera's point of view this frame.
+    ///
+    /// Request from `before_render`, read with `facet_id_map` from
+    /// `after_render`. Unlike the shadow query there is no config flag to
+    /// enable it permanently: it renders the scene a second time and blocks
+    /// on a readback, so it is meant for the frames a data product comes
+    /// from.
+    fn request_facet_id(&mut self) {
+        self.inner.borrow_mut().request_facet_id();
+    }
+
+    /// `(ids, offsets)` for the last requested frame, or `None`.
+    ///
+    /// `ids` is `(height, width)` of `uint32`: 0 where nothing was drawn,
+    /// otherwise `1 + offsets[body] + facet`. So for body `b`,
+    ///
+    ///     mask  = (ids > offsets[b]) & (ids <= offsets[b] + n_facets_b)
+    ///     facet = ids[mask] - offsets[b] - 1
+    ///
+    /// picks its pixels and their facet indices, in `Mesh.facets` order.
+    /// Depth is resolved by the rasteriser, so a facet missing from the map
+    /// is one the camera genuinely cannot see -- occluded by another body,
+    /// over the limb, or outside the field of view.
+    ///
+    /// Only flattened meshes are drawn: the facet index comes from the vertex
+    /// index, which is only meaningful when each facet owns its vertices.
+    fn facet_id_map<'py>(
+        slf: pyo3::Bound<'py, Self>,
+    ) -> Option<(
+        pyo3::Bound<'py, numpy::PyArray2<u32>>,
+        pyo3::Bound<'py, numpy::PyArray1<u32>>,
+    )> {
+        let py = slf.py();
+        let self_ = slf.borrow();
+        let sim = self_.inner.borrow();
+        let (pixels, offsets, w, h) = sim.facet_id_map()?;
+        let arr = numpy::PyArray2::from_vec2(
+            py,
+            &pixels
+                .chunks(*w as usize)
+                .take(*h as usize)
+                .map(|r| r.to_vec())
+                .collect::<Vec<_>>(),
+        )
+        .ok()?;
+        Some((arr, numpy::PyArray1::from_slice(py, offsets)))
+    }
+
     fn __repr__(&self) -> String {
         format!("{:?}", self.inner.borrow())
     }

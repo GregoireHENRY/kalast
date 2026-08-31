@@ -1,5 +1,6 @@
 pub mod body;
 pub mod config;
+pub mod facet_id;
 pub mod facet_shadow;
 pub mod frame;
 pub mod gpu;
@@ -233,6 +234,17 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         }
                     } else if !sim.facet_shadow_result.is_empty() {
                         sim.facet_shadow_result.clear();
+                    }
+
+                    // Same reasoning as the shadow query: the ID pass draws
+                    // the scene the callbacks just positioned, so it belongs
+                    // after the render, and its result is dropped when not
+                    // requested rather than left to describe an older frame.
+                    if sim.facet_id_request {
+                        sim.facet_id_request = false;
+                        sim.facet_id_result = Some(win.facet_id_map());
+                    } else {
+                        sim.facet_id_result = None;
                     }
 
                     sim.export_once = false;

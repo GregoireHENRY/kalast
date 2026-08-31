@@ -20,6 +20,15 @@ pub struct Simulation {
     /// queried this frame. Written after the render pass, which is the first
     /// moment the shadow map reflects this frame's geometry.
     pub facet_shadow_result: Vec<Vec<f32>>,
+
+    /// One-off request for the camera-view facet index map. Never a
+    /// per-frame config flag: it costs a second geometry pass and a blocking
+    /// readback, and it is wanted for the handful of frames a data product
+    /// comes from, not for every frame of a run.
+    pub facet_id_request: bool,
+    /// `(pixels, offsets, width, height)` from the last request. Pixels hold
+    /// `1 + offset[body] + facet`, or 0 where no facet was drawn.
+    pub facet_id_result: Option<(Vec<u32>, Vec<u32>, u32, u32)>,
 }
 
 impl Simulation {
@@ -39,6 +48,9 @@ impl Simulation {
 
             facet_shadow_request: None,
             facet_shadow_result: vec![],
+
+            facet_id_request: false,
+            facet_id_result: None,
         }
     }
 
@@ -132,6 +144,14 @@ impl Simulation {
     /// Ask for `body`'s per-facet occluded fractions to be read back from
     /// the shadow map after this frame renders. Only needed when
     /// `config.access_shadow_map` is off and you want them for one frame.
+    pub fn request_facet_id(&mut self) {
+        self.facet_id_request = true;
+    }
+
+    pub fn facet_id_map(&self) -> Option<&(Vec<u32>, Vec<u32>, u32, u32)> {
+        self.facet_id_result.as_ref()
+    }
+
     pub fn request_facet_shadow(&mut self, body: usize) {
         self.facet_shadow_request = Some(body);
     }

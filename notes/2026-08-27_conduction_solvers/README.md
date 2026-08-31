@@ -897,6 +897,171 @@ can be estimated analytically in advance from the orbit-averaged insolation.
 
 ---
 
+# 7.7 Both bodies, and the GIS3D TIRI product
+
+## Dimorphos's own thermophysical state
+
+`tpm.py` is now parameterised by `BODY`, so the same script spins up either
+body. Dimorphos needs no different physics, only a different grid: the grid
+follows the *diurnal* skin depth, and Dimorphos is tidally locked at 11.37 h
+against Didymos's 2.26 h, so its skin depth is sqrt(5) larger. 29 nodes to
+5.54 m against Didymos's 34 to 6.17 m, and a stability limit of 703 s against
+140 s. Three solar orbits took 644,850 steps at 1.46 ms/step, ~16 minutes.
+
+One trap: `DIMORPHOS.orbit_period` is its **11.9 h orbit around Didymos**,
+not a heliocentric year. Using it for the seasonal skin depth would build a
+column centimetres deep. The script takes `DIDYMOS.orbit_period` for both,
+which is the physically correct shared heliocentric period.
+
+A second, harder one: mission kernels cover 2026-07 to 2027-07, and both
+`spkpos` and `pxform` for Dimorphos fail with `SPKINSUFFDATA` before that.
+Didymos has a Horizons ephemeris and a rotation model back to 2023;
+Dimorphos has neither, so a multi-orbit spin-up cannot be driven from kernels
+alone. Two approximations bridge it:
+
+1. The Sun's direction is taken relative to Didymos. The bodies are 1.19 km
+   apart at 1.5e8 km, so the directions differ by 8e-9 rad.
+2. Dimorphos's body-fixed frame is extended backwards as a uniform rotation
+   about its own spin axis at the true rate, anchored to the real orientation
+   at the study epoch. Being tidally locked, its rotation *is* uniform to
+   good approximation. Measured against the kernels where both exist, the
+   synthetic frame drifts **0.013 deg/day** — 1.6 deg over 120 days.
+
+The rotational phase would not matter even if it were wrong: after thousands
+of rotations the column keeps no memory of its initial phase, and what a
+spin-up delivers is the deep seasonal field.
+
+## A frame bug the ablation caught
+
+The first `self` runs put Dimorphos alone in the scene but still placed the
+Sun using *Didymos's* frame, because `before_render` assumed body 0 was
+always Didymos. The shadow map and the TPM were then in different frames: the
+facets the renderer reported as shadowed were not the facets the physics
+thought were lit.
+
+It announced itself through an impossibility — `self` came out **colder** than
+`mutual` (215.4 K against 239.9 K), when mutual is self plus an extra
+occluder and can only be colder or equal. Worth recording as a diagnostic
+pattern: an ablation whose terms are nested gives a free monotonicity check,
+and it caught a bug that a plausible-looking number would have hidden.
+
+A second version of the same class: with only one body in `state`, the shared
+timestep was drawn from that body's stability limit alone (281 s instead of
+55.94 s), so an ablation difference would have measured the timestep as well
+as the physics. The grids are now built for every body regardless of which is
+stepped.
+
+## Two-body ablation at the study epoch
+
+| body | term | facets | worst ΔT | mean ΔT | facets < −5 K | worst radiance |
+|---|---|---|---|---|---|---|
+| Didymos | self-shadowing | 4,105 | −10.9 K | −0.15 K | 35 | −32.1 % |
+| | **eclipse** | 3,980 | **−93.7 K** | −1.39 K | 384 | **−78.9 %** |
+| | both | 4,240 | −93.7 K | −1.54 K | 413 | −78.9 % |
+| Dimorphos | **self-shadowing** | 7,791 | **−116.2 K** | −4.60 K | 1,865 | **−92.2 %** |
+| | eclipse | 9,213 | −11.0 K | −0.63 K | 1,234 | −26.9 % |
+| | both | 8,780 | −115.2 K | −5.23 K | 2,907 | −89.8 % |
+
+The two bodies are dominated by *different* terms, and the reason is the
+epoch. At 05:36 Dimorphos is at conjunction — between Didymos and the Sun,
+fully lit — so its −11 K is not a live eclipse but residual memory of its own
+total eclipse six hours earlier, half a Dimorphos day back. What dominates
+Dimorphos instead is self-shadowing, at −116 K: it is more irregular than the
+primary and rotates five times slower, so a facet that falls into a
+topographic shadow stays there long enough to lose more than a hundred
+kelvin.
+
+Evaluated three spins later the ranking shifts again — Dimorphos's eclipse
+term reaches −37 K, because its second total eclipse (10:48–11:45) ends
+forty minutes before. Which instant is chosen changes the answer completely,
+which is the practical form of the §7.5b conclusion.
+
+## The facet-index buffer
+
+`sim.request_facet_id()` / `sim.facet_id_map()`, backed by
+`src/app/facet_id.rs` and `shaders/facet_id.wgsl`. The scene is rendered a
+second time through the same view matrix into an `R32Uint` target holding
+`1 + offset + facet` per pixel, 0 where nothing is drawn, and read back.
+
+The alternative was to colour facets by radiance and read the colour image
+back. That was rejected: colour quantises to 8 bits, is entangled with
+lighting and tone mapping, and inverting a colormap to recover a physical
+number is exactly the kind of step that silently loses accuracy in a product
+whose pixel values *are* the deliverable. It would also have run straight
+into the known per-body colour-mode bug, where `mesh.color_modes[:] = 1` has
+no effect because the shader reads only the scene-wide `globals.color_mode`.
+
+With an index buffer the mapping is exact and the lookup happens in numpy at
+full float precision. Visibility comes free: the pass carries its own depth
+buffer, so a facet absent from the map is one the instrument genuinely cannot
+see — over the limb, outside the field of view, or hidden by the other body.
+
+Implementation notes worth keeping:
+
+- The facet index is `vertex_index / 3`, so the pass is only valid for
+  **flattened** meshes where each facet owns its three vertices. Indexed
+  meshes are skipped rather than given indices that look valid and are not.
+- `@interpolate(flat)` on the index — interpolating it across a triangle
+  would blend indices into meaningless values.
+- Culling is off. A shape model with inconsistent winding would otherwise
+  drop facets, and a missing facet is indistinguishable from an occluded one.
+  Depth still decides what is in front.
+- Bodies share one index space through a per-body offset supplied as a
+  dynamic-offset uniform, so one readback resolves both which body and which
+  facet.
+- It reuses the renderer's existing view bind group rather than keeping a
+  second camera uniform, which could silently disagree with what was drawn.
+
+## Radiance, and a units decision
+
+`kalast/tpm/radiance.py`. Band radiance is a scalar function of temperature
+once the filter is fixed, so it is tabulated once over 30–500 K and looked up
+with `numpy.interp`; direct evaluation would mean a
+`(n_facets, n_wavelengths)` Planck array per call. Interpolation error is
+1e-4 relative, reported by the class rather than asserted.
+
+Two reductions are defensible and differ by six orders of magnitude:
+
+- **band-averaged spectral radiance**, `integral B eps R dw / integral R dw`,
+  in W/m2/sr/um — the response scale cancels;
+- **band-integrated radiance**, `integral B eps R dw`, in W/m2/sr — inherits
+  whatever scale the response was delivered with.
+
+The first is used, and it is not a cosmetic choice: `Response_Fil-a..f` carry
+a factor 0.5 that `Response_Fil-g` does not, so anything linear in `R` would
+report the six narrow filters at half their true brightness.
+
+**No emission-angle cosine.** A grey Lambertian surface emits the same
+*radiance* in every direction; the cosine enters only when integrating to a
+flux. A pixel measures radiance and the projected area is already accounted
+for by which pixels a facet covers. (`rad.py` carries a `cose` term because
+it goes on to sum irradiance over the disk — a different quantity.)
+
+Reflected sunlight is omitted, having been checked rather than assumed: at
+1.02 AU with A=0.07, reflected solar over 8–14 um is 0.032 W/m2/sr against
+90.4 emitted at 345 K — 0.04 %, rising only to 0.16 % at 250 K. The argument
+closes itself, since reflected sunlight exists only on lit facets, which are
+the warm ones.
+
+## The product
+
+`examples/hera_didymos/tiri_fits.py` writes seven FITS files, one per TIRI
+filter, 1024x768 to match the real detector, `BITPIX=-32`, `BUNIT` in
+W/m2/sr/um. Headers carry the model provenance — grid, stencil, solver,
+spin-up length, which shadowing terms are on, that mutual and self heating
+are **not**, thermal inertia, albedo, facet count, and the two methodological
+choices above.
+
+At the study epoch Hera is 25.8 km from Didymos, so the primary spans ~133
+pixels and the pair fills 1.56 % of the frame. Dimorphos's shadow is an
+obvious dark ellipse ~30 px across, and it is far more striking in radiance
+than in temperature, which is the T^4 sensitivity made visible.
+
+The temperature state is taken from a step landing 19 s from the epoch —
+`tpm_phase2.py` saves that exactly, rather than letting the FITS pick from
+the 280 s snapshot series, which would have been a third of the time the
+shadow spot needs to cross a facet.
+
 # 8. Next steps: thermal surface roughness
 
 ## 8.1 The science

@@ -48,6 +48,10 @@ pub struct Window {
     // compiling the compute pipeline is not free.
     pub facet_shadow: Option<super::facet_shadow::FacetShadowQuery>,
 
+    // Same lazy treatment: the ID pass allocates two full-resolution
+    // textures, which is wasted on any run that never asks for one.
+    pub facet_id: Option<super::facet_id::FacetIdPass>,
+
     // Body model matrices as of the last `update`. The facet shadow query
     // needs the same transform the shadow map was built with, and it is
     // called from outside the borrow of `Simulation`.
@@ -291,6 +295,7 @@ impl Window {
             ),
 
             facet_shadow: None,
+            facet_id: None,
             last_body_mats: vec![],
         }
     }
@@ -324,6 +329,36 @@ impl Window {
             self.uniforms.view.uniform.light.pos,
             &self.uniforms.globals.uniform,
         )
+    }
+
+    /// Facet index per pixel from the camera's point of view, plus the index
+    /// offset applied to each body.
+    ///
+    /// Renders the scene again through the same view matrix into an integer
+    /// target and reads it back. Costs a second geometry pass and a blocking
+    /// readback, so it is meant for the frames a product is wanted from, not
+    /// for every frame of a long run.
+    pub fn facet_id_map(&mut self) -> (Vec<u32>, Vec<u32>, u32, u32) {
+        let (w, h) = (self.surface_config.width, self.surface_config.height);
+        if self.facet_id.is_none() {
+            self.facet_id = Some(super::facet_id::FacetIdPass::new(
+                &self.device,
+                &self.uniforms.view.layout,
+                w,
+                h,
+            ));
+        }
+        let pass = self.facet_id.as_mut().unwrap();
+        pass.resize(&self.device, w, h);
+
+        let camera_bind_group = self.uniforms.view.bind_group(&self.device);
+        let (pixels, offsets) = pass.render_and_read(
+            &self.device,
+            &self.queue,
+            &camera_bind_group,
+            &self.meshes[1..],
+        );
+        (pixels, offsets, w, h)
     }
 
     pub fn get_window(&self) -> &winit::window::Window {
