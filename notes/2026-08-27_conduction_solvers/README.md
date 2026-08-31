@@ -1156,6 +1156,43 @@ The temperature state is taken from a step landing 19 s from the epoch —
 the 280 s snapshot series, which would have been a third of the time the
 shadow spot needs to cross a facet.
 
+## Context frames for the delivered FITS
+
+`examples/hera_didymos/tiri_movie.py` and `tiri_movie_compose.py`. The FITS
+are a single instant, and a single instant of a binary in mutual event is
+hard to read, so the same scene is rendered across +/-6.5 h of the study
+epoch -- 13 hours, 1.14 Dimorphos orbits -- through the real TIRI pointing.
+Three frames per epoch: diffuse for geometric context, surface temperature,
+and the TIRI wide band that the FITS actually carry.
+
+168 frames at a 280 s cadence, 10.5 s of wall time. The cadence is not
+chosen: it is the phase 2 snapshot interval, so every frame is a state the
+model computed rather than an interpolation between two.
+
+The sequence contains all three mutual events of that orbit, and their
+durations come out as §7.5b predicts from geometry alone:
+
+| event | window | duration |
+|---|---|---|
+| Dimorphos in Didymos's umbra | −6.41 to −4.94 h | 93 min |
+| **Dimorphos's shadow on Didymos** | **−0.74 to +0.74 h** | **93 min** |
+| Dimorphos in Didymos's umbra | +4.93 to +6.41 h | 93 min |
+
+The two umbra passages sit half a Dimorphos orbit either side of the shadow
+transit, as they must: the secondary is between Sun and primary at the study
+epoch and behind it half an orbit away.
+
+Two presentation decisions worth keeping. The scales are **fixed** across the
+sequence -- autoscaling makes a cooling body look constant, which is the one
+thing the movie exists to show. And the crop is a single box computed from
+the whole sequence rather than per frame, so the bodies move within a fixed
+field instead of appearing still while the frame moves around them. The
+export writes full 1024x768 frames and the crop happens in a separate
+compose step, so the sequence can be recomposed without re-rendering.
+
+TIRI needs no substitute pointing over this window: it is nadir-pointed at
+Didymos throughout, measured at 0.000 deg off-axis every hour.
+
 # 8. Next steps: thermal surface roughness
 
 ## 8.1 The science
