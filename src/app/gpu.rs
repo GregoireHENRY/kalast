@@ -39,6 +39,12 @@ pub const SHADER_FACET_SHADOW: wgpu::ShaderModuleDescriptor =
 pub const SHADER_FACET_ID: wgpu::ShaderModuleDescriptor =
     wgpu::include_wgsl!("../../shaders/facet_id.wgsl");
 
+pub const SHADER_HEMICUBE: wgpu::ShaderModuleDescriptor =
+    wgpu::include_wgsl!("../../shaders/hemicube.wgsl");
+
+pub const SHADER_HEMICUBE_ACCUMULATE: wgpu::ShaderModuleDescriptor =
+    wgpu::include_wgsl!("../../shaders/hemicube_accumulate.wgsl");
+
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
 pub struct Pipelines {

@@ -52,6 +52,10 @@ pub struct Window {
     // textures, which is wasted on any run that never asks for one.
     pub facet_id: Option<super::facet_id::FacetIdPass>,
 
+    // Built on first use, like the other query passes: it allocates an atlas
+    // and a weight texture that most runs never need.
+    pub hemicube: Option<super::hemicube::Hemicube>,
+
     // Body model matrices as of the last `update`. The facet shadow query
     // needs the same transform the shadow map was built with, and it is
     // called from outside the borrow of `Simulation`.
@@ -296,6 +300,7 @@ impl Window {
 
             facet_shadow: None,
             facet_id: None,
+            hemicube: None,
             last_body_mats: vec![],
         }
     }
@@ -359,6 +364,92 @@ impl Window {
             &self.meshes[1..],
         );
         (pixels, offsets, w, h)
+    }
+
+    /// View-factor rows for the given facets of `body`, by hemicube.
+    ///
+    /// Returns `facets.len() * n_facets_total` values, row-major: entry
+    /// `[i * n + j]` is the fraction of energy leaving `facets[i]` that
+    /// reaches facet `j`. Occlusion is resolved by the depth test, so facets
+    /// hidden behind terrain simply do not appear.
+    ///
+    /// The CPU-side `mesh` is passed in rather than looked up: the window
+    /// holds GPU buffers, and the facet centroids and normals the hemicubes
+    /// are built from live on the simulation side.
+    ///
+    /// `near` matters more than it looks. It is tied to the smallest facet,
+    /// because a near plane larger than a facet clips away that facet's
+    /// immediate neighbours -- which are exactly the ones that dominate
+    /// self-heating.
+    pub fn hemicube_rows(
+        &mut self,
+        body: usize,
+        mesh: &crate::mesh::Mesh,
+        facets: &[u32],
+        resolution: u32,
+        batch: u32,
+    ) -> Vec<f32> {
+        if self.meshes.len() <= 1 + body {
+            return vec![];
+        }
+        let n_facets = self.meshes[1 + body].n_facets();
+
+        let radius = mesh.bounds.radius().max(Float::EPSILON);
+        let smallest = mesh
+            .facets
+            .iter()
+            .map(|f| f.area)
+            .fold(Float::INFINITY, Float::min)
+            .max(Float::EPSILON)
+            .sqrt();
+        let near = (smallest * 1.0e-3).max(radius * 1.0e-7);
+        let far = radius * 4.0;
+        let proj = Mat4::perspective_rh(std::f64::consts::FRAC_PI_2 as Float, 1.0, near, far);
+
+        let mut views = Vec::with_capacity(facets.len() * super::hemicube::FACES as usize);
+        for &i in facets {
+            let Some(facet) = mesh.facets.get(i as usize) else {
+                continue;
+            };
+            let n = facet.normal.normalize_or_zero();
+            if n.length_squared() < 0.5 {
+                continue;
+            }
+            // Any tangent will do: the delta form factors are symmetric under
+            // rotation about the normal, so the choice changes which side
+            // face a given facet lands in, not the total.
+            let helper = if n.x.abs() < 0.9 {
+                crate::Vec3::X
+            } else {
+                crate::Vec3::Y
+            };
+            let t = n.cross(helper).normalize();
+            let b = n.cross(t);
+
+            // Lift off the surface so the facet does not fill its own
+            // hemicube through depth fighting.
+            let o = facet.pos + n * near * 2.0;
+            for (dir, up) in [(n, t), (t, n), (-t, n), (b, n), (-b, n)] {
+                views.push(proj * Mat4::look_to_rh(o, dir, up));
+            }
+        }
+
+        if self.hemicube.is_none() {
+            self.hemicube = Some(super::hemicube::Hemicube::new(
+                &self.device,
+                &self.queue,
+                resolution,
+                batch,
+            ));
+        }
+        let hc = self.hemicube.as_ref().unwrap();
+        hc.rows(
+            &self.device,
+            &self.queue,
+            &self.meshes[1 + body..2 + body],
+            &views,
+            n_facets,
+        )
     }
 
     pub fn get_window(&self) -> &winit::window::Window {

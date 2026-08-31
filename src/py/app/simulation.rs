@@ -148,6 +148,62 @@ impl Simulation {
         Some(numpy::PyArray1::from_slice(py, v))
     }
 
+    /// Ask for hemicube view factors for `facets` of `body`, this frame.
+    ///
+    /// Request from `before_render`, read with `hemicube` from
+    /// `after_render`. This is a precompute, not a per-frame query: a full
+    /// 10,000-facet matrix is minutes of GPU work and 400 MB dense. For a
+    /// rigid body the self view factors are fixed in the body frame, so it is
+    /// computed once per shape model and reused.
+    ///
+    /// `resolution` is one hemicube face; the delta form factors close to
+    /// unity as `1/resolution^2`, reaching 3e-5 at 128. `batch` hemicubes are
+    /// accumulated on the GPU before a readback.
+    #[pyo3(signature = (body=0, facets=None, resolution=128, batch=64))]
+    fn request_hemicube(
+        &mut self,
+        body: usize,
+        facets: Option<numpy::PyReadonlyArray1<'_, u32>>,
+        resolution: u32,
+        batch: u32,
+    ) {
+        let list = match facets {
+            Some(f) => f.as_slice().unwrap().to_vec(),
+            None => {
+                let sim = self.inner.borrow();
+                let n = sim
+                    .bodies
+                    .get(body)
+                    .and_then(|b| b.mesh.as_ref())
+                    .map(|m| m.borrow().facets.len())
+                    .unwrap_or(0);
+                (0..n as u32).collect()
+            }
+        };
+        self.inner
+            .borrow_mut()
+            .request_hemicube(body, list, resolution, batch);
+    }
+
+    /// View factors from the last `request_hemicube`, or `None`.
+    ///
+    /// Shape `(len(facets), n_facets)`: entry `[i, j]` is the fraction of
+    /// energy leaving `facets[i]` that reaches facet `j`. Rows sum to at most
+    /// 1; the shortfall is the fraction radiated to space.
+    fn hemicube<'py>(
+        slf: pyo3::Bound<'py, Self>,
+    ) -> Option<pyo3::Bound<'py, numpy::PyArray2<f32>>> {
+        let py = slf.py();
+        let self_ = slf.borrow();
+        let sim = self_.inner.borrow();
+        let (rows, n_rows, n_cols) = sim.hemicube_result()?;
+        numpy::PyArray2::from_vec2(
+            py,
+            &rows.chunks(*n_cols).take(*n_rows).map(|r| r.to_vec()).collect::<Vec<_>>(),
+        )
+        .ok()
+    }
+
     /// Ask for a facet index map from the camera's point of view this frame.
     ///
     /// Request from `before_render`, read with `facet_id_map` from

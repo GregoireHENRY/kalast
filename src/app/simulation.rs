@@ -29,6 +29,13 @@ pub struct Simulation {
     /// `(pixels, offsets, width, height)` from the last request. Pixels hold
     /// `1 + offset[body] + facet`, or 0 where no facet was drawn.
     pub facet_id_result: Option<(Vec<u32>, Vec<u32>, u32, u32)>,
+
+    /// Pending hemicube request: `(body, facets, resolution, batch)`.
+    /// A one-off like the ID map, and for the same reason -- it is a
+    /// precompute, not something a frame loop should carry.
+    pub hemicube_request: Option<(usize, Vec<u32>, u32, u32)>,
+    /// Row-major `facets.len() * n_facets` view factors from the last request.
+    pub hemicube_result: Option<(Vec<f32>, usize, usize)>,
 }
 
 impl Simulation {
@@ -51,6 +58,9 @@ impl Simulation {
 
             facet_id_request: false,
             facet_id_result: None,
+
+            hemicube_request: None,
+            hemicube_result: None,
         }
     }
 
@@ -144,6 +154,14 @@ impl Simulation {
     /// Ask for `body`'s per-facet occluded fractions to be read back from
     /// the shadow map after this frame renders. Only needed when
     /// `config.access_shadow_map` is off and you want them for one frame.
+    pub fn request_hemicube(&mut self, body: usize, facets: Vec<u32>, resolution: u32, batch: u32) {
+        self.hemicube_request = Some((body, facets, resolution, batch));
+    }
+
+    pub fn hemicube_result(&self) -> Option<&(Vec<f32>, usize, usize)> {
+        self.hemicube_result.as_ref()
+    }
+
     pub fn request_facet_id(&mut self) {
         self.facet_id_request = true;
     }

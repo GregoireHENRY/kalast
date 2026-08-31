@@ -1746,6 +1746,104 @@ the sum of their weights, bounded by construction at 1. The subdivision
 machinery in `view_factor_triangles` exists to give a CPU reference and to
 handle cases with no renderer available; the hemicube does not need it.
 
+## 9.3e The hemicube on the GPU: 0.20 ms per facet
+
+`src/app/hemicube.rs`, `shaders/hemicube.wgsl` and
+`shaders/hemicube_accumulate.wgsl`, exposed as
+`sim.request_hemicube(body, facets, resolution, batch)` /
+`sim.hemicube()`.
+
+The Python prototype read each face back and weighted it in numpy: five
+blocking PCIe round trips per facet, 18.7 ms. Here the atlas never leaves the
+device. Five faces render into one integer atlas within a single render pass
+(five viewports, so it is cleared once), a compute pass scatters the delta
+form factors into a per-facet accumulator, and only the finished rows come
+back, once per batch.
+
+### Fixed point, because WGSL has no atomic float add
+
+The accumulation is a scatter -- many pixels land on the same facet -- so it
+needs an atomic. Weights are summed as `u32` at a scale of `2^30`, which is
+safe by construction rather than by luck: the delta form factors over a whole
+hemicube sum to exactly 1, so no facet's total can exceed `2^30` and overflow
+is impossible. At the other end the smallest weight on a 128 px face is
+~8.7e-6, still ~9,300 in fixed point.
+
+### Validated on a closed box
+
+The strongest available test, because the answer is forced rather than
+tabulated: **inside a sealed cavity every direction hits geometry, so every
+row sum must be exactly 1.** Any shortfall is leakage -- depth clipping, a bad
+near plane, missing weight.
+
+| quantity | measured | required |
+|---|---|---|
+| row sums | 1.00001 (all 12 facets) | 1 |
+| self term `VF[i,i]` | 0.000000 | 0 |
+| reciprocity `\|A_i F_ij - A_j F_ji\|` | 2.5e-2 | 0 |
+
+Closure to 1e-5 and no self-view. The reciprocity residue is not an error in
+the pass: the hemicube evaluates the view factor from a *point*, the facet
+centroid, and point-to-area factors do not satisfy finite-area reciprocity
+exactly. It is the same single-sample discretisation that gives 2.83% on the
+perpendicular squares with one hemicube per triangle against 0.07% with 128
+sample points. Area-averaging over sub-samples is the knob.
+
+### A false alarm worth recording
+
+The first closed-box run returned row sums of exactly 0, which looked like a
+serious leak. It was the **test geometry**: the box was written with inverted
+winding, so every facet normal pointed outward and each hemicube correctly
+looked away into empty space. Confirmed by driving the already-validated
+`facet_id` pass with the same camera and finding zero lit pixels, and by
+printing facet 0's normal as `(0, 0, -1)` when the floor of a box should face
+`+z`.
+
+Two things worth keeping from it. A test whose expected answer is a hard
+constant is worth more than one with a tabulated reference, because "0 where 1
+is required" is unambiguous. And when a new pass returns nothing, checking the
+*input geometry* before the pass costs a minute -- the normals were printable
+all along.
+
+### Throughput
+
+At 128 px faces on the 10,000-facet Didymos mesh:
+
+| hemicubes | wall | per hemicube |
+|---|---|---|
+| 64 | 0.05 s | 0.74 ms |
+| 256 | 0.05 s | 0.21 ms |
+| 1,024 | 0.21 s | 0.20 ms |
+
+**0.20 ms per facet**, against 18.7 ms for the readback-per-face prototype --
+a 94x saving, all of it latency that never needed to be paid. Extrapolated:
+
+| facets | full self-VF matrix | previously (CPU pairs) |
+|---|---|---|
+| 10,000 | **2 s** | 12 min |
+| 100,000 | **20 s** | 16.5 h |
+| 3,100,000 | **10 min** | 1.8 yr |
+
+The full-resolution shape models move from impossible to a coffee break. And
+since self view factors are fixed in the body frame, that is once per shape
+model, not once per run.
+
+### Didymos really does self-view very little
+
+On the 10k mesh the row sums come out at mean 2e-4, max 1.1e-2 -- a facet
+sees at most 1% of its hemisphere filled by the rest of the body. That looked
+wrong until the closed box confirmed the machinery: it is simply what a
+near-convex body gives, since a strictly convex surface has *zero*
+self-view-factor everywhere. Self-heating on Didymos is a small term, and the
+places it is not small are the concavities, which is where the row sums are.
+
+Worth separating from an earlier result that sounds related but is not:
+self-*shadowing* affected 4,105 facets and cost up to 12.4 K (section 7.7).
+Blocking sunlight needs only a grazing sun angle over a gentle slope;
+self-*viewing* needs genuine concavity. They are different geometric
+questions and there is no contradiction between a large one and a small
+other.
+
 ## 9.4 Plan
 
 1. Fix (c) immediately — replace `angle_between().cos()` with a dot product.

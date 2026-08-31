@@ -3,6 +3,7 @@ pub mod config;
 pub mod facet_id;
 pub mod facet_shadow;
 pub mod frame;
+pub mod hemicube;
 pub mod gpu;
 pub mod pass;
 pub mod simulation;
@@ -240,6 +241,21 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     // the scene the callbacks just positioned, so it belongs
                     // after the render, and its result is dropped when not
                     // requested rather than left to describe an older frame.
+                    if let Some((body, facets, res, batch)) = sim.hemicube_request.take() {
+                        let mesh = sim
+                            .bodies
+                            .get(body)
+                            .and_then(|b| b.mesh.as_ref())
+                            .map(|m| m.borrow().clone());
+                        sim.hemicube_result = mesh.map(|m| {
+                            let n = m.facets.len();
+                            let rows = win.hemicube_rows(body, &m, &facets, res, batch);
+                            (rows, facets.len(), n)
+                        });
+                    } else {
+                        sim.hemicube_result = None;
+                    }
+
                     if sim.facet_id_request {
                         sim.facet_id_request = false;
                         sim.facet_id_result = Some(win.facet_id_map());
