@@ -124,18 +124,173 @@ functions taking `self` and dereferencing `self.temp` / `self.cond` /
 two arguments against a seven-argument signature; and no routine solved the
 system at all. Nothing in the repository called any of it.
 
-Replaced with a working backward-Euler solver on a variable-spacing grid:
-`banded_matrix(z, D, dt)` assembles the tridiagonal system once (constant
-while grid, diffusivity and `dt` hold), `step_dirichlet(ab, T, T_surface)`
-takes one step via `scipy.linalg.solve_banded`. Unconditionally stable, so
-`dt` follows accuracy rather than the thinnest layer.
+Replaced with `implicit.Solver(z, D, dt, scheme=...)`, offering three schemes
+on the same variable-spacing discretisation:
 
-**Not yet implemented: the radiative surface boundary.** It is non-linear in
-`T` (absorbed flux against `sigma e T⁴` plus conduction) and needs a Newton
-iteration wrapped around the solve. Until that exists the implicit path is
-usable only with a prescribed surface temperature — which is what the
-validation above uses, and is *not* what a thermophysical run needs. Use the
-explicit path for radiative runs.
+| scheme | order | stability | note |
+|---|---|---|---|
+| `backward-euler` | 1 | L-stable | most forgiving; the safe fallback |
+| `crank-nicolson` | 2 | A-stable | most accurate per step; can ring (below) |
+| `bdf2` | 2 | L-stable | production default; two-step, self-bootstrapping |
+
+BDF2 is the recommendation because it is the only one that is second-order
+*and* L-stable — accuracy without needing an argument about which boundary
+condition is in use. It needs two levels of history, so it cannot start
+itself; the solver bootstraps with one backward-Euler step, which costs one
+order locally and nothing asymptotically. `reset()` discards the history,
+which is required after restarting from a saved state.
+
+#### The radiative surface boundary — now implemented
+
+This was the gap. The thermophysical boundary
+
+    F − σε T₀⁴ + k(−3T₀ + 4T₁ − T₂)/(2dz) = 0
+
+is non-linear in `T₀`, and unlike the explicit path it cannot be applied
+after the solve: `T₁` and `T₂` in that expression belong to the *new*
+profile, which depends on `T₀` through the solve. The naive fix — lag the
+coefficients, solve, then correct the surface — is only first-order accurate
+in the coupling and gives back much of what the implicit scheme was for.
+
+The structure that avoids it: only the surface row is non-linear, and only
+the surface node couples into the interior system. So eliminate it. The
+interior obeys
+
+    interior = U + T₀ · V
+
+where `U` solves the interior system with the surface clamped to zero and `V`
+is its response to a unit surface temperature. `V` depends only on the grid,
+so it is computed **once** in the constructor. `U` is one banded solve per
+step, batched across every facet at once — `scipy.linalg.solve_banded` takes
+a matrix of right-hand sides, so 10,000 columns cost one call. The surface
+then reduces to a **scalar** Newton iteration per facet,
+
+    R(T₀) = F + H − σε T₀⁴ + G·T₀,     G from V (constant), H from U (per facet)
+
+which is a handful of vectorised array operations. This is exact rather than
+lagged: surface and interior are converged together at the new time level.
+Without it the alternative would have been 10,000 separate banded solves per
+step, one per facet, since a full Newton makes the matrix facet-dependent.
+
+`step_radiative` reproduces the explicit path to 0.10–0.21 K at a timestep
+both can take, which is the consistency check that the coupling is right.
+
+#### Crank-Nicolson ringing: measured, not assumed
+
+The textbook warning is that Crank-Nicolson is A-stable but not L-stable —
+its amplification factor tends to −1 rather than 0 for stiff modes, so a mode
+with `D·dt/h² ≫ 1` is sign-flipped each step instead of damped. On this grid
+the first layer is 1.2 mm, so that ratio is already 14.5 at `dt = P/15`.
+
+Stepping the *prescribed* surface temperature 300 K → 100 K, first interior
+node, first eight steps at that dt:
+
+```
+backward-euler    146.3  126.1  119.7  116.4  114.4  112.9  111.8  111.0   reversals: 0
+crank-nicolson    162.2  111.0  126.7  110.0  118.3  109.2  114.3  108.6   reversals: 10
+bdf2              155.2  124.1  118.0  115.5  113.8  112.5  111.6  110.8   reversals: 0
+```
+
+Unambiguous. But stepping the *flux* instead — an eclipse ingress, the case
+one would actually worry about in this model — **none of the three rings**,
+at any dt tried out to 61× the explicit limit. The reason is structural: with
+the radiative boundary the surface node is algebraic, not time-integrated. It
+is re-solved from the flux balance every step, and that re-anchoring damps
+the mode the Dirichlet test excites.
+
+So the warning is real but narrower than it reads: it applies to
+Dirichlet-forced runs, and Crank-Nicolson is safe for radiative ones. Worth
+having measured rather than inherited — the assumption would have ruled out
+the most accurate scheme for no reason.
+
+### `kalast/tpm/explicit.py` — new, and the honest result
+
+The other half of the same question: keeping the scheme explicit — no linear
+algebra, trivially vectorised — how much larger can the timestep be made?
+
+Three things that do **not** help, recorded so they are not retried:
+
+- **Higher-order explicit RK.** What limits the timestep for diffusion is how
+  far down the negative real axis the stability region reaches, not order.
+  Forward Euler reaches |z| = 2; classical RK4 reaches 2.79, for four times
+  the work. A net loss.
+- **Higher-order spatial stencils.** Better resolution per node, but a wider
+  eigenvalue spread, which tightens the same limit.
+- **DuFort-Frankel.** Explicit and unconditionally stable, which sounds like
+  the answer. It is not: its stability is bought with *consistency*, not
+  accuracy — the truncation error carries a term in `(dt/h)²`, so it
+  converges to the heat equation only as `dt/h → 0`. On a grid whose first
+  layer is a millimetre, a timestep large enough to be worth having makes
+  that term large and the scheme quietly solves a different equation. Not
+  implemented, deliberately.
+
+What does help is **super-time-stepping**: `s` substeps of deliberately
+unequal length — some individually unstable — whose composite amplification
+polynomial is a shifted Chebyshev polynomial, stable over a stretch of the
+negative real axis growing like `s²`. Implemented as first-order RKC in
+Verwer's damped form; the stability boundary is computed numerically from the
+recursion rather than quoted, so it stays correct if the damping changes:
+
+```
+ s     beta   dt vs forward Euler   net speedup after s stages
+ 1      2.0            1.0x               1.00x
+ 3     16.5            8.3x               2.76x
+10    181.9           91.0x               9.10x
+20    727.1          363.6x              18.18x
+```
+
+**And it loses.** Measured at 2,000 facets over 4 spins, against a
+time-converged reference on the same grid:
+
+| scheme | dt [s] | steps | stages | wall [s] | max err [K] |
+|---|---|---|---|---|---|
+| explicit forward Euler | 9.0 | 3636 | 1 | 0.47 | 0.588 |
+| explicit RKC | 89.7 | 363 | 3 | 0.15 | 4.489 |
+| implicit backward Euler | 81.4 | 400 | – | 0.08 | 0.805 |
+| implicit Crank-Nicolson | 81.4 | 400 | – | 0.13 | **0.006** |
+| implicit BDF2 | 81.4 | 400 | – | 0.10 | 0.023 |
+| **implicit BDF2, coarse** | **325.4** | **100** | – | **0.02** | **0.393** |
+
+RKC is 3× faster than forward Euler and stable out to 200× its limit, so the
+stability claim holds — but it is beaten outright by the implicit path, which
+at the same timestep is both faster and two orders of magnitude more
+accurate. A tridiagonal solve batched across facets simply costs less than
+three explicit stages.
+
+The last row is the headline for the whole section: **19× faster than the
+explicit path and still more accurate**, because the timestep is no longer
+tied to a 1.2 mm surface layer.
+
+RKC is kept because it is the first choice in exactly the case this is
+heading towards: any problem where the solve stops being cheap. Lateral
+conduction or an FEM discretisation (§8.5) gives a matrix that is no longer
+tridiagonal, and a GPU implementation has no banded solver at all — in both,
+RKC keeps its `s²` timestep with nothing but array arithmetic.
+
+#### Order of accuracy, and a harness bug worth recording
+
+Verifying the schemes' orders initially gave 1.0 for all three, and identical
+max errors. That was the *test*, not the schemes: snapshots were compared
+against the analytical solution at the requested time, but a snapshot lands
+up to `dt` past its target, and at an amplitude of 100 K over the spin period
+that phase offset alone is ~6 K at `dt = P/100` — first order in dt and
+identical for every scheme, so it swamped everything being measured.
+
+Comparing at the time actually reached fixes it, but then Crank-Nicolson and
+BDF2 sit on the grid's *spatial* error floor (~0.37 K) at every dt worth
+using, so the measured order still means nothing. Isolating the temporal
+error requires a reference on the **same grid** stepped to convergence:
+
+```
+steps per 4 periods         100          200          400          800
+backward-euler         3.14e+00     1.60e+00[1.0] 8.05e-01[1.0] 4.04e-01[1.0]
+crank-nicolson         9.20e-02     2.30e-02[2.0] 5.76e-03[2.0] 1.45e-03[2.0]
+bdf2                   3.93e-01     9.50e-02[2.0] 2.31e-02[2.0] 5.53e-03[2.1]
+```
+
+1, 2, 2 as they should be. Two lessons: a convergence test that compares
+against the wrong time measures the sampling, and one run on a grid too
+coarse measures the grid.
 
 ## 5. Examples brought out of `old/`
 
@@ -298,6 +453,43 @@ fraction of the orbit. Detect the eclipse windows geometrically (angular
 separation of the Sun and the companion as seen from each body, as in
 `2026-08-25_pcf_shadow_comparison/`) and only pay for shadow queries inside
 them, using `lit = 1` elsewhere.
+
+### Result — run, and measured
+
+Implemented as `examples/hera_didymos/tpm_phase2.py`. It restarts from the
+three-orbit spin-up on the identical 34-node grid, loads both the 10k Didymos
+and Dimorphos meshes so Dimorphos acts as an occluder, and runs the last six
+Didymos rotations up to 2027-01-21T05:36 UTC inside the render loop.
+
+The cheaper alternative above (detect eclipse windows geometrically, pay for
+shadow queries only inside them) turned out not to be needed: the whole
+segment is 873 steps and costs **6.1 s** wall with shadowing on, 2.5 s off.
+The concern about "2.16M rendered frames" applies to the *spin-up*, which is
+why the spin-up stays headless and only this segment runs in the loop. That
+split is the whole point of the two-phase strategy in §7.4.
+
+`SHADOWING = False` reproduces phase 1 physics over the same interval, so the
+difference is exactly the eclipse contribution:
+
+| quantity | value |
+|---|---|
+| facets whose final surface T differs | 301 / 10,000 |
+| ΔT surface | −4.92 K to 0.00 K, mean −0.008 K |
+| worst facet | 188.09 K shadowed vs 193.01 K unshadowed |
+| peak day-side facets shadowed at once | 64 |
+| samples with any eclipse | 50 / 88 over the segment |
+| peak radiance change at 10 µm | **20.0 %** |
+
+The mean is negligible and the local effect is not — which is the expected
+shape for a transit, and the reason a disk-integrated check would have missed
+it entirely. 64 facets of 10,000 is consistent with geometry: Dimorphos is
+~170 m across at ~1.19 km, so its shadow covers ~1.3 % of Didymos's surface,
+and only the sunward part of that is on the day side.
+
+A 20 % radiance error on the shadowed facets is far above TIRI's radiometric
+accuracy, so eclipse shadowing is **not optional** for the 2027-01-21
+deliverable. It is also the cheapest of the three terms in this section, both
+to implement and to run.
 
 ## 7.2 Mutual heating
 

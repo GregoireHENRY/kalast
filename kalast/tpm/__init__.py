@@ -6,5 +6,6 @@ from kalast.tpm import (  # noqa
     routine,
     #
     nonuniform,
+    explicit,
     implicit,
 )
