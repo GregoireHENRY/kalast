@@ -2,32 +2,46 @@
 
 A thermophysical run produces one surface temperature per facet. An image
 needs what the detector *measures*: the Planck function weighted by the
-instrument's spectral response and integrated over wavelength. There are two
-defensible ways to reduce that to one number, they differ by six orders of
-magnitude, and confusing them is the obvious way to ship a wrong FITS:
-
-**Band-averaged spectral radiance** (`__call__`, the default)
-
-    L_bar = integral B(T,w) eps R(w) dw / integral R(w) dw     [W/m2/sr/um]
-
-The response appears in numerator and denominator, so its absolute scale
-cancels. That matters concretely here: `Response_Fil-a..f` carry a factor 0.5
-that `Response_Fil-g` does not, so any quantity linear in `R` would make the
-six narrow filters look half as bright as they are. This is the standard
-product for a filtered thermal imager and the recommended `BUNIT`.
-
-**Band-integrated radiance** (`band_integrated`)
+instrument's spectral response and integrated over wavelength.
 
     L = integral B(T,w) eps R(w) dw                            [W/m2/sr]
 
-Proportional to the power the detector actually absorbs, and therefore *not*
-scale-independent -- it inherits whatever normalisation `R` was delivered
-with. Useful for detector modelling, wrong as a published radiance unless the
-response scale is known to be absolute.
+This is the **band-integrated radiance**, and it is what `__call__` returns.
+It is the quantity real calibrated TIRI products carry -- their headers say
+`BUNIT = 'W m^-2 sr^-1'` -- so a simulated frame must use it to be comparable
+with one.
 
-Note the units of the first: dividing by `integral R dw` leaves a quantity
-per unit wavelength, not a bare radiance. It is returned per **micrometre**,
-which is the convention such products are quoted in.
+Because it is an integral rather than an average, a wide filter returns much
+more than a narrow one at the same temperature. TIRI's wide band `g` spans
+`integral R dw = 2.71 um` against `a`'s 0.51 um, so `g` reads roughly five
+times higher. That factor is physical and its absence is a symptom: it is how
+the wrong normalisation was caught here.
+
+`band_averaged` returns the other reduction,
+
+    L_bar = integral B(T,w) eps R(w) dw / integral R(w) dw   [W/m2/sr/um]
+
+a band-*averaged spectral* radiance. Being an average it is nearly the same
+for every filter, which is exactly why it cannot be compared against a real
+TIRI frame. It is offered because some pipelines quote radiance per unit
+wavelength, and because the ratio of the two is a useful diagnostic.
+
+A note on the response scale
+----------------------------
+
+The band-integrated form is linear in `R`, so it is only meaningful if `R` is
+an absolute throughput rather than a shape normalised to an arbitrary peak.
+For TIRI's `response.csv` it is absolute: `Response_Fil-x` equals
+`Bolometer * Lens * Filter-x` exactly (median ratio 1.000000 for all seven),
+with peak values of 0.37 to 0.81 -- physical transmissions, not normalised
+curves.
+
+An earlier version of this module claimed `Response_Fil-a..f` carried a
+factor 0.5 that `Response_Fil-g` did not, and used that to argue for the
+normalised form. **That was wrong.** It came from dividing `Response` by
+`Bolometer * Lens * Filter` at wavelengths where the denominator is nearly
+zero, in columns quoted to four decimals; the quotient there is quantisation
+noise, and taking its minimum produced a spurious 0.5.
 
 Why a lookup table
 ------------------
@@ -121,7 +135,11 @@ class BandRadiance:
         self.emissivity = float(emissivity)
         self.t_range = t_range
 
+        # Integral of the response, in metres. `bandwidth` is the same in
+        # micrometres, which is the figure that explains why a wide filter
+        # returns several times what a narrow one does.
         self.norm = numpy.trapezoid(self.response, self.wavelength)
+        self.bandwidth = float(self.norm * 1e6)
         if self.norm <= 0:
             raise ValueError("response integrates to zero")
 
@@ -136,9 +154,9 @@ class BandRadiance:
                 b * self.response[None, :], self.wavelength, axis=1
             )
         weighted *= self.emissivity
-        # per micrometre, not per metre: see the module docstring.
-        self.l_table = weighted / self.norm * 1e-6
-        self.integrated_table = weighted
+        self.l_table = weighted
+        # Per micrometre, not per metre: the convention such products use.
+        self.averaged_table = weighted / self.norm * 1e-6
 
         # Effective wavelength, response-weighted: the single wavelength that
         # best characterises the band, useful for reporting and for brightness
@@ -149,7 +167,7 @@ class BandRadiance:
         )
 
     def __call__(self, temperature):
-        """Band-averaged spectral radiance `W/m2/sr/um` for each temperature."""
+        """Band-integrated radiance `W/m2/sr` for each temperature."""
         t = numpy.asarray(temperature, dtype=numpy.float64)
         if t.size and (t.min() < self.t_range[0] or t.max() > self.t_range[1]):
             raise ValueError(
@@ -158,14 +176,14 @@ class BandRadiance:
             )
         return numpy.interp(t, self.t_table, self.l_table)
 
-    def band_integrated(self, temperature):
-        """Response-weighted band-integrated radiance `W/m2/sr`.
+    def band_averaged(self, temperature):
+        """Band-averaged spectral radiance `W/m2/sr/um`.
 
-        Inherits the absolute scale of `response`; see the module docstring
-        before publishing anything in these units.
+        Nearly filter-independent, so not comparable with a real TIRI frame;
+        see the module docstring.
         """
         t = numpy.asarray(temperature, dtype=numpy.float64)
-        return numpy.interp(t, self.t_table, self.integrated_table)
+        return numpy.interp(t, self.t_table, self.averaged_table)
 
     def exact(self, temperature):
         """The same quantity as `__call__` without the table, to validate it."""
@@ -173,7 +191,7 @@ class BandRadiance:
         b = planck(t[:, None], self.wavelength[None, :])
         return (
             numpy.trapezoid(b * self.response[None, :], self.wavelength, axis=1)
-            * self.emissivity / self.norm * 1e-6
+            * self.emissivity
         )
 
     def max_interpolation_error(self, n_probe=997):

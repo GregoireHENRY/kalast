@@ -976,6 +976,34 @@ term reaches −37 K, because its second total eclipse (10:48–11:45) ends
 forty minutes before. Which instant is chosen changes the answer completely,
 which is the practical form of the §7.5b conclusion.
 
+## Dimorphos spin-up: the staged plan
+
+What was run is the first stage of a three-stage plan, and the later stages
+are not done:
+
+1. **Coarse seasonal initialisation** (done). Dimorphos is treated as
+   co-located with Didymos with respect to the Sun -- the 1.19 km offset is
+   8e-9 of the heliocentric distance -- but rotating on its own 11.37 h
+   period. That gives the correct heliocentric distance history and the
+   correct diurnal cycle, which is what sets the deep seasonal field. The
+   synthetic tidally-locked frame described above is what makes it possible
+   outside kernel coverage.
+2. **Several correct orbits around Didymos** (not done). Once inside kernel
+   coverage, run with the true relative geometry so the secondary's own
+   eclipse history -- 57 minutes of totality every 11.37 h -- is imprinted
+   before anything is measured. Section 7.5b shows those events leave
+   residues that partially accumulate, so a state that has never seen one is
+   not the right starting point.
+3. **Phase 2** (done, but starting from stage 1 rather than stage 2). The
+   binary mutual effects at high fidelity.
+
+Stage 2 is the gap. The current phase 2 segment covers 20.4 h, which contains
+two total eclipses of the secondary, so it is not starting cold -- but its
+restart state carries none. Two or three Dimorphos orbits of stage 2 would
+settle that, and at 7 ms/step it costs seconds. This is also where the
+geometric eclipse-window optimisation starts to matter, since a longer
+segment spends proportionally more time outside any mutual event.
+
 ## The facet-index buffer
 
 `sim.request_facet_id()` / `sim.facet_id_map()`, backed by
@@ -1012,36 +1040,102 @@ Implementation notes worth keeping:
 - It reuses the renderer's existing view bind group rather than keeping a
   second camera uniform, which could silently disagree with what was drawn.
 
-## Radiance, and a units decision
+## Radiance, and a units error worth recording
 
 `kalast/tpm/radiance.py`. Band radiance is a scalar function of temperature
-once the filter is fixed, so it is tabulated once over 30–500 K and looked up
+once the filter is fixed, so it is tabulated once over 30-500 K and looked up
 with `numpy.interp`; direct evaluation would mean a
 `(n_facets, n_wavelengths)` Planck array per call. Interpolation error is
 1e-4 relative, reported by the class rather than asserted.
 
 Two reductions are defensible and differ by six orders of magnitude:
 
+- **band-integrated radiance**, `integral B eps R dw`, in W/m2/sr;
 - **band-averaged spectral radiance**, `integral B eps R dw / integral R dw`,
-  in W/m2/sr/um — the response scale cancels;
-- **band-integrated radiance**, `integral B eps R dw`, in W/m2/sr — inherits
-  whatever scale the response was delivered with.
+  in W/m2/sr/um.
 
-The first is used, and it is not a cosmetic choice: `Response_Fil-a..f` carry
-a factor 0.5 that `Response_Fil-g` does not, so anything linear in `R` would
-report the six narrow filters at half their true brightness.
+**The first version of this work used the second, and it was wrong.** The
+argument for it was that `Response_Fil-a..f` carried a factor 0.5 that
+`Response_Fil-g` did not, so a quantity linear in `R` would misreport the
+narrow filters -- and the normalised form cancels the response scale.
+
+That factor does not exist. It came from dividing `Response_Fil-x` by
+`Bolometer * Lens * Filter-x` at wavelengths where the denominator is nearly
+zero, in columns quoted to four decimals, and taking the minimum of a
+quotient that is quantisation noise there. Checked properly, on the median
+rather than the extremes, the ratio is **1.000000 for all seven filters**:
+`Response_Fil-x` *is* the product, an absolute throughput with peaks between
+0.37 and 0.81.
+
+The error announced itself observationally. Because a band *average* is
+almost filter-independent, the wide band `g` came out no brighter than the
+narrow `a` -- which is physically absurd for a 5x wider filter, and was
+spotted on opening the files.
+
+Settled against ground truth: a real calibrated TIRI product
+(`data_calibrated/necp/.../tiri_cal_*.fits`) carries
+`BUNIT = 'W m^-2 sr^-1'`. So the simulated frames must be band-integrated to
+be comparable at all. In those units, at 345 K:
+
+| filter | eff. wavelength | bandwidth `integral R dw` | L(345 K) |
+|---|---|---|---|
+| a | 8.43 um | 0.514 um | 9.24 W/m2/sr |
+| b | 8.61 um | 0.669 um | 12.01 |
+| c | 9.59 um | 0.598 um | 10.33 |
+| d | 10.44 um | 0.382 um | 6.19 |
+| e | 11.53 um | 0.431 um | 6.26 |
+| f | 12.66 um | 0.361 um | 4.59 |
+| **g (wide)** | 10.27 um | **2.707 um** | **43.66** |
+
+`g` is 4.7x `a`, tracking the bandwidth ratio of 5.3x as it should.
+`band_averaged` still exists for pipelines that quote radiance per unit
+wavelength, and the ratio of the two is a useful diagnostic.
+
+**Two lessons.** Do not characterise a ratio by its extremes when the
+denominator passes through zero. And a physical cross-check -- "the wide
+filter must read higher" -- caught in seconds what the derivation did not.
 
 **No emission-angle cosine.** A grey Lambertian surface emits the same
 *radiance* in every direction; the cosine enters only when integrating to a
 flux. A pixel measures radiance and the projected area is already accounted
 for by which pixels a facet covers. (`rad.py` carries a `cose` term because
-it goes on to sum irradiance over the disk — a different quantity.)
+it goes on to sum irradiance over the disk -- a different quantity.)
 
 Reflected sunlight is omitted, having been checked rather than assumed: at
-1.02 AU with A=0.07, reflected solar over 8–14 um is 0.032 W/m2/sr against
-90.4 emitted at 345 K — 0.04 %, rising only to 0.16 % at 250 K. The argument
+1.02 AU with A=0.07, reflected solar over 8-14 um is 0.032 W/m2/sr against
+90.4 emitted at 345 K -- 0.04 %, rising only to 0.16 % at 250 K. The argument
 closes itself, since reflected sunlight exists only on lit facets, which are
 the warm ones.
+
+## Why Dimorphos self-shadows so much more than Didymos
+
+A surprise from the ablation: Dimorphos's self-shadowing costs it -116 K at
+worst, against -11 K for Didymos, and at the study epoch it exceeds the
+mutual eclipse. Two real effects and one caveat.
+
+**More of its surface is shadowed.** Median day-side self-shadowed facets
+over the segment: 739 for Dimorphos against 118 for Didymos, of 10,000 --
+6.3x. It is the more irregular body relative to its size.
+
+**Each shadowed facet stays shadowed far longer.** Dimorphos is tidally
+locked at 11.37 h against Didymos's 2.26 h, so topography that blocks the Sun
+blocks it for five times as long in absolute time. The worst Dimorphos facet
+would peak at 324 K unshadowed and reaches only 271 K, and stays more than
+5 K below the no-shadow run for 15.2 h. Its grid works *against* the effect
+-- a 6.76 mm first layer against Didymos's 3.02 mm is more thermal mass in
+the surface node, so a slower response -- and the drop is still an order of
+magnitude larger.
+
+**The caveat: the two are not compared at equal ground resolution.** Both
+meshes carry 10,000 facets, but Didymos is 780 m across and Dimorphos 170 m,
+so mean facet scales are **13.1 m and 2.73 m** -- Dimorphos is resolved 4.8x
+finer. A finer mesh resolves more topography and therefore more
+self-shadowing, so some unknown part of the 6.3x facet-count ratio is
+resolution rather than shape. The *duration* argument is unaffected, being
+purely rotational, and the ranking is unlikely to reverse -- but the
+comparison should not be quoted as a shape difference without re-running
+both at matched ground scale. Worth doing when the full-resolution meshes
+are used.
 
 ## The product
 
