@@ -459,37 +459,102 @@ them, using `lit = 1` elsewhere.
 Implemented as `examples/hera_didymos/tpm_phase2.py`. It restarts from the
 three-orbit spin-up on the identical 34-node grid, loads both the 10k Didymos
 and Dimorphos meshes so Dimorphos acts as an occluder, and runs the last six
-Didymos rotations up to 2027-01-21T05:36 UTC inside the render loop.
+Didymos rotations to 2027-01-21T05:36 UTC inside the render loop
+(`before_render` places bodies from spice, `after_render` reads
+`sim.facet_shadow(0)` and steps the TPM).
 
-The cheaper alternative above (detect eclipse windows geometrically, pay for
-shadow queries only inside them) turned out not to be needed: the whole
-segment is 873 steps and costs **6.1 s** wall with shadowing on, 2.5 s off.
-The concern about "2.16M rendered frames" applies to the *spin-up*, which is
-why the spin-up stays headless and only this segment runs in the loop. That
-split is the whole point of the two-phase strategy in §7.4.
+The whole segment is 873 steps and costs 4.8–6.3 s wall, so the geometric
+eclipse-window optimisation sketched above is not needed *at this segment
+length*. It stays on the list, because it is what makes a segment spanning
+several Dimorphos orbits affordable — see §7.6.
 
-`SHADOWING = False` reproduces phase 1 physics over the same interval, so the
-difference is exactly the eclipse contribution:
+#### An ephemeris trap that invalidated the first run
 
-| quantity | value |
-|---|---|
-| facets whose final surface T differs | 301 / 10,000 |
-| ΔT surface | −4.92 K to 0.00 K, mean −0.008 K |
-| worst facet | 188.09 K shadowed vs 193.01 K unshadowed |
-| peak day-side facets shadowed at once | 64 |
-| samples with any eclipse | 50 / 88 over the segment |
-| peak radiance change at 10 µm | **20.0 %** |
+The first version furnished `didymos_hor_000101_500101_v01.bsp` alongside the
+meta-kernel, copying `tpm.py`. That is correct for the spin-up, which starts
+in 2023 outside mission coverage. It is wrong here: the Horizons file
+provides the **same body id** (`-658030`) as the mission's
+`didymos_flp_000007_260701_270701_v01.bsp`, and SPICE serves the
+last-loaded file for a given id. So furnishing it replaced the mission
+solution, and the two disagree by **106 km** on the Didymos position.
 
-The mean is negligible and the local effect is not — which is the expected
-shape for a transit, and the reason a disk-integrated check would have missed
-it entirely. 64 facets of 10,000 is consistent with geometry: Dimorphos is
-~170 m across at ~1.19 km, so its shadow covers ~1.3 % of Didymos's surface,
-and only the sunward part of that is on the day side.
+Dimorphos was therefore placed 106 km away instead of 1.19 km, on the
+anti-sunward side, where it casts no shadow at all. The run still reported 64
+shadowed facets, because `facet_shadow` returns *any* occlusion — those were
+Didymos shadowing itself in its own concavities. The result looked plausible
+and measured the wrong thing entirely.
 
-A 20 % radiance error on the shadowed facets is far above TIRI's radiometric
-accuracy, so eclipse shadowing is **not optional** for the 2027-01-21
-deliverable. It is also the cheapest of the three terms in this section, both
-to implement and to run.
+The spin-up does not care (106 km against 1.5e8 km changes no Sun direction),
+so `tpm.py` is unaffected. This segment cares to the metre, and the
+meta-kernel covers 2026-07 to 2027-07, so it now furnishes nothing else.
+
+**Generalisable lesson**: a supplementary SPK that overlaps a mission kernel's
+body id silently overrides it. Nothing errors; the geometry is just wrong.
+Worth a coverage/consistency assertion whenever two ephemerides for one body
+are loaded together.
+
+#### The study epoch is a dead-centre eclipse
+
+With the mission ephemeris, at 2027-01-21T05:36 Dimorphos sits **1.151 km
+sunward** of Didymos with a perpendicular offset from the Didymos–Sun line of
+**1 metre**. The epoch was evidently chosen for exactly this. From Hera at
+25.8 km, Dimorphos is in front of Didymos but *off* its disk (4707 arcsec
+separation against a 3113 arcsec disk radius), so the image shows the primary
+carrying a shadow spot, with the secondary beside it rather than in transit
+across it.
+
+#### Three-way ablation
+
+`SHADOW_MODE` selects `none` (direct insolation only, phase 1 physics),
+`self` (Didymos alone, so only its own concavities shadow it) or `mutual`
+(Dimorphos loaded too). Differencing separates the two shadowing terms:
+
+| term | facets changed | worst ΔT | disk-mean ΔT | worst band-radiance drop |
+|---|---|---|---|---|
+| self-shadowing (`self` − `none`) | 4,105 | −12.4 K | −0.16 K | −9.4 % |
+| eclipse (`mutual` − `self`) | 3,980 | **−95.9 K** | −1.34 K | **−77.7 %** |
+| both (`mutual` − `none`) | 4,240 | −95.9 K | −1.49 K | −77.7 % |
+
+Radiance is integrated over TIRI's 8–14 µm band. At the study epoch itself
+257 facets are still in shadow, and 383 carry a band-radiance drop above 5 %.
+
+The worst facet cools from 343.8 K to 247.9 K — a 96 K drop, which is what
+`B ∝ T⁴`-ish behaviour in the thermal infrared turns into a **78 % radiance
+deficit**. This is not a subtle correction: the eclipse is the dominant
+feature of the simulated image, and it is dramatically larger than the
+topographic self-shadowing that accompanies it.
+
+For scale, a facet fully shadowed at 343 K radiates ~706 W/m² against a
+surface heat capacity of ~1.6e4 J/m²/K over one skin depth, so ~0.04 K/s —
+and the shadow takes 10–20 minutes to cross a given point, since the relative
+speed of the shadow over the surface is only ~0.1–0.5 m/s. A 96 K drop
+follows.
+
+#### What this segment does *not* yet produce
+
+Only Didymos has a thermophysical state. Dimorphos is loaded purely as an
+occluding mesh; its temperatures are never computed. Any image of the system
+needs them, which is §7.6.
+
+### 7.6 Dimorphos, and choosing the segment length by the right clock
+
+Six Didymos rotations was chosen as "a few rotations", and for the primary it
+is defensible: the diurnal wave has a 2.26 h period, so six spins is ~6
+e-foldings of the surface layer's memory and the eclipse signal is fully
+developed.
+
+It is the wrong clock for the secondary. Dimorphos is tidally locked to an
+11.9 h orbit, so its rotation period *is* its orbital period, and 13.6 hours
+of segment is **1.1 Dimorphos days** — barely one. Worse, the relevant
+forcing for a tidally locked secondary includes the total eclipses it suffers
+passing through the primary's shadow, whose cadence is also the orbital
+period. Two or three Dimorphos orbits (24–36 h) is the minimum that gives its
+surface a settled diurnal cycle plus a repeated eclipse history.
+
+At 7 ms/step that is 3–4x the current segment and still seconds of wall time,
+so the cost is not the obstacle — but it is where the geometric
+eclipse-window optimisation starts to pay, since a longer segment spends a
+larger absolute time outside any mutual event.
 
 ## 7.2 Mutual heating
 

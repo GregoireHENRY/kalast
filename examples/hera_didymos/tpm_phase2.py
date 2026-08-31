@@ -41,10 +41,16 @@ import kalast.tpm.routine as routine
 from kalast.util import AU, RPD, SOLAR_CONSTANT, STEFAN_BOLTZMANN
 
 # ---------------------------------------------------------------- settings
-SHADOWING = True  # False -> phase 1 physics, for the ablation
+# Ablation. "mutual" is the real configuration; the other two isolate what
+# each shadowing term contributes:
+#   "none"   -- phase 1 physics, direct insolation only
+#   "self"   -- Didymos alone, so only its own concavities shadow it
+#   "mutual" -- Dimorphos loaded too, adding the eclipse
+SHADOW_MODE = "mutual"
+SHADOWING = SHADOW_MODE != "none"
 N_ROTATIONS = 6  # segment length before the study epoch
 RESTART_FROM = "out/hera_didymos/didymos_tpm_3orbit"
-OUT = f"out/hera_didymos/didymos_phase2_{'shadow' if SHADOWING else 'noshadow'}"
+OUT = f"out/hera_didymos/didymos_phase2_{SHADOW_MODE}"
 
 NODES_PER_SKIN_DEPTH = 4
 DEPTH_IN_SEASONAL = 1.0
@@ -59,15 +65,19 @@ MESH_DIMO = (
     "g_00243mm_spc_obj_dimo_0000n00000_v004_decimated_10k.obj"
 )
 KERNEL = "/Users/gregoireh/data/spice/hera/kernels/mk/hera_plan_local.tm"
-KERNEL_LONG = (
-    "/Users/gregoireh/data/spice/hera/kernels/spk/"
-    "didymos_hor_000101_500101_v01.bsp"
-)
+
+# Deliberately NOT the Horizons ephemeris that `tpm.py` furnishes. It carries
+# the same body id (-658030) as the mission's `didymos_flp_*.bsp`, and SPICE
+# takes the last file loaded, so furnishing it here replaces the mission
+# solution -- which disagrees by ~106 km on the Didymos position. The spin-up
+# needs it (it starts in 2023, outside mission coverage) and does not care,
+# since only the heliocentric direction matters there. This segment cares
+# about the Didymos-Dimorphos vector to the metre, and the meta-kernel covers
+# 2026-07 to 2027-07, so it needs nothing else.
 
 # ------------------------------------------------------------------ setup
 spice.kclear()
 spice.furnsh(KERNEL)
-spice.furnsh(KERNEL_LONG)
 
 didymos = kalast.entity.DIDYMOS
 prop = kalast.tpm.properties.DIDYMOS
@@ -101,7 +111,7 @@ coefs = tuple(
 d_nodes = numpy.full(nx, D, dtype=numpy.float64)
 twodz0 = 2.0 * (z[1] - z[0])
 
-print(f"phase 2, shadowing={SHADOWING}")
+print(f"phase 2, shadow mode = {SHADOW_MODE}")
 print(f"  restart {RESTART_FROM}: surface mean {T[:, 0].mean():.2f} K")
 print(f"  {spice.et2utc(et_start, 'C', 0)} -> {spice.et2utc(et_end, 'C', 0)}")
 print(f"  {N_ROTATIONS} rotations, dt={dt:.2f}s, {n_steps:,} steps, "
@@ -122,8 +132,9 @@ app.simulation.camera.projection.fovy = 20.0 * RPD
 
 didy_mat = numpy.eye(4)
 app.simulation.load_mesh(path=MESH_DIDY, mat=didy_mat, flatten=True)
-dimo_mat = numpy.eye(4)
-app.simulation.load_mesh(path=MESH_DIMO, mat=dimo_mat, flatten=True)
+if SHADOW_MODE == "mutual":
+    dimo_mat = numpy.eye(4)
+    app.simulation.load_mesh(path=MESH_DIMO, mat=dimo_mat, flatten=True)
 
 mesh = app.simulation.bodies[0].mesh
 if len(mesh.facets) != nface:
@@ -163,8 +174,9 @@ def before_render(sim, dt_frame):
 
     sim.bodies[0].mat[:3, :3] = numpy.eye(3)
     sim.bodies[0].mat[:3, 3] = [0.0, 0.0, 0.0]
-    sim.bodies[1].mat[:3, :3] = m_dimo
-    sim.bodies[1].mat[:3, 3] = p_dimo
+    if len(sim.bodies) > 1:
+        sim.bodies[1].mat[:3, :3] = m_dimo
+        sim.bodies[1].mat[:3, 3] = p_dimo
 
     sim.camera.pos = u_sun * 30.0
     sim.camera.dir = -u_sun
