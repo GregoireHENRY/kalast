@@ -123,6 +123,7 @@ fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     pyadd_f!(mesh, crate::mesh::view_factor_scalar_with_area);
     pyadd_f!(mesh, crate::mesh::view_factor_scalar);
     pyadd_f!(mesh, mesh::view_factor_facets);
+    pyadd_f!(mesh, mesh::view_factor_triangles);
     pyadd_f!(mesh, crate::mesh::largest_slope_angle_sphere);
     pyadd_f!(mesh, crate::mesh::curvature_radius);
     pyadd_f!(mesh, crate::mesh::curvature_diameter_from_radius);

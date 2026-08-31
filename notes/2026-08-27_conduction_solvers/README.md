@@ -1509,6 +1509,88 @@ and the **shadow proxy** finding applies directly — the occluder written into
 the hemicube can be a decimated mesh, which was measured to shift results by
 9 pixels in 1,040,400 (`2026-08-26_shadow_mesh_comparison/`).
 
+## 9.3b Steps 1 and 2 done: the CPU reference
+
+`view_factor_scalar_cos` takes cosines directly, and `view_factor_facets` now
+computes them as dot products. The old path called `angle_between` and then
+`cos` on the result -- two transcendentals to recover a number already in
+hand, and `acos` has unbounded derivative at 1, so the round trip lost the
+most precision exactly where facets face each other squarely and the view
+factor is largest.
+
+`view_factor_triangles(tri_a, tri_b, ratio, max_level)` is the near-field fix.
+It returns the dimensionless `F(A->B)` by evaluating the double area integral
+on a uniform subdivision, refining a pair while its separation is below
+`ratio` times its own size. Refinement is keyed on the **larger** of the two
+areas: a small facet beside a large one still needs the large one split, and
+the original guard tested only `area_b`.
+
+### Validated against closed forms
+
+`examples/analytical/view_factors.py`, the same discipline section 3 applied
+to conduction. Unit squares, each as two triangles, so the area weighting the
+mesh code will use is exercised too.
+
+**Parallel coaxial unit squares** at several separations:
+
+| separation | exact | numerical | error |
+|---|---|---|---|
+| 2.00 | 0.06859 | 0.06910 | 0.75 % |
+| 1.00 | 0.19982 | 0.20108 | 0.63 % |
+| 0.50 | 0.41525 | 0.41609 | 0.20 % |
+| 0.25 | 0.63204 | 0.63259 | 0.09 % |
+| 0.10 | 0.82699 | 0.83130 | 0.52 % |
+
+**Perpendicular unit squares sharing an edge**, the hard case -- the shared
+edge puts sub-pairs at arbitrarily small separation, which is precisely what
+the point-to-point form cannot represent. Exact `F = 0.20004`:
+
+| ratio | max_level | numerical | error |
+|---|---|---|---|
+| 0 (none) | – | 0.30339 | **+51.7 %** |
+| 2 | 2 | 0.23083 | 15.4 % |
+| 4 | 3 | 0.21479 | 7.4 % |
+| 6 | 4 | 0.20749 | 3.7 % |
+| 8 | 5 | 0.20385 | 1.9 % |
+| 10 | 6 | 0.20202 | 1.0 % |
+
+Convergence is first order -- halving the error costs a level -- because of
+the edge singularity. `ratio = 6, max_level = 4` gives 3.7 % for a bounded
+cost and is the default.
+
+### What the old guard was doing, measured
+
+Reproducing `distance < sqrt(area) -> 0` on that same perpendicular pair
+gives `F = 0.12434` against an exact 0.20004: **−37.8 %**. So section 9.2(a)
+was right that it deletes rather than approximates, and the size of the
+deletion is now a number. The unsubdivided form errs the other way, +51.7 %,
+so the guard was not correcting a known bias -- it replaced one large error
+with a different large error of opposite sign.
+
+### Reciprocity
+
+`A_a F(a->b) == A_b F(b->a)` is an identity, so any deviation is
+implementation error rather than discretisation. Measured mismatch: exactly 0
+for the parallel pair, 7e-8 for the perpendicular one. Cheap, and it is the
+check that will guard the hemicube.
+
+### The cost, which is why the hemicube exists
+
+A subdivided pair costs 5.93 us through the Python binding. For the full
+matrix:
+
+| facets | full N^2 matrix | dense storage |
+|---|---|---|
+| 10,000 | 0.2 h | 400 MB |
+| 100,000 | 16.5 h | 40 GB |
+| 3,100,000 | 15,828 h (1.8 yr) | 38 TB |
+
+10,000 facets is tolerable as a one-off, and since the self-view-factor
+matrix is fixed in the body frame it need only be computed once per shape
+model -- see 9.4 step 4. But it is a reference, not a method: it has no
+occlusion test, and storage alone rules out the full-resolution meshes. Both
+problems are what the hemicube answers.
+
 ## 9.4 Plan
 
 1. Fix (c) immediately — replace `angle_between().cos()` with a dot product.

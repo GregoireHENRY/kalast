@@ -809,6 +809,32 @@ pub fn view_factor_facets(
     )
 }
 
+/// View factor `F(A->B)` between two triangles given as (3, 3) arrays of
+/// vertices, one row per vertex.
+///
+/// Subdivides when the pair is closer than `ratio` times its own size, so
+/// unlike `view_factor_facets` it stays valid for neighbouring facets --
+/// which is where self-heating actually happens. Returns the dimensionless
+/// fraction of energy leaving A that reaches B.
+#[pyfunction]
+#[pyo3(signature = (tri_a, tri_b, ratio=6.0, max_level=4))]
+pub fn view_factor_triangles(
+    tri_a: numpy::PyReadonlyArray2<'_, Float>,
+    tri_b: numpy::PyReadonlyArray2<'_, Float>,
+    ratio: Float,
+    max_level: u32,
+) -> Float {
+    let read = |t: &numpy::PyReadonlyArray2<'_, Float>| -> crate::mesh::Triangle {
+        let a = t.as_array();
+        [
+            crate::Vec3::new(a[[0, 0]], a[[0, 1]], a[[0, 2]]),
+            crate::Vec3::new(a[[1, 0]], a[[1, 1]], a[[1, 2]]),
+            crate::Vec3::new(a[[2, 0]], a[[2, 1]], a[[2, 2]]),
+        ]
+    };
+    crate::mesh::view_factor_triangles(&read(&tri_a), &read(&tri_b), ratio, max_level)
+}
+
 #[pyfunction]
 pub fn rms_slope_terrain(
     theta: numpy::PyReadonlyArray1<'_, Float>,

@@ -1007,7 +1007,19 @@ pub fn view_factor_scalar_with_area(
 /// You can actually multiply by the area of facet A instead of B if A is transmitting energy to B.
 #[pyfunction]
 pub fn view_factor_scalar(angle_at_a: Float, angle_at_b: Float, distance_a2b: Float) -> Float {
-    angle_at_a.cos() * angle_at_b.cos() / (crate::util::PI * distance_a2b.powi(2))
+    view_factor_scalar_cos(angle_at_a.cos(), angle_at_b.cos(), distance_a2b)
+}
+
+/// The same kernel taking cosines directly.
+///
+/// Callers that have unit vectors already hold the cosines as dot products.
+/// Going through an angle means `acos` followed by `cos`, which is two
+/// transcendentals to recover a number that was in hand, and which loses
+/// precision at small angles -- `acos` has unbounded derivative at 1, so the
+/// round trip is worst exactly where facets face each other squarely and the
+/// view factor is largest. Over an O(N^2) loop both costs matter.
+pub fn view_factor_scalar_cos(cos_a: Float, cos_b: Float, distance_a2b: Float) -> Float {
+    cos_a * cos_b / (crate::util::PI * distance_a2b.powi(2))
 }
 
 /// Compute the view factor between facet A and B.
@@ -1019,6 +1031,11 @@ pub fn view_factor_scalar(angle_at_a: Float, angle_at_b: Float, distance_a2b: Fl
 ///
 /// It is the view factor by unit of area, multiply either by the area of facet A or B when you know which one is
 /// transmitting energy to the other one.
+///
+/// **This is the point-to-point approximation** and it is only valid while
+/// the separation is large against the facets. It has no occlusion test and
+/// no near-field treatment; see `view_factor_triangles` for the form that
+/// handles both, and note 2026-08-27 section 9 for why that matters.
 pub fn view_factor_facets(face_a: &Facet, face_b: &Facet, trans_b2a: &Mat4) -> Float {
     // Vector from center of facet **A** to facet **B**.
     let vector_a2b = (trans_b2a * face_b.pos.extend(1.0)).xyz() - face_a.pos;
@@ -1027,25 +1044,139 @@ pub fn view_factor_facets(face_a: &Facet, face_b: &Facet, trans_b2a: &Mat4) -> F
 
     // This is a condition on the relation between distance of the two facets and their surface area to avoid too large
     // view factor in case of very close distance.
-    // TODO: subdivide the facet and recompute.
+    //
+    // Returning zero is wrong, not merely approximate: adjacent facets have a
+    // centroid separation of order sqrt(area), which is exactly this
+    // threshold, so the guard fires on the very neighbours that dominate
+    // self-heating inside a concavity. `view_factor_triangles` subdivides
+    // instead, and is what the thermophysical model should use.
     if distance_a2b < face_b.area.sqrt() {
         return 0.0;
     }
 
-    // Angles from both normals and the unit vector to the other facet.
-    // The normal of facet B needs to be transformed to fixed-frame A for correct calculation.
-    let angle_at_a = face_a.normal.angle_between(unit_a2b);
-    let angle_at_b = trans_b2a
-        .transform_vector3(face_b.normal)
-        .angle_between(-unit_a2b);
+    // Cosines from both normals and the unit vector to the other facet. The
+    // normal of facet B needs to be transformed to fixed-frame A.
+    let cos_a = face_a.normal.dot(unit_a2b);
+    let cos_b = trans_b2a.transform_vector3(face_b.normal).dot(-unit_a2b);
 
-    // Another condition is one that was actually mentioned earlier: angles must be smaller than 90°.
-    if angle_at_a >= crate::util::PI / 2.0 || angle_at_b >= crate::util::PI / 2.0 {
+    // Another condition is one that was actually mentioned earlier: both
+    // facets must face each other, i.e. angles below 90 degrees.
+    if cos_a <= 0.0 || cos_b <= 0.0 {
         return 0.0;
     }
 
-    // Well, ready for calculation.
-    view_factor_scalar(angle_at_a, angle_at_b, distance_a2b)
+    view_factor_scalar_cos(cos_a, cos_b, distance_a2b)
+}
+
+/// A triangle in whatever frame the caller is working in.
+pub type Triangle = [Vec3; 3];
+
+fn tri_centroid(t: &Triangle) -> Vec3 {
+    (t[0] + t[1] + t[2]) / 3.0
+}
+
+fn tri_normal_area(t: &Triangle) -> (Vec3, Float) {
+    let cross = (t[1] - t[0]).cross(t[2] - t[0]);
+    let len = cross.length();
+    if len <= Float::EPSILON {
+        return (Vec3::ZERO, 0.0);
+    }
+    (cross / len, 0.5 * len)
+}
+
+/// Split a triangle into four by joining its edge midpoints.
+///
+/// The middle triangle is inverted in winding but has the same plane and
+/// area, and only the centroid, normal direction and area are used here, so
+/// the orientation is recovered from the parent rather than from the
+/// sub-triangle itself.
+fn tri_subdivide(t: &Triangle) -> [Triangle; 4] {
+    let m0 = (t[0] + t[1]) * 0.5;
+    let m1 = (t[1] + t[2]) * 0.5;
+    let m2 = (t[2] + t[0]) * 0.5;
+    [
+        [t[0], m0, m2],
+        [m0, t[1], m1],
+        [m2, m1, t[2]],
+        [m0, m1, m2],
+    ]
+}
+
+/// View factor `F(A->B)` between two triangles, subdividing when they are
+/// close enough that the point-to-point form breaks down.
+///
+/// Returns the dimensionless fraction of energy leaving A that reaches B,
+///
+/// ```text
+/// F = (1/A_a) * sum_i sum_j  cos_i cos_j / (pi d_ij^2) * a_i * a_j
+/// ```
+///
+/// which is the double area integral evaluated on a uniform subdivision.
+///
+/// `ratio` is the separation, in units of the local facet size, below which a
+/// pair is refined; 4 to 8 is the usual range and the error falls steeply
+/// with it. `max_level` bounds the recursion, since two triangles sharing an
+/// edge have sub-pairs at arbitrarily small separation and the integral,
+/// while finite, is only reached in the limit.
+///
+/// No occlusion test: this is the near-field *geometry* fix. Visibility is
+/// the hemicube's job.
+pub fn view_factor_triangles(
+    tri_a: &Triangle,
+    tri_b: &Triangle,
+    ratio: Float,
+    max_level: u32,
+) -> Float {
+    let (_, area_a) = tri_normal_area(tri_a);
+    if area_a <= 0.0 {
+        return 0.0;
+    }
+    integrate_pair(tri_a, tri_b, ratio, max_level) / area_a
+}
+
+/// The unnormalised double integral, in units of area.
+///
+/// Kept separate from `view_factor_triangles` because the recursion sums
+/// these directly; dividing by `A_a` at every level would be wrong, and
+/// dividing at the end is both correct and cheaper.
+fn integrate_pair(tri_a: &Triangle, tri_b: &Triangle, ratio: Float, level: u32) -> Float {
+    let (n_a, area_a) = tri_normal_area(tri_a);
+    let (n_b, area_b) = tri_normal_area(tri_b);
+    if area_a <= 0.0 || area_b <= 0.0 {
+        return 0.0;
+    }
+
+    let c_a = tri_centroid(tri_a);
+    let c_b = tri_centroid(tri_b);
+    let v = c_b - c_a;
+    let d = v.length();
+    if d <= Float::EPSILON {
+        return 0.0;
+    }
+
+    // Refine while the pair is close relative to its own size. Using the
+    // larger of the two areas is deliberate: a small facet next to a large
+    // one still needs the large one split, and testing only `area_b` (as the
+    // original guard did) misses that.
+    let size = area_a.max(area_b).sqrt();
+    if level > 0 && d < ratio * size {
+        let mut total = 0.0;
+        for sub_a in tri_subdivide(tri_a).iter() {
+            for sub_b in tri_subdivide(tri_b).iter() {
+                total += integrate_pair(sub_a, sub_b, ratio, level - 1);
+            }
+        }
+        return total;
+    }
+
+    let u = v / d;
+    let cos_a = n_a.dot(u);
+    let cos_b = n_b.dot(-u);
+    if cos_a <= 0.0 || cos_b <= 0.0 {
+        return 0.0;
+    }
+
+    view_factor_scalar_cos(cos_a, cos_b, d) * area_a * area_b
 }
 
 /// Largest slope angle of spherical segment, in radian.

@@ -19,6 +19,7 @@ from kalast._rs.mesh import (  # noqa
     view_factor_scalar_with_area,
     view_factor_scalar,
     view_factor_facets,
+    view_factor_triangles,
     largest_slope_angle_sphere,
     curvature_radius,
     curvature_diameter_from_radius,
