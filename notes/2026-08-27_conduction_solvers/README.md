@@ -1591,6 +1591,97 @@ model -- see 9.4 step 4. But it is a reference, not a method: it has no
 occlusion test, and storage alone rules out the full-resolution meshes. Both
 problems are what the hemicube answers.
 
+## 9.3c Mutual view factors: what actually has to be recomputed
+
+Self view factors are fixed in a body's own frame, so they are computed once
+per shape model. Mutual view factors depend on the relative pose of the two
+bodies, which changes continuously -- so the natural assumption is that they
+must be rebuilt every timestep, for both directions. Neither part is true.
+
+### One matrix serves both directions
+
+Reciprocity, `A_i F_ij = A_j F_ji`, is an identity, not an approximation. So
+the Dimorphos-to-Didymos matrix is the area-scaled transpose of the
+Didymos-to-Dimorphos one: compute one pose, get both directions. Validated to
+7e-8 in `examples/analytical/view_factors.py`.
+
+### The two directions are wildly unequal in importance
+
+The view factor from a flat facet to a sphere of radius `R` at distance `d`,
+facing it squarely, is exactly `(R/d)^2`. With a 1151 m separation:
+
+| direction | max view factor |
+|---|---|
+| Didymos facet -> Dimorphos | `(85/1151)^2` = **0.55 %** |
+| Dimorphos facet -> Didymos | `(390/1151)^2` = **11.5 %** |
+
+A factor of 21, because the primary is 4.6x the secondary's radius and the
+separation is only 3x its own. What that does to a facet, re-equilibrating
+`T -> (T^4 + F T_other^4)^(1/4)`:
+
+| facet | F | effect |
+|---|---|---|
+| Didymos, warm (300 K) | 0.0055 | **+0.75 K** |
+| Didymos, night (120 K) | 0.0055 | +10.4 K |
+| Dimorphos, warm (300 K) | 0.1148 | +13.3 K |
+| Dimorphos, night (120 K) | 0.1148 | **+84.3 K** |
+
+### The geometry each body sees is completely different
+
+Sampling the direction to the companion in each body's own fixed frame over
+one orbit:
+
+| seen from | companion wanders | sub-companion point |
+|---|---|---|
+| Didymos | **178.2 deg** | lon sweeps the full -177 to +180 |
+| Dimorphos | **0.0 deg** | lat 0.0, lon 0.0, fixed |
+
+Dimorphos is tidally locked, so **Didymos never moves in its sky**. The
+sub-Didymos point is stationary to the precision of the kernels.
+
+### What follows for the implementation
+
+- **Self VF, both bodies**: fixed in the body frame. Computed once per shape
+  model, reused across every timestep. Unchanged by any of this.
+- **Dimorphos <- Didymos** (the term that matters): the *direction and
+  distance* to Didymos are permanently fixed in Dimorphos's frame. The only
+  thing that varies is which of Didymos's facets are where, i.e. Didymos's
+  spin phase -- one angle, period 2.26 h. Tabulate on it once and reuse
+  forever. The solid angle Didymos subtends from each Dimorphos facet never
+  changes at all.
+- **Didymos <- Dimorphos** (the small term): the geometry does sweep the full
+  360 deg, with a synodic period of 2.82 h. But it is a sub-Kelvin effect on
+  the day side, so a coarse tabulation is ample.
+
+So nothing needs recomputing per timestep. The parameterisation is by
+*measured phase angle*, not elapsed time: indexing on time inherits the error
+in the nominal spin and orbit constants, which drifts the pose by 3-6 deg
+within one synodic period.
+
+A caveat on how clean that parameterisation is. Binning 2,160 epochs over
+three days into 72 five-degree phase bins, the worst spread *within* a bin is
+72 m in position (6.25 % of the separation) and 6.5 deg in orientation -- so
+the pose is not quite a single-valued function of one angle. The residue is
+the sub-Dimorphos latitude wandering +/-2.8 deg, because the mutual orbit is
+not exactly in Didymos's equatorial plane. For the 0.55 % direction that is
+irrelevant. For the 11.5 % direction it does not arise, since that geometry
+is fixed outright.
+
+### This is a first-order gap in the delivered Dimorphos temperatures
+
+Worth stating plainly, because it affects the GIS3D product. Dimorphos is
+tidally locked with an 11.5 % view factor to a primary whose day side runs
+near 340 K, and its *sub-Didymos hemisphere sees that permanently*. Direct
+insolation alone -- which is what both the spin-up and phase 2 use -- omits a
+term that could reach tens of kelvin on that hemisphere and up to ~84 K on
+its coldest facets.
+
+That does not affect Didymos, whose corresponding term is sub-Kelvin on the
+day side, so the primary in the delivered FITS is unaffected. But the
+Dimorphos pixels should be read as a lower bound on its night-side
+temperatures until mutual heating is in. The FITS headers already carry
+`HEATING = 'none'`; this quantifies what that costs and where.
+
 ## 9.4 Plan
 
 1. Fix (c) immediately — replace `angle_between().cos()` with a dot product.
