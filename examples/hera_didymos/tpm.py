@@ -37,6 +37,12 @@ import kalast.tpm.routine as routine
 from kalast.util import AU, SOLAR_CONSTANT, STEFAN_BOLTZMANN
 
 # ---------------------------------------------------------------- settings
+# Which body's column to spin up. Both orbit the Sun on the same heliocentric
+# ellipse, so the seasonal forcing is identical; what differs is the rotation
+# period (Dimorphos is tidally locked at 11.37 h against Didymos's 2.26 h),
+# which sets the diurnal skin depth and hence the whole grid.
+BODY = "DIMORPHOS"  # "DIDYMOS" | "DIMORPHOS"
+
 GRID = "geometric"  # "uniform" | "geometric"
 # Step every facet as one array operation rather than looping in Python.
 # Measured 13.5x on the conduction core; the per-facet path is kept because it
@@ -52,14 +58,24 @@ NODES_PER_SKIN_DEPTH = 4
 # How deep, in seasonal e-folding depths (ls2pi). 1.0 already reaches 5.45 m.
 DEPTH_IN_SEASONAL = 1.0
 
-N_ORBITS_SPINUP = 2  # 2 x 700 d
+N_ORBITS_SPINUP = 3  # x 700 d
 # Restart from a previously saved column state instead of an isothermal start.
 # Phase 2 (the high-fidelity segment) needs this, and it is also how spin-up
 # convergence is measured: continue for another orbit and compare.
 RESTART_FROM = None  # e.g. "out/hera_didymos/didymos_tpm"
 DT_SAFETY = 0.4  # fraction of the stability limit
 
-MESH = (
+MESH_BY_BODY = {
+    "DIDYMOS": (
+        "/Users/gregoireh/data/mesh/didymos/"
+        "g_01165mm_spc_obj_didy_0000n00000_v003_decimated_10k.obj"
+    ),
+    "DIMORPHOS": (
+        "/Users/gregoireh/data/mesh/dimorphos/"
+        "g_00243mm_spc_obj_dimo_0000n00000_v004_decimated_10k.obj"
+    ),
+}
+_UNUSED_MESH = (
     "/Users/gregoireh/data/mesh/didymos/"
     "g_01165mm_spc_obj_didy_0000n00000_v003_decimated_10k.obj"
 )
@@ -73,7 +89,7 @@ KERNEL_LONG = (
     "/Users/gregoireh/data/spice/hera/kernels/spk/"
     "didymos_hor_000101_500101_v01.bsp"
 )
-OUT = "out/hera_didymos/didymos_tpm"
+OUT = f"out/hera_didymos/{BODY.lower()}_tpm"
 T_INIT = 200.0
 
 # ------------------------------------------------------------------ setup
@@ -81,8 +97,13 @@ spice.kclear()
 spice.furnsh(KERNEL)
 spice.furnsh(KERNEL_LONG)
 
-didymos = kalast.entity.DIDYMOS
-prop = kalast.tpm.properties.DIDYMOS
+body = getattr(kalast.entity, BODY)
+prop = getattr(kalast.tpm.properties, BODY)
+MESH = MESH_BY_BODY[BODY]
+# Heliocentric period, for the seasonal wave. `DIMORPHOS.orbit_period` is its
+# 11.9 h orbit *around Didymos*, which is a diurnal-scale forcing, not a
+# seasonal one -- using it would build a grid centimetres deep.
+ORBIT_PERIOD = kalast.entity.DIDYMOS.orbit_period
 prop.se = STEFAN_BOLTZMANN * prop.emissivity
 prop.compute_conductivity_diffusivity()
 D = prop.diffusivity
@@ -92,19 +113,19 @@ mesh.flatten()
 nface = len(mesh.facets)
 
 et_end = spice.str2et("2027-01-21 05:36:00 UTC")
-et_start = et_end - N_ORBITS_SPINUP * didymos.orbit_period
+et_start = et_end - N_ORBITS_SPINUP * ORBIT_PERIOD
 
-ls1_day = properties.skin_depth_1(D, didymos.spin_period)
-ls2pi_season = properties.skin_depth_2pi(D, didymos.orbit_period)
+ls1_day = properties.skin_depth_1(D, body.spin_period)
+ls2pi_season = properties.skin_depth_2pi(D, ORBIT_PERIOD)
 
-print(f"Didymos  k={prop.conductivity:.4e} W/m/K  D={D:.4e} m2/s  "
+print(f"{BODY}  k={prop.conductivity:.4e} W/m/K  D={D:.4e} m2/s  "
       f"TI={prop.thermal_inertia:.0f}")
 print(f"  diurnal  ls1={ls1_day * 100:.2f} cm")
 print(f"  seasonal ls2pi={ls2pi_season:.2f} m")
 print(f"  mesh {nface:,} facets")
 print(f"  {spice.et2utc(et_start, 'C', 0)} -> {spice.et2utc(et_end, 'C', 0)}  "
       f"({N_ORBITS_SPINUP} orbits, "
-      f"{(et_end - et_start) / didymos.spin_period:,.0f} rotations)")
+      f"{(et_end - et_start) / body.spin_period:,.0f} rotations)")
 
 # ------------------------------------------------------------------- grid
 depth = DEPTH_IN_SEASONAL * ls2pi_season
@@ -123,10 +144,10 @@ else:
 
 nx = z.size
 dt = DT_SAFETY * max_dt
-routine.print_resolution_report(z, D, didymos.spin_period, GRID)
+routine.print_resolution_report(z, D, body.spin_period, GRID)
 
 nit = int(numpy.ceil((et_end - et_start) / dt)) + 1
-print(f"  dt={dt:.2f} s ({didymos.spin_period / dt:.0f} steps/rotation), "
+print(f"  dt={dt:.2f} s ({body.spin_period / dt:.0f} steps/rotation), "
       f"{nit:,} steps total")
 
 if GRID == "uniform":
@@ -167,10 +188,58 @@ else:
     columns = [column.clone() for _ in range(nface)]
 
 
+# Mission kernels cover 2026-07 to 2027-07. Didymos has a Horizons ephemeris
+# and a rotation model reaching back to 2023, so its spin-up needs nothing
+# special. Dimorphos has neither: both `spkpos` and `pxform` fail with
+# SPKINSUFFDATA before coverage, so a two-orbit spin-up cannot be driven from
+# kernels alone.
+#
+# Two approximations bridge that, and both are safe here:
+#
+# 1. The Sun's direction is taken relative to *Didymos* rather than
+#    Dimorphos. They are 1.19 km apart at 1.5e8 km, so the direction differs
+#    by 8e-9 rad -- eleven orders of magnitude below anything that matters.
+#
+# 2. Dimorphos's body-fixed frame is extended backwards as a uniform rotation
+#    about its own spin axis at the true rate, anchored to the real
+#    orientation at the study epoch. It is tidally locked, so its rotation
+#    *is* uniform to good approximation, and anchoring at `et_end` means the
+#    synthetic frame agrees with the kernels exactly where the two meet --
+#    there is no discontinuity at handover to phase 2.
+#
+# The rotational phase would not matter even if it were wrong: after
+# thousands of rotations the column retains no memory of its initial phase,
+# and what the spin-up actually delivers is the deep seasonal field, which
+# depends on the obliquity and the heliocentric distance history, not on
+# where the body happens to be pointing.
+SYNTHETIC_FRAME = BODY == "DIMORPHOS"
+
+if SYNTHETIC_FRAME:
+    _m_ref = spice.pxform("J2000", body.frame, et_end)
+    _omega = 2.0 * numpy.pi / body.spin_period
+    print(f"  {BODY} has no kernel coverage before "
+          f"{spice.et2utc(spice.str2et('2026-07-01'), 'C', 0)}; using a "
+          f"uniform tidally-locked frame anchored at the study epoch")
+
+
+def body_frame(et):
+    """J2000 -> body-fixed rotation at `et`."""
+    if not SYNTHETIC_FRAME:
+        return spice.pxform("J2000", body.frame, et)
+    a = _omega * (et - et_end)
+    ca, sa = numpy.cos(a), numpy.sin(a)
+    # Rotation about the body-fixed +Z (the spin axis), applied after the
+    # anchor so the axis is the body's own, not an inertial one.
+    return numpy.array([[ca, sa, 0.0], [-sa, ca, 0.0], [0.0, 0.0, 1.0]]) @ _m_ref
+
+
 def sun_direction(et):
-    """Unit vector to the Sun and its distance in AU, in the body frame."""
-    (p_sun, _lt) = spice.spkpos("SUN", et, didymos.frame, "none", "DIDYMOS")
-    return numpy.asarray(p_sun, dtype=numpy.float64) * 1e3
+    """Vector to the Sun in metres, in the body frame."""
+    if not SYNTHETIC_FRAME:
+        (p_sun, _lt) = spice.spkpos("SUN", et, body.frame, "none", BODY)
+        return numpy.asarray(p_sun, dtype=numpy.float64) * 1e3
+    (p_sun, _lt) = spice.spkpos("SUN", et, "J2000", "none", "DIDYMOS")
+    return body_frame(et) @ (numpy.asarray(p_sun, dtype=numpy.float64) * 1e3)
 
 
 # ---------------------------------------------------------------- solve

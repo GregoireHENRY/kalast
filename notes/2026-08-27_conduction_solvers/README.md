@@ -292,6 +292,61 @@ bdf2                   3.93e-01     9.50e-02[2.0] 2.31e-02[2.0] 5.53e-03[2.1]
 against the wrong time measures the sampling, and one run on a grid too
 coarse measures the grid.
 
+### Why the production run still uses explicit forward Euler
+
+This deserves spelling out, because the general advice — heard at
+conferences, and correct as general advice — is that implicit schemes are
+faster for stiff diffusion, and the benchmark in this very section measures
+BDF2 at **19x** the explicit path. Yet `tpm.py` and `tpm_phase2.py` both run
+explicit forward Euler. That is not an oversight, and the reconciliation is
+worth understanding.
+
+**The 19x is measured on a grid the production run does not use.** The
+sinusoidal example resolves the diurnal wave with 10 nodes per skin depth,
+giving a 1.21 mm first layer. Stability scales as `h²`, so that grid caps the
+explicit timestep at 22.4 s. The production grid deliberately uses only **4**
+nodes per skin depth, giving a 3.02 mm first layer — and stability at `h²`
+means 2.5x thicker buys 6.2x the timestep:
+
+| grid | first layer | explicit limit | accuracy needs (spin/100) | implicit headroom |
+|---|---|---|---|---|
+| sinusoidal example, 10 nodes/ls | 1.21 mm | 22.4 s | 81.4 s | **9.1x** |
+| production, 4 nodes/ls | 3.02 mm | 139.8 s | 81.4 s | **1.45x** |
+
+On the production grid the explicit stability limit (139.8 s) is *already
+above* what accuracy requires (81.4 s). Stability has stopped being the
+binding constraint — the forcing is. So an unconditionally stable scheme has
+almost nothing left to buy: at best 1.45x, for the cost of a linear solve.
+
+**A second constraint closes the remaining gap.** The eclipse window is 93
+minutes and an individual facet's ingress is much shorter. At dt = 55.9 s the
+run puts ~100 steps across that window; at the 325 s timestep that made BDF2
+look 19x faster, it would put 17, smearing the very feature the deliverable
+exists to show. For phase 2, accuracy against a *transient* sets dt, and no
+scheme evades that.
+
+**So the correct statement is conditional**, and both halves matter:
+
+- Implicit wins decisively **when the grid is fine enough that stability, not
+  accuracy, sets the timestep.** That is the regime the advice describes, and
+  it is real — 19x here.
+- The coarse-grid choice made earlier had already escaped that regime, by
+  trading spatial resolution for a thicker surface layer.
+
+**Where the implicit work pays off is therefore not speed but freedom.** The
+coarse grid is not free: at 4 nodes per skin depth the sinusoidal validation
+errs by 2.46 K against 0.40 K at 10 nodes. Explicitly, buying that accuracy
+costs 6.2x the steps. With BDF2 it costs **nothing in time** — refine the
+surface layer and keep dt at whatever the forcing demands. Implicit decouples
+spatial refinement from temporal cost, which is exactly what the roughness
+work (§8.3) needs, since sub-facet columns require a far finer near-surface
+grid than the facet-scale model does.
+
+The practical decision for now: keep explicit forward Euler for phase 1 and
+phase 2, because on this grid it is within 1.45x of optimal and it is the
+scheme the results were validated with. Switch to BDF2 when the grid refines
+— and the switch is a one-line change, which is the point of having built it.
+
 ## 5. Examples brought out of `old/`
 
 Both were written against an API that has since moved — `diffusivity` and
@@ -535,6 +590,81 @@ follows.
 Only Didymos has a thermophysical state. Dimorphos is loaded purely as an
 occluding mesh; its temperatures are never computed. Any image of the system
 needs them, which is §7.6.
+
+### 7.5b The two eclipses are not symmetric, and the scar outlives the event
+
+An earlier version of this note reported both mutual eclipses as lasting
+93.1 minutes. **That was an artefact of the measurement, not physics.** The
+scan tested `perp < R1 + R2` for both cases — a criterion symmetric in the
+two bodies, so identical durations were guaranteed by construction. A second
+error compounded it: the shadow drift rate was estimated by differencing the
+perpendicular offset across its own minimum, which returns ~0 by symmetry and
+gave a nonsensical 459-minute totality.
+
+Measured properly, with an umbra test for the secondary and a spot test for
+the primary, and the drift rate taken away from the minimum (0.168 m/s, close
+to Dimorphos's 0.183 m/s orbital speed, as it should be at a central
+crossing):
+
+| event | duration |
+|---|---|
+| Dimorphos totally inside Didymos's umbra | **57 min** (91 min including partial phases) |
+| Dimorphos's shadow spot crossing Didymos's disk | 93 min |
+| a *single Didymos facet* inside that spot | **~10–16 min** |
+
+The asymmetry follows from the rotation states, and it runs the way intuition
+says it should:
+
+- **Dimorphos is tidally locked**, so its rotation period *is* its orbital
+  period. During totality the whole sunlit hemisphere is dark at once and
+  stays dark for the full 57 minutes — no facet gets relief by rotating out.
+- **Didymos spins in 2.26 h** against Dimorphos's 11.37 h orbit, so the
+  shadow spot sweeps across the surface at ~0.3 m/s rather than dwelling.
+  Its 90 m radius takes 93 minutes to cross the disk, but any given facet
+  spends only ~12 minutes inside it.
+
+So the expected temperature drop is much deeper on the secondary. That run is
+not done yet (§7.6), but the primary's numbers already bound it from below.
+
+#### The trailing shadow: measured
+
+Because the spot sweeps rather than dwells, a natural question is whether the
+cooled track survives to the next rotation. Extending the segment three
+Didymos spins past the study epoch and differencing `mutual` against `self`
+— so topographic self-shadowing cancels and only Dimorphos's contribution
+remains:
+
+| spins after epoch | hours | worst ΔT | facets < −5 K | worst band-radiance drop |
+|---|---|---|---|---|
+| −0.25 | −0.59 | −46.3 K | 270 | −61.3 % |
+| **0** | 0.04 | **−93.7 K** | 384 | **−78.9 %** |
+| +0.25 | 0.58 | −83.6 K | **656** | −74.3 % |
+| +0.50 | 1.12 | −27.4 K | 566 | −44.1 % |
+| **+1.00** | 2.29 | **−10.2 K** | 201 | **−16.5 %** |
+| +1.50 | 3.38 | −5.7 K | 6 | −11.2 % |
+| +2.00 | 4.54 | −3.8 K | 0 | −6.5 % |
+| +3.00 | 6.72 | −2.4 K | 0 | −4.5 % |
+
+**The scar is still plainly visible one full rotation later**: −10.2 K and a
+−16.5 % band-radiance deficit at +2.29 h, far above TIRI's radiometric
+accuracy. It takes 1.87 spins to fall below 5 K anywhere, and after three
+spins it is still −2.4 K / −4.5 %, having never risen above −1 K within the
+6.7-hour window.
+
+The facet *count* peaks a quarter-spin **after** the study epoch (656 facets
+below −5 K against 384 at the epoch), because the spot is still crossing the
+disk until 06:22 while the earliest-shadowed facets have not yet recovered.
+The instantaneous shadow and the accumulated track are therefore two
+different features, and the image at the study epoch contains both.
+
+There is also a residue of the *previous* eclipse, 11.4 h (5 spins) earlier,
+at the −1 K level on 13 facets just before ingress — so successive events
+partially accumulate rather than fully resetting.
+
+**Consequence for the deliverable**: the simulated image cannot be produced
+from a snapshot of the instantaneous shadow geometry. It requires the
+thermal history, which is what makes the in-loop segment necessary rather
+than merely convenient.
 
 ### 7.6 Dimorphos, and choosing the segment length by the right clock
 

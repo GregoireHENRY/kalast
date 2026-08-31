@@ -49,6 +49,12 @@ from kalast.util import AU, RPD, SOLAR_CONSTANT, STEFAN_BOLTZMANN
 SHADOW_MODE = "mutual"
 SHADOWING = SHADOW_MODE != "none"
 N_ROTATIONS = 6  # segment length before the study epoch
+# Continue past it, to watch the eclipse scar fade. Didymos spins in 2.26 h
+# while Dimorphos orbits in 11.37 h, so the shadow spot sweeps across the
+# surface rather than dwelling: each facet is darkened for ~10-16 min, and
+# whether that scar survives to the next rotation is a thermal-memory
+# question the model can answer directly.
+SPINS_AFTER = 3
 RESTART_FROM = "out/hera_didymos/didymos_tpm_3orbit"
 OUT = f"out/hera_didymos/didymos_phase2_{SHADOW_MODE}"
 
@@ -85,8 +91,9 @@ prop.se = STEFAN_BOLTZMANN * prop.emissivity
 prop.compute_conductivity_diffusivity()
 D = prop.diffusivity
 
-et_end = spice.str2et("2027-01-21 05:36:00 UTC")
-et_start = et_end - N_ROTATIONS * didymos.spin_period
+et_study = spice.str2et("2027-01-21 05:36:00 UTC")
+et_start = et_study - N_ROTATIONS * didymos.spin_period
+et_end = et_study + SPINS_AFTER * didymos.spin_period
 
 # Grid must match the spin-up exactly or the saved state cannot be reused.
 ls1_day = properties.skin_depth_1(D, didymos.spin_period)
@@ -113,7 +120,9 @@ twodz0 = 2.0 * (z[1] - z[0])
 
 print(f"phase 2, shadow mode = {SHADOW_MODE}")
 print(f"  restart {RESTART_FROM}: surface mean {T[:, 0].mean():.2f} K")
-print(f"  {spice.et2utc(et_start, 'C', 0)} -> {spice.et2utc(et_end, 'C', 0)}")
+print(f"  {spice.et2utc(et_start, 'C', 0)} -> {spice.et2utc(et_end, 'C', 0)}"
+      f"  (study epoch {spice.et2utc(et_study, 'C', 0)}, "
+      f"+{SPINS_AFTER} spins after)")
 print(f"  {N_ROTATIONS} rotations, dt={dt:.2f}s, {n_steps:,} steps, "
       f"{nface:,} facets x {nx} nodes")
 
@@ -150,6 +159,10 @@ normals = numpy.array(
 )
 
 history = {"et": [], "shadowed": [], "t_mean": [], "t_max": [], "t_min": []}
+# Full surface field every SNAP_EVERY steps, so two runs can be differenced
+# facet by facet as a function of time rather than only at the end.
+SNAP_EVERY = 5
+snapshots = {"et": [], "t": []}
 state = {"t0": None, "done": False}
 
 
@@ -225,6 +238,10 @@ def after_render(sim, dt_frame):
     )
     routine.step_conduction(T, d_nodes, coefs)
 
+    if it % SNAP_EVERY == 0:
+        snapshots["et"].append(et)
+        snapshots["t"].append(T[:, 0].copy())
+
     if it % 10 == 0:
         # `lit < 1` counts facets the shadow map finds even partly occluded;
         # on the day side that is the eclipse.
@@ -247,6 +264,8 @@ def save():
         out / "tmp_surf_final.csv", index=False, encoding="utf-8-sig")
     pandas.DataFrame(history).to_csv(out / "history.csv", index=False,
                                      encoding="utf-8-sig")
+    numpy.save(out / "snap_et.npy", numpy.array(snapshots["et"]))
+    numpy.save(out / "snap_tsurf.npy", numpy.array(snapshots["t"]))
     peak = max(history["shadowed"]) if history["shadowed"] else 0
     print(f"surface T: min {T[:, 0].min():.1f}  max {T[:, 0].max():.1f}  "
           f"mean {T[:, 0].mean():.1f} K")
