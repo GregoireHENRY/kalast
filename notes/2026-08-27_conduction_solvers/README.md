@@ -1969,6 +1969,104 @@ The general lesson is the one from the closed box again: **a number that
 cannot physically occur is the most informative test available.** Nothing
 about 0.996 required a reference value to interpret.
 
+## 9.3g Heating wired in, and what it is worth
+
+`kalast.tpm.heating` consumes the rows and `tpm_phase2.py` gains a `HEATING`
+ablation beside `SHADOW_MODE`: `"none"`, `"self"`, `"mutual"`. Two first-order
+terms enter the surface balance,
+
+    eps_i     sum_j VF_ij eps_j sigma T_j^4     thermal re-radiation
+    (1 - A_i) sum_j VF_ij A_j S_j               scattered sunlight
+
+with `S_j` the sunlight *incident* on facet `j` before its own albedo, since
+that is what it reflects onward. `"self"` and `"mutual"` differ only in which
+bodies are allowed to contribute -- the rows are identical and the companion's
+columns are left at zero, so the ablation costs nothing to provide.
+
+Insolation is now computed for every body before any of them steps. With the
+bodies feeding each other's boundary condition, stepping one first would
+advance it against a stale companion -- the same class of mistake as the frame
+bug in 7.7.
+
+### What it is worth
+
+One Didymos rotation to the study epoch, against no heating at all:
+
+| | mean | p90 | p99 | max | facets >1 K |
+|---|---|---|---|---|---|
+| Didymos | +0.07 K | +0.18 | +0.79 | +2.00 | 54 / 10,000 |
+| Dimorphos | **+2.29 K** | +4.85 | +11.74 | **+30.18** | **6,578 / 10,000** |
+
+Dimorphos splits +1.69 K self and +0.60 K mutual. Didymos is negligible, which
+its 0.0013 self row sums predicted -- the term was never going to matter on a
+near-convex body, and measuring it confirms the row sums were telling the
+truth rather than hiding a bug.
+
+**Not one facet on either body cooled**, in any of the three nested ablations.
+Heating adds a non-negative flux, so `none <= self <= mutual` must hold facet
+by facet; it is free to check and it passed exactly. This is the same free
+monotonicity that caught the frame bug in 7.7.
+
+### The rebuild cadence, and why one is needed
+
+Self view factors are fixed in the body frame. The mutual ones are not, and
+the reason is worth stating because the obvious argument gets it backwards:
+Dimorphos is tidally locked, so Didymos sits still in its sky -- but Didymos
+**rotates underneath in 2.26 h**, so which of the primary's facets are in view,
+and whether those are day side or night side, turns over completely every
+rotation. The solid angle barely moves; the temperature behind it swings by
+hundreds of kelvin.
+
+Measured against a rebuild every 10 steps:
+
+| cadence | ms/step | Dimorphos mean error |
+|---|---|---|
+| once | 56 | -0.689 K |
+| every 25 | 250 | +0.055 K |
+| every 10 | 601 | reference |
+
+Holding the rows for a whole rotation costs 30 % of the term being modelled.
+Every 25 steps costs 2 % of it for a fifth of the price, and is the default.
+The full 1,308-step segment is about 5.5 minutes. One hemicube pass yields
+both blocks, so the static self block is rebuilt alongside the mutual one at
+no extra cost -- there is no saving in caching it separately.
+
+### A monotonicity violation that was the shadow map, not the heating
+
+At a cadence of 10 a single Dimorphos facet came out 5.35 K **below** the
+unheated run, which cannot happen when the added flux is non-negative. It was
+deterministic and reproduced exactly.
+
+Tracing that facet step by step, its heating flux agreed between the two runs
+to 0.5 % -- 8.406 against 8.447 W/m2. The entire difference was `facet_shadow`
+returning a lit fraction of 0.750 in one run and 0.500 in the other, **for the
+same geometry at the same epoch**, worth 139 W/m2 of direct sunlight.
+
+`SAMPLES_PER_FACET` is 4, so the lit fraction is quantised to
+`{0, 0.25, 0.5, 0.75, 1}`. The facet sat exactly on the terminator, where one
+sample flipping moves the flux by a quarter of full insolation. Runs whose
+frame sequences differ -- and inserting rebuild frames changes the sequence --
+can land on either side of that knife edge.
+
+So this is a pre-existing bound on how precisely any single facet's
+temperature can be trusted near the terminator, about +/-6.6 K on this mesh,
+and it has nothing to do with heating. Two things follow: a facet-level
+monotonicity check has to tolerate one flipped sample, and a per-facet
+temperature quoted at the terminator carries that bar whether or not anyone
+draws it.
+
+### What this means for the delivered FITS
+
+The 7.7 product declares mutual and self heating absent, and now there is a
+number for what that omission was worth: **negligible on Didymos, +2.3 K in
+the mean on Dimorphos and up to +30 K on individual facets**, with 6,578 of
+10,000 facets moved by more than 1 K. Combined with the far-plane clipping in
+9.3f, which suppressed Dimorphos's mutual term by 4.6x, the secondary's
+temperatures in that product are systematically low.
+
+Didymos is unaffected on both counts, so the eclipse conclusions in 7.7 --
+which are about the primary -- stand.
+
 ## 9.4 Plan
 
 1. Fix (c) immediately — replace `angle_between().cos()` with a dot product.
@@ -1989,3 +2087,30 @@ check `sum_j VF_ij <= 1` are cheap and catch most implementation errors — the
 current code satisfies neither by construction, since a zeroed near-field pair
 breaks reciprocity only if the guard fires asymmetrically, which it does
 whenever the two facets differ in area.
+
+### Status
+
+1-3 done (9.3b, 9.3d, 9.3e). 4 turned out not to be the win it looks like: the
+self block is indeed invariant, but one hemicube pass produces the self and
+mutual blocks together, so caching the self block separately saves nothing --
+and the mutual block has to be rebuilt anyway, every 25 steps as 9.3g
+measures. The invariance that does pay is the orbit-scale one, not yet
+exploited: for a tidally locked pair the *relative* geometry repeats every
+orbit, so a run longer than 11.37 h could reuse a table indexed by orbital
+phase rather than rebuilding.
+
+Both checks are now applied. Closure holds at 1.00001 on the closed box.
+Reciprocity is asserted in `examples/analytical/cavity_heating.py` in its
+aggregated form, `sum_i A_i VF_ij = A_j rowsum_j`, because per pair it is
+quantisation-limited and mostly noise. Neither was in place when the far-plane
+bug of 9.3f went in, and the aggregated form would have caught it.
+
+Still open:
+
+- **The 22 inward-facing Dimorphos facets** (9.3f) are reported and not fixed.
+  They now also carry a nonsense self view factor of up to 0.996, so they take
+  a large spurious heating term on top of never seeing the sun.
+- **Multiple scattering** is dropped. Below 0.4 % on Didymos, ~30 % in the one
+  Dimorphos concavity whose row sum reaches 0.35.
+- **The 2.0 km sweep anomaly** from 9.3f, outside this system's range and
+  unexplained.
