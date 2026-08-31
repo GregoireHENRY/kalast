@@ -955,12 +955,12 @@ stepped.
 
 | body | term | facets | worst ΔT | mean ΔT | facets < −5 K | worst radiance |
 |---|---|---|---|---|---|---|
-| Didymos | self-shadowing | 4,105 | −10.9 K | −0.15 K | 35 | −32.1 % |
-| | **eclipse** | 3,980 | **−93.7 K** | −1.39 K | 384 | **−78.9 %** |
-| | both | 4,240 | −93.7 K | −1.54 K | 413 | −78.9 % |
-| Dimorphos | **self-shadowing** | 7,791 | **−116.2 K** | −4.60 K | 1,865 | **−92.2 %** |
-| | eclipse | 9,213 | −11.0 K | −0.63 K | 1,234 | −26.9 % |
-| | both | 8,780 | −115.2 K | −5.23 K | 2,907 | −89.8 % |
+| Didymos | self-shadowing | 4,105 | −12.4 K | −0.16 K | 44 | −36.5 % |
+| | **eclipse** | 3,977 | **−95.9 K** | −1.34 K | 366 | **−80.2 %** |
+| | both | 4,240 | −95.9 K | −1.49 K | 406 | −80.2 % |
+| Dimorphos | **self-shadowing** | 7,791 | **−116.3 K** | −4.57 K | 1,853 | **−92.2 %** |
+| | eclipse | 9,211 | −13.7 K | −0.63 K | 1,239 | −27.0 % |
+| | both | 8,966 | −115.4 K | −5.20 K | 2,923 | −89.8 % |
 
 The two bodies are dominated by *different* terms, and the reason is the
 epoch. At 05:36 Dimorphos is at conjunction — between Didymos and the Sun,
@@ -1190,39 +1190,97 @@ field instead of appearing still while the frame moves around them. The
 export writes full 1024x768 frames and the crop happens in a separate
 compose step, so the sequence can be recomposed without re-rendering.
 
-### A "second eclipse" that was filename sorting
+### Two bugs behind one symptom, and a check that was not a check
 
 Reviewing the diffuse frames, an apparent extra eclipse of the secondary
-showed up between the first umbra passage and the shadow transit, which the
-geometry does not contain. The natural suspicions were a rendering artefact
--- a wrong frustum, or spurious self-shadowing on Dimorphos.
+showed up where the geometry has none. It turned out to be **two independent
+faults**, and the first investigation found only the harmless one.
 
-Both were wrong, and measuring rather than inspecting settled it. Sampling
-the diffuse frames at Dimorphos's *predicted* pixel position and taking the
-peak brightness in a 44 px box gives **zero frames dark outside the umbra
-windows**; peak brightness is 1.000 everywhere else. Independently, a
-one-minute-cadence geometric scan finds only the two umbra passages, no
-occultation before +4.62 h, and a phase angle staying within 27-31 deg, so
-the illuminated fraction never drops below 0.93. There was nothing to see.
+#### Fault 1: frame filenames sorted as strings
 
-The cause was the **frame filenames**. `FrameExporter` wrote
-`{export_dir}/{N}.png` unpadded, so any file browser, image viewer or shell
-glob sorts them as strings: 0, 1, 10, 100, 101, ..., 109, 11, 110, ... In
-that order the 40 true umbra frames scatter into **14 separate clusters**, so
+`FrameExporter` wrote `{export_dir}/{N}.png` unpadded, so any file browser,
+viewer or shell glob sorts them 0, 1, 10, 100, ..., 109, 11, 110. In that
+order the 40 true umbra frames scatter into **14 separate clusters**, so
 stepping through the directory shows fourteen apparent eclipses rather than
-two. The temperature and radiance frames, written by this example with
-`f"{k:04d}.png"`, were correctly ordered -- which is why the artefact
-appeared only in the diffuse sequence and looked like a renderer problem.
+two. Fixed: `FrameExporter` now writes `{N:06}.png`, which sorts correctly
+and matches ffmpeg's `%06d`. The resume scan parses the stem as a number, so
+directories from earlier runs still resume.
 
-Fixed at the source: `FrameExporter` now writes `{N:06}.png`. The resume scan
-parses the stem as a number, so it still accepts the unpadded names earlier
-runs wrote, and six digits matches ffmpeg's `%06d` pattern directly.
+The tell that should have been noticed: the temperature and radiance frames,
+written by the example itself with `f"{k:04d}.png"`, were correctly ordered.
+Only the renderer's own exports misbehaved.
 
-Worth recording as a class of bug: an ordering fault in a *sequence* presents
-as a physics fault in the *content*, and the natural debugging instinct --
-look harder at the rendering -- leads away from it. Predicting where the
-object should be and measuring the pixels there took a minute and pointed
-straight at the answer.
+#### The check that was not a check
+
+Having fixed the ordering, the frames were tested for spurious darkening by
+sampling Dimorphos's *predicted* pixel position and taking the **peak**
+brightness in a 44 px box. That returned 1.000 everywhere outside the umbra,
+and the conclusion drawn was that nothing was wrong.
+
+The metric was blind to the actual defect. Peak brightness stays 1.000 while
+*half the body* is black -- one saturated pixel is enough. The evidence was
+already in the same table: the *mean* column read 0.0837 at −3.69 h against
+~0.16 either side, exactly half, and it was not read. Re-tested with a count
+of lit pixels rather than a peak, the artefact is unmissable.
+
+**The lesson is the metric, not the bug.** A statistic that cannot fall when
+the defect is present is not evidence of absence. Peak was the wrong summary
+for a partial occlusion; lit area is the right one.
+
+#### Fault 2: the shadow frustum was centred on the wrong point
+
+`fit_projection` sized the light's orthographic box from `bounds.radius()` --
+the bounding-sphere radius -- for a good reason: that radius is invariant as
+the light rotates, so the shadow map keeps a constant world-per-texel scale
+instead of breathing every frame.
+
+But the sphere is centred on the **bounds**, while the frustum is centred on
+the light's **view axis**, which passes through whatever the frame is aimed
+at. For a single body those coincide. For a binary they do not: with the
+light aimed at Didymos, Dimorphos sits up to 1.15 km off-axis and its far
+edge reaches 1.246 km against a half-width of 1.056 km.
+
+Geometry outside the frustum is clipped and never writes depth, and samples
+outside the map read as shadowed. So part of Dimorphos went black, with a
+hard straight terminator -- the signature of a clip plane, not of topography.
+Measured over one Dimorphos orbit at 1-minute cadence: **37 of 131 epochs
+(28 %)** put part of the secondary outside the shadow map.
+
+**This was not only a rendering fault.** `facet_shadow` reads the same shadow
+map, so the thermophysical model received the same wrong lit fraction. The
+rendered frames and the physics were wrong together, which is the hazard of
+deriving a boundary condition from a rendering artefact -- and also the
+reason it was visible at all.
+
+#### Fixing it without losing resolution
+
+The obvious repair -- grow `side` to `offset + radius` so the sphere is
+covered -- works and was tried first. It is the wrong fix: at quadrature it
+more than doubles the world-per-texel, coarsening the shadow map for *both*
+bodies. Measured, it moved Didymos by up to 8 K at the study epoch, a body
+that was never clipped in the first place. A correctness fix that degrades an
+unrelated result is not a fix.
+
+The right repair is to **offset the box rather than enlarge it**:
+`Mat4::orthographic_rh` is given `centre ± side` instead of `±side`, with the
+centre snapped to whole texels so the map does not shimmer as the box slides.
+`side` stays `bounds.radius()`, so the texel scale is unchanged. After it:
+0 of 131 epochs clipped, and Didymos differs from the original run by
+**0.01 K on 9 facets** -- confirming it really was unaffected, rather than
+assuming so.
+
+#### What it changed
+
+| | facets changed | worst ΔT |
+|---|---|---|
+| Didymos, at the study epoch | 9 / 10,000 | 0.01 K |
+| Dimorphos, at the study epoch | 1,038 / 10,000 | −3.38 K |
+
+Smaller than the visual artefact suggests, because the spuriously shadowed
+facets were often near the terminator or already unlit, and the clipping
+episodes are short against Dimorphos's thermal response. Every conclusion in
+§7.7 survives; the numbers move by 1–3 K and the corrected table is the one
+given there.
 
 TIRI needs no substitute pointing over this window: it is nadir-pointed at
 Didymos throughout, measured at 0.000 deg off-axis every hour.

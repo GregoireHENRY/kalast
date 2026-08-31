@@ -27,6 +27,12 @@ pub struct Resolved {
     pub near: Float,
     pub far: Float,
     pub side: Float,
+
+    /// Where the orthographic box sits, in view-space x/y, relative to the
+    /// view axis. Zero for a scene centred on what the frame looks at;
+    /// non-zero when it is not, which is the normal case for a binary --
+    /// see the note in `fit_projection`. Unused by the perspective path.
+    pub offset: [Float; 2],
 }
 
 #[derive(Debug, Clone)]
@@ -59,6 +65,7 @@ impl Projection {
                 near: 0.01,
                 far: 100.0,
                 side: 5.0,
+                offset: [0.0, 0.0],
             },
         }
     }
@@ -73,6 +80,9 @@ impl Projection {
             near: self.near.unwrap_or(fit.near),
             far: self.far.unwrap_or(fit.far),
             side: self.side.unwrap_or(fit.side),
+            // Not user-overridable: it is a consequence of where the geometry
+            // is, not a preference. A pinned `side` still keeps its offset.
+            offset: fit.offset,
         };
     }
 
@@ -86,18 +96,25 @@ impl Projection {
     // right-handed, Z axis points out of the screen
     // aspect: window width / height
     pub fn mat(&self, aspect: Float) -> Mat4 {
-        let Resolved { near, far, side } = self.resolved;
+        let Resolved {
+            near,
+            far,
+            side,
+            offset,
+        } = self.resolved;
 
         match self.mode {
             ProjectionMode::Orthographic => {
                 let half_height = side;
                 let half_width = half_height * aspect;
 
+                // Off-centre: the box is `side` wide but sits where the
+                // geometry is, which need not be on the view axis.
                 Mat4::orthographic_rh(
-                    -half_width,
-                    half_width,
-                    -half_height,
-                    half_height,
+                    offset[0] - half_width,
+                    offset[0] + half_width,
+                    offset[1] - half_height,
+                    offset[1] + half_height,
                     near,
                     far,
                 )
@@ -372,13 +389,43 @@ impl Eye {
                 // the sphere radius does not change as the light rotates, so
                 // the shadow map keeps a constant world-per-texel scale
                 // instead of breathing every frame.
+                //
+                // The sphere is centred on the *bounds*, though, while the
+                // view axis passes through whatever the frame is aimed at.
+                // For a binary those differ: with the light aimed at the
+                // primary, Dimorphos sits up to 1.15 km off-axis and its far
+                // edge reached 1.246 km against a half-width of 1.056 km, so
+                // part of it fell outside the shadow map. Geometry outside
+                // the frustum is clipped and never writes depth, and samples
+                // outside read as shadowed -- which both drew a hard false
+                // terminator across the secondary and, because
+                // `facet_shadow` reads this same map, fed a wrong lit
+                // fraction to the thermophysical model. It affected 28% of
+                // epochs over one Dimorphos orbit.
+                //
+                // Fixed by offsetting the box rather than enlarging it.
+                // Growing `side` to `offset + radius` also covers the scene
+                // but more than doubles the world-per-texel at quadrature,
+                // coarsening the shadow for *both* bodies -- measured as up
+                // to 8 K on Didymos, which was never clipped in the first
+                // place. An off-centre box keeps the resolution.
+                let centre = view.transform_point3(bounds.center());
+
                 let mut side = bounds.radius() * margin;
+                let mut offset = [centre.x, centre.y];
 
                 if let Some(texels) = shadow_texels.filter(|t| *t > 0) {
                     // Quantise the size too -- snapping the offset alone is
                     // pointless if the texel size itself keeps changing.
                     let quantum = 2.0 * side / texels as Float;
                     side = (side / quantum).ceil() * quantum;
+                    // Snap the offset to whole texels, so the shadow map does
+                    // not shimmer as the box slides with the geometry.
+                    let texel = 2.0 * side / texels as Float;
+                    offset = [
+                        (offset[0] / texel).round() * texel,
+                        (offset[1] / texel).round() * texel,
+                    ];
                 }
 
                 // Keep the whole scene in depth even when the light sits
@@ -389,6 +436,7 @@ impl Eye {
                     near: min_d - bounds.radius() * margin,
                     far: max_d + bounds.radius() * margin,
                     side,
+                    offset,
                 }
             }
             ProjectionMode::Perspective => {
@@ -402,6 +450,7 @@ impl Eye {
                     near,
                     far,
                     side: half_w.max(half_h) * margin,
+                    offset: [0.0, 0.0],
                 }
             }
         };

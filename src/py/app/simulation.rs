@@ -164,8 +164,10 @@ impl Simulation {
     /// `ids` is `(height, width)` of `uint32`: 0 where nothing was drawn,
     /// otherwise `1 + offsets[body] + facet`. So for body `b`,
     ///
-    ///     mask  = (ids > offsets[b]) & (ids <= offsets[b] + n_facets_b)
-    ///     facet = ids[mask] - offsets[b] - 1
+    /// ```text
+    /// mask  = (ids > offsets[b]) & (ids <= offsets[b] + n_facets_b)
+    /// facet = ids[mask] - offsets[b] - 1
+    /// ```
     ///
     /// picks its pixels and their facet indices, in `Mesh.facets` order.
     /// Depth is resolved by the rasteriser, so a facet missing from the map
