@@ -1682,6 +1682,70 @@ Dimorphos pixels should be read as a lower bound on its night-side
 temperatures until mutual heating is in. The FITS headers already carry
 `HEATING = 'none'`; this quantifies what that costs and where.
 
+## 9.3d The hemicube works, and is both faster and more accurate
+
+`examples/analytical/hemicube.py`, step 3 of the plan. A hemicube is placed at
+a facet, the scene is rendered into its five faces with each facet writing its
+own index, and each pixel contributes its delta form factor to whichever facet
+it shows. Occlusion is resolved by the depth test, so it comes free rather
+than as a separate O(N^2) visibility pass.
+
+### Closure first
+
+Before any geometry, the weights must sum to 1 over the hemicube -- if they
+do not, nothing downstream means anything:
+
+| face resolution | sum of delta form factors | error |
+|---|---|---|
+| 32 | 1.000530 | 5.3e-4 |
+| 64 | 1.000132 | 1.3e-4 |
+| 128 | 1.000033 | 3.3e-5 |
+| 256 | 1.000008 | 8.3e-6 |
+
+Second order in resolution, as the midpoint rule implies.
+
+### Against the closed form
+
+The perpendicular unit squares sharing an edge -- the configuration where the
+point-to-point form is worst -- with the emitter subdivided into 128 sample
+points and area-averaged:
+
+| method | F | error |
+|---|---|---|
+| exact | 0.20004 | – |
+| **hemicube, 128 px faces** | **0.19990** | **0.07 %** |
+| CPU subdivided, ratio 6 level 4 | 0.20749 | 3.7 % |
+| point-to-point, unsubdivided | 0.30339 | 51.7 % |
+| the old `sqrt(area)` guard | 0.12434 | −37.8 % |
+
+**Fifty times more accurate than the CPU reference it was built to
+reproduce**, which is the happy case for a validation: the thing being tested
+beat its own reference, and the closed form is what says so.
+
+### And faster
+
+18.7 ms per hemicube in this prototype -- five renders and five blocking
+readbacks over PCIe, the slowest possible arrangement. Even so:
+
+| method | 10,000-facet matrix | occlusion | error |
+|---|---|---|---|
+| CPU subdivided pairs | 12 min | **none** | 3.7 % |
+| hemicube prototype | **3.1 min** | exact | 0.07 % |
+
+The prototype is dominated by readback latency: it copies a 128x128 integer
+buffer to the CPU and does the weighting in numpy, five times per facet.
+Accumulating on the GPU in a compute pass and reading back once per facet --
+or once per batch -- is the obvious next step, and the facet-shadow work
+already measured what that saves.
+
+### Why this also settles the near-field problem
+
+There is no `1/d^2` to diverge and no threshold to choose. A facet that is
+very close simply covers many pixels of the hemicube, and its view factor is
+the sum of their weights, bounded by construction at 1. The subdivision
+machinery in `view_factor_triangles` exists to give a CPU reference and to
+handle cases with no renderer available; the hemicube does not need it.
+
 ## 9.4 Plan
 
 1. Fix (c) immediately — replace `angle_between().cos()` with a dot product.
