@@ -18,6 +18,7 @@ import pandas
 import matplotlib
 matplotlib.use("Agg")
 from matplotlib import cm, colors, pyplot
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 IN = Path("out/hera_didymos/tiri_movie")
 OUT = IN / "strip"
@@ -50,14 +51,26 @@ for _, row in df.iterrows():
     fig, ax = pyplot.subplots(1, 3, figsize=(13.5, 4.4))
     titles = ["diffuse (geometry)", "surface temperature [K]",
               "TIRI wide band [W/m2/sr]"]
-    for a, im, t in zip(ax, imgs, titles):
+    ranges = [None, T_RANGE, L_RANGE]
+
+    # `fig.colorbar(ax=a)` takes its space *out of* `a`, so a panel with a
+    # colorbar ends up drawn smaller than one without. That made the three
+    # bodies different sizes across the strip even though the underlying
+    # frames are pixel-identical -- verified at 12,092 px and the same
+    # bounding box in both. Appending a fixed-width axes to every panel,
+    # including an invisible one for the diffuse frame, keeps all three image
+    # axes the same size so the panels are directly comparable.
+    for a, im, t, rng in zip(ax, imgs, titles, ranges):
         a.imshow(im[r0:r1, c0:c1])
         a.set_title(t, fontsize=10)
         a.set_xticks([]); a.set_yticks([])
 
-    for a, rng in ((ax[1], T_RANGE), (ax[2], L_RANGE)):
-        fig.colorbar(cm.ScalarMappable(colors.Normalize(*rng), cmap),
-                     ax=a, shrink=0.82)
+        cax = make_axes_locatable(a).append_axes("right", size="5%", pad=0.08)
+        if rng is None:
+            cax.axis("off")
+        else:
+            fig.colorbar(cm.ScalarMappable(colors.Normalize(*rng), cmap),
+                         cax=cax)
 
     tags = []
     if row.eclipse_on_primary:
