@@ -10,14 +10,17 @@ of the data is in place.
 
 Reference, 2026-09-01, Apple M-series laptop (unified memory, ~400 GB/s):
 
-    CPU conduction    10k x 34      1.13 ms/step
-    GPU TPM           10k x 34      0.12 ms/step
-    GPU TPM           100k x 34     0.59 ms/step
-    GPU TPM           3.1M x 34     8.72 ms/step
-    GPU insolation    3.1M          included above
-    CPU insolation    3.1M         61.08 ms/step
-    GPU radiance      3.1M x 7      47 ms
-    CPU radiance      3.1M x 7     139 ms
+    CPU TPM               10k      1.355 ms per timestep
+    GPU TPM + insolation  10k      0.083 ms per timestep
+    CPU TPM              100k     15.793 ms per timestep
+    GPU TPM + insolation 100k      0.294 ms per timestep
+    GPU TPM + insolation 3.1M      8.793 ms per timestep
+    CPU insolation       3.1M     64.559 ms per timestep
+    GPU radiance x7      3.1M      9.396 ms per call
+    CPU radiance x7      3.1M    129.540 ms per call
+
+Radiance is per *call*, not per timestep: it converts every facet across all
+seven bands once, and is wanted per output frame rather than every step.
 
 The GPU numbers are the ones expected to move most on a discrete card: they are
 memory-bandwidth bound, so they should scale roughly with it.
@@ -72,7 +75,10 @@ def timed(f, k):
     return (time.perf_counter() - t0) / k * 1000
 
 
-print(f"{'subsystem':22s} {'size':>12} {'ms/step':>10}")
+# The unit is not the same for every row: the model and insolation are per
+# timestep, radiance is per call over all facets and all bands, since it is
+# computed once per output frame rather than every step.
+print(f"{'subsystem':22s} {'facets':>12} {'ms':>10}  per")
 for n in SIZES:
     k = STEPS[n]
     rng = numpy.random.default_rng(0)
@@ -91,7 +97,7 @@ for n in SIZES:
         ms = timed(lambda: (routine.step_surface_newton(
             T, f, prop.se, prop.conductivity, twodz, threshold=0.1),
             routine.step_conduction(T, dn, co)), max(k // 4, 10))
-        print(f"{'CPU TPM':22s} {n:12,} {ms:10.3f}")
+        print(f"{'CPU TPM':22s} {n:12,} {ms:10.3f}  step")
 
     ctx = GpuContext()
     g = GpuTpm(n, numpy.asarray(cl, numpy.float32), numpy.asarray(ch, numpy.float32),
@@ -110,7 +116,7 @@ for n in SIZES:
     for _ in range(k):
         gpu_step()
     g.surface()
-    print(f"{'GPU TPM + insolation':22s} {n:12,} {(time.perf_counter()-t0)/k*1000:10.3f}")
+    print(f"{'GPU TPM + insolation':22s} {n:12,} {(time.perf_counter()-t0)/k*1000:10.3f}  step")
 
     # CPU insolation, for the comparison that motivated moving it
     def cpu_insol():
@@ -119,12 +125,12 @@ for n in SIZES:
         c = numpy.einsum("ij,ij->i", nrm, v / d[:, None])
         numpy.maximum(c, 0.0, out=c)
         return absorbed * c / (d / AU) ** 2
-    print(f"{'CPU insolation':22s} {n:12,} {timed(cpu_insol, max(k//4, 5)):10.3f}")
+    print(f"{'CPU insolation':22s} {n:12,} {timed(cpu_insol, max(k//4, 5)):10.3f}  step")
 
     t = numpy.full(n, 280.0)
     gr = GpuRadiance(n, tables, numpy.float32(t_min), numpy.float32(t_max), ctx)
     gr.set_temperatures(t.astype(numpy.float32))
-    print(f"{'GPU radiance x7':22s} {n:12,} {timed(gr.compute, 5):10.3f}")
+    print(f"{'GPU radiance x7':22s} {n:12,} {timed(gr.compute, 5):10.3f}  call")
     print(f"{'CPU radiance x7':22s} {n:12,} "
-          f"{timed(lambda: numpy.stack([b(t) for b in bands], 1), 3):10.3f}")
+          f"{timed(lambda: numpy.stack([b(t) for b in bands], 1), 3):10.3f}  call")
     print()
