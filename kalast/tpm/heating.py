@@ -295,3 +295,127 @@ def absorbed(vf, emitted_all, reflected_all, emissivity, albedo, bounces=1,
     if reflected_all is not None:
         q += (1.0 - albedo) * vf.dot(scattered(reflected_all, albedo))
     return q
+
+
+def synodic_period(spin_periods):
+    """Period over which a pair's *relative* geometry repeats, seconds.
+
+    Not the orbital period, which is the intuitive answer and the wrong one.
+    Didymos turns 5.0299 times per Dimorphos orbit -- not an integer -- so the
+    pair never repeats on the orbit alone. What repeats is
+    `psi = orbital phase - spin phase`, and for a tidally locked secondary,
+    whose spin period *is* its orbital period, that reduces to the beat
+    between the two spin periods:
+
+        1 / P_syn = |1 / P_a - 1 / P_b|
+
+    For Didymos-Dimorphos, 2.821 h against an 11.368 h orbit -- four times
+    shorter.
+
+    Holds when the spin axes are aligned with the orbit normal and the orbit
+    is circular. Measured against the kernels the separation is constant, so
+    the orbit is circular, and the configuration recurs to 0.5-3.5 deg in
+    direction and 0.7-5.7 deg in orientation -- inside the 12 deg rebuild
+    cadence already accepted. The residual does not shrink with a refitted
+    period, so it is a real wobble, Dimorphos's post-DART libration being the
+    obvious candidate.
+    """
+    a, b = float(spin_periods[0]), float(spin_periods[1])
+    d = abs(1.0 / a - 1.0 / b)
+    if d <= 0:
+        raise ValueError("the two periods are identical: no synodic beat")
+    return 1.0 / d
+
+
+class SynodicTable:
+    """Mutual view factors precomputed over one synodic period.
+
+    The mutual block has to be rebuilt as the pair turns -- the solid angle
+    barely moves, but *which* of the companion's facets fill it, day side or
+    night side, turns over completely. Rebuilding costs ~5 s and dominates a
+    segment: at a 12 deg cadence a 1,309-step run spends 262 rebuilds on it.
+
+    Since the geometry repeats synodically, those rebuilds are the same
+    handful of configurations computed over and over. This holds one set per
+    phase and looks them up, so a run of any length pays the build once.
+
+    **Self blocks are stored once**, being fixed in the body frame. That
+    matters less than it sounds -- measured, the mutual block carries 4.98M
+    nonzeros against the self block's 251k on Dimorphos, since each of its
+    facets sees ~500 Didymos facets -- but it is free to do.
+
+    Lookup is nearest-phase, not interpolated: sparse matrices are expensive
+    to blend, and at 30 entries the spacing is 12 deg, the same tolerance the
+    direct rebuild cadence was measured at.
+
+    **Measured, and not accurate enough for Didymos-Dimorphos.** Against
+    direct rebuilds it costs the secondary 0.66 K in the mean, 5.7 K at p99
+    and 19 K at worst, on a heating effect of 2.92 K. Doubling to 60 phases
+    changes nothing (0.688 K), so the limit is not sampling: the pair does not
+    recur synodically as cleanly as its geometry suggests, and Dimorphos's
+    post-DART libration leaves a ~5.7 deg wobble that no density removes.
+    Verified that the indexing is right -- the entry chosen matches the run's
+    geometry to 5.7 deg in direction and 7.2 deg in orientation, as designed.
+
+    The mistake in reasoning is worth keeping: 5.7 deg looked tolerable
+    because the rebuild *cadence* tolerates 12 deg. But cadence error is
+    staleness that returns to zero at every rebuild and averages out, while
+    this is a persistent offset that never does.
+
+    Kept for a pair that does lock rigidly, where the assumption -- spin axis
+    along the orbit normal, circular orbit, no libration -- actually holds.
+    """
+
+    def __init__(self, bodies, period, epoch0, n_phases=30):
+        self.bodies = list(bodies)
+        self.period = float(period)
+        self.epoch0 = float(epoch0)
+        self.n_phases = int(n_phases)
+        self.self_blocks = {}
+        self.mutual = {n: [None] * self.n_phases for n in self.bodies}
+        self._offsets = {}
+        self._n_facets = {}
+
+    def epoch_for(self, index):
+        """The epoch whose geometry entry `index` represents."""
+        return self.epoch0 + self.period * index / self.n_phases
+
+    def index_for(self, et):
+        """Nearest table entry for `et`."""
+        phase = ((et - self.epoch0) / self.period) % 1.0
+        return int(round(phase * self.n_phases)) % self.n_phases
+
+    def store(self, name, index, rows):
+        """Keep entry `index` for `name` from a freshly built `ViewFactors`."""
+        me = self.bodies.index(name)
+        if name not in self.self_blocks:
+            self.self_blocks[name] = rows.block(me)
+            self._offsets[name] = rows.offsets
+            self._n_facets[name] = rows.n_facets
+        self.mutual[name][index] = rows.block(1 - me)
+
+    @property
+    def complete(self):
+        return all(m is not None for rows in self.mutual.values() for m in rows)
+
+    def nnz(self):
+        n = sum(b.nnz for b in self.self_blocks.values())
+        n += sum(m.nnz for rows in self.mutual.values() for m in rows if m is not None)
+        return n
+
+    def rows(self, name, et):
+        """A `ViewFactors` for `name` at `et`, from the nearest entry.
+
+        Reassembled with the self block, so it is interchangeable with what a
+        direct rebuild returns and the caller does not branch.
+        """
+        me = self.bodies.index(name)
+        mutual = self.mutual[name][self.index_for(et)]
+        blocks = [None, None]
+        blocks[me] = self.self_blocks[name]
+        blocks[1 - me] = mutual
+        return ViewFactors(
+            sparse.hstack(blocks, format="csr"),
+            self._offsets[name],
+            self._n_facets[name],
+        )

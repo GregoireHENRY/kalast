@@ -90,6 +90,40 @@ HEATING_BOUNCES = 5  # radiosity order. 1 drops light bounced twice; higher
                      # approximation in.
 
 VF_RES = 128     # hemicube face resolution; 3e-5 closure error at 128
+VF_TABLE = False  # precompute the mutual view factors over one synodic period
+                 # and look them up, instead of rebuilding as the run goes.
+                 #
+                 # The rebuilds are the same handful of configurations over
+                 # and over: the pair's relative geometry repeats with the
+                 # synodic period, 2.821 h here, which is *not* the orbital
+                 # period -- Didymos turns 5.0299 times per orbit, so the pair
+                 # never repeats on the orbit alone. A 1,309-step segment does
+                 # 262 rebuilds at a 12 deg cadence; the table does 30, once,
+                 # and a run of any length pays no more.
+                 #
+                 # **Off, because it is not accurate enough here.** Against
+                 # direct rebuilds it costs Dimorphos 0.66 K in the mean, 5.7 K
+                 # at p99 and 19 K at worst -- 23 % of the 2.92 K effect being
+                 # modelled. Doubling to 60 phases does not help (0.688 K),
+                 # so the floor is not table density: it is that the pair does
+                 # not repeat synodically as cleanly as the geometry suggests.
+                 # Dimorphos's post-DART libration leaves a ~5.7 deg wobble
+                 # that no amount of sampling removes.
+                 #
+                 # The reasoning that led here was wrong in an instructive
+                 # way: 5.7 deg looked acceptable because the *rebuild cadence*
+                 # tolerates 12 deg. But a cadence error is staleness that is
+                 # zero at every rebuild and averages out, while this is a
+                 # persistent offset that never comes back to zero.
+                 #
+                 # Kept because it is correct code and the assumption it rests
+                 # on -- spin axis along the orbit normal, circular orbit, rigid
+                 # locking -- would hold for a pair without the libration.
+                 # Costs memory too: 30 phases is 1.16 GB, since the mutual
+                 # block carries 4.98M nonzeros on Dimorphos against the self
+                 # block's 251k.
+VF_TABLE_PHASES = 30  # 12 deg apart, matching the measured rebuild cadence
+
 VF_CHUNK = 2500  # rows per frame. Sets peak memory: 2,500 x 20,000 float32 is
                  # 200 MB, against 800 MB for all 10,000 at once.
 VF_EVERY_DEG = 12.0  # rebuild the view factors every this many degrees of
@@ -423,8 +457,37 @@ class ViewFactorDriver:
 
 
 vf = ViewFactorDriver()
-if HEATING_ON:
+
+SYNODIC = heating.synodic_period([state[n]["body"].spin_period for n in BODIES])
+table = (heating.SynodicTable(list(loaded), SYNODIC, et_start, VF_TABLE_PHASES)
+         if (HEATING_ON and VF_TABLE) else None)
+# Which (phase, body) the table build is on. `None` once it is finished.
+build = {"phase": 0} if table is not None else None
+
+if HEATING_ON and table is None:
     vf.start()
+elif table is not None:
+    print(f"  synodic period {SYNODIC / 3600:.3f} h; precomputing "
+          f"{VF_TABLE_PHASES} phases ({360 / VF_TABLE_PHASES:.0f} deg apart), "
+          f"{VF_TABLE_PHASES * len(ACTIVE)} hemicube passes", flush=True)
+    vf.start()
+
+
+def placement_epoch():
+    """Where to put the bodies this frame.
+
+    While the table is building this is the epoch the *entry* stands for, not
+    the run's current time -- the whole point is to sample geometry the run
+    has not reached yet.
+    """
+    if build is not None:
+        return table.epoch_for(build["phase"])
+    return et_start + step["n"] * dt
+
+
+def rows_for(name, et):
+    """View factors for `name` at `et`, however they were obtained."""
+    return table.rows(name, et) if table is not None else vf.rows[name]
 
 step = {"n": 0}
 
@@ -433,7 +496,7 @@ def before_render(sim, dt_frame):
     """Place the scene for this step, and keep the view-factor build fed."""
     if step["n"] > n_steps:
         return
-    et = et_start + step["n"] * dt
+    et = placement_epoch()
 
     # Body 0 sits at the origin unrotated and everything else moves around
     # it, so its facet positions -- which the TPM indexes -- stay static in
@@ -464,6 +527,10 @@ def before_render(sim, dt_frame):
     # without tailing the log. The TPM step is the number worth showing, not
     # `sim.state.iteration`: they diverge, because a view-factor rebuild spans
     # several frames during which the physics does not advance.
+    if build is not None:
+        sim.hud = (f"view factors {build['phase']}/{VF_TABLE_PHASES} phases")
+        vf.request(sim)
+        return
     sim.hud = (f"{step['n']}/{n_steps} it   {rate}"
                + (f"   eta {rate.eta(n_steps - step['n'])}"
                   if rate.per_second else "")
@@ -505,7 +572,7 @@ def insolation(sim, s, et):
     return {"cosi": cosi, "lit": lit, "incident": incident}
 
 
-def coupling(ins):
+def coupling(ins, et_now):
     """Absorbed flux added by radiative coupling, per body.
 
     Both terms are first order and use the surface temperature at the start
@@ -515,7 +582,7 @@ def coupling(ins):
     and the companion's columns are simply left at zero.
     """
     out = {n: None for n in ACTIVE}
-    if not (HEATING_ON and vf.ready):
+    if not (HEATING_ON and (table is not None or vf.ready)):
         return out
 
     emit, refl = [], []
@@ -546,6 +613,22 @@ def after_render(sim, dt_frame):
 
     # A view-factor build owns the frame: the TPM must not advance while the
     # rows it is about to use are half assembled.
+    # Building the synodic table owns the frame until it is done.
+    if build is not None:
+        vf.collect(sim)
+        if vf.busy:
+            return
+        for name in ACTIVE:
+            table.store(name, build["phase"], vf.rows[name])
+        build["phase"] += 1
+        if build["phase"] < VF_TABLE_PHASES:
+            vf.start()
+            return
+        print(f"  synodic table built: {table.nnz():,} nonzeros, "
+              f"{table.nnz() * 8 / 1e9:.2f} GB", flush=True)
+        globals()["build"] = None
+        return
+
     if HEATING_ON and vf.busy:
         vf.collect(sim)
         if vf.busy:
@@ -579,7 +662,7 @@ def after_render(sim, dt_frame):
     # body's surface feeds the other's boundary condition, so stepping one
     # first would advance it against a stale companion.
     ins = {n: insolation(sim, state[n], et) for n in ACTIVE}
-    extra = coupling(ins)
+    extra = coupling(ins, et)
 
     shadowed = {}
     for name in ACTIVE:
@@ -620,7 +703,8 @@ def after_render(sim, dt_frame):
     # A periodic rebuild picks the companion up where it has moved to. The
     # self block is fixed in the body frame and is rebuilt with it only
     # because one hemicube pass produces both.
-    if HEATING == "mutual" and VF_EVERY and step["n"] % VF_EVERY == 0:
+    if (table is None and HEATING == "mutual" and VF_EVERY
+            and step["n"] % VF_EVERY == 0):
         vf.start()
 
 

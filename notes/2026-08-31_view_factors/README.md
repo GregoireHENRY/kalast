@@ -345,7 +345,33 @@ Phase 1 must be re-run for both bodies before the next production segment.
 
 ## 7. What is still to do
 
-- **Synodic-phase parametrisation** -- viable, quantified, not built. The
+- ~~Synodic-phase parametrisation~~ **built, measured, and turned off.** It
+  does not work here, and the reason is worth keeping.
+
+  A table of 30 mutual view-factor sets over one synodic period replaces every
+  rebuild in a run of any length -- 522 hemicube passes become 60 for a
+  1,309-step segment. The indexing is right: the entry chosen matches the
+  run's geometry to 5.7 deg in direction and 7.2 deg in orientation, exactly
+  as designed.
+
+  But it costs Dimorphos **0.66 K in the mean, 5.7 K at p99 and 19 K at
+  worst**, against a heating effect of 2.92 K -- a 23 % error on the quantity
+  being computed. Doubling to 60 phases changes nothing (0.688 K, max 18.1 K),
+  so the floor is not table density. The pair does not recur synodically as
+  cleanly as the geometry suggests; the ~5.7 deg residual measured below is
+  a real wobble, and no sampling removes it.
+
+  **The reasoning that led here was wrong in an instructive way.** 5.7 deg
+  looked acceptable because the rebuild *cadence* tolerates 12 deg. But a
+  cadence error is staleness that is zero at every rebuild and averages out,
+  while this is a **persistent offset that never returns to zero**. Two
+  tolerances measured in degrees are not the same tolerance.
+
+  `heating.SynodicTable` is kept and `VF_TABLE` defaults off. The assumption
+  it rests on -- spin axis along the orbit normal, circular orbit, rigid
+  locking -- would hold for a pair without Dimorphos's post-DART libration.
+
+- **Superseded: the parametrisation as originally imagined.** The
   remaining real optimisation, and the part of the original plan's item 4 that
   survives. Caching the self block separately buys nothing, since one hemicube
   pass produces both blocks and the mutual one must be rebuilt regardless.
