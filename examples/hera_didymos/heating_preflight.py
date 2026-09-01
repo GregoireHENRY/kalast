@@ -29,7 +29,7 @@ import pandas
 import spiceypy as spice
 
 import kalast
-from kalast.tpm import heating, properties
+from kalast.tpm import heating, properties, routine
 from kalast.util import AU, SOLAR_CONSTANT, STEFAN_BOLTZMANN
 
 EPOCH = "2027-01-21 05:36:00 UTC"
@@ -78,6 +78,7 @@ for i, name in enumerate(BODIES):
     if len(mesh.facets) != s["n"]:
         raise SystemExit(f"{name}: mesh has {len(mesh.facets):,} facets, "
                          f"restart state has {s['n']:,}")
+    s["areas"] = numpy.array([mesh.facets[k].area for k in range(s["n"])])
     s["positions"] = numpy.array([mesh.facets[k].pos for k in range(s["n"])])
     s["normals"] = numpy.array([mesh.facets[k].normal for k in range(s["n"])])
 
@@ -141,8 +142,9 @@ def report():
     for name in BODIES:
         vf, prop, T = rows[name], state[name]["prop"], state[name]["T"]
         me = state[name]["index"]
-        print(f"\n{name}   ({state[name]['n']:,} facets, "
-              f"surface T mean {T.mean():.1f} K)")
+        print(f"\n{name}   ({state[name]['n']:,} facets, surface T "
+              f"{routine.area_mean(T, state[name]['areas']):.1f} K "
+              f"area-weighted)")
         print(f"  view factor row sums: self {vf.row_sums(me).mean():.4f}, "
               f"mutual {vf.row_sums(1 - me).mean():.4f}")
         bad = heating.pathological_facets(vf, me)

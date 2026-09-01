@@ -312,7 +312,7 @@ for n in ACTIVE:
     s = state[n]
     print(f"  {s['name']:10s} {s['nface']:,} facets x {s['z'].size} nodes, "
           f"own stability limit {s['max_dt']:.0f}s, "
-          f"restart surface mean {s['T'][:, 0].mean():.2f} K")
+          f"restart surface mean {s['T'][:, 0].mean():.2f} K per facet")
 
 # -------------------------------------------------------------- rendering
 app = kalast.app.App()
@@ -366,6 +366,10 @@ for i, name in enumerate(loaded):
     )
     s["normals"] = numpy.array(
         [mesh.facets[k].normal for k in range(s["nface"])], dtype=numpy.float64
+    )
+    # For reporting: a facet-count mean is not the mean over the surface.
+    s["areas"] = numpy.array(
+        [mesh.facets[k].area for k in range(s["nface"])], dtype=numpy.float64
     )
 
 history = {"et": []}
@@ -693,8 +697,8 @@ def after_render(sim, dt_frame):
         history["et"].append(et)
         for n in ACTIVE:
             history[f"{n.lower()}_shadowed"].append(shadowed[n])
-            history[f"{n.lower()}_t_mean"].append(
-                float(state[n]["T"][:, 0].mean()))
+            history[f"{n.lower()}_t_mean"].append(routine.area_mean(
+                state[n]["T"][:, 0], state[n]["areas"]))
             history[f"{n.lower()}_q_extra"].append(
                 0.0 if extra[n] is None else float(extra[n].mean()))
 
@@ -729,7 +733,10 @@ def save():
         numpy.save(d / "snap_tsurf.npy", numpy.array(snapshots[n]))
         numpy.save(d / "tsurf_at_epoch.npy", at_epoch[n])
         print(f"{n:10s} surface T: min {s['T'][:, 0].min():6.1f}  "
-              f"max {s['T'][:, 0].max():6.1f}  mean {s['T'][:, 0].mean():6.1f} K")
+              f"max {s['T'][:, 0].max():6.1f}  "
+              f"mean {routine.area_mean(s['T'][:, 0], s['areas']):6.1f} K "
+              f"(area-weighted; {s['T'][:, 0].mean():.1f} per facet)  "
+              f"emission {routine.emission_mean(s['T'][:, 0], s['areas']):6.1f} K")
     print(f"wrote {out}/")
 
 

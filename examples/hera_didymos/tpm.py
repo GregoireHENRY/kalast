@@ -117,6 +117,10 @@ D = prop.diffusivity
 mesh = kalast.mesh.Mesh(MESH)
 mesh.flatten()
 nface = len(mesh.facets)
+# Facet areas, for reporting. A facet-count mean is not the mean over the
+# surface: areas on these decimated meshes span a factor of 541, and the two
+# disagree by 11 K on Dimorphos. See routine.area_mean.
+areas = numpy.array([mesh.facets[i].area for i in range(nface)])
 
 et_end = spice.str2et("2027-01-21 05:36:00 UTC")
 et_start = et_end - N_ORBITS_SPINUP * ORBIT_PERIOD
@@ -332,7 +336,9 @@ else:
     temps = (T[:, 0].copy() if (VECTORISED or gpu is not None)
              else numpy.array([c.t[0] for c in columns]))
     print(f"surface T: min {temps.min():.1f} K  max {temps.max():.1f} K  "
-          f"mean {temps.mean():.1f} K")
+          f"mean {routine.area_mean(temps, areas):.1f} K (area-weighted; "
+          f"{temps.mean():.1f} per facet)  "
+          f"emission-weighted {routine.emission_mean(temps, areas):.1f} K")
 
     # Save the full column state, not just the surface: this is a spin-up,
     # and its whole purpose is the equilibrated subsurface profile that a

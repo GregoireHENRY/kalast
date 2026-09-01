@@ -140,6 +140,16 @@ across columns; row sums stay exact to 1e-5.
 
 ## 3. What heating is worth
 
+**A note on the means below.** Every figure in this note was computed as a
+facet-count mean, which is *not* the mean over the surface: facet areas on
+these decimated meshes span a factor of 226-541, so a sliver counts as much as
+a facet 500 times its size. Area-weighted, the Dimorphos heating effect is
+**+2.56 K rather than +2.92 K** — the count mean overstates it by 14 %. The
+tables are left as measured, with that correction stated once here rather than
+silently applied; `routine.area_mean` is what the code now reports, and
+`routine.emission_mean` for anything radiometric, where `T^4` weighting puts
+the figure higher again.
+
 One Didymos rotation to the study epoch, against no heating, rebuild cadence 5:
 
 | | mean | p50 | p90 | p99 | max | facets >1 K |
