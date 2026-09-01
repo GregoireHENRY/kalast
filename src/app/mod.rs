@@ -151,6 +151,11 @@ impl App {
 
 impl winit::application::ApplicationHandler<crate::app::window::Window> for crate::app::App {
     fn resumed(&mut self, ev: &winit::event_loop::ActiveEventLoop) {
+        // Poll, not Wait. With Wait the loop sleeps until an event arrives,
+        // and the only thing that woke it was the redraw it had queued
+        // itself -- see `about_to_wait`.
+        ev.set_control_flow(winit::event_loop::ControlFlow::Poll);
+
         let size = winit::dpi::PhysicalSize::new(self.config.width, self.config.height);
         let attrs = winit::window::Window::default_attributes()
             .with_inner_size(size)
@@ -164,6 +169,26 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
             &self.config,
             &self.simulation.borrow(),
         )));
+    }
+
+    /// Keep a redraw pending, every time the event queue empties.
+    ///
+    /// The redraw chain used to be self-perpetuating: the only
+    /// `request_redraw` was *inside* the `RedrawRequested` handler, so each
+    /// frame asked for the next. macOS stops delivering redraws to an
+    /// occluded window, and a single dropped event therefore broke the chain
+    /// for good -- the simulation sat idle indefinitely, and clicking the
+    /// window to give it focus was what restarted it, since that made AppKit
+    /// issue a redraw of its own.
+    ///
+    /// Requesting from here instead makes the loop independent of whether the
+    /// window is visible. Together with the `Occluded` fix in `window.rs`,
+    /// which lets a frame run without a drawable, a covered window now runs at
+    /// full speed rather than stopping.
+    fn about_to_wait(&mut self, _ev: &winit::event_loop::ActiveEventLoop) {
+        if let Some(win) = self.window.as_ref() {
+            win.get_window().request_redraw();
+        }
     }
 
     fn window_event(

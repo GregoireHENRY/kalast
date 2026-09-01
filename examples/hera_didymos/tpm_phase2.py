@@ -48,6 +48,7 @@ view-factor row sums are mean 0.0013. It is not small on Dimorphos, which sits
 1.15 km from a body four times its size.
 """
 
+import hashlib
 import time
 from pathlib import Path
 
@@ -199,7 +200,7 @@ BODIES = ("DIDYMOS", "DIMORPHOS")
 MESH = {
     "DIDYMOS": (
         "/Users/gregoireh/data/mesh/didymos/"
-        "g_01165mm_spc_obj_didy_0000n00000_v003_decimated_10k.obj"
+        "g_01165mm_spc_obj_didy_0000n00000_v003_decimated_100k.obj"
     ),
     "DIMORPHOS": (
         "/Users/gregoireh/data/mesh/dimorphos/"
@@ -207,8 +208,8 @@ MESH = {
     ),
 }
 RESTART = {
-    "DIDYMOS": "out/hera_didymos/didymos_tpm_3orbit",
-    "DIMORPHOS": "out/hera_didymos/dimorphos_tpm",
+    "DIDYMOS": "out/hera_didymos/didymos_tpm_3orbit_v2",
+    "DIMORPHOS": "out/hera_didymos/dimorphos_tpm_v2",
 }
 
 KERNEL = "/Users/gregoireh/data/spice/hera/kernels/mk/hera_plan_local.tm"
@@ -342,10 +343,12 @@ for i, name in enumerate(loaded):
     # that: re-decimating a shape model to the same target leaves the count
     # identical and every position different, and the run would proceed
     # silently against the wrong geometry. Fingerprint the positions.
-    fp = hash(numpy.asarray(mesh.positions, dtype=numpy.float64).tobytes())
+    fp = hashlib.sha256(
+        numpy.asarray(mesh.positions, dtype=numpy.float64).tobytes()
+    ).hexdigest()
     fp_file = Path(RESTART[name]) / "mesh_fingerprint.txt"
     if fp_file.exists():
-        if fp_file.read_text().strip() != str(fp):
+        if fp_file.read_text().strip() != fp:
             raise SystemExit(
                 f"{name}: the shape model has changed since the spin-up in "
                 f"{RESTART[name]} was saved. The restart state is indexed by "

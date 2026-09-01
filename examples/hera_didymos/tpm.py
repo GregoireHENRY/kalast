@@ -23,6 +23,7 @@ Run with BENCHMARK = True first: it times a few hundred steps and extrapolates,
 rather than committing to a run that may take a day.
 """
 
+import hashlib
 import time
 from pathlib import Path
 
@@ -359,9 +360,9 @@ else:
     # same target leaves the facet count identical and every position
     # different, so a count check cannot catch a stale restart -- record what
     # the mesh actually was. `tpm_phase2.py` refuses to start on a mismatch.
-    (out / "mesh_fingerprint.txt").write_text(str(hash(
+    (out / "mesh_fingerprint.txt").write_text(hashlib.sha256(
         numpy.asarray(mesh.positions, dtype=numpy.float64).tobytes()
-    )))
+    ).hexdigest())
     pandas.DataFrame({"facet": numpy.arange(nface), "t_surface": temps}).to_csv(
         out / "tmp_surf_final.csv", index=False, encoding="utf-8-sig"
     )
