@@ -484,7 +484,7 @@ impl Window {
                 batch,
             ));
         }
-        let hc = self.hemicube.as_ref().unwrap();
+        let hc = self.hemicube.as_mut().unwrap();
         hc.rows(&self.device, &self.queue, &self.meshes[1..], &views)
     }
 

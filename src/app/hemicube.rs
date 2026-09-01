@@ -76,6 +76,16 @@ pub struct Hemicube {
     ids_view: wgpu::TextureView,
     depth_view: wgpu::TextureView,
     weights_view: wgpu::TextureView,
+
+    /// Accumulator, readback buffer and bind group, kept between calls.
+    ///
+    /// These are `batch * n_facets * 4` bytes each -- 20 MB apiece at batch
+    /// 256 over a 20,000-facet index space -- and one view-factor rebuild
+    /// makes eight calls. Allocating them per call left ~40 MB a time for the
+    /// driver to reclaim, and a long run stopped dead once enough had piled
+    /// up: a cadence sweep halted at exactly 38 rebuilds, twice, at 46 % CPU
+    /// and 1 GB RSS. Reallocated only when a larger index space needs them.
+    scratch: Option<(wgpu::Buffer, wgpu::Buffer, wgpu::BindGroup, u64)>,
 }
 
 impl Hemicube {
@@ -303,6 +313,7 @@ impl Hemicube {
             ids_view,
             depth_view,
             weights_view,
+            scratch: None,
         }
     }
 
@@ -326,7 +337,7 @@ impl Hemicube {
     /// Returns `(rows, offsets, n_total)`, with `rows` in row-major order:
     /// entry `[i * n_total + j]` is `VF(hemicube i -> global facet j)`.
     pub fn rows(
-        &self,
+        &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         meshes: &[super::gpu::MeshBuffer],
@@ -343,9 +354,18 @@ impl Hemicube {
         let n_cubes = (views.len() as u32) / FACES;
         let mut out = vec![0.0f32; (n_cubes * n_facets) as usize];
 
-        let acc = device.create_buffer(&wgpu::BufferDescriptor {
+        let needed = (self.batch * n_facets) as u64 * 4;
+        let reuse = matches!(&self.scratch, Some((_, _, _, have)) if *have >= needed);
+        if !reuse {
+            self.scratch = None; // drop the old pair before asking for a bigger one
+        }
+        let (acc, staging, accum_bind) = if reuse {
+            let (a, st, bind, _) = self.scratch.as_ref().unwrap();
+            (a.clone(), st.clone(), bind.clone())
+        } else {
+            let acc = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("hemicube acc"),
-            size: (self.batch * n_facets) as u64 * 4,
+            size: needed,
             usage: wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::COPY_DST,
@@ -353,7 +373,7 @@ impl Hemicube {
         });
         let staging = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("hemicube readback"),
-            size: (self.batch * n_facets) as u64 * 4,
+            size: needed,
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
@@ -383,6 +403,9 @@ impl Hemicube {
                 },
             ],
         });
+            self.scratch = Some((acc.clone(), staging.clone(), accum_bind.clone(), needed));
+            (acc, staging, accum_bind)
+        };
 
         let mut done = 0u32;
         while done < n_cubes {
