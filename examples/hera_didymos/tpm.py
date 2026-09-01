@@ -48,6 +48,12 @@ GRID = "geometric"  # "uniform" | "geometric"
 # Measured 13.5x on the conduction core; the per-facet path is kept because it
 # is the reference the vectorised one is validated against.
 VECTORISED = True
+# "cpu"  -- the numpy path above
+# "gpu"  -- the same physics in a compute shader, with insolation on the GPU
+#           too, so nothing per-facet crosses the bus. Measured 11x at 10k and
+#           23x at 3.1M facets, agreeing with the numpy path to 1.5e-05 K.
+#           See notes/2026-09-01_gpu_tpm/.
+BACKEND = "gpu"
 BENCHMARK = False  # time a short run and extrapolate instead of running it all
 BENCHMARK_STEPS = 200
 
@@ -244,15 +250,41 @@ def sun_direction(et):
 
 # ---------------------------------------------------------------- solve
 n_steps = BENCHMARK_STEPS if BENCHMARK else nit
+_how = ("GPU" if BACKEND == "gpu"
+        else "vectorised" if VECTORISED else "per-facet loop")
 print(f"\n{'benchmarking' if BENCHMARK else 'running'} {n_steps:,} steps"
-      f"{' (vectorised)' if VECTORISED else ' (per-facet loop)'}...")
+      f" ({_how})...")
+
+gpu = None
+if BACKEND == "gpu":
+    from kalast._rs.tpm.gpu import GpuTpm
+
+    gpu = GpuTpm(
+        nface,
+        numpy.asarray(coefs[0], numpy.float32),
+        numpy.asarray(coefs[1], numpy.float32),
+        numpy.asarray(d_nodes, numpy.float32),
+        numpy.float32(prop.se),
+        numpy.float32(prop.conductivity),
+        numpy.float32(twodz0),
+        numpy.float32(kalast.util.NEWTON_METHOD_THRESHOLD),
+        100,
+    )
+    gpu.upload(T.astype(numpy.float32))
+    # Static in the body frame, so uploaded once. This is what lets the
+    # boundary flux be computed in the shader instead of streamed every step.
+    gpu.set_geometry(positions.astype(numpy.float32), normals.astype(numpy.float32))
+    absorbed_1au = numpy.float32(SOLAR_CONSTANT * (1.0 - prop.albedo))
 
 t0 = time.perf_counter()
 for it in range(n_steps):
     et = et_start + it * dt
     p_sun = sun_direction(et)
 
-    if VECTORISED:
+    if gpu is not None:
+        gpu.step_sun([numpy.float32(x) for x in p_sun], absorbed_1au,
+                     numpy.float32(AU))
+    elif VECTORISED:
         v = p_sun[None, :] - positions
         d_sun = numpy.linalg.norm(v, axis=1)
         # cosine_incidence clamps negatives to zero (night); radiation_sun
@@ -284,6 +316,8 @@ for it in range(n_steps):
             c.t[1:-1] = conduct(c.t, c.d, *coefs)
             c.t[-1] = c.t[-2]
 
+if gpu is not None:
+    T = gpu.download().astype(numpy.float64)   # drains the queue
 elapsed = time.perf_counter() - t0
 per_step = elapsed / n_steps
 print(f"{per_step * 1000:.2f} ms/step  ({1 / per_step:.1f} steps/s)")
@@ -295,7 +329,8 @@ if BENCHMARK:
     print(f"  grid={GRID}  {nx} nodes  dt={dt:.1f}s  {nface:,} facets")
     print("\nSet BENCHMARK = False to run it for real.")
 else:
-    temps = T[:, 0].copy() if VECTORISED else numpy.array([c.t[0] for c in columns])
+    temps = (T[:, 0].copy() if (VECTORISED or gpu is not None)
+             else numpy.array([c.t[0] for c in columns]))
     print(f"surface T: min {temps.min():.1f} K  max {temps.max():.1f} K  "
           f"mean {temps.mean():.1f} K")
 
