@@ -172,7 +172,9 @@ fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
         .set_item("kalast._rs.tpm.core", core)?;
 
     let gpu = PyModule::new(tpm.py(), "gpu")?;
+    gpu.add_class::<tpm::gpu::GpuContext>()?;
     gpu.add_class::<tpm::gpu::GpuTpm>()?;
+    gpu.add_class::<tpm::gpu::GpuRadiance>()?;
     tpm.add_submodule(&gpu)?;
     py.import("sys")?
         .getattr("modules")?

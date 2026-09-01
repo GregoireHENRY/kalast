@@ -1,4 +1,4 @@
-# The thermophysical model on the GPU
+# The thermophysical model and radiance on the GPU
 
 One column per facet, stepped in a compute shader, state resident between
 steps. Headless: no window, so a spin-up is a plain script.
@@ -63,6 +63,63 @@ shim imports `kalast._rs.gpu`, a module that does not exist, and the only
 compute shader in the tree doubles an array. `hemicube.rs` was the working
 template.
 
+## Radiance, and mixing the backends freely
+
+Radiance is a 1D table lookup: `BandRadiance` tabulates
+`eps * integral(B(T,w) R(w) dw)` over 20,000 temperatures and interpolates.
+`numpy.interp` binary searches; the table is a `linspace`, so on the GPU the
+index is arithmetic and no search happens at all.
+
+**The two stages are independent.** The model and the radiance conversion each
+run on the CPU or the GPU as the caller chooses, and all four combinations
+work and agree:
+
+| TPM | radiance | how the temperatures cross |
+|---|---|---|
+| CPU | CPU | never leave numpy |
+| GPU | CPU | one readback, `GpuTpm.surface()` |
+| CPU | GPU | one upload, `set_temperatures` |
+| GPU | GPU | **nothing moves** -- `bind_tpm` reads the column buffer in place |
+
+The last row needs both built on one `GpuContext`; separately constructed, each
+makes its own device and the buffers cannot be shared. `bind_tpm` refuses
+across contexts rather than silently falling back. Since `GpuTpm` ping-pongs
+between two state buffers, a bind group is made for each and `compute(front)`
+selects -- nothing is allocated per call.
+
+Agreement against CPU/CPU is **4.3e-06 relative** at worst, over all
+combinations and all seven TIRI bands.
+
+### Which to use
+
+`examples/analytical/backends.py` measures all four. Total time, 7 bands:
+
+| facets | CPU/CPU | CPU/GPU | GPU/CPU | **GPU/GPU** |
+|---|---|---|---|---|
+| 10,000 | 0.296 s | 0.297 s | 0.025 s | **0.024 s** |
+| 100,000 | 3.233 s | 3.232 s | 0.124 s | **0.120 s** |
+| 3,145,728 | 35.25 s | 35.15 s | 1.49 s | **1.35 s** |
+
+**The TPM belongs on the GPU at every size** -- 10x at 10k, 27x above it.
+
+**Radiance does not**, below a point. Taken alone, GPU against CPU:
+
+| facets | speed-up |
+|---|---|
+| 10,000 | **0.4x** -- slower |
+| 100,000 | 1.9x |
+| 3,145,728 | 3.0x |
+
+The crossover is near 50,000 facets. Below it, dispatch and readback latency
+cost more than `numpy.interp` does on so few lookups, and the honest advice is
+to leave radiance on the CPU. This is why the stages are separable rather than
+fused.
+
+One trap worth recording: GPU radiance first measured *slower than CPU even at
+3.1M*, and it was the binding, not the GPU. Returning `(n_facets, n_bands)` as
+`Vec<Vec<f32>>` allocates once per facet -- 3.1M allocations -- and dominated
+the readback. Reshaping one flat array instead took it from 0.9x to 3.0x.
+
 ## What is next, and where the time now goes
 
 **The bottleneck has moved off the GPU.** Timing the step with a precomputed
@@ -76,8 +133,8 @@ flux array, against building that array in numpy:
 At full resolution more than half of every step is now CPU-side insolation --
 `spkpos`, a dot product per facet, and a 12.6 MB upload. Moving insolation into
 the shader would take the 3.1M spin-up from 20.9 h to something near 7.8 h, and
-is the obvious next piece. That is the "radiance on shaders" half of the
-original plan.
+is now the obvious next piece: radiance is done, and insolation is what is
+left holding the loop on the CPU.
 
 Two other things not done:
 

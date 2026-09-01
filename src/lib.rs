@@ -1,5 +1,6 @@
 pub mod astro;
 pub mod entity;
+pub mod gpu;
 pub mod app;
 pub mod math;
 pub mod mesh;

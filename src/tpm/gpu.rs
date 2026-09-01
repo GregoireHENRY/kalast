@@ -19,6 +19,8 @@
 //! agree exactly. The difference is measured rather than assumed; see
 //! `examples/analytical/tpm_gpu_vs_cpu.py`.
 
+use crate::gpu::Context;
+use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
 #[repr(C)]
@@ -35,21 +37,8 @@ struct Params {
     stride_conduction: u32,
 }
 
-/// Split a linear invocation count into a dispatch that respects the 65,535
-/// workgroups-per-dimension cap. Returns `(groups_x, groups_y, stride)`, with
-/// `stride` the width in invocations so the shader can rebuild a linear index.
-fn dispatch_2d(total: u64) -> (u32, u32, u32) {
-    const WG: u64 = 64;
-    const MAX: u64 = 65_535;
-    let groups = total.div_ceil(WG).max(1);
-    let gx = groups.min(MAX);
-    let gy = groups.div_ceil(gx);
-    (gx as u32, gy as u32, (gx * WG) as u32)
-}
-
 pub struct GpuTpm {
-    device: wgpu::Device,
-    queue: wgpu::Queue,
+    ctx: Arc<Context>,
     surface_pipeline: wgpu::ComputePipeline,
     conduction_pipeline: wgpu::ComputePipeline,
     /// Two bind groups over the same buffers with `t_in`/`t_out` swapped, so
@@ -69,6 +58,7 @@ pub struct GpuTpm {
 impl GpuTpm {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        ctx: Arc<Context>,
         n_facets: u32,
         coef_lo: &[f32],
         coef_hi: &[f32],
@@ -92,31 +82,15 @@ impl GpuTpm {
             ));
         }
 
-        let instance = wgpu::Instance::default();
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: None,
-            force_fallback_adapter: false,
-        }))
-        .map_err(|e| format!("no GPU adapter: {e}"))?;
-
-        // The adapter's real limits, not the conservative defaults: a 3.1M
-        // facet column set is a 0.43 GB buffer, well past the 256 MiB the
-        // cross-backend default allows.
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            required_limits: adapter.limits(),
-            ..Default::default()
-        }))
-        .map_err(|e| format!("no GPU device: {e}"))?;
-
+        let device = &ctx.device;
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("tpm"),
             source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/tpm.wgsl").into()),
         });
 
-        let (sx, sy, stride_surface) = dispatch_2d(n_facets as u64);
+        let (sx, sy, stride_surface) = Context::dispatch_2d(n_facets as u64);
         let (cx, cy, stride_conduction) =
-            dispatch_2d((n_facets as u64) * (n_nodes as u64));
+            Context::dispatch_2d((n_facets as u64) * (n_nodes as u64));
         let params = Params {
             n_facets,
             n_nodes,
@@ -269,8 +243,7 @@ impl GpuTpm {
             dispatch_surface: (sx, sy),
             dispatch_conduction: (cx, cy),
             front: 0,
-            device,
-            queue,
+            ctx,
         })
     }
 
@@ -288,7 +261,7 @@ impl GpuTpm {
         if state.len() != want {
             return Err(format!("state must be {want} long, got {}", state.len()));
         }
-        self.queue
+        self.ctx.queue
             .write_buffer(&self.t[self.front], 0, bytemuck::cast_slice(state));
         Ok(())
     }
@@ -304,10 +277,11 @@ impl GpuTpm {
                 flux.len()
             ));
         }
-        self.queue
+        self.ctx.queue
             .write_buffer(&self.flux, 0, bytemuck::cast_slice(flux));
 
         let mut encoder = self
+            .ctx
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("tpm") });
         {
@@ -327,7 +301,7 @@ impl GpuTpm {
                 1,
             );
         }
-        self.queue.submit([encoder.finish()]);
+        self.ctx.queue.submit([encoder.finish()]);
         self.front ^= 1;
         Ok(())
     }
@@ -336,21 +310,23 @@ impl GpuTpm {
     /// than every step -- the state stays resident otherwise.
     pub fn download(&self) -> Vec<f32> {
         let n_total = (self.n_facets as u64) * (self.n_nodes as u64);
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-        encoder.copy_buffer_to_buffer(&self.t[self.front], 0, &self.readback, 0, n_total * 4);
-        self.queue.submit([encoder.finish()]);
+        self.ctx
+            .read_f32(&self.t[self.front], &self.readback, n_total)
+    }
 
-        let slice = self.readback.slice(..);
-        slice.map_async(wgpu::MapMode::Read, |_| {});
-        let _ = self.device.poll(wgpu::PollType::Wait {
-            submission_index: None,
-            timeout: None,
-        });
-        let out = bytemuck::cast_slice::<u8, f32>(&slice.get_mapped_range()).to_vec();
-        self.readback.unmap();
-        out
+    /// Both state buffers, so another pass on the same device can read
+    /// temperatures without a round trip through host memory. `front` says
+    /// which is live.
+    pub fn state_buffers(&self) -> (&wgpu::Buffer, &wgpu::Buffer) {
+        (&self.t[0], &self.t[1])
+    }
+
+    pub fn front(&self) -> usize {
+        self.front
+    }
+
+    pub fn context(&self) -> &Arc<Context> {
+        &self.ctx
     }
 
     /// Surface temperatures only, one per facet.
