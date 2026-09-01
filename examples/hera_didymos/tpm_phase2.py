@@ -127,6 +127,16 @@ VF_TABLE_PHASES = 30  # 12 deg apart, matching the measured rebuild cadence
 
 VF_CHUNK = 2500  # rows per frame. Sets peak memory: 2,500 x 20,000 float32 is
                  # 200 MB, against 800 MB for all 10,000 at once.
+                 #
+                 # It also sets how long the event loop is blocked, because a
+                 # chunk is rendered and read back inside one frame: 1,705 ms
+                 # measured here, so the window cannot be dragged during a
+                 # rebuild. Do not "fix" that by shrinking the chunk -- it is
+                 # not free, and the cost is not obvious. Measured at 250 rows:
+                 # 205 ms per frame, but the whole segment goes from 5.45 h to
+                 # 6.54 h, because 440 chunk-frames per rebuild instead of 44
+                 # pay ten times the fixed per-frame overhead. Responsiveness
+                 # and throughput are the same dial here.
 VF_EVERY_DEG = 12.0  # rebuild the view factors every this many degrees of
                      # the fastest rotation in the system.
                      #
