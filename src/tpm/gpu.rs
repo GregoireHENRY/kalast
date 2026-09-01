@@ -23,6 +23,16 @@ use crate::gpu::Context;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
+/// Rewritten each step. Everything else the insolation pass reads is static.
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct Sun {
+    pos: [f32; 3],
+    absorbed_at_1au: f32,
+    au: f32,
+    _pad: [f32; 3],
+}
+
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct Params {
@@ -41,12 +51,18 @@ pub struct GpuTpm {
     ctx: Arc<Context>,
     surface_pipeline: wgpu::ComputePipeline,
     conduction_pipeline: wgpu::ComputePipeline,
+    insolation_pipeline: wgpu::ComputePipeline,
     /// Two bind groups over the same buffers with `t_in`/`t_out` swapped, so
     /// a step is a dispatch and a flag flip rather than a copy.
     binds: [wgpu::BindGroup; 2],
     t: [wgpu::Buffer; 2],
     flux: wgpu::Buffer,
+    sun: wgpu::Buffer,
+    positions: wgpu::Buffer,
+    normals: wgpu::Buffer,
+    lit: wgpu::Buffer,
     readback: wgpu::Buffer,
+    have_geometry: bool,
     n_facets: u32,
     n_nodes: u32,
     dispatch_surface: (u32, u32),
@@ -127,6 +143,28 @@ impl GpuTpm {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let sun = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tpm sun"),
+            size: std::mem::size_of::<Sun>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let vec3s = |label| {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size: (n_facets as u64) * 3 * 4,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            })
+        };
+        let positions = vec3s("tpm positions");
+        let normals = vec3s("tpm normals");
+        // Fully lit unless told otherwise: a spin-up carries no shadowing.
+        let lit = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("tpm lit"),
+            contents: bytemuck::cast_slice(&vec![1.0f32; n_facets as usize]),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
         let readback = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("tpm readback"),
             size: n_total * 4,
@@ -170,10 +208,23 @@ impl GpuTpm {
                 },
                 entry(1, false),
                 entry(2, false),
-                entry(3, true),
+                entry(3, false),
                 entry(4, true),
                 entry(5, true),
                 entry(6, true),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 7,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                entry(8, true),
+                entry(9, true),
+                entry(10, true),
             ],
         });
 
@@ -210,6 +261,22 @@ impl GpuTpm {
                         binding: 6,
                         resource: diff_buf.as_entire_binding(),
                     },
+                    wgpu::BindGroupEntry {
+                        binding: 7,
+                        resource: sun.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 8,
+                        resource: positions.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 9,
+                        resource: normals.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 10,
+                        resource: lit.as_entire_binding(),
+                    },
                 ],
             })
         };
@@ -234,10 +301,16 @@ impl GpuTpm {
         Ok(Self {
             surface_pipeline: pipeline("surface"),
             conduction_pipeline: pipeline("conduction"),
+            insolation_pipeline: pipeline("insolation"),
             binds,
             t,
             flux,
+            sun,
+            positions,
+            normals,
+            lit,
             readback,
+            have_geometry: false,
             n_facets,
             n_nodes,
             dispatch_surface: (sx, sy),
@@ -266,6 +339,74 @@ impl GpuTpm {
         Ok(())
     }
 
+    /// Upload facet centres and normals in the body frame, flat xyz.
+    ///
+    /// Static, so this is called once. It is what lets `step_sun` compute the
+    /// boundary flux on the GPU: on the CPU the same pass re-streamed 151 MB
+    /// of these every step at 3.1M facets -- 61 ms against the 8.7 ms the
+    /// model itself costs -- to combine them with a sun direction that is
+    /// three floats.
+    pub fn set_geometry(&mut self, positions: &[f32], normals: &[f32]) -> Result<(), String> {
+        let want = (self.n_facets as usize) * 3;
+        if positions.len() != want || normals.len() != want {
+            return Err(format!(
+                "positions and normals must both be {want} long, got {} and {}",
+                positions.len(),
+                normals.len()
+            ));
+        }
+        self.ctx
+            .queue
+            .write_buffer(&self.positions, 0, bytemuck::cast_slice(positions));
+        self.ctx
+            .queue
+            .write_buffer(&self.normals, 0, bytemuck::cast_slice(normals));
+        self.have_geometry = true;
+        Ok(())
+    }
+
+    /// Lit fraction per facet, 1 where fully lit. Only needed with shadowing;
+    /// it stays at 1 otherwise, which is what a spin-up wants.
+    pub fn set_lit(&mut self, lit: &[f32]) -> Result<(), String> {
+        if lit.len() != self.n_facets as usize {
+            return Err(format!("lit must be {} long, got {}", self.n_facets, lit.len()));
+        }
+        self.ctx
+            .queue
+            .write_buffer(&self.lit, 0, bytemuck::cast_slice(lit));
+        Ok(())
+    }
+
+    /// One timestep with the boundary flux computed on the GPU.
+    ///
+    /// `sun_pos` is the Sun in this body's frame, metres, and
+    /// `absorbed_at_1au` the solar constant times `1 - albedo`.
+    ///
+    /// Needs `set_geometry` first. Nothing per-facet crosses the bus: a step
+    /// uploads three floats.
+    pub fn step_sun(
+        &mut self,
+        sun_pos: [f32; 3],
+        absorbed_at_1au: f32,
+        au: f32,
+    ) -> Result<(), String> {
+        if !self.have_geometry {
+            return Err("call set_geometry before step_sun".into());
+        }
+        self.ctx.queue.write_buffer(
+            &self.sun,
+            0,
+            bytemuck::bytes_of(&Sun {
+                pos: sun_pos,
+                absorbed_at_1au,
+                au,
+                _pad: [0.0; 3],
+            }),
+        );
+        self.dispatch(true);
+        Ok(())
+    }
+
     /// One timestep: radiative surface, then conduction. `flux` is absorbed
     /// flux per facet, W/m2 -- everything the boundary sees, insolation and
     /// radiative heating together.
@@ -279,7 +420,13 @@ impl GpuTpm {
         }
         self.ctx.queue
             .write_buffer(&self.flux, 0, bytemuck::cast_slice(flux));
+        self.dispatch(false);
+        Ok(())
+    }
 
+    /// Queue one step's passes. `insolate` prepends the flux computation, so
+    /// the boundary source never comes from the host.
+    fn dispatch(&mut self, insolate: bool) {
         let mut encoder = self
             .ctx
             .device
@@ -290,6 +437,11 @@ impl GpuTpm {
                 timestamp_writes: None,
             });
             pass.set_bind_group(0, Some(&self.binds[self.front]), &[]);
+
+            if insolate {
+                pass.set_pipeline(&self.insolation_pipeline);
+                pass.dispatch_workgroups(self.dispatch_surface.0, self.dispatch_surface.1, 1);
+            }
 
             pass.set_pipeline(&self.surface_pipeline);
             pass.dispatch_workgroups(self.dispatch_surface.0, self.dispatch_surface.1, 1);
@@ -303,7 +455,6 @@ impl GpuTpm {
         }
         self.ctx.queue.submit([encoder.finish()]);
         self.front ^= 1;
-        Ok(())
     }
 
     /// Read the whole state back. Blocking, so call it for snapshots rather

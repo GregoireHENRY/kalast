@@ -122,7 +122,48 @@ the readback. Reshaping one flat array instead took it from 0.9x to 3.0x.
 
 ## What is next, and where the time now goes
 
-**The bottleneck has moved off the GPU.** Timing the step with a precomputed
+### Insolation moved too, and it was the bigger win
+
+The boundary source term -- `S (1-A) cos(i) lit / d^2`, the `F` in
+`F - eps sigma T^4 + k dT/dz = 0` -- was the last thing holding the loop on the
+CPU. Timed on the real path rather than a synthetic proxy, at 3.1M facets:
+
+| | ms |
+|---|---|
+| sun - position | 15.5 |
+| its norm | 21.7 |
+| dot with facet normal | 19.0 |
+| clamp | 1.2 |
+| flux | 3.8 |
+| **total** | **61.1** |
+
+against the 8.7 ms the model itself costs -- **seven times the step it feeds**.
+The `spkpos` call is not the problem: one scalar call, ~0.05 ms, independent of
+facet count. It is the per-facet vector arithmetic, and 151 MB of float64
+temporaries churned every step.
+
+What makes it wasteful is that **facet centres and normals are static in the
+body frame**. They never change, yet the CPU path re-streamed 75 MB of each to
+combine them with a sun direction that is three floats. `set_geometry` uploads
+them once; `step_sun` then computes the flux on the GPU and a step uploads
+three floats.
+
+| | ms/step at 3.1M | 3.24M-step spin-up |
+|---|---|---|
+| numpy flux + upload | 64.4 | 58.1 h |
+| **GPU insolation** | **8.4** | **7.6 h** |
+
+**7.6x**, and the whole path is now 479.6 h -> 7.6 h, a factor of **63**.
+Surface temperatures after a step agree with the numpy flux to 1.5e-05 K.
+
+`step` still takes a host flux array, so a caller who computes the boundary
+some other way -- radiative heating, a different insolation model -- keeps that
+option. `set_lit` supplies a shadow fraction when there is one; a spin-up
+leaves it at 1.
+
+## Where the time went before that
+
+**The bottleneck had moved off the GPU.** Timing the step with a precomputed
 flux array, against building that array in numpy:
 
 | facets | GPU step | numpy flux build | flux share of a real step |
@@ -130,11 +171,9 @@ flux array, against building that array in numpy:
 | 10,000 | 0.145 ms | 0.043 ms | 23 % |
 | 3,145,728 | 8.718 ms | 12.915 ms | **60 %** |
 
-At full resolution more than half of every step is now CPU-side insolation --
-`spkpos`, a dot product per facet, and a 12.6 MB upload. Moving insolation into
-the shader would take the 3.1M spin-up from 20.9 h to something near 7.8 h, and
-is now the obvious next piece: radiance is done, and insolation is what is
-left holding the loop on the CPU.
+That table used a synthetic `cos` as a stand-in for the flux and so
+understated it; the real path is 61 ms, measured above. Both are now on the
+GPU.
 
 Two other things not done:
 

@@ -34,12 +34,54 @@ struct Params {
 @group(0) @binding(1) var<storage, read_write> t_in: array<f32>;
 @group(0) @binding(2) var<storage, read_write> t_out: array<f32>;
 // Absorbed flux per facet, W/m2.
-@group(0) @binding(3) var<storage, read> flux: array<f32>;
+// read_write because `insolation` may write it in place of a host upload.
+@group(0) @binding(3) var<storage, read_write> flux: array<f32>;
 // Per interior node: 2 dt / (h_lo * (h_lo + h_hi)) and its h_hi twin.
 @group(0) @binding(4) var<storage, read> coef_lo: array<f32>;
 @group(0) @binding(5) var<storage, read> coef_hi: array<f32>;
 // Diffusivity per node, so a layered column is expressible.
 @group(0) @binding(6) var<storage, read> diffusivity: array<f32>;
+
+/// Rewritten each step; everything else here is static.
+struct Sun {
+    // Sun position in the body's own frame, metres.
+    pos: vec3<f32>,
+    // Solar constant at 1 AU times (1 - albedo), so the shader multiplies once.
+    absorbed_at_1au: f32,
+    au: f32,
+    _pad0: f32,
+    _pad1: f32,
+    _pad2: f32,
+};
+@group(0) @binding(7) var<uniform> sun: Sun;
+// Facet centres and normals in the body frame, flat xyz. **Static**: uploaded
+// once and never touched again, which is the whole point of moving this pass.
+// The CPU path re-streamed 151 MB of them every step at 3.1M facets to combine
+// them with a sun direction that is three floats.
+@group(0) @binding(8) var<storage, read> positions: array<f32>;
+@group(0) @binding(9) var<storage, read> normals: array<f32>;
+// Lit fraction per facet, 1 where fully lit. Left at 1 for a spin-up, which
+// has no shadowing.
+@group(0) @binding(10) var<storage, read> lit: array<f32>;
+
+/// Absorbed direct sunlight per facet -- the source term of the radiative
+/// surface boundary, `S (1-A) cos(i) lit / d^2`.
+@compute @workgroup_size(64)
+fn insolation(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let f = gid.y * params.stride_surface + gid.x;
+    if (f >= params.n_facets) {
+        return;
+    }
+    let i = f * 3u;
+    let p = vec3<f32>(positions[i], positions[i + 1u], positions[i + 2u]);
+    let n = vec3<f32>(normals[i], normals[i + 1u], normals[i + 2u]);
+
+    let v = sun.pos - p;
+    let d = length(v);
+    let cosi = max(dot(n, v / d), 0.0);
+    let r = d / sun.au;
+    flux[f] = sun.absorbed_at_1au * cosi * lit[f] / (r * r);
+}
 
 /// Solve `F - se T^4 + k (-3T + 4T1 - T2) / (2 dz) = 0` for the surface node.
 ///

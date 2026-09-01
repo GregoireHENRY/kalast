@@ -115,6 +115,49 @@ impl GpuTpm {
             .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
+    /// Facet centres and normals in the body frame, `(n_facets, 3)` each.
+    ///
+    /// Static, so call it once. Needed by `step_sun`, which is what keeps the
+    /// boundary flux off the CPU -- the numpy path re-streamed 151 MB of these
+    /// every step at 3.1M facets.
+    fn set_geometry(
+        &mut self,
+        positions: numpy::PyReadonlyArray2<'_, f32>,
+        normals: numpy::PyReadonlyArray2<'_, f32>,
+    ) -> PyResult<()> {
+        let flat = |a: &numpy::PyReadonlyArray2<'_, f32>| -> Vec<f32> {
+            a.as_array().iter().copied().collect()
+        };
+        self.inner
+            .set_geometry(&flat(&positions), &flat(&normals))
+            .map_err(pyo3::exceptions::PyValueError::new_err)
+    }
+
+    /// Lit fraction per facet, 1 where fully lit. Only for runs with
+    /// shadowing; it stays at 1 otherwise.
+    fn set_lit(&mut self, lit: numpy::PyReadonlyArray1<'_, f32>) -> PyResult<()> {
+        self.inner
+            .set_lit(lit.as_slice()?)
+            .map_err(pyo3::exceptions::PyValueError::new_err)
+    }
+
+    /// One timestep with the boundary flux computed on the GPU.
+    ///
+    /// `sun_pos` is the Sun in this body's frame in metres, and
+    /// `absorbed_at_1au` the solar constant times `1 - albedo`. Nothing
+    /// per-facet crosses the bus: a step uploads three floats.
+    #[pyo3(signature = (sun_pos, absorbed_at_1au, au))]
+    fn step_sun(
+        &mut self,
+        sun_pos: [f32; 3],
+        absorbed_at_1au: f32,
+        au: f32,
+    ) -> PyResult<()> {
+        self.inner
+            .step_sun(sun_pos, absorbed_at_1au, au)
+            .map_err(pyo3::exceptions::PyValueError::new_err)
+    }
+
     /// One timestep. `flux` is absorbed flux per facet in W/m2 -- insolation
     /// and radiative heating together, whatever the boundary sees.
     ///
