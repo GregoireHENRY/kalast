@@ -24,6 +24,30 @@ seven bands once, and is wanted per output frame rather than every step.
 
 The GPU numbers are the ones expected to move most on a discrete card: they are
 memory-bandwidth bound, so they should scale roughly with it.
+
+Second machine, 2026-09-01, Ryzen 7 9800X3D + RTX 5080 (DDR5-5600 dual
+channel, ~89.6 GB/s; GPU across PCIe):
+
+    CPU TPM               10k      2.993 ms per timestep
+    GPU TPM + insolation  10k      0.044 ms per timestep
+    CPU TPM              100k     39.218 ms per timestep
+    GPU TPM + insolation 100k      0.084 ms per timestep
+    GPU TPM + insolation 3.1M      4.663 ms per timestep
+    CPU insolation       3.1M    113.148 ms per timestep
+    GPU radiance x7      3.1M     27.385 ms per call
+    CPU radiance x7      3.1M    191.130 ms per call
+
+Two inversions there are real, not noise, and both come from memory rather
+than from compute -- see notes/2026-09-01_machine_comparison.md:
+
+  - The CPU rows are SLOWER on the faster CPU, because they are bandwidth
+    bound and unified memory has ~4.5x the bandwidth. CPU insolation is equal
+    at 10k, where it fits in cache, and 1.75x slower at 3.1M, where it does
+    not.
+  - GPU radiance is 7.8x faster at 10k but 2.9x SLOWER at 3.1M, because it
+    reads back n_facets * n_bands * 4 bytes -- 88 MB at 3.1M -- and a
+    discrete card pays for that across PCIe where unified memory copies
+    nothing. Anything planning cluster work should read that note first.
 """
 
 import platform
