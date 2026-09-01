@@ -78,27 +78,38 @@ HEATING = "mutual"  # "none" | "self" | "mutual"
 VF_RES = 128     # hemicube face resolution; 3e-5 closure error at 128
 VF_CHUNK = 2500  # rows per frame. Sets peak memory: 2,500 x 20,000 float32 is
                  # 200 MB, against 800 MB for all 10,000 at once.
-VF_EVERY = 25    # steps between view-factor recomputes; 0 = compute once.
+VF_EVERY = 5     # steps between view-factor recomputes; 0 = compute once.
                  #
                  # Self view factors are fixed in the body frame, so the only
-                 # reason to rebuild is the companion moving -- and it moves a
-                 # lot. Dimorphos is tidally locked, so Didymos holds still in
-                 # its sky, but Didymos *rotates* underneath in 2.26 h, so
-                 # which of the primary's facets Dimorphos sees, and whether
-                 # they are day side or night side, turns over completely each
-                 # rotation. Holding the rows fixed for one rotation costs
-                 # 0.69 K of Dimorphos's 2.29 K heating effect -- 30 % of the
-                 # term. Measured against a rebuild every 10 steps:
+                 # reason to rebuild is the companion moving -- and the reason
+                 # it matters is not the one that looks obvious. Dimorphos is
+                 # tidally locked, so Didymos holds still in its sky and the
+                 # solid angle barely changes. But Didymos *rotates* underneath
+                 # in 2.26 h, so which of the primary's facets fill that solid
+                 # angle, and whether they are day side or night side, turns
+                 # over completely each rotation. The row sum is nearly blind
+                 # to this: it moves 4.6% between rebuilds while the
+                 # temperature behind it swings by hundreds of kelvin.
                  #
-                 #     cadence   ms/step   Dimorphos mean error
-                 #     once          56          -0.689 K
-                 #     25           250          +0.055 K
-                 #     10           601           reference
+                 # Measured over one rotation against a rebuild every 2 steps,
+                 # on a heating effect of +2.92 K mean:
                  #
-                 # 25 is 2 % of the effect for a fifth of the cost. Didymos
-                 # does not care at any cadence: its own term is 0.07 K.
-                 # One hemicube pass yields both blocks, so the static self
-                 # block is rebuilt along with the mutual one for free.
+                 #   cadence   ms/step   Dimorphos error: mean / p99 / max
+                 #   2            2925   reference
+                 #   5            1199   +0.014 / 0.136 / 0.420   <- default
+                 #   10            601   +0.058 / 0.519 / 6.623
+                 #   25            250   +0.113 / 1.290 / 1.406
+                 #   once           56   -0.631 / 4.731 / 5.231
+                 #
+                 # 5 is 0.5% of the effect; 25 is 3.9% and holding them fixed
+                 # is 22%. The full 1,309-step segment costs about 26 min at 5.
+                 # Didymos does not care at any cadence: its entire mutual term
+                 # is 0.099 K on the worst facet.
+                 #
+                 # The 6.6 K maximum at cadence 10 is not a convergence
+                 # failure. It is one terminator facet whose 4-sample shadow
+                 # fraction lands on the other side of a quarter-step -- see
+                 # the note on `SAMPLES_PER_FACET` in 2026-08-31_view_factors.
 
 N_ROTATIONS = 6  # Didymos spins before the study epoch
 # Continue past it, to watch the eclipse scar fade. Didymos spins in 2.26 h
@@ -245,6 +256,25 @@ for i, name in enumerate(loaded):
             f"state has {s['nface']:,} -- phase 1 and 2 must use one mesh"
         )
     s["index"] = i
+    # A restart state is an array indexed by facet, so it is only valid for
+    # the mesh it was spun up on. The facet *count* is not enough to check
+    # that: re-decimating a shape model to the same target leaves the count
+    # identical and every position different, and the run would proceed
+    # silently against the wrong geometry. Fingerprint the positions.
+    fp = hash(numpy.asarray(mesh.positions, dtype=numpy.float64).tobytes())
+    fp_file = Path(RESTART[name]) / "mesh_fingerprint.txt"
+    if fp_file.exists():
+        if fp_file.read_text().strip() != str(fp):
+            raise SystemExit(
+                f"{name}: the shape model has changed since the spin-up in "
+                f"{RESTART[name]} was saved. The restart state is indexed by "
+                f"facet and is no longer valid -- re-run phase 1 (tpm.py) for "
+                f"this body, or restore the previous mesh."
+            )
+    else:
+        print(f"  {name}: no mesh fingerprint alongside the restart state. "
+              f"Cannot verify it matches this mesh; writing one now.")
+        fp_file.write_text(str(fp))
     s["positions"] = numpy.array(
         [mesh.facets[k].pos for k in range(s["nface"])], dtype=numpy.float64
     )
