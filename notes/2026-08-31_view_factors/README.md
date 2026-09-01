@@ -140,18 +140,29 @@ so which of its facets fill that angle, day side or night side, turns over
 completely. The row sum is nearly blind to this -- it moves 4.6 % between
 rebuilds while the temperature behind it swings hundreds of kelvin.
 
-Measured over one rotation against a rebuild every 2 steps, on a +2.92 K effect:
+**The cadence is set in geometry, not in steps.** A step count is meaningless
+here: `dt` comes from the stiffest grid in the system, so the same number of
+steps samples the geometry differently on a different mesh, body or depth grid.
+What the rebuild chases is the scene turning over, so `VF_EVERY_DEG` is
+degrees of the **fastest rotation in the system** -- for a tidally locked pair
+that is the primary's spin, and taking the minimum spin period over the loaded
+bodies gets it right without special-casing, since a locked secondary spins at
+its orbital period.
 
-| cadence | ms/step | Dimorphos error: mean / p99 / max |
-|---|---|---|
-| 2 | 2925 | reference |
-| **5** | **1199** | **+0.014 / 0.136 / 0.420** <- default |
-| 10 | 601 | +0.058 / 0.519 / 6.623 |
-| 25 | 250 | +0.113 / 1.290 / 1.406 |
-| once | 56 | -0.631 / 4.731 / 5.231 |
+At `dt = 55.94 s` against Didymos's 2.26 h spin, one step is **2.475 deg**.
+Measured over one rotation against a rebuild every 4.95 deg, on a +2.92 K
+effect:
 
-Cadence 5 is 0.5 % of the effect and costs about 26 min for the full
-1,309-step segment. An earlier version of this note claimed 25 was converged;
+| degrees | % of spin | steps here | ms/step | Dimorphos error: mean / p99 / max |
+|---|---|---|---|---|
+| 4.95 | 1.38 % | 2 | 2925 | reference |
+| **12.4** | **3.44 %** | **5** | **1199** | **+0.014 / 0.136 / 0.420** <- default |
+| 24.8 | 6.88 % | 10 | 601 | +0.058 / 0.519 / 6.623 |
+| 61.9 | 17.2 % | 25 | 250 | +0.113 / 1.290 / 1.406 |
+| 360 | 100 % | once | 56 | -0.631 / 4.731 / 5.231 |
+
+**Every ~12 degrees of primary rotation**, or about 3.4 % of a spin, is 0.5 %
+of the effect and costs about 26 min for the full 1,309-step segment. An earlier version of this note claimed 25 was converged;
 that rested on comparing it against cadence 10, which is not itself converged,
 and was wrong.
 

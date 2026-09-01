@@ -313,6 +313,14 @@ else:
     pandas.DataFrame({"depth": z}).to_csv(
         out / "z.csv", index=False, encoding="utf-8-sig"
     )
+    # The state above is an array indexed by facet, so it only means anything
+    # against the mesh it was spun up on. Re-decimating a shape model to the
+    # same target leaves the facet count identical and every position
+    # different, so a count check cannot catch a stale restart -- record what
+    # the mesh actually was. `tpm_phase2.py` refuses to start on a mismatch.
+    (out / "mesh_fingerprint.txt").write_text(str(hash(
+        numpy.asarray(mesh.positions, dtype=numpy.float64).tobytes()
+    )))
     pandas.DataFrame({"facet": numpy.arange(nface), "t_surface": temps}).to_csv(
         out / "tmp_surf_final.csv", index=False, encoding="utf-8-sig"
     )

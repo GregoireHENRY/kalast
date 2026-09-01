@@ -78,38 +78,58 @@ HEATING = "mutual"  # "none" | "self" | "mutual"
 VF_RES = 128     # hemicube face resolution; 3e-5 closure error at 128
 VF_CHUNK = 2500  # rows per frame. Sets peak memory: 2,500 x 20,000 float32 is
                  # 200 MB, against 800 MB for all 10,000 at once.
-VF_EVERY = 5     # steps between view-factor recomputes; 0 = compute once.
-                 #
-                 # Self view factors are fixed in the body frame, so the only
-                 # reason to rebuild is the companion moving -- and the reason
-                 # it matters is not the one that looks obvious. Dimorphos is
-                 # tidally locked, so Didymos holds still in its sky and the
-                 # solid angle barely changes. But Didymos *rotates* underneath
-                 # in 2.26 h, so which of the primary's facets fill that solid
-                 # angle, and whether they are day side or night side, turns
-                 # over completely each rotation. The row sum is nearly blind
-                 # to this: it moves 4.6% between rebuilds while the
-                 # temperature behind it swings by hundreds of kelvin.
-                 #
-                 # Measured over one rotation against a rebuild every 2 steps,
-                 # on a heating effect of +2.92 K mean:
-                 #
-                 #   cadence   ms/step   Dimorphos error: mean / p99 / max
-                 #   2            2925   reference
-                 #   5            1199   +0.014 / 0.136 / 0.420   <- default
-                 #   10            601   +0.058 / 0.519 / 6.623
-                 #   25            250   +0.113 / 1.290 / 1.406
-                 #   once           56   -0.631 / 4.731 / 5.231
-                 #
-                 # 5 is 0.5% of the effect; 25 is 3.9% and holding them fixed
-                 # is 22%. The full 1,309-step segment costs about 26 min at 5.
-                 # Didymos does not care at any cadence: its entire mutual term
-                 # is 0.099 K on the worst facet.
-                 #
-                 # The 6.6 K maximum at cadence 10 is not a convergence
-                 # failure. It is one terminator facet whose 4-sample shadow
-                 # fraction lands on the other side of a quarter-step -- see
-                 # the note on `SAMPLES_PER_FACET` in 2026-08-31_view_factors.
+VF_EVERY_DEG = 12.0  # rebuild the view factors every this many degrees of
+                     # the fastest rotation in the system.
+                     #
+                     # Expressed as geometry, not as a step count, because a
+                     # step count means nothing here: `dt` is set by the
+                     # stiffest grid in the system, so the same VF_EVERY would
+                     # sample the geometry differently on a different mesh, a
+                     # different body, or a different depth grid. What the
+                     # rebuild is chasing is the scene turning over.
+                     #
+                     # Self view factors are fixed in the body frame -- they do
+                     # not move at all, measured. The mutual ones must be
+                     # rebuilt, and the reason inverts the obvious argument:
+                     # Dimorphos is tidally locked, so Didymos holds still in
+                     # its sky and the solid angle barely changes. But Didymos
+                     # *rotates underneath* in 2.26 h, so which of the
+                     # primary's facets fill that angle, and whether they are
+                     # day side or night side, turns over completely. The row
+                     # sum is nearly blind to it: 4.6% between rebuilds while
+                     # the temperature behind it swings hundreds of kelvin.
+                     #
+                     # So the fastest rotation in the system sets the cadence.
+                     # For a tidally locked pair that is the primary's spin;
+                     # the secondary's spin period equals its orbital period
+                     # and is the slower of the two, so taking the minimum over
+                     # the loaded bodies gets it right without special-casing.
+                     #
+                     # Measured over one Didymos rotation against a rebuild
+                     # every 4.95 deg, on a heating effect of +2.92 K mean:
+                     #
+                     #   degrees  % of spin  ms/step  Dimorphos err mean/p99
+                     #     4.95      1.38%      2925  reference
+                     #    12.38      3.44%      1199  +0.014 / 0.136  <- default
+                     #    24.75      6.88%       601  +0.058 / 0.519
+                     #    61.88     17.19%       250  +0.113 / 1.290
+                     #      360       100%        56  -0.631 / 4.731
+                     #
+                     # 12 deg is 0.5% of the effect; 62 deg is 3.9%, and
+                     # holding them fixed for a whole spin is 22%. The full
+                     # 1,309-step segment costs about 26 min at 12 deg.
+                     #
+                     # Didymos does not care at any cadence: its entire mutual
+                     # term is 0.099 K on the worst facet of 10,000, because
+                     # the view factor to a companion goes as (R/d)^2 and it
+                     # sees a body a fifth of its own radius.
+                     #
+                     # Set to 0 to compute once and never rebuild.
+                     #
+                     # The 6.6 K maximum at 24.75 deg is not a convergence
+                     # failure: it is one terminator facet whose 4-sample
+                     # shadow fraction lands the other side of a quarter step.
+                     # See 2026-08-31_view_factors on SAMPLES_PER_FACET.
 
 N_ROTATIONS = 6  # Didymos spins before the study epoch
 # Continue past it, to watch the eclipse scar fade. Didymos spins in 2.26 h
@@ -215,6 +235,14 @@ state = {n: build(n) for n in BODIES}
 dt = DT_SAFETY * min(s["max_dt"] for s in state.values())
 n_steps = int(numpy.ceil((et_end - et_start) / dt))
 
+# Turn the geometric cadence into a step count, now that dt is known. The
+# fastest rotation in the system is what the mutual view factors have to keep
+# up with; a tidally locked secondary spins at its orbital period, which is the
+# slower one, so the minimum over the loaded bodies is the right choice.
+FASTEST_SPIN = min(s["body"].spin_period for s in state.values())
+VF_EVERY = (0 if not VF_EVERY_DEG else
+            max(1, int(round(VF_EVERY_DEG / 360.0 * FASTEST_SPIN / dt))))
+
 for s in state.values():
     s["coefs"] = tuple(
         numpy.asarray(c, dtype=numpy.float64)
@@ -227,6 +255,11 @@ print(f"  {spice.et2utc(et_start, 'C', 0)} -> {spice.et2utc(et_end, 'C', 0)}"
       f"  (study epoch {spice.et2utc(et_study, 'C', 0)}, "
       f"+{SPINS_AFTER} spins after)")
 print(f"  dt={dt:.2f}s, {n_steps:,} steps")
+if HEATING == "mutual":
+    print(f"  view factors rebuilt every {VF_EVERY} steps "
+          f"= {VF_EVERY * dt:.0f} s = {VF_EVERY_DEG:.1f} deg "
+          f"({VF_EVERY * dt / FASTEST_SPIN:.2%}) of the "
+          f"{FASTEST_SPIN / 3600:.2f} h fastest spin")
 for n in ACTIVE:
     s = state[n]
     print(f"  {s['name']:10s} {s['nface']:,} facets x {s['z'].size} nodes, "
@@ -272,9 +305,14 @@ for i, name in enumerate(loaded):
                 f"this body, or restore the previous mesh."
             )
     else:
-        print(f"  {name}: no mesh fingerprint alongside the restart state. "
-              f"Cannot verify it matches this mesh; writing one now.")
-        fp_file.write_text(str(fp))
+        # Deliberately not written here. A fingerprint taken now would record
+        # whatever mesh is loaded *today* and certify it against a state spun
+        # up on some other one -- blessing exactly the mismatch this guards
+        # against. Only `tpm.py` may write it, when it saves the state.
+        print(f"  {name}: WARNING, no mesh fingerprint alongside the restart "
+              f"state in {RESTART[name]}. It predates this check, so whether "
+              f"it matches the current mesh cannot be verified. Re-run phase 1 "
+              f"if the shape model has changed.")
     s["positions"] = numpy.array(
         [mesh.facets[k].pos for k in range(s["nface"])], dtype=numpy.float64
     )
