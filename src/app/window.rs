@@ -573,6 +573,27 @@ impl Window {
     }
 
     pub fn resize(&mut self, width: u32, height: u32, config: &crate::app::config::Config) {
+        // Windows reports Resized(0, 0) when the window is minimised, and
+        // wgpu rejects a zero-area surface outright ("Both `Surface` width
+        // and height must be non-zero"), which is a panic rather than an
+        // error we could recover from. macOS does not do this, so a run that
+        // is fine on the laptop dies here the moment anything minimises the
+        // window -- it killed a phase 2 segment at step 105 of 1,309.
+        //
+        // Keep the last good configuration and wait: the window sends
+        // another Resized with a real size when it is restored. Marking the
+        // surface unconfigured makes the redraw path skip frames until then,
+        // rather than drawing into a surface that no longer matches.
+        if width == 0 || height == 0 {
+            self.is_surface_configured = false;
+
+            if config.debug_window {
+                println!("[WINDOW] zero-area resize ({width}x{height}), likely minimised -- skipping reconfigure");
+            }
+
+            return;
+        }
+
         self.surface_config.width = width;
         self.surface_config.height = height;
         self.surface.configure(&self.device, &self.surface_config);
