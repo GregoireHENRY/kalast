@@ -35,6 +35,8 @@ the end say how slow; the point here is to establish correctness against
 known answers first.
 """
 
+import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -44,8 +46,9 @@ import kalast
 
 RES = 128          # hemicube face resolution
 SUBDIV = 3         # subdivision level of the emitting square, for area-averaging
-OUT = Path("/private/tmp/claude-501/-Users-gregoireh-projects-kalast/"
-           "ef195a08-9d65-46af-8ad8-bcf14a4857f3/scratchpad/hc")
+# Portable: this used to hardcode one session's scratchpad directory, which
+# does not exist on any other machine or after that session ends.
+OUT = Path(tempfile.gettempdir()) / "kalast_hemicube"
 
 
 # --- delta form factors ---------------------------------------------------
@@ -218,6 +221,7 @@ def finish():
     print(f"  -> a 10,000-facet matrix this way: "
           f"{elapsed / len(samples) * 10000 / 60:.1f} min")
     import os
+    sys.stdout.flush()
     os._exit(0)
 
 

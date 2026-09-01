@@ -212,7 +212,8 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         .update_with_controller(&mut self.controller, self.dt);
 
                     win.update(&mut sim, &self.config);
-                    win.render(surface_texture, &self.config);
+                    let hud = sim.hud.clone();
+                    win.render(surface_texture, &self.config, &hud);
 
                     // After render: the shadow map now holds this frame's
                     // geometry, so a query here answers for the scene

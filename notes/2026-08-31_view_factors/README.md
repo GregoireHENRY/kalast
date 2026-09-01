@@ -66,11 +66,69 @@ balance:
 | Closure on a sealed box | row sums **1.00001** |
 | Isothermal black cavity, eps=1 | absorbs 459.305 vs 459.300 emitted, **+0.001 %** |
 | Same, eps=0.9 | **-9.999 %**, exactly the `1-eps` single-bounce never re-absorbs |
-| Against closed forms | 0.07 % (coaxial discs, perpendicular squares) |
+| Against closed forms | **0.07 %** on perpendicular squares; delta form factors close to 3.3e-05 |
 | Mutual vs `(R/d)^2` | effective radius 0.384-0.392 km across the orbit, against 0.39 |
 | Monotonicity `none <= self <= mutual` | **exact**, zero facets cooled, both bodies |
 
 `examples/analytical/cavity_heating.py` runs the cavity checks.
+
+### Against closed forms
+
+Three configurations have exact answers, and all three are checked.
+
+**1. The delta form factors themselves.** Before any geometry is involved, the
+per-pixel weights over a whole hemicube must sum to exactly 1. They converge
+as `1/resolution^2`, which is the expected order for the midpoint rule:
+
+| face resolution | `sum(dF)` | error |
+|---|---|---|
+| 32 | 1.000530 | 5.30e-04 |
+| 64 | 1.000132 | 1.32e-04 |
+| 128 | 1.000033 | **3.31e-05** |
+| 256 | 1.000008 | 8.27e-06 |
+
+128 is the production setting. If these weights do not close, nothing built on
+them means anything, so this is the first check and it needs no scene at all.
+
+**2. Perpendicular unit squares sharing an edge**, exact `F = 0.20004`:
+
+| method | F | error |
+|---|---|---|
+| point-to-point, unsubdivided | 0.30339 | +51.66 % |
+| **the old proximity guard** | **0.12434** | **-37.8 %** |
+| CPU subdivision, level 2 | 0.23083 | +15.39 % |
+| CPU subdivision, level 4 | 0.20749 | +3.72 % |
+| CPU subdivision, level 6 | 0.20202 | +0.99 % |
+| **GPU hemicube, 128 px** | **0.19990** | **0.07 %** |
+
+Two things fall out. The guard that motivated this work is **37.8 % low on a
+configuration with a known answer** -- not a subtle bias. And the hemicube is
+an order of magnitude more accurate than the CPU reference at its deepest
+subdivision, while being far cheaper: this is the case where the "faster and
+more accurate" claim is checked against a number rather than against itself.
+
+**3. Coaxial parallel discs**, across separations:
+
+| separation | exact | numerical | error |
+|---|---|---|---|
+| 2.00 | 0.06859 | 0.06910 | 0.75 % |
+| 1.00 | 0.19982 | 0.20108 | 0.63 % |
+| 0.50 | 0.41525 | 0.41609 | 0.20 % |
+| 0.25 | 0.63204 | 0.63259 | 0.09 % |
+| 0.10 | 0.82699 | 0.83130 | 0.52 % |
+
+This is the near-field case the guard was there to dodge: the exact value rises
+to 0.83 as the discs approach, exactly where the guard returned zero.
+
+**4. A sphere, for the mutual term.** A flat facet facing a sphere of radius
+`R` at distance `d` sees `F = (R/d)^2`. Swept across the orbital range the
+measured mutual view factor tracks it with an implied effective radius of
+0.384-0.392 km against Didymos's 0.39 km -- see section 5, where the same
+sweep is what exposed the far-plane bug.
+
+On the CPU pairs, reciprocity `A_a F(a->b) = A_b F(b->a)` holds to 7e-8, since
+those are area-to-area integrals. The hemicube's 2.9e-2 is a different thing
+and is explained above.
 
 Reciprocity is asserted in its **aggregated** form,
 `sum_i A_i VF_ij = A_j rowsum_j`, to 2.9e-2. Per pair it is quantisation-

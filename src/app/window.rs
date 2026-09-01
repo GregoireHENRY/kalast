@@ -19,7 +19,12 @@ pub fn light_view_proj(
     proj * view
 }
 
+type HudBrush = wgpu_text::TextBrush<wgpu_text::glyph_brush::ab_glyph::FontRef<'static>>;
+
 pub struct Window {
+    /// Draws `Simulation::hud` over the swapchain. `None` if the font would
+    /// not load, which is not worth failing a run over.
+    pub hud: Option<HudBrush>,
     pub window: Arc<winit::window::Window>,
     pub instance: wgpu::Instance,
     pub surface: wgpu::Surface<'static>,
@@ -277,6 +282,22 @@ impl Window {
 
         let passes = super::pass::Passes::new(&device, surface_config.format, &config, &uniforms);
 
+        // The font is embedded rather than read from `res/`, so the overlay
+        // works from any working directory. A font that will not load leaves
+        // the overlay off rather than failing the run.
+        let hud = wgpu_text::BrushBuilder::using_font_bytes(include_bytes!(
+            "../../res/DejaVuSans.ttf"
+        ))
+        .ok()
+        .map(|b| {
+            b.build(
+                &device,
+                surface_config.width,
+                surface_config.height,
+                surface_config.format,
+            )
+        });
+
         Self {
             window,
             instance,
@@ -302,6 +323,7 @@ impl Window {
             facet_id: None,
             hemicube: None,
             last_body_mats: vec![],
+            hud,
         }
     }
 
@@ -522,6 +544,9 @@ impl Window {
         self.surface_config.height = height;
         self.surface.configure(&self.device, &self.surface_config);
 
+        if let Some(hud) = &self.hud {
+            hud.resize_view(width as f32, height as f32, &self.queue);
+        }
         self.passes
             .render
             .resize(&self.device, self.surface_config.format, width, height);
@@ -687,6 +712,7 @@ impl Window {
         &mut self,
         surface_texture: Option<wgpu::SurfaceTexture>,
         config: &crate::app::config::Config,
+        hud: &str,
     ) {
         let surface_view = surface_texture
             .as_ref()
@@ -755,6 +781,48 @@ impl Window {
                 self.surface_config.width,
                 self.surface_config.height,
             );
+        }
+
+        // Drawn after the blit and straight onto the swapchain, so it stays
+        // out of `render_texture` and therefore out of exported frames.
+        if let (Some(texture), Some(brush), false) =
+            (&surface_texture, self.hud.as_mut(), hud.is_empty())
+        {
+            let view = texture
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
+            let section = wgpu_text::glyph_brush::Section::default()
+                .add_text(
+                    wgpu_text::glyph_brush::Text::new(hud)
+                        .with_scale(18.0)
+                        .with_color([1.0, 1.0, 1.0, 0.9]),
+                )
+                .with_screen_position((8.0, 6.0));
+            if brush.queue(&self.device, &self.queue, [section]).is_ok() {
+                let mut encoder = self
+                    .device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+                {
+                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("hud"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            depth_slice: None,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                        multiview_mask: None,
+                    });
+                    brush.draw(&mut pass);
+                }
+                self.queue.submit([encoder.finish()]);
+            }
         }
 
         if let Some(texture) = surface_texture {

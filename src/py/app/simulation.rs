@@ -104,6 +104,22 @@ impl Simulation {
         self.inner.borrow_mut().export = v;
     }
 
+    /// Text shown in the window's top-left corner. Empty for none.
+    ///
+    /// Set it from `before_render` to watch a long run without reading the
+    /// log, e.g. `sim.hud = f"{step}/{n_steps} it"`. It is drawn on the
+    /// swapchain after the scene is blitted, so it never appears in exported
+    /// frames.
+    #[getter]
+    fn hud(&self) -> String {
+        self.inner.borrow().hud.clone()
+    }
+
+    #[setter]
+    fn set_hud(&mut self, v: &str) {
+        self.inner.borrow_mut().hud = v.to_string();
+    }
+
     fn update(&mut self) {
         self.inner.borrow_mut().update();
     }

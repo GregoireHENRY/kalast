@@ -13,10 +13,11 @@ mean 63 nonzeros per row, median 11. Stored as CSR that is about 5 MB and the
 matvec is ~1 ms. So the dense form is never assembled in full; rows are
 collected in chunks and compressed as they arrive.
 
-**Why single-bounce.** Radiosity is solved to first order only: a facet
-receives what its neighbours emit and reflect directly, and light bounced
-twice is dropped. The error is of order `albedo * rowsum` for the scattered
-term and `emissivity * rowsum` for the thermal one. Didymos's self view-factor
+**Bounces.** Radiosity defaults to first order: a facet receives what its
+neighbours emit and reflect directly, and light bounced twice is dropped. Pass
+`bounces > 1` to `absorbed` for the Neumann series instead, one sparse matvec
+per extra bounce. The error of stopping at one is of order `albedo * rowsum`
+for the scattered term and `(1 - emissivity) * rowsum` for the thermal one. Didymos's self view-factor
 row sums are mean 0.0013 and max 0.043, so the second bounce is below 0.4 %
 everywhere on it. That is not uniformly true -- Dimorphos reaches 0.35 in a
 genuine concavity, where a second bounce would be a ~30 % correction to a term
@@ -227,7 +228,32 @@ def emitted(temperature, emissivity):
     return emissivity * STEFAN_BOLTZMANN * t * t * t * t
 
 
-def absorbed(vf, emitted_all, reflected_all, emissivity, albedo):
+def radiosity(matrix, source, reflectivity, bounces):
+    """Solve `J = source + reflectivity * M J` by Neumann series.
+
+    `matrix` must be **square** -- one body's rows against its own columns.
+    That is the self block, and it is where multiple scattering lives: light
+    bounces inside a concavity, and the cross-body term is both far weaker and
+    not square, since a row set covers only one body.
+
+    `bounces=1` returns `source` unchanged, which is the single-bounce model.
+    Each further bounce is one more sparse matvec.
+
+    The series converges geometrically with ratio `reflectivity * rowsum`, so
+    the count needed is set by the deepest concavity rather than by the mesh
+    size. On Didymos the row sums are 0.0013 and one bounce is already exact
+    to 0.1 %; on Dimorphos the worst genuine concavity reaches 0.35, where the
+    ratio is ~0.31 and five bounces leave 0.3 %.
+    """
+    source = numpy.asarray(source, dtype=numpy.float64)
+    j = source
+    for _ in range(max(int(bounces), 1) - 1):
+        j = source + reflectivity * matrix.dot(j)
+    return j
+
+
+def absorbed(vf, emitted_all, reflected_all, emissivity, albedo, bounces=1,
+             body=None):
     """Extra absorbed flux on each row facet, W/m2.
 
     Two terms, both first order:
@@ -245,8 +271,27 @@ def absorbed(vf, emitted_all, reflected_all, emissivity, albedo):
     and emissivity the same number, and the visible albedo is not it.
     """
     q = numpy.zeros(vf.matrix.shape[0], dtype=numpy.float64)
+
+    def scattered(values, reflectivity):
+        """Inflate the body's own columns by the bounces it traps itself."""
+        if bounces <= 1:
+            return values
+        if body is None:
+            raise ValueError("bounces > 1 needs `body` -- multiple scattering "
+                             "is solved on that body's square self block")
+        lo = int(vf.offsets[body])
+        hi = lo + int(vf.n_facets[body])
+        if vf.matrix.shape[0] != hi - lo:
+            raise ValueError("bounces > 1 needs one row per facet of `body`")
+        out = numpy.array(values, dtype=numpy.float64, copy=True)
+        out[lo:hi] = radiosity(vf.block(body), values[lo:hi],
+                               reflectivity, bounces)
+        return out
+
     if emitted_all is not None:
-        q += emissivity * vf.dot(emitted_all)
+        # A grey surface reflects 1 - eps of the thermal IR landing on it, so
+        # that is the reflectivity carrying the series.
+        q += emissivity * vf.dot(scattered(emitted_all, 1.0 - emissivity))
     if reflected_all is not None:
-        q += (1.0 - albedo) * vf.dot(reflected_all)
+        q += (1.0 - albedo) * vf.dot(scattered(reflected_all, albedo))
     return q

@@ -37,6 +37,17 @@ pub struct Simulation {
     /// From the last request: row-major view factors, the number of rows,
     /// the total facet count across bodies, and each body's index offset.
     pub hemicube_result: Option<(Vec<f32>, usize, usize, Vec<u32>)>,
+
+    /// Text drawn in the window's top-left corner, or empty for none.
+    ///
+    /// Set from a callback. Deliberately a free string rather than an
+    /// automatic iteration counter: the number worth watching is usually not
+    /// `state.iteration` -- a TPM run steps its own counter, which stops
+    /// while a view-factor rebuild spans several frames, so the two diverge.
+    ///
+    /// Drawn onto the swapchain after the scene has been blitted to it, so it
+    /// never reaches `render_texture` and never appears in exported frames.
+    pub hud: String,
 }
 
 impl Simulation {
@@ -62,6 +73,7 @@ impl Simulation {
 
             hemicube_request: None,
             hemicube_result: None,
+            hud: String::new(),
         }
     }
 

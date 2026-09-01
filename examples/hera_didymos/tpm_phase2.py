@@ -75,6 +75,11 @@ HEATING = "mutual"  # "none" | "self" | "mutual"
 # available when SHADOW_MODE is "mutual" -- checked below rather than left to
 # produce a silently self-only answer.
 
+HEATING_BOUNCES = 1  # radiosity order. 1 drops light bounced twice; higher
+                     # runs a Neumann series, one sparse matvec per extra
+                     # bounce, converging geometrically at
+                     # `reflectivity * rowsum`. Measured below.
+
 VF_RES = 128     # hemicube face resolution; 3e-5 closure error at 128
 VF_CHUNK = 2500  # rows per frame. Sets peak memory: 2,500 x 20,000 float32 is
                  # 200 MB, against 800 MB for all 10,000 at once.
@@ -445,6 +450,13 @@ def before_render(sim, dt_frame):
     sim.camera.dir = -u_sun
     sim.camera.anchor = [0.0, 0.0, 0.0]
 
+    # Progress in the window's corner, so a multi-hour run can be watched
+    # without tailing the log. The TPM step is the number worth showing, not
+    # `sim.state.iteration`: they diverge, because a view-factor rebuild spans
+    # several frames during which the physics does not advance.
+    sim.hud = (f"{step['n']}/{n_steps} it"
+               + ("  [view factors]" if HEATING_ON and vf.busy else ""))
+
     # Requested after the bodies are placed: the hemicube renders the scene
     # this callback just positioned, so the mutual block belongs to this
     # epoch and not the previous one.
@@ -509,6 +521,7 @@ def coupling(ins):
         out[name] = heating.absorbed(
             rows, rows.stack(e), rows.stack(r),
             emissivity=prop.emissivity, albedo=prop.albedo,
+            bounces=HEATING_BOUNCES, body=state[name]["index"],
         )
     return out
 
