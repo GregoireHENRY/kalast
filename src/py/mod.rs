@@ -171,6 +171,13 @@ fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
         .getattr("modules")?
         .set_item("kalast._rs.tpm.core", core)?;
 
+    let gpu = PyModule::new(tpm.py(), "gpu")?;
+    gpu.add_class::<tpm::gpu::GpuTpm>()?;
+    tpm.add_submodule(&gpu)?;
+    py.import("sys")?
+        .getattr("modules")?
+        .set_item("kalast._rs.tpm.gpu", gpu)?;
+
     let properties = PyModule::new(tpm.py(), "properties")?;
     let r = |x| tpm::properties::Properties::from_raw(x);
     properties.add("DIDYMOS", r(crate::tpm::properties::DIDYMOS))?;
