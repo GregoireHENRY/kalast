@@ -537,11 +537,29 @@ impl Mesh {
     /// pour a body's own thermal emission back into it.
     ///
     /// Detected by comparing each normal against the outward radial direction
-    /// from the mesh centroid. That test assumes a roughly star-shaped body,
-    /// which small asteroids are, and it will misjudge a deeply overhanging
-    /// facet -- so treat the result as a list to inspect rather than a
-    /// verdict. `g_00243mm_..._dimo_..._10k.obj` has 22 of 10,000, worst dot
-    /// -0.958, 0.114% of the surface area.
+    /// from the mesh centroid, which assumes a roughly star-shaped body.
+    ///
+    /// **This heuristic is unreliable, measured against the hemicube.** A
+    /// facet that really is reversed sees its own body fill its hemisphere,
+    /// so a self view factor near 1 is ground truth and needs no assumption
+    /// about shape. Compared on the decimated Dimorphos models:
+    ///
+    /// | mesh | flagged here | self VF > 0.5 | agreeing |
+    /// |---|---|---|---|
+    /// | 10k | 22 | 1 | 1 |
+    /// | 100k | 21 | 3 | 2 |
+    ///
+    /// So it over-reports by ~20x on these meshes, and on the 100k it also
+    /// *misses* one (66473). Flipping what it reports makes things strictly
+    /// worse: the 21 false positives are real concavities, and reversing them
+    /// sends their self view factor from 0.24 to 1.0.
+    ///
+    /// Use it as a cheap pre-filter only. `flip_facets` is deliberately not
+    /// wired to it.
+    ///
+    /// Worth knowing where these come from: the **full-resolution 3.1M
+    /// Dimorphos and every Didymos model flag zero**. They are a decimation
+    /// artefact, not a defect of the source shape models.
     pub fn inward_facing_facets(&self) -> Vec<u32> {
         if self.facets.is_empty() {
             return vec![];
@@ -560,6 +578,63 @@ impl Mesh {
                 (out.length_squared() > 0.5 && f.normal.dot(out) < 0.0).then_some(i as u32)
             })
             .collect()
+    }
+
+    /// Reverse the winding of `facets`, so their normals point the other way.
+    ///
+    /// Returns how many were actually flipped. Position, normal and area are
+    /// recomputed from the reordered geometry rather than the normal simply
+    /// being negated, so the three stay mutually consistent whichever
+    /// representation the mesh is in.
+    ///
+    /// Do this **before the window is created**: the GPU vertex buffers are
+    /// built once in `Window::new`, so a flip applied afterwards would fix
+    /// the physics and leave the renderer -- the shadow map and the hemicube
+    /// among it -- still drawing the old winding.
+    ///
+    /// `_vertices_before_flatten` is not updated, so a later `smoothen` would
+    /// undo this. Nothing in the run path does that.
+    pub fn flip_facets(&mut self, facets: &[u32]) -> usize {
+        let flat = self.is_flat();
+        let mut flipped = 0;
+
+        for &fi in facets {
+            let f = fi as usize;
+            if f >= self.facets.len() {
+                continue;
+            }
+            if flat && f * 3 + 2 < self.vertices.len() {
+                self.vertices.swap(f * 3 + 1, f * 3 + 2);
+            }
+            if f * 3 + 2 < self.indices.len() {
+                self.indices.swap(f * 3 + 1, f * 3 + 2);
+            }
+            flipped += 1;
+        }
+
+        for &fi in facets {
+            let f = fi as usize;
+            if f >= self.facets.len() {
+                continue;
+            }
+            let [a, b, c] = self.get_facet_positions(f).map(|p| *p);
+            let (ab, ac) = (b - a, c - a);
+            let normal = normal_facet(&ab, &ac);
+            self.facets[f] = Facet {
+                pos: (a + b + c) / 3.0,
+                normal,
+                area: area_facet(&ab, &ac),
+            };
+            if flat {
+                for k in 0..3 {
+                    if f * 3 + k < self.vertices.len() {
+                        self.vertices[f * 3 + k].normal = normal;
+                    }
+                }
+            }
+        }
+
+        flipped
     }
 
     pub fn recompute_facets(&mut self) {

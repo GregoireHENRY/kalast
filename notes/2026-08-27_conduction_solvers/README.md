@@ -1969,6 +1969,61 @@ The general lesson is the one from the closed box again: **a number that
 cannot physically occur is the most informative test available.** Nothing
 about 0.996 required a reference value to interpret.
 
+### Correction: it is one facet, not 22, and flipping does not fix it
+
+The paragraphs above are wrong about the count, and the error was the
+heuristic being trusted past the warning attached to it. Tested directly by
+flipping the winding of all 22 and re-measuring with the hemicube:
+
+| | self VF before | after flipping |
+|---|---|---|
+| the 22 flagged | mean 0.271, max 0.996 | **mean 1.000, max 1.000** |
+| every other facet | mean 0.034, max 0.351 | unchanged |
+
+Flipping sent all 22 to a self view factor of **exactly 1** -- looking
+straight into the body -- and their solar incidence from +0.58 to -0.58, with
+the number facing the sun dropping from 20 to 2. So 21 of the 22 were correct
+to begin with: real concavities, which is precisely the "deeply overhanging
+facet" case the detector's own docstring said it would misjudge.
+
+The remaining one, facet 243, is not a winding error either. Flipping it moved
+its self view factor from 0.9957 to 1.0000 -- worse in both orientations. It
+is a normal-sized facet sitting at 110 % of the median surface radius, so not
+buried; something is locally degenerate about the mesh there, a pocket or a
+doubled surface, and no reorientation repairs it.
+
+**The hemicube is the detector.** A self view factor above 0.5 is ground truth
+and assumes nothing about shape, and a genuine concavity on these meshes tops
+out at 0.351. `heating.pathological_facets` does this. Measured:
+
+| mesh | heuristic flags | self VF > 0.5 | agreeing |
+|---|---|---|---|
+| Dimorphos 10k | 22 | **1** (243) | 1 |
+| Dimorphos 100k | 21 | **3** (5580, 5603, 66473) | 2 |
+
+On the 100k the heuristic also *misses* one. It is a cheap pre-filter, nothing
+more, and `flip_facets` is deliberately not wired to it.
+
+### Where they come from: decimation, not the shape models
+
+| mesh | facets | flagged |
+|---|---|---|
+| Didymos 10k / 100k / full | 10k / 100k / 3,145,728 | 0 / 0 / 0 |
+| Dimorphos 10k | 10,000 | 22 |
+| Dimorphos 100k | 100,000 | 21 |
+| **Dimorphos full** | **3,145,728** | **0** |
+
+**The source models are clean.** Every Didymos model at every resolution
+flags zero, and so does the full-resolution 3.1M Dimorphos. The defect is
+introduced by decimating Dimorphos, and the right repair is upstream -- a
+better decimation from the 3.1M original -- not a per-facet patch. Until then
+it is 1 facet of 10,000, 0.01 % of the surface area, and the honest handling
+is to know which one it is.
+
+The revised impact: the claim above that 22 facets have sat at night
+temperature in every Dimorphos run is wrong. One has. The other 21 receive
+sunlight normally and always did.
+
 ## 9.3g Heating wired in, and what it is worth
 
 `kalast.tpm.heating` consumes the rows and `tpm_phase2.py` gains a `HEATING`
@@ -2107,9 +2162,9 @@ bug of 9.3f went in, and the aggregated form would have caught it.
 
 Still open:
 
-- **The 22 inward-facing Dimorphos facets** (9.3f) are reported and not fixed.
-  They now also carry a nonsense self view factor of up to 0.996, so they take
-  a large spurious heating term on top of never seeing the sun.
+- **Dimorphos's one pathological facet** (243 on the 10k, three on the 100k).
+  Not a winding error -- see the correction in 9.3f -- so it needs a better
+  decimation from the clean 3.1M original rather than a flip. 0.01 % of area.
 - **Multiple scattering** is dropped. Below 0.4 % on Didymos, ~30 % in the one
   Dimorphos concavity whose row sum reaches 0.35.
 - **The 2.0 km sweep anomaly** from 9.3f, outside this system's range and

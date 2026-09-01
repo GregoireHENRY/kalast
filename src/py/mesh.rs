@@ -324,6 +324,18 @@ impl Mesh {
         numpy::PyArray1::from_slice(py, &mesh.inward_facing_facets())
     }
 
+    /// Reverse the winding of the given facets. Returns how many were flipped.
+    ///
+    /// Call before `app.start()`: the GPU buffers are built once when the
+    /// window opens, so a later flip would fix the physics and leave the
+    /// shadow map and hemicube drawing the old winding.
+    fn flip_facets(slf: pyo3::Bound<'_, Self>, facets: numpy::PyReadonlyArray1<'_, u32>) -> usize {
+        let self_ = slf.borrow();
+        let mut mesh = self_.inner.borrow_mut();
+        mesh.flip_facets(facets.as_slice().unwrap())
+    }
+
+
     #[new]
     #[pyo3(signature = (
         path=None,

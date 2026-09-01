@@ -184,6 +184,23 @@ class ViewFactorBuilder:
         return self.done
 
 
+def pathological_facets(vf, body, threshold=0.5):
+    """Facets whose own body fills their hemisphere: `self VF > threshold`.
+
+    A facet with a reversed normal looks into the body and sees it almost
+    everywhere, so this is a direct measurement of the defect rather than an
+    inference from shape. `Mesh.inward_facing_facets` guesses at the same
+    thing from the outward radial direction and, measured against this on the
+    decimated Dimorphos models, over-reports by about 20x while also missing
+    cases -- 22 flagged against 1 real on the 10k, 21 against 3 on the 100k.
+
+    A genuine concavity on these meshes tops out near 0.35, so 0.5 separates
+    them cleanly. What it finds is **not** repairable by flipping: reversing
+    such a facet sends its self view factor to 1.0 rather than down.
+    """
+    return numpy.where(vf.row_sums(body) > threshold)[0]
+
+
 def emitted(temperature, emissivity):
     """Thermal exitance `eps sigma T^4` per facet, W/m2."""
     t = numpy.asarray(temperature, dtype=numpy.float64)
