@@ -345,19 +345,50 @@ Phase 1 must be re-run for both bodies before the next production segment.
 
 ## 7. What is still to do
 
-- **Orbit-phase parametrisation.** The remaining real optimisation, and the
-  part of the original plan's item 4 that survives. Caching the self block
-  separately buys nothing, since one hemicube pass produces both blocks and the
-  mutual one must be rebuilt regardless. But for a tidally locked pair the
-  *relative* geometry repeats every orbit, so a run longer than 11.37 h could
-  index a precomputed table by orbital phase instead of rebuilding at all.
-  At cadence 5 the rebuilds are most of the cost of a segment, so this is worth
-  real time on any multi-orbit run.
+- **Synodic-phase parametrisation** -- viable, quantified, not built. The
+  remaining real optimisation, and the part of the original plan's item 4 that
+  survives. Caching the self block separately buys nothing, since one hemicube
+  pass produces both blocks and the mutual one must be rebuilt regardless.
+
+  **The right variable is not orbital phase.** An earlier version of this note
+  said a run longer than one orbit could index a table by orbital phase; that
+  is wrong. Didymos turns 5.0299 times per orbit -- not an integer -- so the
+  pair never repeats on the orbit alone. What repeats is
+  `psi = orbital phase - spin phase`, whose period is the **synodic period,
+  2.821 h**, four times shorter than the orbit. If the spin axis is aligned
+  with the orbit normal and the orbit circular, the relative geometry depends
+  on `psi` alone.
+
+  Measured against the kernels: the separation is **constant** at 1.1510 km, so
+  the orbit is circular, and the configuration recurs at multiples of the
+  synodic period to **0.5-3.5 deg in direction and 0.7-5.7 deg in orientation**.
+  Refitting the period barely moves it (-0.6 s) and the residual oscillates
+  rather than converging, so it is a real wobble -- Dimorphos's post-DART
+  libration is the obvious candidate -- not a period error.
+
+  **That residual is inside the tolerance already accepted**: the rebuild
+  cadence is 12 deg. So a table of ~30 entries over one synodic period, about
+  162 s to build, would replace every rebuild in a run of any length. At
+  cadence 5 the rebuilds are most of the cost of a segment, so this takes a
+  1,309-step run from ~26 min to about 4. It needs an end-to-end temperature
+  check against direct rebuilds before adoption, not just the geometric
+  argument above.
 - **Re-run the GIS3D product** with heating on -- Dimorphos self + mutual,
   Didymos self only. See `2026-08-31_gis3d_tiri_product/`.
-- **Multiple scattering** is dropped. Bounded by `emissivity * rowsum`: below
-  0.4 % on Didymos, but ~30 % in the one Dimorphos concavity whose row sum
-  reaches 0.35, on a term that is small there.
+- ~~Multiple scattering~~ **done**. `heating.absorbed` takes `bounces`,
+  running a Neumann series on the body's square self block -- light bounces
+  inside a concavity, and the cross-body term is both weaker and not square.
+  Verified against the closed form for a two-facet cavity.
+
+  Measured over one rotation against 12 bounces, a single bounce errs by
+  **0.013 K mean and 0.37 K at worst on Dimorphos**, 0.0001 / 0.006 K on
+  Didymos; five bounces are converged to four decimals. The earlier estimate
+  that it might be worth ~30 % in a deep concavity was a bound on the *flux*
+  at one facet, and that facet's absolute heating turns out to be modest.
+
+  It costs almost nothing -- 179 s against 175 s for a whole segment, since
+  the rebuilds dominate and a bounce is one sparse matvec -- so the default is
+  now 5 rather than leaving a known approximation in for no saving.
 - **Re-run the phase-1 spin-up** for both bodies. The meshes were replaced on
   1 September, so the saved states no longer match; `tpm_phase2.py` will now
   refuse to start rather than run against the wrong geometry.

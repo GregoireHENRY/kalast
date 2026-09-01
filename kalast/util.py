@@ -88,3 +88,61 @@ def numdigits_comma(v: float) -> int:
         return abs(d)
     else:
         return 0
+
+
+class Rate:
+    """Smoothed iteration rate, formatted in whichever unit reads best.
+
+    A long thermophysical run can sit anywhere from tens of iterations a
+    second to a handful an hour -- a view-factor rebuild alone takes several
+    seconds -- so a fixed unit is unreadable at one end or the other. This
+    picks per second, per minute or per hour so the number stays above 1.
+
+    Averaged over a sliding window rather than over the whole run, so the
+    figure reflects what the loop is doing now: a run that spent its first
+    minutes building view factors should not report that forever.
+
+        rate = Rate()
+        ...
+        rate.tick()
+        sim.hud = f"{i}/{n} it   {rate}"
+    """
+
+    def __init__(self, window=40):
+        from collections import deque
+        self._t = deque(maxlen=max(int(window), 2))
+
+    def tick(self):
+        """Record one iteration."""
+        import time
+        self._t.append(time.perf_counter())
+        return self
+
+    @property
+    def per_second(self):
+        """Iterations per second over the window, or None until it can tell."""
+        if len(self._t) < 2:
+            return None
+        span = self._t[-1] - self._t[0]
+        return (len(self._t) - 1) / span if span > 0 else None
+
+    def text(self):
+        r = self.per_second
+        if r is None:
+            return "-- it/s"
+        if r >= 1.0:
+            return f"{r:.1f} it/s"
+        if r * 60.0 >= 1.0:
+            return f"{r * 60.0:.1f} it/min"
+        return f"{r * 3600.0:.1f} it/h"
+
+    def eta(self, remaining):
+        """`h:mm:ss` left at the current rate, or empty if not yet known."""
+        r = self.per_second
+        if r is None or r <= 0 or remaining <= 0:
+            return ""
+        s = int(remaining / r)
+        return f"{s // 3600:d}:{(s % 3600) // 60:02d}:{s % 60:02d}"
+
+    def __str__(self):
+        return self.text()

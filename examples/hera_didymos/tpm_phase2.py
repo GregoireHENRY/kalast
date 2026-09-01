@@ -75,10 +75,19 @@ HEATING = "mutual"  # "none" | "self" | "mutual"
 # available when SHADOW_MODE is "mutual" -- checked below rather than left to
 # produce a silently self-only answer.
 
-HEATING_BOUNCES = 1  # radiosity order. 1 drops light bounced twice; higher
+HEATING_BOUNCES = 5  # radiosity order. 1 drops light bounced twice; higher
                      # runs a Neumann series, one sparse matvec per extra
                      # bounce, converging geometrically at
-                     # `reflectivity * rowsum`. Measured below.
+                     # `reflectivity * rowsum`.
+                     #
+                     # Measured over one rotation against 12 bounces: a single
+                     # bounce errs by 0.013 K mean and 0.37 K at worst on
+                     # Dimorphos, and 0.0001 / 0.006 K on Didymos. Five is
+                     # converged to four decimals. It costs almost nothing --
+                     # 179 s against 175 s for the whole segment, because the
+                     # view-factor rebuilds dominate and a bounce is one
+                     # sparse matvec -- so there is no reason to leave the
+                     # approximation in.
 
 VF_RES = 128     # hemicube face resolution; 3e-5 closure error at 128
 VF_CHUNK = 2500  # rows per frame. Sets peak memory: 2,500 x 20,000 float32 is
@@ -338,6 +347,7 @@ snapshots = {"et": [], **{n: [] for n in ACTIVE}}
 # study epoch is captured separately, exactly.
 at_epoch = {"dt": None, **{n: None for n in ACTIVE}}
 clock = {"t0": None, "done": False}
+rate = kalast.util.Rate()
 
 
 # The scene is built in the frame of whichever body sits at the origin. In
@@ -454,8 +464,10 @@ def before_render(sim, dt_frame):
     # without tailing the log. The TPM step is the number worth showing, not
     # `sim.state.iteration`: they diverge, because a view-factor rebuild spans
     # several frames during which the physics does not advance.
-    sim.hud = (f"{step['n']}/{n_steps} it"
-               + ("  [view factors]" if HEATING_ON and vf.busy else ""))
+    sim.hud = (f"{step['n']}/{n_steps} it   {rate}"
+               + (f"   eta {rate.eta(n_steps - step['n'])}"
+                  if rate.per_second else "")
+               + ("   [view factors]" if HEATING_ON and vf.busy else ""))
 
     # Requested after the bodies are placed: the hemicube renders the scene
     # this callback just positioned, so the mutual block belongs to this
@@ -561,6 +573,7 @@ def after_render(sim, dt_frame):
         os._exit(0)
 
     et = et_start + it * dt
+    rate.tick()
 
     # Insolation for every body before any of them steps: with heating on, a
     # body's surface feeds the other's boundary condition, so stepping one
