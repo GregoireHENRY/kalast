@@ -477,6 +477,22 @@ class ViewFactorDriver:
     def ready(self):
         return len(self.rows) == len(ACTIVE)
 
+    @property
+    def status(self):
+        """What to show while a rebuild is running.
+
+        The rebuild spans many frames and the TPM does not step during it, so
+        without this the window simply looks frozen every fifth step. Naming
+        the body and its percentage makes the pause legible as work.
+        """
+        if self.current is None:
+            return "computing view factors" if self.queue else ""
+        name, builder = self.current
+        return (f"computing view factors: {name} "
+                f"{builder.progress * 100:.0f}%"
+                + (f" (+{len(self.queue) - 1} queued)"
+                   if len(self.queue) > 1 else ""))
+
     def request(self, sim):
         if self.current is None:
             if not self.queue:
@@ -573,10 +589,14 @@ def before_render(sim, dt_frame):
         sim.hud = (f"view factors {build['phase']}/{VF_TABLE_PHASES} phases")
         vf.request(sim)
         return
-    sim.hud = (f"{step['n']}/{n_steps} it   {rate}"
-               + (f"   eta {rate.eta(n_steps - step['n'])}"
-                  if rate.per_second else "")
-               + ("   [view factors]" if HEATING_ON and vf.busy else ""))
+    # One line each: the window is 512 px wide, and a single line of all of
+    # this overflows it and gets clipped at the right edge.
+    lines = [f"{step['n']}/{n_steps} it   {rate}"]
+    if rate.per_second:
+        lines.append(f"eta {rate.eta(n_steps - step['n'])}")
+    if HEATING_ON and vf.busy:
+        lines.append(vf.status)
+    sim.hud = "\n".join(lines)
 
     # Requested after the bodies are placed: the hemicube renders the scene
     # this callback just positioned, so the mutual block belongs to this
