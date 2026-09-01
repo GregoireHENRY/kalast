@@ -159,9 +159,27 @@ here more than once:
   facets costs 2x" conclusion that was entirely an artifact of a 120 Hz
   panel.
 
-Also: keep the render window visible and frontmost. macOS throttles occluded
-windows, giving runs at 1.8-64 it/s beside siblings agreeing within 1 it/s.
 Take medians over repeats and discard the first run after a rebuild.
+
+**The occluded-window rule is gone; the cause was a bug, now fixed.** This
+file used to say to keep the render window visible and frontmost, because
+occluded runs came in at 1.8-64 it/s beside siblings agreeing within 1 it/s.
+That was not macOS throttling. `get_surface_texture` returns `Occluded` when
+the window is covered, and the frame handler took that as a reason to `return`
+before running `before_render`, `after_render` or `simulation.update()`. An
+occluded window did not run slowly, it **stopped**: no steps, no iterations,
+wall time still accruing.
+
+The frame now runs without a surface and skips only the blit and the present,
+so a run behind another window proceeds at full speed. Measured on the
+view-factor cadence sweep: stalled at 38 rebuilds for 18 minutes before,
+30 rebuilds in 3 minutes after.
+
+What this means for old numbers: **results are unaffected** -- a run that
+finished took the same steps and the same physics, since the skipped frames
+did no work at all -- but **any timing taken while focus was lost is too slow**,
+never too fast. Historic it/s figures in `notes/` are lower bounds if the
+window was covered.
 
 ## Notes
 

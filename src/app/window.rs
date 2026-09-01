@@ -670,14 +670,39 @@ impl Window {
         }
     }
 
+    /// Draw a frame. `surface_texture` is `None` when there is nowhere to
+    /// present -- an occluded window, most often.
+    ///
+    /// Everything the simulation depends on is offscreen: the shadow map the
+    /// TPM reads, and the scene itself, which is drawn into `render_texture`
+    /// and only blitted to the swapchain at the end. The surface view reaches
+    /// nothing but the optional depth overlay. So a frame without a surface
+    /// is a complete frame minus the blit and the present.
+    ///
+    /// This matters more than it sounds: macOS stops handing out drawables
+    /// for an occluded window, and skipping the whole frame on that basis
+    /// stopped the simulation dead -- a multi-hour run behind another window
+    /// made no progress at all rather than merely rendering less.
     pub fn render(
         &mut self,
-        surface_texture: wgpu::SurfaceTexture,
+        surface_texture: Option<wgpu::SurfaceTexture>,
         config: &crate::app::config::Config,
     ) {
         let surface_view = surface_texture
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+            .as_ref()
+            .map(|t| t.texture.create_view(&wgpu::TextureViewDescriptor::default()));
+        let offscreen_view;
+        let surface_view = match &surface_view {
+            Some(v) => v,
+            None => {
+                offscreen_view = self
+                    .passes
+                    .render
+                    .render_texture
+                    .create_view(&wgpu::TextureViewDescriptor::default());
+                &offscreen_view
+            }
+        };
 
         let mut encoder = self
             .device
@@ -692,25 +717,27 @@ impl Window {
             config,
         );
 
-        encoder.copy_texture_to_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &self.passes.render.render_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::TexelCopyTextureInfo {
-                texture: &surface_texture.texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::Extent3d {
-                width: self.surface_config.width,
-                height: self.surface_config.height,
-                depth_or_array_layers: 1,
-            },
-        );
+        if let Some(texture) = &surface_texture {
+            encoder.copy_texture_to_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &self.passes.render.render_texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::TexelCopyTextureInfo {
+                    texture: &texture.texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::Extent3d {
+                    width: self.surface_config.width,
+                    height: self.surface_config.height,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
 
         self.queue.submit([encoder.finish()]);
 
@@ -730,7 +757,9 @@ impl Window {
             );
         }
 
-        surface_texture.present();
+        if let Some(texture) = surface_texture {
+            texture.present();
+        }
     }
 }
 

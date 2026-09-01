@@ -190,11 +190,12 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         return;
                     }
 
-                    if let Some(surface_texture) = win.get_surface_texture(&self.config) {
-                        surface_texture
-                    } else {
-                        return;
-                    }
+                    // Deliberately not an early return. An occluded window
+                    // yields no drawable, and skipping the frame on that
+                    // basis halted the simulation outright rather than just
+                    // not drawing it. The frame runs either way; only the
+                    // present is skipped.
+                    win.get_surface_texture(&self.config)
                 };
 
                 let now = std::time::Instant::now();

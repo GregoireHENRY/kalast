@@ -184,6 +184,26 @@ class ViewFactorBuilder:
         return self.done
 
 
+def delta_t_estimate(flux, temperature, emissivity):
+    """Linearised surface-temperature response to an extra flux, in K.
+
+    A radiative surface sits at `eps sigma T^4 = F`, so a small extra `dF`
+    moves it by `dF / (4 eps sigma T^3)`. That is what makes an equal flux
+    worth far more on the night side: at 200 K the sensitivity is four times
+    what it is at 320 K.
+
+    This is an estimate for deciding whether a term is worth carrying, not a
+    substitute for stepping the model -- it ignores conduction into the
+    column, which damps the response, so it is an **upper bound** on the
+    steady-state move. Measured against the real runs it came out high by
+    roughly a factor of two, which is the right direction for a screening
+    test.
+    """
+    t = numpy.asarray(temperature, dtype=numpy.float64)
+    denom = 4.0 * emissivity * STEFAN_BOLTZMANN * numpy.maximum(t, 1.0) ** 3
+    return numpy.asarray(flux, dtype=numpy.float64) / denom
+
+
 def pathological_facets(vf, body, threshold=0.5):
     """Facets whose own body fills their hemisphere: `self VF > threshold`.
 
