@@ -506,8 +506,41 @@ impl Window {
                 batch,
             ));
         }
+        // Columns come from the shadow proxy where a body has one, rows from
+        // the real mesh. The same asymmetry the shadow map exploits: what
+        // fills a hemicube is a far-field quantity, so a decimated occluder is
+        // as good, while the rows *are* the resolution being asked for.
+        //
+        // It is not a nicety at scale. The accumulator is
+        // `batch * n_columns`, so putting Didymos on the 100k mesh took it
+        // from 20 MB to 113 MB and a rebuild from 6 s to 110 s; with a 10k
+        // proxy the columns stay at 10k however fine the rows get. Without
+        // this the 3.1M mesh is unreachable for mutual heating -- each
+        // Dimorphos facet would carry ~150,000 nonzeros.
+        //
+        // **The body's own columns stay at full resolution.** A proxy is only
+        // valid for the companion. The hemicube origin sits on the real
+        // surface, while the proxy deviates from it by about a facet, so a
+        // fine facet ends up buried inside the coarse hull and sees it in
+        // every direction: measured, Didymos's self view-factor row sum went
+        // from 0.0011 to 0.3156 and its peak temperature from 352 K to 405 K.
+        // That is the same near-field/far-field split that makes the shadow
+        // proxy safe -- self view factors are dominated by immediate
+        // neighbours, which is exactly what decimation removes.
+        let columns: Vec<&super::gpu::MeshBuffer> = (1..self.meshes.len())
+            .map(|i| {
+                if i == 1 + body {
+                    &self.meshes[i]
+                } else {
+                    self.shadow_meshes
+                        .get(i)
+                        .and_then(|s| s.as_ref())
+                        .unwrap_or(&self.meshes[i])
+                }
+            })
+            .collect();
         let hc = self.hemicube.as_mut().unwrap();
-        hc.rows(&self.device, &self.queue, &self.meshes[1..], &views)
+        hc.rows(&self.device, &self.queue, &columns, &views)
     }
 
     pub fn get_window(&self) -> &winit::window::Window {

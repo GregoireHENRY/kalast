@@ -155,8 +155,14 @@ class ViewFactorBuilder:
             resolution=self.resolution, batch=self.batch,
         )
 
-    def collect(self, sim, n_facets_per_body):
-        """Compress the chunk just rendered. Returns True when finished."""
+    def collect(self, sim, n_facets_per_body=None):
+        """Compress the chunk just rendered. Returns True when finished.
+
+        Column counts are taken from the offsets the hemicube returns, not
+        from the caller: with a view-factor proxy the columns are the *proxy's*
+        facets, which is not what the caller knows about its bodies.
+        `n_facets_per_body` is ignored, kept only so old calls still work.
+        """
         if self.done or self._pending is None:
             return self.done
         got = sim.hemicube()
@@ -169,9 +175,10 @@ class ViewFactorBuilder:
         lo, hi = self._pending
         self._pending = None
         self._offsets = numpy.asarray(offsets, dtype=numpy.int64)
-        self._n_facets = numpy.asarray(n_facets_per_body, dtype=numpy.int64)
-
         dense = numpy.asarray(vf)[: hi - lo]
+        edges = numpy.append(self._offsets, dense.shape[1])
+        self._n_facets = numpy.diff(edges).astype(numpy.int64)
+
         dense[dense < self.threshold] = 0.0
         self._parts.append(sparse.csr_matrix(dense))
         self._at = hi
@@ -295,6 +302,49 @@ def absorbed(vf, emitted_all, reflected_all, emissivity, albedo, bounces=1,
     if reflected_all is not None:
         q += (1.0 - albedo) * vf.dot(scattered(reflected_all, albedo))
     return q
+
+
+class FacetMap:
+    """Maps a body's real facets onto the proxy facets used as view-factor columns.
+
+    When the hemicube renders a decimated proxy, the columns index *proxy*
+    facets, so the quantity multiplied through them -- emitted flux, reflected
+    sunlight -- has to be expressed at that resolution too. Each proxy facet
+    stands for the patch of real facets nearest it, and takes their
+    area-weighted mean.
+
+    The pairing is nearest-centroid. That is exact enough because a proxy is
+    only ever used for the *far* field: the companion subtends tens of degrees,
+    so what matters is the temperature structure across its disk -- day side
+    against night side, a hundred-metre scale -- not which metre-scale facet a
+    given ray struck. It would not be acceptable for the self block, where the
+    view factor is dominated by immediate neighbours in a concavity and the
+    proxy is exactly what smooths those away.
+
+    Error is set by how much temperature varies within one proxy facet, so it
+    is worst across a terminator.
+    """
+
+    def __init__(self, positions, proxy_positions):
+        from scipy.spatial import cKDTree
+
+        self.n_proxy = len(proxy_positions)
+        _, self.index = cKDTree(numpy.asarray(proxy_positions)).query(
+            numpy.asarray(positions), k=1
+        )
+        self.index = numpy.asarray(self.index, dtype=numpy.int64)
+
+    def aggregate(self, values, areas):
+        """Area-weighted mean of `values` over the facets behind each proxy."""
+        v = numpy.asarray(values, dtype=numpy.float64)
+        a = numpy.asarray(areas, dtype=numpy.float64)
+        num = numpy.bincount(self.index, weights=v * a, minlength=self.n_proxy)
+        den = numpy.bincount(self.index, weights=a, minlength=self.n_proxy)
+        return numpy.divide(num, den, out=numpy.zeros_like(num), where=den > 0)
+
+    def counts(self):
+        """Real facets behind each proxy facet, for checking the pairing."""
+        return numpy.bincount(self.index, minlength=self.n_proxy)
 
 
 def synodic_period(spin_periods):

@@ -340,7 +340,7 @@ impl Hemicube {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        meshes: &[super::gpu::MeshBuffer],
+        meshes: &[&super::gpu::MeshBuffer],
         views: &[crate::Mat4],
     ) -> (Vec<f32>, Vec<u32>, u32) {
         // One index space across all bodies, exactly as the facet-id pass

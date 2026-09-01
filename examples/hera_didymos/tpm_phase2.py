@@ -197,6 +197,26 @@ if HEATING != "none":
     OUT += f"_heat_{HEATING}"
 
 BODIES = ("DIDYMOS", "DIMORPHOS")
+# A decimated proxy per body, used for two things at once: the shadow map, and
+# the *columns* of the view-factor hemicube. Rows stay at the real resolution.
+#
+# What fills a hemicube is a far-field quantity -- the companion subtends tens
+# of degrees, so its day/night structure is what matters, not which metre-scale
+# facet a ray struck -- exactly the argument that makes a shadow proxy safe.
+# The accumulator is `batch * n_columns`, so without this, putting Didymos on
+# the 100k mesh takes a rebuild from 6 s to 110 s, and the 3.1M mesh is
+# unreachable.
+#
+# None keeps the real mesh as its own columns, which is right for a body whose
+# mesh is already coarse.
+PROXY = {
+    "DIDYMOS": (
+        "/Users/gregoireh/data/mesh/didymos/"
+        "g_01165mm_spc_obj_didy_0000n00000_v003_decimated_10k.obj"
+    ),
+    "DIMORPHOS": None,
+}
+
 MESH = {
     "DIDYMOS": (
         "/Users/gregoireh/data/mesh/didymos/"
@@ -329,7 +349,8 @@ app.simulation.camera.projection.fovy = 20.0 * RPD
 # deliverable is about, so it is the one kept.
 loaded = ACTIVE
 for i, name in enumerate(loaded):
-    app.simulation.load_mesh(path=MESH[name], mat=numpy.eye(4), flatten=True)
+    app.simulation.load_mesh(path=MESH[name], mat=numpy.eye(4), flatten=True,
+                             shadow_path=PROXY.get(name))
     mesh = app.simulation.bodies[i].mesh
     s = state[name]
     if len(mesh.facets) != s["nface"]:
@@ -374,6 +395,20 @@ for i, name in enumerate(loaded):
     s["areas"] = numpy.array(
         [mesh.facets[k].area for k in range(s["nface"])], dtype=numpy.float64
     )
+    # Emitted flux has to be expressed over whatever the hemicube columns are.
+    # With a proxy those are its facets, so each takes the area-weighted mean
+    # of the real facets nearest it.
+    if PROXY.get(name):
+        pm = kalast.mesh.Mesh(PROXY[name])
+        pm.flatten()
+        s["proxy"] = heating.FacetMap(
+            s["positions"],
+            numpy.array([pm.facets[k].pos for k in range(len(pm.facets))]),
+        )
+        print(f"  {name}: view-factor columns from a {len(pm.facets):,}-facet "
+              f"proxy ({s['nface'] / len(pm.facets):.0f} real facets each)")
+    else:
+        s["proxy"] = None
 
 history = {"et": []}
 for name in ACTIVE:
@@ -592,17 +627,32 @@ def coupling(ins, et_now):
     if not (HEATING_ON and (table is not None or vf.ready)):
         return out
 
-    emit, refl = [], []
+    fine = {}
     for name in loaded:
         s, prop = state[name], state[name]["prop"]
-        emit.append(heating.emitted(s["T"][:, 0], prop.emissivity))
-        refl.append(prop.albedo * ins[name]["incident"])
+        fine[name] = (heating.emitted(s["T"][:, 0], prop.emissivity),
+                      prop.albedo * ins[name]["incident"])
 
     for name in ACTIVE:
-        rows = vf.rows[name]
+        rows = rows_for(name, et_now)
         keep = [name] if HEATING == "self" else list(loaded)
-        e = [emit[i] if loaded[i] in keep else None for i in range(len(loaded))]
-        r = [refl[i] if loaded[i] in keep else None for i in range(len(loaded))]
+        e, r = [], []
+        for bname in loaded:
+            if bname not in keep:
+                e.append(None)
+                r.append(None)
+                continue
+            ei, ri = fine[bname]
+            # A proxy supplies the columns only for the *other* body: the
+            # requesting body's own columns stay at full resolution, since a
+            # hemicube origin sitting on the real surface would otherwise find
+            # itself buried inside the coarse hull. So which array to send
+            # depends on whose rows these are.
+            if bname != name and state[bname]["proxy"] is not None:
+                ei = state[bname]["proxy"].aggregate(ei, state[bname]["areas"])
+                ri = state[bname]["proxy"].aggregate(ri, state[bname]["areas"])
+            e.append(ei)
+            r.append(ri)
         prop = state[name]["prop"]
         out[name] = heating.absorbed(
             rows, rows.stack(e), rows.stack(r),
