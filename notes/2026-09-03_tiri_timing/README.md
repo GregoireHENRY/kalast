@@ -169,3 +169,74 @@ end, packet time) the filename stamp records.
   ignoring this silently produced `nan` for every measurement.
 - `astropy` was missing from `pyproject.toml` although the FITS scripts import
   it. Added.
+
+## The radiance consequence, and a tension with the published roughness
+
+The timing offset is corroborated by photometry, independently of anything
+positional. Evaluating the disc-integrated flux at the corrected epoch removes
+an epoch-to-epoch trend that had nothing to do with pixel positions:
+
+| smooth model | observed/model per epoch | mean | spread |
+|---|---|---|---|
+| label epoch | 1.120, 1.104, 1.093, 1.051 | 1.092 | 0.069 |
+| timing-corrected | 1.186, 1.183, 1.194, 1.190 | **1.188** | **0.011** |
+
+Scatter falls 6x and the deficit becomes flat. Two unrelated observables now
+agree on the same 24.89 s: astrometry says the body was drawn in the wrong
+place, photometry says its flux was computed at the wrong geometry.
+
+![four-way comparison](four_way_comparison.png)
+
+### But it undermines the roughness result
+
+`2026-09-02_deimos_roughness/` concludes that the roughness reconciling TIRI
+with the model is the value Giese and Kuehrt (1990) measured for Deimos from
+Viking -- crater density 0.90, RMS slope 46.56 deg, hemispherical craters --
+with nothing tuned to reach it.
+
+**That holds only at the uncorrected epoch.** Evaluating the model *at* the
+published roughness, not fitting to it:
+
+| | sim/obs per epoch | mean | spread |
+|---|---|---|---|
+| label epoch | 0.954, 0.933, 0.933, 1.101 | 0.980 | 0.168 |
+| timing-corrected | 0.863, 0.865, 0.849, 0.874 | 0.863 | 0.025 |
+
+and the best-fit coverage:
+
+| | coverage | RMS slope | |
+|---|---|---|---|
+| label epoch | 0.80 | 43.9 deg | just below the published 0.90 |
+| timing-corrected | **1.00** | 49.1 deg | **railed at the model's ceiling** |
+
+Uncorrected, the published roughness lands the mean at 0.98 but the trend is
+wrong (spread 0.168). Corrected, the trend is right (0.025) but the published
+roughness leaves a flat 14 % deficit, and the free fit runs to coverage 1.00 --
+fully cratered, above the published value -- and is still short.
+
+**The two results are in tension and cannot both stand.** Either the 24.89 s is
+wrong despite two independent lines of support, or the 1990-roughness agreement
+was partly coincidental, matching a trend the timing error had introduced.
+
+This matters for what is circulated: "roughness at the published value explains
+the gap" is the more attractive result and it is the one now in question. It
+should not lead a delivery until the timestamps are understood.
+
+Both readings survive the caveats already in the roughness note -- four epochs
+all within 1.6 deg of opposition, and a 46.56 deg that is sensitive to the
+75 deg emission bound -- so this remains a consistency check, not a retrieval.
+
+## Where this stopped
+
+Paused before the per-pixel comparison, which is blocked on two things:
+
+1. **Alignment.** A structured ~10 px residual survives the timing correction
+   (`dx` near +10 mid-sequence falling to -10 by the end, `dy` drifting -1 to
+   -13). Not a rigid pointing offset. Deimos spans 50-100 px in the close
+   frames, so per-pixel differencing would measure misregistration, not physics.
+2. **No instrument PSF.** The real source is 12.2 px against a 7.2 px true disc
+   at 11:56. Total flux is unaffected, which is why the disc-integrated work
+   above is valid, but every pixel value is.
+
+To ask the TIRI team: what the filename timestamp records (time system, and
+whether it is integration start, mid, end or packet time), and the PSF.
