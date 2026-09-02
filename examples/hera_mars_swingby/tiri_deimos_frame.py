@@ -40,11 +40,15 @@ RESTART = "out/hera_mars_swingby/deimos_tpm"
 OBS = Path("/Users/gregoireh/data/hera/tiri/JAXA-VITO-ROB radiances comparison/"
            "Deimos radiances/tiri_rad_20250312_120836_31_0.fit")
 OUT = Path("out/hera_mars_swingby/frame_120836")
-# An empirical correction for the 0.73 deg by which Deimos misses its predicted
-# position. **Off by default**, and it should stay off until the cause is known:
-# switching it on assumes this renderer is right and the kernels are wrong,
-# which is the wrong way round to assume. See kalast/tiri_alignment.py.
-ALIGN = False
+# On. The 0.73 deg version of this was rightly held off -- it was fitting the
+# residual of an axis flip, not an alignment (see kalast/tiri_alignment.py).
+# With camera.up = +Y that flip is gone, and what remains is 0.60 deg measured
+# from four clean Deimos frames and then confirmed, without refitting, on Mars:
+# a 600-700 px disc observed three hours earlier lands +0.59 px from the
+# corrected prediction, against +40.4 px uncorrected. The FK carries
+# TKFRAME_ANGLES = (0,0,0), a pre-flight value never calibrated in flight, so
+# an alignment of this size is expected rather than surprising.
+ALIGN = True
 R_MARS = 3396.2
 PREROLL_ROT, DT_FINE = 2.0, 10.0
 
@@ -129,7 +133,11 @@ def place(sim, et, phase):
     sim.sun.look_anchor()
     sim.camera.pos = [0.0, 0.0, 0.0]
     sim.camera.dir = [0.0, 0.0, 1.0]
-    sim.camera.up = [0.0, -1.0, 0.0]
+    # +Y up, not -Y: TIRI's detector runs 180 deg from a naive +X-right,
+    # +Y-down frame. Established against the real calibrated radiances --
+    # Deimos traverses the field the opposite way with -Y, and reprojecting
+    # Mars to lat/lon only gives a self-consistent map across epochs with +Y.
+    sim.camera.up = [0.0, 1.0, 0.0]
 
 
 def before_render(sim, _dt):

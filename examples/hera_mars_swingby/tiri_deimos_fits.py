@@ -54,6 +54,7 @@ import spiceypy as spice
 from astropy.io import fits
 
 import kalast
+import kalast.tiri_alignment as tiri_align  # 0.60 deg alignment the FK lacks
 import kalast.tpm.nonuniform as nonuniform
 import kalast.tpm.properties as properties
 import kalast.tpm.radiance as radiance
@@ -172,6 +173,7 @@ def before_render(sim, _dt):
     # Deimos at the origin in its own frame; the camera is TIRI, so the body
     # is placed by the TIRI-relative position and the IAU_DEIMOS orientation.
     p, _lt = spice.spkpos("DEIMOS", et, tiri.frame, "none", "HERA")
+    p = tiri_align.apply(p)
     m = spice.pxform(body.frame, tiri.frame, et)
     sim.bodies[0].mat[:3, :3] = m
     sim.bodies[0].mat[:3, 3] = p
@@ -179,6 +181,7 @@ def before_render(sim, _dt):
     # Sun in the same frame, for the shadow map. Orthographic and collimated,
     # so only the direction matters.
     ps, _lt = spice.spkpos("SUN", et, tiri.frame, "none", "HERA")
+    ps = tiri_align.apply(ps)
     u = numpy.asarray(ps) / numpy.linalg.norm(ps)
     # Aimed at Deimos, not at the origin: the origin here is TIRI itself,
     # tens of thousands of km away, and the shadow frustum is fitted about
@@ -190,7 +193,11 @@ def before_render(sim, _dt):
     # TIRI itself: at the origin of its own frame, boresight +Z.
     sim.camera.pos = [0.0, 0.0, 0.0]
     sim.camera.dir = [0.0, 0.0, 1.0]
-    sim.camera.up = [0.0, -1.0, 0.0]
+    # +Y up, not -Y: TIRI's detector runs 180 deg from a naive +X-right,
+    # +Y-down frame. Established against the real calibrated radiances --
+    # Deimos traverses the field the opposite way with -Y, and reprojecting
+    # Mars to lat/lon only gives a self-consistent map across epochs with +Y.
+    sim.camera.up = [0.0, 1.0, 0.0]
 
     sim.hud = f"{i}/{n_coarse + n_fine} it  captured {state['captured']}/{len(images)}"
 
@@ -233,6 +240,7 @@ def write_image(row, et, ids, offsets):
     img[filled] = band(tmap[filled]).astype(numpy.float32)
 
     p, _lt = spice.spkpos("DEIMOS", et, tiri.frame, "none", "HERA")
+    p = tiri_align.apply(p)
     d = numpy.linalg.norm(p)
     gsd = numpy.radians(tiri.fovy) / NPY * d * 1e3
     # phase angle at Deimos
@@ -242,6 +250,7 @@ def write_image(row, et, ids, offsets):
         numpy.dot(a, b) / numpy.linalg.norm(a) / numpy.linalg.norm(b)))
     # Mars / Phobos, reported rather than rendered
     mp, _lt = spice.spkpos("MARS", et, tiri.frame, "none", "HERA")
+    mp = tiri_align.apply(mp)
     pp, _lt = spice.spkpos("PHOBOS", et, tiri.frame, "none", "HERA")
     mn, pn = numpy.linalg.norm(mp), numpy.linalg.norm(pp)
     sep_m = numpy.degrees(numpy.arccos(numpy.dot(p, mp) / d / mn))
@@ -295,6 +304,12 @@ def write_image(row, et, ids, offsets):
     h["SELFHEAT"] = (False, "self-heating NOT modelled")
     h["MUTHEAT"] = (False, "mutual heating NOT modelled")
     h["ROUGHNES"] = (False, "thermal roughness NOT modelled")
+    h["DETROT"] = (180, "[deg] detector orientation vs a naive +X-right frame")
+    h["ALIGNDEG"] = (round(float(tiri_align.ANGLE_DEG), 4),
+                     "[deg] TIRI alignment applied; FK carries none")
+    h["ALIGNAX"] = (str([round(a, 6) for a in tiri_align.AXIS]),
+                    "rotation axis of that alignment, in HERA_TIRI")
+    h["GEOMVAL"] = ("1.8px vs real 11:56:03", "geometry validated against observation")
     h["SHAPE"] = (Path(MESH).name, "shape model")
     h["NFACETS"] = (nface, "facets in the shape model")
     h["KERNEL"] = (Path(KERNEL).stem, "SPICE meta-kernel")

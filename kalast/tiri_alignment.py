@@ -1,65 +1,82 @@
 """Measured TIRI boresight alignment, which the frames kernel does not carry.
 
 `hera_v16.tf` defines `HERA_TIRI` as **nominally** co-aligned with the
-spacecraft -- `TKFRAME_ANGLES = (0, 0, 0)` -- a pre-flight value never
-calibrated in flight. Deimos appears 0.73 degrees from where that puts it in
-the Mars swing-by frames, and the discrepancy is not subtle: within 25 px of
-the prediction no pixel exceeds 5 sigma, while the source where Deimos
-actually is reaches 519 sigma.
+spacecraft -- `TKFRAME_ANGLES = (0, 0, 0)`, a pre-flight value never
+calibrated in flight. After the detector convention was corrected (see below),
+targets still sit 0.60 deg from where that puts them, consistently.
 
-Applying this correction takes the residual from 53-58 px to 0.5-5.1 px.
+    rotation 0.6002 deg, spread 0.0228, about (+0.8674, +0.4976, -0.0014)
 
-**Provenance and limits.** Measured from three frames spanning five minutes
-(11:56:03, 11:58:43, 12:01:23), the only ones where Mars is out of shot and
-Deimos is unambiguous. The rotation is 0.7297 deg, spread 0.0254. Its X
-component is steady to 0.014 deg; the Y component drifts 0.586 -> 0.467 over
-those five minutes, which is larger than the scatter and unexplained, and is
-most of the 3.4 px that remains.
+which moves the boresight by (+0.299, -0.521) deg in TIRI X and Y. The roll
+component about the boresight is -0.0008 deg, i.e. none is invented: the
+minimal rotation is used, as the fitting frames are nearly collinear and do
+not constrain roll. A least-squares (Kabsch) fit on the same frames absorbs a
+spurious 5.96 deg roll, which is why it is not used.
 
-Three closely spaced frames constrain one direction, so the rotation *about*
-the boresight is not determined -- the minimal rotation is used, which adds no
-arbitrary roll. That is right for these frames and would not be for a target
-far off-axis.
+**Provenance.** Fitted to the four Mars swing-by frames where Mars is out of
+shot and Deimos is unambiguous (11:56:03, 11:58:43, 12:01:23, 12:04:03; SNR
+198, 170, 137, 97). Residual after applying it: 3.5 px mean, 7.0 px worst.
 
-**Do not switch this on to make things agree.** It is off by default and should
-stay off until the 0.73 deg is explained, because applying it assumes this
-renderer is correct and the kernels are not -- the wrong way round. The
-trajectory is reconstructed and trusted; the more likely explanation is a fault
-here that has not been found.
+**Independently cross-validated on Mars**, which took no part in the fit. Mars
+is a 600-700 px disc against Deimos's point source, observed 06:10-09:11, more
+than three hours earlier. Its limb-fit centre in Y lands +0.59 px from the
+corrected prediction (sd 3.20), against +40.4 px uncorrected. Two targets
+differing ~100x in apparent size, hours apart, agreeing to under a pixel is
+what makes this an alignment rather than a fudge.
 
-**Mars cannot arbitrate, contrary to a first attempt.** The obvious test is
-whether the same rotation also fixes Mars: a rigid misalignment moves
-everything by one angle, while a projection fault grows with distance from the
-boresight. But the bright/dark boundary on a thermal infrared image of Mars is
-the **terminator**, not the limb, and a thermal terminator at that, lagging the
-illumination one. Fitting it as a circle gave implied Mars distances of 39,343
-and 19,561 km on two frames 32 seconds apart, where the truth moves from 24,438
-to 24,174. The measurement is broken, and any conclusion drawn from it -- this
-module included -- is unsupported.
+Mars's X is *not* used: its limb fit is pulled ~10 px toward the bright
+afternoon hemisphere, so only Deimos constrains X.
 
-What would settle it is an independent renderer driven by the same kernels:
-ShapeViewer or Cosmographia. If they place Deimos where this code does, the
-fault is common to the kernels or the instrument definition; if they place it
-where the observation does, the fault is here.
+--- retracted predecessor, kept as the record of a wrong turn ---
+
+An earlier version of this module carried 0.7297 deg about
+(-0.6977, -0.7164, 0.0016) and was correctly held at ALIGN = False, because
+the evidence for it was three frames spanning five minutes and its Y component
+drifted unexplained.
+
+That value was mostly an artefact. TIRI's detector runs 180 deg from the frame
+the render assumed -- `camera.up` was -Y and should be +Y -- so predictions
+were wrong by up to 3.5 deg and a rotation was being fitted to the residual of
+an axis flip. The tell, missed at the time: the "offset" grew from 0.66 to
+1.05 deg as Mars closed in, which no rigid rotation can do.
+
+Three things settled the flip, none of them relying on this renderer:
+
+1.  Deimos traverses the field during the flyby and its measured column runs
+    *opposite* to the prediction, so no translation can fit it. Residual
+    against the real radiances: 270 px unflipped, 17 px flipped.
+2.  Mars's thermal peak sits 150 px from the predicted sub-solar point
+    unflipped, 41 px flipped.
+3.  Reprojecting Mars onto a lat/lon grid only yields a map consistent between
+    epochs under the 180 deg convention: correlation 0.74, against 0.20
+    (unflipped), 0.04 (X only) and 0.01 (Y only). Mars rotates 19.5 deg
+    between the epochs used, so this test needs no Mars map and no renderer.
+
+Note the Y component of the retracted value, +0.509 deg, was close to the
++0.521 deg measured here. Deimos sits near the field centre, where flipping Y
+barely moves it, so that part of the old fit was measuring the real residual
+all along; its X component was fitting the flip.
+
+See notes/2026-09-02_tiri_geometry/.
 """
 
 import numpy
 
-# Minimal rotation carrying the predicted direction onto the observed one,
-# in the nominal HERA_TIRI frame.
-AXIS = numpy.array([-0.6977, -0.7164, 0.0016])
-ANGLE_DEG = 0.7297
+AXIS = [0.867385, 0.497636, -0.001393]
+ANGLE_DEG = 0.600215
 
 
-def rotation(axis=None, angle_deg=None):
-    """The 3x3 correction, to be applied to vectors in the nominal frame."""
-    a = numpy.asarray(AXIS if axis is None else axis, dtype=float)
+def rotation():
+    """The 3x3 correction, applied to a vector in the HERA_TIRI frame."""
+    a = numpy.asarray(AXIS, dtype=float)
     a = a / numpy.linalg.norm(a)
-    th = numpy.radians(ANGLE_DEG if angle_deg is None else angle_deg)
-    k = numpy.array([[0.0, -a[2], a[1]], [a[2], 0.0, -a[0]], [-a[1], a[0], 0.0]])
-    return numpy.eye(3) + numpy.sin(th) * k + (1.0 - numpy.cos(th)) * k @ k
+    t = numpy.radians(ANGLE_DEG)
+    k = numpy.array([[0.0, -a[2], a[1]],
+                     [a[2], 0.0, -a[0]],
+                     [-a[1], a[0], 0.0]])
+    return numpy.eye(3) + numpy.sin(t) * k + (1.0 - numpy.cos(t)) * (k @ k)
 
 
-def apply(v, **kw):
-    """Correct a position or direction expressed in the nominal TIRI frame."""
-    return rotation(**kw) @ numpy.asarray(v, dtype=float)
+def apply(v):
+    """Correct a HERA_TIRI-frame vector. Preserves magnitude."""
+    return rotation() @ numpy.asarray(v, dtype=float)

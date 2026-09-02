@@ -42,6 +42,7 @@ import pandas
 import spiceypy as spice
 
 import kalast
+import kalast.tiri_alignment as tiri_align  # 0.60 deg alignment the FK lacks
 import kalast.tpm.nonuniform as nonuniform
 import kalast.tpm.properties as properties
 import kalast.tpm.radiance as radiance
@@ -115,10 +116,14 @@ def before_render(sim, _dt):
         return
     et = ets[i]
     ps, _lt = spice.spkpos("SUN", et, tiri.frame, "none", "HERA")
+    ps = tiri_align.apply(ps)
     u_sun = numpy.asarray(ps) / numpy.linalg.norm(ps)
 
     pd_, _lt = spice.spkpos("DEIMOS", et, tiri.frame, "none", "HERA")
+
+    pd_ = tiri_align.apply(pd_)
     pm, _lt = spice.spkpos("MARS", et, tiri.frame, "none", "HERA")
+    pm = tiri_align.apply(pm)
 
     if state["phase"] == 0:
         # Deimos pass: Mars pushed out of the scene entirely, so scene_bounds
@@ -144,7 +149,11 @@ def before_render(sim, _dt):
 
     sim.camera.pos = [0.0, 0.0, 0.0]
     sim.camera.dir = [0.0, 0.0, 1.0]
-    sim.camera.up = [0.0, -1.0, 0.0]
+    # +Y up, not -Y: TIRI's detector runs 180 deg from a naive +X-right,
+    # +Y-down frame. Established against the real calibrated radiances --
+    # Deimos traverses the field the opposite way with -Y, and reprojecting
+    # Mars to lat/lon only gives a self-consistent map across epochs with +Y.
+    sim.camera.up = [0.0, 1.0, 0.0]
     sim.hud = f"{i}/{N_FRAMES}  {'deimos' if state['phase']==0 else 'mars  '}"
 
 
@@ -188,7 +197,9 @@ def after_render(sim, _dt):
         lo = int(offsets[1])
         fm = numpy.where(mfilled, ids - 1 - lo, 0)
         pmm, _l = spice.spkpos("MARS", et, tiri.frame, "none", "HERA")
+        pmm = tiri_align.apply(pmm)
         pss, _l = spice.spkpos("SUN", et, tiri.frame, "none", "HERA")
+        pss = tiri_align.apply(pss)
         us = numpy.asarray(pss) - numpy.asarray(pmm)
         us = us / numpy.linalg.norm(us)
         diffuse[mfilled] = numpy.clip(mars_normals[fm[mfilled]] @ us, 0.0, None)
