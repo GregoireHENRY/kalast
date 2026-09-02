@@ -32,7 +32,26 @@ from kalast.util import AU, SOLAR_CONSTANT, STEFAN_BOLTZMANN
 
 BACKEND = "gpu"          # "gpu" | "cpu"
 BENCHMARK = False
-N_ORBITS_SPINUP = 3      # x 687 d
+N_ORBITS_SPINUP = 4.7    # x 687 d = 8.8 years, and the most the kernels allow.
+                         #
+                         # **Three is not enough here**, unlike Didymos where it
+                         # was validated. The surface converges almost at once
+                         # -- 0.1 K by two orbits -- but the deep reservoir does
+                         # not, and it is what sets night-side temperatures.
+                         # Against a 4.7-orbit reference, the area-weighted
+                         # deep-node error is:
+                         #
+                         #     2 orbits   +7.36 K   (max column 21.1 K)
+                         #     3 orbits   +4.32 K   (max column 13.8 K)
+                         #     4 orbits   +1.52 K   (max column  7.1 K)
+                         #
+                         # The Deimos ephemeris reaches back only 4.78 Mars
+                         # years, to 2016-03-14; beyond that `spkpos` fails with
+                         # SPKINSUFFDATA partway through the run rather than at
+                         # setup. So 4.7 is the floor of what is achievable, and
+                         # the residual there is of order 0.5-1 K by
+                         # extrapolation -- worth stating in the product rather
+                         # than claiming convergence.
 NODES_PER_SKIN_DEPTH = 4
 DEPTH_IN_SEASONAL = 1.0
 DT_SAFETY = 0.4
