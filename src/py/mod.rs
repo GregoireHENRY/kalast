@@ -171,6 +171,13 @@ fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
         .getattr("modules")?
         .set_item("kalast._rs.tpm.core", core)?;
 
+    let rough = PyModule::new(tpm.py(), "roughness")?;
+    rough.add_class::<tpm::roughness::Crater>()?;
+    tpm.add_submodule(&rough)?;
+    py.import("sys")?
+        .getattr("modules")?
+        .set_item("kalast._rs.tpm.roughness", rough)?;
+
     let gpu = PyModule::new(tpm.py(), "gpu")?;
     gpu.add_class::<tpm::gpu::GpuContext>()?;
     gpu.add_class::<tpm::gpu::GpuTpm>()?;
