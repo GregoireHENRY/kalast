@@ -94,18 +94,48 @@ is **not usable**: the three observed positions span 6 px, so they constrain
 one direction, and three free angles fitted to one direction are degenerate.
 The minimal rotation, 0.7 deg, is well determined; its axis is not.
 
-### What is worth knowing about it
+### It is the instrument alignment, and the kernel says so
 
-- The loaded attitude is `hera_sc_meas_*`, **reconstructed**, not predicted.
-- The TIRI frame in `hera_v16.tf` carries `TKFRAME_ANGLES = (0, 0, 0)` -- a
-  perfect-alignment assumption with no in-flight calibration.
-- **The kernels have been reissued since the last validation.** The July
-  presentation used v180, Operational 20250714_001; this work is on v182,
-  20260823_001.
-- That July validation compared kalast against **ShapeViewer**, both driven by
-  the same kernels. It establishes that the rendering agrees with an
-  independent renderer. It does **not** establish that either matches the real
-  images, which is the question now open.
+Deimos is **not faintly present** at the predicted position and brighter
+elsewhere. There is nothing there at all: within 25 px of the prediction the
+strongest pixel is 2.2 sigma and **no pixel exceeds 5 sigma**, while the source
+at the observed position is **519 sigma**. The body is simply 0.7 degrees from
+where the kernels put it.
+
+`hera_v16.tf`, line 1245, ahead of the TIRI frame definition:
+
+> *"**Nominally**, the TIRI frames are co-aligned with the s/c frame"*
+
+`FRAME_HERA_TIRI = -91210`, class 4, relative to `HERA_SPACECRAFT`, with
+`TKFRAME_ANGLES = (0.0, 0.0, 0.0)`. That is a **pre-flight nominal alignment
+that has never been calibrated in flight**, and a real boresight misalignment
+would be invisible to SPICE and appear as exactly this.
+
+The attitude itself is `hera_sc_meas_*`, reconstructed, and the trajectory is
+trusted. Neither is in question. What is missing is the instrument-to-
+spacecraft alignment.
+
+**Measured from the three clean frames:**
+
+| | value |
+|---|---|
+| total misalignment | **0.7297 deg**, spread 0.0254 |
+| about X | **+0.507 deg**, very stable (+0.489, +0.508, +0.524) |
+| about Y | +0.52 deg mean, but drifting +0.586 to +0.467 over five minutes |
+
+The X component is steady to 0.014 deg across the sequence. The Y component
+drifts by 0.12 deg over five minutes, which is more than the scatter and is not
+yet explained -- either a residual attitude effect or something in the geometry
+that has not been isolated. Three frames spanning five minutes is a thin basis
+and this should be redone across the whole swing-by, and against a body other
+than Deimos, before it is offered as a calibration.
+
+The kernel reissue is **not** the cause: v180 to v182 did not touch Deimos.
+
+The July validation compared kalast against **ShapeViewer**, both driven by the
+same kernels. It establishes that the two renderers agree, which is worth
+having, but it cannot detect a common misalignment -- both would be wrong
+together. That is why this did not surface then.
 
 ### What this does and does not invalidate
 
@@ -118,15 +148,17 @@ A **pixel-wise** comparison does not, and is blocked until this is resolved.
 
 ## To do, in the order that unblocks the most
 
-1. **Settle the 0.7 degrees.** The four-way comparison at 12:08:36 -- filter g,
+1. **Confirm the alignment offset against a second target.** Deimos alone,
+   over five minutes, is a thin basis for a 0.73 deg calibration, and the Y
+   component drifts. Mars's limb across the whole swing-by would settle it, as
+   would any other body TIRI imaged in cruise. The four-way comparison at 12:08:36 -- filter g,
    Deimos crossing Mars's limb, both bodies constraining the geometry at once.
    kalast's half is rendered (`out/hera_mars_swingby/frame_120836/`, FITS
    included); ShapeViewer and Cosmographia remain. The HERA Cosmographia
    package is at `data/spice/hera/misc/cosmo`, and `load_hera_ops_001.json`
    loads the operational kernels; its scenarios target Dimorphos, so a
    Mars-swingby view has to be set up.
-   **Also worth trying: re-run against the v180 kernels the July validation
-   used, and see whether the offset moves.**
+   The kernel version is not it: v180 to v182 did not touch Deimos.
 2. **Compare against Mueller's model radiances** for this same swing-by, CSV
    in the old `hera_mars_swingby` work. Like-for-like on the exact
    observation, and the most direct external check available.
