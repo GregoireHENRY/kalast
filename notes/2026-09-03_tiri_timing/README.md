@@ -104,10 +104,40 @@ Two facts argue against a simple clock offset:
   where a constant clock error would give zero. So a pure constant offset is
   not the whole story either.
 
-**The discriminating test is Mars.** If Mars's limb shows the same ~25 s, the
-cause is common to the scene -- spacecraft timing or the Hera ephemeris. If
-only Deimos shows it, it is the Deimos ephemeris. The Mars flyby radiances are
-downloaded and this is the next thing to do.
+### The Mars test was run, and cannot settle it
+
+Mars was the obvious discriminator -- a scene-wide timing or Hera-ephemeris
+error must move Mars too, a Deimos-ephemeris error must not. It was run on the
+five 2025-03-12 frames where the full disc is in the field, fitting the limb by
+least squares.
+
+**Mars cannot detect a 25 s shift.** Hera flies almost straight at it: at
+11:30 the relative velocity is -8.661 km/s radial against 0.159 km/s
+tangential, so Mars *grows* rather than translating. Its image-plane rate is
+0.011 to 0.024 px/s, so 25 s moves it **under 1 px** -- below the measurement
+floor. Deimos, offset from the approach axis, sweeps across at up to 19.6 px/s.
+
+For the record, Mars's centre does sit within a few px of prediction at the
+label epoch (dx = +0.2, -2.1, -1.4, -2.7 px on the four distant frames), and
+`R_obs/R_pred` is 0.96-1.02. Neither confirms nor refutes the offset.
+
+Note the limb fit is threshold-sensitive: a brightness cut halfway to the peak
+gives `R_obs/R_pred` of 0.72-0.88, because Mars is cold at the limb and the
+contour falls inside the true edge. Referencing the threshold to the space
+background instead gives 0.96-1.02. Any limb-derived number should say which
+was used.
+
+### What is left
+
+The magnitude argues against an ephemeris error in either body: 24.9 s is
+**220 km** of along-track separation at 8.84 km/s, and neither Deimos's orbit
+nor a reconstructed Hera flyby trajectory is uncertain at that level.
+
+That points at the image timestamps, but 24.9 s matches no standard time-system
+difference, and the fitted value drifts +3.8 s across the sequence, so a single
+constant clock offset is not the whole story either. **This is a question for
+the TIRI team** -- what time system and what event (integration start, mid,
+end, packet time) the filename stamp records.
 
 ## Provenance caveats
 
