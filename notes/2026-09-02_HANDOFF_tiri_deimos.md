@@ -7,9 +7,13 @@ thread. They are separate subjects and neither supersedes the other.
 ## Getting the files
 
 `out/` is gitignored, so none of the outputs travel with the repo. They are on
-the ROB share at **cloud-as.oma.be**, uploaded 2026-09-02 (the edit-mode link
-is deliberately not written here -- it grants write access to the team folder
-and this repo is public; use your own copy of the link).
+the ROB share, uploaded 2026-09-02:
+
+    https://cloud-as.oma.be/index.php/s/2WFbxawmx6WZi7L
+
+**Read-only** -- download only. The write-enabled link for the same folder is
+deliberately not recorded here, since this repository is public and that link
+grants delete as well as upload.
 
     hera_mars_swingby/                    <- new, all of today's Deimos work
       README.md                              what is in the bundle
