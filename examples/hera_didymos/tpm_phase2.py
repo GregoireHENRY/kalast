@@ -426,7 +426,6 @@ for name in ACTIVE:
     history[f"{name.lower()}_t_mean"] = []
     history[f"{name.lower()}_q_extra"] = []
 SNAP_EVERY = 5
-snapshots = {"et": [], **{n: [] for n in ACTIVE}}
 # The snapshot cadence is coarse (SNAP_EVERY * dt = 280 s), which is fine for
 # watching the scar decay but not for a data product: 280 s is a third of the
 # time the shadow spot needs to cross a facet. So the step landing nearest the
@@ -434,6 +433,27 @@ snapshots = {"et": [], **{n: [] for n in ACTIVE}}
 at_epoch = {"dt": None, **{n: None for n in ACTIVE}}
 clock = {"t0": None, "done": False}
 rate = kalast.util.Rate()
+
+# Snapshots go to disk as they are taken, rather than being accumulated in
+# memory and written once at the end. This segment runs for hours, and an interruption
+# at step 1,305 of 1,309 -- which happened, from the window being closed during
+# the final write -- otherwise loses every one of them.
+#
+# Memmapped .npy so the file on disk is already in its final format: nothing
+# has to be stitched together afterwards, and a truncated run is read by taking
+# the first `snap_count.txt` rows.
+N_SNAPS = n_steps // SNAP_EVERY + 1
+_out = Path(OUT)
+_out.mkdir(parents=True, exist_ok=True)
+snap_store = {"et": numpy.lib.format.open_memmap(
+    _out / "snap_et.npy", mode="w+", dtype=numpy.float64, shape=(N_SNAPS,))}
+for name in ACTIVE:
+    _d = _out / name.lower()
+    _d.mkdir(parents=True, exist_ok=True)
+    snap_store[name] = numpy.lib.format.open_memmap(
+        _d / "snap_tsurf.npy", mode="w+", dtype=numpy.float64,
+        shape=(N_SNAPS, state[name]["nface"]))
+snap_n = {"i": 0}
 
 
 # The scene is built in the frame of whichever body sits at the origin. In
@@ -606,6 +626,11 @@ def before_render(sim, dt_frame):
         lines.append(f"eta {rate.eta(n_steps - step['n'])}")
     if HEATING_ON and vf.busy:
         lines.append(vf.status)
+    # The counter sitting at 1,305/1,309 reads as finished, and the final
+    # write then takes minutes more with the window frozen and the HUD stale.
+    # A completed 7.7 h run was lost to being closed at exactly that point, so
+    # say plainly what the finish signal is: the window closing by itself.
+    lines.append("keep open -- closes itself when finished")
     sim.hud = "\n".join(lines)
 
     # Requested after the bodies are placed: the hemicube renders the scene
@@ -771,11 +796,23 @@ def after_render(sim, dt_frame):
         at_epoch["dt"] = offset
         for n in ACTIVE:
             at_epoch[n] = state[n]["T"][:, 0].copy()
+            # Written the moment it is captured. This single frame is the
+            # point of the run, and holding it until the end made it hostage
+            # to the remaining 437 steps.
+            numpy.save(_out / n.lower() / "tsurf_at_epoch.npy", at_epoch[n])
+        (_out / "epoch_offset.txt").write_text(f"{offset:+.2f}\n")
 
-    if it % SNAP_EVERY == 0:
-        snapshots["et"].append(et)
+    if it % SNAP_EVERY == 0 and snap_n["i"] < N_SNAPS:
+        k = snap_n["i"]
+        snap_store["et"][k] = et
         for n in ACTIVE:
-            snapshots[n].append(state[n]["T"][:, 0].copy())
+            snap_store[n][k] = state[n]["T"][:, 0]
+        snap_n["i"] = k + 1
+        # Flushing costs milliseconds against a ~20 s step, and it is the
+        # whole point: the rows are only safe once they leave the page cache.
+        for store in snap_store.values():
+            store.flush()
+        (_out / "snap_count.txt").write_text(f"{snap_n['i']}\n")
     if it % 10 == 0:
         history["et"].append(et)
         for n in ACTIVE:
@@ -796,11 +833,14 @@ def after_render(sim, dt_frame):
 
 
 def save():
+    # The snapshots and the epoch frame are already on disk, written as they
+    # were taken. What is left is the final column state, which only exists
+    # now, and the history table.
+    print("writing final state -- do not close the window", flush=True)
     out = Path(OUT)
     out.mkdir(parents=True, exist_ok=True)
     pandas.DataFrame(history).to_csv(out / "history.csv", index=False,
                                      encoding="utf-8-sig")
-    numpy.save(out / "snap_et.npy", numpy.array(snapshots["et"]))
     print(f"epoch snapshot taken {at_epoch['dt']:+.2f} s from the study epoch")
     for n in ACTIVE:
         d = out / n.lower()
@@ -813,8 +853,7 @@ def save():
         pandas.DataFrame(
             {"facet": numpy.arange(s["nface"]), "t_surface": s["T"][:, 0]}
         ).to_csv(d / "tmp_surf_final.csv", index=False, encoding="utf-8-sig")
-        numpy.save(d / "snap_tsurf.npy", numpy.array(snapshots[n]))
-        numpy.save(d / "tsurf_at_epoch.npy", at_epoch[n])
+        # snap_tsurf.npy and tsurf_at_epoch.npy were written during the run.
         print(f"{n:10s} surface T: min {s['T'][:, 0].min():6.1f}  "
               f"max {s['T'][:, 0].max():6.1f}  "
               f"mean {routine.area_mean(s['T'][:, 0], s['areas']):6.1f} K "
