@@ -35,6 +35,23 @@ alone, and comparing against the silhouette centre the handoff measured:
 
 Sub-pixel across a 100x range of displacement. That is the whole of fault 1.
 
+**Confirmed end to end against the laptop's own output.** The previous FITS
+were downloaded from the ROB share and their centroids differenced against the
+regenerated ones. The change matches the predicted capture-offset shift at
+every epoch:
+
+| epoch | laptop x | fixed x | measured shift | predicted | resid |
+|---|---|---|---|---|---|
+| 11:56:03 | 476.9 | 477.0 | -0.0 | 0.0 | -0.00 |
+| 12:07:38 | 700.0 | 690.9 | 9.0 | 8.9 | +0.13 |
+| 12:08:10 | 617.6 | 587.2 | 30.4 | 30.2 | +0.28 |
+| 12:08:47 | 349.4 | 305.5 | 43.9 | 43.6 | +0.33 |
+| 12:08:57 | 230.4 | 173.9 | 56.4 | 56.0 | +0.43 |
+
+Max residual 0.43 px over 14 frames. The 15th (12:09:08) is excluded: the body
+is partly off the left edge there, so a flux-weighted centroid of a clipped
+silhouette is not comparable between the two versions.
+
 Two things the handoff got wrong, both explained by this:
 
 - **The four distant frames were not a validation.** Their epochs are exact
