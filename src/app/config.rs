@@ -97,6 +97,15 @@ pub struct Config {
     /// when you only want images.
     pub access_shadow_map: bool,
 
+    /// Burn the HUD text into exported frames as well as drawing it on screen.
+    ///
+    /// Off by default, and that is the right default for a data product: the
+    /// HUD is drawn onto the swapchain after the scene has been copied out, so
+    /// exports carry the render alone. Turn it on for a screen-capture-style
+    /// movie where the run state should be visible in the frames themselves --
+    /// it costs one extra text pass, on exported frames only.
+    pub export_hud: bool,
+
     /// Treat alt + left-drag as a middle-drag, so the arcball can be orbited
     /// on hardware with no middle button. Blender calls the same setting
     /// "Emulate 3 Button Mouse". Defaults on for macOS, where a trackpad is
@@ -159,6 +168,8 @@ impl Default for Config {
             export_dir: "out/frames".to_string(),
 
             access_shadow_map: false,
+
+            export_hud: false,
 
             emulate_middle_button: cfg!(target_os = "macos"),
         }

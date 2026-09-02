@@ -827,6 +827,53 @@ impl Window {
         // turns back off.
         self.frame_exporter.poll(&self.device);
 
+        // Burn the HUD into the frame about to be exported, when asked for.
+        // This has to happen here, before the copy: the on-screen pass below
+        // targets the swapchain, which the exporter never reads. Drawing it
+        // twice is deliberate -- the window keeps its HUD either way, and the
+        // cost is one text pass on exported frames only.
+        if self.export_frame && config.export_hud && !hud.is_empty() {
+            if let Some(brush) = self.hud.as_mut() {
+                let view = self
+                    .passes
+                    .render
+                    .render_texture
+                    .create_view(&wgpu::TextureViewDescriptor::default());
+                let section = wgpu_text::glyph_brush::Section::default()
+                    .add_text(
+                        wgpu_text::glyph_brush::Text::new(hud)
+                            .with_scale(18.0)
+                            .with_color([1.0, 1.0, 1.0, 0.9]),
+                    )
+                    .with_screen_position((8.0, 6.0));
+                if brush.queue(&self.device, &self.queue, [section]).is_ok() {
+                    let mut encoder = self
+                        .device
+                        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+                    {
+                        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                            label: Some("hud export"),
+                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                view: &view,
+                                depth_slice: None,
+                                resolve_target: None,
+                                ops: wgpu::Operations {
+                                    load: wgpu::LoadOp::Load,
+                                    store: wgpu::StoreOp::Store,
+                                },
+                            })],
+                            depth_stencil_attachment: None,
+                            timestamp_writes: None,
+                            occlusion_query_set: None,
+                            multiview_mask: None,
+                        });
+                        brush.draw(&mut pass);
+                    }
+                    self.queue.submit([encoder.finish()]);
+                }
+            }
+        }
+
         if self.export_frame {
             self.frame_exporter.export_frame(
                 &self.device,
@@ -837,8 +884,10 @@ impl Window {
             );
         }
 
-        // Drawn after the blit and straight onto the swapchain, so it stays
-        // out of `render_texture` and therefore out of exported frames.
+        // The on-screen HUD: drawn after the blit and straight onto the
+        // swapchain, so by itself it stays out of `render_texture` and
+        // therefore out of exported frames. `Config::export_hud` adds the
+        // separate pass above when it should appear in them too.
         if let (Some(texture), Some(brush), false) =
             (&surface_texture, self.hud.as_mut(), hud.is_empty())
         {

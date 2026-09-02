@@ -445,14 +445,61 @@ rate = kalast.util.Rate()
 N_SNAPS = n_steps // SNAP_EVERY + 1
 _out = Path(OUT)
 _out.mkdir(parents=True, exist_ok=True)
-snap_store = {"et": numpy.lib.format.open_memmap(
-    _out / "snap_et.npy", mode="w+", dtype=numpy.float64, shape=(N_SNAPS,))}
+
+# Resumable checkpoints. Distinct from the snapshots above: those preserve
+# *output* if the run dies, this preserves *progress*, so a killed run
+# continues instead of starting over. The column state is the expensive thing
+# -- 100,000 x 34 float64 for Didymos -- so it is written rarely.
+CHECKPOINT_EVERY = 100  # steps; 0 disables. 100 x ~15 s is ~25 min of work
+                        # at risk, for ~30 MB written every 25 min.
+RESUME = True           # continue from a checkpoint if one is present
+CKPT = _out / "checkpoint"
+
+
+def _ckpt_current():
+    """The complete checkpoint, or None.
+
+    Two slots with a pointer file rather than one directory written in place:
+    a checkpoint spans several files, so overwriting them one by one leaves a
+    window where a kill gives a half-updated, unusable set. Writing to the
+    inactive slot and then replacing the one-line pointer makes the switch a
+    single atomic rename.
+    """
+    ptr = CKPT / "current.txt"
+    if not ptr.exists():
+        return None
+    slot = CKPT / ptr.read_text().strip()
+    return slot if (slot / "meta.csv").exists() else None
+
+
+resume = None
+if RESUME and CHECKPOINT_EVERY:
+    _slot = _ckpt_current()
+    if _slot is not None:
+        resume = pandas.read_csv(_slot / "meta.csv").iloc[0].to_dict()
+        resume["slot"] = _slot
+
+
+def _snap_array(path, shape):
+    # Reopened rather than recreated when resuming: "w+" would zero every
+    # snapshot the previous attempt had already written.
+    if resume is not None and path.exists():
+        a = numpy.lib.format.open_memmap(path, mode="r+")
+        if a.shape != shape:
+            raise SystemExit(
+                f"{path.name}: existing {a.shape} does not match this run's "
+                f"{shape} -- delete {_out} to start clean")
+        return a
+    return numpy.lib.format.open_memmap(
+        path, mode="w+", dtype=numpy.float64, shape=shape)
+
+
+snap_store = {"et": _snap_array(_out / "snap_et.npy", (N_SNAPS,))}
 for name in ACTIVE:
     _d = _out / name.lower()
     _d.mkdir(parents=True, exist_ok=True)
-    snap_store[name] = numpy.lib.format.open_memmap(
-        _d / "snap_tsurf.npy", mode="w+", dtype=numpy.float64,
-        shape=(N_SNAPS, state[name]["nface"]))
+    snap_store[name] = _snap_array(
+        _d / "snap_tsurf.npy", (N_SNAPS, state[name]["nface"]))
 snap_n = {"i": 0}
 
 
@@ -578,6 +625,59 @@ def rows_for(name, et):
     return table.rows(name, et) if table is not None else vf.rows[name]
 
 step = {"n": 0}
+
+if resume is not None:
+    _slot = resume["slot"]
+    for name in ACTIVE:
+        t = numpy.load(_slot / f"{name.lower()}_T.npy")
+        if t.shape != state[name]["T"].shape:
+            raise SystemExit(
+                f"{name}: checkpoint column {t.shape} does not match this "
+                f"run's {state[name]['T'].shape} -- delete {CKPT} to start over")
+        state[name]["T"][:] = t
+        _ep = _slot / f"{name.lower()}_epoch.npy"
+        if _ep.exists():
+            at_epoch[name] = numpy.load(_ep)
+    step["n"] = int(resume["step"])
+    snap_n["i"] = int(resume["snap_i"])
+    if resume.get("epoch_dt", "") != "" and not pandas.isna(resume["epoch_dt"]):
+        at_epoch["dt"] = float(resume["epoch_dt"])
+    _h = _slot / "history.csv"
+    if _h.exists():
+        history = {k: list(v) for k, v in pandas.read_csv(_h).to_dict("list").items()}
+    print(f"resuming from checkpoint at step {step['n']:,}/{n_steps:,} "
+          f"({snap_n['i']} snapshots already written)", flush=True)
+
+
+def _checkpoint(it, et):
+    """Write a complete, resumable state into the inactive slot, then switch.
+
+    Everything the run cannot recompute: the columns, the epoch frame if it
+    has been captured, and the history accumulated so far. `et` and the
+    snapshot index follow from the step, but are stored so a resume can be
+    sanity-checked rather than assumed.
+    """
+    CKPT.mkdir(parents=True, exist_ok=True)
+    ptr = CKPT / "current.txt"
+    prev = ptr.read_text().strip() if ptr.exists() else "b"
+    slot = CKPT / ("b" if prev == "a" else "a")
+    slot.mkdir(parents=True, exist_ok=True)
+
+    for name in ACTIVE:
+        numpy.save(slot / f"{name.lower()}_T.npy", state[name]["T"])
+        if at_epoch[name] is not None:
+            numpy.save(slot / f"{name.lower()}_epoch.npy", at_epoch[name])
+    pandas.DataFrame(history).to_csv(slot / "history.csv", index=False,
+                                     encoding="utf-8-sig")
+    pandas.DataFrame([{
+        "step": it, "et": et, "snap_i": snap_n["i"],
+        "epoch_dt": "" if at_epoch["dt"] is None else at_epoch["dt"],
+    }]).to_csv(slot / "meta.csv", index=False, encoding="utf-8-sig")
+
+    # Last, and atomic: until this lands the old slot is still the live one.
+    tmp = CKPT / "current.txt.tmp"
+    tmp.write_text(slot.name)
+    tmp.replace(ptr)
 
 
 def before_render(sim, dt_frame):
@@ -813,6 +913,9 @@ def after_render(sim, dt_frame):
         for store in snap_store.values():
             store.flush()
         (_out / "snap_count.txt").write_text(f"{snap_n['i']}\n")
+
+    if CHECKPOINT_EVERY and it and it % CHECKPOINT_EVERY == 0:
+        _checkpoint(it, et)
     if it % 10 == 0:
         history["et"].append(et)
         for n in ACTIVE:

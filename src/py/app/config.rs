@@ -396,6 +396,16 @@ impl Config {
     }
 
     #[getter]
+    fn export_hud(&self) -> bool {
+        self.app.borrow().config.export_hud
+    }
+
+    #[setter]
+    fn set_export_hud(&mut self, v: bool) {
+        self.app.borrow_mut().config.export_hud = v;
+    }
+
+    #[getter]
     fn export_dir(&self) -> String {
         self.app.borrow().config.export_dir.clone()
     }

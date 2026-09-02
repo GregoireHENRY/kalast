@@ -252,6 +252,24 @@ until the queue drains (`src/app/gpu.rs`). Killing the process mid-run
 abandons whatever is outstanding and leaves as many truncated trailing files
 as there are save workers.
 
+### `export_hud: bool` — default `false` *(live)*
+Whether the HUD text (`sim.hud`) is burned into exported frames as well as
+drawn on screen.
+
+- `false` (default): exports carry the render alone. The on-screen HUD is
+  drawn onto the swapchain *after* the exporter has copied `render_texture`
+  (`src/app/window.rs`), so it cannot reach a frame.
+- `true`: an extra text pass draws the HUD into `render_texture` before that
+  copy, so exported PNGs show it too. The window is unchanged either way --
+  the text is simply drawn twice.
+
+Accepted: `True` / `False`.
+
+Leave it `false` for anything that is a data product: a GIS3D/TIRI frame set
+should be the render and nothing else. Turn it on for a screen-capture-style
+movie where the run state should be legible in the frames themselves. Costs
+one text pass, and only on frames that are actually exported.
+
 ### `export_max_queued: u32` — default `64` *(startup only)*
 Upper bound on frames that have been exported but not yet written, before
 `export_frame` blocks the render loop to let the encoders catch up. Enforced
