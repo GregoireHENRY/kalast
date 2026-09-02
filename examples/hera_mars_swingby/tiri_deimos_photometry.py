@@ -38,6 +38,7 @@ import pandas
 import spiceypy as spice
 
 import kalast
+import kalast.tiri_timing as tiri_timing
 import kalast.tpm.nonuniform as nonuniform
 import kalast.tpm.properties as properties
 import kalast.tpm.radiance as radiance
@@ -85,6 +86,8 @@ z = nonuniform.column(
 twodz = 2.0 * (z[1] - z[0])
 DT = DT_SAFETY * routine.nonuniform_max_dt(z, D)
 T = pandas.read_csv(Path(RESTART) / "tmp_state.csv").to_numpy()
+tiri_timing.ENABLED = True   # match the FITS product
+
 ET0 = spice.str2et("2025-03-12 12:00:00 UTC")     # the restart's own epoch
 OUT.mkdir(parents=True, exist_ok=True)
 
@@ -121,7 +124,9 @@ def sweep():
           f"{'F_real':>12}{'need':>8}")
     per = {}
     for lab, utc, f_real in EPOCHS:
-        et = spice.str2et(utc)
+        # Same empirical offset the FITS product uses, so the geometry the
+        # photometry is evaluated at matches the images being compared.
+        et = tiri_timing.apply(spice.str2et(utc))
         ob = numpy.asarray(spice.spkpos("HERA", et, body.frame, "none", "DEIMOS")[0])
         sb = numpy.asarray(spice.spkpos("SUN", et, body.frame, "none", "DEIMOS")[0])
         d_m = float(numpy.linalg.norm(ob)) * 1e3
