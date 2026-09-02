@@ -8,10 +8,10 @@ Answers three questions, in the order they have to be answered:
 2. **Is Mars where we say it is?** It is not rendered into the FITS, but its
    predicted disc is drawn over both panels so the limb can be checked.
 3. **Do the pixel values agree?** Only in structure. The observed frames are
-   **raw DN** (`BUNIT = DN`, 14-bit, dark not subtracted); the simulation is
-   band-integrated radiance in W m^-2 sr^-1. Without a radiometric calibration
-   the two cannot be compared absolutely, so what is shown is each frame on its
-   own robust scale, plus the ratio of Deimos's signal to the local background.
+   the JAXA/VITO/ROB calibrated radiances, in the same W m^-2 sr^-1 the
+   simulation carries, so they are compared on one shared scale. The header
+   still says `BUNIT = DN`, which it inherits from the raw product; the values
+   are radiance.
 """
 
 from pathlib import Path
@@ -29,8 +29,8 @@ import kalast
 
 KERNEL = "/Users/gregoireh/data/spice/hera/kernels/mk/hera_ops_local.tm"
 IMAGES = "/Users/gregoireh/data/hera/tiri/tiri_images_mars_swing-by_deimos.csv"
-REAL = Path("/Users/gregoireh/data/hera/parc_flight_her/tiri/data_raw/"
-            "mars_swing-by/20250312")
+REAL = Path("/Users/gregoireh/data/hera/tiri/JAXA-VITO-ROB radiances comparison/"
+            "Deimos radiances")
 SIM = Path("out/hera_mars_swingby/tiri_deimos_fits")
 OUT = Path("out/hera_mars_swingby/deimos_real_vs_sim.png")
 R_MARS = 3396.2
@@ -57,7 +57,7 @@ def project(v):
 rows = []
 for _, r in images.iterrows():
     et = float(r["et"])
-    real = REAL / r["image"].replace(".fit", ".fits")
+    real = REAL / r["image"].replace("tiri_raw_", "tiri_rad_")
     sim = SIM / (Path(r["image"]).stem + f"_sim_{ {'Filter a (7.8um)':'a','Filter b (8.6um)':'b','Filter c (9.6um)':'c','Filter d (10.6um)':'d','Filter e (11.6um)':'e','Filter f (13.0um)':'f','Filter g (wide)':'g'}[r['filter']] }.fits")
     if not real.exists() or not sim.exists():
         print(f"  missing: {real.name if not real.exists() else sim.name}")
@@ -69,6 +69,7 @@ n = len(rows)
 fig, axes = plt.subplots(n, 2, figsize=(9.5, 3.1 * n), facecolor="0.1")
 for k, (et, r, realp, simp) in enumerate(rows):
     dreal = fits.getdata(realp).astype(float)
+    dreal = numpy.where(numpy.isfinite(dreal), dreal, 0.0)
     dsim = fits.getdata(simp).astype(float)
     hsim = fits.getheader(simp)
 
@@ -79,13 +80,15 @@ for k, (et, r, realp, simp) in enumerate(rows):
     r_mars_px = numpy.degrees(numpy.arcsin(R_MARS / mn)) / tiri.fovy * NPY
 
     for j, (img, title, cmap) in enumerate((
-            (dreal, f"OBSERVED  {r['image']}\nraw DN", "gray"),
+            (dreal, f"OBSERVED  {realp.name}\ncalibrated radiance", "inferno"),
             (dsim, f"SIMULATED  {hsim['FW_NUM']}\nW m$^{{-2}}$ sr$^{{-1}}$", "inferno"))):
         ax = axes[k, j]
         finite = img[numpy.isfinite(img)]
-        lo, hi = numpy.percentile(finite, [1, 99.8]) if finite.size else (0, 1)
-        if hi <= lo:
-            hi = lo + 1
+        # One shared scale across both panels: the point is whether the values
+        # agree, which a per-panel stretch would hide.
+        lo, hi = 0.0, 26.0
+        if not finite.size:
+            hi = 1.0
         ax.imshow(img, cmap=cmap, vmin=lo, vmax=hi, origin="lower")
         # predicted positions, drawn on BOTH panels
         if xy_d:

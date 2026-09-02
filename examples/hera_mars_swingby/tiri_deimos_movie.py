@@ -19,12 +19,16 @@ self-shadowing. Compositing is the cheapest form of per-body frusta, and it is
 exact here because Mars is measured to be *behind* Deimos at every epoch, so
 the depth order never has to be resolved per pixel.
 
-**Mars carries no thermophysical model.** kalast does not model it, so its
-brightness is the instantaneous radiative-equilibrium temperature of a
-non-conducting surface, `T = T_ss cos(i)^(1/4)`, which is the standard
-zeroth-order approximation and is flagged as such. It is a placeholder for the
-radiative-transfer output that will replace it; what it gets right is where
-Mars is, how big, and roughly how the limb darkens.
+**Mars is geometry only.** kalast has no thermophysical model for it, so it
+appears in the diffuse panel -- where it is lit, how big, where the limb falls
+-- and **nowhere else**. The temperature and radiance panels are Deimos alone.
+
+An earlier version gave Mars a brightness temperature from
+`T = T_ss cos(i)^(1/4)` and carried it into both. That is a fabricated number
+dressed as a result: it would have put a Mars radiance in a product that cannot
+compute one, and a reader comparing against real data would have no way to know
+which pixels were modelled and which were invented. The radiative-transfer
+output will supply Mars when it exists.
 """
 
 import time
@@ -54,9 +58,6 @@ OUT = Path("out/hera_mars_swingby/tiri_deimos_movie")
 UTC0, UTC1 = "2025-03-12 11:50:00", "2025-03-12 12:12:00"
 N_FRAMES = 120
 R_MARS = 3396.2
-T_SS_MARS = 260.0     # subsolar equilibrium at 1.66 AU, Mars albedo ~0.25
-T_NIGHT_MARS = 150.0  # night-side floor; a placeholder, see mars_temperature
-MARS_EMIS = 0.95
 SCALE = 4             # render at 1/SCALE of the detector, for speed
 
 spice.kclear()
@@ -68,8 +69,6 @@ prop.compute_conductivity_diffusivity()
 D = prop.diffusivity
 bands = radiance.tiri_bands(RESPONSE, emissivity=prop.emissivity)
 band_g = bands["g"]
-mars_band = radiance.BandRadiance(band_g.wavelength, band_g.response,
-                                  emissivity=MARS_EMIS)
 
 z = nonuniform.column(
     properties.skin_depth_1(D, body.spin_period), m=4, n=5,
@@ -149,31 +148,14 @@ def before_render(sim, _dt):
     sim.hud = f"{i}/{N_FRAMES}  {'deimos' if state['phase']==0 else 'mars  '}"
 
 
-def mars_temperature(ids, offsets, et, pm):
-    """Instantaneous equilibrium, `T_ss cos(i)^1/4`. No TPM: see the docstring."""
-    # The facet-index buffer is one space across all loaded bodies:
-    # `1 + offsets[b] + facet`. Mars is body 1, so its ids start above
-    # Deimos's 5,040 and the offset has to come off before indexing.
+def mars_mask(ids, offsets):
+    """Which pixels Mars covers. Geometry only -- no temperature is assigned.
+
+    The facet-index buffer is one space across all loaded bodies,
+    `1 + offsets[b] + facet`, so Mars's ids start above Deimos's 5,040.
+    """
     lo = int(offsets[1])
-    filled = (ids > lo) & (ids <= lo + n_mars)
-    out = numpy.zeros(ids.shape)
-    if not filled.any():
-        return out, filled
-    f = numpy.where(filled, ids - 1 - lo, 0)
-    ps, _lt = spice.spkpos("SUN", et, tiri.frame, "none", "HERA")
-    # Sun direction from Mars's centre, in the camera frame; the sphere's
-    # normals are its own outward radials, unrotated.
-    u = numpy.asarray(ps) - numpy.asarray(pm)
-    u = u / numpy.linalg.norm(u)
-    cosi = numpy.clip(mars_normals[f[filled]] @ u, 0.0, None)
-    # Floored at the table's lower limit. `cos(i)^1/4` sends the terminator to
-    # a few kelvin, which is both unphysical -- a real atmosphere-bearing Mars
-    # has a night side near 150 K, not 8 K -- and outside the tabulated band
-    # range. The floor is a placeholder standing in for the night-side
-    # temperature the radiative-transfer model will supply.
-    out[filled] = numpy.maximum(
-        T_SS_MARS * numpy.power(numpy.maximum(cosi, 1e-6), 0.25), T_NIGHT_MARS)
-    return out, filled
+    return (ids > lo) & (ids <= lo + n_mars)
 
 
 def after_render(sim, _dt):
@@ -197,29 +179,27 @@ def after_render(sim, _dt):
         state["phase"] = 1
         return
 
-    pm, _lt = spice.spkpos("MARS", et, tiri.frame, "none", "HERA")
-    tmars, mfilled = mars_temperature(ids, offsets, et, pm)
+    mfilled = mars_mask(ids, offsets)
     tdeimos, dfilled = state["deimos"]
+    only_mars = mfilled & ~dfilled
 
-    # Composite: Deimos in front, Mars behind, space elsewhere. Exact here --
-    # Mars is measured to be farther than Deimos at every epoch.
-    tmap = numpy.where(dfilled, tdeimos, numpy.where(mfilled, tmars, 0.0))
+    # Temperature and radiance are Deimos only. Mars is not modelled, so it is
+    # left at zero in both rather than given an invented value.
+    tmap = numpy.where(dfilled, tdeimos, 0.0)
     rad = numpy.zeros(tmap.shape)
     rad[dfilled] = band_g(tdeimos[dfilled])
-    only_mars = mfilled & ~dfilled
-    rad[only_mars] = mars_band(tmars[only_mars])
 
     fig, axes = plt.subplots(1, 3, figsize=(13.5, 3.9), facecolor="0.1")
     for ax, img, title, cmap, vmax in (
-            (axes[0], (tmap > 0).astype(float) + 0.6 * (dfilled), "geometry",
-             "bone", 1.6),
-            (axes[1], tmap, "surface temperature [K]", "magma", 300.0),
-            (axes[2], rad, "TIRI wide-band radiance [W m$^{-2}$ sr$^{-1}$]",
+            (axes[0], 0.45 * only_mars + 1.0 * dfilled,
+             "diffuse geometry (Mars + Deimos)", "bone", 1.15),
+            (axes[1], tmap, "Deimos surface temperature [K]", "magma", 300.0),
+            (axes[2], rad, "Deimos TIRI wide-band radiance [W m$^{-2}$ sr$^{-1}$]",
              "inferno", 22.0)):
         im = ax.imshow(img, cmap=cmap, vmin=0, vmax=vmax, origin="lower")
         ax.set_title(title, color="w", fontsize=9)
         ax.set_xticks([]); ax.set_yticks([])
-        if title != "geometry":
+        if not title.startswith("diffuse"):
             cb = fig.colorbar(im, ax=ax, fraction=0.03)
             cb.ax.tick_params(colors="w", labelsize=7)
     d = numpy.linalg.norm(spice.spkpos("DEIMOS", et, tiri.frame, "none", "HERA")[0])
