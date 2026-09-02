@@ -25,6 +25,7 @@ import spiceypy as spice
 from astropy.io import fits
 
 import kalast
+import kalast.tiri_alignment as tiri_align
 import kalast.tpm.nonuniform as nonuniform
 import kalast.tpm.properties as properties
 import kalast.tpm.radiance as radiance
@@ -39,6 +40,11 @@ RESTART = "out/hera_mars_swingby/deimos_tpm"
 OBS = Path("/Users/gregoireh/data/hera/tiri/JAXA-VITO-ROB radiances comparison/"
            "Deimos radiances/tiri_rad_20250312_120836_31_0.fit")
 OUT = Path("out/hera_mars_swingby/frame_120836")
+# An empirical correction for the 0.73 deg by which Deimos misses its predicted
+# position. **Off by default**, and it should stay off until the cause is known:
+# switching it on assumes this renderer is right and the kernels are wrong,
+# which is the wrong way round to assume. See kalast/tiri_alignment.py.
+ALIGN = False
 R_MARS = 3396.2
 PREROLL_ROT, DT_FINE = 2.0, 10.0
 
@@ -94,10 +100,15 @@ st = {"i": 0, "phase": 0, "deimos": None}
 OUT.mkdir(parents=True, exist_ok=True)
 
 
+def _at(target, et):
+    p, _ = spice.spkpos(target, et, tiri.frame, "none", "HERA")
+    return tiri_align.apply(p) if ALIGN else numpy.asarray(p)
+
+
 def place(sim, et, phase):
-    pd_, _ = spice.spkpos("DEIMOS", et, tiri.frame, "none", "HERA")
-    pm, _ = spice.spkpos("MARS", et, tiri.frame, "none", "HERA")
-    ps, _ = spice.spkpos("SUN", et, tiri.frame, "none", "HERA")
+    pd_ = _at("DEIMOS", et)
+    pm = _at("MARS", et)
+    ps = _at("SUN", et)
     u = numpy.asarray(ps) / numpy.linalg.norm(ps)
     if phase == 0:
         sim.bodies[0].mat[:3, :3] = spice.pxform(body.frame, tiri.frame, et)
@@ -153,8 +164,8 @@ def after_render(sim, _dt):
         lo = int(offs[1])
         mf = (ids > lo) & (ids <= lo + n_mars)
         tm, df = st["deimos"]
-        pm, _ = spice.spkpos("MARS", ET, tiri.frame, "none", "HERA")
-        ps, _ = spice.spkpos("SUN", ET, tiri.frame, "none", "HERA")
+        pm = _at("MARS", ET)
+        ps = _at("SUN", ET)
         us = numpy.asarray(ps) - numpy.asarray(pm)
         us /= numpy.linalg.norm(us)
         diffuse = numpy.zeros(ids.shape)
@@ -165,9 +176,9 @@ def after_render(sim, _dt):
         rad[df] = g(tm[df])
 
         fits.PrimaryHDU(rad.astype(numpy.float32)).writeto(
-            OUT / "kalast_radiance.fits", overwrite=True)
+            OUT / ("kalast_radiance.fits" if ALIGN else "kalast_radiance_uncorrected.fits"), overwrite=True)
         fits.PrimaryHDU(diffuse.astype(numpy.float32)).writeto(
-            OUT / "kalast_mars_diffuse.fits", overwrite=True)
+            OUT / ("kalast_mars_diffuse.fits" if ALIGN else "kalast_mars_diffuse_uncorrected.fits"), overwrite=True)
         obs = numpy.where(numpy.isfinite(fits.getdata(OBS)), fits.getdata(OBS), 0.0)
 
         fig, ax = plt.subplots(1, 3, figsize=(16.5, 4.4), facecolor="0.1")
@@ -182,7 +193,7 @@ def after_render(sim, _dt):
         fig.suptitle("2025-03-12T12:08:36  filter g  Deimos 977 km, crossing Mars",
                      color="w", fontsize=12)
         fig.tight_layout(rect=[0, 0, 1, 0.94])
-        fig.savefig(OUT / "three_way.png", dpi=110, facecolor="0.1")
+        fig.savefig(OUT / ("three_way.png" if ALIGN else "three_way_uncorrected.png"), dpi=110, facecolor="0.1")
         print(f"  Deimos {int(df.sum()):,} px, Mars {int((mf & ~df).sum()):,} px")
         print(f"  wrote {OUT}/")
         sys.stdout.flush()
