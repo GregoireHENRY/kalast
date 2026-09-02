@@ -4,6 +4,47 @@ Work laptop to home PC. Companion to `2026-09-02_HANDOFF.md`, which covers the
 Didymos phase 2 work from the desktop; this one is only the Mars/Deimos TIRI
 thread. They are separate subjects and neither supersedes the other.
 
+## Getting the files
+
+`out/` is gitignored, so none of the outputs travel with the repo. They are on
+the ROB share at **cloud-as.oma.be**, uploaded 2026-09-02 (the edit-mode link
+is deliberately not written here -- it grants write access to the team folder
+and this repo is public; use your own copy of the link).
+
+    hera_mars_swingby/                    <- new, all of today's Deimos work
+      README.md                              what is in the bundle
+      DELIVERY_2026-09-02.md                 the delivery note, read first
+      2026-09-02_HANDOFF_tiri_deimos.md      this note
+      tiri_deimos_fits/                      17 simulated radiance FITS
+      tiri_deimos_png/                       17 composites, Deimos over Mars diffuse
+      deimos_real_vs_sim.png                 observed vs simulated, all 17
+      deimos_swingby.mp4                     context, 11:50-12:12 UTC
+      deimos_axis_flip_diagnosis.png         the 180 deg evidence
+      mars_landmark_orientation_test.png     the lat/lon reprojection test
+      geometry_validated_115603.png          render vs real, 1.8 px
+      photometry/roughness_sweep.csv         flux vs coverage and opening angle
+
+    hera_didymos/                         <- three run directories added
+      didymos_tpm_3orbit_v2/
+      dimorphos_tpm_v2/
+      phase2_mutual_heat_mutual/
+
+**Deliberately not uploaded:** `hera_didymos/tiri_fits/` and `tiri_movie/`, the
+GIS3D product. The local copies are from 31 August, before the 180 deg detector
+fault was found, and `examples/hera_didymos/tiri_fits.py` builds the camera a
+different way again (`dir = m @ [0,0,1]`, `up = m @ [1,0,0]`) that has never
+been validated against data -- and cannot be yet, since there are no real TIRI
+Didymos frames. The share still holds whatever colleagues had before; nothing
+was overwritten. **Check that convention before regenerating or circulating
+the GIS3D product.**
+
+Also not in the bundle: the TPM restart at `out/hera_mars_swingby/deimos_tpm/`.
+It is a spin-up product, not a deliverable -- re-run `tpm_deimos.py` to rebuild
+it. Note it carries **no self-shadowing**; see the photometry section.
+
+Superseded outputs with the wrong orientation stayed on the laptop, suffixed
+`_SUPERSEDED_wrong_geometry`. They were not uploaded anywhere.
+
 ## Where things stand in one line
 
 Two real geometry faults were found and fixed. A **third, unresolved defect**
