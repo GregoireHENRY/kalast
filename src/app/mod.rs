@@ -227,7 +227,19 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 self.dt = (now - self.now).as_secs_f64() as _;
                 self.now = now;
 
-                Self::run_callback(&self.before_render, &self.simulation, self.dt);
+                // Pause has to gate the callbacks, not just the iteration
+                // counter. Every Python-driven run puts its physics in
+                // `before_render`/`after_render`, so gating only
+                // `Simulation::update` -- which does nothing but increment
+                // `state.iteration` -- left P with no effect on any of them.
+                // The frame itself still runs and still presents, so the
+                // window keeps drawing the paused scene and stays responsive
+                // to input; only the simulation stops advancing.
+                let paused = self.simulation.borrow().state.is_paused;
+
+                if !paused {
+                    Self::run_callback(&self.before_render, &self.simulation, self.dt);
+                }
 
                 {
                     let mut sim = self.simulation.borrow_mut();
@@ -298,7 +310,9 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
 
                 // Outside the borrow above: the callback takes the
                 // Simulation itself, so it cannot run while it is held.
-                Self::run_callback(&self.after_render, &self.simulation, self.dt);
+                if !paused {
+                    Self::run_callback(&self.after_render, &self.simulation, self.dt);
+                }
 
                 // Advance only now that both callbacks have run, so they
                 // agree on which frame they are in -- a loop deriving an
