@@ -71,7 +71,22 @@ own projection formula, not our simulation disagreeing with reality.** Proof
 below — it is measured entirely on simulated images, with no observation
 involved.
 
-## THE BUG (start here)
+## THE BUG (start here) -- RESOLVED 2026-09-03
+
+**Solved. See `notes/2026-09-03_tiri_timing/`.** It was the capture-time
+hypothesis below, confirmed quantitatively: the capture landed on the grid step
+*at or before* each image epoch, and predicting the displacement from that
+offset alone matches the measured silhouette centre to better than 0.7 px at
+every epoch. Fixed by inserting the image epochs into the stepping grid.
+
+Note the four distant frames were not evidence of anything -- their epochs are
+exact multiples of DT_FINE, so their offset was zero by luck.
+
+With it fixed, a **larger residual survives**: a ~24.9 s timing offset, which
+is the retracted "+20.7 s" below. It is real, it is not a pointing error, and
+it is now the open question. Original text follows.
+
+## THE BUG, as originally written
 
 The rendered body is **translated** relative to where its own mesh and pose put
 it, by an amount that grows as range falls. Measured by projecting the actual
@@ -269,10 +284,11 @@ constrain roughness. Needs a larger-phase dataset.
 - The 0.73 deg "boresight misalignment" in the old `tiri_alignment.py`. It was
   fitting the residual of the 180 deg flip. The tell: the apparent offset grew
   from 0.66 to 1.05 deg as Mars closed in, which no rigid rotation can do.
-- A "+20.7 s timestamp offset". It fits the X residual across a 100x range of
-  image-plane rate, which is genuinely striking, **but it is computed from the
-  positions the render bug corrupts.** Re-derive only after the bug is fixed;
-  if the residual survives, it becomes interesting again.
+- ~~A "+20.7 s timestamp offset".~~ **Un-retracted 2026-09-03.** Re-derived
+  after the render bug was fixed, exactly as this entry asked: the residual
+  survives at -24.89 +/- 0.86 s and is now the dominant error. A constant
+  pointing offset cannot reproduce it (77 px rms against 7 px for timing).
+  See `notes/2026-09-03_tiri_timing/`.
 - A "43% radiance gap" — that was rendered-pixel undersampling, not physics.
   True gap is 5-12%.
 

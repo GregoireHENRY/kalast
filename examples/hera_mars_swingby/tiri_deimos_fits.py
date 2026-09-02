@@ -71,8 +71,11 @@ OUT = Path("out/hera_mars_swingby/tiri_deimos_fits")
 
 PREROLL_ROTATIONS = 2.0   # of thermal history with self-shadowing before the run
 DT_COARSE_SAFETY = 0.4    # of the stability limit, for the pre-roll
-DT_FINE = 10.0            # s, through the image sequence; worst capture offset
-                          # is half of it, and Deimos turns 0.017 deg in that.
+DT_FINE = 10.0            # s, the background grid through the image sequence.
+                          # Image epochs are inserted into it exactly, so this
+                          # no longer sets any capture offset -- it only sets
+                          # how finely the thermal history is marched between
+                          # images.
 
 R_MARS, R_PHOBOS = 3396.2, 11.1   # km
 
@@ -143,25 +146,55 @@ if fp_file.exists() and fp_file.read_text().strip() != fp:
 positions = numpy.array([mesh.facets[k].pos for k in range(nface)]) * 1e3
 normals = numpy.array([mesh.facets[k].normal for k in range(nface)])
 areas = numpy.array([mesh.facets[k].area for k in range(nface)])
-coefs = tuple(numpy.asarray(c, numpy.float64)
-              for c in routine.nonuniform_coefficients(z, dt_coarse))
-coefs_fine = tuple(numpy.asarray(c, numpy.float64)
-                   for c in routine.nonuniform_coefficients(z, DT_FINE))
+# Conduction coefficients depend on the timestep, and the fine phase no longer
+# has a single one: inserting the image epochs into the grid makes some steps
+# shorter than DT_FINE. Cached per distinct dt -- there are only a handful, and
+# building one for ~30 nodes is trivial. Reusing the DT_FINE coefficients for a
+# 3 s step would advance the column as though 10 s had passed.
+_coef_cache = {}
+
+
+def coefs_for(dt):
+    key = round(float(dt), 6)
+    c = _coef_cache.get(key)
+    if c is None:
+        c = tuple(numpy.asarray(x, numpy.float64)
+                  for x in routine.nonuniform_coefficients(z, key))
+        _coef_cache[key] = c
+    return c
 d_nodes = numpy.full(z.size, D)
 
 et_preroll = et_first - PREROLL_ROTATIONS * body.spin_period
 n_coarse = int(numpy.ceil((et_first - et_preroll) / dt_coarse))
-n_fine = int(numpy.ceil((et_last - et_first) / DT_FINE)) + 2
+
+# Every image epoch is a step, exactly.
+#
+# Capturing on the grid step at or before each image epoch put the render up
+# to DT_FINE early. That is invisible far out and ruinous close in: near
+# closest approach Deimos crosses the field at ~20 px/s, so the 3-7 s offsets
+# the grid happened to give displaced the body by up to 92 px, growing as the
+# range fell. It was the whole of the "close-range displacement" -- predicting
+# the shift from the offset alone matches the measured silhouette centre to
+# better than 0.7 px at every epoch.
+#
+# The tell was that the four distant frames were pixel-perfect: their epochs
+# are exact multiples of DT_FINE from the first, so they had no offset at all.
+_grid = et_first + numpy.arange(
+    int(numpy.ceil((et_last - et_first) / DT_FINE)) + 2) * DT_FINE
+fine_epochs = numpy.unique(numpy.concatenate([_grid, et_images]))
+n_fine = fine_epochs.size
 print(f"  pre-roll {n_coarse:,} steps at {dt_coarse:.0f}s, then "
-      f"{n_fine:,} at {DT_FINE:.0f}s through the sequence\n")
+      f"{n_fine:,} through the sequence "
+      f"({_grid.size:,} on a {DT_FINE:.0f}s grid, plus the image epochs)\n")
 
 state = {"i": 0, "captured": 0, "pending": None}
 OUT.mkdir(parents=True, exist_ok=True)
 
 
 def epoch_of(i):
-    return (et_preroll + i * dt_coarse if i < n_coarse
-            else et_first + (i - n_coarse) * DT_FINE)
+    if i < n_coarse:
+        return et_preroll + i * dt_coarse
+    return float(fine_epochs[min(i - n_coarse, n_fine - 1)])
 
 
 def before_render(sim, _dt):
@@ -201,17 +234,18 @@ def before_render(sim, _dt):
 
     sim.hud = f"{i}/{n_coarse + n_fine} it  captured {state['captured']}/{len(images)}"
 
-    # Capture on the step nearest each image epoch.
+    # Capture only on a step that *is* an image epoch, since every image epoch
+    # is now in the grid. Matching on equality rather than on an interval is
+    # the point: the interval form silently rendered the previous grid step.
     if i >= n_coarse:
-        nxt = epoch_of(i + 1)
-        hit = numpy.where((et_images >= et) & (et_images < nxt))[0]
+        hit = numpy.where(numpy.abs(et_images - et) < 1e-6)[0]
         if hit.size:
             state["pending"] = hit
             sim.request_facet_id()
 
 
-def step_tpm(sim, et, fine):
-    """One TPM step with self-shadowing from this frame's shadow map."""
+def step_tpm(sim, et, dt_step):
+    """One TPM step of `dt_step` seconds, self-shadowed by this frame's map."""
     ps, _lt = spice.spkpos("SUN", et, body.frame, "none", "DEIMOS")
     ps = numpy.asarray(ps) * 1e3
     v = ps[None, :] - positions
@@ -224,7 +258,7 @@ def step_tpm(sim, et, fine):
     flux = SOLAR_CONSTANT * (1.0 - prop.albedo) * cosi * lit / (d_sun / AU) ** 2
     routine.step_surface_newton(T, flux, prop.se, prop.conductivity, twodz,
                                 threshold=kalast.util.NEWTON_METHOD_THRESHOLD)
-    routine.step_conduction(T, d_nodes, coefs_fine if fine else coefs)
+    routine.step_conduction(T, d_nodes, coefs_for(dt_step))
     return int(((lit < 1.0) & (cosi > 0)).sum())
 
 
@@ -340,7 +374,8 @@ def after_render(sim, _dt):
                       f"  T {t.min():5.1f}-{t.max():5.1f} K", flush=True)
         state["pending"] = None
 
-    step_tpm(sim, et, fine=i >= n_coarse)
+    # The step actually about to be taken, which in the fine phase varies.
+    step_tpm(sim, et, epoch_of(i + 1) - et if i >= n_coarse else dt_coarse)
     state["i"] += 1
 
     if state["i"] > n_coarse + n_fine:

@@ -10,17 +10,18 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
 dependencies = [
+	"astropy>=8.0.1",
 	"matplotlib>=3.10",
-    "numpy>=2.5",
-    "pandas>=3",
-    "pyarrow>=24",
-    # Shape-model decimation. The decimated Didymos-system meshes shipped with
-    # this project were cut with MeshLab defaults, which allow face flipping
-    # (`preservenormal` is off by default) -- see examples/mesh/decimate.py.
-    "pymeshlab>=2025.7",
-    "scipy>=1.16",
-    "spiceypy>=8",
-    "symfit>=0.5",
+	"numpy>=2.5",
+	"pandas>=3",
+	"pyarrow>=24",
+	# Shape-model decimation. The decimated Didymos-system meshes shipped with
+	# this project were cut with MeshLab defaults, which allow face flipping
+	# (`preservenormal` is off by default) -- see examples/mesh/decimate.py.
+	"pymeshlab>=2025.7",
+	"scipy>=1.16",
+	"spiceypy>=8",
+	"symfit>=0.5",
 ]
 
 [dependency-groups]
