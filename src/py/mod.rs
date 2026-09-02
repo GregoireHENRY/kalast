@@ -173,6 +173,8 @@ fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     let rough = PyModule::new(tpm.py(), "roughness")?;
     rough.add_class::<tpm::roughness::Crater>()?;
+    pyadd_f!(rough, tpm::roughness::rms_slope_deg);
+    pyadd_f!(rough, tpm::roughness::coverage_for_rms_slope_deg);
     tpm.add_submodule(&rough)?;
     py.import("sys")?
         .getattr("modules")?

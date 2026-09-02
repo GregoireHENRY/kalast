@@ -104,3 +104,19 @@ impl Crater {
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
     }
 }
+
+/// RMS slope (deg) of a surface of spherical caps, from coverage and the
+/// crater **opening** angle (deg; 180 is a hemisphere).
+#[pyo3::pyfunction]
+#[pyo3(signature = (coverage, opening_deg))]
+pub fn rms_slope_deg(coverage: f64, opening_deg: f64) -> f64 {
+    crate::tpm::roughness::rms_slope_from_opening(coverage, opening_deg.to_radians()).to_degrees()
+}
+
+/// Coverage needed for a given RMS slope (deg) at a crater opening angle
+/// (deg). `None` when that slope is out of reach at any coverage.
+#[pyo3::pyfunction]
+#[pyo3(signature = (rms_deg, opening_deg))]
+pub fn coverage_for_rms_slope_deg(rms_deg: f64, opening_deg: f64) -> Option<f64> {
+    crate::tpm::roughness::coverage_for_rms_slope(rms_deg.to_radians(), opening_deg.to_radians())
+}

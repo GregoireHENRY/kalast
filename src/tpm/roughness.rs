@@ -242,18 +242,109 @@ impl Crater {
         }
         let r = (self.density * crater + (1.0 - self.density) * flat) / flat;
         // Non-finite or zero means the geometry fell outside what the model
-        // covers, and 1 -- no correction -- is the safe value. That guard
-        // stays.
+        // covers, and 1 -- no correction -- is the safe value.
         //
-        // **The cap at 10 does not.** `observer.m` clamped there on the view
-        // that such values were unphysical. They are not: as emission
-        // approaches grazing the flat reference falls as `cos(e)` while the
-        // crater walls still face the detector, so the *ratio* diverges
-        // honestly. What matters is that the product it multiplies stays
-        // finite, and it does -- `R * flat` tends to the crater flux, which is
-        // bounded. Clamping truncated real signal near the limb and hid the
-        // divergence instead of showing it.
+        // **The ratio is returned uncapped, and the caller must bound it.**
+        // As emission approaches grazing the flat reference falls as `cos(e)`
+        // while the crater walls still face the detector, so `R` diverges: 1.13
+        // at 89 degrees, 142 at 89.999, 1.4e4 at 89.99999.
+        //
+        // Whether that divergence is benign depends entirely on what it
+        // multiplies, and it is easy to get wrong. Against a *flux* it is
+        // harmless -- `R * flat` converges to `density*crater +
+        // (1-density)*flat`, exactly, because the vanishing `cos(e)` cancels.
+        // Against a *radiance*, which is what a rendered pixel carries since
+        // the projected area is already handled by which pixels a facet
+        // covers, it does **not** cancel and the correction runs away. Applied
+        // per pixel with no bound it took a Deimos disc average from 14 to
+        // 63 W/m2/sr, a factor of three past the observation.
+        //
+        // The model is simply not valid there: it assumes the projected area
+        // is `cos(e) A`, while a rough facet at grazing presents walls whose
+        // projected area does not vanish. The ROB sphere maps thresholded
+        // emission at 75 and 85 degrees for this reason. Use
+        // `Crater::valid_emission` and fall back to 1 beyond it.
         let r = if !r.is_finite() || r == 0.0 { 1.0 } else { r };
         (r, crater, flat)
     }
+
+    /// Whether the correction can be trusted at this emission angle.
+    ///
+    /// The default bound is 75 degrees, the tighter of the two the ROB maps
+    /// used. Beyond it the flat reference is small enough that the ratio is
+    /// dominated by its own vanishing denominator rather than by the crater.
+    /// Deimos's disc-averaged radiance moved by a factor of three between a
+    /// 75 and an 85 degree bound, so this is not a detail.
+    pub fn valid_emission(det: f64, max_emission: f64) -> bool {
+        det < max_emission
+    }
+}
+
+
+/// RMS slope of a surface covered by spherical-cap craters, radians.
+///
+/// Davidsson's relation, transcribed from the ROB roughness spreadsheet:
+///
+/// ```text
+/// s = sqrt( f/2 * ( g^2 - (g cos g - sin g)^2 / sin^2 g ) )
+/// ```
+///
+/// with `f` the fraction covered and `g` the **largest slope angle** of the
+/// cap. RMS slope is what the literature quotes for a surface; crater density
+/// and opening angle are what the model takes, so this is the bridge.
+///
+/// **Mind which angle.** `g` here is the slope angle, 90 degrees for a
+/// hemisphere. `Crater::gamma` is the *opening* angle, 180 degrees for the
+/// same hemisphere. They differ by a factor of two and nothing catches it if
+/// they are swapped -- use `rms_slope_from_opening` rather than passing
+/// `Crater::gamma` in here.
+pub fn rms_slope(coverage: f64, slope_angle: f64) -> f64 {
+    let g = slope_angle;
+    if g <= 0.0 || coverage <= 0.0 {
+        return 0.0;
+    }
+    let sg = g.sin();
+    if sg == 0.0 {
+        return 0.0;
+    }
+    let term = g * g - (g * g.cos() - sg).powi(2) / (sg * sg);
+    (coverage / 2.0 * term.max(0.0)).sqrt()
+}
+
+/// As `rms_slope`, taking the crater *opening* angle the model uses.
+pub fn rms_slope_from_opening(coverage: f64, opening_angle: f64) -> f64 {
+    rms_slope(coverage, opening_angle / 2.0)
+}
+
+/// The coverage giving a required RMS slope at a fixed opening angle.
+///
+/// Inverts `rms_slope`, which is linear in `coverage` under the square root.
+/// Returns `None` when the opening angle cannot reach that slope at any
+/// coverage -- the relation caps at `coverage = 1`.
+pub fn coverage_for_rms_slope(rms: f64, opening_angle: f64) -> Option<f64> {
+    let g = opening_angle / 2.0;
+    if g <= 0.0 {
+        return None;
+    }
+    let sg = g.sin();
+    if sg == 0.0 {
+        return None;
+    }
+    let term = g * g - (g * g.cos() - sg).powi(2) / (sg * sg);
+    if term <= 0.0 {
+        return None;
+    }
+    let f = 2.0 * rms * rms / term;
+    (f <= 1.0).then_some(f)
+}
+
+/// Crater curvature parameter `S` from the slope angle, and its inverse.
+///
+/// `S = (1 - cos g) / 2`, so `g = acos(1 - 2 S)`. `S = 0.5` is a hemisphere.
+pub fn curvature_from_slope_angle(slope_angle: f64) -> f64 {
+    (1.0 - slope_angle.cos()) / 2.0
+}
+
+pub fn slope_angle_from_curvature(s: f64) -> f64 {
+    (1.0 - 2.0 * s).clamp(-1.0, 1.0).acos()
 }
