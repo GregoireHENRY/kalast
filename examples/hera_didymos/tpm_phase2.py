@@ -683,6 +683,15 @@ def _checkpoint(it, et):
 def before_render(sim, dt_frame):
     """Place the scene for this step, and keep the view-factor build fed."""
     if step["n"] > n_steps:
+        # Past the last step there is no scene to place, but an in-flight
+        # rebuild still has to be fed or the run cannot end: `after_render`
+        # returns early while `vf.busy`, and the builder only advances when
+        # this callback calls `request`. Returning unconditionally here
+        # deadlocked the two against each other, spinning at full CPU
+        # forever instead of reaching save(). The guard below stops a
+        # rebuild being started this late, so this is now belt and braces.
+        if HEATING_ON and vf.busy:
+            vf.request(sim)
         return
     et = placement_epoch()
 
@@ -930,8 +939,12 @@ def after_render(sim, dt_frame):
     # A periodic rebuild picks the companion up where it has moved to. The
     # self block is fixed in the body frame and is rebuilt with it only
     # because one hemicube pass produces both.
+    # `step["n"] <= n_steps` matters: without it the increment past the last
+    # step lands on a multiple of VF_EVERY whenever n_steps + 1 does (1,310
+    # here), starting a rebuild whose rows nothing will ever read, and which
+    # the end-of-run path then waits on forever.
     if (table is None and HEATING == "mutual" and VF_EVERY
-            and step["n"] % VF_EVERY == 0):
+            and step["n"] <= n_steps and step["n"] % VF_EVERY == 0):
         vf.start()
 
 
