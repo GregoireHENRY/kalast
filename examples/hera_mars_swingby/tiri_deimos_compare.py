@@ -51,7 +51,13 @@ def project(v):
     th = numpy.tan(fovy / 2.0)
     x = v[0] / v[2] / (th * NPX / NPY)
     y = v[1] / v[2] / th
-    return (0.5 * (1.0 + x) * NPX, 0.5 * (1.0 - y) * NPY)
+    # No Y inversion. The images are shown with `origin="lower"`, so row 0 is
+    # the bottom and +Y in the TIRI frame maps to increasing row. Inverting
+    # here as well flipped every overlay about the horizontal axis -- barely
+    # visible on Deimos near the boresight (8 px) and glaring on Mars, which
+    # sits far off-axis. Checked against the rendered body: the simulated
+    # centroid lands 0.3 px from this prediction, against 7.7 px inverted.
+    return (0.5 * (1.0 + x) * NPX, 0.5 * (1.0 + y) * NPY)
 
 
 rows = []

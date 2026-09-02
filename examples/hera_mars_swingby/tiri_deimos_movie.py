@@ -180,26 +180,40 @@ def after_render(sim, _dt):
         return
 
     mfilled = mars_mask(ids, offsets)
+    # Real diffuse shading, not a flat mask: Lambert cos(i) on the sphere's own
+    # outward normals, which is what "diffuse lighting for Mars" means and what
+    # makes the limb and terminator legible.
+    diffuse = numpy.zeros(ids.shape)
+    if mfilled.any():
+        lo = int(offsets[1])
+        fm = numpy.where(mfilled, ids - 1 - lo, 0)
+        pmm, _l = spice.spkpos("MARS", et, tiri.frame, "none", "HERA")
+        pss, _l = spice.spkpos("SUN", et, tiri.frame, "none", "HERA")
+        us = numpy.asarray(pss) - numpy.asarray(pmm)
+        us = us / numpy.linalg.norm(us)
+        diffuse[mfilled] = numpy.clip(mars_normals[fm[mfilled]] @ us, 0.0, None)
     tdeimos, dfilled = state["deimos"]
     only_mars = mfilled & ~dfilled
 
     # Temperature and radiance are Deimos only. Mars is not modelled, so it is
     # left at zero in both rather than given an invented value.
     tmap = numpy.where(dfilled, tdeimos, 0.0)
+    # Deimos drawn flat white over Mars in the diffuse panel: it is 6 km at
+    # 1,000 km, and shading it would make it invisible beside a 3,396 km disc.
+    diffuse[dfilled] = 1.0
     rad = numpy.zeros(tmap.shape)
     rad[dfilled] = band_g(tdeimos[dfilled])
 
     fig, axes = plt.subplots(1, 3, figsize=(13.5, 3.9), facecolor="0.1")
     for ax, img, title, cmap, vmax in (
-            (axes[0], 0.45 * only_mars + 1.0 * dfilled,
-             "diffuse geometry (Mars + Deimos)", "bone", 1.15),
-            (axes[1], tmap, "Deimos surface temperature [K]", "magma", 300.0),
+            (axes[0], diffuse, "diffuse lighting (Mars + Deimos)", "gray", 1.0),
+            (axes[1], tmap, "Deimos surface temperature [K]", "inferno", 300.0),
             (axes[2], rad, "Deimos TIRI wide-band radiance [W m$^{-2}$ sr$^{-1}$]",
              "inferno", 22.0)):
         im = ax.imshow(img, cmap=cmap, vmin=0, vmax=vmax, origin="lower")
         ax.set_title(title, color="w", fontsize=9)
         ax.set_xticks([]); ax.set_yticks([])
-        if not title.startswith("diffuse"):
+        if not title.startswith("diffuse lighting"):
             cb = fig.colorbar(im, ax=ax, fraction=0.03)
             cb.ax.tick_params(colors="w", labelsize=7)
     d = numpy.linalg.norm(spice.spkpos("DEIMOS", et, tiri.frame, "none", "HERA")[0])
