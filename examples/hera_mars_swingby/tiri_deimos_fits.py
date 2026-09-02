@@ -55,6 +55,12 @@ from astropy.io import fits
 
 import kalast
 import kalast.tiri_alignment as tiri_align  # 0.60 deg alignment the FK lacks
+import kalast.tiri_timing as tiri_timing    # empirical -24.89 s, see the module
+
+# On for this product: without it Deimos lands up to 352 px from the observed
+# position. Empirical and unexplained -- read kalast/tiri_timing.py before
+# circulating anything built with it. Recorded per image as TIMEOFFS.
+tiri_timing.ENABLED = True
 import kalast.tpm.nonuniform as nonuniform
 import kalast.tpm.properties as properties
 import kalast.tpm.radiance as radiance
@@ -201,7 +207,12 @@ def before_render(sim, _dt):
     i = state["i"]
     if i > n_coarse + n_fine:
         return
-    et = epoch_of(i)
+    # Two epochs, deliberately distinct. `et_label` is the image's own epoch and
+    # is what the capture below matches and what the header records; `et` is
+    # where the geometry is evaluated, which the empirical offset shifts.
+    # Collapsing them stops every capture matching.
+    et_label = epoch_of(i)
+    et = tiri_timing.apply(et_label)
 
     # Deimos at the origin in its own frame; the camera is TIRI, so the body
     # is placed by the TIRI-relative position and the IAU_DEIMOS orientation.
@@ -238,7 +249,7 @@ def before_render(sim, _dt):
     # is now in the grid. Matching on equality rather than on an interval is
     # the point: the interval form silently rendered the previous grid step.
     if i >= n_coarse:
-        hit = numpy.where(numpy.abs(et_images - et) < 1e-6)[0]
+        hit = numpy.where(numpy.abs(et_images - et_label) < 1e-6)[0]
         if hit.size:
             state["pending"] = hit
             sim.request_facet_id()
@@ -339,6 +350,8 @@ def write_image(row, et, ids, offsets):
     h["MUTHEAT"] = (False, "mutual heating NOT modelled")
     h["ROUGHNES"] = (False, "thermal roughness NOT modelled")
     h["DETROT"] = (180, "[deg] detector orientation vs a naive +X-right frame")
+    h["TIMEOFFS"] = (round(float(tiri_timing.OFFSET_S), 2) if tiri_timing.ENABLED else 0.0,
+                     "[s] empirical epoch offset applied to the geometry")
     h["ALIGNDEG"] = (round(float(tiri_align.ANGLE_DEG), 4),
                      "[deg] TIRI alignment applied; FK carries none")
     h["ALIGNAX"] = (str([round(a, 6) for a in tiri_align.AXIS]),
