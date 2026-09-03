@@ -1,0 +1,29 @@
+{
+   "version": "1.0",
+   "name": "HERA AFC-1 field of view at Mars",
+   "items": [
+      {
+         "class": "sensor",
+         "name": "HERA_AFC-1-SENSOR",
+         "parent": "HERA",
+         "center": "HERA_AFC-1",
+         "trajectoryFrame": {
+            "type": "BodyFixed",
+            "body": "HERA"
+         },
+         "geometry": {
+            "type": "Spice",
+            "instrName": "HERA_AFC-1",
+            "rangeTracking": true,
+            "target": "Mars",
+            "range": 100000,
+            "frustumColor": [ 0.2, 1.0, 0.4 ],
+            "frustumOpacity": 0.12,
+            "gridOpacity": 0.35,
+            "footprintOpacity": 0.8,
+            "sideDivisions": 125,
+            "onlyVisibleDuringObs": false
+         }
+      }
+   ]
+}

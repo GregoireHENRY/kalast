@@ -1,0 +1,29 @@
+{
+   "version": "1.0",
+   "name": "HERA TIRI field of view at Mars",
+   "items": [
+      {
+         "class": "sensor",
+         "name": "HERA_TIRI-SENSOR",
+         "parent": "HERA",
+         "center": "HERA_TIRI",
+         "trajectoryFrame": {
+            "type": "BodyFixed",
+            "body": "HERA"
+         },
+         "geometry": {
+            "type": "Spice",
+            "instrName": "HERA_TIRI",
+            "rangeTracking": true,
+            "target": "Mars",
+            "range": 100000,
+            "frustumColor": [ 1.0, 0.55, 0.15 ],
+            "frustumOpacity": 0.12,
+            "gridOpacity": 0.35,
+            "footprintOpacity": 0.8,
+            "sideDivisions": 125,
+            "onlyVisibleDuringObs": false
+         }
+      }
+   ]
+}
