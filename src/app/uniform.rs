@@ -57,12 +57,40 @@ pub struct Camera {
     pub view_proj: Mat4,
 }
 
+/// Most shadow maps the renderer will fit at once, one per body.
+///
+/// Fixed because it sizes a uniform array, and a uniform cannot be resized
+/// per frame. Scenes with more bodies than this fall back to sharing the last
+/// layer, which is degraded rather than wrong.
+pub const MAX_SHADOW_LAYERS: usize = 8;
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Default, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Light {
+    /// The layer currently being rendered *into*. Rewritten before each
+    /// shadow pass, and read by `shadow.wgsl`, which draws one layer at a
+    /// time and so needs a single matrix rather than the array.
     pub view_proj: Mat4,
+
+    /// One matrix per body, for sampling in the main pass. Each is aimed at
+    /// its own body and sized to it -- that is the resolution win -- while
+    /// reaching far enough along the sunlight direction to contain whatever
+    /// else lies between the Sun and that body, so mutual shadowing survives.
+    pub view_proj_layers: [Mat4; MAX_SHADOW_LAYERS],
+
+    /// Per layer: `(normal_offset_scale, bias_scale, bias_minimum, unused)`.
+    ///
+    /// The bias has to be per layer for the same reason the matrices do. Each
+    /// layer covers a different world extent at the same texel count, so one
+    /// texel is a different distance in each, and a single shared bias would
+    /// be right for at most one body -- too small on the coarse layers (acne)
+    /// and too large on the fine ones (detached shadows). Resolved on the CPU
+    /// so a user-pinned value still wins, exactly as before.
+    pub layer_bias: [crate::Vec4; MAX_SHADOW_LAYERS],
+
     pub pos: Vec3,
-    pub _padding: u32,
+    /// How many of `view_proj_layers` are valid this frame.
+    pub n_layers: u32,
 
     pub color: Vec3,
     pub _padding2: u32,

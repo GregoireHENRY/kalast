@@ -24,8 +24,17 @@ struct Camera {
 };
 
 struct Light {
+    // Scratch the shadow pass draws with, rewritten per layer. Not used here.
     view_proj: mat4x4<f32>,
+    // One per body: aimed at it and sized to it, with depth spanning the
+    // scene so occluders still cast into it.
+    view_proj_layers: array<mat4x4<f32>, 8>,
+    // Per layer: (normal_offset_scale, bias_scale, bias_minimum, unused).
+    // Per layer because each covers a different world extent at the same
+    // texel count, so one texel is a different distance in each.
+    layer_bias: array<vec4<f32>, 8>,
     pos: vec3<f32>,
+    n_layers: u32,
     color: vec3<f32>,
 };
 
@@ -48,6 +57,8 @@ struct InstanceInput {
     // Bit 0: mesh is flat (non-indexed), so barycentrics can be recovered
     // from vertex_index. See INSTANCE_FLAG_FLAT in app/gpu.rs.
     @location(16) flags: u32,
+    // Which shadow layer shades this body; see InstanceInput in app/gpu.rs.
+    @location(17) shadow_layer: u32,
     // @location(17) color_mode: u32,
 };
 
@@ -74,6 +85,8 @@ struct VertexOutput {
     // Flat-shaded (per-face) interpolation: a flag must not be blended
     // across the triangle.
     @location(5) @interpolate(flat) flags: u32,
+    // Flat for the same reason as `flags`: an index must not be blended.
+    @location(6) @interpolate(flat) shadow_layer: u32,
 };
 
 fn srgb_to_linear(color: vec3<f32>, gamma: f32) -> vec3<f32> {
@@ -129,6 +142,7 @@ fn vs_main(
         f32(corner == 2u),
     );
     out.flags = instance.flags;
+    out.shadow_layer = instance.shadow_layer;
 
     return out;
 }
@@ -148,7 +162,7 @@ fn wireframe_edge(bary: vec3<f32>) -> f32 {
 }
 
 @group(2) @binding(0)
-var t_shadow: texture_depth_2d;
+var t_shadow: texture_depth_2d_array;
 @group(2) @binding(1)
 var s_shadow: sampler_comparison;
 
@@ -212,15 +226,17 @@ fn fs_shaded(in: VertexOutput) -> vec4<f32> {
     let k = 1.0 - ndotl;
     let k2 = k * k;
 
-    // shadow
-    let normal_offset = globals.shadow_normal_offset_scale * k;
+    // shadow: this body's own layer, with that layer's bias
+    let layer = min(in.shadow_layer, max(view.light.n_layers, 1u) - 1u);
+    let lb = view.light.layer_bias[layer];
+    let normal_offset = lb.x * k;
     let offset_pos = in.world_pos + in.world_normal * normal_offset;
-    let light_space = view.light.view_proj * vec4<f32>(offset_pos, 1.0);
+    let light_space = view.light.view_proj_layers[layer] * vec4<f32>(offset_pos, 1.0);
     var proj = light_space.xyz / light_space.w;
     proj.y = -proj.y;
     let uv = proj.xy * 0.5 + 0.5;
     let depth = proj.z;
-    let bias = max(globals.shadow_bias_scale * k2, globals.shadow_bias_minimum);
+    let bias = max(lb.y * k2, lb.z);
 
     var shadow = 1.0;
 
@@ -229,6 +245,7 @@ fn fs_shaded(in: VertexOutput) -> vec4<f32> {
             t_shadow,
             s_shadow,
             uv,
+            layer,
             depth - bias
         );
     }
@@ -241,7 +258,7 @@ fn fs_shaded(in: VertexOutput) -> vec4<f32> {
         for (var x = -i32(globals.shadow_pcf); x <= i32(globals.shadow_pcf); x++) {
             for (var y = -i32(globals.shadow_pcf); y <= i32(globals.shadow_pcf); y++) {
                 let offset = vec2<f32>(f32(x), f32(y)) * texel_size;
-                sum += textureSampleCompare(t_shadow, s_shadow, uv + offset, depth - bias);
+                sum += textureSampleCompare(t_shadow, s_shadow, uv + offset, layer, depth - bias);
             }
         }
         let taps = f32(globals.shadow_pcf * 2u + 1u);

@@ -293,7 +293,12 @@ pub struct InstanceInput {
     // than draw nonsense -- hence a per-mesh flag and not a global uniform.
     pub flags: u32,
 
-    _padding: [u32; 3],
+    /// Which shadow layer shades this body. Each body's layer is aimed at
+    /// and sized to that body, so the fragment shader must sample its own
+    /// rather than a shared map.
+    pub shadow_layer: u32,
+
+    _padding: [u32; 2],
     // instance color used in vertex if color mode is 1
     // pub color: Vec3,
 
@@ -311,7 +316,8 @@ impl Default for InstanceInput {
             mat: Mat4::IDENTITY,
             normal: Mat4::IDENTITY,
             flags: 0,
-            _padding: [0; 3],
+            shadow_layer: 0,
+            _padding: [0; 2],
             // color: Vec3::new(1.0, 1.0, 1.0),
             // color_mode: 0,
         }
@@ -324,9 +330,14 @@ impl InstanceInput {
     }
 
     pub fn new_with_flags(mat: Mat4, flags: u32) -> Self {
+        Self::new_with_layer(mat, flags, 0)
+    }
+
+    pub fn new_with_layer(mat: Mat4, flags: u32, shadow_layer: u32) -> Self {
         let mut instance = Self {
             mat,
             flags,
+            shadow_layer,
             ..Default::default()
         };
         instance.compute_normal();
@@ -359,7 +370,7 @@ pub struct MeshBuffer {
 
 impl MeshBuffer {
     // matrix model
-    pub const ATTRIBS: [wgpu::VertexAttribute; 9] = wgpu::vertex_attr_array![
+    pub const ATTRIBS: [wgpu::VertexAttribute; 10] = wgpu::vertex_attr_array![
         8  => Float32x4,
         9  => Float32x4,
         10 => Float32x4,
@@ -369,6 +380,7 @@ impl MeshBuffer {
         14 => Float32x4,
         15 => Float32x4,
         16 => Uint32,
+        17 => Uint32,
         // 17 => Uint32,
     ];
 
@@ -482,6 +494,11 @@ pub struct Texture {
     pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
     pub layout: Option<wgpu::BindGroupLayout>,
+    /// One single-layer view per array layer, for rendering *into* a layer.
+    /// `view` is the whole array and is what the main pass samples; a render
+    /// pass cannot target an array view, so it needs these. Empty for
+    /// non-layered textures.
+    pub layer_views: Vec<wgpu::TextureView>,
 }
 
 impl Texture {
@@ -563,6 +580,7 @@ impl Texture {
             view,
             sampler,
             layout: Some(layout),
+            layer_views: vec![],
         }
     }
 
@@ -574,15 +592,28 @@ impl Texture {
         Self::new_image_from_bytes(device, queue, &std::fs::read(path.as_ref()).unwrap())
     }
 
+    /// A layered shadow map: one depth layer per body.
+    ///
+    /// One shared map has to be fitted to the whole scene, so a small body
+    /// beside a large one gets almost no texels -- 6 km Deimos next to
+    /// 3,396 km Mars is the case that forced this. A layer each lets every
+    /// body's map be aimed at it and sized to it.
+    ///
+    /// The array view is what the main pass samples; `layer_views` are what
+    /// the shadow pass renders into, since a render pass cannot target an
+    /// array view.
     pub fn create_depth_texture_shadow_pass(
         device: &wgpu::Device,
         width: u32,
         height: u32,
+        layers: u32,
     ) -> Self {
-        let mut texture = Self::create_depth_texture(
+        let layers = layers.max(1);
+        let mut texture = Self::create_depth_texture_layered(
             device,
             width,
             height,
+            layers,
             wgpu::FilterMode::Linear,
             Some(wgpu::CompareFunction::LessEqual),
         );
@@ -595,7 +626,7 @@ impl Texture {
                     ty: wgpu::BindingType::Texture {
                         sample_type: wgpu::TextureSampleType::Depth,
                         multisampled: false,
-                        view_dimension: wgpu::TextureViewDimension::D2,
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
                     },
                     visibility: wgpu::ShaderStages::FRAGMENT,
                 },
@@ -681,6 +712,69 @@ impl Texture {
         texture
     }
 
+    /// As `create_depth_texture`, with `layers` array layers, an array view
+    /// for sampling and one single-layer view per layer for rendering into.
+    pub fn create_depth_texture_layered(
+        device: &wgpu::Device,
+        width: u32,
+        height: u32,
+        layers: u32,
+        mag_min_filter: wgpu::FilterMode,
+        compare: Option<wgpu::CompareFunction>,
+    ) -> Self {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: layers,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: DEPTH_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+            label: Some("shadow array"),
+        });
+
+        let view = texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
+
+        let layer_views = (0..layers)
+            .map(|i| {
+                texture.create_view(&wgpu::TextureViewDescriptor {
+                    dimension: Some(wgpu::TextureViewDimension::D2),
+                    base_array_layer: i,
+                    array_layer_count: Some(1),
+                    ..Default::default()
+                })
+            })
+            .collect();
+
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: mag_min_filter,
+            min_filter: mag_min_filter,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+            compare,
+            lod_min_clamp: 0.0,
+            lod_max_clamp: 100.0,
+            ..Default::default()
+        });
+
+        Self {
+            inner: texture,
+            view,
+            sampler,
+            layout: None,
+            layer_views,
+        }
+    }
+
     pub fn create_depth_texture(
         device: &wgpu::Device,
         width: u32,
@@ -723,6 +817,7 @@ impl Texture {
             view,
             sampler,
             layout: None,
+            layer_views: vec![],
         }
     }
 

@@ -40,6 +40,19 @@ impl Passes {
         }
     }
 
+    /// One shadow layer. Called once per body, each with its own matrix
+    /// already written and submitted; see `shadow::Pass::render`.
+    pub fn render_shadow_layer(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        meshes: &[super::gpu::MeshBuffer],
+        shadow_meshes: &[Option<super::gpu::MeshBuffer>],
+    ) {
+        self.shadow
+            .render(encoder, target, meshes, shadow_meshes, &self.bindings);
+    }
+
     pub fn render(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
@@ -49,9 +62,6 @@ impl Passes {
         shadow_meshes: &[Option<super::gpu::MeshBuffer>],
         config: &crate::app::config::Config,
     ) {
-        self.shadow
-            .render(encoder, shadow, meshes, shadow_meshes, &self.bindings);
-
         self.render.render(
             encoder,
             &self.depth.texture.view,

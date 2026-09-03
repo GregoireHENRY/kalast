@@ -125,6 +125,20 @@ pub struct Config {
     /// it costs one extra text pass, on exported frames only.
     pub export_hud: bool,
 
+    /// Fit a shadow map per body instead of one fitted to the whole scene.
+    ///
+    /// On by default, because one shared map is fitted to the scene's extent
+    /// and a small body beside a large one then gets almost no texels -- 6 km
+    /// Deimos next to 3,396 km Mars is the case that forced this. Each layer
+    /// is aimed at its own body and sized to it, while its depth range still
+    /// spans the scene, so mutual shadowing is unaffected: anything between
+    /// the Sun and a body still casts into that body's layer.
+    ///
+    /// Costs one shadow pass per body. Turn it off to get the old single
+    /// scene-fitted map back, which is only worth doing to reproduce older
+    /// output or when every body is a similar size.
+    pub shadow_per_body: bool,
+
     /// Treat alt + left-drag as a middle-drag, so the arcball can be orbited
     /// on hardware with no middle button. Blender calls the same setting
     /// "Emulate 3 Button Mouse". Defaults on for macOS, where a trackpad is
@@ -191,6 +205,8 @@ impl Default for Config {
             access_shadow_map: false,
 
             export_hud: false,
+
+            shadow_per_body: true,
 
             emulate_middle_button: cfg!(target_os = "macos"),
         }

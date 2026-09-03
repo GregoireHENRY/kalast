@@ -19,6 +19,60 @@ pub fn light_view_proj(
     proj * view
 }
 
+/// Light matrix for one body's shadow layer.
+///
+/// Aimed at that body and sized to it, which is the whole point: one map
+/// fitted to the entire scene gives a small body almost no texels beside a
+/// large one -- 6 km Deimos next to 3,396 km Mars is the case that forced
+/// this.
+///
+/// The depth range is fitted to the **scene**, not to the body, so anything
+/// lying between the Sun and this body is still inside the frustum and still
+/// casts into its map. That is what keeps mutual shadowing working while the
+/// lateral extent stays tight: self and mutual shadows both land in the same
+/// layer, at the same resolution.
+pub fn fit_light_view_proj(
+    sun_pos: Vec3,
+    body: &crate::mesh::Aabb,
+    scene: &crate::mesh::Aabb,
+    up_world: Vec3,
+) -> Mat4 {
+    let target = body.center();
+    let to_body = target - sun_pos;
+    let dir = if to_body.length_squared() > 1e-20 {
+        to_body.normalize()
+    } else {
+        Vec3::Z
+    };
+
+    // look_to_rh degenerates if up is parallel to dir.
+    let up = if dir.dot(up_world).abs() > 0.999 {
+        Vec3::X
+    } else {
+        up_world
+    };
+    let view = Mat4::look_to_rh(sun_pos, dir, up);
+
+    // Lateral extent: this body alone.
+    let mut half = 0.0 as Float;
+    for c in body.corners() {
+        let p = view.transform_point3(c);
+        half = half.max(p.x.abs()).max(p.y.abs());
+    }
+    let side = (half * 1.05).max(Float::EPSILON);
+
+    // Depth: the whole scene, so occluders in front of this body are kept.
+    let (mut near, mut far) = (Float::INFINITY, Float::NEG_INFINITY);
+    for c in scene.corners() {
+        let d = -view.transform_point3(c).z;
+        near = near.min(d);
+        far = far.max(d);
+    }
+    let pad = ((far - near) * 0.01).max(Float::EPSILON);
+
+    Mat4::orthographic_rh(-side, side, -side, side, near - pad, far + pad) * view
+}
+
 type HudBrush = wgpu_text::TextBrush<wgpu_text::glyph_brush::ab_glyph::FontRef<'static>>;
 
 pub struct Window {
@@ -268,10 +322,14 @@ impl Window {
 
         let view = super::gpu::UniformBuffer::new(&device, super::uniform::View { camera, light });
 
+        // One layer per body, so each gets a shadow map aimed at it and sized
+        // to it. Allocated at the cap rather than at the body count, because
+        // bodies can be loaded after the window exists.
         let shadow = super::gpu::Texture::create_depth_texture_shadow_pass(
             &device,
             config.shadow_resolution,
             config.shadow_resolution,
+            super::uniform::MAX_SHADOW_LAYERS as u32,
         );
 
         let uniforms = super::uniform::Uniforms {
@@ -350,9 +408,15 @@ impl Window {
             &self.device,
             &self.queue,
             &self.uniforms.shadow,
+            body.min(super::uniform::MAX_SHADOW_LAYERS - 1),
             mesh,
             self.last_body_mats.get(body).copied().unwrap_or(Mat4::IDENTITY),
-            self.uniforms.view.uniform.light.view_proj,
+            // This body's own layer, not the shared scratch. Each layer is
+            // fitted to its body, so querying with the wrong matrix reads a
+            // map covering a different volume -- silently wrong occlusion
+            // rather than an error, and it feeds the TPM.
+            self.uniforms.view.uniform.light.view_proj_layers
+                [body.min(super::uniform::MAX_SHADOW_LAYERS - 1)],
             self.uniforms.view.uniform.light.pos,
             &self.uniforms.globals.uniform,
         )
@@ -623,6 +687,17 @@ impl Window {
         let width = self.surface_config.width;
         let height = self.surface_config.height;
 
+        // Resolve body-tracking anchors before anything reads them, so an
+        // orbiting camera follows a moving body instead of the place it was
+        // when the anchor was last assigned.
+        for eye in [&mut simulation.camera, &mut simulation.sun] {
+            if let Some(i) = eye.anchor_body {
+                if let Some(b) = simulation.bodies.get(i) {
+                    eye.anchor = b.mat.transform_point3(crate::Vec3::ZERO);
+                }
+            }
+        }
+
         // Fit the frustums to wherever the bodies are now, then derive the
         // shadow constants from the light's fitted frustum. Both run every
         // frame because bodies and the sun move; user-pinned values survive
@@ -659,11 +734,85 @@ impl Window {
             .view_proj(width as Float / height as Float)
             .unwrap();
 
-        self.uniforms.view.uniform.light.view_proj = simulation
-            .sun
-            // .view_proj(size.width as Float / size.height as Float)
-            .view_proj(1.0)
-            .unwrap();
+        // One shadow layer per body: aimed at it, sized to it, depth spanning
+        // the scene so occluders still cast. `light.view_proj` is only the
+        // scratch the shadow pass draws with, rewritten per layer at render
+        // time; what the main pass samples is `view_proj_layers`.
+        let n_layers = if config.shadow_per_body {
+            simulation
+                .bodies
+                .len()
+                .min(super::uniform::MAX_SHADOW_LAYERS)
+        } else {
+            1
+        };
+        self.uniforms.view.uniform.light.n_layers = n_layers as u32;
+
+        if let Some(scene) = simulation.scene_bounds() {
+            for i in 0..n_layers {
+                // With per-body off, the single layer is fitted to the scene,
+                // which is the pre-layer behaviour.
+                let body = if config.shadow_per_body {
+                    match simulation.body_bounds(i) {
+                        Some(b) => b,
+                        None => continue,
+                    }
+                } else {
+                    scene
+                };
+                let m = fit_light_view_proj(
+                    simulation.sun.pos,
+                    &body,
+                    &scene,
+                    simulation.sun.up_world,
+                );
+                self.uniforms.view.uniform.light.view_proj_layers[i] = m;
+
+                // Bias from this layer's own extent, so each body gets the
+                // bias its texel size actually needs.
+                let side = if m.x_axis.x.abs() > Float::EPSILON {
+                    1.0 / m.x_axis.x.abs()
+                } else {
+                    1.0
+                };
+                let depth = if m.z_axis.z.abs() > Float::EPSILON {
+                    1.0 / m.z_axis.z.abs()
+                } else {
+                    1.0
+                };
+                let fit = super::frame::fit_shadow(
+                    &super::frame::Resolved {
+                        near: 0.0,
+                        far: depth,
+                        side,
+                        offset: [0.0, 0.0],
+                    },
+                    config.shadow_resolution,
+                );
+                self.uniforms.view.uniform.light.layer_bias[i] = crate::Vec4::new(
+                    config
+                        .shadow_normal_offset_scale
+                        .unwrap_or(fit.normal_offset_scale) as Float,
+                    config.shadow_bias_scale.unwrap_or(fit.bias_scale) as Float,
+                    config.shadow_bias_minimum.unwrap_or(fit.bias_minimum) as Float,
+                    0.0,
+                );
+            }
+        }
+
+        // The Sun no longer needs aiming. It is a light source, not a camera:
+        // it radiates in every direction, so a single `dir` for it was never
+        // physical, and making the user call `look_anchor()` to invent one was
+        // both a chore and a trap -- forgetting it left the Sun pointed at
+        // whatever `anchor` happened to hold, usually the origin.
+        //
+        // Each layer above derives its own direction from `sun.pos` and the
+        // body it is aimed at, so `sun.dir` and `sun.anchor` are ignored for
+        // shadowing, and `sun.pos` alone determines the lighting. Seeding the
+        // scratch from layer 0 rather than from `sun.view_proj()` also drops
+        // an unwrap that panicked if a script assigned a non-normalised dir.
+        self.uniforms.view.uniform.light.view_proj =
+            self.uniforms.view.uniform.light.view_proj_layers[0];
 
         self.uniforms.view.uniform.light.pos = simulation.sun.pos;
 
@@ -685,8 +834,18 @@ impl Window {
                 0
             };
 
-            let instance =
-                super::gpu::InstanceInput::new_with_flags(simulation.bodies[ii].mat, flags);
+            // Body ii shades from shadow layer ii. Bodies past the layer cap
+            // share the last one: degraded, not wrong.
+            let layer = if config.shadow_per_body {
+                ii.min(super::uniform::MAX_SHADOW_LAYERS - 1) as u32
+            } else {
+                0
+            };
+            let instance = super::gpu::InstanceInput::new_with_layer(
+                simulation.bodies[ii].mat,
+                flags,
+                layer,
+            );
             self.meshes[1 + ii].update_instance_buffer(&self.queue, &instance);
 
             // The shadow stand-in has to follow the same transform, or its
@@ -783,6 +942,33 @@ impl Window {
                 &offscreen_view
             }
         };
+
+        // Shadow layers first, one submit each. A uniform write is ordered
+        // against submits, not against command recording, so recording every
+        // layer into one encoder would leave them all drawing with whichever
+        // matrix was written last.
+        let n_layers = (self.uniforms.view.uniform.light.n_layers as usize)
+            .min(self.uniforms.shadow.layer_views.len());
+        for i in 0..n_layers {
+            self.uniforms.view.uniform.light.view_proj =
+                self.uniforms.view.uniform.light.view_proj_layers[i];
+            self.queue.write_buffer(
+                &self.uniforms.view.buffer,
+                0,
+                bytemuck::bytes_of(&self.uniforms.view.uniform),
+            );
+
+            let mut enc = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+            self.passes.render_shadow_layer(
+                &mut enc,
+                &self.uniforms.shadow.layer_views[i],
+                &self.meshes,
+                &self.shadow_meshes,
+            );
+            self.queue.submit([enc.finish()]);
+        }
 
         let mut encoder = self
             .device

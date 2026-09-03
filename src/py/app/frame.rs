@@ -82,6 +82,21 @@ impl Eye {
         self.with_mut(|e| e.anchor = v.into());
     }
 
+    /// Body index the anchor tracks, or `None` for a fixed anchor.
+    ///
+    /// `camera.anchor_body = 0` keeps the anchor on body 0 as it moves.
+    /// Assigning `anchor` from a body matrix instead only captures where it
+    /// was at that moment.
+    #[getter]
+    fn anchor_body(&self) -> Option<usize> {
+        self.with(|e| e.anchor_body)
+    }
+
+    #[setter]
+    fn set_anchor_body(&self, v: Option<usize>) {
+        self.with_mut(|e| e.anchor_body = v);
+    }
+
     #[getter]
     fn up_world<'py>(&self, py: Python<'py>) -> pyo3::Bound<'py, numpy::PyArray1<Float>> {
         let v = self.with(|e| e.up_world);

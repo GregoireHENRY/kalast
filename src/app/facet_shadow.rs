@@ -112,6 +112,11 @@ impl FacetShadowQuery {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         shadow: &super::gpu::Texture,
+        // Which layer of the shadow array to read. Each layer is fitted to
+        // its own body, so this must be the queried body's layer and must
+        // pair with `light_view_proj` -- reading another body's layer gives
+        // occlusion for a volume this body is not in.
+        shadow_layer: usize,
         mesh: &super::gpu::MeshBuffer,
         model: crate::Mat4,
         light_view_proj: crate::Mat4,
@@ -166,7 +171,14 @@ impl FacetShadowQuery {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&shadow.view),
+                    // A single-layer view: the compute shader binds a plain
+                    // texture_depth_2d and cannot take the array view.
+                    resource: wgpu::BindingResource::TextureView(
+                        shadow
+                            .layer_views
+                            .get(shadow_layer)
+                            .unwrap_or(&shadow.view),
+                    ),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,

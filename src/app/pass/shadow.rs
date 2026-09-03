@@ -25,10 +25,21 @@ impl Pass {
     /// `shadow_meshes` is parallel to `meshes`: where it holds a buffer,
     /// that lower-resolution stand-in is rendered into the shadow map
     /// instead of the full-resolution mesh at the same index.
+    /// Renders every occluder into one layer of the shadow array.
+    ///
+    /// `target` is a single-layer view, not the array view: a render pass
+    /// cannot attach an array. The matrix this draws with comes from
+    /// `view.light.view_proj`, which the caller rewrites and submits per
+    /// layer -- a uniform write is ordered against submits, not against
+    /// recording, so all layers in one encoder would share the last value.
+    ///
+    /// Every body is drawn into every layer, not just the layer's own body.
+    /// That is what keeps mutual shadowing: the layer is *aimed* at one body,
+    /// but anything between the Sun and it still has to cast.
     pub fn render(
         &self,
         encoder: &mut wgpu::CommandEncoder,
-        shadow: &gpu::Texture,
+        target: &wgpu::TextureView,
         meshes: &[gpu::MeshBuffer],
         shadow_meshes: &[Option<gpu::MeshBuffer>],
         bindings: &super::Bindings,
@@ -36,7 +47,7 @@ impl Pass {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             color_attachments: &[],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &shadow.view,
+                view: target,
                 depth_ops: Some(wgpu::Operations {
                     load: wgpu::LoadOp::Clear(1.0),
                     store: wgpu::StoreOp::Store,

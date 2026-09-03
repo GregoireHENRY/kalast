@@ -148,6 +148,14 @@ impl Simulation {
         (!bounds.is_empty()).then_some(bounds)
     }
 
+    /// World bounds of one body, for fitting that body's own shadow layer.
+    pub fn body_bounds(&self, index: usize) -> Option<crate::mesh::Aabb> {
+        let body = self.bodies.get(index)?;
+        let mesh = body.mesh.as_ref()?;
+        let b = mesh.borrow().bounds.transform(&body.mat);
+        (!b.is_empty()).then_some(b)
+    }
+
     pub fn update(&mut self) {
         if self.state.is_paused {
             return;

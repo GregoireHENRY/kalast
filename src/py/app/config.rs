@@ -418,6 +418,16 @@ impl Config {
     }
 
     #[getter]
+    fn shadow_per_body(&self) -> bool {
+        self.app.borrow().config.shadow_per_body
+    }
+
+    #[setter]
+    fn set_shadow_per_body(&mut self, v: bool) {
+        self.app.borrow_mut().config.shadow_per_body = v;
+    }
+
+    #[getter]
     fn export_dir(&self) -> String {
         self.app.borrow().config.export_dir.clone()
     }

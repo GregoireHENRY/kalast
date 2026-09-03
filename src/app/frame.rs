@@ -194,6 +194,15 @@ pub struct Eye {
     pub dir: Vec3, // unit vector
     pub up: Vec3,  // unit vector
     pub anchor: Vec3,
+
+    /// Track a body instead of a fixed point: when set, `anchor` is refreshed
+    /// from that body's transform every frame.
+    ///
+    /// Assigning `anchor` from a body's matrix is a snapshot, and goes stale
+    /// the moment the body moves -- correct for one static frame, silently
+    /// wrong in any animation, and the caller has to remember to redo it every
+    /// step. `None` keeps `anchor` exactly as set.
+    pub anchor_body: Option<usize>,
     pub up_world: Vec3, // unit vector
     pub projection: Projection,
     pub control: Control,
@@ -206,6 +215,7 @@ impl Eye {
             dir: Vec3::new(1.0, 0.0, 0.0),
             up: Vec3::new(0.0, 0.0, 1.0),
             anchor: Vec3::new(0.0, 0.0, 0.0),
+            anchor_body: None,
             up_world: Vec3::new(0.0, 0.0, 1.0),
             projection: Projection::new(),
             control: Control::Arcball,
