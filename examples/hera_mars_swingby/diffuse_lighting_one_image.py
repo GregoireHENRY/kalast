@@ -76,8 +76,7 @@ app.simulation.bodies[0].mat = pos_mat("MARS", "IAU_MARS", et0)
 app.simulation.bodies[1].mat = pos_mat("PHOBOS", "IAU_PHOBOS", et0) @ M4_RESCALE
 app.simulation.bodies[2].mat = pos_mat("DEIMOS", "IAU_DEIMOS", et0)
 app.simulation.sun.pos = spice.spkpos("SUN", et0, "HERA_TIRI", "none", "HERA")[0]
-app.simulation.sun.look_anchor()
-app.simulation.camera.anchor = app.simulation.bodies[0].mat[:3, 3].copy()
+app.simulation.camera.anchor_body = 0
 
 app.simulation.export_once()
 app.before_render = before_render
