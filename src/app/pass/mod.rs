@@ -24,11 +24,15 @@ impl Passes {
         let layouts_all = uniforms.layouts_all();
         let bindings = uniforms.bindings(device);
 
+        // Resolved once, so the main pass and the light cube it draws inside
+        // cannot disagree about it.
+        let samples = render::resolve_samples(device, format, config.msaa);
+
         Self {
             shadow: shadow::Pass::new(device, &uniforms.layouts_for_shadow()),
 
             render: render::Pass::new(device, format, config, &layouts_all),
-            light_cube: light_cube::Pass::new(device, format, &layouts_all),
+            light_cube: light_cube::Pass::new(device, format, &layouts_all, samples),
 
             depth: depth::Pass::new(device, config.width, config.height, format),
 

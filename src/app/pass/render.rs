@@ -28,10 +28,82 @@ pub fn create_render_target(
     (texture, view)
 }
 
+/// Picks a sample count the adapter will actually accept.
+///
+/// Asking for one it does not support is a panic inside wgpu at pipeline
+/// creation, which is a poor way to learn that a machine only does 4x. 4 is
+/// guaranteed for every renderable format, so that is the first fallback and
+/// 1 the last.
+pub fn resolve_samples(
+    device: &wgpu::Device,
+    format: wgpu::TextureFormat,
+    requested: u32,
+) -> u32 {
+    let flags = format.guaranteed_format_features(device.features()).flags;
+    for n in [requested, 4, 1] {
+        if n == 1 {
+            return 1;
+        }
+        if n.is_power_of_two() && n <= 8 && flags.sample_count_supported(n) {
+            return n;
+        }
+    }
+    1
+}
+
+/// The multisampled colour and depth buffers the main pass draws into when
+/// `Config::msaa` is above 1. Neither is ever read back: colour resolves into
+/// `render_texture` (the single-sample target that has always been exported
+/// and blitted), and depth is discarded at the end of the pass.
+struct Msaa {
+    _color: wgpu::Texture,
+    color_view: wgpu::TextureView,
+    _depth: wgpu::Texture,
+    depth_view: wgpu::TextureView,
+}
+
+impl Msaa {
+    fn new(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        width: u32,
+        height: u32,
+        samples: u32,
+    ) -> Self {
+        let size = wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        };
+        let make = |format, label| {
+            device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size,
+                mip_level_count: 1,
+                sample_count: samples,
+                dimension: wgpu::TextureDimension::D2,
+                format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            })
+        };
+        let color = make(format, "msaa color");
+        let depth = make(gpu::DEPTH_FORMAT, "msaa depth");
+        Self {
+            color_view: color.create_view(&Default::default()),
+            depth_view: depth.create_view(&Default::default()),
+            _color: color,
+            _depth: depth,
+        }
+    }
+}
+
 pub struct Pass {
     pub pipeline: gpu::RenderPipeline,
     pub render_texture: wgpu::Texture,
     pub render_view: wgpu::TextureView,
+    pub samples: u32,
+    msaa: Option<Msaa>,
 }
 
 impl Pass {
@@ -50,6 +122,14 @@ impl Pass {
             Some(wgpu::Face::Back)
         };
 
+        let samples = resolve_samples(device, format, config.msaa);
+        if samples != config.msaa {
+            eprintln!(
+                "msaa: {}x is not supported here, using {}x",
+                config.msaa, samples
+            );
+        }
+
         let pipeline = gpu::RenderPipeline::new(
             &device,
             format,
@@ -58,15 +138,21 @@ impl Pass {
             layouts,
             true,
             true,
+            samples,
         );
 
         let (render_texture, render_view) =
             create_render_target(device, format, config.width, config.height);
 
+        let msaa = (samples > 1)
+            .then(|| Msaa::new(device, format, config.width, config.height, samples));
+
         Self {
             pipeline,
             render_texture,
             render_view,
+            samples,
+            msaa,
         }
     }
 
@@ -80,6 +166,8 @@ impl Pass {
         let (render_texture, render_view) = create_render_target(device, format, width, height);
         self.render_texture = render_texture;
         self.render_view = render_view;
+        self.msaa = (self.samples > 1)
+            .then(|| Msaa::new(device, format, width, height, self.samples));
     }
 
     pub fn render(
@@ -91,14 +179,33 @@ impl Pass {
         bindings: &super::Bindings,
         config: &crate::app::config::Config,
     ) {
+        // With MSAA the pass draws into the multisample buffers and resolves
+        // into `render_view` on store, so everything downstream -- the blit to
+        // the surface, the HUD overlay, the frame exporter -- keeps reading
+        // the same single-sample texture it always did.
+        let (color_view, resolve_target, store, depth_view) = match &self.msaa {
+            Some(msaa) => (
+                &msaa.color_view,
+                Some(&self.render_view),
+                wgpu::StoreOp::Discard,
+                &msaa.depth_view,
+            ),
+            None => (
+                &self.render_view,
+                None,
+                wgpu::StoreOp::Store,
+                depth_view,
+            ),
+        };
+
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &self.render_view,
+                view: color_view,
                 depth_slice: None,
-                resolve_target: None,
+                resolve_target,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(config.background),
-                    store: wgpu::StoreOp::Store,
+                    store,
                 },
             })],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {

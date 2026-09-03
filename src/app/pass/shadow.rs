@@ -14,6 +14,7 @@ impl Pass {
             &layouts,
             true,
             false,
+            1,
         );
 
         Self { pipeline }

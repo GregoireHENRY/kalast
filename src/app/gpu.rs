@@ -64,6 +64,7 @@ impl RenderPipeline {
         bind_group_layouts: &[Option<&wgpu::BindGroupLayout>],
         depth_stencil: bool,
         fragment: bool,
+        samples: u32,
     ) -> Self {
         // wireframe: bool,
 
@@ -131,7 +132,7 @@ impl RenderPipeline {
             },
             depth_stencil,
             multisample: wgpu::MultisampleState {
-                count: 1,
+                count: samples,
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },

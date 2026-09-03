@@ -16,6 +16,25 @@ pub struct Config {
     pub background: wgpu::Color,
     pub render_back_face: bool,
 
+    /// Multisample anti-aliasing for the main render pass: 1 (off), 2, 4 or 8.
+    ///
+    /// Geometry edges are the whole point here. Every silhouette in this
+    /// renderer is a science measurement -- a limb, a terminator, a body's
+    /// apparent diameter -- and at one sample per pixel each of those is
+    /// quantised to whole pixels, which both looks wrong beside other tools
+    /// and biases any centroid or radius fitted from an exported frame.
+    ///
+    /// Only the main pass is multisampled. The shadow map, the facet-id and
+    /// hemicube passes stay single-sampled on purpose: they carry ids and
+    /// depths, not colour, and averaging those across samples would be
+    /// meaningless. Exports are unaffected in shape or size -- the pass
+    /// resolves into the same single-sample target that was always exported.
+    ///
+    /// Counts the adapter does not support fall back to 4, then to 1. Note
+    /// that `debug_depth_show` only mirrors the main pass's depth at 1: above
+    /// that the pass writes its own multisampled depth buffer instead.
+    pub msaa: u32,
+
     pub sensitivity_move: Float,
     pub sensitivity_look: Float,
     pub sensitivity_rotate: Float,
@@ -156,6 +175,8 @@ impl Default for Config {
             shadow_normal_offset_scale: None,
             shadow_bias_scale: None,
             shadow_bias_minimum: None,
+
+            msaa: 4,
 
             wireframe_mode: 0,
             wireframe_color: wgpu::Color::BLACK,

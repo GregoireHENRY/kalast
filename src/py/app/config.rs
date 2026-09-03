@@ -256,6 +256,18 @@ impl Config {
         self.app.borrow_mut().config.light_cube_scale = v;
     }
 
+    /// Multisample anti-aliasing on the main pass: 1 (off), 2, 4 or 8.
+    /// Takes effect when the window is created, so set it before `App.start`.
+    #[getter]
+    fn msaa(&self) -> u32 {
+        self.app.borrow().config.msaa
+    }
+
+    #[setter]
+    fn set_msaa(&mut self, v: u32) {
+        self.app.borrow_mut().config.msaa = v;
+    }
+
     #[getter]
     fn shadow_resolution(&self) -> u32 {
         self.app.borrow().config.shadow_resolution

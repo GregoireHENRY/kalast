@@ -5,10 +5,14 @@ pub struct Pass {
 }
 
 impl Pass {
+    /// `samples` must match the main pass: the light cube is drawn inside
+    /// it, and wgpu rejects a pipeline whose sample count disagrees with the
+    /// attachments in flight.
     pub fn new(
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
         layouts: &[Option<&wgpu::BindGroupLayout>],
+        samples: u32,
     ) -> Self {
         let pipeline = gpu::RenderPipeline::new(
             &device,
@@ -18,6 +22,7 @@ impl Pass {
             layouts,
             true,
             true,
+            samples,
         );
 
         Self { pipeline }

@@ -61,6 +61,7 @@ impl Pass {
             layouts,
             false,
             true,
+            1,
         );
 
         Self {
