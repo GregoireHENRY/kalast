@@ -116,6 +116,17 @@ impl Config {
         c.a = v[3] as f64;
     }
 
+    /// Native fullscreen at startup. See `Config::fullscreen`.
+    #[getter]
+    fn fullscreen(&self) -> bool {
+        self.app.borrow().config.fullscreen
+    }
+
+    #[setter]
+    fn set_fullscreen(&mut self, v: bool) {
+        self.app.borrow_mut().config.fullscreen = v;
+    }
+
     #[getter]
     fn render_back_face(&self) -> bool {
         self.app.borrow().config.render_back_face
@@ -331,19 +342,23 @@ impl Config {
         self.app.borrow_mut().config.wireframe_width = v;
     }
 
+    // `[Float; 4]`, not a Rust tuple: a tuple only extracts from a Python
+    // tuple, so `[0.1, 0.1, 0.1, 1.0]` and `numpy.array([...])` were rejected
+    // here while `background`, `color` and `light_color` -- which already use
+    // an array -- accepted all three. An array extracts from any sequence.
     #[getter]
-    fn wireframe_color(&self) -> (f64, f64, f64, f64) {
+    fn wireframe_color(&self) -> [Float; 4] {
         let c = self.app.borrow().config.wireframe_color;
-        (c.r, c.g, c.b, c.a)
+        [c.r as Float, c.g as Float, c.b as Float, c.a as Float]
     }
 
     #[setter]
-    fn set_wireframe_color(&mut self, v: (f64, f64, f64, f64)) {
+    fn set_wireframe_color(&mut self, v: [Float; 4]) {
         self.app.borrow_mut().config.wireframe_color = wgpu::Color {
-            r: v.0,
-            g: v.1,
-            b: v.2,
-            a: v.3,
+            r: v[0] as f64,
+            g: v[1] as f64,
+            b: v[2] as f64,
+            a: v[3] as f64,
         };
     }
 

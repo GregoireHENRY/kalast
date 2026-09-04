@@ -13,6 +13,17 @@ pub struct Config {
     pub width: u32,
     pub height: u32,
 
+    /// Open the window in native fullscreen (borderless, current monitor).
+    ///
+    /// On macOS this is the same mode the green button gives -- its own
+    /// Space -- which is worth knowing because it is not equivalent to a
+    /// maximised window: the compositor hands out drawables differently
+    /// there, and a stall that only appears fullscreen will not reproduce
+    /// maximised.
+    ///
+    /// Startup only: applied when the window is created.
+    pub fullscreen: bool,
+
     pub background: wgpu::Color,
     pub render_back_face: bool,
 
@@ -161,6 +172,7 @@ impl Default for Config {
             height: 600,
 
             background: wgpu::Color::BLACK,
+            fullscreen: false,
             render_back_face: false,
 
             sensitivity_move: 1.0,

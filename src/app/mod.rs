@@ -157,9 +157,16 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
         ev.set_control_flow(winit::event_loop::ControlFlow::Poll);
 
         let size = winit::dpi::PhysicalSize::new(self.config.width, self.config.height);
-        let attrs = winit::window::Window::default_attributes()
+        let mut attrs = winit::window::Window::default_attributes()
             .with_inner_size(size)
             .with_title(&self.config.title);
+
+        if self.config.fullscreen {
+            // Borderless on the current monitor: `None` means "wherever the
+            // window lands", which is what a user pressing the green button
+            // would get.
+            attrs = attrs.with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
+        }
 
         let win = Arc::new(ev.create_window(attrs).unwrap());
 
@@ -204,7 +211,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 win.resize(size.width, size.height, &self.config);
             }
             winit::event::WindowEvent::RedrawRequested => {
-                let surface_texture = {
+                {
                     let win = self.window.as_mut().unwrap();
                     win.window.request_redraw();
 
@@ -214,14 +221,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         }
                         return;
                     }
-
-                    // Deliberately not an early return. An occluded window
-                    // yields no drawable, and skipping the frame on that
-                    // basis halted the simulation outright rather than just
-                    // not drawing it. The frame runs either way; only the
-                    // present is skipped.
-                    win.get_surface_texture(&self.config)
-                };
+                }
 
                 let now = std::time::Instant::now();
                 self.dt = (now - self.now).as_secs_f64() as _;
@@ -250,6 +250,25 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
 
                     win.update(&mut sim, &self.config);
                     let hud = sim.hud.clone();
+
+                    // Acquired here, not at the top of the frame.
+                    //
+                    // A drawable is a scarce resource -- the surface is
+                    // configured for two frames of latency -- and holding one
+                    // across `before_render` meant holding it across
+                    // arbitrary user Python: SPICE lookups, a TPM step,
+                    // whatever the script does. In a native-fullscreen window
+                    // that starved the pool until `nextDrawable` hit its
+                    // one-second timeout, measured at 1001 ms and 3725 ms of
+                    // `acquire drawable` while the same window merely
+                    // maximised was fine.
+                    //
+                    // Occlusion is still deliberately not an early return: an
+                    // occluded window yields no drawable, and skipping the
+                    // frame on that basis halted the simulation outright
+                    // rather than just not drawing it. The frame runs either
+                    // way; only the present is skipped.
+                    let surface_texture = win.get_surface_texture(&self.config);
                     win.render(surface_texture, &self.config, &hud);
 
                     // After render: the shadow map now holds this frame's
@@ -319,6 +338,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 // epoch from `state.iteration` would otherwise see two
                 // different times within one frame.
                 self.simulation.borrow_mut().update();
+
             }
 
             winit::event::WindowEvent::KeyboardInput {
