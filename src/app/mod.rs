@@ -36,7 +36,7 @@ pub struct App {
 
     pub controller: frame::Controller,
 
-    /// Frames per second for `hud_text`, averaged over a fixed window rather
+    /// Frames per second for the HUDs, averaged over a fixed window rather
     /// than smoothed per frame. An exponential average still moves every
     /// frame, so the digits churn faster than they can be read; this holds a
     /// value steady for `HUD_RATE_WINDOW` and then replaces it.
@@ -48,7 +48,7 @@ pub struct App {
 /// How long `{fps}` and `{its}` average over before updating, in seconds.
 const HUD_RATE_WINDOW: Float = 1.0;
 
-/// Fills `Config::hud_text` in for this frame.
+/// Fills one HUD's template in for this frame.
 ///
 /// Deliberately a scan-and-replace rather than a format library: an
 /// unrecognised `{name}` is passed through untouched, so a HUD string that
@@ -62,7 +62,6 @@ fn expand_hud(
     template: &str,
     state: &crate::app::simulation::State,
     rate: Float,
-    user: &str,
 ) -> String {
     let its = if state.is_paused { 0.0 } else { rate };
     let nit = match state.pause_at {
@@ -106,7 +105,6 @@ fn expand_hud(
                 out.push_str(&format!("{ms:.prec$}"));
             }
             "paused" => out.push_str(if state.is_paused { "PAUSED" } else { "" }),
-            "hud" => out.push_str(user),
             // Unknown: leave it exactly as written.
             _ => {
                 out.push('{');
@@ -344,26 +342,21 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
 
                     win.update(&mut sim, &self.config);
 
-                    // `huds` wins when set; otherwise `hud_text` is one
-                    // top-left HUD; otherwise the script's raw `sim.hud`,
-                    // which is how this worked before either existed.
-                    let huds: Vec<crate::app::config::Hud> = if !self.config.huds.is_empty() {
-                        self.config
-                            .huds
-                            .iter()
-                            .map(|h| crate::app::config::Hud {
-                                text: expand_hud(&h.text, &sim.state, self.fps_shown, &sim.hud),
+                    // The HUDs are shared handles, so this reads whatever
+                    // `before_render` just wrote into them. Only the text is
+                    // expanded; position, size and colour are used as they
+                    // stand.
+                    let huds: Vec<crate::app::config::Hud> = sim
+                        .huds
+                        .iter()
+                        .map(|h| {
+                            let h = h.borrow();
+                            crate::app::config::Hud {
+                                text: expand_hud(&h.text, &sim.state, self.fps_shown),
                                 ..h.clone()
-                            })
-                            .collect()
-                    } else {
-                        let text = if self.config.hud_text.is_empty() {
-                            sim.hud.clone()
-                        } else {
-                            expand_hud(&self.config.hud_text, &sim.state, self.fps_shown, &sim.hud)
-                        };
-                        vec![crate::app::config::Hud::new(&text)]
-                    };
+                            }
+                        })
+                        .collect();
 
                     // Acquired here, not at the top of the frame.
                     //
@@ -621,7 +614,7 @@ mod hud_tests {
     fn expands_the_documented_placeholders() {
         let s = state(42, false, Some(500));
         assert_eq!(
-            expand_hud("{it}/{nit} ({its} it/s)", &s, 60.4, ""),
+            expand_hud("{it}/{nit} ({its} it/s)", &s, 60.4),
             "42/500 (60 it/s)"
         );
     }
@@ -631,9 +624,9 @@ mod hud_tests {
     #[test]
     fn rates_are_integers_by_default_and_precision_is_opt_in() {
         let s = state(1, false, None);
-        assert_eq!(expand_hud("{fps}", &s, 59.62, ""), "60");
-        assert_eq!(expand_hud("{fps:.1}", &s, 59.62, ""), "59.6");
-        assert_eq!(expand_hud("{fps:.2f}", &s, 59.62, ""), "59.62");
+        assert_eq!(expand_hud("{fps}", &s, 59.62), "60");
+        assert_eq!(expand_hud("{fps:.1}", &s, 59.62), "59.6");
+        assert_eq!(expand_hud("{fps:.2f}", &s, 59.62), "59.62");
     }
 
     /// Milliseconds are the exception -- whole numbers cannot separate 8 from
@@ -641,15 +634,15 @@ mod hud_tests {
     #[test]
     fn milliseconds_keep_one_decimal_by_default() {
         let s = state(1, false, None);
-        assert_eq!(expand_hud("{ms}", &s, 120.0, ""), "8.3");
-        assert_eq!(expand_hud("{ms:.0}", &s, 120.0, ""), "8");
+        assert_eq!(expand_hud("{ms}", &s, 120.0), "8.3");
+        assert_eq!(expand_hud("{ms:.0}", &s, 120.0), "8");
     }
 
     /// `?` rather than a made-up number: the run length is genuinely unknown
     /// unless something has been told to stop at it.
     #[test]
     fn unknown_run_length_reads_as_a_question_mark() {
-        assert_eq!(expand_hud("{nit}", &state(1, false, None), 60.0, ""), "?");
+        assert_eq!(expand_hud("{nit}", &state(1, false, None), 60.0), "?");
     }
 
     /// The counter is not advancing while paused, so reporting the frame rate
@@ -657,21 +650,16 @@ mod hud_tests {
     #[test]
     fn iteration_rate_is_zero_while_paused_but_frame_rate_is_not() {
         let s = state(7, true, None);
-        assert_eq!(expand_hud("{its}|{fps}|{paused}", &s, 120.0, ""), "0|120|PAUSED");
+        assert_eq!(expand_hud("{its}|{fps}|{paused}", &s, 120.0), "0|120|PAUSED");
     }
 
     /// A typo must render, not panic or swallow the text around it.
     #[test]
     fn unknown_and_unbalanced_braces_pass_through() {
         let s = state(1, false, None);
-        assert_eq!(expand_hud("{nope} x {it}", &s, 60.0, ""), "{nope} x 1");
-        assert_eq!(expand_hud("a {unclosed", &s, 60.0, ""), "a {unclosed");
-        assert_eq!(expand_hud("no braces", &s, 60.0, ""), "no braces");
+        assert_eq!(expand_hud("{nope} x {it}", &s, 60.0), "{nope} x 1");
+        assert_eq!(expand_hud("a {unclosed", &s, 60.0), "a {unclosed");
+        assert_eq!(expand_hud("no braces", &s, 60.0), "no braces");
     }
 
-    #[test]
-    fn the_scripts_own_string_can_be_embedded() {
-        let s = state(3, false, None);
-        assert_eq!(expand_hud("[{hud}] {it}", &s, 60.0, "spice ok"), "[spice ok] 3");
-    }
 }

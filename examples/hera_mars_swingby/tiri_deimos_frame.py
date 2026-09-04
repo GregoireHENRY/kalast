@@ -84,6 +84,7 @@ app.config.width = NPX
 app.config.height = NPY
 app.config.vsync = False
 app.config.access_shadow_map = True
+app.config.huds = [kalast.app.Hud("")]   # filled in before_render
 app.simulation.camera.projection.fovy = 2.0 * HY
 app.simulation.load_mesh(path=MESH, mat=numpy.eye(4), flatten=True)
 app.simulation.load_mesh(path=SPHERE, mat=numpy.eye(4), flatten=True)
@@ -148,7 +149,7 @@ def before_render(sim, _dt):
     place(sim, et if i < n_pre else ET, st["phase"] if i == n_pre else 0)
     if i == n_pre:
         sim.request_facet_id()
-    sim.hud = f"{i}/{n_pre}"
+    sim.huds[0].text = f"{i}/{n_pre}"
 
 
 def after_render(sim, _dt):

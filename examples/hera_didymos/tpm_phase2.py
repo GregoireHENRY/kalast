@@ -352,6 +352,7 @@ app.config.height = 512
 app.config.vsync = False
 app.config.export_dir = f"{OUT}/frames"
 app.config.access_shadow_map = SHADOWING
+app.config.huds = [kalast.app.Hud("")]   # filled in before_render
 app.simulation.camera.projection.fovy = 20.0 * RPD
 
 # In "self" mode each body must be alone in the scene, or the other would
@@ -725,7 +726,7 @@ def before_render(sim, dt_frame):
     # `sim.state.iteration`: they diverge, because a view-factor rebuild spans
     # several frames during which the physics does not advance.
     if build is not None:
-        sim.hud = (f"view factors {build['phase']}/{VF_TABLE_PHASES} phases")
+        sim.huds[0].text = f"view factors {build['phase']}/{VF_TABLE_PHASES} phases"
         vf.request(sim)
         return
     # One line each: the window is 512 px wide, and a single line of all of
@@ -740,7 +741,7 @@ def before_render(sim, dt_frame):
     # A completed 7.7 h run was lost to being closed at exactly that point, so
     # say plainly what the finish signal is: the window closing by itself.
     lines.append("keep open -- closes itself when finished")
-    sim.hud = "\n".join(lines)
+    sim.huds[0].text = "\n".join(lines)
 
     # Requested after the bodies are placed: the hemicube renders the scene
     # this callback just positioned, so the mutual block belongs to this

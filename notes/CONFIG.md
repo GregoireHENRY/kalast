@@ -318,32 +318,38 @@ until the queue drains (`src/app/gpu.rs`). Killing the process mid-run
 abandons whatever is outstanding and leaves as many truncated trailing files
 as there are save workers.
 
-### `hud_text: String` — default `""` *(live)*
 ### `huds: list[Hud]` — default `[]` *(live)*
 ### `hud_font: String` — default `""` *(startup only)*
 On-screen overlay text, drawn over the swapchain after the blit — so by
 default it stays out of exported frames (`export_hud` adds it to those too).
+Empty draws nothing.
 
-Three ways to drive it, in precedence order:
-
-1. **`huds`**, a list — several overlays, each with its own corner.
-2. **`hud_text`**, one template — drawn top-left. Used when `huds` is empty.
-3. **`sim.hud`**, a plain string assigned per frame — used when both are
-   empty. This is the original mechanism and still the right one when the text
-   depends on your own state.
+`app.config.huds` and `app.simulation.huds` are **the same list**, not two.
+Declare the HUDs once at setup and edit them per frame in `before_render`;
+the objects handed back are the live ones, so setting `.text` takes effect
+without reassigning anything.
 
 ```python
-app.config.hud_text = "{it}/{nit} ({its} it/s)\n{fps} fps {ms} ms"
-
 app.config.huds = [
-    kalast.app.Hud("{it}/{nit}"),                             # top-left
+    kalast.app.Hud("{it}/{nit} ({its} it/s)"),                 # top-left
     kalast.app.Hud("{fps} fps  {ms} ms", anchor="bottom-right"),
-    kalast.app.Hud("{hud}", x=200, y=120,                      # absolute
-                   size=24.0, color=(1.0, 0.8, 0.2, 1.0)),
+    kalast.app.Hud("", x=200, y=120, size=24.0),               # filled in below
 ]
-
 app.config.hud_font = "Arial"                 # or a path; built-in otherwise
+
+
+def before_render(sim, dt):
+    sim.huds[2].text = f"epoch {spice.et2utc(et, 'C', 0)}"
 ```
+
+A HUD that `before_render` does not touch keeps the text it had — these are
+persistent objects, and only the placeholders re-expand each frame. A HUD
+whose text is empty draws nothing, which is how to declare one now and fill
+it in later.
+
+Text set from a script is **still a template**, so `sim.huds[0].text =
+f"{i}/{n} {{fps}} fps"` works — the placeholders below expand in whatever
+is there.
 
 #### Placeholders
 
@@ -355,7 +361,6 @@ app.config.hud_font = "Arial"                 # or a path; built-in otherwise
 | `{fps}` | frames per second |
 | `{ms}` | **frame time in milliseconds**, i.e. `1000 / fps` |
 | `{paused}` | `PAUSED` when paused, empty otherwise |
-| `{hud}` | whatever the script assigned to `sim.hud` |
 
 `{ms}` is the same information as `{fps}` inverted, but it is the one you
 compare against a frame budget: 8.3 ms is the whole of a 120 Hz frame, and
@@ -458,7 +463,7 @@ width.
 ---
 
 ### `export_hud: bool` — default `false` *(live)*
-Whether the HUD text (`sim.hud`) is burned into exported frames as well as
+Whether the HUD text (`sim.huds`) is burned into exported frames as well as
 drawn on screen.
 
 - `false` (default): exports carry the render alone. The on-screen HUD is

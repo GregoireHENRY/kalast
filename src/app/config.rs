@@ -43,7 +43,7 @@ impl HudAnchor {
 /// One HUD overlay: a template, where it sits, and how it looks.
 #[derive(Debug, Clone)]
 pub struct Hud {
-    /// Same placeholders as `Config::hud_text`.
+    /// Template text; see `Config::huds` for the placeholders.
     pub text: String,
     pub anchor: HudAnchor,
     /// Inset from the anchor in pixels, or absolute position for `Custom`.
@@ -80,41 +80,6 @@ pub struct Config {
     pub width: u32,
     pub height: u32,
 
-    /// Template for the on-screen HUD, drawn top-left.
-    ///
-    /// Empty (the default) keeps the previous behaviour: whatever the script
-    /// assigned to `sim.hud` is drawn verbatim. Set this and the renderer
-    /// fills it in each frame instead, so a script does not have to rebuild
-    /// the string in `before_render` just to show a counter.
-    ///
-    /// Placeholders, all optional and in any order:
-    ///
-    /// | | |
-    /// |---|---|
-    /// | `{it}`     | iteration count |
-    /// | `{nit}`    | `state.pause_at` if set, else `?` -- the run length is only known when something has been told to stop at it |
-    /// | `{its}`    | iterations per second; `0` while paused, since the counter is not advancing |
-    /// | `{fps}`    | frames per second -- differs from `{its}` exactly when paused |
-    /// | `{ms}`     | frame time, milliseconds |
-    /// | `{paused}` | `PAUSED` when paused, empty otherwise |
-    /// | `{hud}`    | whatever the script put in `sim.hud`, so both can be combined |
-    ///
-    /// An unrecognised `{name}` is left alone rather than erroring, so text
-    /// containing braces still renders.
-    ///
-    /// **Rates are whole numbers** unless a precision is given: `{fps}` gives
-    /// `60`, `{fps:.1}` gives `59.6`. A frame rate quoted to a tenth is noise
-    /// and the digit churns without informing anyone. `{ms}` is the exception
-    /// and keeps one decimal by default, because whole milliseconds cannot
-    /// separate 8 from 8.4 -- the difference between hitting and missing
-    /// 120 Hz.
-    ///
-    /// **Rates average over a one-second window** (`HUD_RATE_WINDOW`) and then
-    /// update, rather than being smoothed per frame. An exponential average
-    /// still moves every frame, so the digits change faster than they can be
-    /// read.
-    pub hud_text: String,
-
     /// Font for the HUD: a **name** or a **path**, or empty for the built-in
     /// DejaVu Sans.
     ///
@@ -139,13 +104,6 @@ pub struct Config {
     ///
     /// Startup only: the glyph cache is built with the window.
     pub hud_font: String,
-
-    /// Several HUDs at once, each with its own template and corner.
-    ///
-    /// Empty (the default) and `hud_text` non-empty is treated as a single
-    /// top-left HUD, so the simple case needs no list. When this is non-empty
-    /// it wins and `hud_text` is ignored.
-    pub huds: Vec<Hud>,
 
     /// Open the window in native fullscreen (borderless, current monitor).
     ///
@@ -306,9 +264,7 @@ impl Default for Config {
             height: 600,
 
             background: wgpu::Color::BLACK,
-            hud_text: String::new(),
             hud_font: String::new(),
-            huds: Vec::new(),
             fullscreen: false,
             render_back_face: false,
 

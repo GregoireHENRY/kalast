@@ -91,6 +91,7 @@ app.config.width = NPX
 app.config.height = NPY
 app.config.vsync = False
 app.config.access_shadow_map = True
+app.config.huds = [kalast.app.Hud("")]   # filled in before_render
 app.simulation.camera.projection.fovy = numpy.radians(tiri.fovy)
 
 # Two bodies loaded, but only one is ever *placed in front of the camera* at a
@@ -154,7 +155,7 @@ def before_render(sim, _dt):
     # Deimos traverses the field the opposite way with -Y, and reprojecting
     # Mars to lat/lon only gives a self-consistent map across epochs with +Y.
     sim.camera.up = [0.0, 1.0, 0.0]
-    sim.hud = f"{i}/{N_FRAMES}  {'deimos' if state['phase']==0 else 'mars  '}"
+    sim.huds[0].text = f"{i}/{N_FRAMES}  {'deimos' if state['phase']==0 else 'mars  '}"
 
 
 def mars_mask(ids, offsets):

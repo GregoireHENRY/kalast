@@ -137,6 +137,7 @@ app.config.width = NPX
 app.config.height = NPY
 app.config.vsync = False
 app.config.access_shadow_map = True
+app.config.huds = [kalast.app.Hud("")]   # filled in before_render
 app.simulation.camera.projection.fovy = numpy.radians(tiri.fovy)
 
 app.simulation.load_mesh(path=MESH, mat=numpy.eye(4), flatten=True)
@@ -243,7 +244,7 @@ def before_render(sim, _dt):
     # Mars to lat/lon only gives a self-consistent map across epochs with +Y.
     sim.camera.up = [0.0, 1.0, 0.0]
 
-    sim.hud = f"{i}/{n_coarse + n_fine} it  captured {state['captured']}/{len(images)}"
+    sim.huds[0].text = f"{i}/{n_coarse + n_fine} it  captured {state['captured']}/{len(images)}"
 
     # Capture only on a step that *is* an image epoch, since every image epoch
     # is now in the grid. Matching on equality rather than on an interval is

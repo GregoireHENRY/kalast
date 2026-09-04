@@ -3,15 +3,20 @@
 import numpy
 
 import kalast
+from kalast.app import App, Hud
 
 
 def before_render(sim: kalast.app.simulation.Simulation, dt: float):
     pass
 
 
-app = kalast.app.App()
+app = App()
+app.config.vsync = False
 app.config.debug_light_cube_show = True
 app.config.render_back_face = True
+app.config.huds = [
+    Hud("it={it}/{nit} fps={fps} {paused}", size=14),
+]
 app.config.wireframe_mode = 2
 app.config.wireframe_color = [0.05, 0.05, 0.05, 1.0]
 app.config.shadow_pcf = 8

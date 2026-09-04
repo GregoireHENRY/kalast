@@ -107,17 +107,24 @@ impl Simulation {
     /// Text shown in the window's top-left corner. Empty for none.
     ///
     /// Set it from `before_render` to watch a long run without reading the
-    /// log, e.g. `sim.hud = f"{step}/{n_steps} it"`. It is drawn on the
-    /// swapchain after the scene is blitted, so it never appears in exported
-    /// frames.
+    /// The live HUDs, the same objects given to `app.config.huds`.
+    ///
+    /// Edit them in `before_render`: `sim.huds[0].text = f"{i}/{n}"`. The
+    /// text is a template, so `{it}`, `{fps}` and the rest still expand in
+    /// whatever is written here.
     #[getter]
-    fn hud(&self) -> String {
-        self.inner.borrow().hud.clone()
+    fn huds(&self) -> Vec<crate::py::app::config::Hud> {
+        self.inner
+            .borrow()
+            .huds
+            .iter()
+            .map(|h| crate::py::app::config::Hud { inner: h.clone() })
+            .collect()
     }
 
     #[setter]
-    fn set_hud(&mut self, v: &str) {
-        self.inner.borrow_mut().hud = v.to_string();
+    fn set_huds(&mut self, v: Vec<crate::py::app::config::Hud>) {
+        self.inner.borrow_mut().huds = v.into_iter().map(|h| h.inner).collect();
     }
 
     fn update(&mut self) {

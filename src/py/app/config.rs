@@ -12,10 +12,13 @@ use crate::Float;
 /// kalast.app.Hud("{fps} fps", anchor="bottom-right")
 /// kalast.app.Hud("{hud}", x=200, y=120, size=24.0)  # absolute, no anchor needed
 /// ```
-#[pyclass]
+#[pyclass(unsendable)]
 #[derive(Clone)]
 pub struct Hud {
-    pub inner: crate::app::config::Hud,
+    /// Shared with `Config::huds` and `Simulation::huds`, so the object a
+    /// script holds *is* the one being drawn -- `sim.huds[0].text = ...` in
+    /// `before_render` takes effect on that frame with nothing to reassign.
+    pub inner: std::rc::Rc<std::cell::RefCell<crate::app::config::Hud>>,
 }
 
 #[pymethods]
@@ -50,25 +53,27 @@ impl Hud {
         if let Some(c) = color {
             inner.color = c;
         }
-        Ok(Self { inner })
+        Ok(Self {
+            inner: std::rc::Rc::new(std::cell::RefCell::new(inner)),
+        })
     }
 
     #[getter]
     fn text(&self) -> String {
-        self.inner.text.clone()
+        self.inner.borrow().text.clone()
     }
     #[setter]
     fn set_text(&mut self, v: &str) {
-        self.inner.text = v.to_string();
+        self.inner.borrow_mut().text = v.to_string();
     }
 
     #[getter]
     fn anchor(&self) -> String {
-        self.inner.anchor.name().to_string()
+        self.inner.borrow().anchor.name().to_string()
     }
     #[setter]
     fn set_anchor(&mut self, v: &str) -> PyResult<()> {
-        self.inner.anchor = crate::app::config::HudAnchor::parse(v).ok_or_else(|| {
+        self.inner.borrow_mut().anchor = crate::app::config::HudAnchor::parse(v).ok_or_else(|| {
             pyo3::exceptions::PyValueError::new_err(format!("unknown hud anchor {v:?}"))
         })?;
         Ok(())
@@ -76,49 +81,50 @@ impl Hud {
 
     #[getter]
     fn x(&self) -> f32 {
-        self.inner.x
+        self.inner.borrow().x
     }
     #[setter]
     fn set_x(&mut self, v: f32) {
-        self.inner.x = v;
+        self.inner.borrow_mut().x = v;
     }
 
     #[getter]
     fn y(&self) -> f32 {
-        self.inner.y
+        self.inner.borrow().y
     }
     #[setter]
     fn set_y(&mut self, v: f32) {
-        self.inner.y = v;
+        self.inner.borrow_mut().y = v;
     }
 
     /// Font size in pixels.
     #[getter]
     fn size(&self) -> f32 {
-        self.inner.size
+        self.inner.borrow().size
     }
     #[setter]
     fn set_size(&mut self, v: f32) {
-        self.inner.size = v;
+        self.inner.borrow_mut().size = v;
     }
 
     #[getter]
     fn color(&self) -> [f32; 4] {
-        self.inner.color
+        self.inner.borrow().color
     }
     #[setter]
     fn set_color(&mut self, v: [f32; 4]) {
-        self.inner.color = v;
+        self.inner.borrow_mut().color = v;
     }
 
     fn __repr__(&self) -> String {
+        let h = self.inner.borrow();
         format!(
             "Hud(text={:?}, anchor={:?}, x={}, y={}, size={})",
-            self.inner.text,
-            self.inner.anchor.name(),
-            self.inner.x,
-            self.inner.y,
-            self.inner.size
+            h.text,
+            h.anchor.name(),
+            h.x,
+            h.y,
+            h.size
         )
     }
 }
@@ -235,18 +241,6 @@ impl Config {
         c.a = v[3] as f64;
     }
 
-    /// HUD template, e.g. `"{it}/{nit} ({its} it/s)\n{fps} fps"`.
-    /// See `Config::hud_text` for the full placeholder list.
-    #[getter]
-    fn hud_text(&self) -> String {
-        self.app.borrow().config.hud_text.clone()
-    }
-
-    #[setter]
-    fn set_hud_text(&mut self, v: &str) {
-        self.app.borrow_mut().config.hud_text = v.to_string();
-    }
-
     /// Font for every HUD: a name (`"Arial"`) or a path, or empty for the
     /// built-in. One that will not resolve warns and falls back. Startup only.
     #[getter]
@@ -259,21 +253,29 @@ impl Config {
         self.app.borrow_mut().config.hud_font = v.to_string();
     }
 
-    /// Several HUDs at once. Empty means "use `hud_text`".
+    /// The on-screen HUDs. Empty (the default) draws none.
+    ///
+    /// An alias for `app.simulation.huds`, not a second list: they are the
+    /// same storage, so declaring them here and editing them there in
+    /// `before_render` cannot drift apart. The objects handed back are the
+    /// live ones -- setting `.text` on one takes effect on the next frame
+    /// with no list to reassign.
     #[getter]
     fn huds(&self) -> Vec<Hud> {
         self.app
             .borrow()
-            .config
+            .simulation
+            .borrow()
             .huds
             .iter()
-            .map(|h| Hud { inner: h.clone() })
+            .map(|h| Hud { inner: h.clone() })  // Rc clone: the same object
             .collect()
     }
 
     #[setter]
     fn set_huds(&mut self, v: Vec<Hud>) {
-        self.app.borrow_mut().config.huds = v.into_iter().map(|h| h.inner).collect();
+        self.app.borrow().simulation.borrow_mut().huds =
+            v.into_iter().map(|h| h.inner).collect();
     }
 
     /// Native fullscreen at startup. See `Config::fullscreen`.

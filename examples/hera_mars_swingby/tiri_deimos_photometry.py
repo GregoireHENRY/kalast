@@ -96,6 +96,7 @@ app.config.width = 512
 app.config.height = 512
 app.config.vsync = False
 app.config.access_shadow_map = True
+app.config.huds = [kalast.app.Hud("")]   # filled in before_render
 app.simulation.load_mesh(path=MESH, mat=numpy.eye(4), flatten=True)
 nface = len(app.simulation.bodies[0].mesh.facets)
 pos = numpy.array([app.simulation.bodies[0].mesh.facets[k].pos
@@ -197,7 +198,7 @@ def before_render(sim, _dt):
     sim.sun.anchor = [0.0, 0.0, 0.0]
     sim.sun.pos = u * 200.0
     sim.sun.look_anchor()
-    sim.hud = f"preroll {i}/{n_pre}"
+    sim.huds[0].text = f"preroll {i}/{n_pre}"
 
 
 def after_render(sim, _dt):

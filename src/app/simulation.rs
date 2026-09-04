@@ -47,7 +47,9 @@ pub struct Simulation {
     ///
     /// Drawn onto the swapchain after the scene has been blitted to it, so it
     /// never reaches `render_texture` and never appears in exported frames.
-    pub hud: String,
+    /// The live HUDs, shared with `Config::huds` -- the same objects, so
+    /// editing one here is editing the one that gets drawn.
+    pub huds: Vec<std::rc::Rc<std::cell::RefCell<crate::app::config::Hud>>>,
 }
 
 impl Simulation {
@@ -73,7 +75,7 @@ impl Simulation {
 
             hemicube_request: None,
             hemicube_result: None,
-            hud: String::new(),
+            huds: Vec::new(),
         }
     }
 
