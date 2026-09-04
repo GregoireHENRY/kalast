@@ -161,6 +161,63 @@ fn wireframe_edge(bary: vec3<f32>) -> f32 {
     return 1.0 - smoothstep(globals.wireframe_width - 1.0, globals.wireframe_width, nearest);
 }
 
+
+/// Depth gradient of the receiver in shadow-map UV space, from its own plane.
+///
+/// Every PCF tap compares against the *centre* fragment's depth, but a
+/// receiver tilted in light space sits at a different depth a few texels
+/// away. On the crater's lit wall that darkened 39,219 px at `shadow_pcf = 4`
+/// which `shadow_pcf = 0` renders clean -- acne produced by the filter, not
+/// by the geometry.
+///
+/// Derived from the facet normal rather than `dpdx`/`dpdy`. Screen-space
+/// derivatives are meaningless across a facet boundary, and on a flat-shaded
+/// mesh every pixel is near one: a `dpdx` version of this made the facet-edge
+/// leak 6x worse (1,279 px against 215). The normal is constant per facet, so
+/// this has no discontinuity to blow up on.
+///
+/// The light projection is orthographic, hence affine, so differencing two
+/// tangent steps is exact and the step length cancels in the solve.
+fn receiver_plane_grad(m: mat4x4<f32>, pos: vec3<f32>, n: vec3<f32>) -> vec2<f32> {
+    // Any two directions spanning the facet plane.
+    var a = vec3<f32>(1.0, 0.0, 0.0);
+    if abs(n.x) > 0.9 {
+        a = vec3<f32>(0.0, 1.0, 0.0);
+    }
+    let t1 = normalize(cross(n, a));
+    let t2 = cross(n, t1);
+
+    let p0 = project_light(m, pos);
+    let d1 = project_light(m, pos + t1) - p0;
+    let d2 = project_light(m, pos + t2) - p0;
+
+    let det = d1.x * d2.y - d1.y * d2.x;
+    if abs(det) < 1.0e-20 {
+        return vec2<f32>(0.0, 0.0);
+    }
+    return vec2<f32>(d2.y * d1.z - d1.y * d2.z,
+                     d1.x * d2.z - d2.x * d1.z) / det;
+}
+
+/// World position -> (shadow uv, depth), matching the lookup below exactly.
+fn project_light(m: mat4x4<f32>, pos: vec3<f32>) -> vec3<f32> {
+    let ls = m * vec4<f32>(pos, 1.0);
+    var pr = ls.xyz / ls.w;
+    pr.y = -pr.y;
+    return vec3<f32>(pr.xy * 0.5 + 0.5, pr.z);
+}
+
+// Ceiling on the per-tap receiver-plane adjustment, in normalised depth.
+//
+// The gradient is only valid where the occluder *is* the receiver -- a wall
+// shadowing itself. Where the occluder is another surface, such as the rim
+// casting onto the crater floor, the receiver's slope says nothing about the
+// stored depth, and an unclamped adjustment pushes those taps out of shadow:
+// the floor leak went 215 -> 3,892 px at pcf=2 with no ceiling. Measured on
+// the crater, 1e-4 removes the wall acne (39,219 -> 710 px) while leaving the
+// floor leak at its best value.
+const GRAD_MAX: f32 = 1.0e-4;
+
 @group(2) @binding(0)
 var t_shadow: texture_depth_2d_array;
 @group(2) @binding(1)
@@ -229,7 +286,17 @@ fn fs_shaded(in: VertexOutput) -> vec4<f32> {
     // shadow: this body's own layer, with that layer's bias
     let layer = min(in.shadow_layer, max(view.light.n_layers, 1u) - 1u);
     let lb = view.light.layer_bias[layer];
-    let normal_offset = lb.x * k;
+    // Scaled by the PCF kernel radius, not one texel. `lb.x` is one texel
+    // diagonal, which is the right separation for a single tap -- but a
+    // `shadow_pcf = N` kernel reaches N texels away, and every one of those
+    // taps compares against a stored depth that far along the surface. With a
+    // one-texel offset those taps flip, and averaging turns a black interior
+    // into grey: 7,952 px of the crater floor lifted out of full shadow at
+    // N = 4, against 494 with the offset scaled to the kernel.
+    //
+    // `N = 0` keeps exactly the previous value, so the single-tap path -- and
+    // every product rendered with it -- is unchanged.
+    let normal_offset = lb.x * (1.0 + f32(globals.shadow_pcf)) * k;
     let offset_pos = in.world_pos + in.world_normal * normal_offset;
     let light_space = view.light.view_proj_layers[layer] * vec4<f32>(offset_pos, 1.0);
     var proj = light_space.xyz / light_space.w;
@@ -237,6 +304,9 @@ fn fs_shaded(in: VertexOutput) -> vec4<f32> {
     let uv = proj.xy * 0.5 + 0.5;
     let depth = proj.z;
     let bias = max(lb.y * k2, lb.z);
+
+    let grad = receiver_plane_grad(
+        view.light.view_proj_layers[layer], offset_pos, in.world_normal);
 
     var shadow = 1.0;
 
@@ -258,7 +328,11 @@ fn fs_shaded(in: VertexOutput) -> vec4<f32> {
         for (var x = -i32(globals.shadow_pcf); x <= i32(globals.shadow_pcf); x++) {
             for (var y = -i32(globals.shadow_pcf); y <= i32(globals.shadow_pcf); y++) {
                 let offset = vec2<f32>(f32(x), f32(y)) * texel_size;
-                sum += textureSampleCompare(t_shadow, s_shadow, uv + offset, layer, depth - bias);
+                // Compare against the depth the receiver actually has at
+                // this tap, not at the kernel centre.
+                let adj = clamp(dot(offset, grad), -GRAD_MAX, GRAD_MAX);
+                sum += textureSampleCompare(t_shadow, s_shadow, uv + offset, layer,
+                                            depth + adj - bias);
             }
         }
         let taps = f32(globals.shadow_pcf * 2u + 1u);
