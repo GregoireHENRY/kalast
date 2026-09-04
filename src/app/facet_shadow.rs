@@ -121,7 +121,15 @@ impl FacetShadowQuery {
         model: crate::Mat4,
         light_view_proj: crate::Mat4,
         light_pos: crate::Vec3,
-        globals: &super::uniform::Globals,
+        // This layer's own (normal_offset_scale, bias_scale, bias_minimum).
+        // Not the `Globals` scalars: those are fitted to the whole scene,
+        // while each shadow layer is fitted to its own body, and the two
+        // differ by the ratio of the bodies' sizes. Applying the scene value
+        // to a small body pushes the sample further along the normal than the
+        // body's own radius, so nothing reads as occluded -- Deimos beside
+        // Mars reported 0.55% of facets shadowed where it should be ~46%.
+        // This feeds the TPM, so it was wrong physics, not a wrong picture.
+        layer_bias: crate::Vec4,
     ) -> Vec<f32> {
         let n_facets = mesh.n_facets();
         if n_facets == 0 {
@@ -133,9 +141,9 @@ impl FacetShadowQuery {
             light_view_proj: to_cols_f32(light_view_proj),
             light_pos: [light_pos.x as f32, light_pos.y as f32, light_pos.z as f32],
             n_facets,
-            shadow_bias_scale: globals.shadow_bias_scale,
-            shadow_bias_minimum: globals.shadow_bias_minimum,
-            shadow_normal_offset_scale: globals.shadow_normal_offset_scale,
+            shadow_bias_scale: layer_bias.y as f32,
+            shadow_bias_minimum: layer_bias.z as f32,
+            shadow_normal_offset_scale: layer_bias.x as f32,
             is_flat: mesh.is_flat as u32,
         };
 
