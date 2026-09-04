@@ -13,29 +13,109 @@ class Simulation:
     bodies: list[Body]
     camera: Eye
     sun: Eye
-    def load_mesh(self, object: str, object: list[list[float]] | None, object: bool | None, object: str | None) -> None:
+    def load_mesh(self, path: str, mat: list[list[float]] | None, flatten: bool | None, shadow_path: str | None) -> None:
+        """`shadow_path` optionally names a lower-resolution mesh to render into
+        the shadow map in place of `path`. The shadow map only decides which
+        fragments are lit, so a coarser occluder buys performance without
+        touching per-facet science data -- unlike loading a coarser `path`,
+        which would invalidate facet-indexed results. Omit it (the default)
+        to shadow with the main mesh.
+        """
         ...
-    def add_mesh(self, object: Mesh, object: list[list[float]] | None) -> None:
+    def add_mesh(self, mesh: Mesh, mat: list[list[float]] | None) -> None:
         ...
     export: bool
     huds: list[Hud]
+    """The live HUDs -- the same objects as `app.config.huds`, not copies.
+
+    Edit them in `before_render`: `sim.huds[0].text = f"{i}/{n}"`. The
+    text is a template, so `{it}`, `{fps}` and the rest still expand in
+    whatever is written here.
+    """
     def update(self) -> None:
         ...
     def toggle_export(self) -> None:
         ...
     def export_once(self) -> None:
         ...
-    def request_facet_shadow(self, object: int) -> None:
+    def request_facet_shadow(self, body: int) -> None:
+        """Ask for `body`'s per-facet occluded fractions, read back from the GPU
+        shadow map after this frame renders.
+
+        Request from `before_render`, read from `after_render`: the shadow map
+        only holds this frame's geometry once it has been drawn. Reading from
+        `before_render` instead still works but returns the *previous* frame's
+        result.
+        """
         ...
-    def facet_shadow(self, object: int) -> numpy.object | None:
+    def facet_shadow(self, body: int) -> numpy.object | None:
+        """Per-facet occluded fractions for `body`, or `None` if they were not
+        computed this frame.
+
+        One entry per facet, in `Mesh.facets` order: 0.0 fully lit, 1.0 fully
+        shadowed, quarter steps between for facets straddling a shadow
+        boundary (4 samples per facet). `1.0 - frac` is the lit fraction.
+
+        Set `app.config.access_shadow_map = True` to have every body computed
+        each frame, then read this from `after_render`.
+        """
         ...
-    def request_hemicube(self, object: int, object: numpy.object, object: int, object: int) -> None:
+    def request_hemicube(self, body: int, facets: numpy.object, resolution: int, batch: int) -> None:
+        """Ask for hemicube view factors for `facets` of `body`, this frame.
+
+        Request from `before_render`, read with `hemicube` from
+        `after_render`. This is a precompute, not a per-frame query: a full
+        10,000-facet matrix is minutes of GPU work and 400 MB dense. For a
+        rigid body the self view factors are fixed in the body frame, so it is
+        computed once per shape model and reused.
+
+        `resolution` is one hemicube face; the delta form factors close to
+        unity as `1/resolution^2`, reaching 3e-5 at 128. `batch` hemicubes are
+        accumulated on the GPU before a readback.
+        """
         ...
     def hemicube(self) -> numpy.object:
+        """`(view_factors, offsets)` from the last `request_hemicube`, or `None`.
+
+        `view_factors` has shape `(len(facets), n_total)` over a facet index
+        space shared by every loaded body, so one array carries self *and*
+        mutual view factors. `offsets[b]` is where body `b` starts, so
+        `vf[:, offsets[b]:offsets[b] + n_b]` is the block for body `b`.
+
+        Rows sum to at most 1; the shortfall is the fraction radiated to
+        space. Occlusion is included, by the other body as well as by the
+        body's own terrain.
+        """
         ...
     def request_facet_id(self) -> None:
+        """Ask for a facet index map from the camera's point of view this frame.
+
+        Request from `before_render`, read with `facet_id_map` from
+        `after_render`. Unlike the shadow query there is no config flag to
+        enable it permanently: it renders the scene a second time and blocks
+        on a readback, so it is meant for the frames a data product comes
+        from.
+        """
         ...
     def facet_id_map(self) -> numpy.object:
+        """`(ids, offsets)` for the last requested frame, or `None`.
+
+        `ids` is `(height, width)` of `uint32`: 0 where nothing was drawn,
+        otherwise `1 + offsets[body] + facet`. So for body `b`,
+
+        ```text
+        mask  = (ids > offsets[b]) & (ids <= offsets[b] + n_facets_b)
+        facet = ids[mask] - offsets[b] - 1
+        ```
+
+        picks its pixels and their facet indices, in `Mesh.facets` order.
+        Depth is resolved by the rasteriser, so a facet missing from the map
+        is one the camera genuinely cannot see -- occluded by another body,
+        over the limb, or outside the field of view.
+
+        Only flattened meshes are drawn: the facet index comes from the vertex
+        index, which is only meaningful when each facet owns its vertices.
+        """
         ...
 
 class State:

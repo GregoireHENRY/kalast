@@ -38,7 +38,10 @@ def test_every_stub_is_valid_python():
     """
     for pyi in sorted((ROOT / "kalast").rglob("*.pyi")):
         try:
-            ast.parse(pyi.read_text())
+            # compile(), not ast.parse(): parsing accepts duplicate argument
+            # names, which is exactly what a bug in the generator produced --
+            # `def load_mesh(self, object: str, object: list)`.
+            compile(pyi.read_text(), str(pyi), "exec")
         except SyntaxError as e:
             raise AssertionError(f"{pyi.relative_to(ROOT)}: {e}") from e
 

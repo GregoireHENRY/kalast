@@ -5,7 +5,7 @@
 import numpy  # noqa: F401
 
 class Vertex:
-    def __init__(self, object: list[float] | None, object: list[float] | None, object: list[float] | None, object: list[float] | None, object: list[float] | None, object: list[float] | None, object: int | None) -> None:
+    def __init__(self, pos: list[float] | None, tex: list[float] | None, normal: list[float] | None, tangent: list[float] | None, bitangent: list[float] | None, color: list[float] | None, color_mode: int | None) -> None:
         ...
     pos: numpy.object
     tex: numpy.object
@@ -16,7 +16,7 @@ class Vertex:
     color_mode: int
 
 class Facet:
-    def __init__(self, object: list[float] | None, object: list[float] | None, object: float | None) -> None:
+    def __init__(self, pos: list[float] | None, normal: list[float] | None, area: float | None) -> None:
         ...
     pos: numpy.object
     normal: numpy.object
@@ -34,12 +34,26 @@ class Material:
 
 class Mesh:
     def inward_facing_facets(self) -> numpy.object:
+        """Indices of facets whose normal points into the body.
+
+        A quick shape-model sanity check. Reversed winding on a few triangles
+        is common in decimated models and is quietly destructive: such a facet
+        is permanently dark in the thermophysical model, and a hemicube placed
+        on it reports a self view factor near 1. Assumes a roughly star-shaped
+        body, so inspect the result rather than trusting it blindly.
+        """
         ...
-    def flip_facets(self, object: numpy.object) -> int:
+    def flip_facets(self, facets: numpy.object) -> int:
+        """Reverse the winding of the given facets. Returns how many were flipped.
+
+        Call before `app.start()`: the GPU buffers are built once when the
+        window opens, so a later flip would fix the physics and leave the
+        shadow map and hemicube drawing the old winding.
+        """
         ...
-    def __init__(self, object: str | None, object: object, object: list[Vertex] | None, object: list[Facet] | None, object: list[int] | None, object: int | None) -> None:
+    def __init__(self, path: str | None, update_pos: object, vertices: list[Vertex] | None, facets: list[Facet] | None, indices: list[int] | None, material_id: int | None) -> None:
         ...
-    def load(self, object: object, object: object, object: str, object: object) -> object:
+    def load(self, _cls: object, pyo3: object, path: str, update_pos: object) -> object:
         ...
     vertices: object
     indices: numpy.object
@@ -60,22 +74,29 @@ class Mesh:
     def recompute_facets(self) -> None:
         ...
     def mark_colors_dirty(self) -> None:
+        """Call after mutating vertex color/color_mode/extra in place (e.g. a
+        per-facet colormap) to request a GPU re-upload on the next frame.
+        The renderer only re-uploads a mesh's color data when this has been
+        set, so a static-colored mesh never pays that cost after its
+        initial upload -- a script that recolors every frame needs to call
+        this every frame too, the same way sim.export_once() works.
+        """
         ...
     def is_flat(self) -> bool:
         ...
-    def get_facet_vertices(self, object: int) -> FacetVerticesView:
+    def get_facet_vertices(self, facet: int) -> FacetVerticesView:
         ...
-    def get_facet_indices(self, object: int) -> list[int]:
+    def get_facet_indices(self, facet: int) -> list[int]:
         ...
-    def get_facet_positions(self, object: int) -> list[numpy.object]:
+    def get_facet_positions(self, facet: int) -> list[numpy.object]:
         ...
-    def get_facet_normals(self, object: int) -> list[numpy.object]:
+    def get_facet_normals(self, facet: int) -> list[numpy.object]:
         ...
-    def get_facet_colors(self, object: int) -> list[numpy.object]:
+    def get_facet_colors(self, facet: int) -> list[numpy.object]:
         ...
-    def update_all_vertices_colors(self, object: int, object: list[float]) -> None:
+    def update_all_vertices_colors(self, mode: int, color: list[float]) -> None:
         ...
-    def intersect(self, object: list[float], object: list[float], object: bool) -> tuple[int, list[float]] | None:
+    def intersect(self, p: list[float], u: list[float], exit_first: bool) -> tuple[int, list[float]] | None:
         ...
 
 class FacetVerticesView:

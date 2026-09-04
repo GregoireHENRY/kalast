@@ -5,14 +5,14 @@
 import numpy  # noqa: F401
 
 class Entity:
-    def __init__(self, object: int, object: str, object: str, object: str) -> None:
+    def __init__(self, id: int, name: str, frame: str, label: str) -> None:
         ...
     id: int
     name: str
     frame: str
 
 class Body:
-    def __init__(self, object: int, object: str, object: str, object: str, object: list[float], object: float, object: float) -> None:
+    def __init__(self, id: int, name: str, frame: str, label: str, radii: list[float], orbit_period: float, spin_period: float) -> None:
         ...
     id: int
     name: str
@@ -28,7 +28,7 @@ class Body:
         ...
 
 class Camera:
-    def __init__(self, object: int, object: str, object: str, object: str, object: list[int], object: float, object: list[str]) -> None:
+    def __init__(self, id: int, name: str, frame: str, label: str, px: list[int], fovy: float, filters: list[str]) -> None:
         ...
     id: int
     name: str
@@ -40,7 +40,7 @@ class Camera:
         ...
 
 class Spacecraft:
-    def __init__(self, object: int, object: str, object: str, object: str, object: list[str]) -> None:
+    def __init__(self, id: int, name: str, frame: str, label: str, id_cameras: list[str]) -> None:
         ...
     id: int
     name: str

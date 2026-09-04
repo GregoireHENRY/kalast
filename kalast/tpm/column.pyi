@@ -6,7 +6,7 @@ import numpy  # noqa: F401
 from kalast.tpm.properties import Properties
 
 class Column:
-    def __init__(self, object: object, object: Properties, object: float) -> None:
+    def __init__(self, z: object, prop: Properties, t_init: float) -> None:
         ...
     z: numpy.object
     t: numpy.object

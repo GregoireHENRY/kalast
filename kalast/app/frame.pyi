@@ -10,6 +10,12 @@ class Eye:
     up: numpy.object
     anchor: numpy.object
     anchor_body: int | None
+    """Body index the anchor tracks, or `None` for a fixed anchor.
+
+    `camera.anchor_body = 0` keeps the anchor on body 0 as it moves.
+    Assigning `anchor` from a body matrix instead only captures where it
+    was at that moment.
+    """
     up_world: numpy.object
     projection: Projection
     def is_control_wasd(self) -> bool:
@@ -34,7 +40,7 @@ class Eye:
         ...
     def lookto(self) -> numpy.object:
         ...
-    def view_proj(self, object: float) -> numpy.object:
+    def view_proj(self, aspect: float) -> numpy.object:
         ...
     def mat(self) -> numpy.object:
         ...
@@ -42,7 +48,7 @@ class Eye:
         ...
     def look_anchor(self) -> None:
         ...
-    def set_target(self, object: list[float]) -> None:
+    def set_target(self, target: list[float]) -> None:
         ...
 
 class Projection:
@@ -61,6 +67,6 @@ class Projection:
     resolved_near: float
     resolved_far: float
     resolved_side: float
-    def mat(self, object: float) -> numpy.object:
+    def mat(self, aspect: float) -> numpy.object:
         ...
 

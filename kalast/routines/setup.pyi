@@ -6,14 +6,14 @@ import numpy  # noqa: F401
 from kalast.mesh import Mesh
 
 class ProgressDebug:
-    def __init__(self, object: str, object: int, object: int) -> None:
+    def __init__(self, frequency: str, digits_full: int, digits_decimal: int) -> None:
         ...
     frequency: str
     digits_full: int
     digits_decimal: int
 
 class Time:
-    def __init__(self, object: float, object: float, object: float) -> None:
+    def __init__(self, dt: float, duration_total: float, duration_record: float) -> None:
         ...
     dt: float
     duration_total: float
@@ -30,7 +30,7 @@ class Body:
     orbit_axis: numpy.object
 
 class BodyDataMap:
-    def __init__(self, object: list[numpy.object], object: int, object: object) -> None:
+    def __init__(self, temperatures: list[numpy.object], thermal_properties_all: int, thermal_properties_map: object) -> None:
         ...
     temperatures: list[numpy.object]
     thermal_properties_all: int

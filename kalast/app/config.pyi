@@ -5,13 +5,24 @@
 import numpy  # noqa: F401
 
 class Hud:
-    def __init__(self, object: str, object: str, object: float | None, object: float | None, object: float, object: list[float] | None) -> None:
+    """One HUD overlay: a template, a corner, and how it looks.
+
+    ```python
+    kalast.app.Hud("{it}/{nit}")                       # top-left, the default
+    kalast.app.Hud("{fps} fps", anchor="bottom-right")
+    kalast.app.Hud("{hud}", x=200, y=120, size=24.0)  # absolute, no anchor needed
+    ```
+    """
+    def __init__(self, text: str, anchor: str, x: float | None, y: float | None, size: float, color: list[float] | None) -> None:
         ...
     text: str
+    """Template text; see `Config::huds` for the placeholders."""
     anchor: str
     x: float
+    """Inset from the anchor in pixels, or absolute position for `Custom`."""
     y: float
     size: float
+    """Font size in pixels."""
     color: list[float]
 
 class Config:
@@ -26,8 +37,20 @@ class Config:
     height: int
     background: list[float]
     hud_font: str
+    """Font for every HUD: a name (`"Arial"`) or a path, or empty for the
+    built-in. One that will not resolve warns and falls back. Startup only.
+    """
     huds: list[Hud]
+    """The on-screen HUDs. Empty (the default) draws none.
+
+    An alias for `app.simulation.huds`, not a second list: they are the
+    same storage, so declaring them here and editing them there in
+    `before_render` cannot drift apart. The objects handed back are the
+    live ones -- setting `.text` on one takes effect on the next frame
+    with no list to reassign.
+    """
     fullscreen: bool
+    """Native fullscreen at startup. See `Config::fullscreen`."""
     render_back_face: bool
     sensitivity_move: float
     sensitivity_look: float
@@ -42,6 +65,9 @@ class Config:
     light_color: list[float]
     light_cube_scale: float
     msaa: int
+    """Multisample anti-aliasing on the main pass: 1 (off), 2, 4 or 8.
+    Takes effect when the window is created, so set it before `App.start`.
+    """
     shadow_resolution: int
     shadow_bias_scale: float | None
     shadow_bias_minimum: float | None
@@ -54,8 +80,43 @@ class Config:
     export_sync: bool
     export_max_queued: int
     emulate_middle_button: bool
+    """Treat alt + left-drag as a middle-drag, so the arcball can be orbited
+    on hardware with no middle button. Blender calls the same setting
+    "Emulate 3 Button Mouse". Defaults on for macOS, where a trackpad is
+    the common case, and off elsewhere.
+    """
     access_shadow_map: bool
+    """Read the shadow map back per facet: computes solar occlusion for every
+    body each frame, readable from `after_render` via
+    `Simulation::facet_shadow`.
+
+    Off by default because it is not free: the query costs ~1.6 ms per
+    body at 100k facets and ~7.3 ms at 3.1M, dominated by the blocking
+    readback. Turn it on for thermophysical or radiance work; leave it off
+    when you only want images.
+    """
     export_hud: bool
+    """Burn the HUD text into exported frames as well as drawing it on screen.
+
+    Off by default, and that is the right default for a data product: the
+    HUD is drawn onto the swapchain after the scene has been copied out, so
+    exports carry the render alone. Turn it on for a screen-capture-style
+    movie where the run state should be visible in the frames themselves --
+    it costs one extra text pass, on exported frames only.
+    """
     shadow_per_body: bool
+    """Fit a shadow map per body instead of one fitted to the whole scene.
+
+    On by default, because one shared map is fitted to the scene's extent
+    and a small body beside a large one then gets almost no texels -- 6 km
+    Deimos next to 3,396 km Mars is the case that forced this. Each layer
+    is aimed at its own body and sized to it, while its depth range still
+    spans the scene, so mutual shadowing is unaffected: anything between
+    the Sun and a body still casts into that body's layer.
+
+    Costs one shadow pass per body. Turn it off to get the old single
+    scene-fitted map back, which is only worth doing to reproduce older
+    output or when every body is a similar size.
+    """
     export_dir: str
 

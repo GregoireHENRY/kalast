@@ -64,14 +64,55 @@ def py_type(rust: str) -> str:
     return t if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", t) else "object"
 
 
+def clean_doc(raw: str) -> str:
+    """`/// ...` lines -> plain text, blank lines preserved."""
+    return "\n".join(
+        l.strip().removeprefix("///").strip() for l in (raw or "").strip().splitlines()
+    ).strip()
+
+
+def struct_field_docs(path: str, struct: str) -> dict:
+    """Doc comments on a plain Rust struct's fields.
+
+    The pyo3 accessors are mostly undocumented one-liners while the real
+    explanation sits on the struct they wrap -- 71 documented fields on
+    `Config` against 15 on its accessors. Hover should show the good one.
+    """
+    src = (ROOT / path).read_text()
+    m = re.search(rf"pub struct {struct} \{{", src)
+    if not m:
+        return {}
+    i = src.index("{", m.end() - 1)
+    depth, j = 0, i
+    while j < len(src):
+        depth += (src[j] == "{") - (src[j] == "}")
+        if depth == 0:
+            break
+        j += 1
+    out = {}
+    for fm in re.finditer(
+        r"((?:^[ \t]*///[^\n]*\n)*)[ \t]*(?:#\[[^\]]*\]\s*)*pub (\w+):",
+        src[i:j],
+        re.M,
+    ):
+        if doc := clean_doc(fm.group(1)):
+            out[fm.group(2)] = doc
+    return out
+
+
 def parse(src: str):
     """-> [(class, [(kind, name, type, doc)])] for one .rs file."""
     classes = []
-    for m in re.finditer(r"#\[pyclass[^\]]*\]\s*(?:#\[[^\]]*\]\s*)*pub struct (\w+)", src):
-        classes.append((m.group(1), []))
+    for m in re.finditer(
+        r"((?:^[ \t]*///[^\n]*\n)*)[ \t]*#\[pyclass[^\]]*\]\s*"
+        r"(?:#\[[^\]]*\]\s*)*pub struct (\w+)",
+        src,
+        re.M,
+    ):
+        classes.append((m.group(2), [], clean_doc(m.group(1))))
     if not classes:
         return []
-    by_name = dict(classes)
+    by_name = {c: members for c, members, _ in classes}
 
     for im in re.finditer(r"#\[pymethods\]\s*impl (\w+) \{", src):
         cls = im.group(1)
@@ -87,7 +128,10 @@ def parse(src: str):
             j += 1
         # Rust line comments inside an argument list would otherwise be
         # emitted verbatim and make the stub invalid Python.
-        body = re.sub(r"//[^\n]*", "", src[i:j])
+        # `(?<!/)` as well as `(?!/)`: without the lookbehind this matches from
+        # the *second* slash of `///`, stripping the doc and leaving a stray
+        # `/` behind, so every doc comment silently vanished.
+        body = re.sub(r"(?<!/)//(?!/)[^\n]*", "", src[i:j])
 
         for fm in re.finditer(
             r"((?:\s*///[^\n]*\n)*)\s*((?:#\[(?:[^\[\]]|\[[^\]]*\])*\]\s*)*)"
@@ -100,9 +144,7 @@ def parse(src: str):
                 ret = "()"          # a constructor returns None in Python
             if name.startswith("__") and name != "__init__":
                 continue
-            doc = "\n".join(
-                l.strip().removeprefix("///").strip() for l in doc.strip().splitlines()
-            ).strip()
+            doc = clean_doc(doc)
             gm = re.search(r"#\[getter(?:\((\w+)\))?\]", attrs)
             sm = re.search(r"#\[setter(?:\((\w+)\))?\]", attrs)
             if gm:
@@ -151,6 +193,18 @@ def merge(members):
     return out
 
 
+def docstring(text, indent):
+    """A triple-quoted docstring, escaped and indented."""
+    text = text.replace(chr(92), chr(92) * 2).replace('"""', "'''")
+    lines = text.splitlines()
+    if len(lines) == 1:
+        return [indent + '"""' + lines[0] + '"""']
+    out = [indent + '"""' + lines[0]]
+    out += [(indent + l).rstrip() for l in lines[1:]]
+    out.append(indent + '"""')
+    return out
+
+
 KNOWN_BUILTINS = {"int", "float", "str", "bool", "object", "None", "list",
                   "tuple", "dict", "numpy"}
 
@@ -171,9 +225,9 @@ def resolve(annotation: str, defined: set, index: dict) -> str:
 
 
 def render(classes, index=None) -> str:
-    defined = {c for c, _ in classes}
+    defined = {c for c, _, _ in classes}
     referenced = set()
-    for _, members in classes:
+    for _, members, _ in classes:
         for m in merge(members):
             for t in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", m[2] if m[0] == "attr" else m[2]):
                 referenced.add(t)
@@ -196,9 +250,11 @@ def render(classes, index=None) -> str:
     ]
     out += imports
     out.append("")
-    for cls, members in classes:
+    for cls, members, cls_doc in classes:
         members = merge(members)
         out.append(f"class {cls}:")
+        if cls_doc:
+            out += docstring(cls_doc, "    ")
         if not members:
             out.append("    ...")
             out.append("")
@@ -206,22 +262,27 @@ def render(classes, index=None) -> str:
         for m in members:
             if m[0] == "attr":
                 _, name, typ, doc = m
-                if doc:
-                    out.append(f'    """{doc}"""' if False else "")
-                    out[-1:] = []
                 out.append(f"    {name}: {resolve(typ, defined, index or {})}")
+                # An attribute docstring is a bare string literal after the
+                # annotation: Python ignores it, editors show it on hover.
+                if doc:
+                    out += docstring(doc, "    ")
             else:
                 _, name, ret, doc, params = m
-                params = [resolve(p, defined, index or {}) for p in params]
+                params = [
+                    # Only the annotation: resolving the whole "name: type"
+                    # rewrote parameter *names* to `object` as well.
+                    f"{p.split(':', 1)[0]}:{resolve(p.split(':', 1)[1], defined, index or {})}"
+                    if ":" in p
+                    else p
+                    for p in params
+                ]
                 ret = resolve(ret, defined, index or {})
                 sig = ", ".join(["self"] + params)
                 out.append(f"    def {name}({sig}) -> {ret}:")
                 if doc:
-                    first = doc.splitlines()[0]
-                    out.append(f'        """{first}"""')
-                    out.append("        ...")
-                else:
-                    out.append("        ...")
+                    out += docstring(doc, "        ")
+                out.append("        ...")
         out.append("")
     return "\n".join(out) + "\n"
 
@@ -247,10 +308,25 @@ def main() -> int:
     args = ap.parse_args()
 
     parsed = {rs: parse((ROOT / rs).read_text()) for rs in TARGETS}
+
+    # Where a pyo3 accessor carries no doc of its own, fall back to the doc on
+    # the field it wraps: that is where the explanation actually lives.
+    fallbacks = {
+        "Config": struct_field_docs("src/app/config.rs", "Config"),
+        "Hud": struct_field_docs("src/app/config.rs", "Hud"),
+        "State": struct_field_docs("src/app/simulation.rs", "State"),
+    }
+    for classes in parsed.values():
+        for cls, members, _ in classes:
+            src_docs = fallbacks.get(cls, {})
+            for i, m in enumerate(members):
+                if m[0] in ("attr", "setter") and not m[3] and m[1] in src_docs:
+                    members[i] = (m[0], m[1], m[2], src_docs[m[1]])
+
     index = {
         cls: TARGETS[rs].removesuffix(".pyi").replace("/", ".")
         for rs, classes in parsed.items()
-        for cls, _ in classes
+        for cls, _, _ in classes
     }
 
     stale = []

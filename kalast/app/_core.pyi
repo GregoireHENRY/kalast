@@ -14,6 +14,21 @@ class App:
     def start(self) -> None:
         ...
     before_render: object
+    """Runs before each frame is drawn. Set body transforms, camera and
+    sun here.
+    """
     tick: object
+    """Alias for `before_render`, kept because it is what every example and
+    existing script uses.
+    """
     after_render: object
+    """Runs after each frame is drawn, when GPU results for that frame
+    exist -- `sim.facet_shadow()` is only filled in once the shadow map
+    holds this frame's geometry, so this is where to consume it without
+    a one-frame lag.
+
+    Scene changes made here apply to the *next* frame, and heavy CPU work
+    here blocks the render loop (fine for a simulation run, but frame
+    rate stops meaning much).
+    """
 
