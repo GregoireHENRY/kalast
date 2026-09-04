@@ -31,12 +31,32 @@ pub fn light_view_proj(
 /// casts into its map. That is what keeps mutual shadowing working while the
 /// lateral extent stays tight: self and mutual shadows both land in the same
 /// layer, at the same resolution.
+/// A fitted shadow layer: the matrix to draw with, and the world-space extents
+/// it was built from.
+///
+/// The extents are returned rather than recovered from `view_proj` later. They
+/// cannot be recovered: `view_proj` is `projection * view`, so `x_axis.x` is
+/// `R[0][0] / side` and inverting it yields `side / |R[0][0]|`, which is right
+/// only when the light happens to look down an axis. It was off by 3,788x on
+/// Mars at the Hera swing-by geometry -- `R[0][0]` fell below `f32::EPSILON`
+/// there, taking a `1.0` fallback, so a 3,788 km body was biased as though it
+/// were 1 km across and the automatic normal offset came out at 0.35 m. The
+/// symptom was self-shadow acne over the whole disc that no automatic setting
+/// could clear.
+pub struct LightFit {
+    pub view_proj: Mat4,
+    /// Half-extent of the orthographic box, world units.
+    pub side: Float,
+    pub near: Float,
+    pub far: Float,
+}
+
 pub fn fit_light_view_proj(
     sun_pos: Vec3,
     body: &crate::mesh::Aabb,
     scene: &crate::mesh::Aabb,
     up_world: Vec3,
-) -> Mat4 {
+) -> LightFit {
     let target = body.center();
     let to_body = target - sun_pos;
     let dir = if to_body.length_squared() > 1e-20 {
@@ -69,8 +89,14 @@ pub fn fit_light_view_proj(
         far = far.max(d);
     }
     let pad = ((far - near) * 0.01).max(Float::EPSILON);
+    let (near, far) = (near - pad, far + pad);
 
-    Mat4::orthographic_rh(-side, side, -side, side, near - pad, far + pad) * view
+    LightFit {
+        view_proj: Mat4::orthographic_rh(-side, side, -side, side, near, far) * view,
+        side,
+        near,
+        far,
+    }
 }
 
 type HudBrush = wgpu_text::TextBrush<wgpu_text::glyph_brush::ab_glyph::FontRef<'static>>;
@@ -418,7 +444,8 @@ impl Window {
             self.uniforms.view.uniform.light.view_proj_layers
                 [body.min(super::uniform::MAX_SHADOW_LAYERS - 1)],
             self.uniforms.view.uniform.light.pos,
-            &self.uniforms.globals.uniform,
+            self.uniforms.view.uniform.light.layer_bias
+                [body.min(super::uniform::MAX_SHADOW_LAYERS - 1)],
         )
     }
 
@@ -760,31 +787,23 @@ impl Window {
                 } else {
                     scene
                 };
-                let m = fit_light_view_proj(
+                let layer = fit_light_view_proj(
                     simulation.sun.pos,
                     &body,
                     &scene,
                     simulation.sun.up_world,
                 );
-                self.uniforms.view.uniform.light.view_proj_layers[i] = m;
+                self.uniforms.view.uniform.light.view_proj_layers[i] = layer.view_proj;
 
                 // Bias from this layer's own extent, so each body gets the
-                // bias its texel size actually needs.
-                let side = if m.x_axis.x.abs() > Float::EPSILON {
-                    1.0 / m.x_axis.x.abs()
-                } else {
-                    1.0
-                };
-                let depth = if m.z_axis.z.abs() > Float::EPSILON {
-                    1.0 / m.z_axis.z.abs()
-                } else {
-                    1.0
-                };
+                // bias its texel size actually needs. Taken from the fit
+                // itself -- see `LightFit` for why it cannot be read back out
+                // of `view_proj`.
                 let fit = super::frame::fit_shadow(
                     &super::frame::Resolved {
-                        near: 0.0,
-                        far: depth,
-                        side,
+                        near: layer.near,
+                        far: layer.far,
+                        side: layer.side,
                         offset: [0.0, 0.0],
                     },
                     config.shadow_resolution,
@@ -1183,5 +1202,78 @@ fn pick_present_mode(caps: &wgpu::SurfaceCapabilities, vsync: bool) -> wgpu::Pre
         wanted
     } else {
         caps.present_modes[0]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn aabb(center: Vec3, half: Float) -> crate::mesh::Aabb {
+        crate::mesh::Aabb {
+            min: center - Vec3::splat(half),
+            max: center + Vec3::splat(half),
+        }
+    }
+
+    /// The fitted half-extent must describe the body, whatever direction the
+    /// light comes from.
+    ///
+    /// It used to be recovered afterwards as `1.0 / view_proj.x_axis.x`, which
+    /// is `side / |R[0][0]|` -- correct only when the light looks down an
+    /// axis. At the Hera Mars swing-by geometry `R[0][0]` fell below
+    /// `f32::EPSILON` and a `1.0` fallback took over, so Mars was biased as a
+    /// 1 km body instead of a 3,788 km one and the whole disc rendered with
+    /// self-shadow acne no automatic setting could clear.
+    #[test]
+    fn light_fit_reports_its_own_extent_from_every_direction() {
+        let r = 3396.0;
+        let body = aabb(Vec3::new(1.0e5, -2.0e4, 3.0e4), r);
+        let scene = body.union(&aabb(Vec3::new(9.0e4, -1.0e4, 2.0e4), 10.0));
+
+        // Includes directions that put a near-zero in the view rotation, which
+        // is exactly the case that used to collapse to the fallback.
+        let dirs = [
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+            Vec3::new(0.0, 0.0, 1.0),
+            Vec3::new(1.0, 1.0, 1.0).normalize(),
+            Vec3::new(-0.3, 0.87, 0.39).normalize(),
+        ];
+
+        for d in dirs {
+            let sun = body.center() + d * 2.5e8;
+            let fit = fit_light_view_proj(sun, &body, &scene, Vec3::Y);
+
+            // A sphere of radius r inside its AABB: the box half-diagonal is
+            // r*sqrt(3), and the fit pads by 5%.
+            let lo = r * 1.05;
+            let hi = r * 3.0f64.sqrt() as Float * 1.05 * 1.001;
+            assert!(
+                fit.side >= lo && fit.side <= hi,
+                "side {} outside [{}, {}] for light dir {:?}",
+                fit.side,
+                lo,
+                hi,
+                d
+            );
+            assert!(fit.far > fit.near, "degenerate depth range for {:?}", d);
+
+            // The whole scene has to sit inside the depth slab, or occluders
+            // in front of the body stop casting into its layer.
+            for c in scene.corners() {
+                let z = -Mat4::look_to_rh(sun, (body.center() - sun).normalize(), Vec3::Y)
+                    .transform_point3(c)
+                    .z;
+                assert!(
+                    z >= fit.near && z <= fit.far,
+                    "scene corner at depth {} outside [{}, {}] for {:?}",
+                    z,
+                    fit.near,
+                    fit.far,
+                    d
+                );
+            }
+        }
     }
 }
