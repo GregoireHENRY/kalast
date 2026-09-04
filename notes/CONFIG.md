@@ -42,6 +42,10 @@ the window is created, inside `app.start()`. Set everything before calling it.
 If you need to vary a startup-only parameter, do it across runs, not from a
 callback.
 
+Everything a script touches *outside* the config — `app.simulation`,
+`sim.state`, `sim.huds`, `sim.bodies`, the camera and Sun, the GPU-result
+queries — is in **`API.md`**.
+
 **Frame callbacks.** The app runs two per frame, either optional:
 
 | | when | for |

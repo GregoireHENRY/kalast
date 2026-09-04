@@ -104,10 +104,7 @@ impl Simulation {
         self.inner.borrow_mut().export = v;
     }
 
-    /// Text shown in the window's top-left corner. Empty for none.
-    ///
-    /// Set it from `before_render` to watch a long run without reading the
-    /// The live HUDs, the same objects given to `app.config.huds`.
+    /// The live HUDs -- the same objects as `app.config.huds`, not copies.
     ///
     /// Edit them in `before_render`: `sim.huds[0].text = f"{i}/{n}"`. The
     /// text is a template, so `{it}`, `{fps}` and the rest still expand in

@@ -192,3 +192,6 @@ purpose**, because they are living documents rather than a record of one day:
   a config option is added, or it goes stale silently.
 - `CONTROLS.md` — keyboard and mouse bindings for the render window. Same rule:
   add to it whenever a binding is added.
+- `API.md` — the Python API outside the config: `App`, `sim.state`,
+  `sim.huds`, bodies, camera and Sun, and the GPU-result queries. Same rule
+  again: add to it whenever something is exposed to Python.
