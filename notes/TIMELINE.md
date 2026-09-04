@@ -791,3 +791,37 @@ Full write-up in `2026-09-04_shadow_fixes.md`; the short version.
   True` avoids it and is documented.
 - **PCF benchmarks must be taken at the working resolution.** Cost is
   per-fragment: +2.5 ms at 800x600, +7.8 ms at 3024x1964.
+
+Discussed and deliberately not done, so they are not rediscovered as
+surprises:
+
+- **The `tan(theta)` patch exists only in a scratch directory** under
+  `/private/tmp`, which does not survive a reboot. If it is wanted as a
+  starting point for the calibration it needs re-deriving, which is cheap:
+  replace `1 - N.L` with `min(sin/cos, SLOPE_MAX)` in `mesh_shadow.wgsl`.
+- **Shading is single-sided, so `render_back_face` shows a lit underside.**
+  Normals are not flipped for back faces, so viewing the crater from below
+  draws the plane as though you were seeing its top. Fine for inspecting
+  shape, wrong for anything photometric. The fix is one `select()` on
+  `@builtin(front_facing)`; it only affects geometry deliberately made
+  visible, since closed bodies cull their back faces anyway. Raised, never
+  decided.
+- **`hud_font` matches on filename, not the family name inside the font.**
+  Good enough for the names people type -- Arial, Helvetica, Times New Roman
+  all resolve -- but a family whose file is named nothing like it will not.
+  Proper matching means a font-database dependency (`fontdb`, `font-kit`),
+  which was judged not worth four or five crates for a debug overlay.
+- **Residual shadow artefacts are not zero.** At `shadow_pcf = 4`: 710 px of
+  acne on the crater's lit wall and 388 px of leak on its floor, both
+  concentrated on facet edges. 2% and 5% of what they were, but present.
+- **`cargo test` fails on a pre-existing doctest**, `src/py/tpm/gpu.rs:204`
+  -- an ASCII diagram in a doc comment that rustdoc tries to compile. It
+  masks any real doctest failure, so use `cargo test --lib` meanwhile.
+- **Two pre-existing warnings**, `unused variable: shadow` and
+  `shadow_meshes`. Harmless, but they are the noise a real warning would
+  hide in.
+- **Stubs and docs cover the core scripting API, not the whole module.**
+  `App`, `Config`, `Hud`, `Simulation`, `State`, `Eye` and `Projection` are
+  at 111/111 documented; `mesh`, `entity`, `routines` and the `tpm` classes
+  are stubbed but largely undocumented. `python tools/gen_stubs.py` picks up
+  any `///` added to them.
