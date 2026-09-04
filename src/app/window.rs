@@ -99,6 +99,43 @@ pub fn fit_light_view_proj(
     }
 }
 
+
+/// Screen position and alignment for one HUD.
+///
+/// Right- and bottom-anchored HUDs are placed by glyph_brush's own alignment
+/// rather than by measuring the text: the text changes every frame, and
+/// measuring it to subtract a width would make the block jitter horizontally
+/// as digits change width.
+fn hud_placement(
+    hud: &crate::app::config::Hud,
+    width: f32,
+    height: f32,
+) -> ((f32, f32), wgpu_text::glyph_brush::Layout<wgpu_text::glyph_brush::BuiltInLineBreaker>) {
+    use crate::app::config::HudAnchor::*;
+    use wgpu_text::glyph_brush::{HorizontalAlign, Layout, VerticalAlign};
+
+    let (pos, h, v) = match hud.anchor {
+        TopLeft => ((hud.x, hud.y), HorizontalAlign::Left, VerticalAlign::Top),
+        TopRight => (
+            (width - hud.x, hud.y),
+            HorizontalAlign::Right,
+            VerticalAlign::Top,
+        ),
+        BottomLeft => (
+            (hud.x, height - hud.y),
+            HorizontalAlign::Left,
+            VerticalAlign::Bottom,
+        ),
+        BottomRight => (
+            (width - hud.x, height - hud.y),
+            HorizontalAlign::Right,
+            VerticalAlign::Bottom,
+        ),
+        Custom => ((hud.x, hud.y), HorizontalAlign::Left, VerticalAlign::Top),
+    };
+    (pos, Layout::default_wrap().h_align(h).v_align(v))
+}
+
 type HudBrush = wgpu_text::TextBrush<wgpu_text::glyph_brush::ab_glyph::FontRef<'static>>;
 
 pub struct Window {
@@ -944,7 +981,7 @@ impl Window {
         &mut self,
         surface_texture: Option<wgpu::SurfaceTexture>,
         config: &crate::app::config::Config,
-        hud: &str,
+        huds: &[crate::app::config::Hud],
     ) {
         let surface_view = surface_texture
             .as_ref()
@@ -1037,21 +1074,33 @@ impl Window {
         // targets the swapchain, which the exporter never reads. Drawing it
         // twice is deliberate -- the window keeps its HUD either way, and the
         // cost is one text pass on exported frames only.
-        if self.export_frame && config.export_hud && !hud.is_empty() {
+        if self.export_frame && config.export_hud && huds.iter().any(|h| !h.text.is_empty()) {
             if let Some(brush) = self.hud.as_mut() {
                 let view = self
                     .passes
                     .render
                     .render_texture
                     .create_view(&wgpu::TextureViewDescriptor::default());
-                let section = wgpu_text::glyph_brush::Section::default()
-                    .add_text(
-                        wgpu_text::glyph_brush::Text::new(hud)
-                            .with_scale(18.0)
-                            .with_color([1.0, 1.0, 1.0, 0.9]),
-                    )
-                    .with_screen_position((8.0, 6.0));
-                if brush.queue(&self.device, &self.queue, [section]).is_ok() {
+                let (w, h) = (
+                    self.surface_config.width as f32,
+                    self.surface_config.height as f32,
+                );
+                let sections: Vec<_> = huds
+                    .iter()
+                    .filter(|hud| !hud.text.is_empty())
+                    .map(|hud| {
+                        let (pos, layout) = hud_placement(hud, w, h);
+                        wgpu_text::glyph_brush::Section::default()
+                            .add_text(
+                                wgpu_text::glyph_brush::Text::new(&hud.text)
+                                    .with_scale(hud.scale)
+                                    .with_color(hud.color),
+                            )
+                            .with_screen_position(pos)
+                            .with_layout(layout)
+                    })
+                    .collect();
+                if brush.queue(&self.device, &self.queue, sections).is_ok() {
                     let mut encoder = self
                         .device
                         .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
@@ -1093,20 +1142,33 @@ impl Window {
         // swapchain, so by itself it stays out of `render_texture` and
         // therefore out of exported frames. `Config::export_hud` adds the
         // separate pass above when it should appear in them too.
-        if let (Some(texture), Some(brush), false) =
-            (&surface_texture, self.hud.as_mut(), hud.is_empty())
+        let any_hud = huds.iter().any(|h| !h.text.is_empty());
+        if let (Some(texture), Some(brush), true) =
+            (&surface_texture, self.hud.as_mut(), any_hud)
         {
             let view = texture
                 .texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
-            let section = wgpu_text::glyph_brush::Section::default()
-                .add_text(
-                    wgpu_text::glyph_brush::Text::new(hud)
-                        .with_scale(18.0)
-                        .with_color([1.0, 1.0, 1.0, 0.9]),
-                )
-                .with_screen_position((8.0, 6.0));
-            if brush.queue(&self.device, &self.queue, [section]).is_ok() {
+            let (w, h) = (
+                self.surface_config.width as f32,
+                self.surface_config.height as f32,
+            );
+            let sections: Vec<_> = huds
+                .iter()
+                .filter(|hud| !hud.text.is_empty())
+                .map(|hud| {
+                    let (pos, layout) = hud_placement(hud, w, h);
+                    wgpu_text::glyph_brush::Section::default()
+                        .add_text(
+                            wgpu_text::glyph_brush::Text::new(&hud.text)
+                                .with_scale(hud.scale)
+                                .with_color(hud.color),
+                        )
+                        .with_screen_position(pos)
+                        .with_layout(layout)
+                })
+                .collect();
+            if brush.queue(&self.device, &self.queue, sections).is_ok() {
                 let mut encoder = self
                     .device
                     .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());

@@ -4,6 +4,124 @@ use pyo3::prelude::*;
 
 use crate::Float;
 
+
+/// One HUD overlay: a template, a corner, and how it looks.
+///
+/// ```python
+/// kalast.app.Hud("{it}/{nit}")                       # top-left, the default
+/// kalast.app.Hud("{fps} fps", anchor="bottom-right")
+/// kalast.app.Hud("{hud}", anchor="custom", x=200, y=120)
+/// ```
+#[pyclass]
+#[derive(Clone)]
+pub struct Hud {
+    pub inner: crate::app::config::Hud,
+}
+
+#[pymethods]
+impl Hud {
+    #[new]
+    #[pyo3(signature = (text, anchor="top-left", x=None, y=None, scale=18.0, color=None))]
+    fn new(
+        text: &str,
+        anchor: &str,
+        x: Option<f32>,
+        y: Option<f32>,
+        scale: f32,
+        color: Option<[f32; 4]>,
+    ) -> PyResult<Self> {
+        let anchor = crate::app::config::HudAnchor::parse(anchor).ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "unknown hud anchor {anchor:?}: expected one of \
+                 top-left, top-right, bottom-left, bottom-right, custom"
+            ))
+        })?;
+        let mut inner = crate::app::config::Hud::new(text);
+        inner.anchor = anchor;
+        // Default inset is the same 8/6 px in from whichever corner, so a
+        // bottom-right HUD sits as far from its edges as a top-left one.
+        if let Some(x) = x {
+            inner.x = x;
+        }
+        if let Some(y) = y {
+            inner.y = y;
+        }
+        inner.scale = scale;
+        if let Some(c) = color {
+            inner.color = c;
+        }
+        Ok(Self { inner })
+    }
+
+    #[getter]
+    fn text(&self) -> String {
+        self.inner.text.clone()
+    }
+    #[setter]
+    fn set_text(&mut self, v: &str) {
+        self.inner.text = v.to_string();
+    }
+
+    #[getter]
+    fn anchor(&self) -> String {
+        self.inner.anchor.name().to_string()
+    }
+    #[setter]
+    fn set_anchor(&mut self, v: &str) -> PyResult<()> {
+        self.inner.anchor = crate::app::config::HudAnchor::parse(v).ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err(format!("unknown hud anchor {v:?}"))
+        })?;
+        Ok(())
+    }
+
+    #[getter]
+    fn x(&self) -> f32 {
+        self.inner.x
+    }
+    #[setter]
+    fn set_x(&mut self, v: f32) {
+        self.inner.x = v;
+    }
+
+    #[getter]
+    fn y(&self) -> f32 {
+        self.inner.y
+    }
+    #[setter]
+    fn set_y(&mut self, v: f32) {
+        self.inner.y = v;
+    }
+
+    #[getter]
+    fn scale(&self) -> f32 {
+        self.inner.scale
+    }
+    #[setter]
+    fn set_scale(&mut self, v: f32) {
+        self.inner.scale = v;
+    }
+
+    #[getter]
+    fn color(&self) -> [f32; 4] {
+        self.inner.color
+    }
+    #[setter]
+    fn set_color(&mut self, v: [f32; 4]) {
+        self.inner.color = v;
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "Hud(text={:?}, anchor={:?}, x={}, y={}, scale={})",
+            self.inner.text,
+            self.inner.anchor.name(),
+            self.inner.x,
+            self.inner.y,
+            self.inner.scale
+        )
+    }
+}
+
 #[pyclass(unsendable)]
 pub struct Config {
     pub app: Rc<RefCell<crate::app::App>>,
@@ -114,6 +232,35 @@ impl Config {
         c.g = v[1] as f64;
         c.b = v[2] as f64;
         c.a = v[3] as f64;
+    }
+
+    /// HUD template, e.g. `"{it}/{nit} ({its} it/s)\n{fps} fps"`.
+    /// See `Config::hud_text` for the full placeholder list.
+    #[getter]
+    fn hud_text(&self) -> String {
+        self.app.borrow().config.hud_text.clone()
+    }
+
+    #[setter]
+    fn set_hud_text(&mut self, v: &str) {
+        self.app.borrow_mut().config.hud_text = v.to_string();
+    }
+
+    /// Several HUDs at once. Empty means "use `hud_text`".
+    #[getter]
+    fn huds(&self) -> Vec<Hud> {
+        self.app
+            .borrow()
+            .config
+            .huds
+            .iter()
+            .map(|h| Hud { inner: h.clone() })
+            .collect()
+    }
+
+    #[setter]
+    fn set_huds(&mut self, v: Vec<Hud>) {
+        self.app.borrow_mut().config.huds = v.into_iter().map(|h| h.inner).collect();
     }
 
     /// Native fullscreen at startup. See `Config::fullscreen`.

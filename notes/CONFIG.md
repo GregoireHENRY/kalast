@@ -318,6 +318,89 @@ until the queue drains (`src/app/gpu.rs`). Killing the process mid-run
 abandons whatever is outstanding and leaves as many truncated trailing files
 as there are save workers.
 
+### `hud_text: String` — default `""` *(live)*
+### `huds: list[Hud]` — default `[]` *(live)*
+On-screen overlay text, drawn over the swapchain after the blit — so by
+default it stays out of exported frames (`export_hud` adds it to those too).
+
+Three ways to drive it, in precedence order:
+
+1. **`huds`**, a list — several overlays, each with its own corner.
+2. **`hud_text`**, one template — drawn top-left. Used when `huds` is empty.
+3. **`sim.hud`**, a plain string assigned per frame — used when both are
+   empty. This is the original mechanism and still the right one when the text
+   depends on your own state.
+
+```python
+app.config.hud_text = "{it}/{nit} ({its} it/s)\n{fps} fps {ms} ms"
+
+app.config.huds = [
+    kalast.app.Hud("{it}/{nit}"),                             # top-left
+    kalast.app.Hud("{fps} fps  {ms} ms", anchor="bottom-right"),
+    kalast.app.Hud("{hud}", anchor="custom", x=200, y=120,
+                   scale=24.0, color=(1.0, 0.8, 0.2, 1.0)),
+]
+```
+
+#### Placeholders
+
+| | |
+|---|---|
+| `{it}` | iteration count, `sim.state.iteration` |
+| `{nit}` | `sim.state.pause_at` if set, else `?` |
+| `{its}` | iterations per second; `0` while paused |
+| `{fps}` | frames per second |
+| `{ms}` | **frame time in milliseconds**, i.e. `1000 / fps` |
+| `{paused}` | `PAUSED` when paused, empty otherwise |
+| `{hud}` | whatever the script assigned to `sim.hud` |
+
+`{ms}` is the same information as `{fps}` inverted, but it is the one you
+compare against a frame budget: 8.3 ms is the whole of a 120 Hz frame, and
+"11.8" says immediately that you are missing it where "85 fps" does not.
+
+`{nit}` reads `?` rather than a number when nothing has set `pause_at`, because
+the engine genuinely does not know how long your run is. `{its}` and `{fps}`
+differ **only** while paused: `P` stops the iteration counter but not the
+render loop, so reporting the frame rate as an iteration rate would be false.
+
+An unrecognised `{name}` renders verbatim — `"{nope} x {it}"` gives
+`"{nope} x 1"` — so a typo, or braces in your own text, cannot break the frame.
+
+#### Number format
+
+**Rates are whole numbers** unless you ask otherwise: `{fps}` → `60`,
+`{fps:.1}` → `59.6`, `{fps:.2f}` → `59.62`. A frame rate quoted to a tenth is
+noise and the digit churns without informing anyone. `{ms}` is the exception
+and keeps one decimal by default, since whole milliseconds cannot separate 8
+from 8.4; `{ms:.0}` overrides that.
+
+**Rates average over a one-second window** and then update, rather than being
+smoothed per frame. An exponential moving average still moves every frame, so
+the digits change faster than they can be read. The window is
+`HUD_RATE_WINDOW` in `src/app/mod.rs`.
+
+#### `Hud`
+
+`kalast.app.Hud(text, anchor="top-left", x=None, y=None, scale=18.0,
+color=None)`.
+
+`anchor` is one of `top-left`, `top-right`, `bottom-left`, `bottom-right`,
+`custom`. Hyphens, underscores and spaces are interchangeable, and case is
+ignored, since all of those get typed. Anything else raises `ValueError`
+listing the valid values rather than silently defaulting.
+
+`x`/`y` are an **inset from the anchor**, defaulting to 8 and 6 — so a
+bottom-right HUD sits as far from its own edges as a top-left one does, and
+neither moves when the window is resized. For `anchor="custom"` they are
+absolute pixels from the top-left instead.
+
+Right- and bottom-anchored HUDs are placed with glyph_brush's own alignment
+rather than by measuring the text. The text changes every frame, and measuring
+it to subtract a width would make the block jitter sideways as digits change
+width.
+
+---
+
 ### `export_hud: bool` — default `false` *(live)*
 Whether the HUD text (`sim.hud`) is burned into exported frames as well as
 drawn on screen.

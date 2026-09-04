@@ -1,5 +1,71 @@
 use crate::Float;
 
+/// Where a HUD sits on the screen.
+///
+/// `x`/`y` on `Hud` are an inset *from* the anchor, so the same offset means
+/// "8 px in from my corner" whichever corner that is, and a bottom-anchored
+/// HUD does not move when the window is resized.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HudAnchor {
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+    /// `x`/`y` are absolute pixels from the top-left instead of an inset.
+    Custom,
+}
+
+impl HudAnchor {
+    /// Parsed from Python, where these are plain strings. Hyphen, underscore
+    /// and space all work, since all three get typed.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().replace(['_', ' '], "-").as_str() {
+            "top-left" => Some(Self::TopLeft),
+            "top-right" => Some(Self::TopRight),
+            "bottom-left" => Some(Self::BottomLeft),
+            "bottom-right" => Some(Self::BottomRight),
+            "custom" => Some(Self::Custom),
+            _ => None,
+        }
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::TopLeft => "top-left",
+            Self::TopRight => "top-right",
+            Self::BottomLeft => "bottom-left",
+            Self::BottomRight => "bottom-right",
+            Self::Custom => "custom",
+        }
+    }
+}
+
+/// One HUD overlay: a template, where it sits, and how it looks.
+#[derive(Debug, Clone)]
+pub struct Hud {
+    /// Same placeholders as `Config::hud_text`.
+    pub text: String,
+    pub anchor: HudAnchor,
+    /// Inset from the anchor in pixels, or absolute position for `Custom`.
+    pub x: f32,
+    pub y: f32,
+    pub scale: f32,
+    pub color: [f32; 4],
+}
+
+impl Hud {
+    pub fn new(text: &str) -> Self {
+        Self {
+            text: text.to_string(),
+            anchor: HudAnchor::TopLeft,
+            x: 8.0,
+            y: 6.0,
+            scale: 18.0,
+            color: [1.0, 1.0, 1.0, 0.9],
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub debug_app: bool,
@@ -12,6 +78,48 @@ pub struct Config {
     pub title: String,
     pub width: u32,
     pub height: u32,
+
+    /// Template for the on-screen HUD, drawn top-left.
+    ///
+    /// Empty (the default) keeps the previous behaviour: whatever the script
+    /// assigned to `sim.hud` is drawn verbatim. Set this and the renderer
+    /// fills it in each frame instead, so a script does not have to rebuild
+    /// the string in `before_render` just to show a counter.
+    ///
+    /// Placeholders, all optional and in any order:
+    ///
+    /// | | |
+    /// |---|---|
+    /// | `{it}`     | iteration count |
+    /// | `{nit}`    | `state.pause_at` if set, else `?` -- the run length is only known when something has been told to stop at it |
+    /// | `{its}`    | iterations per second; `0` while paused, since the counter is not advancing |
+    /// | `{fps}`    | frames per second -- differs from `{its}` exactly when paused |
+    /// | `{ms}`     | frame time, milliseconds |
+    /// | `{paused}` | `PAUSED` when paused, empty otherwise |
+    /// | `{hud}`    | whatever the script put in `sim.hud`, so both can be combined |
+    ///
+    /// An unrecognised `{name}` is left alone rather than erroring, so text
+    /// containing braces still renders.
+    ///
+    /// **Rates are whole numbers** unless a precision is given: `{fps}` gives
+    /// `60`, `{fps:.1}` gives `59.6`. A frame rate quoted to a tenth is noise
+    /// and the digit churns without informing anyone. `{ms}` is the exception
+    /// and keeps one decimal by default, because whole milliseconds cannot
+    /// separate 8 from 8.4 -- the difference between hitting and missing
+    /// 120 Hz.
+    ///
+    /// **Rates average over a one-second window** (`HUD_RATE_WINDOW`) and then
+    /// update, rather than being smoothed per frame. An exponential average
+    /// still moves every frame, so the digits change faster than they can be
+    /// read.
+    pub hud_text: String,
+
+    /// Several HUDs at once, each with its own template and corner.
+    ///
+    /// Empty (the default) and `hud_text` non-empty is treated as a single
+    /// top-left HUD, so the simple case needs no list. When this is non-empty
+    /// it wins and `hud_text` is ignored.
+    pub huds: Vec<Hud>,
 
     /// Open the window in native fullscreen (borderless, current monitor).
     ///
@@ -172,6 +280,8 @@ impl Default for Config {
             height: 600,
 
             background: wgpu::Color::BLACK,
+            hud_text: String::new(),
+            huds: Vec::new(),
             fullscreen: false,
             render_back_face: false,
 

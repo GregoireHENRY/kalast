@@ -264,6 +264,7 @@ fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     let config = PyModule::new(app.py(), "config")?;
     config.add_class::<app::config::Config>()?;
+    config.add_class::<app::config::Hud>()?;
     app.add_submodule(&config)?;
     py.import("sys")?
         .getattr("modules")?
