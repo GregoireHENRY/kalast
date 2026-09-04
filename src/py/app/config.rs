@@ -10,7 +10,7 @@ use crate::Float;
 /// ```python
 /// kalast.app.Hud("{it}/{nit}")                       # top-left, the default
 /// kalast.app.Hud("{fps} fps", anchor="bottom-right")
-/// kalast.app.Hud("{hud}", anchor="custom", x=200, y=120)
+/// kalast.app.Hud("{hud}", x=200, y=120)              # absolute, no anchor needed
 /// ```
 #[pyclass]
 #[derive(Clone)]
@@ -33,7 +33,7 @@ impl Hud {
         let anchor = crate::app::config::HudAnchor::parse(anchor).ok_or_else(|| {
             pyo3::exceptions::PyValueError::new_err(format!(
                 "unknown hud anchor {anchor:?}: expected one of \
-                 top-left, top-right, bottom-left, bottom-right, custom"
+                 top-left, top-right, bottom-left, bottom-right"
             ))
         })?;
         let mut inner = crate::app::config::Hud::new(text);

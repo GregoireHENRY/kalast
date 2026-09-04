@@ -337,7 +337,7 @@ app.config.hud_text = "{it}/{nit} ({its} it/s)\n{fps} fps {ms} ms"
 app.config.huds = [
     kalast.app.Hud("{it}/{nit}"),                             # top-left
     kalast.app.Hud("{fps} fps  {ms} ms", anchor="bottom-right"),
-    kalast.app.Hud("{hud}", anchor="custom", x=200, y=120,
+    kalast.app.Hud("{hud}", x=200, y=120,                      # absolute
                    scale=24.0, color=(1.0, 0.8, 0.2, 1.0)),
 ]
 ```
@@ -384,15 +384,19 @@ the digits change faster than they can be read. The window is
 `kalast.app.Hud(text, anchor="top-left", x=None, y=None, scale=18.0,
 color=None)`.
 
-`anchor` is one of `top-left`, `top-right`, `bottom-left`, `bottom-right`,
-`custom`. Hyphens, underscores and spaces are interchangeable, and case is
-ignored, since all of those get typed. Anything else raises `ValueError`
-listing the valid values rather than silently defaulting.
+`anchor` is one of `top-left`, `top-right`, `bottom-left`, `bottom-right`.
+Hyphens, underscores and spaces are interchangeable, and case is ignored,
+since all of those get typed. Anything else raises `ValueError` listing the
+valid values rather than silently defaulting.
 
 `x`/`y` are an **inset from the anchor**, defaulting to 8 and 6 — so a
 bottom-right HUD sits as far from its own edges as a top-left one does, and
-neither moves when the window is resized. For `anchor="custom"` they are
-absolute pixels from the top-left instead.
+neither moves when the window is resized.
+
+**Absolute positioning needs no special anchor.** The top-left anchor is the
+origin, so `Hud(text, x=200, y=120)` places the HUD at exactly (200, 120).
+There was briefly a `custom` anchor for this; it computed the identical
+position to `top-left` and was removed as a second name for the default.
 
 Right- and bottom-anchored HUDs are placed with glyph_brush's own alignment
 rather than by measuring the text. The text changes every frame, and measuring

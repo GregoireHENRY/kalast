@@ -1,18 +1,20 @@
 use crate::Float;
 
-/// Where a HUD sits on the screen.
+/// Which corner a HUD is measured from.
 ///
 /// `x`/`y` on `Hud` are an inset *from* the anchor, so the same offset means
 /// "8 px in from my corner" whichever corner that is, and a bottom-anchored
 /// HUD does not move when the window is resized.
+///
+/// There is deliberately no `Custom`: the top-left anchor *is* the origin, so
+/// `Hud(text, x=200, y=120)` already places a HUD at exactly (200, 120). A
+/// separate variant for that would have been a second name for the default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HudAnchor {
     TopLeft,
     TopRight,
     BottomLeft,
     BottomRight,
-    /// `x`/`y` are absolute pixels from the top-left instead of an inset.
-    Custom,
 }
 
 impl HudAnchor {
@@ -24,7 +26,6 @@ impl HudAnchor {
             "top-right" => Some(Self::TopRight),
             "bottom-left" => Some(Self::BottomLeft),
             "bottom-right" => Some(Self::BottomRight),
-            "custom" => Some(Self::Custom),
             _ => None,
         }
     }
@@ -35,7 +36,6 @@ impl HudAnchor {
             Self::TopRight => "top-right",
             Self::BottomLeft => "bottom-left",
             Self::BottomRight => "bottom-right",
-            Self::Custom => "custom",
         }
     }
 }

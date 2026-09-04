@@ -131,7 +131,6 @@ fn hud_placement(
             HorizontalAlign::Right,
             VerticalAlign::Bottom,
         ),
-        Custom => ((hud.x, hud.y), HorizontalAlign::Left, VerticalAlign::Top),
     };
     (pos, Layout::default_wrap().h_align(h).v_align(v))
 }
