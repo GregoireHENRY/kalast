@@ -16,26 +16,68 @@ class Hud:
     def __init__(self, text: str, anchor: str, x: float | None, y: float | None, size: float, color: list[float] | None) -> None:
         ...
     text: str
-    """Template text; see `Config::huds` for the placeholders."""
+    """The template drawn for this HUD. See `Config::huds` for placeholders."""
     anchor: str
+    """Which corner `x`/`y` are measured from: `top-left`, `top-right`,
+    `bottom-left` or `bottom-right`.
+    """
     x: float
     """Inset from the anchor in pixels, or absolute position for `Custom`."""
     y: float
+    """Vertical inset from the anchor, in pixels.
+
+    With the default top-left anchor this is simply the distance from the top.
+    """
     size: float
     """Font size in pixels."""
     color: list[float]
+    """Text colour, `(r, g, b, a)`."""
 
 class Config:
     debug_app: bool
+    """Print app lifecycle events: pause and camera-mode changes."""
     debug_window: bool
+    """Print window and GPU setup: chosen surface format, adapter and device
+    features, and **the present modes the surface supports**.
+
+    Worth enabling once on any new machine -- it is how the vsync cap that
+    invalidated a whole benchmark was identified.
+    """
     debug_window_mesh: bool
+    """Print per-mesh detail as meshes are uploaded."""
     debug_simulation: bool
+    """**Does nothing.** The field exists and is settable from Python, but no code
+    reads it. Left as a placeholder.
+    """
     debug_depth_show: bool
+    """Draw the shadow/depth map as an overlay instead of leaving it offscreen.
+
+    Only mirrors the main pass's depth at `msaa = 1`; above that the pass writes
+    its own multisampled depth buffer and the debug view is not it.
+    """
     debug_light_cube_show: bool
+    """Draw a cube at the light's position, so the Sun is visible.
+
+    Size comes from `light_cube_scale`. The camera's far plane fits to scene
+    bounds, which exclude the Sun, so seeing it usually means pinning
+    `camera.projection.far` past it.
+    """
     title: str
+    """The OS window title."""
     width: int
+    """Initial window width in pixels.
+
+    Also the render-target size and therefore the resolution of exported PNGs --
+    though the exporter reads the *live* surface size, so resizing mid-run
+    changes the size of subsequent exports.
+    """
     height: int
+    """Initial window height in pixels. See `width`."""
     background: list[float]
+    """Colour the frame is cleared to, `(r, g, b, a)`.
+
+    Accepts any 4-element sequence: tuple, list or `numpy.array`.
+    """
     hud_font: str
     """Font for every HUD: a name (`"Arial"`) or a path, or empty for the
     built-in. One that will not resolve warns and falls back. Startup only.
@@ -52,38 +94,166 @@ class Config:
     fullscreen: bool
     """Native fullscreen at startup. See `Config::fullscreen`."""
     render_back_face: bool
+    """Draw triangles facing away from the camera.
+
+    Leave it off for closed shape models -- back faces are invisible there, so
+    culling them is free performance. Measured on the full-resolution
+    Didymos/Dimorphos meshes: culled against unculled differs in 5 pixels of
+    1,040,400, all on silhouette edges.
+
+    Turn it on for geometry that is *not* closed -- open craters, clipped
+    sections, single-sided surfaces -- where the inside of the shell must be
+    visible from outside. Note the shading is single-sided regardless: normals
+    are not flipped for back faces, so an underside is lit as though it were the
+    top.
+
+    The shadow pass stays unculled either way, so open geometry still casts
+    correctly from whichever side faces the light.
+    """
     sensitivity_move: float
+    """Multiplier for WASD movement speed."""
     sensitivity_look: float
+    """Multiplier for mouse-look speed in WASD mode."""
     sensitivity_rotate: float
+    """Multiplier for arcball orbit speed."""
     sensitivity_zoom: float
+    """Multiplier for scroll and pinch zoom speed."""
     color: list[float]
+    """Flat colour used when `color_mode` is 2, `(r, g, b, a)`."""
     color_mode: int
+    """What the fragment shader outputs.
+
+    | | |
+    |---|---|
+    | 0 | vertex/instance colour, lit, with shadows (the default) |
+    | 1 | raw vertex/instance colour, no lighting |
+    | 2 | the flat `color` |
+    | 3 | as 0 but with shadows disabled |
+    """
     extra: int
+    """Free integer passed through to the shader, for one-off experiments."""
     srgb_mode: int
+    """0 converts sRGB to linear before shading; 1 treats colours as already
+    linear.
+    """
     gamma: float
+    """Exponent used by the sRGB conversion when `srgb_mode` is 0."""
     ambient_strength: float
+    """Light added to every fragment regardless of shadowing.
+
+    Deliberately tiny by default: a shadowed facet on an airless body receives
+    almost nothing, and a visible ambient term would be inventing light that is
+    not there.
+    """
     light_color: list[float]
+    """Colour of the Sun, `(r, g, b, a)`."""
     light_cube_scale: float
+    """Size of the debug light cube, in world units.
+
+    Only drawn when `debug_light_cube_show` is on.
+    """
     msaa: int
     """Multisample anti-aliasing on the main pass: 1 (off), 2, 4 or 8.
     Takes effect when the window is created, so set it before `App.start`.
     """
     shadow_resolution: int
+    """Side length of each square shadow map, in texels.
+
+    The array is always allocated at all 8 layers, so the cost is
+    `resolution^2 x 4 bytes x 8` -- 2.1 GB at the default 8192, 8.6 GB at 16384.
+    Dropping to 2048 is the first thing to try when VRAM is tight or interactive
+    frame times matter.
+
+    It also feeds the automatic bias, which is expressed relative to one texel,
+    so changing it changes the shadow bias with it.
+    """
     shadow_bias_scale: float | None
+    """Slope-dependent term of the depth-comparison bias. `None` fits it per
+    frame. Combined in the shader as
+    `max(shadow_bias_scale * k, shadow_bias_minimum)`.
+
+    See `shadow_normal_offset_scale` for why pinning is discouraged.
+    """
     shadow_bias_minimum: float | None
+    """Floor on the depth-comparison bias, for surfaces facing the light
+    head-on. `None` fits it per frame.
+
+    Measured to be the *ineffective* knob for the crater-floor PCF leak --
+    auto, 1e-4 and 1e-3 all gave identical results, while the normal offset
+    moved it 9x. Reach for that one first.
+    """
     shadow_normal_offset_scale: float | None
+    """Push the sample along the surface normal before the shadow lookup, in
+    world units. `None` fits it per frame from the layer's own texel size.
+
+    Scaled by the PCF kernel radius, since an N-radius kernel reaches N
+    texels away and a one-texel offset would let those taps flip.
+
+    Pinning it is now worse than leaving it automatic: with per-body shadow
+    layers a pinned value replaces the fitted one on *every* layer, and
+    those differ by the ratio of the bodies' sizes -- 403x between Mars and
+    Deimos in the same scene.
+    """
     wireframe_mode: int
+    """0 shaded only, 1 wireframe only, 2 wireframe over the shaded mesh.
+
+    Barycentric edge detection in the main fragment shader, so the overlay
+    cannot z-fight. Needs a flattened mesh -- indexed meshes share vertices, so
+    the barycentrics are meaningless and the CPU side warns once.
+    """
     wireframe_width: float
+    """Wireframe half-width in screen pixels."""
     wireframe_color: list[float]
+    """Wireframe colour, `(r, g, b, a)`; alpha is dropped.
+
+    Mode 2 blends by edge coverage and is antialiased; mode 1 thresholds instead,
+    because the pipeline blend state is REPLACE and a fractional alpha would be
+    ignored.
+    """
     shadow_pcf: int
+    """Percentage-closer-filtering kernel *radius*: 0 is a single hardware 2x2
+    comparison, N is a `(2N+1)^2` grid averaged.
+
+    Cost grows quadratically and is per-fragment, so it scales with pixel count:
+    `shadow_pcf = 4` costs +2.5 ms at 800x600 and +7.8 ms at 3024x1964. Benchmark
+    it at the resolution you actually run.
+
+    The normal offset scales with this, since an N-radius kernel reaches N texels
+    away and a one-texel offset would let those taps flip. `shadow_pcf = 0` is
+    bit-identical to the pre-scaling behaviour.
+    """
     vsync: bool
+    """Cap the frame rate to the display refresh.
+
+    **Set this to `False` for any performance measurement.** With it on, a GPU
+    faster than the display simply reports the refresh rate: a 239 Hz panel
+    measured exactly 239.46 it/s regardless of scene complexity, which made a
+    3.1M-facet scene look identical to a 100k one.
+    """
     export_sync: bool
+    """Encode and write each exported frame on the render thread instead of a
+    worker pool.
+
+    Slower, but the file is on disk before the frame returns -- which is what a
+    script needs if it exports and then reads the file immediately.
+    """
     export_max_queued: int
+    """How many frames may be waiting to be encoded before the render loop blocks.
+
+    Unbounded, this reached 30 GB RSS growing at ~2 GB/s while only ~5.6 frames
+    per second actually reached disk, and the loop still claimed 626 it/s --
+    measuring queue growth rather than work done.
+    """
     emulate_middle_button: bool
     """Treat alt + left-drag as a middle-drag, so the arcball can be orbited
     on hardware with no middle button. Blender calls the same setting
     "Emulate 3 Button Mouse". Defaults on for macOS, where a trackpad is
     the common case, and off elsewhere.
+    Let `Option`/`Alt` + left-drag stand in for a middle-drag.
+
+    Defaults on for macOS, matching Blender's "Emulate 3 Button Mouse". It exists
+    because a trackpad has no middle button, which once made the arcball
+    completely unusable there.
     """
     access_shadow_map: bool
     """Read the shadow map back per facet: computes solar occlusion for every
@@ -94,6 +264,10 @@ class Config:
     body at 100k facets and ~7.3 ms at 3.1M, dominated by the blocking
     readback. Turn it on for thermophysical or radiance work; leave it off
     when you only want images.
+    Compute per-facet solar occlusion for every body, every frame.
+
+    Read it back with `sim.facet_shadow(body)` from `after_render`. Leave it off
+    unless something consumes it: it is a compute pass and a readback per frame.
     """
     export_hud: bool
     """Burn the HUD text into exported frames as well as drawing it on screen.
@@ -103,6 +277,11 @@ class Config:
     exports carry the render alone. Turn it on for a screen-capture-style
     movie where the run state should be visible in the frames themselves --
     it costs one extra text pass, on exported frames only.
+    Burn the HUD text into exported frames as well as the window.
+
+    Off by default: the HUD is drawn straight onto the swapchain after the blit,
+    so it stays out of `render_texture` and therefore out of exports. Turning it
+    on adds a separate pass that draws it into the exported image too.
     """
     shadow_per_body: bool
     """Fit a shadow map per body instead of one fitted to the whole scene.
@@ -119,4 +298,11 @@ class Config:
     output or when every body is a similar size.
     """
     export_dir: str
+    """Directory exported frames are written to, as `{export_dir}/{N:06}.png`.
+
+    **Redirect this for any test or benchmark run.** The default is shared, so a
+    benchmark left at it writes into whatever a real run is using, and two
+    exporters pointed at one directory race on the startup index scan as well as
+    on cleanup.
+    """
 

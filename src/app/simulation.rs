@@ -209,8 +209,19 @@ impl Simulation {
 
 #[derive(Clone, Debug)]
 pub struct State {
+    /// Frames advanced so far. Both callbacks see the same value for a given
+    /// frame: it increments only once both have run.
     pub iteration: usize,
+    /// Whether `P` has paused the simulation.
+    ///
+    /// The render loop keeps running -- the window stays responsive and the camera
+    /// still moves -- but `before_render` and `after_render` are both skipped, so a
+    /// script does not need its own check.
     pub is_paused: bool,
+    /// Pause automatically on reaching this iteration.
+    ///
+    /// Also what `{nit}` reads in a HUD template, since it is the only thing that
+    /// tells the engine how long a run is meant to be.
     pub pause_at: Option<usize>,
 }
 
@@ -223,7 +234,7 @@ impl State {
         }
     }
 
-    // return pause state after toggle
+    /// Flip the pause state, returning the new value.
     pub fn toggle_pause(&mut self) -> bool {
         self.is_paused = !self.is_paused;
         self.is_paused

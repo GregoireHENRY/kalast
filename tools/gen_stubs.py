@@ -134,11 +134,20 @@ def parse(src: str):
         body = re.sub(r"(?<!/)//(?!/)[^\n]*", "", src[i:j])
 
         for fm in re.finditer(
-            r"((?:\s*///[^\n]*\n)*)\s*((?:#\[(?:[^\[\]]|\[[^\]]*\])*\]\s*)*)"
-            r"(?:pub )?fn (\w+)\s*(?:<[^>]*>)?\s*\(([^)]*)\)(?:\s*->\s*([^{]+))?",
+            # Docs and attributes may interleave in either order -- pyo3 code
+            # commonly writes `#[getter]` then `///`. Capture the whole
+            # prelude and pull the two apart afterwards.
+            r"((?:[ \t]*(?:///[^\n]*|#\[(?:[^\[\]]|\[[^\]]*\])*\])[ \t]*\n)*)"
+            r"[ \t]*(?:pub )?fn (\w+)\s*(?:<[^>]*>)?\s*\(([^)]*)\)(?:\s*->\s*([^{]+))?",
             body,
         ):
-            doc, attrs, name, args, ret = fm.groups()
+            prelude, name, args, ret = fm.groups()
+            doc = "\n".join(
+                l for l in (prelude or "").splitlines() if l.strip().startswith("///")
+            )
+            attrs = "\n".join(
+                l for l in (prelude or "").splitlines() if l.strip().startswith("#[")
+            )
             if "#[new]" in attrs:
                 name = "__init__"
                 ret = "()"          # a constructor returns None in Python

@@ -10,9 +10,22 @@ from kalast.mesh import Mesh
 
 class Simulation:
     state: State
+    """Iteration counter and pause state."""
     bodies: list[Body]
+    """The loaded bodies, in load order.
+
+    Set `bodies[i].mat` to place one: the 4x4 model matrix carries both
+    orientation and position.
+    """
     camera: Eye
+    """The camera."""
     sun: Eye
+    """The Sun.
+
+    Only `pos` matters for lighting: since per-body shadow layers, each layer
+    aims itself from `sun.pos` at the body it covers, so `dir` and `anchor` are
+    not consulted.
+    """
     def load_mesh(self, path: str, mat: list[list[float]] | None, flatten: bool | None, shadow_path: str | None) -> None:
         """`shadow_path` optionally names a lower-resolution mesh to render into
         the shadow map in place of `path`. The shadow map only decides which
@@ -23,8 +36,10 @@ class Simulation:
         """
         ...
     def add_mesh(self, mesh: Mesh, mat: list[list[float]] | None) -> None:
+        """Add an already-built `Mesh`, rather than loading one from a path."""
         ...
     export: bool
+    """Whether every frame is exported. Destination is `config.export_dir`."""
     huds: list[Hud]
     """The live HUDs -- the same objects as `app.config.huds`, not copies.
 
@@ -33,10 +48,15 @@ class Simulation:
     whatever is written here.
     """
     def update(self) -> None:
+        """Advance the iteration counter. The app calls this once per frame; a script
+        normally does not need it.
+        """
         ...
     def toggle_export(self) -> None:
+        """Flip continuous frame export."""
         ...
     def export_once(self) -> None:
+        """Export the next frame only."""
         ...
     def request_facet_shadow(self, body: int) -> None:
         """Ask for `body`'s per-facet occluded fractions, read back from the GPU
@@ -120,8 +140,23 @@ class Simulation:
 
 class State:
     iteration: int
+    """Frames advanced so far. Both callbacks see the same value for a given
+    frame: it increments only once both have run.
+    """
     is_paused: bool
+    """Whether `P` has paused the simulation.
+
+    The render loop keeps running -- the window stays responsive and the camera
+    still moves -- but `before_render` and `after_render` are both skipped, so a
+    script does not need its own check.
+    """
     pause_at: int | None
+    """Pause automatically on reaching this iteration.
+
+    Also what `{nit}` reads in a HUD template, since it is the only thing that
+    tells the engine how long a run is meant to be.
+    """
     def toggle_pause(self) -> bool:
+        """Flip the pause state, returning the new value."""
         ...
 

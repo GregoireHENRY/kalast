@@ -6,9 +6,19 @@ import numpy  # noqa: F401
 
 class Eye:
     pos: numpy.object
+    """Eye position, world units."""
     dir: numpy.object
+    """Unit vector the eye looks along.
+
+    Ignored for the Sun, whose shadow layers aim themselves from `pos`.
+    """
     up: numpy.object
+    """Unit vector defining which way is up in the image."""
     anchor: numpy.object
+    """The point the arcball orbits, and what `look_anchor` aims at.
+
+    Not consulted for the Sun.
+    """
     anchor_body: int | None
     """Body index the anchor tracks, or `None` for a fixed anchor.
 
@@ -17,56 +27,110 @@ class Eye:
     was at that moment.
     """
     up_world: numpy.object
+    """Reference 'up' the arcball keeps the camera aligned to."""
     projection: Projection
+    """Frustum: field of view and the near/far/side planes."""
     def is_control_wasd(self) -> bool:
+        """Whether the camera is in WASD mode."""
         ...
     def is_control_arcball(self) -> bool:
+        """Whether the camera is in arcball mode."""
         ...
     def is_control_none(self) -> bool:
+        """Whether the camera ignores input."""
         ...
     def set_control_wasd(self) -> None:
+        """Fly the camera with WASD; grabs and hides the cursor."""
         ...
     def set_control_arcball(self) -> None:
+        """Orbit the camera with the pointer. The default."""
         ...
     def set_control_none(self) -> None:
+        """Ignore all camera input.
+
+        Use this for a scripted render whose camera is placed from SPICE, so a stray
+        drag cannot move what represents an instrument pointing. Note `T` still
+        switches out of it.
+        """
         ...
     def control_toggle(self) -> None:
+        """Cycle the control mode, as pressing `T` does."""
         ...
     def target(self) -> numpy.object:
+        """The point the eye is looking at: `pos + dir`."""
         ...
     def right(self) -> numpy.object:
+        """Unit vector pointing right in the image plane."""
         ...
     def distance_anchor(self) -> float:
+        """Distance from the eye to its anchor."""
         ...
     def lookto(self) -> numpy.object:
+        """The view matrix for this eye."""
         ...
     def view_proj(self, aspect: float) -> numpy.object:
+        """View-projection matrix, for a given aspect ratio."""
         ...
     def mat(self) -> numpy.object:
+        """This eye's transform as a 4x4 matrix."""
         ...
     def fix_up(self) -> None:
+        """Re-orthogonalise `up` against `dir`.
+
+        An `up` parallel to `dir` would otherwise normalise a zero vector and produce
+        NaN that freezes the camera permanently.
+        """
         ...
     def look_anchor(self) -> None:
+        """Point `dir` at `anchor`, leaving the position alone.
+
+        Has no effect on the Sun: its shadow layers aim themselves from `pos`.
+        """
         ...
     def set_target(self, target: list[float]) -> None:
+        """Set `anchor` to a point *and* look at it, in one call."""
         ...
 
 class Projection:
     def is_orthographic(self) -> bool:
+        """Whether this is an orthographic projection."""
         ...
     def is_perspective(self) -> bool:
+        """Whether this is a perspective projection."""
         ...
     def set_orthographic(self) -> None:
+        """Switch to an orthographic projection."""
         ...
     def set_perspective(self) -> None:
+        """Switch to a perspective projection."""
         ...
     fovy: float
+    """Vertical field of view, radians.
+
+    Never fitted automatically: it is a real instrument property, not something
+    derived from the scene.
+    """
     near: float | None
+    """Near plane, or `None` for automatic.
+
+    Assigning a value **pins** it and defeats the per-frame fit for that plane;
+    assign `None` to restore automatic.
+    """
     far: float | None
+    """Far plane, or `None` for automatic. See `near`."""
     side: float | None
+    """Half-extent of an orthographic frustum, or `None` for automatic.
+
+    For the Sun with per-body shadow layers, pinning this applies one extent to
+    every layer, which defeats the per-body sizing those layers exist to provide.
+    """
     resolved_near: float
+    """What the fit actually chose for `near` this frame."""
     resolved_far: float
+    """What the fit actually chose for `far` this frame."""
     resolved_side: float
+    """What the fit actually chose for `side` this frame."""
     def mat(self, aspect: float) -> numpy.object:
+        """The projection matrix for a given aspect ratio."""
         ...
 

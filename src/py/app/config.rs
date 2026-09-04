@@ -59,6 +59,7 @@ impl Hud {
     }
 
     #[getter]
+    /// The template drawn for this HUD. See `Config::huds` for placeholders.
     fn text(&self) -> String {
         self.inner.borrow().text.clone()
     }
@@ -68,6 +69,8 @@ impl Hud {
     }
 
     #[getter]
+    /// Which corner `x`/`y` are measured from: `top-left`, `top-right`,
+    /// `bottom-left` or `bottom-right`.
     fn anchor(&self) -> String {
         self.inner.borrow().anchor.name().to_string()
     }
@@ -89,6 +92,9 @@ impl Hud {
     }
 
     #[getter]
+    /// Vertical inset from the anchor, in pixels.
+    ///
+    /// With the default top-left anchor this is simply the distance from the top.
     fn y(&self) -> f32 {
         self.inner.borrow().y
     }

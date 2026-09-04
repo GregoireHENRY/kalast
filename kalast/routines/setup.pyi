@@ -20,7 +20,7 @@ class Time:
     duration_record: float
 
 class Body:
-    def __init__(self) -> None:
+    def new(self) -> object:
         ...
     mesh: Mesh
     state: numpy.object

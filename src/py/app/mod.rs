@@ -23,6 +23,7 @@ impl App {
     }
 
     #[getter]
+    /// Renderer and window settings. See `CONFIG.md`.
     fn config(&self) -> config::Config {
         config::Config {
             app: self.inner.clone(),
@@ -30,12 +31,17 @@ impl App {
     }
 
     #[getter]
+    /// The scene: bodies, camera, Sun, iteration state and HUDs.
     fn get_simulation(&mut self) -> simulation::Simulation {
         simulation::Simulation {
             inner: self.inner.borrow_mut().simulation.clone(),
         }
     }
 
+    /// Create the window and run the render loop.
+    ///
+    /// **Blocks until the window closes**, so set everything up before calling it
+    /// and do per-frame work in `before_render`/`after_render`.
     fn start(&mut self) {
         self.inner.borrow_mut().start();
     }

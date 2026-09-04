@@ -14,6 +14,7 @@ pub struct Simulation {
 #[pymethods]
 impl Simulation {
     #[getter]
+    /// Iteration counter and pause state.
     fn state(&self) -> State {
         State {
             simulation: self.inner.clone(),
@@ -21,6 +22,10 @@ impl Simulation {
     }
 
     #[getter]
+    /// The loaded bodies, in load order.
+    ///
+    /// Set `bodies[i].mat` to place one: the 4x4 model matrix carries both
+    /// orientation and position.
     fn bodies(&mut self) -> Vec<super::body::Body> {
         self.inner
             .borrow()
@@ -35,6 +40,7 @@ impl Simulation {
     }
 
     #[getter]
+    /// The camera.
     fn camera(&self) -> super::frame::Eye {
         super::frame::Eye {
             simulation: self.inner.clone(),
@@ -43,6 +49,11 @@ impl Simulation {
     }
 
     #[getter]
+    /// The Sun.
+    ///
+    /// Only `pos` matters for lighting: since per-body shadow layers, each layer
+    /// aims itself from `sun.pos` at the body it covers, so `dir` and `anchor` are
+    /// not consulted.
     fn sun(&self) -> super::frame::Eye {
         super::frame::Eye {
             simulation: self.inner.clone(),
@@ -86,6 +97,7 @@ impl Simulation {
         mesh,
         mat=None,
     ))]
+    /// Add an already-built `Mesh`, rather than loading one from a path.
     fn add_mesh(&mut self, mesh: crate::py::mesh::Mesh, mat: Option<[[Float; 4]; 4]>) {
         self.inner.borrow_mut().add_mesh(
             mesh.inner.borrow().clone(),
@@ -95,6 +107,7 @@ impl Simulation {
     }
 
     #[getter]
+    /// Whether every frame is exported. Destination is `config.export_dir`.
     fn export(&self) -> bool {
         self.inner.borrow().export
     }
@@ -124,14 +137,18 @@ impl Simulation {
         self.inner.borrow_mut().huds = v.into_iter().map(|h| h.inner).collect();
     }
 
+    /// Advance the iteration counter. The app calls this once per frame; a script
+    /// normally does not need it.
     fn update(&mut self) {
         self.inner.borrow_mut().update();
     }
 
+    /// Flip continuous frame export.
     fn toggle_export(&mut self) {
         self.inner.borrow_mut().toggle_export();
     }
 
+    /// Export the next frame only.
     fn export_once(&mut self) {
         self.inner.borrow_mut().export_once();
     }
@@ -325,6 +342,7 @@ impl State {
         self.simulation.borrow_mut().state.pause_at = pause_at;
     }
 
+    /// Flip the pause state, returning the new value.
     pub fn toggle_pause(&mut self) -> bool {
         self.simulation.borrow_mut().state.toggle_pause()
     }

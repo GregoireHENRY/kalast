@@ -10,8 +10,15 @@ class App:
     def __init__(self) -> None:
         ...
     config: Config
+    """Renderer and window settings. See `CONFIG.md`."""
     simulation: Simulation
+    """The scene: bodies, camera, Sun, iteration state and HUDs."""
     def start(self) -> None:
+        """Create the window and run the render loop.
+
+        **Blocks until the window closes**, so set everything up before calling it
+        and do per-frame work in `before_render`/`after_render`.
+        """
         ...
     before_render: object
     """Runs before each frame is drawn. Set body transforms, camera and

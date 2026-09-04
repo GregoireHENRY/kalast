@@ -39,6 +39,7 @@ impl Eye {
 #[pymethods]
 impl Eye {
     #[getter]
+    /// Eye position, world units.
     fn pos<'py>(&self, py: Python<'py>) -> pyo3::Bound<'py, numpy::PyArray1<Float>> {
         let v = self.with(|e| e.pos);
         v.to_array().to_pyarray(py)
@@ -50,6 +51,9 @@ impl Eye {
     }
 
     #[getter]
+    /// Unit vector the eye looks along.
+    ///
+    /// Ignored for the Sun, whose shadow layers aim themselves from `pos`.
     fn dir<'py>(&self, py: Python<'py>) -> pyo3::Bound<'py, numpy::PyArray1<Float>> {
         let v = self.with(|e| e.dir);
         v.to_array().to_pyarray(py)
@@ -61,6 +65,7 @@ impl Eye {
     }
 
     #[getter]
+    /// Unit vector defining which way is up in the image.
     fn up<'py>(&self, py: Python<'py>) -> pyo3::Bound<'py, numpy::PyArray1<Float>> {
         let v = self.with(|e| e.up);
         v.to_array().to_pyarray(py)
@@ -72,6 +77,9 @@ impl Eye {
     }
 
     #[getter]
+    /// The point the arcball orbits, and what `look_anchor` aims at.
+    ///
+    /// Not consulted for the Sun.
     fn anchor<'py>(&self, py: Python<'py>) -> pyo3::Bound<'py, numpy::PyArray1<Float>> {
         let v = self.with(|e| e.anchor);
         v.to_array().to_pyarray(py)
@@ -98,6 +106,7 @@ impl Eye {
     }
 
     #[getter]
+    /// Reference 'up' the arcball keeps the camera aligned to.
     fn up_world<'py>(&self, py: Python<'py>) -> pyo3::Bound<'py, numpy::PyArray1<Float>> {
         let v = self.with(|e| e.up_world);
         v.to_array().to_pyarray(py)
@@ -109,6 +118,7 @@ impl Eye {
     }
 
     #[getter]
+    /// Frustum: field of view and the near/far/side planes.
     fn projection(&self) -> Projection {
         Projection {
             simulation: self.simulation.clone(),
@@ -116,46 +126,61 @@ impl Eye {
         }
     }
 
+    /// Whether the camera is in WASD mode.
     fn is_control_wasd(&self) -> bool {
         self.with(|e| e.control == crate::app::frame::Control::WASD)
     }
 
+    /// Whether the camera is in arcball mode.
     fn is_control_arcball(&self) -> bool {
         self.with(|e| e.control == crate::app::frame::Control::Arcball)
     }
 
+    /// Whether the camera ignores input.
     fn is_control_none(&self) -> bool {
         self.with(|e| e.control == crate::app::frame::Control::None)
     }
 
+    /// Fly the camera with WASD; grabs and hides the cursor.
     fn set_control_wasd(&self) {
         self.with_mut(|e| e.control = crate::app::frame::Control::WASD);
     }
 
+    /// Orbit the camera with the pointer. The default.
     fn set_control_arcball(&self) {
         self.with_mut(|e| e.control = crate::app::frame::Control::Arcball);
     }
 
+    /// Ignore all camera input.
+    ///
+    /// Use this for a scripted render whose camera is placed from SPICE, so a stray
+    /// drag cannot move what represents an instrument pointing. Note `T` still
+    /// switches out of it.
     fn set_control_none(&self) {
         self.with_mut(|e| e.control = crate::app::frame::Control::None);
     }
 
+    /// Cycle the control mode, as pressing `T` does.
     fn control_toggle(&self) {
         self.with_mut(|e| e.control.toggle());
     }
 
+    /// The point the eye is looking at: `pos + dir`.
     fn target<'py>(&self, py: Python<'py>) -> pyo3::Bound<'py, numpy::PyArray1<Float>> {
         self.with(|e| e.target()).to_array().to_pyarray(py)
     }
 
+    /// Unit vector pointing right in the image plane.
     fn right<'py>(&self, py: Python<'py>) -> pyo3::Bound<'py, numpy::PyArray1<Float>> {
         self.with(|e| e.right()).to_array().to_pyarray(py)
     }
 
+    /// Distance from the eye to its anchor.
     fn distance_anchor(&self) -> Float {
         self.with(|e| e.distance_anchor())
     }
 
+    /// The view matrix for this eye.
     fn lookto<'py>(&self, py: Python<'py>) -> pyo3::Bound<'py, numpy::PyArray2<Float>> {
         self.with(|e| e.lookto())
             .unwrap()
@@ -165,6 +190,7 @@ impl Eye {
             .unwrap()
     }
 
+    /// View-projection matrix, for a given aspect ratio.
     fn view_proj<'py>(
         &self,
         py: Python<'py>,
@@ -178,6 +204,7 @@ impl Eye {
             .unwrap()
     }
 
+    /// This eye's transform as a 4x4 matrix.
     fn mat<'py>(&self, py: Python<'py>) -> pyo3::Bound<'py, numpy::PyArray2<Float>> {
         self.with(|e| e.mat())
             .as_ref()
@@ -186,14 +213,22 @@ impl Eye {
             .unwrap()
     }
 
+    /// Re-orthogonalise `up` against `dir`.
+    ///
+    /// An `up` parallel to `dir` would otherwise normalise a zero vector and produce
+    /// NaN that freezes the camera permanently.
     fn fix_up(&self) {
         self.with_mut(|e| e.fix_up());
     }
 
+    /// Point `dir` at `anchor`, leaving the position alone.
+    ///
+    /// Has no effect on the Sun: its shadow layers aim themselves from `pos`.
     fn look_anchor(&self) {
         self.with_mut(|e| e.look_anchor());
     }
 
+    /// Set `anchor` to a point *and* look at it, in one call.
     fn set_target(&self, target: [Float; 3]) {
         self.with_mut(|e| e.set_target(target.into()));
     }
@@ -230,23 +265,31 @@ impl Projection {
 
 #[pymethods]
 impl Projection {
+    /// Whether this is an orthographic projection.
     fn is_orthographic(&self) -> bool {
         self.with(|p| p.mode == crate::app::frame::ProjectionMode::Orthographic)
     }
 
+    /// Whether this is a perspective projection.
     fn is_perspective(&self) -> bool {
         self.with(|p| p.mode == crate::app::frame::ProjectionMode::Perspective)
     }
 
+    /// Switch to an orthographic projection.
     fn set_orthographic(&self) {
         self.with_mut(|p| p.mode = crate::app::frame::ProjectionMode::Orthographic);
     }
 
+    /// Switch to a perspective projection.
     fn set_perspective(&self) {
         self.with_mut(|p| p.mode = crate::app::frame::ProjectionMode::Perspective);
     }
 
     #[getter]
+    /// Vertical field of view, radians.
+    ///
+    /// Never fitted automatically: it is a real instrument property, not something
+    /// derived from the scene.
     fn fovy(&self) -> Float {
         self.with(|p| p.fovy)
     }
@@ -260,6 +303,10 @@ impl Projection {
     // bounds every frame, and assigning None puts a pinned plane back on
     // automatic. Use `resolved_*` to read what the fit actually chose.
     #[getter]
+    /// Near plane, or `None` for automatic.
+    ///
+    /// Assigning a value **pins** it and defeats the per-frame fit for that plane;
+    /// assign `None` to restore automatic.
     fn near(&self) -> Option<Float> {
         self.with(|p| p.near)
     }
@@ -270,6 +317,7 @@ impl Projection {
     }
 
     #[getter]
+    /// Far plane, or `None` for automatic. See `near`.
     fn far(&self) -> Option<Float> {
         self.with(|p| p.far)
     }
@@ -280,6 +328,10 @@ impl Projection {
     }
 
     #[getter]
+    /// Half-extent of an orthographic frustum, or `None` for automatic.
+    ///
+    /// For the Sun with per-body shadow layers, pinning this applies one extent to
+    /// every layer, which defeats the per-body sizing those layers exist to provide.
     fn side(&self) -> Option<Float> {
         self.with(|p| p.side)
     }
@@ -290,20 +342,24 @@ impl Projection {
     }
 
     #[getter]
+    /// What the fit actually chose for `near` this frame.
     fn resolved_near(&self) -> Float {
         self.with(|p| p.resolved().near)
     }
 
     #[getter]
+    /// What the fit actually chose for `far` this frame.
     fn resolved_far(&self) -> Float {
         self.with(|p| p.resolved().far)
     }
 
     #[getter]
+    /// What the fit actually chose for `side` this frame.
     fn resolved_side(&self) -> Float {
         self.with(|p| p.resolved().side)
     }
 
+    /// The projection matrix for a given aspect ratio.
     fn mat<'py>(&self, py: Python<'py>, aspect: Float) -> pyo3::Bound<'py, numpy::PyArray2<Float>> {
         self.with(|p| p.mat(aspect))
             .as_ref()
