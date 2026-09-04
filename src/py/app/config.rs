@@ -590,6 +590,78 @@ impl Config {
         self.app.borrow_mut().config.access_shadow_map = v;
     }
 
+    /// Colour facets from `mesh.values` through `colormap`.
+    ///
+    /// Orthogonal to `color_mode`: with `0` the data map is shaded, with `1`
+    /// it is flat, which is usually what a quantitative figure wants.
+    #[getter]
+    fn value_mode(&self) -> bool {
+        self.app.borrow().config.value_mode
+    }
+
+    #[setter]
+    fn set_value_mode(&mut self, v: bool) {
+        self.app.borrow_mut().config.value_mode = v;
+    }
+
+    /// Bottom of the colour scale, or `None` to fit the data each frame.
+    ///
+    /// **Pin it for anything comparative.** An automatic range rescales
+    /// between frames, so two images of the same scene are not on the same
+    /// scale and the difference reads as physics rather than bookkeeping.
+    #[getter]
+    fn value_min(&self) -> Option<f32> {
+        self.app.borrow().config.value_min
+    }
+
+    #[setter]
+    fn set_value_min(&mut self, v: Option<f32>) {
+        self.app.borrow_mut().config.value_min = v;
+    }
+
+    /// Top of the colour scale, or `None` to fit the data. See `value_min`.
+    #[getter]
+    fn value_max(&self) -> Option<f32> {
+        self.app.borrow().config.value_max
+    }
+
+    #[setter]
+    fn set_value_max(&mut self, v: Option<f32>) {
+        self.app.borrow_mut().config.value_max = v;
+    }
+
+    /// Colour lookup table: a built-in name or an Nx3 array of RGB in 0..1.
+    ///
+    /// `"viridis"`, `"inferno"`, `"turbo"`, `"grey"`, or any matplotlib
+    /// colormap passed straight through:
+    ///
+    ///     app.config.colormap = matplotlib.colormaps["magma"](numpy.linspace(0, 1, 256))[:, :3]
+    ///
+    /// Resampled to 256 entries, so any length works.
+    #[setter]
+    fn set_colormap(&mut self, v: &Bound<'_, PyAny>) -> PyResult<()> {
+        let table = if let Ok(name) = v.extract::<String>() {
+            crate::app::config::builtin_colormap(&name).ok_or_else(|| {
+                pyo3::exceptions::PyValueError::new_err(format!(
+                    "unknown colormap {name:?}: built-ins are viridis, inferno, turbo, grey;                      otherwise pass an Nx3 array"
+                ))
+            })?
+        } else {
+            let arr: numpy::borrow::PyReadonlyArray2<f32> = v.extract()?;
+            let a = arr.as_array();
+            if a.ncols() < 3 {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "colormap array must be Nx3 (or Nx4, alpha ignored)",
+                ));
+            }
+            (0..a.nrows())
+                .map(|i| [a[[i, 0]], a[[i, 1]], a[[i, 2]]])
+                .collect()
+        };
+        self.app.borrow_mut().config.colormap = table;
+        Ok(())
+    }
+
     #[getter]
     fn export_hud(&self) -> bool {
         self.app.borrow().config.export_hud

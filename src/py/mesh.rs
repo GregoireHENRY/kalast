@@ -508,6 +508,42 @@ impl Mesh {
     /// set, so a static-colored mesh never pays that cost after its
     /// initial upload -- a script that recolors every frame needs to call
     /// this every frame too, the same way sim.export_once() works.
+    /// Per-facet scalars to colour by, one per facet.
+    ///
+    /// Set `config.value_mode = True` to use them. Pair with `config.colormap`
+    /// and, for anything comparative, a pinned `config.value_min`/`value_max`
+    /// -- an automatic range rescales between frames, so two images of the
+    /// same scene end up on different colour scales.
+    ///
+    /// Setting these marks the mesh dirty, so the change reaches the GPU on
+    /// the next frame without a separate call.
+    #[getter]
+    fn values<'py>(slf: Bound<'py, Self>, py: Python<'py>) -> Bound<'py, numpy::PyArray1<Float>> {
+        let v = slf.borrow().inner.borrow().values.clone();
+        numpy::PyArray1::from_vec(py, v)
+    }
+
+    #[setter]
+    fn set_values(&mut self, values: numpy::borrow::PyReadonlyArray1<Float>) -> PyResult<()> {
+        let mesh = self.inner.borrow();
+        let n_facets = mesh.facets.len();
+        drop(mesh);
+
+        let v = values.as_slice()?;
+        if v.len() != n_facets {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "values has {} entries but the mesh has {n_facets} facets",
+                v.len()
+            )));
+        }
+
+        let mut mesh = self.inner.borrow_mut();
+        mesh.values = v.to_vec();
+        // Values ride the colour buffer, so they go up on the same flag.
+        mesh.colors_dirty = true;
+        Ok(())
+    }
+
     fn mark_colors_dirty(&mut self) {
         self.inner.borrow_mut().colors_dirty = true;
     }

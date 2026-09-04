@@ -15,6 +15,9 @@ struct Globals {
     wireframe_mode: u32,
     wireframe_width: f32,
     wireframe_color: vec3<f32>,
+    value_mode: u32,
+    value_min: f32,
+    value_max: f32,
 };
 @group(0) @binding(0)
 var<uniform> globals: Globals;
@@ -62,6 +65,29 @@ struct InstanceInput {
     // @location(17) color_mode: u32,
 };
 
+// Shared with the colorbar, so the surface and the bar cannot disagree about
+// what a colour means.
+struct Colormap {
+    lut: array<vec4<f32>, 256>,
+};
+@group(3) @binding(0)
+var<uniform> colormap: Colormap;
+
+/// Colour for a value, clamped to the ends of the range.
+///
+/// Clamped rather than wrapped: an outlier should saturate at the top of the
+/// scale, not alias back to the bottom and read as a cold facet.
+fn colormap_lookup(v: f32) -> vec3<f32> {
+    let span = max(globals.value_max - globals.value_min, 1e-20);
+    let t = clamp((v - globals.value_min) / span, 0.0, 1.0);
+    let x = t * 255.0;
+    let i = u32(floor(x));
+    let j = min(i + 1u, 255u);
+    // Interpolated between entries: a 256-step ramp banded visibly on a
+    // smooth field at the sizes these figures get printed at.
+    return mix(colormap.lut[i].rgb, colormap.lut[j].rgb, x - f32(i));
+}
+
 struct VertexInput {
     @location(0) pos: vec3<f32>,
     @location(1) tex: vec2<f32>,
@@ -71,6 +97,7 @@ struct VertexInput {
     @location(5) color: vec3<f32>,
     @location(6) color_mode: u32,
     @location(7) extra: u32,
+    @location(18) value: f32,
 };
 
 struct VertexOutput {
@@ -87,6 +114,9 @@ struct VertexOutput {
     @location(5) @interpolate(flat) flags: u32,
     // Flat for the same reason as `flags`: an index must not be blended.
     @location(6) @interpolate(flat) shadow_layer: u32,
+    // Flat: every corner of a facet carries the same value, and interpolating
+    // would smear one facet's datum into its neighbour.
+    @location(7) @interpolate(flat) value: f32,
 };
 
 fn srgb_to_linear(color: vec3<f32>, gamma: f32) -> vec3<f32> {
@@ -143,6 +173,7 @@ fn vs_main(
     );
     out.flags = instance.flags;
     out.shadow_layer = instance.shadow_layer;
+    out.value = vertex.value;
 
     return out;
 }
@@ -257,8 +288,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 fn fs_shaded(in: VertexOutput) -> vec4<f32> {
+    // `value_mode` is orthogonal to `color_mode`: it decides *what* the
+    // surface colour is, while `color_mode` decides whether that colour is
+    // lit. So a data map can be shaded (0) or flat (1).
+    let surface_color = select(
+        in.color,
+        colormap_lookup(in.value),
+        globals.value_mode == 1u,
+    );
+
     if globals.color_mode == 1 {
-        var color = in.color;
+        var color = surface_color;
         if globals.srgb_mode == 0 {
             color = srgb_to_linear(color, globals.gamma);
         }
@@ -276,7 +316,7 @@ fn fs_shaded(in: VertexOutput) -> vec4<f32> {
     // 0 or else
     //
     // else {
-    let object_color = vec4<f32>(in.color, 1.0);
+    let object_color = vec4<f32>(surface_color, 1.0);
 
     let light_dir = normalize(view.light.pos - in.world_pos);
     let ndotl = max(dot(in.world_normal, light_dir), 0.0);

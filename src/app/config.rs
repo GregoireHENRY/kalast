@@ -68,6 +68,42 @@ impl Hud {
     }
 }
 
+/// The built-in colour tables, by name.
+///
+/// Four is deliberate rather than a full matplotlib set: any other colormap
+/// can be passed as an array, so shipping more would be duplicating a
+/// dependency the user already has. These are the ones worth having without
+/// it -- three perceptually uniform, and grey for print.
+///
+/// Sampled at 8 anchor points and interpolated to 256 on upload, which is
+/// within a colour step of the originals and keeps the table readable here.
+pub fn builtin_colormap(name: &str) -> Option<Vec<[f32; 3]>> {
+    let anchors: &[[f32; 3]] = match name.to_ascii_lowercase().as_str() {
+        "viridis" => &[
+            [0.267, 0.005, 0.329], [0.283, 0.141, 0.458], [0.254, 0.265, 0.530],
+            [0.207, 0.372, 0.553], [0.164, 0.471, 0.558], [0.128, 0.567, 0.551],
+            [0.135, 0.659, 0.518], [0.267, 0.749, 0.441],
+        ],
+        "inferno" => &[
+            [0.001, 0.000, 0.014], [0.159, 0.044, 0.329], [0.354, 0.078, 0.432],
+            [0.542, 0.144, 0.387], [0.730, 0.216, 0.302], [0.882, 0.352, 0.164],
+            [0.969, 0.559, 0.035], [0.988, 0.809, 0.145],
+        ],
+        "turbo" => &[
+            [0.190, 0.072, 0.232], [0.276, 0.418, 0.897], [0.147, 0.723, 0.795],
+            [0.339, 0.907, 0.469], [0.699, 0.985, 0.212], [0.973, 0.816, 0.190],
+            [0.977, 0.494, 0.115], [0.788, 0.148, 0.023],
+        ],
+        "grey" | "gray" => &[
+            [0.0, 0.0, 0.0], [0.143, 0.143, 0.143], [0.286, 0.286, 0.286],
+            [0.429, 0.429, 0.429], [0.571, 0.571, 0.571], [0.714, 0.714, 0.714],
+            [0.857, 0.857, 0.857], [1.0, 1.0, 1.0],
+        ],
+        _ => return None,
+    };
+    Some(anchors.to_vec())
+}
+
 #[derive(Clone, Debug)]
 pub struct Config {
     /// Print app lifecycle events: pause and camera-mode changes.
@@ -395,6 +431,31 @@ pub struct Config {
     /// output or when every body is a similar size.
     pub shadow_per_body: bool,
 
+    /// Colour facets from `mesh.values` through `colormap` instead of from
+    /// their vertex colour.
+    ///
+    /// Orthogonal to `color_mode`, which still decides whether the result is
+    /// lit: with `color_mode = 0` the data map is shaded, with `1` it is flat,
+    /// which is what a quantitative figure usually wants.
+    pub value_mode: bool,
+
+    /// Range the colormap spans, or `None` to fit the loaded values each
+    /// frame.
+    ///
+    /// Automatic is the sane default for exploring, but pin it for anything
+    /// comparative: an auto range silently rescales between frames, so two
+    /// images of the same scene are not on the same colour scale and the
+    /// difference between them reads as physics rather than as bookkeeping.
+    pub value_min: Option<f32>,
+    pub value_max: Option<f32>,
+
+    /// Colour lookup table, 256 RGB entries in 0..1.
+    ///
+    /// Set by name (`"viridis"`, `"inferno"`, `"turbo"`, `"grey"`) or from any
+    /// 256x3 array, so a matplotlib colormap can be handed over unchanged.
+    /// Defaults to greyscale.
+    pub colormap: Vec<[f32; 3]>,
+
     /// Treat alt + left-drag as a middle-drag, so the arcball can be orbited
     /// on hardware with no middle button. Blender calls the same setting
     /// "Emulate 3 Button Mouse". Defaults on for macOS, where a trackpad is
@@ -470,6 +531,11 @@ impl Default for Config {
             export_hud: false,
 
             shadow_per_body: true,
+
+            value_mode: false,
+            value_min: None,
+            value_max: None,
+            colormap: Vec::new(),
 
             emulate_middle_button: cfg!(target_os = "macos"),
         }

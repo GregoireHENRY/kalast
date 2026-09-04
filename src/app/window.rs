@@ -440,6 +440,7 @@ impl Window {
             &crate::meshes::cube::INDICES,
             &super::gpu::InstanceInput::default(),
             false,
+            &[],
         ));
 
         // Element 0 pairs with the light cube, which the shadow pass skips.
@@ -478,6 +479,7 @@ impl Window {
                     &mesh.indices,
                     &instance,
                     mesh.is_flat(),
+                    &mesh.values,
                 ));
 
                 shadow_meshes.push(body.shadow_mesh.as_ref().map(|shadow| {
@@ -488,6 +490,9 @@ impl Window {
                         &shadow.indices,
                         &instance,
                         shadow.is_flat(),
+                        // The shadow stand-in only ever writes depth, so its
+                        // colours and values are never read.
+                        &[],
                     )
                 }));
             }
@@ -502,7 +507,7 @@ impl Window {
         let textures = vec![texture];
         */
 
-        let globals = super::gpu::UniformBuffer::new(&device, build_globals(config, None));
+        let globals = super::gpu::UniformBuffer::new(&device, build_globals(config, None, (0.0, 1.0)));
 
         let camera = super::uniform::Camera {
             view_proj: simulation
@@ -538,10 +543,16 @@ impl Window {
             super::uniform::MAX_SHADOW_LAYERS as u32,
         );
 
+        let colormap = super::gpu::UniformBuffer::new(
+            &device,
+            super::uniform::Colormap::default(),
+        );
+
         let uniforms = super::uniform::Uniforms {
             globals,
             view,
             shadow,
+            colormap,
         };
 
         let passes = super::pass::Passes::new(&device, surface_config.format, &config, &uniforms);
@@ -926,7 +937,48 @@ impl Window {
         // every shading option after start(). The automatic shadow constants
         // change as the scene moves, so it now goes up every frame -- 80
         // bytes, and it makes the other options live as a side effect.
-        self.uniforms.globals.uniform = build_globals(config, shadow_fit);
+        // Auto range fits the loaded values; a pinned min or max wins over it
+        // independently, so half the scale can be fixed and the other fitted.
+        let mut lo = f32::INFINITY;
+        let mut hi = f32::NEG_INFINITY;
+        if config.value_mode && (config.value_min.is_none() || config.value_max.is_none()) {
+            for body in &simulation.bodies {
+                let Some(mesh) = body.mesh.as_ref() else { continue };
+                for v in &mesh.borrow().values {
+                    let v = *v as f32;
+                    if v.is_finite() {
+                        lo = lo.min(v);
+                        hi = hi.max(v);
+                    }
+                }
+            }
+        }
+        if !lo.is_finite() || !hi.is_finite() {
+            lo = 0.0;
+            hi = 1.0;
+        }
+        let value_range = (
+            config.value_min.unwrap_or(lo),
+            config.value_max.unwrap_or(hi),
+        );
+
+        self.uniforms.globals.uniform = build_globals(config, shadow_fit, value_range);
+
+        // Resampled to the uniform's fixed 256 entries, so any length of table
+        // works -- matplotlib's 256 passes through untouched.
+        if !config.colormap.is_empty() {
+            let n = config.colormap.len();
+            for i in 0..super::uniform::COLORMAP_SIZE {
+                let t = i as f32 / (super::uniform::COLORMAP_SIZE - 1) as f32;
+                let c = config.colormap[((t * (n - 1) as f32).round() as usize).min(n - 1)];
+                self.uniforms.colormap.uniform.lut[i] = crate::Vec4::new(c[0], c[1], c[2], 1.0);
+            }
+            self.queue.write_buffer(
+                &self.uniforms.colormap.buffer,
+                0,
+                bytemuck::bytes_of(&self.uniforms.colormap.uniform),
+            );
+        }
         self.queue.write_buffer(
             &self.uniforms.globals.buffer,
             0,
@@ -1062,7 +1114,12 @@ impl Window {
 
             let mesh = simulation.bodies[ii].mesh.as_ref().unwrap();
             if mesh.borrow().colors_dirty {
-                self.meshes[1 + ii].update_attrib_buffer(&self.queue, &mesh.borrow().vertices);
+                // `values` rides the same buffer and the same dirty flag:
+                // both are per-vertex attributes uploaded together, so a
+                // script that changes either marks colours dirty.
+                let m = mesh.borrow();
+                self.meshes[1 + ii].update_attrib_buffer(&self.queue, &m.vertices, &m.values);
+                drop(m);
                 mesh.borrow_mut().colors_dirty = false;
             }
         }
@@ -1350,8 +1407,13 @@ impl Window {
 fn build_globals(
     config: &crate::app::config::Config,
     shadow: Option<super::frame::ShadowFit>,
+    value_range: (f32, f32),
 ) -> super::uniform::Globals {
     super::uniform::Globals {
+        value_mode: config.value_mode as u32,
+        value_min: value_range.0,
+        value_max: value_range.1,
+
         color: super::gpu::color_vec3(&config.color),
         color_mode: config.color_mode,
 

@@ -41,7 +41,21 @@ pub struct Globals {
     // u32/f32 rows above land on exactly. Keep new scalars ahead of it.
     pub wireframe_color: Vec3,
 
+    /// Colour facets from `Mesh::values` through the colormap instead of from
+    /// their vertex colour. Orthogonal to `color_mode`, which still decides
+    /// whether the result is lit: `value_mode = 1` with `color_mode = 0` is a
+    /// lit data map, with `color_mode = 1` a flat one.
+    pub value_mode: u32,
+    /// Range the colormap spans. Values outside are clamped, not wrapped, so
+    /// an outlier saturates rather than aliasing to the far end of the scale.
+    pub value_min: f32,
+    pub value_max: f32,
+
     pub _padding1: u32,
+    // WGSL rounds the struct up to a multiple of 16; without this the Rust
+    // side is 92 bytes against the shader's 96 and the bind group is
+    // rejected at draw time.
+    pub _padding2: [u32; 1],
 }
 
 #[repr(C)]
@@ -96,9 +110,41 @@ pub struct Light {
     pub _padding2: u32,
 }
 
+/// Number of entries in the colour lookup table.
+///
+/// 256 is what matplotlib hands out by default, so a colormap passed straight
+/// from Python needs no resampling.
+pub const COLORMAP_SIZE: usize = 256;
+
+/// The colour lookup table, as a uniform rather than a texture.
+///
+/// A uniform because the colorbar has to read the *same* table: a texture
+/// would need a sampler in a second pipeline and two chances to bind the wrong
+/// one, and 4 KB sits comfortably inside the 64 KB uniform limit.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct Colormap {
+    /// `rgb` in xyz; `w` unused, present because uniform arrays are stride-16.
+    pub lut: [crate::Vec4; COLORMAP_SIZE],
+}
+
+impl Default for Colormap {
+    fn default() -> Self {
+        // Greyscale, so a mesh with values but no colormap set still reads as
+        // data rather than as a single flat colour.
+        let mut lut = [crate::Vec4::ZERO; COLORMAP_SIZE];
+        for (i, e) in lut.iter_mut().enumerate() {
+            let t = i as f32 / (COLORMAP_SIZE - 1) as f32;
+            *e = crate::Vec4::new(t, t, t, 1.0);
+        }
+        Self { lut }
+    }
+}
+
 pub struct Uniforms {
     pub globals: super::gpu::UniformBuffer<Globals>,
     pub view: super::gpu::UniformBuffer<View>,
+    pub colormap: super::gpu::UniformBuffer<Colormap>,
     pub shadow: super::gpu::Texture,
     // pub textures: Vec<super::gpu::Texture>,
 }
@@ -109,6 +155,7 @@ impl Uniforms {
             Some(&self.globals.layout),
             Some(&self.view.layout),
             Some(&self.shadow.layout.as_ref().unwrap()),
+            Some(&self.colormap.layout),
             // Some(&self.textures[0].layout.as_ref().unwrap()),
         ]
     }
@@ -122,6 +169,7 @@ impl Uniforms {
             globals: self.globals.bind_group(device),
             view: self.view.bind_group(device),
             shadow: self.shadow.bind_group(device).unwrap(),
+            colormap: self.colormap.bind_group(device),
             // textures: self.textures[0].bind_group(device).unwrap(),
         }
     }

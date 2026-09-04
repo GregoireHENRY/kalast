@@ -283,6 +283,16 @@ pub struct Mesh {
     // milliseconds at load time but would be nonsense every frame.
     // Call `recompute_bounds` after mutating vertex positions in place.
     pub bounds: Aabb,
+
+    // Per-facet scalar to colour by -- a temperature, an insolation, a
+    // shadowed fraction. Empty when the mesh is coloured by vertex colour
+    // instead, which is the default.
+    //
+    // Per facet rather than per vertex because that is the shape the data
+    // arrives in: a TPM column gives one surface temperature per facet, and
+    // these meshes are flattened, so there is nothing to interpolate across
+    // anyway -- the three corners of a facet are its own vertices.
+    pub values: Vec<Float>,
 }
 
 impl Mesh {
@@ -298,6 +308,7 @@ impl Mesh {
                 min: Vec3::ZERO,
                 max: Vec3::ZERO,
             },
+            values: vec![],
         }
     }
 
@@ -872,6 +883,7 @@ impl Model {
                     _vertices_before_flatten: vec![],
                     colors_dirty: false,
                     bounds,
+                    values: vec![],
                 };
 
                 // Can now use normals per facet (if computed) to compute normals per vertex.

@@ -223,6 +223,11 @@ pub struct AttribVertex {
     pub color: Vec3,
     pub color_mode: u32,
     pub extra: u32,
+    /// The facet's scalar, when the mesh carries `values`. Held per vertex
+    /// because that is what the vertex stage can read; every vertex of a facet
+    /// gets the same number, so the facet comes out flat.
+    pub value: f32,
+    _padding: [u32; 3],
 }
 
 fn extract_geometry(vertices: &[crate::mesh::Vertex]) -> Vec<GeometryVertex> {
@@ -238,13 +243,20 @@ fn extract_geometry(vertices: &[crate::mesh::Vertex]) -> Vec<GeometryVertex> {
         .collect()
 }
 
-fn extract_attribs(vertices: &[crate::mesh::Vertex]) -> Vec<AttribVertex> {
+/// `values` is per facet; vertices are per corner. For a flat mesh corner `i`
+/// belongs to facet `i / 3`. For an indexed one there is no such mapping, so
+/// the value is left at zero rather than guessed -- `Mesh::set_values` refuses
+/// an indexed mesh for the same reason.
+fn extract_attribs(vertices: &[crate::mesh::Vertex], values: &[crate::Float]) -> Vec<AttribVertex> {
     vertices
         .iter()
-        .map(|v| AttribVertex {
+        .enumerate()
+        .map(|(i, v)| AttribVertex {
             color: v.color,
             color_mode: v.color_mode,
             extra: v.extra,
+            value: values.get(i / 3).copied().unwrap_or(0.0) as f32,
+            _padding: [0; 3],
         })
         .collect()
 }
@@ -258,10 +270,11 @@ impl crate::mesh::Vertex {
         4 => Float32x3,
     ];
 
-    pub const ATTRIB_ATTRIBS: [wgpu::VertexAttribute; 3] = wgpu::vertex_attr_array![
+    pub const ATTRIB_ATTRIBS: [wgpu::VertexAttribute; 4] = wgpu::vertex_attr_array![
         5 => Float32x3,
         6 => Uint32,
         7 => Uint32,
+        18 => Float32,
     ];
 
     pub fn geometry_desc() -> wgpu::VertexBufferLayout<'static> {
@@ -393,6 +406,7 @@ impl MeshBuffer {
         indices: &[u32],
         instance: &InstanceInput,
         is_flat: bool,
+        values: &[crate::Float],
     ) -> Self {
         let geometry_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             contents: bytemuck::cast_slice(&extract_geometry(vertices)),
@@ -404,7 +418,7 @@ impl MeshBuffer {
         });
 
         let attrib_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            contents: bytemuck::cast_slice(&extract_attribs(vertices)),
+            contents: bytemuck::cast_slice(&extract_attribs(vertices, values)),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             label: None,
         });
@@ -455,11 +469,16 @@ impl MeshBuffer {
     /// `mesh.colors`, and Window::update checks that flag before calling
     /// this, so a static-colored mesh never pays this cost after its
     /// initial upload in `new`.
-    pub fn update_attrib_buffer(&mut self, queue: &wgpu::Queue, vertices: &[crate::mesh::Vertex]) {
+    pub fn update_attrib_buffer(
+        &mut self,
+        queue: &wgpu::Queue,
+        vertices: &[crate::mesh::Vertex],
+        values: &[crate::Float],
+    ) {
         queue.write_buffer(
             &self.attrib_buffer,
             0,
-            bytemuck::cast_slice(&extract_attribs(vertices)),
+            bytemuck::cast_slice(&extract_attribs(vertices, values)),
         );
     }
 
