@@ -111,28 +111,38 @@ fn hud_placement(
     width: f32,
     height: f32,
 ) -> ((f32, f32), wgpu_text::glyph_brush::Layout<wgpu_text::glyph_brush::BuiltInLineBreaker>) {
-    use crate::app::config::HudAnchor::*;
+    use crate::app::config::{HAlign, HudAnchor::*, VAlign};
     use wgpu_text::glyph_brush::{HorizontalAlign, Layout, VerticalAlign};
 
-    let (pos, h, v) = match hud.anchor {
-        TopLeft => ((hud.x, hud.y), HorizontalAlign::Left, VerticalAlign::Top),
-        TopRight => (
-            (width - hud.x, hud.y),
-            HorizontalAlign::Right,
-            VerticalAlign::Top,
-        ),
-        BottomLeft => (
-            (hud.x, height - hud.y),
-            HorizontalAlign::Left,
-            VerticalAlign::Bottom,
-        ),
-        BottomRight => (
-            (width - hud.x, height - hud.y),
-            HorizontalAlign::Right,
-            VerticalAlign::Bottom,
-        ),
+    // `x`/`y` are an inset *from* the anchor, so the same offset means "8 px
+    // in from my corner" whichever corner that is. Centre anchors take the
+    // inset as a signed nudge instead: there is no edge to come in from.
+    let x = match hud.anchor {
+        TopLeft | MiddleLeft | BottomLeft => hud.x,
+        TopCenter | MiddleCenter | BottomCenter => width * 0.5 + hud.x,
+        TopRight | MiddleRight | BottomRight => width - hud.x,
     };
-    (pos, Layout::default_wrap().h_align(h).v_align(v))
+    let y = match hud.anchor {
+        TopLeft | TopCenter | TopRight => hud.y,
+        MiddleLeft | MiddleCenter | MiddleRight => height * 0.5 + hud.y,
+        BottomLeft | BottomCenter | BottomRight => height - hud.y,
+    };
+
+    // Alignment is glyph_brush's, not ours: measuring the text to subtract a
+    // width would make the block jitter horizontally as digits change width.
+    let (dh, dv) = hud.anchor.default_align();
+    let h = match hud.align_h.unwrap_or(dh) {
+        HAlign::Left => HorizontalAlign::Left,
+        HAlign::Center => HorizontalAlign::Center,
+        HAlign::Right => HorizontalAlign::Right,
+    };
+    let v = match hud.align_v.unwrap_or(dv) {
+        VAlign::Top => VerticalAlign::Top,
+        VAlign::Center => VerticalAlign::Center,
+        VAlign::Bottom => VerticalAlign::Bottom,
+    };
+
+    ((x, y), Layout::default_wrap().h_align(h).v_align(v))
 }
 
 

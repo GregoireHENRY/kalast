@@ -12,9 +12,72 @@ use crate::Float;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HudAnchor {
     TopLeft,
+    TopCenter,
     TopRight,
+    MiddleLeft,
+    MiddleCenter,
+    MiddleRight,
     BottomLeft,
+    BottomCenter,
     BottomRight,
+}
+
+/// Horizontal alignment of the text within its block.
+///
+/// Separate from the anchor because the two answer different questions: the
+/// anchor is *where the block sits*, alignment is *how lines sit inside it*.
+/// A bottom-centre block of three lines still has to decide whether those
+/// lines are ragged-right or centred on each other.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HAlign {
+    Left,
+    Center,
+    Right,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VAlign {
+    Top,
+    Center,
+    Bottom,
+}
+
+impl HAlign {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "left" => Some(Self::Left),
+            "center" | "centre" | "centered" | "centred" | "middle" => Some(Self::Center),
+            "right" => Some(Self::Right),
+            _ => None,
+        }
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Left => "left",
+            Self::Center => "center",
+            Self::Right => "right",
+        }
+    }
+}
+
+impl VAlign {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "top" => Some(Self::Top),
+            "center" | "centre" | "centered" | "centred" | "middle" => Some(Self::Center),
+            "bottom" => Some(Self::Bottom),
+            _ => None,
+        }
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Top => "top",
+            Self::Center => "center",
+            Self::Bottom => "bottom",
+        }
+    }
 }
 
 impl HudAnchor {
@@ -23,8 +86,15 @@ impl HudAnchor {
     pub fn parse(s: &str) -> Option<Self> {
         match s.to_ascii_lowercase().replace(['_', ' '], "-").as_str() {
             "top-left" => Some(Self::TopLeft),
+            "top-center" | "top-centre" | "top" => Some(Self::TopCenter),
             "top-right" => Some(Self::TopRight),
+            "middle-left" | "left" => Some(Self::MiddleLeft),
+            "middle-center" | "middle-centre" | "center" | "centre" | "middle" => {
+                Some(Self::MiddleCenter)
+            }
+            "middle-right" | "right" => Some(Self::MiddleRight),
             "bottom-left" => Some(Self::BottomLeft),
+            "bottom-center" | "bottom-centre" | "bottom" => Some(Self::BottomCenter),
             "bottom-right" => Some(Self::BottomRight),
             _ => None,
         }
@@ -33,10 +103,32 @@ impl HudAnchor {
     pub fn name(&self) -> &'static str {
         match self {
             Self::TopLeft => "top-left",
+            Self::TopCenter => "top-center",
             Self::TopRight => "top-right",
+            Self::MiddleLeft => "middle-left",
+            Self::MiddleCenter => "middle-center",
+            Self::MiddleRight => "middle-right",
             Self::BottomLeft => "bottom-left",
+            Self::BottomCenter => "bottom-center",
             Self::BottomRight => "bottom-right",
         }
+    }
+
+    /// The alignment a HUD gets when it does not set one: text reads outward
+    /// from the edge it is anchored to, which is what looks right without
+    /// being asked for.
+    pub fn default_align(&self) -> (HAlign, VAlign) {
+        let h = match self {
+            Self::TopLeft | Self::MiddleLeft | Self::BottomLeft => HAlign::Left,
+            Self::TopCenter | Self::MiddleCenter | Self::BottomCenter => HAlign::Center,
+            Self::TopRight | Self::MiddleRight | Self::BottomRight => HAlign::Right,
+        };
+        let v = match self {
+            Self::TopLeft | Self::TopCenter | Self::TopRight => VAlign::Top,
+            Self::MiddleLeft | Self::MiddleCenter | Self::MiddleRight => VAlign::Center,
+            Self::BottomLeft | Self::BottomCenter | Self::BottomRight => VAlign::Bottom,
+        };
+        (h, v)
     }
 }
 
@@ -53,6 +145,9 @@ pub struct Hud {
     pub size: f32,
     /// Text colour, `(r, g, b, a)`.
     pub color: [f32; 4],
+    /// Alignment within the block, or `None` to follow the anchor.
+    pub align_h: Option<HAlign>,
+    pub align_v: Option<VAlign>,
 }
 
 impl Hud {
@@ -64,6 +159,8 @@ impl Hud {
             y: 6.0,
             size: 18.0,
             color: [1.0, 1.0, 1.0, 0.9],
+            align_h: None,
+            align_v: None,
         }
     }
 }
