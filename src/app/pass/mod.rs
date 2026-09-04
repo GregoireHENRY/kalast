@@ -82,6 +82,7 @@ pub struct Bindings {
     pub globals: wgpu::BindGroup,
     pub view: wgpu::BindGroup,
     pub shadow: wgpu::BindGroup,
+    pub colormap: wgpu::BindGroup,
 }
 
 impl Bindings {
@@ -89,6 +90,7 @@ impl Bindings {
         render_pass.set_bind_group(0, Some(&self.globals), &[]);
         render_pass.set_bind_group(1, Some(&self.view), &[]);
         render_pass.set_bind_group(2, Some(&self.shadow), &[]);
+        render_pass.set_bind_group(3, Some(&self.colormap), &[]);
     }
 
     pub fn for_shadow(&self, render_pass: &mut wgpu::RenderPass) {

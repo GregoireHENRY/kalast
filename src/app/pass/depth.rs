@@ -47,6 +47,7 @@ impl Pass {
             DEPTH_INDICES,
             &gpu::InstanceInput::default(),
             false,
+            &[],
         );
 
         let texture = gpu::Texture::create_depth_texture_render_debug(device, width, height);
