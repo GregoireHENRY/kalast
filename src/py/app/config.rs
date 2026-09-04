@@ -24,7 +24,8 @@ pub struct Hud {
 #[pymethods]
 impl Hud {
     #[new]
-    #[pyo3(signature = (text, anchor="top-left", x=None, y=None, size=18.0, color=None))]
+    #[pyo3(signature = (text, anchor="top-left", x=None, y=None, size=18.0, color=None,
+                        align_h=None, align_v=None))]
     fn new(
         text: &str,
         anchor: &str,
@@ -32,13 +33,34 @@ impl Hud {
         y: Option<f32>,
         size: f32,
         color: Option<[f32; 4]>,
+        align_h: Option<&str>,
+        align_v: Option<&str>,
     ) -> PyResult<Self> {
         let anchor = crate::app::config::HudAnchor::parse(anchor).ok_or_else(|| {
             pyo3::exceptions::PyValueError::new_err(format!(
-                "unknown hud anchor {anchor:?}: expected one of \
-                 top-left, top-right, bottom-left, bottom-right"
+                "unknown hud anchor {anchor:?}: expected one of top-left, top-center, \
+                 top-right, middle-left, middle-center, middle-right, bottom-left, \
+                 bottom-center, bottom-right"
             ))
         })?;
+        let align_h = align_h
+            .map(|a| {
+                crate::app::config::HAlign::parse(a).ok_or_else(|| {
+                    pyo3::exceptions::PyValueError::new_err(format!(
+                        "unknown align_h {a:?}: expected left, center or right"
+                    ))
+                })
+            })
+            .transpose()?;
+        let align_v = align_v
+            .map(|a| {
+                crate::app::config::VAlign::parse(a).ok_or_else(|| {
+                    pyo3::exceptions::PyValueError::new_err(format!(
+                        "unknown align_v {a:?}: expected top, center or bottom"
+                    ))
+                })
+            })
+            .transpose()?;
         let mut inner = crate::app::config::Hud::new(text);
         inner.anchor = anchor;
         // Default inset is the same 8/6 px in from whichever corner, so a
@@ -53,6 +75,8 @@ impl Hud {
         if let Some(c) = color {
             inner.color = c;
         }
+        inner.align_h = align_h;
+        inner.align_v = align_v;
         Ok(Self {
             inner: std::rc::Rc::new(std::cell::RefCell::new(inner)),
         })
