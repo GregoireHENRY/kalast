@@ -4,6 +4,10 @@ Everything a script touches outside `app.config`, which has its own reference
 in `CONFIG.md`. Undated in the filename because it is a living document — add
 to it whenever something is exposed to Python.
 
+Editor completion comes from the generated stubs in `kalast/**.pyi`; run
+`python tools/gen_stubs.py` after changing any `#[pyclass]`, and
+`python tests/test_stubs.py` to check they are current.
+
 Defined in `src/py/app/`. Rust types map to Python as `bool` → `bool`,
 `u32`/`usize` → `int`, `f32`/`Float` → `float`, `String` → `str`, `Vec3`/`Mat4`
 → `numpy` arrays.

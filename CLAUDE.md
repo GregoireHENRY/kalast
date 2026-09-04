@@ -181,6 +181,26 @@ did no work at all -- but **any timing taken while focus was lost is too slow**,
 never too fast. Historic it/s figures in `notes/` are lower bounds if the
 window was covered.
 
+## Python type stubs
+
+Editors cannot complete a compiled extension: `app.config.<tab>` offers
+nothing unless a `.pyi` says what is there. The stubs under `kalast/**.pyi`
+are **generated from the Rust source**, not hand-written:
+
+```sh
+python tools/gen_stubs.py            # after changing any #[pyclass]
+python tests/test_stubs.py           # checks they are current
+```
+
+The check runs two ways and both must pass: the committed stubs must match
+what the generator produces, *and* every class must match `dir()` on a real
+object, which catches the generator itself misreading an attribute.
+
+This is generated rather than written because the repo already carried
+hand-written `.pyi` files that had been **commented out entirely** -- so they
+completed nothing while looking like the surface was covered, which is worse
+than having none.
+
 ## Notes
 
 `notes/` holds dated write-ups (`YYYY-MM-DD_topic`). Two are **undated on
