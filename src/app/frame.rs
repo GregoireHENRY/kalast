@@ -124,6 +124,28 @@ impl Projection {
     }
 }
 
+/// A world axis, for the plane views.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Axis {
+    X,
+    Y,
+    Z,
+}
+
+impl Axis {
+    /// Parsed from Python, where these are plain strings. Accepts the axis
+    /// looked along ("z") or the plane looked at ("xy"), since both get typed
+    /// and they mean the same view.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "x" | "yz" | "zy" => Some(Self::X),
+            "y" | "zx" | "xz" => Some(Self::Y),
+            "z" | "xy" | "yx" => Some(Self::Z),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ProjectionMode {
     Orthographic,
@@ -352,6 +374,48 @@ impl Eye {
         self.anchor = target;
         self.dir = (self.anchor - self.pos).normalize();
         self.fix_up();
+    }
+
+    /// Looks straight down one axis at `bounds`, the way a plot does.
+    ///
+    /// `axis` is the axis looked *along*, so `Z` gives the XY plane face-on.
+    /// The eye is placed on the positive side and backed off far enough for
+    /// the frustum fit to have something to work with; the fit then sizes the
+    /// projection, so the distance itself does not set the framing.
+    ///
+    /// `orthographic` is the reason this exists. A crater profile read off a
+    /// perspective view is not measurable -- near rim and far rim are at
+    /// different scales -- which is why every published figure of this kind is
+    /// orthographic. It is not forced, because a perspective axis view is
+    /// still useful for looking around.
+    pub fn view_along(&mut self, axis: Axis, bounds: &crate::mesh::Aabb, orthographic: bool) {
+        let centre = bounds.center();
+        // Any offset works; the projection is fitted afterwards. Tie it to the
+        // scene so it is never inside the geometry.
+        let back = (bounds.radius() * 4.0).max(Float::EPSILON);
+
+        let (eye_dir, up) = match axis {
+            // Up is chosen so the remaining two axes read left-to-right and
+            // bottom-to-top, matching how the same plane is drawn in a plot.
+            Axis::X => (Vec3::NEG_X, Vec3::Z),
+            Axis::Y => (Vec3::NEG_Y, Vec3::Z),
+            Axis::Z => (Vec3::NEG_Z, Vec3::Y),
+        };
+
+        self.pos = centre - eye_dir * back;
+        self.dir = eye_dir;
+        self.up = up;
+        self.anchor = centre;
+        // A plane view is about the scene, not about whatever body the anchor
+        // was following, so stop tracking rather than have it snap back.
+        self.anchor_body = None;
+        self.fix_up();
+
+        self.projection.mode = if orthographic {
+            ProjectionMode::Orthographic
+        } else {
+            ProjectionMode::Perspective
+        };
     }
 
     /// Fits this eye's frustum planes around `bounds`, leaving any plane the

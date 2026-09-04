@@ -233,6 +233,41 @@ impl Eye {
         self.with_mut(|e| e.set_target(target.into()));
     }
 
+    /// Look straight down an axis at the whole scene, the way a plot does.
+    ///
+    /// `axis` names either the axis looked along or the plane looked at, since
+    /// both get typed and mean the same view: `"z"` and `"xy"` are the same
+    /// call, as are `"x"`/`"yz"` and `"y"`/`"zx"`.
+    ///
+    /// Orthographic by default, which is the point. A profile read off a
+    /// perspective view is not measurable -- the near and far sides of a
+    /// crater are at different scales -- which is why published figures of
+    /// this kind are orthographic. Pass `orthographic=False` to keep
+    /// perspective and just get the viewpoint.
+    ///
+    /// Framing is left to the automatic frustum fit, so the eye's distance is
+    /// not something to tune. Stops the anchor following a body, if it was:
+    /// a plane view is about the scene, not about one body.
+    ///
+    /// Does nothing if there is no geometry loaded yet -- call it after the
+    /// meshes.
+    #[pyo3(signature = (axis, orthographic = true))]
+    fn view_along(&self, axis: &str, orthographic: bool) -> PyResult<()> {
+        let parsed = crate::app::frame::Axis::parse(axis).ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "unknown axis {axis:?}: expected x, y, z, or a plane like xy, yz, zx"
+            ))
+        })?;
+
+        let bounds = self.simulation.borrow().scene_bounds();
+        let Some(bounds) = bounds else {
+            return Ok(());
+        };
+
+        self.with_mut(|e| e.view_along(parsed, &bounds, orthographic));
+        Ok(())
+    }
+
     fn __repr__(&self) -> String {
         self.with(|e| format!("{:?}", e))
     }
