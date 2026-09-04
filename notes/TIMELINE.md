@@ -85,7 +85,7 @@ Work done on the personal machine, pulled to the laptop on the 26th.
   with nothing tuned by hand), wireframe enabled in two examples.
 
 Write-ups: `2026-08-25_pcf_shadow_comparison/`, `2026-08-25_renderer_auto_fit_wireframe/`,
-`CONFIG_options.md`, `2026-08-25_BENCH_mesh_resolution_results.md`.
+`CONFIG.md`, `2026-08-25_BENCH_mesh_resolution_results.md`.
 
 ---
 
@@ -740,3 +740,54 @@ deletes exactly the boilerplate that made the examples long.
   `shadow_per_body` should reproduce their output and would be the test that
   the new path covers what they were doing by hand.
 - **Cosmographia: Mars goes almost fully dark when the Hera catalog loads.**
+
+---
+
+## 4 September, later — shadow map: four bugs, one calibration left open
+
+Full write-up in `2026-09-04_shadow_fixes.md`; the short version.
+
+- **The shadow layer's extent was reverse-engineered from its own matrix**,
+  as `1.0 / view_proj.x_axis.x`, which yields `side / |R[0][0]|` rather than
+  `side`. On Mars `R[0][0]` fell below `f32::EPSILON` and a `1.0` fallback took
+  over: a 3,788 km body biased as a 1 km one, **3,788x wrong**, giving a 0.35 m
+  normal offset and acne no setting could clear. `fit_light_view_proj` now
+  returns its extents. Dark-pixel fraction 8.80% -> 0.07%.
+- **`facet_shadow` was using scene-wide bias while the render used per-layer** —
+  one scalar across a 403x spread of body sizes. Deimos self-shadowing read
+  **0.55%** where it should be ~46%, because a scene-fitted 3.45 km offset on a
+  6.6 km body pushes every sample off the geometry. **This is the TPM's
+  occlusion input, so it was wrong physics.**
+- **The debug light cube corrupted the scene.** `light_render.wgsl` declared
+  stale copies of `Globals` and `Light`; a missing field in a second
+  declaration shifts everything after it silently. `light_cube_scale` read
+  `gamma`, and `pos` came out of matrix data. Regressed at `452ac5d`.
+- **Two PCF artefacts**, both absent at `shadow_pcf = 0` (which stays
+  bit-identical): a grey crater floor, fixed by scaling the normal offset with
+  the kernel radius; and acne on the lit wall, fixed by a per-tap
+  receiver-plane bias derived analytically from the facet normal — a
+  `dpdx`/`dpdy` version made it 6x worse, since screen-space derivatives are
+  meaningless on a flat-shaded mesh.
+
+### Open at the end of 4 September
+
+- **The automatic shadow bias is not calibrated, and today made it worse.**
+  The crater self-shadow example has an exact answer — 63.281% of facets
+  shadowed at grazing Sun — and automatic scores **38.57%**, against 47.07%
+  before today and 63.281% with hand-pinned values. The per-layer fix is
+  correct and is what moved it, but the destination is still wrong. **Calibrate
+  against the crater**, which is exact, fast and already in the repo.
+- ~~`tan(theta)` slope factor~~ **tried and rejected.** `1 - N.L` saturates at
+  1 while the required bias diverges as `tan(theta)`, which is real, and it did
+  fix the Mars/Phobos comb teeth — but it scored 37.60% on the crater, worse
+  than what it replaced. Parked, not committed.
+- **`facet_shadow` results from before 4 September are affected**: the Didymos
+  phase-1/phase-2 spin-ups, the view-factor work, and the Deimos preroll. The
+  mutual eclipse shadowed count moves -13.8%/-14.1%, raising absorbed flux.
+- **The Mars/Phobos comb teeth are still there** — they were only fixed by the
+  rejected `tan` change.
+- **Toggling into macOS fullscreen stalls** 1001 ms (Metal's `nextDrawable`
+  timeout) to 3725 ms in `acquire drawable`. Not fixed; `config.fullscreen =
+  True` avoids it and is documented.
+- **PCF benchmarks must be taken at the working resolution.** Cost is
+  per-fragment: +2.5 ms at 800x600, +7.8 ms at 3024x1964.

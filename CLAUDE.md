@@ -188,5 +188,7 @@ purpose**, because they are living documents rather than a record of one day:
 
 - `TIMELINE.md` — the running summary, including what is open and what was
   deliberately paused.
-- `CONFIG_options.md` — the `app.config` reference. Add an entry here whenever
+- `CONFIG.md` — the `app.config` reference. Add an entry here whenever
   a config option is added, or it goes stale silently.
+- `CONTROLS.md` — keyboard and mouse bindings for the render window. Same rule:
+  add to it whenever a binding is added.

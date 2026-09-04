@@ -123,6 +123,39 @@ window mid-run changes the size of subsequent exports. Export buffers are
 pooled by byte size, and stale-sized pooled buffers are discarded on resize
 (`src/app/gpu.rs`, the `pool_rx.try_recv()` loop in `export_frame`).
 
+### `fullscreen: bool` — default `false` *(startup only)*
+Open the window in native fullscreen on the current monitor —
+`Fullscreen::Borderless(None)`, the mode the green button gives on macOS, in
+its own Space.
+Accepted: `True` / `False`.
+
+**Prefer this to toggling fullscreen after launch.** The two are not
+equivalent, and the difference is measurable:
+
+| | stall acquiring a drawable |
+|---|---|
+| launched fullscreen, `shadow_pcf = 0` | 104 ms, once, at startup |
+| launched fullscreen, `shadow_pcf = 4` | 588 ms, once, at startup |
+| **toggled** to fullscreen while running | **1001 ms and 3725 ms**, repeatedly |
+
+1001 ms is not a coincidence: it is Metal's `nextDrawable` timeout, so during
+a toggle the compositor hands out no drawable at all for a full second. The
+macOS Space animation moves the window to a new surface mid-flight, winit
+delivers a burst of `Resized` events, and each one reconfigures the swapchain
+and invalidates the drawable pool — while the render loop keeps asking for a
+drawable at full rate. The window is unresponsive for that whole time and the
+camera motion accumulated meanwhile is applied in one jump when it ends.
+
+`shadow_pcf` amplifies it without causing it: the stall is present at 0, and
+PCF makes each frame long enough (13.6 ms against an 8.3 ms budget at 120 Hz)
+to deepen the hole. `vsync` is not the cause either — off gives 451 ms against
+588 ms on.
+
+**The startup stall is not fixed, only smaller and one-off.** Toggling is what
+to avoid. A maximised window shows none of this, despite having nearly the
+same pixel count, which is how the transition was identified as the trigger
+rather than the resolution.
+
 ### `render_back_face: bool` — default `false` *(startup only)*
 Whether triangles facing away from the camera are drawn.
 
@@ -563,6 +596,15 @@ VRAM.
 ### `shadow_pcf: u32` — default `0` *(live)*
 Percentage-closer-filtering kernel *radius*.
 
+**The normal offset scales with this**, `lb.x * (1 + shadow_pcf)`. One texel
+diagonal is the right surface separation for a single tap, but an `N`-radius
+kernel reaches `N` texels away and each of those taps compares against a
+stored depth that far along the surface. With a one-texel offset they flip,
+and averaging turns full shadow into grey: on the crater example 7,952 px of
+the floor lifted out of black at `N = 4`, against 388 once scaled. `N = 0` is
+bit-identical to the previous behaviour, so nothing rendered with the default
+changes.
+
 | Value | Behaviour |
 |---|---|
 | `0` | a single `textureSampleCompare` -- hardware 2x2 PCF only, hard edges |
@@ -599,6 +641,22 @@ So `shadow_bias_scale` sets the angle-dependent term and
 `shadow_bias_minimum` the floor applied to head-on surfaces.
 `src/app/window.rs:203,204`.
 Accepted: any float `>= 0.0`.
+
+**A receiver-plane term is applied per PCF tap**, on top of these. The
+gradient `d(depth)/d(uv)` is derived from the facet normal and the layer
+matrix, so a tap at `offset` compares against `depth + dot(offset, grad)` --
+the depth the receiver actually has there. Without it, a receiver tilted in
+light space self-shadows under the filter: the crater's lit wall darkened
+39,219 px at `shadow_pcf = 4` that `shadow_pcf = 0` renders clean.
+
+It is derived analytically, **not** from `dpdx`/`dpdy`. Screen-space
+derivatives are meaningless across a facet boundary and on a flat-shaded mesh
+every pixel is near one -- a `dpdx` version made the facet-edge leak 6x worse
+(1,279 px against 215). It is also clamped, at `GRAD_MAX = 1e-4` in normalised
+depth, because the gradient is only valid where the occluder *is* the
+receiver; where a separate surface casts (the rim onto the floor) the
+receiver's slope says nothing, and unclamped it pushed those taps out of
+shadow, 215 -> 3,892 px.
 
 **All three default to `None`, meaning automatic.** They are derived every
 frame from the fitted light frustum and `shadow_resolution`, expressed
@@ -676,7 +734,14 @@ the framebuffer (100k+ facets seen from far away) every fragment is within
 decimated mesh.
 
 ### `wireframe_color: wgpu::Color` — default `BLACK` *(live)*
-Accepted: `(r, g, b, a)` floats; alpha is dropped.
+Accepted: any 4-element sequence of floats — tuple, list or `numpy.array` —
+as `(r, g, b, a)`; alpha is dropped. Same as `background`, `color` and
+`light_color`.
+
+It took a Python tuple *only* until 4 September, because it was typed as a
+Rust tuple while the other three used `[Float; 4]`; an array extracts from any
+sequence, a tuple does not. The getter now returns a list rather than a tuple,
+for the same consistency.
 
 Mode `2` blends the colour by edge coverage, so it is antialiased. Mode `1`
 thresholds instead, because the pipeline blend state is `REPLACE` and a
