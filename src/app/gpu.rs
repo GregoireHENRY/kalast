@@ -27,6 +27,9 @@ pub const SHADER_MESH_SHADOW: wgpu::ShaderModuleDescriptor =
 pub const SHADER_DEPTH_RENDER: wgpu::ShaderModuleDescriptor =
     wgpu::include_wgsl!("../../shaders/depth_render.wgsl");
 
+pub const SHADER_AXES: wgpu::ShaderModuleDescriptor =
+    wgpu::include_wgsl!("../../shaders/axes.wgsl");
+
 pub const SHADER_LIGHT_RENDER: wgpu::ShaderModuleDescriptor =
     wgpu::include_wgsl!("../../shaders/light_render.wgsl");
 
@@ -68,6 +71,14 @@ impl RenderPipeline {
         // Whether this pipeline writes depth. Off for debug overlays: they
         // must be occluded *by* the scene without ever occluding it.
         depth_write: bool,
+        // Lines for the axes, triangles for everything else. Line width is
+        // always 1 px: WebGPU has no line width, so a thicker axis would have
+        // to be built from triangles.
+        topology: wgpu::PrimitiveTopology,
+        // Vertex layouts. The axes carry their own -- position and colour,
+        // no normals or instancing -- so this cannot be the mesh layout for
+        // every pipeline.
+        buffers: &[wgpu::VertexBufferLayout],
     ) -> Self {
         // wireframe: bool,
 
@@ -116,16 +127,12 @@ impl RenderPipeline {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[
-                    crate::mesh::Vertex::geometry_desc(),
-                    crate::mesh::Vertex::attrib_desc(),
-                    MeshBuffer::desc(),
-                ],
+                buffers,
                 compilation_options: Default::default(),
             },
             fragment,
             primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
+                topology,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
                 cull_mode,

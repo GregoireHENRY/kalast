@@ -1,3 +1,4 @@
+pub mod axes;
 pub mod depth;
 pub mod light_cube;
 pub mod render;
@@ -8,6 +9,7 @@ pub struct Passes {
 
     pub render: render::Pass,
     pub light_cube: light_cube::Pass,
+    pub axes: axes::Pass,
 
     pub depth: depth::Pass,
 
@@ -33,6 +35,7 @@ impl Passes {
 
             render: render::Pass::new(device, format, config, &layouts_all),
             light_cube: light_cube::Pass::new(device, format, &layouts_all, samples),
+            axes: axes::Pass::new(device, format, &layouts_all, samples),
 
             depth: depth::Pass::new(device, config.width, config.height, format),
 
@@ -66,6 +69,7 @@ impl Passes {
             encoder,
             &self.depth.texture.view,
             &mut self.light_cube,
+            &self.axes,
             meshes,
             &self.bindings,
             config,

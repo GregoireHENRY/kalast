@@ -16,6 +16,12 @@ impl Pass {
             false,
             1,
             true,
+            wgpu::PrimitiveTopology::TriangleList,
+            &[
+                crate::mesh::Vertex::geometry_desc(),
+                crate::mesh::Vertex::attrib_desc(),
+                gpu::MeshBuffer::desc(),
+            ],
         );
 
         Self { pipeline }

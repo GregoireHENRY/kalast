@@ -140,6 +140,12 @@ impl Pass {
             true,
             samples,
             true,
+            wgpu::PrimitiveTopology::TriangleList,
+            &[
+                crate::mesh::Vertex::geometry_desc(),
+                crate::mesh::Vertex::attrib_desc(),
+                gpu::MeshBuffer::desc(),
+            ],
         );
 
         let (render_texture, render_view) =
@@ -176,6 +182,7 @@ impl Pass {
         encoder: &mut wgpu::CommandEncoder,
         depth_view: &wgpu::TextureView,
         light: &super::light_cube::Pass,
+        axes: &super::axes::Pass,
         meshes: &[gpu::MeshBuffer],
         bindings: &super::Bindings,
         config: &crate::app::config::Config,
@@ -241,6 +248,12 @@ impl Pass {
         // makes the main pass agree.
         if config.debug_light_cube_show {
             light.render(&mut render_pass, &meshes[0], bindings);
+        }
+
+        // After the bodies and, like the light cube, without writing depth:
+        // annotation is occluded by what it annotates and never the reverse.
+        if config.axes != crate::app::axes::AxesStyle::Off {
+            axes.render(&mut render_pass, bindings);
         }
     }
 }
