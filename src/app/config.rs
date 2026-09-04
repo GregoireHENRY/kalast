@@ -132,6 +132,97 @@ impl HudAnchor {
     }
 }
 
+/// What a colorbar is showing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ColorbarSource {
+    /// The `mesh.values` colormap, labelled in the data's own units. Reads the
+    /// same lookup table the surface does, so the two cannot disagree.
+    Values,
+    /// The diffuse shading itself, labelled 0..1 -- `ambient + cos(i) * visibility`,
+    /// i.e. normalised direct insolation including shadowing.
+    ///
+    /// Not radiance and not temperature, and it carries the `ambient_strength`
+    /// floor. Label it accordingly.
+    Lighting,
+}
+
+impl ColorbarSource {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "values" | "value" | "data" => Some(Self::Values),
+            "lighting" | "light" | "shading" => Some(Self::Lighting),
+            _ => None,
+        }
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Values => "values",
+            Self::Lighting => "lighting",
+        }
+    }
+}
+
+/// A colour scale drawn over the render.
+///
+/// Horizontal or vertical is inferred from the anchor -- a bar anchored to a
+/// side is vertical, one anchored top or bottom is horizontal -- since that is
+/// the only orientation that fits in either place. `vertical` overrides it.
+#[derive(Debug, Clone)]
+pub struct Colorbar {
+    pub enabled: bool,
+    pub source: ColorbarSource,
+    pub anchor: HudAnchor,
+    /// Inset from the anchor, pixels.
+    pub x: f32,
+    pub y: f32,
+    /// Long and short axis of the bar, pixels.
+    pub length: f32,
+    pub thickness: f32,
+    /// `None` infers from the anchor.
+    pub vertical: Option<bool>,
+    /// Caption, e.g. `"Surface temperature (K)"`.
+    pub label: String,
+    /// Roughly how many numbered ticks; rounded to a readable step as the axes
+    /// are.
+    pub ticks: usize,
+    pub text_size: f32,
+    pub text_color: [f32; 4],
+    /// Outline drawn around the strip, so it reads as a scale rather than as
+    /// part of the scene when it sits over a dark body.
+    pub border: bool,
+}
+
+impl Default for Colorbar {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            source: ColorbarSource::Values,
+            anchor: HudAnchor::BottomCenter,
+            x: 0.0,
+            y: 48.0,
+            length: 320.0,
+            thickness: 18.0,
+            vertical: None,
+            label: String::new(),
+            ticks: 5,
+            text_size: 13.0,
+            text_color: [0.92, 0.92, 0.92, 1.0],
+            border: true,
+        }
+    }
+}
+
+impl Colorbar {
+    /// Horizontal at top/bottom, vertical at the sides, unless overridden.
+    pub fn is_vertical(&self) -> bool {
+        self.vertical.unwrap_or(matches!(
+            self.anchor,
+            HudAnchor::MiddleLeft | HudAnchor::MiddleRight
+        ))
+    }
+}
+
 /// One HUD overlay: a template, where it sits, and how it looks.
 #[derive(Debug, Clone)]
 pub struct Hud {
@@ -553,6 +644,9 @@ pub struct Config {
     /// Defaults to greyscale.
     pub colormap: Vec<[f32; 3]>,
 
+    /// Colour scale drawn over the render. Off by default.
+    pub colorbar: Colorbar,
+
     /// Reference axes drawn around the scene.
     ///
     /// `"off"`, `"box"` (MATLAB), `"panes"` (matplotlib), `"gizmo"` (three
@@ -650,6 +744,8 @@ impl Default for Config {
             export_hud: false,
 
             shadow_per_body: true,
+
+            colorbar: Colorbar::default(),
 
             axes: crate::app::axes::AxesStyle::Off,
             axes_color: [0.45, 0.45, 0.45],

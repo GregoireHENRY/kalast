@@ -183,6 +183,7 @@ impl Pass {
         depth_view: &wgpu::TextureView,
         light: &super::light_cube::Pass,
         axes: &super::axes::Pass,
+        colorbar: &super::colorbar::Pass,
         meshes: &[gpu::MeshBuffer],
         bindings: &super::Bindings,
         config: &crate::app::config::Config,
@@ -254,6 +255,10 @@ impl Pass {
         // annotation is occluded by what it annotates and never the reverse.
         if config.axes != crate::app::axes::AxesStyle::Off {
             axes.render(&mut render_pass, bindings);
+        }
+
+        if config.colorbar.enabled {
+            colorbar.render(&mut render_pass, bindings);
         }
     }
 }

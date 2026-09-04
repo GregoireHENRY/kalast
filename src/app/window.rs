@@ -106,6 +106,65 @@ pub fn fit_light_view_proj(
 /// rather than by measuring the text: the text changes every frame, and
 /// measuring it to subtract a width would make the block jitter horizontally
 /// as digits change width.
+/// Tick labels and caption for the colour scale, already in screen pixels.
+///
+/// Ticks come from the same rounding the axes use, so a scale from 87 to 349
+/// is labelled 100, 200, 300 rather than at the raw ends.
+fn colorbar_labels(
+    cb: &crate::app::config::Colorbar,
+    rect: (f32, f32, f32, f32),
+    lo: f32,
+    hi: f32,
+) -> Vec<(String, (f32, f32), wgpu_text::glyph_brush::HorizontalAlign)> {
+    use wgpu_text::glyph_brush::HorizontalAlign;
+
+    let (left, top, w, h) = rect;
+    let vertical = cb.is_vertical();
+    let mut out = Vec::new();
+
+    // The lighting source is a fraction by construction, so its ends are 0
+    // and 1 whatever the data happens to span.
+    let (lo, hi) = match cb.source {
+        crate::app::config::ColorbarSource::Lighting => (0.0, 1.0),
+        crate::app::config::ColorbarSource::Values => (lo, hi),
+    };
+
+    let gap = 6.0;
+    for v in crate::app::axes::tick_values(lo as crate::Float, hi as crate::Float, cb.ticks) {
+        let t = if (hi - lo).abs() > f32::EPSILON {
+            (v as f32 - lo) / (hi - lo)
+        } else {
+            0.0
+        };
+        let text = crate::app::axes::format_value(
+            v,
+            crate::app::axes::step_for(lo as crate::Float, hi as crate::Float, cb.ticks),
+        );
+        if vertical {
+            // Up the right-hand edge, since a vertical bar is usually parked
+            // against a side of the frame with room on its inside.
+            out.push((
+                text,
+                (left + w + gap, top + h * (1.0 - t)),
+                HorizontalAlign::Left,
+            ));
+        } else {
+            out.push((text, (left + w * t, top + h + gap), HorizontalAlign::Center));
+        }
+    }
+
+    if !cb.label.is_empty() {
+        let pos = if vertical {
+            (left + w * 0.5, top - gap * 2.0)
+        } else {
+            (left + w * 0.5, top - gap * 2.0)
+        };
+        out.push((cb.label.clone(), pos, HorizontalAlign::Center));
+    }
+
+    out
+}
+
 /// Screen positions for the axis tick labels.
 ///
 /// Computed up front rather than inside the draw, because the text brush is
@@ -343,6 +402,10 @@ pub struct Window {
     /// Tick labels for the axes, in world space. Projected to screen at draw
     /// time rather than stored as pixels, since the camera moves.
     pub axes_labels: Vec<super::axes::Label>,
+
+    /// Where the bar landed, in pixels `(left, top, width, height)`, so the
+    /// tick labels can be placed against it. `None` when it is off.
+    pub colorbar_px: Option<(f32, f32, f32, f32)>,
 
     // 0: white cube
     // 1..: loaded by user in app.simulation.bodies
@@ -599,11 +662,14 @@ impl Window {
             super::uniform::Colormap::default(),
         );
 
+        let bar = super::gpu::UniformBuffer::new(&device, super::uniform::Bar::default());
+
         let uniforms = super::uniform::Uniforms {
             globals,
             view,
             shadow,
             colormap,
+            bar,
         };
 
         let passes = super::pass::Passes::new(&device, surface_config.format, &config, &uniforms);
@@ -630,6 +696,7 @@ impl Window {
             surface_config,
             is_surface_configured: false,
             axes_labels: Vec::new(),
+            colorbar_px: None,
 
             meshes,
             shadow_meshes,
@@ -1022,8 +1089,21 @@ impl Window {
             let n = config.colormap.len();
             for i in 0..super::uniform::COLORMAP_SIZE {
                 let t = i as f32 / (super::uniform::COLORMAP_SIZE - 1) as f32;
-                let c = config.colormap[((t * (n - 1) as f32).round() as usize).min(n - 1)];
-                self.uniforms.colormap.uniform.lut[i] = crate::Vec4::new(c[0], c[1], c[2], 1.0);
+                // Interpolated, not nearest. Nearest turned the 8-anchor
+                // built-ins into 8 visible bands -- fine for a shaded body
+                // where lighting hides it, obvious on a colour scale, which is
+                // a flat ramp with nothing to hide behind.
+                let x = t * (n - 1) as f32;
+                let lo = x.floor() as usize;
+                let hi = (lo + 1).min(n - 1);
+                let f = x - lo as f32;
+                let (a, b) = (config.colormap[lo], config.colormap[hi]);
+                self.uniforms.colormap.uniform.lut[i] = crate::Vec4::new(
+                    a[0] + (b[0] - a[0]) * f,
+                    a[1] + (b[1] - a[1]) * f,
+                    a[2] + (b[2] - a[2]) * f,
+                    1.0,
+                );
             }
             self.queue.write_buffer(
                 &self.uniforms.colormap.buffer,
@@ -1141,6 +1221,62 @@ impl Window {
             self.axes_labels = built.labels;
         } else {
             self.axes_labels.clear();
+        }
+
+        if config.colorbar.enabled {
+            let (w, h) = (
+                self.surface_config.width.max(1) as f32,
+                self.surface_config.height.max(1) as f32,
+            );
+            let cb = &config.colorbar;
+            let vertical = cb.is_vertical();
+            let (bw, bh) = if vertical {
+                (cb.thickness, cb.length)
+            } else {
+                (cb.length, cb.thickness)
+            };
+
+            // Placed in pixels against the same nine anchors the HUD uses,
+            // then converted to NDC. Pixels because a bar specified as a
+            // fraction of the window changes thickness when the window is
+            // resized, and a scale bar should not.
+            use crate::app::config::HudAnchor::*;
+            let left = match cb.anchor {
+                TopLeft | MiddleLeft | BottomLeft => cb.x,
+                TopCenter | MiddleCenter | BottomCenter => (w - bw) * 0.5 + cb.x,
+                TopRight | MiddleRight | BottomRight => w - cb.x - bw,
+            };
+            let top = match cb.anchor {
+                TopLeft | TopCenter | TopRight => cb.y,
+                MiddleLeft | MiddleCenter | MiddleRight => (h - bh) * 0.5 + cb.y,
+                BottomLeft | BottomCenter | BottomRight => h - cb.y - bh,
+            };
+
+            let to_ndc_x = |px: f32| px / w * 2.0 - 1.0;
+            let to_ndc_y = |px: f32| 1.0 - px / h * 2.0;
+            self.uniforms.bar.uniform = super::uniform::Bar {
+                // NDC y runs up, so the rectangle's origin is its bottom edge.
+                rect: [
+                    to_ndc_x(left),
+                    to_ndc_y(top + bh),
+                    bw / w * 2.0,
+                    bh / h * 2.0,
+                ],
+                vertical: vertical as u32,
+                source: match cb.source {
+                    crate::app::config::ColorbarSource::Values => 0,
+                    crate::app::config::ColorbarSource::Lighting => 1,
+                },
+                _pad: [0; 2],
+            };
+            self.queue.write_buffer(
+                &self.uniforms.bar.buffer,
+                0,
+                bytemuck::bytes_of(&self.uniforms.bar.uniform),
+            );
+            self.colorbar_px = Some((left, top, bw, bh));
+        } else {
+            self.colorbar_px = None;
         }
 
         self.last_body_mats.clear();
@@ -1344,6 +1480,16 @@ impl Window {
         // targets the swapchain, which the exporter never reads. Drawing it
         // twice is deliberate -- the window keeps its HUD either way, and the
         // cost is one text pass on exported frames only.
+        let bar_labels: Vec<_> = match (config.colorbar.enabled, self.colorbar_px) {
+            (true, Some(rect)) => colorbar_labels(
+                &config.colorbar,
+                rect,
+                self.uniforms.globals.uniform.value_min,
+                self.uniforms.globals.uniform.value_max,
+            ),
+            _ => Vec::new(),
+        };
+
         let axis_labels = axis_label_screen(
             &self.axes_labels,
             &self.uniforms.view.uniform.camera.view_proj,
@@ -1354,7 +1500,9 @@ impl Window {
 
         if self.export_frame
             && config.export_hud
-            && (huds.iter().any(|h| !h.text.is_empty()) || !axis_labels.is_empty())
+            && (huds.iter().any(|h| !h.text.is_empty())
+                || !axis_labels.is_empty()
+                || !bar_labels.is_empty())
         {
             if let Some(brush) = self.hud.as_mut() {
                 let view = self
@@ -1381,7 +1529,35 @@ impl Window {
                             .with_layout(layout)
                     })
                     .collect();
-                sections.extend(axis_labels.iter().map(|(text, pos)| {
+                sections.extend(bar_labels.iter().map(|(text, pos, align)| {
+                    wgpu_text::glyph_brush::Section::default()
+                        .add_text(
+                            wgpu_text::glyph_brush::Text::new(text)
+                                .with_scale(config.colorbar.text_size)
+                                .with_color(config.colorbar.text_color),
+                        )
+                        .with_screen_position(*pos)
+                        .with_layout(
+                            wgpu_text::glyph_brush::Layout::default_single_line()
+                                .h_align(*align)
+                                .v_align(wgpu_text::glyph_brush::VerticalAlign::Center),
+                        )
+                }));
+                sections.extend(bar_labels.iter().map(|(text, pos, align)| {
+                wgpu_text::glyph_brush::Section::default()
+                    .add_text(
+                        wgpu_text::glyph_brush::Text::new(text)
+                        .with_scale(config.colorbar.text_size)
+                        .with_color(config.colorbar.text_color),
+                    )
+                    .with_screen_position(*pos)
+                    .with_layout(
+                        wgpu_text::glyph_brush::Layout::default_single_line()
+                        .h_align(*align)
+                        .v_align(wgpu_text::glyph_brush::VerticalAlign::Center),
+                    )
+            }));
+            sections.extend(axis_labels.iter().map(|(text, pos)| {
                     wgpu_text::glyph_brush::Section::default()
                         .add_text(
                             wgpu_text::glyph_brush::Text::new(text)
@@ -1444,7 +1620,7 @@ impl Window {
             (
                 &surface_texture,
                 self.hud.as_mut(),
-                any_hud || !axis_labels.is_empty(),
+                any_hud || !axis_labels.is_empty() || !bar_labels.is_empty(),
             )
         {
             let view = texture
