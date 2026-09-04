@@ -190,7 +190,7 @@ A **pixel-wise** comparison does not, and is blocked until this is resolved.
 11. **Checkpoint resume is only half tested.** It restores and prints
     correctly, but the test resumed at the final step, so "resume and
     continue" has never run. That is the half phase 2 depends on.
-12. The paper, `2026-08-26_TIMELINE.md`.
+12. The paper, `TIMELINE.md`.
 
 ---
 

@@ -1,13 +1,17 @@
-# Timeline — 24 to 26 August 2026
+# Timeline — from 24 August 2026
 
-Three days of renderer work, across two machines: a macOS work laptop (M1 Pro)
-and a Windows personal machine (Ryzen 9800X3D / RTX 5080). Grouped by day and
-theme rather than by commit, with the detailed write-ups linked.
+The running summary. Undated in its filename because it keeps growing; each
+day is a section below, newest last, and the open items at the end of each are
+the place to look for what is unfinished.
 
-Headline: **frame export went from a 25x brake to free, full-resolution
-(3.1M-facet) shape models became usable, and the shadow map became a data
-source the thermophysical model can read** — plus two measurement artifacts
-that had been quietly corrupting every benchmark.
+Work runs across two machines: a macOS work laptop (M1 Pro) and a Windows
+personal machine (Ryzen 9800X3D / RTX 5080). Grouped by day and theme rather
+than by commit, with the detailed write-ups linked.
+
+Headline for the opening three days: **frame export went from a 25x brake to
+free, full-resolution (3.1M-facet) shape models became usable, and the shadow
+map became a data source the thermophysical model can read** — plus two
+measurement artifacts that had been quietly corrupting every benchmark.
 
 ---
 
@@ -81,7 +85,7 @@ Work done on the personal machine, pulled to the laptop on the 26th.
   with nothing tuned by hand), wireframe enabled in two examples.
 
 Write-ups: `2026-08-25_pcf_shadow_comparison/`, `2026-08-25_renderer_auto_fit_wireframe/`,
-`2026-08-25_CONFIG_options.md`, `2026-08-25_BENCH_mesh_resolution_results.md`.
+`CONFIG_options.md`, `2026-08-25_BENCH_mesh_resolution_results.md`.
 
 ---
 

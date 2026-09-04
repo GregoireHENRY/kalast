@@ -174,6 +174,39 @@ made a 3.1M-facet scene look identical to a 100k-facet one. Details in
 Before this option existed, `present_modes[0]` (typically `Fifo`) was the
 unconditional choice, so every run was vsync-capped.
 
+### `msaa: u32` — default `4` *(startup only)*
+Multisample anti-aliasing on the main render pass. `1` turns it off; `2`, `4`
+and `8` are the useful values.
+Accepted: any `int`, but a count the adapter does not support falls back to
+`4`, then to `1` (`resolve_samples`, `src/app/pass/render.rs`). Asking wgpu
+for an unsupported count would otherwise panic at pipeline creation.
+
+On by default because **every silhouette this renderer draws is a
+measurement** — a limb, a terminator, an apparent diameter. At one sample per
+pixel each is quantised to whole pixels, which biases anything fitted from an
+exported frame.
+
+**Only the main pass is multisampled.** The shadow, facet-id and hemicube
+passes stay single-sampled on purpose: they carry ids and depths, not colour,
+and averaging an id across samples yields an id belonging to no facet — and
+the facet-id buffer is what attaches a temperature to a pixel in the FITS
+products. The light cube is drawn inside the main pass, so its pipeline takes
+the same count; wgpu rejects a pipeline whose count disagrees with the
+attachments in flight.
+
+**Exports are unaffected in shape or size.** The pass draws into a
+multisampled buffer and resolves into `render_texture`, the same
+single-sample target that has always been blitted and exported, so nothing
+downstream changed.
+
+**Caveat:** `debug_depth_show` mirrors the main pass's depth only at
+`msaa = 1`. Above that the pass writes its own multisampled depth buffer, and
+the debug view is not it.
+
+Unmeasured: there is no before/after on a fitted limb radius or centroid. MSAA
+changes edge pixel values, so a measurement taken from a 1-sample export and
+one from a 4-sample export are not the same measurement.
+
 ---
 
 ## Frame export
@@ -468,10 +501,54 @@ Accepted: any float.
 
 ## Shadows
 
-The shadow map is a depth texture rendered from the light's point of view,
-then compared against during the main pass. Sizing happens at
-`src/app/window.rs:239-240`; the sampling happens in
-`shaders/mesh_shadow.wgsl:153-172`.
+The shadow map is a depth texture **array** rendered from the light's point of
+view, then compared against during the main pass. Sizing happens at
+`src/app/window.rs:330-331`; the array is always allocated at
+`MAX_SHADOW_LAYERS` layers, and `shadow_per_body` decides how many are used.
+Each body carries the layer it samples as an instance attribute
+(`shadow_layer`), read in `shaders/mesh_shadow.wgsl:229-230`.
+
+**The Sun no longer needs aiming.** It is a light source, not a camera: each
+layer derives its own direction from `sun.pos` and the body it targets, so
+`sun.dir` and `sun.anchor` are not consulted for shadowing and `sun.pos` alone
+determines the lighting. Setting them still works and is simply not read.
+`sun.look_anchor()` was previously required, and forgetting it left the Sun
+pointing at whatever `anchor` held — usually the origin, which is the
+spacecraft in most of these scripts.
+
+### `shadow_per_body: bool` — default `true` *(live)*
+One shadow map per body — aimed at it and sized to it — instead of a single
+map fitted to the whole scene. Layer count is chosen in
+`src/app/window.rs:741`, the per-layer matrices at `:752-769`, and the layer a
+body samples at `:839`.
+Accepted: `True` / `False`.
+
+On by default because a shared map is fitted to the scene's extent, so a small
+body beside a large one gets almost no texels. **6 km Deimos beside 3,396 km
+Mars is the case that forced it:** the shared map broke the terminator into
+ragged stripes and found **49 shadowed pixels where the per-body map finds
+249** — it was missing most of the shadow, not adding to it.
+
+**Mutual shadowing is unaffected.** Each layer is aimed at one body but its
+depth range still spans the whole scene, so anything between the Sun and that
+body still casts into its map, and does so at the layer's own resolution
+rather than the scene's. Verified on the Didymos/Dimorphos transit: 714 px of
+1,040,400 differ, all at shadow edges.
+
+The bias is per layer too, since one texel is a different world distance in
+each — a single shared bias would be right for at most one body, giving acne
+on the coarse layers and detached shadows on the fine ones. User-pinned values
+still win.
+
+`facet_shadow` reads the queried body's own layer. It feeds the TPM, so the
+wrong layer would have been silently wrong physics rather than a visible
+fault.
+
+Costs one shadow pass per body. Layers cap at `MAX_SHADOW_LAYERS = 8`
+(`src/app/uniform.rs:65`); beyond that bodies share the last one — degraded,
+not wrong. Setting it to `False` restores the old single scene-fitted map,
+which is worth doing only to reproduce older output, or when every body is a
+similar size.
 
 ### `shadow_resolution: u32` — default `8192` *(startup only)*
 Side length of the square shadow map, in texels. Used **twice** at
@@ -598,6 +675,19 @@ rotation-invariant, and quantises to whole shadow texels so the shadow edge
 does not crawl as the sun moves. `shadow_resolution` therefore feeds both the
 fit and the derived bias.
 
+**With `shadow_per_body` on (the default), the light fit runs per body**, not
+once for the scene: each layer is sized to its own body while its depth range
+still spans the scene. A pinned `sun.projection.side` therefore applies to
+every layer, which is rarely what you want — pinning it is a way to defeat
+exactly the sizing per-body layers exist to provide.
+
+### `anchor_body`
+
+Also not a config field. `camera.anchor_body = 0` keeps the anchor on body 0
+as it moves; `None` (the default) leaves the anchor fixed. Assigning `anchor`
+from a body matrix instead only captures where that body was at that instant,
+which every animating script previously had to remember to redo by hand.
+
 ---
 
 ## Not currently wired up
@@ -608,5 +698,10 @@ fit and the derived bias.
 There are also commented-out light fields in `src/app/config.rs`
 (`light_target`, `light_up`, `light_side`, `light_znear`, `light_zfar`) --
 the light's framing is instead controlled through
-`app.simulation.sun.projection.{side,near,far}` and `sim.sun.pos` /
-`sim.sun.look_anchor()`, not through the config.
+`app.simulation.sun.projection.{side,near,far}` and `sim.sun.pos`, not
+through the config.
+
+**`sim.sun.look_anchor()` no longer belongs in that list.** Since
+`shadow_per_body`, each layer aims itself from `sun.pos` at the body it
+covers, so `sun.dir` and `sun.anchor` are ignored for shadowing. Older scripts
+that call it still run; the call simply has no effect on the lighting.

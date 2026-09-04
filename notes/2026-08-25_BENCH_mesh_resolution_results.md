@@ -137,7 +137,7 @@ Both default to preserving existing behaviour.
   after the above. Blocks the render loop once more than N frames are
   outstanding. `0` restores the old unbounded behaviour.
 
-See `2026-08-25_CONFIG_options.md` for the full reference.
+See `CONFIG_options.md` for the full reference.
 
 `export_max_queued` turned out to be a **pure win**, not a trade-off:
 
