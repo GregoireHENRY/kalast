@@ -3,16 +3,19 @@
 # Regenerate after changing any #[pyclass]:  python tools/gen_stubs.py
 
 import numpy  # noqa: F401
+from kalast.routines.setup import Body
+from kalast.app.frame import Eye
+from kalast.app.config import Hud
+from kalast.mesh import Mesh
 
 class Simulation:
     state: State
     bodies: list[Body]
     camera: Eye
     sun: Eye
-    def load_mesh(self, path: str, mat: list[list[float]] | None, flatten: bool | None, shadow_path: str | None) -> None:
-        """`shadow_path` optionally names a lower-resolution mesh to render into"""
+    def load_mesh(self, object: str, object: list[list[float]] | None, object: bool | None, object: str | None) -> None:
         ...
-    def add_mesh(self, mesh: Mesh, mat: list[list[float]] | None) -> None:
+    def add_mesh(self, object: Mesh, object: list[list[float]] | None) -> None:
         ...
     export: bool
     huds: list[Hud]
@@ -22,23 +25,17 @@ class Simulation:
         ...
     def export_once(self) -> None:
         ...
-    def request_facet_shadow(self, body: int) -> None:
-        """Ask for `body`'s per-facet occluded fractions, read back from the GPU"""
+    def request_facet_shadow(self, object: int) -> None:
         ...
-    def facet_shadow(self, body: int) -> numpy.ndarray | None:
-        """Per-facet occluded fractions for `body`, or `None` if they were not"""
+    def facet_shadow(self, object: int) -> numpy.object | None:
         ...
-    def request_hemicube(self, body: int, facets: numpy.ndarray, resolution: int, batch: int) -> None:
-        """Ask for hemicube view factors for `facets` of `body`, this frame."""
+    def request_hemicube(self, object: int, object: numpy.object, object: int, object: int) -> None:
         ...
-    def hemicube(self) -> numpy.ndarray:
-        """`(view_factors, offsets)` from the last `request_hemicube`, or `None`."""
+    def hemicube(self) -> numpy.object:
         ...
     def request_facet_id(self) -> None:
-        """Ask for a facet index map from the camera's point of view this frame."""
         ...
-    def facet_id_map(self) -> numpy.ndarray:
-        """`(ids, offsets)` for the last requested frame, or `None`."""
+    def facet_id_map(self) -> numpy.object:
         ...
 
 class State:

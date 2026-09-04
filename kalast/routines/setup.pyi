@@ -3,42 +3,43 @@
 # Regenerate after changing any #[pyclass]:  python tools/gen_stubs.py
 
 import numpy  # noqa: F401
+from kalast.mesh import Mesh
 
 class ProgressDebug:
-    def __init__(self, frequency: str, digits_full: int, digits_decimal: int) -> None:
+    def __init__(self, object: str, object: int, object: int) -> None:
         ...
     frequency: str
     digits_full: int
     digits_decimal: int
 
 class Time:
-    def __init__(self, dt: float, duration_total: float, duration_record: float) -> None:
+    def __init__(self, object: float, object: float, object: float) -> None:
         ...
     dt: float
     duration_total: float
     duration_record: float
 
 class Body:
-    def new(self, // mesh: Mesh | None, // state: list[list[float]], // spin_period: float, // spin_axis: list[float], // orbit_period: float, // orbit_axis: list[float]) -> Self:
+    def __init__(self) -> None:
         ...
     mesh: Mesh
-    state: numpy.ndarray
+    state: numpy.object
     spin_period: float
-    spin_axis: numpy.ndarray
+    spin_axis: numpy.object
     orbit_period: float
-    orbit_axis: numpy.ndarray
+    orbit_axis: numpy.object
 
 class BodyDataMap:
-    def __init__(self, temperatures: list[numpy.ndarray], thermal_properties_all: int, thermal_properties_map: object) -> None:
+    def __init__(self, object: list[numpy.object], object: int, object: object) -> None:
         ...
-    temperatures: list[numpy.ndarray]
+    temperatures: list[numpy.object]
     thermal_properties_all: int
     thermal_properties_map: list[tuple[int, int]]
 
 class Setup:
     def __init__(self) -> None:
         ...
-    sun_position: numpy.ndarray
+    sun_position: numpy.object
     progress_debug: ProgressDebug
     time: Time
 

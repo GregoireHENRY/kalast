@@ -5,7 +5,7 @@
 import numpy  # noqa: F401
 
 class Hud:
-    def __init__(self, text: str, anchor: str, x: float | None, y: float | None, size: float, color: list[float] | None) -> None:
+    def __init__(self, object: str, object: str, object: float | None, object: float | None, object: float, object: list[float] | None) -> None:
         ...
     text: str
     anchor: str

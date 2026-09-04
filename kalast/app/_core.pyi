@@ -3,12 +3,17 @@
 # Regenerate after changing any #[pyclass]:  python tools/gen_stubs.py
 
 import numpy  # noqa: F401
+from kalast.app.config import Config
+from kalast.app.simulation import Simulation
 
 class App:
     def __init__(self) -> None:
         ...
     config: Config
-    get_simulation: Simulation
+    simulation: Simulation
     def start(self) -> None:
         ...
+    before_render: object
+    tick: object
+    after_render: object
 

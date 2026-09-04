@@ -5,19 +5,19 @@
 import numpy  # noqa: F401
 
 class Entity:
-    def __init__(self, id: int, name: str, frame: str, label: str) -> None:
+    def __init__(self, object: int, object: str, object: str, object: str) -> None:
         ...
     id: int
     name: str
     frame: str
 
 class Body:
-    def __init__(self, id: int, name: str, frame: str, label: str, radii: list[float], orbit_period: float, spin_period: float) -> None:
+    def __init__(self, object: int, object: str, object: str, object: str, object: list[float], object: float, object: float) -> None:
         ...
     id: int
     name: str
     frame: str
-    radii: numpy.ndarray
+    radii: numpy.object
     orbit_period: float
     spin_period: float
     def radius(self) -> float:
@@ -28,19 +28,19 @@ class Body:
         ...
 
 class Camera:
-    def __init__(self, id: int, name: str, frame: str, label: str, px: list[int], fovy: float, filters: list[str]) -> None:
+    def __init__(self, object: int, object: str, object: str, object: str, object: list[int], object: float, object: list[str]) -> None:
         ...
     id: int
     name: str
     frame: str
     label: str
-    px: numpy.ndarray
+    px: numpy.object
     fovy: float
     def npx(self) -> int:
         ...
 
 class Spacecraft:
-    def __init__(self, id: int, name: str, frame: str, label: str, id_cameras: list[str]) -> None:
+    def __init__(self, object: int, object: str, object: str, object: str, object: list[str]) -> None:
         ...
     id: int
     name: str

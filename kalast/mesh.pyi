@@ -5,21 +5,21 @@
 import numpy  # noqa: F401
 
 class Vertex:
-    def __init__(self, pos: list[float] | None, tex: list[float] | None, normal: list[float] | None, tangent: list[float] | None, bitangent: list[float] | None, color: list[float] | None, color_mode: int | None) -> None:
+    def __init__(self, object: list[float] | None, object: list[float] | None, object: list[float] | None, object: list[float] | None, object: list[float] | None, object: list[float] | None, object: int | None) -> None:
         ...
-    pos: numpy.ndarray
-    tex: numpy.ndarray
-    normal: numpy.ndarray
-    tangent: numpy.ndarray
-    bitangent: numpy.ndarray
-    color: numpy.ndarray
+    pos: numpy.object
+    tex: numpy.object
+    normal: numpy.object
+    tangent: numpy.object
+    bitangent: numpy.object
+    color: numpy.object
     color_mode: int
 
 class Facet:
-    def __init__(self, pos: list[float] | None, normal: list[float] | None, area: float | None) -> None:
+    def __init__(self, object: list[float] | None, object: list[float] | None, object: float | None) -> None:
         ...
-    pos: numpy.ndarray
-    normal: numpy.ndarray
+    pos: numpy.object
+    normal: numpy.object
     area: float
 
 class Material:
@@ -33,28 +33,26 @@ class Material:
         ...
 
 class Mesh:
-    def inward_facing_facets(self) -> numpy.ndarray:
-        """Indices of facets whose normal points into the body."""
+    def inward_facing_facets(self) -> numpy.object:
         ...
-    def flip_facets(self, facets: numpy.ndarray) -> int:
-        """Reverse the winding of the given facets. Returns how many were flipped."""
+    def flip_facets(self, object: numpy.object) -> int:
         ...
-    def __init__(self, path: str | None, update_pos: object, vertices: list[Vertex] | None, facets: list[Facet] | None, indices: list[int] | None, material_id: int | None) -> None:
+    def __init__(self, object: str | None, object: object, object: list[Vertex] | None, object: list[Facet] | None, object: list[int] | None, object: int | None) -> None:
         ...
-    def load(self, _cls: object, pyo3: object, path: str, update_pos: object) -> Self:
+    def load(self, object: object, object: object, object: str, object: object) -> object:
         ...
-    vertices: VerticesView
-    indices: numpy.ndarray
-    facets: FacetsView
+    vertices: object
+    indices: numpy.object
+    facets: object
     material_id: int | None
-    _vertices_before_flatten: VerticesBeforeFlattenView
-    positions: numpy.ndarray
-    textures: numpy.ndarray
-    normals: numpy.ndarray
-    tangents: numpy.ndarray
-    bitangents: numpy.ndarray
-    colors: numpy.ndarray
-    color_modes: numpy.ndarray
+    _vertices_before_flatten: object
+    positions: numpy.object
+    textures: numpy.object
+    normals: numpy.object
+    tangents: numpy.object
+    bitangents: numpy.object
+    colors: numpy.object
+    color_modes: numpy.object
     def flatten(self) -> None:
         ...
     def smoothen(self) -> None:
@@ -62,23 +60,22 @@ class Mesh:
     def recompute_facets(self) -> None:
         ...
     def mark_colors_dirty(self) -> None:
-        """Call after mutating vertex color/color_mode/extra in place (e.g. a"""
         ...
     def is_flat(self) -> bool:
         ...
-    def get_facet_vertices(self, facet: int) -> FacetVerticesView:
+    def get_facet_vertices(self, object: int) -> FacetVerticesView:
         ...
-    def get_facet_indices(self, facet: int) -> list[int]:
+    def get_facet_indices(self, object: int) -> list[int]:
         ...
-    def get_facet_positions(self, facet: int) -> list[numpy.ndarray]:
+    def get_facet_positions(self, object: int) -> list[numpy.object]:
         ...
-    def get_facet_normals(self, facet: int) -> list[numpy.ndarray]:
+    def get_facet_normals(self, object: int) -> list[numpy.object]:
         ...
-    def get_facet_colors(self, facet: int) -> list[numpy.ndarray]:
+    def get_facet_colors(self, object: int) -> list[numpy.object]:
         ...
-    def update_all_vertices_colors(self, mode: int, color: list[float]) -> None:
+    def update_all_vertices_colors(self, object: int, object: list[float]) -> None:
         ...
-    def intersect(self, p: list[float], u: list[float], exit_first: bool) -> tuple[int, list[float]] | None:
+    def intersect(self, object: list[float], object: list[float], object: bool) -> tuple[int, list[float]] | None:
         ...
 
 class FacetVerticesView:

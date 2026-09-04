@@ -3,8 +3,9 @@
 # Regenerate after changing any #[pyclass]:  python tools/gen_stubs.py
 
 import numpy  # noqa: F401
+from kalast.mesh import Mesh
 
 class Body:
-    mat: numpy.ndarray
+    mat: numpy.object
     mesh: Mesh | None
 

@@ -29,6 +29,48 @@ def test_stubs_are_regenerated():
     assert r.returncode == 0, r.stderr or r.stdout
 
 
+def test_every_stub_is_valid_python():
+    """A stub that does not parse is worse than none.
+
+    A type checker discards the whole file on a syntax error and silently
+    offers no completion, which looks identical to having no stub at all.
+    This caught Rust `//` comments leaking into a generated argument list.
+    """
+    for pyi in sorted((ROOT / "kalast").rglob("*.pyi")):
+        try:
+            ast.parse(pyi.read_text())
+        except SyntaxError as e:
+            raise AssertionError(f"{pyi.relative_to(ROOT)}: {e}") from e
+
+
+def test_every_annotation_resolves():
+    """Names in annotations must be defined or imported in that file.
+
+    An unresolved name makes a checker treat the attribute as an error, so
+    `app.config` would complete nothing even though `Config` exists.
+    """
+    builtins_ = {"int", "float", "str", "bool", "object", "None", "list",
+                 "tuple", "dict", "numpy", "Any"}
+    problems = []
+    for pyi in sorted((ROOT / "kalast").rglob("*.pyi")):
+        tree = ast.parse(pyi.read_text())
+        known = {n.name for n in tree.body if isinstance(n, ast.ClassDef)}
+        known |= {a.name for n in tree.body if isinstance(n, ast.ImportFrom)
+                  for a in n.names}
+        known |= {n.names[0].name for n in tree.body if isinstance(n, ast.Import)}
+        for cls in (n for n in tree.body if isinstance(n, ast.ClassDef)):
+            for b in cls.body:
+                if not isinstance(b, ast.AnnAssign):
+                    continue
+                for t in ast.walk(b.annotation):
+                    if isinstance(t, ast.Name) and t.id not in known | builtins_:
+                        problems.append(
+                            f"{pyi.relative_to(ROOT)}: {cls.name}.{b.target.id}"
+                            f" -> unresolved {t.id}"
+                        )
+    assert not problems, "\n".join(problems)
+
+
 def _stub_members(pyi: str, cls: str) -> set[str]:
     tree = ast.parse((ROOT / pyi).read_text())
     for n in tree.body:
@@ -51,6 +93,11 @@ def test_stubs_match_the_built_module():
     """
     app = kalast.app.App()
     cases = [
+        # App first: `app.config.<tab>` is the whole point, and it was the one
+        # class this test did not cover when the stubs first shipped -- so a
+        # `get_simulation` that pyo3 exposes as `simulation`, and three
+        # setter-only attributes that were missing outright, both slipped past.
+        ("kalast/app/_core.pyi", "App", app),
         ("kalast/app/config.pyi", "Config", app.config),
         ("kalast/app/config.pyi", "Hud", kalast.app.Hud("x")),
         ("kalast/app/simulation.pyi", "Simulation", app.simulation),

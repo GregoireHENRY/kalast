@@ -3,13 +3,14 @@
 # Regenerate after changing any #[pyclass]:  python tools/gen_stubs.py
 
 import numpy  # noqa: F401
+from kalast.tpm.properties import Properties
 
 class Column:
-    def __init__(self, z: object, prop: Properties, t_init: float) -> None:
+    def __init__(self, object: object, object: Properties, object: float) -> None:
         ...
-    z: numpy.ndarray
-    t: numpy.ndarray
-    d: numpy.ndarray
-    def clone(self) -> Self:
+    z: numpy.object
+    t: numpy.object
+    d: numpy.object
+    def clone(self) -> object:
         ...
 

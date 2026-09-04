@@ -5,12 +5,12 @@
 import numpy  # noqa: F401
 
 class Eye:
-    pos: numpy.ndarray
-    dir: numpy.ndarray
-    up: numpy.ndarray
-    anchor: numpy.ndarray
+    pos: numpy.object
+    dir: numpy.object
+    up: numpy.object
+    anchor: numpy.object
     anchor_body: int | None
-    up_world: numpy.ndarray
+    up_world: numpy.object
     projection: Projection
     def is_control_wasd(self) -> bool:
         ...
@@ -26,23 +26,23 @@ class Eye:
         ...
     def control_toggle(self) -> None:
         ...
-    def target(self) -> numpy.ndarray:
+    def target(self) -> numpy.object:
         ...
-    def right(self) -> numpy.ndarray:
+    def right(self) -> numpy.object:
         ...
     def distance_anchor(self) -> float:
         ...
-    def lookto(self) -> numpy.ndarray:
+    def lookto(self) -> numpy.object:
         ...
-    def view_proj(self, aspect: float) -> numpy.ndarray:
+    def view_proj(self, object: float) -> numpy.object:
         ...
-    def mat(self) -> numpy.ndarray:
+    def mat(self) -> numpy.object:
         ...
     def fix_up(self) -> None:
         ...
     def look_anchor(self) -> None:
         ...
-    def set_target(self, target: list[float]) -> None:
+    def set_target(self, object: list[float]) -> None:
         ...
 
 class Projection:
@@ -61,6 +61,6 @@ class Projection:
     resolved_near: float
     resolved_far: float
     resolved_side: float
-    def mat(self, aspect: float) -> numpy.ndarray:
+    def mat(self, object: float) -> numpy.object:
         ...
 
