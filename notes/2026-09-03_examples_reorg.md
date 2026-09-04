@@ -40,8 +40,18 @@ That is engine work sitting in user code, and it exists only because
 (`src/app/window.rs`). With Mars at 3,396 km in the scene, 6 km Deimos gets
 almost no shadow-map texels.
 
-**Wanted: per-body frustum fitting with engine-side compositing, behind a
-config option.** Agreed 2026-09-03, deferred.
+**Done the same evening**, 22:50. `config.shadow_per_body` — on by default —
+gives each body its own shadow layer, and the Sun no longer needs aiming: each
+layer derives its direction from `sun.pos` and the body it targets, so
+`sun.dir` and `sun.anchor` are no longer consulted for shadowing. Measured on
+Deimos beside Mars, the shared map found 49 shadowed pixels where the per-body
+map finds 249 — it was **missing** most of the shadow, not adding to it. Mutual
+shadowing survives, since each layer spans the whole scene in depth even though
+it is sized to one body.
+
+`tiri_deimos_frame.py` and `tiri_deimos_movie.py` still carry the hand-rolled
+version. Simplifying them onto the new path should reproduce their output, and
+would be the test that it covers what they were doing by hand.
 
 Note what the single shared frustum does and does not cost: Lambert `cos i` is
 per-facet geometry and never touches the shadow map, so the terminator is
@@ -51,6 +61,12 @@ diffuse quick-look that is the right trade, which is why
 machinery.
 
 ## The sun anchor, since it confused
+
+**Superseded the same evening** — the Sun is aimed per body by the renderer
+now, `sun.pos` alone determines the lighting, and `sun.look_anchor()` is gone
+from the quick-look script. Kept below because it explains what the old scripts
+in `old/` are doing, and why the frames they produced are still sound.
+
 
 `sim.sun` is an `Eye`, the same struct as the camera. `look_anchor()` is
 `dir = normalize(anchor - pos)` and nothing else, and it reads **`sun.anchor`**
