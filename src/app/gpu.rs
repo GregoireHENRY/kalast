@@ -65,6 +65,9 @@ impl RenderPipeline {
         depth_stencil: bool,
         fragment: bool,
         samples: u32,
+        // Whether this pipeline writes depth. Off for debug overlays: they
+        // must be occluded *by* the scene without ever occluding it.
+        depth_write: bool,
     ) -> Self {
         // wireframe: bool,
 
@@ -81,7 +84,7 @@ impl RenderPipeline {
 
         let depth_stencil = (depth_stencil).then(|| wgpu::DepthStencilState {
             format: DEPTH_FORMAT,
-            depth_write_enabled: Some(true),
+            depth_write_enabled: Some(depth_write),
             depth_compare: Some(wgpu::CompareFunction::Less),
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState {

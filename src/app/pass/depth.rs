@@ -62,6 +62,7 @@ impl Pass {
             false,
             true,
             1,
+            true,
         );
 
         Self {

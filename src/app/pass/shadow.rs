@@ -15,6 +15,7 @@ impl Pass {
             true,
             false,
             1,
+            true,
         );
 
         Self { pipeline }

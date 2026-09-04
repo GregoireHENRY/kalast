@@ -23,6 +23,8 @@ impl Pass {
             true,
             true,
             samples,
+            // Never writes depth -- see below.
+            false,
         );
 
         Self { pipeline }

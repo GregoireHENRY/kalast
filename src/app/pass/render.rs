@@ -139,6 +139,7 @@ impl Pass {
             true,
             true,
             samples,
+            true,
         );
 
         let (render_texture, render_view) =
@@ -219,16 +220,27 @@ impl Pass {
             ..Default::default()
         });
 
-        if config.debug_light_cube_show {
-            light.render(&mut render_pass, &meshes[0], bindings);
-        }
-
         render_pass.set_pipeline(&self.pipeline.inner);
 
         bindings.all(&mut render_pass);
 
         for mesh in &meshes[1..] {
             mesh.render(&mut render_pass);
+        }
+
+        // The light cube is a debug marker, not geometry: it must never
+        // affect what the scene looks like. It is drawn *after* the bodies
+        // and with depth writes off, so it is hidden by anything in front of
+        // it but can never hide anything itself.
+        //
+        // Drawn first with depth writes on, it occluded the scene wherever it
+        // landed in the depth buffer -- on the crater example that removed
+        // nearly half the lit surface, and independently of
+        // `light_cube_scale`, so shrinking it did not help. The shadow pass
+        // already skips it (`meshes[1..]`), so it never cast either; this
+        // makes the main pass agree.
+        if config.debug_light_cube_show {
+            light.render(&mut render_pass, &meshes[0], bindings);
         }
     }
 }
