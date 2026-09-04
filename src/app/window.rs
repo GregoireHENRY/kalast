@@ -106,6 +106,43 @@ pub fn fit_light_view_proj(
 /// rather than by measuring the text: the text changes every frame, and
 /// measuring it to subtract a width would make the block jitter horizontally
 /// as digits change width.
+/// Screen positions for the axis tick labels.
+///
+/// Computed up front rather than inside the draw, because the text brush is
+/// borrowed mutably there and these read `self`. Labels behind the camera are
+/// dropped -- a point with `w <= 0` projects to a mirrored position in front,
+/// which would scatter tick numbers across the wrong side of the frame.
+fn axis_label_screen(
+    labels: &[crate::app::axes::Label],
+    view_proj: &glam::Mat4,
+    unit: &str,
+    width: f32,
+    height: f32,
+) -> Vec<(String, (f32, f32))> {
+    labels
+        .iter()
+        .filter_map(|l| {
+            let clip = *view_proj * glam::Vec4::new(l.world.x, l.world.y, l.world.z, 1.0);
+            if clip.w <= 0.0 {
+                return None;
+            }
+            let ndc = clip.truncate() / clip.w;
+            let x = (ndc.x * 0.5 + 0.5) * width;
+            // NDC y is up, screen y is down.
+            let y = (0.5 - ndc.y * 0.5) * height;
+            if !x.is_finite() || !y.is_finite() {
+                return None;
+            }
+            let text = if l.unit {
+                format!("{}{}", l.text, unit)
+            } else {
+                l.text.clone()
+            };
+            Some((text, (x as f32, y as f32)))
+        })
+        .collect()
+}
+
 fn hud_placement(
     hud: &crate::app::config::Hud,
     width: f32,
@@ -302,6 +339,10 @@ pub struct Window {
     pub queue: wgpu::Queue,
     pub surface_config: wgpu::SurfaceConfiguration,
     pub is_surface_configured: bool,
+
+    /// Tick labels for the axes, in world space. Projected to screen at draw
+    /// time rather than stored as pixels, since the camera moves.
+    pub axes_labels: Vec<super::axes::Label>,
 
     // 0: white cube
     // 1..: loaded by user in app.simulation.bodies
@@ -588,6 +629,7 @@ impl Window {
             queue,
             surface_config,
             is_surface_configured: false,
+            axes_labels: Vec::new(),
 
             meshes,
             shadow_meshes,
@@ -1080,6 +1122,27 @@ impl Window {
             bytemuck::bytes_of(&self.uniforms.view.uniform),
         );
 
+        // Rebuilt every frame: the bounds move with the bodies, and the tick
+        // step has to follow or the labels stop matching the grid. Cheap --
+        // a few hundred line vertices.
+        if config.axes != super::axes::AxesStyle::Off {
+            let bounds = simulation
+                .scene_bounds()
+                .unwrap_or(crate::mesh::Aabb { min: crate::Vec3::ZERO, max: crate::Vec3::ZERO });
+            let built = super::axes::build(
+                config.axes,
+                &bounds,
+                config.axes_color,
+                config.axes_ticks,
+            );
+            self.passes
+                .axes
+                .upload(&self.device, &self.queue, &built.lines);
+            self.axes_labels = built.labels;
+        } else {
+            self.axes_labels.clear();
+        }
+
         self.last_body_mats.clear();
         self.last_body_mats
             .extend(simulation.bodies.iter().map(|b| b.mat));
@@ -1281,7 +1344,18 @@ impl Window {
         // targets the swapchain, which the exporter never reads. Drawing it
         // twice is deliberate -- the window keeps its HUD either way, and the
         // cost is one text pass on exported frames only.
-        if self.export_frame && config.export_hud && huds.iter().any(|h| !h.text.is_empty()) {
+        let axis_labels = axis_label_screen(
+            &self.axes_labels,
+            &self.uniforms.view.uniform.camera.view_proj,
+            &config.axes_unit,
+            self.surface_config.width as f32,
+            self.surface_config.height as f32,
+        );
+
+        if self.export_frame
+            && config.export_hud
+            && (huds.iter().any(|h| !h.text.is_empty()) || !axis_labels.is_empty())
+        {
             if let Some(brush) = self.hud.as_mut() {
                 let view = self
                     .passes
@@ -1292,7 +1366,7 @@ impl Window {
                     self.surface_config.width as f32,
                     self.surface_config.height as f32,
                 );
-                let sections: Vec<_> = huds
+                let mut sections: Vec<_> = huds
                     .iter()
                     .filter(|hud| !hud.text.is_empty())
                     .map(|hud| {
@@ -1307,6 +1381,20 @@ impl Window {
                             .with_layout(layout)
                     })
                     .collect();
+                sections.extend(axis_labels.iter().map(|(text, pos)| {
+                    wgpu_text::glyph_brush::Section::default()
+                        .add_text(
+                            wgpu_text::glyph_brush::Text::new(text)
+                                .with_scale(config.axes_label_size)
+                                .with_color(config.axes_label_color),
+                        )
+                        .with_screen_position(*pos)
+                        .with_layout(
+                            wgpu_text::glyph_brush::Layout::default_single_line()
+                                .h_align(wgpu_text::glyph_brush::HorizontalAlign::Center)
+                                .v_align(wgpu_text::glyph_brush::VerticalAlign::Center),
+                        )
+                }));
                 if brush.queue(&self.device, &self.queue, sections).is_ok() {
                     let mut encoder = self
                         .device
@@ -1351,7 +1439,13 @@ impl Window {
         // separate pass above when it should appear in them too.
         let any_hud = huds.iter().any(|h| !h.text.is_empty());
         if let (Some(texture), Some(brush), true) =
-            (&surface_texture, self.hud.as_mut(), any_hud)
+            // Axis labels alone are reason enough to run the text pass:
+            // a scene with axes but no HUD still has ticks to draw.
+            (
+                &surface_texture,
+                self.hud.as_mut(),
+                any_hud || !axis_labels.is_empty(),
+            )
         {
             let view = texture
                 .texture
@@ -1360,7 +1454,7 @@ impl Window {
                 self.surface_config.width as f32,
                 self.surface_config.height as f32,
             );
-            let sections: Vec<_> = huds
+            let mut sections: Vec<_> = huds
                 .iter()
                 .filter(|hud| !hud.text.is_empty())
                 .map(|hud| {
@@ -1375,6 +1469,20 @@ impl Window {
                         .with_layout(layout)
                 })
                 .collect();
+            sections.extend(axis_labels.iter().map(|(text, pos)| {
+                wgpu_text::glyph_brush::Section::default()
+                    .add_text(
+                        wgpu_text::glyph_brush::Text::new(text)
+                            .with_scale(config.axes_label_size)
+                            .with_color(config.axes_label_color),
+                    )
+                    .with_screen_position(*pos)
+                    .with_layout(
+                        wgpu_text::glyph_brush::Layout::default_single_line()
+                            .h_align(wgpu_text::glyph_brush::HorizontalAlign::Center)
+                            .v_align(wgpu_text::glyph_brush::VerticalAlign::Center),
+                    )
+            }));
             if brush.queue(&self.device, &self.queue, sections).is_ok() {
                 let mut encoder = self
                     .device

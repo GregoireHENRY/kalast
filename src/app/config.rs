@@ -553,6 +553,28 @@ pub struct Config {
     /// Defaults to greyscale.
     pub colormap: Vec<[f32; 3]>,
 
+    /// Reference axes drawn around the scene.
+    ///
+    /// `"off"`, `"box"` (MATLAB), `"panes"` (matplotlib), `"gizmo"` (three
+    /// labelled arrows at the origin), `"blender"` (ground grid, Z line and
+    /// gizmo). A rendered body alone carries no scale or orientation; these
+    /// supply both.
+    pub axes: crate::app::axes::AxesStyle,
+    /// Colour of the axis lines and grid.
+    pub axes_color: [f32; 3],
+    /// Roughly how many ticks per axis. The step is rounded to 1, 2 or 5
+    /// times a power of ten first, so the count lands near this rather than
+    /// on it -- a figure with ticks at 0.0347 is unreadable.
+    pub axes_ticks: usize,
+    /// Appended to every tick label, e.g. `" km"`.
+    ///
+    /// The renderer knows the mesh is 0.437 across but not whether that is
+    /// metres or kilometres, so the unit has to come from the script.
+    pub axes_unit: String,
+    /// Tick label size in pixels, and their colour.
+    pub axes_label_size: f32,
+    pub axes_label_color: [f32; 4],
+
     /// Treat alt + left-drag as a middle-drag, so the arcball can be orbited
     /// on hardware with no middle button. Blender calls the same setting
     /// "Emulate 3 Button Mouse". Defaults on for macOS, where a trackpad is
@@ -628,6 +650,13 @@ impl Default for Config {
             export_hud: false,
 
             shadow_per_body: true,
+
+            axes: crate::app::axes::AxesStyle::Off,
+            axes_color: [0.45, 0.45, 0.45],
+            axes_ticks: 5,
+            axes_unit: String::new(),
+            axes_label_size: 13.0,
+            axes_label_color: [0.85, 0.85, 0.85, 1.0],
 
             value_mode: false,
             value_min: None,

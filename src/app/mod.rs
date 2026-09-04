@@ -1,3 +1,4 @@
+pub mod axes;
 pub mod body;
 pub mod config;
 pub mod facet_id;

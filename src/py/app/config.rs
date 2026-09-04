@@ -614,6 +614,87 @@ impl Config {
         self.app.borrow_mut().config.access_shadow_map = v;
     }
 
+    /// Reference axes: `"off"`, `"box"` (MATLAB), `"panes"` (matplotlib),
+    /// `"gizmo"` (three labelled arrows at the origin) or `"blender"`
+    /// (ground grid, Z line and gizmo).
+    #[getter]
+    fn axes(&self) -> String {
+        self.app.borrow().config.axes.name().to_string()
+    }
+
+    #[setter]
+    fn set_axes(&mut self, v: &str) -> PyResult<()> {
+        let style = crate::app::axes::AxesStyle::parse(v).ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "unknown axes style {v:?}: expected off, box, panes, gizmo or blender"
+            ))
+        })?;
+        self.app.borrow_mut().config.axes = style;
+        Ok(())
+    }
+
+    /// Colour of the axis lines and grid, `(r, g, b)`.
+    #[getter]
+    fn axes_color(&self) -> [f32; 3] {
+        self.app.borrow().config.axes_color
+    }
+
+    #[setter]
+    fn set_axes_color(&mut self, v: [f32; 3]) {
+        self.app.borrow_mut().config.axes_color = v;
+    }
+
+    /// Roughly how many ticks per axis.
+    ///
+    /// Approximate on purpose: the step is rounded to 1, 2 or 5 times a power
+    /// of ten, so the count lands near this rather than on it. Ticks at
+    /// 0.0347 would hit the number exactly and be unreadable.
+    #[getter]
+    fn axes_ticks(&self) -> usize {
+        self.app.borrow().config.axes_ticks
+    }
+
+    #[setter]
+    fn set_axes_ticks(&mut self, v: usize) {
+        self.app.borrow_mut().config.axes_ticks = v;
+    }
+
+    /// Appended to every tick label, e.g. `" km"`.
+    ///
+    /// The renderer knows the mesh is 0.437 across but not whether that is
+    /// metres or kilometres, so the unit has to come from here.
+    #[getter]
+    fn axes_unit(&self) -> String {
+        self.app.borrow().config.axes_unit.clone()
+    }
+
+    #[setter]
+    fn set_axes_unit(&mut self, v: &str) {
+        self.app.borrow_mut().config.axes_unit = v.to_string();
+    }
+
+    /// Tick label size in pixels.
+    #[getter]
+    fn axes_label_size(&self) -> f32 {
+        self.app.borrow().config.axes_label_size
+    }
+
+    #[setter]
+    fn set_axes_label_size(&mut self, v: f32) {
+        self.app.borrow_mut().config.axes_label_size = v;
+    }
+
+    /// Tick label colour, `(r, g, b, a)`.
+    #[getter]
+    fn axes_label_color(&self) -> [f32; 4] {
+        self.app.borrow().config.axes_label_color
+    }
+
+    #[setter]
+    fn set_axes_label_color(&mut self, v: [f32; 4]) {
+        self.app.borrow_mut().config.axes_label_color = v;
+    }
+
     /// Colour facets from `mesh.values` through `colormap`.
     ///
     /// Orthogonal to `color_mode`: with `0` the data map is shaded, with `1`
