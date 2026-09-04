@@ -320,6 +320,7 @@ as there are save workers.
 
 ### `hud_text: String` — default `""` *(live)*
 ### `huds: list[Hud]` — default `[]` *(live)*
+### `hud_font: String` — default `""` *(startup only)*
 On-screen overlay text, drawn over the swapchain after the blit — so by
 default it stays out of exported frames (`export_hud` adds it to those too).
 
@@ -338,8 +339,10 @@ app.config.huds = [
     kalast.app.Hud("{it}/{nit}"),                             # top-left
     kalast.app.Hud("{fps} fps  {ms} ms", anchor="bottom-right"),
     kalast.app.Hud("{hud}", x=200, y=120,                      # absolute
-                   scale=24.0, color=(1.0, 0.8, 0.2, 1.0)),
+                   size=24.0, color=(1.0, 0.8, 0.2, 1.0)),
 ]
+
+app.config.hud_font = "/path/to/Inter.ttf"    # optional; built-in otherwise
 ```
 
 #### Placeholders
@@ -381,8 +384,11 @@ the digits change faster than they can be read. The window is
 
 #### `Hud`
 
-`kalast.app.Hud(text, anchor="top-left", x=None, y=None, scale=18.0,
+`kalast.app.Hud(text, anchor="top-left", x=None, y=None, size=18.0,
 color=None)`.
+
+`size` is the font size in pixels and is **per HUD**, so a large counter and a
+small frame-rate readout cost nothing extra. `color` is `(r, g, b, a)`.
 
 `anchor` is one of `top-left`, `top-right`, `bottom-left`, `bottom-right`.
 Hyphens, underscores and spaces are interchangeable, and case is ignored,
@@ -397,6 +403,24 @@ neither moves when the window is resized.
 origin, so `Hud(text, x=200, y=120)` places the HUD at exactly (200, 120).
 There was briefly a `custom` anchor for this; it computed the identical
 position to `top-left` and was removed as a second name for the default.
+
+#### Font
+
+`hud_font` is a path to a TrueType/OpenType file, applied to **every** HUD;
+empty uses the built-in DejaVu Sans. It is one font for all of them because
+each additional font needs its own glyph cache and draw, which is not worth it
+for an overlay — per-HUD `size` is free by comparison.
+
+A path that cannot be read or parsed **warns once and falls back** to the
+built-in font:
+
+```
+hud_font: cannot read /nope/missing.ttf (No such file or directory), using built-in
+```
+
+rather than leaving the run with no HUD. Losing the counters a long run is
+being watched by, because a font path was mistyped, is a worse outcome than
+the wrong typeface.
 
 Right- and bottom-anchored HUDs are placed with glyph_brush's own alignment
 rather than by measuring the text. The text changes every frame, and measuring

@@ -135,7 +135,28 @@ fn hud_placement(
     (pos, Layout::default_wrap().h_align(h).v_align(v))
 }
 
-type HudBrush = wgpu_text::TextBrush<wgpu_text::glyph_brush::ab_glyph::FontRef<'static>>;
+
+/// The HUD font: `config.hud_font` if it loads, otherwise the built-in one.
+///
+/// A bad path warns and falls back rather than returning `None`. Losing the
+/// whole HUD because a font path was mistyped would hide the counters a long
+/// run is being watched by, which is a worse outcome than the wrong typeface.
+fn hud_font(path: &str) -> Option<wgpu_text::glyph_brush::ab_glyph::FontArc> {
+    use wgpu_text::glyph_brush::ab_glyph::FontArc;
+
+    if !path.is_empty() {
+        match std::fs::read(path) {
+            Ok(bytes) => match FontArc::try_from_vec(bytes) {
+                Ok(font) => return Some(font),
+                Err(e) => eprintln!("hud_font: {path} is not a usable font ({e}), using built-in"),
+            },
+            Err(e) => eprintln!("hud_font: cannot read {path} ({e}), using built-in"),
+        }
+    }
+    FontArc::try_from_slice(include_bytes!("../../res/DejaVuSans.ttf")).ok()
+}
+
+type HudBrush = wgpu_text::TextBrush<wgpu_text::glyph_brush::ab_glyph::FontArc>;
 
 pub struct Window {
     /// Draws `Simulation::hud` over the swapchain. `None` if the font would
@@ -405,12 +426,9 @@ impl Window {
         // The font is embedded rather than read from `res/`, so the overlay
         // works from any working directory. A font that will not load leaves
         // the overlay off rather than failing the run.
-        let hud = wgpu_text::BrushBuilder::using_font_bytes(include_bytes!(
-            "../../res/DejaVuSans.ttf"
-        ))
-        .ok()
-        .map(|b| {
-            b.build(
+        let hud = hud_font(&config.hud_font).map(|font| {
+            wgpu_text::BrushBuilder::using_font(font)
+            .build(
                 &device,
                 surface_config.width,
                 surface_config.height,
@@ -1092,7 +1110,7 @@ impl Window {
                         wgpu_text::glyph_brush::Section::default()
                             .add_text(
                                 wgpu_text::glyph_brush::Text::new(&hud.text)
-                                    .with_scale(hud.scale)
+                                    .with_scale(hud.size)
                                     .with_color(hud.color),
                             )
                             .with_screen_position(pos)
@@ -1160,7 +1178,7 @@ impl Window {
                     wgpu_text::glyph_brush::Section::default()
                         .add_text(
                             wgpu_text::glyph_brush::Text::new(&hud.text)
-                                .with_scale(hud.scale)
+                                .with_scale(hud.size)
                                 .with_color(hud.color),
                         )
                         .with_screen_position(pos)

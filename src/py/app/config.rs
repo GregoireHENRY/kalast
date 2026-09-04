@@ -10,7 +10,7 @@ use crate::Float;
 /// ```python
 /// kalast.app.Hud("{it}/{nit}")                       # top-left, the default
 /// kalast.app.Hud("{fps} fps", anchor="bottom-right")
-/// kalast.app.Hud("{hud}", x=200, y=120)              # absolute, no anchor needed
+/// kalast.app.Hud("{hud}", x=200, y=120, size=24.0)  # absolute, no anchor needed
 /// ```
 #[pyclass]
 #[derive(Clone)]
@@ -21,13 +21,13 @@ pub struct Hud {
 #[pymethods]
 impl Hud {
     #[new]
-    #[pyo3(signature = (text, anchor="top-left", x=None, y=None, scale=18.0, color=None))]
+    #[pyo3(signature = (text, anchor="top-left", x=None, y=None, size=18.0, color=None))]
     fn new(
         text: &str,
         anchor: &str,
         x: Option<f32>,
         y: Option<f32>,
-        scale: f32,
+        size: f32,
         color: Option<[f32; 4]>,
     ) -> PyResult<Self> {
         let anchor = crate::app::config::HudAnchor::parse(anchor).ok_or_else(|| {
@@ -46,7 +46,7 @@ impl Hud {
         if let Some(y) = y {
             inner.y = y;
         }
-        inner.scale = scale;
+        inner.size = size;
         if let Some(c) = color {
             inner.color = c;
         }
@@ -92,13 +92,14 @@ impl Hud {
         self.inner.y = v;
     }
 
+    /// Font size in pixels.
     #[getter]
-    fn scale(&self) -> f32 {
-        self.inner.scale
+    fn size(&self) -> f32 {
+        self.inner.size
     }
     #[setter]
-    fn set_scale(&mut self, v: f32) {
-        self.inner.scale = v;
+    fn set_size(&mut self, v: f32) {
+        self.inner.size = v;
     }
 
     #[getter]
@@ -112,12 +113,12 @@ impl Hud {
 
     fn __repr__(&self) -> String {
         format!(
-            "Hud(text={:?}, anchor={:?}, x={}, y={}, scale={})",
+            "Hud(text={:?}, anchor={:?}, x={}, y={}, size={})",
             self.inner.text,
             self.inner.anchor.name(),
             self.inner.x,
             self.inner.y,
-            self.inner.scale
+            self.inner.size
         )
     }
 }
@@ -244,6 +245,18 @@ impl Config {
     #[setter]
     fn set_hud_text(&mut self, v: &str) {
         self.app.borrow_mut().config.hud_text = v.to_string();
+    }
+
+    /// Font file for every HUD, or empty for the built-in DejaVu Sans.
+    /// A path that will not load warns and falls back. Startup only.
+    #[getter]
+    fn hud_font(&self) -> String {
+        self.app.borrow().config.hud_font.clone()
+    }
+
+    #[setter]
+    fn set_hud_font(&mut self, v: &str) {
+        self.app.borrow_mut().config.hud_font = v.to_string();
     }
 
     /// Several HUDs at once. Empty means "use `hud_text`".

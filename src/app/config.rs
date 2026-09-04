@@ -49,7 +49,8 @@ pub struct Hud {
     /// Inset from the anchor in pixels, or absolute position for `Custom`.
     pub x: f32,
     pub y: f32,
-    pub scale: f32,
+    /// Font size in pixels.
+    pub size: f32,
     pub color: [f32; 4],
 }
 
@@ -60,7 +61,7 @@ impl Hud {
             anchor: HudAnchor::TopLeft,
             x: 8.0,
             y: 6.0,
-            scale: 18.0,
+            size: 18.0,
             color: [1.0, 1.0, 1.0, 0.9],
         }
     }
@@ -113,6 +114,19 @@ pub struct Config {
     /// still moves every frame, so the digits change faster than they can be
     /// read.
     pub hud_text: String,
+
+    /// TrueType/OpenType font file for the HUD, or empty for the built-in
+    /// DejaVu Sans.
+    ///
+    /// One font for all HUDs: each additional font needs its own glyph cache
+    /// and draw, and per-HUD fonts are not worth that for an overlay. Per-HUD
+    /// *size* is free by comparison and lives on `Hud::size`.
+    ///
+    /// A path that cannot be read or parsed warns once and falls back to the
+    /// built-in font, rather than leaving the run with no HUD at all.
+    ///
+    /// Startup only: the glyph cache is built with the window.
+    pub hud_font: String,
 
     /// Several HUDs at once, each with its own template and corner.
     ///
@@ -281,6 +295,7 @@ impl Default for Config {
 
             background: wgpu::Color::BLACK,
             hud_text: String::new(),
+            hud_font: String::new(),
             huds: Vec::new(),
             fullscreen: false,
             render_back_face: false,
