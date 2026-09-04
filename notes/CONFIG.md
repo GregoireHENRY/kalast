@@ -342,7 +342,7 @@ app.config.huds = [
                    size=24.0, color=(1.0, 0.8, 0.2, 1.0)),
 ]
 
-app.config.hud_font = "/path/to/Inter.ttf"    # optional; built-in otherwise
+app.config.hud_font = "Arial"                 # or a path; built-in otherwise
 ```
 
 #### Placeholders
@@ -406,16 +406,44 @@ position to `top-left` and was removed as a second name for the default.
 
 #### Font
 
-`hud_font` is a path to a TrueType/OpenType file, applied to **every** HUD;
-empty uses the built-in DejaVu Sans. It is one font for all of them because
-each additional font needs its own glyph cache and draw, which is not worth it
-for an overlay — per-HUD `size` is free by comparison.
+`hud_font` takes either a **font name** or a **path**, and applies to *every*
+HUD; empty uses the built-in DejaVu Sans:
 
-A path that cannot be read or parsed **warns once and falls back** to the
-built-in font:
+```python
+app.config.hud_font = "Arial"                      # name
+app.config.hud_font = "Times New Roman"            # spaces and case ignored
+app.config.hud_font = "/Library/Fonts/Arial.ttf"   # path
+```
+
+Anything that exists on disk is treated as a path; anything else is looked up
+by name in the platform's font directories, most specific first so a
+user-installed font beats a system one:
+
+| | |
+|---|---|
+| macOS | `~/Library/Fonts`, `/Library/Fonts`, `/System/Library/Fonts`, `/System/Library/Fonts/Supplemental` |
+| Windows | `%LOCALAPPDATA%/Microsoft/Windows/Fonts`, `C:/Windows/Fonts` |
+| other | `~/.local/share/fonts`, `~/.fonts`, `/usr/local/share/fonts`, `/usr/share/fonts` |
+
+`.ttf`, `.otf`, `.ttc` and `.otc` are all read; for a collection the first
+face is used.
+
+**Matching is on the filename, not the family name recorded inside the font.**
+Reading real family names needs a font-database dependency (`fontdb`,
+`font-kit`), which an overlay does not justify — filenames cover the names
+anyone actually types. Punctuation and case are ignored, so `Times New Roman`
+finds `Times New Roman.ttf` and `HelveticaNeue.ttc` answers to
+`"Helvetica Neue"`. A family whose file is named nothing like it will not
+resolve; give a path in that case.
+
+It is one font for all HUDs because each additional font needs its own glyph
+cache and draw, which is not worth it for an overlay — per-HUD `size` is free
+by comparison.
+
+A font that will not resolve **warns once and falls back** to the built-in:
 
 ```
-hud_font: cannot read /nope/missing.ttf (No such file or directory), using built-in
+hud_font: no font named "NotAFont" in ["/Users/x/Library/Fonts", ...], using built-in
 ```
 
 rather than leaving the run with no HUD. Losing the counters a long run is

@@ -115,8 +115,20 @@ pub struct Config {
     /// read.
     pub hud_text: String,
 
-    /// TrueType/OpenType font file for the HUD, or empty for the built-in
+    /// Font for the HUD: a **name** or a **path**, or empty for the built-in
     /// DejaVu Sans.
+    ///
+    /// `"Arial"`, `"arial"`, `"Times New Roman"` and
+    /// `"/Library/Fonts/Arial.ttf"` all work. Anything that exists on disk is
+    /// treated as a path; anything else is looked up by name in the
+    /// platform's font directories.
+    ///
+    /// **Matching is on the filename, not the family name inside the font.**
+    /// Reading real family names needs a font-database dependency, which an
+    /// overlay does not justify; filenames cover the names people type. A
+    /// family whose file is named differently -- "Helvetica Neue" living in
+    /// `HelveticaNeue.ttc` -- resolves, since punctuation and case are
+    /// ignored, but one named nothing like its family will not.
     ///
     /// One font for all HUDs: each additional font needs its own glyph cache
     /// and draw, and per-HUD fonts are not worth that for an overlay. Per-HUD

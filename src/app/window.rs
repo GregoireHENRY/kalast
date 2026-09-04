@@ -136,24 +136,147 @@ fn hud_placement(
 }
 
 
-/// The HUD font: `config.hud_font` if it loads, otherwise the built-in one.
-///
-/// A bad path warns and falls back rather than returning `None`. Losing the
-/// whole HUD because a font path was mistyped would hide the counters a long
-/// run is being watched by, which is a worse outcome than the wrong typeface.
-fn hud_font(path: &str) -> Option<wgpu_text::glyph_brush::ab_glyph::FontArc> {
-    use wgpu_text::glyph_brush::ab_glyph::FontArc;
+/// Standard font directories for this platform, most specific first, so a
+/// user-installed font beats a system one of the same name.
+fn font_dirs() -> Vec<std::path::PathBuf> {
+    let home = std::env::var("HOME").ok().map(std::path::PathBuf::from);
+    let mut dirs: Vec<std::path::PathBuf> = Vec::new();
 
-    if !path.is_empty() {
-        match std::fs::read(path) {
-            Ok(bytes) => match FontArc::try_from_vec(bytes) {
-                Ok(font) => return Some(font),
-                Err(e) => eprintln!("hud_font: {path} is not a usable font ({e}), using built-in"),
-            },
-            Err(e) => eprintln!("hud_font: cannot read {path} ({e}), using built-in"),
+    if cfg!(target_os = "macos") {
+        if let Some(h) = &home {
+            dirs.push(h.join("Library/Fonts"));
+        }
+        dirs.push("/Library/Fonts".into());
+        dirs.push("/System/Library/Fonts".into());
+        // Where macOS keeps Arial, Times New Roman and the rest of the
+        // names people actually type.
+        dirs.push("/System/Library/Fonts/Supplemental".into());
+    } else if cfg!(target_os = "windows") {
+        if let Ok(local) = std::env::var("LOCALAPPDATA") {
+            dirs.push(std::path::PathBuf::from(local).join("Microsoft/Windows/Fonts"));
+        }
+        dirs.push("C:/Windows/Fonts".into());
+    } else {
+        if let Some(h) = &home {
+            dirs.push(h.join(".local/share/fonts"));
+            dirs.push(h.join(".fonts"));
+        }
+        dirs.push("/usr/local/share/fonts".into());
+        dirs.push("/usr/share/fonts".into());
+    }
+    dirs
+}
+
+/// `Arial`, `arial`, `Arial Black` and `arialblack` all match `Arial.ttf`.
+///
+/// Matching is on the *filename*, not the family name recorded inside the
+/// font. Reading the real family would need a font database dependency; for
+/// an overlay, filenames cover the names anyone types and cost nothing.
+fn font_key(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// Depth-limited search for a font file whose stem matches `name`.
+fn find_font_file(name: &str) -> Option<std::path::PathBuf> {
+    let want = font_key(name);
+    let exts = ["ttf", "otf", "ttc", "otc"];
+
+    fn walk(dir: &std::path::Path, depth: usize, out: &mut Vec<std::path::PathBuf>) {
+        if depth == 0 {
+            return;
+        }
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                walk(&p, depth - 1, out);
+            } else {
+                out.push(p);
+            }
         }
     }
-    FontArc::try_from_slice(include_bytes!("../../res/DejaVuSans.ttf")).ok()
+
+    for dir in font_dirs() {
+        let mut files = Vec::new();
+        // 3 is enough for Linux's /usr/share/fonts/truetype/dejavu nesting
+        // without walking an entire home directory by accident.
+        walk(&dir, 3, &mut files);
+        for p in files {
+            let is_font = p
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| exts.contains(&e.to_ascii_lowercase().as_str()))
+                .unwrap_or(false);
+            if !is_font {
+                continue;
+            }
+            if p.file_stem().and_then(|s| s.to_str()).map(font_key).as_deref() == Some(&want) {
+                return Some(p);
+            }
+        }
+    }
+    None
+}
+
+/// The HUD font: `config.hud_font` if it resolves, otherwise the built-in one.
+///
+/// Accepts either a path or a font name -- `"Arial"` and
+/// `"/Library/Fonts/Arial.ttf"` both work. A path is anything that exists on
+/// disk; everything else is looked up by name in the platform's font
+/// directories.
+///
+/// A font that will not resolve warns and falls back rather than returning
+/// `None`. Losing the whole HUD because a name was mistyped would hide the
+/// counters a long run is being watched by, which is worse than the wrong
+/// typeface.
+fn hud_font(spec: &str) -> Option<wgpu_text::glyph_brush::ab_glyph::FontArc> {
+    use wgpu_text::glyph_brush::ab_glyph::{FontArc, FontVec};
+
+    let builtin =
+        || FontArc::try_from_slice(include_bytes!("../../res/DejaVuSans.ttf")).ok();
+
+    if spec.is_empty() {
+        return builtin();
+    }
+
+    let path = if std::path::Path::new(spec).exists() {
+        Some(std::path::PathBuf::from(spec))
+    } else {
+        find_font_file(spec)
+    };
+
+    let Some(path) = path else {
+        eprintln!(
+            "hud_font: no font named {spec:?} in {:?}, using built-in",
+            font_dirs()
+        );
+        return builtin();
+    };
+
+    match std::fs::read(&path) {
+        Ok(bytes) => {
+            // `.ttc`/`.otc` are collections; take the first face.
+            match FontVec::try_from_vec(bytes.clone())
+                .or_else(|_| FontVec::try_from_vec_and_index(bytes, 0))
+                .map(FontArc::from)
+            {
+                Ok(font) => Some(font),
+                Err(e) => {
+                    eprintln!("hud_font: {path:?} is not a usable font ({e}), using built-in");
+                    builtin()
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("hud_font: cannot read {path:?} ({e}), using built-in");
+            builtin()
+        }
+    }
 }
 
 type HudBrush = wgpu_text::TextBrush<wgpu_text::glyph_brush::ab_glyph::FontArc>;

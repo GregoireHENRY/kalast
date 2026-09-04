@@ -247,8 +247,8 @@ impl Config {
         self.app.borrow_mut().config.hud_text = v.to_string();
     }
 
-    /// Font file for every HUD, or empty for the built-in DejaVu Sans.
-    /// A path that will not load warns and falls back. Startup only.
+    /// Font for every HUD: a name (`"Arial"`) or a path, or empty for the
+    /// built-in. One that will not resolve warns and falls back. Startup only.
     #[getter]
     fn hud_font(&self) -> String {
         self.app.borrow().config.hud_font.clone()
