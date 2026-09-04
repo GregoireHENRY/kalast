@@ -84,6 +84,21 @@ pub struct Axes {
 ///
 /// The alternative -- `span / target` unrounded -- gives ticks at 0.0347 and
 /// nobody reads a figure that way.
+pub fn step_for(lo: Float, hi: Float, target: usize) -> Float {
+    nice_step(hi - lo, target)
+}
+
+/// Tick values over a range, for anything that needs the same rounding the
+/// axes use -- the colour scale, chiefly.
+pub fn tick_values(lo: Float, hi: Float, target: usize) -> Vec<Float> {
+    ticks(lo, hi, target)
+}
+
+/// Formats a value against a step, so labels carry just enough decimals.
+pub fn format_value(v: Float, step: Float) -> String {
+    format_tick(v, step)
+}
+
 fn nice_step(span: Float, target: usize) -> Float {
     if span <= 0.0 || target == 0 {
         return 1.0;

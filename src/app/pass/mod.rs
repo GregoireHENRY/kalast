@@ -1,3 +1,4 @@
+pub mod colorbar;
 pub mod axes;
 pub mod depth;
 pub mod light_cube;
@@ -10,6 +11,7 @@ pub struct Passes {
     pub render: render::Pass,
     pub light_cube: light_cube::Pass,
     pub axes: axes::Pass,
+    pub colorbar: colorbar::Pass,
 
     pub depth: depth::Pass,
 
@@ -36,6 +38,7 @@ impl Passes {
             render: render::Pass::new(device, format, config, &layouts_all),
             light_cube: light_cube::Pass::new(device, format, &layouts_all, samples),
             axes: axes::Pass::new(device, format, &layouts_all, samples),
+            colorbar: colorbar::Pass::new(device, format, &layouts_all, samples),
 
             depth: depth::Pass::new(device, config.width, config.height, format),
 
@@ -70,6 +73,7 @@ impl Passes {
             &self.depth.texture.view,
             &mut self.light_cube,
             &self.axes,
+            &self.colorbar,
             meshes,
             &self.bindings,
             config,
@@ -87,6 +91,7 @@ pub struct Bindings {
     pub view: wgpu::BindGroup,
     pub shadow: wgpu::BindGroup,
     pub colormap: wgpu::BindGroup,
+    pub bar: wgpu::BindGroup,
 }
 
 impl Bindings {
@@ -95,6 +100,7 @@ impl Bindings {
         render_pass.set_bind_group(1, Some(&self.view), &[]);
         render_pass.set_bind_group(2, Some(&self.shadow), &[]);
         render_pass.set_bind_group(3, Some(&self.colormap), &[]);
+        render_pass.set_bind_group(4, Some(&self.bar), &[]);
     }
 
     pub fn for_shadow(&self, render_pass: &mut wgpu::RenderPass) {

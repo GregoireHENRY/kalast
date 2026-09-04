@@ -141,10 +141,22 @@ impl Default for Colormap {
     }
 }
 
+/// Placement and mode for the colour scale.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Default, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct Bar {
+    /// NDC rectangle: `xy` min corner, `zw` size.
+    pub rect: [f32; 4],
+    pub vertical: u32,
+    pub source: u32,
+    pub _pad: [u32; 2],
+}
+
 pub struct Uniforms {
     pub globals: super::gpu::UniformBuffer<Globals>,
     pub view: super::gpu::UniformBuffer<View>,
     pub colormap: super::gpu::UniformBuffer<Colormap>,
+    pub bar: super::gpu::UniformBuffer<Bar>,
     pub shadow: super::gpu::Texture,
     // pub textures: Vec<super::gpu::Texture>,
 }
@@ -156,6 +168,7 @@ impl Uniforms {
             Some(&self.view.layout),
             Some(&self.shadow.layout.as_ref().unwrap()),
             Some(&self.colormap.layout),
+            Some(&self.bar.layout),
             // Some(&self.textures[0].layout.as_ref().unwrap()),
         ]
     }
@@ -170,6 +183,7 @@ impl Uniforms {
             view: self.view.bind_group(device),
             shadow: self.shadow.bind_group(device).unwrap(),
             colormap: self.colormap.bind_group(device),
+            bar: self.bar.bind_group(device),
             // textures: self.textures[0].bind_group(device).unwrap(),
         }
     }

@@ -27,6 +27,9 @@ pub const SHADER_MESH_SHADOW: wgpu::ShaderModuleDescriptor =
 pub const SHADER_DEPTH_RENDER: wgpu::ShaderModuleDescriptor =
     wgpu::include_wgsl!("../../shaders/depth_render.wgsl");
 
+pub const SHADER_COLORBAR: wgpu::ShaderModuleDescriptor =
+    wgpu::include_wgsl!("../../shaders/colorbar.wgsl");
+
 pub const SHADER_AXES: wgpu::ShaderModuleDescriptor =
     wgpu::include_wgsl!("../../shaders/axes.wgsl");
 

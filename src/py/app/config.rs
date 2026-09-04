@@ -614,6 +614,155 @@ impl Config {
         self.app.borrow_mut().config.access_shadow_map = v;
     }
 
+    /// Draw the colour scale. Off by default.
+    #[getter]
+    fn colorbar(&self) -> bool {
+        self.app.borrow().config.colorbar.enabled
+    }
+
+    #[setter]
+    fn set_colorbar(&mut self, v: bool) {
+        self.app.borrow_mut().config.colorbar.enabled = v;
+    }
+
+    /// What the bar shows: `"values"` (the `mesh.values` colormap, in your
+    /// units) or `"lighting"` (the diffuse shading, 0..1).
+    ///
+    /// `"lighting"` is `ambient + cos(i) * visibility` -- normalised direct
+    /// insolation including shadowing. Not radiance, not temperature, and it
+    /// carries the `ambient_strength` floor, so label it for what it is.
+    #[getter]
+    fn colorbar_source(&self) -> String {
+        self.app.borrow().config.colorbar.source.name().to_string()
+    }
+
+    #[setter]
+    fn set_colorbar_source(&mut self, v: &str) -> PyResult<()> {
+        let src = crate::app::config::ColorbarSource::parse(v).ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "unknown colorbar source {v:?}: expected values or lighting"
+            ))
+        })?;
+        self.app.borrow_mut().config.colorbar.source = src;
+        Ok(())
+    }
+
+    /// Which of the nine anchors the bar sits at.
+    ///
+    /// Orientation follows: `middle-left`/`middle-right` give a vertical bar,
+    /// anything else horizontal. Override with `colorbar_vertical`.
+    #[getter]
+    fn colorbar_anchor(&self) -> String {
+        self.app.borrow().config.colorbar.anchor.name().to_string()
+    }
+
+    #[setter]
+    fn set_colorbar_anchor(&mut self, v: &str) -> PyResult<()> {
+        let a = crate::app::config::HudAnchor::parse(v).ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err(format!("unknown anchor {v:?}"))
+        })?;
+        self.app.borrow_mut().config.colorbar.anchor = a;
+        Ok(())
+    }
+
+    /// Force the orientation, or `None` to follow the anchor.
+    #[getter]
+    fn colorbar_vertical(&self) -> Option<bool> {
+        self.app.borrow().config.colorbar.vertical
+    }
+
+    #[setter]
+    fn set_colorbar_vertical(&mut self, v: Option<bool>) {
+        self.app.borrow_mut().config.colorbar.vertical = v;
+    }
+
+    /// Caption above the bar, e.g. `"Surface temperature (K)"`.
+    #[getter]
+    fn colorbar_label(&self) -> String {
+        self.app.borrow().config.colorbar.label.clone()
+    }
+
+    #[setter]
+    fn set_colorbar_label(&mut self, v: &str) {
+        self.app.borrow_mut().config.colorbar.label = v.to_string();
+    }
+
+    /// Long axis of the bar, pixels.
+    #[getter]
+    fn colorbar_length(&self) -> f32 {
+        self.app.borrow().config.colorbar.length
+    }
+
+    #[setter]
+    fn set_colorbar_length(&mut self, v: f32) {
+        self.app.borrow_mut().config.colorbar.length = v;
+    }
+
+    /// Short axis of the bar, pixels.
+    #[getter]
+    fn colorbar_thickness(&self) -> f32 {
+        self.app.borrow().config.colorbar.thickness
+    }
+
+    #[setter]
+    fn set_colorbar_thickness(&mut self, v: f32) {
+        self.app.borrow_mut().config.colorbar.thickness = v;
+    }
+
+    /// Inset from the anchor, pixels.
+    #[getter]
+    fn colorbar_x(&self) -> f32 {
+        self.app.borrow().config.colorbar.x
+    }
+
+    #[setter]
+    fn set_colorbar_x(&mut self, v: f32) {
+        self.app.borrow_mut().config.colorbar.x = v;
+    }
+
+    #[getter]
+    fn colorbar_y(&self) -> f32 {
+        self.app.borrow().config.colorbar.y
+    }
+
+    #[setter]
+    fn set_colorbar_y(&mut self, v: f32) {
+        self.app.borrow_mut().config.colorbar.y = v;
+    }
+
+    /// Roughly how many numbered ticks, rounded to a readable step.
+    #[getter]
+    fn colorbar_ticks(&self) -> usize {
+        self.app.borrow().config.colorbar.ticks
+    }
+
+    #[setter]
+    fn set_colorbar_ticks(&mut self, v: usize) {
+        self.app.borrow_mut().config.colorbar.ticks = v;
+    }
+
+    /// Tick and caption size in pixels.
+    #[getter]
+    fn colorbar_text_size(&self) -> f32 {
+        self.app.borrow().config.colorbar.text_size
+    }
+
+    #[setter]
+    fn set_colorbar_text_size(&mut self, v: f32) {
+        self.app.borrow_mut().config.colorbar.text_size = v;
+    }
+
+    /// Tick and caption colour, `(r, g, b, a)`.
+    #[getter]
+    fn colorbar_text_color(&self) -> [f32; 4] {
+        self.app.borrow().config.colorbar.text_color
+    }
+
+    #[setter]
+    fn set_colorbar_text_color(&mut self, v: [f32; 4]) {
+        self.app.borrow_mut().config.colorbar.text_color = v;
+    }
+
     /// Reference axes: `"off"`, `"box"` (MATLAB), `"panes"` (matplotlib),
     /// `"gizmo"` (three labelled arrows at the origin) or `"blender"`
     /// (ground grid, Z line and gizmo).
