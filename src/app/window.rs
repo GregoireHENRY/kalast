@@ -106,6 +106,76 @@ pub fn fit_light_view_proj(
 /// rather than by measuring the text: the text changes every frame, and
 /// measuring it to subtract a width would make the block jitter horizontally
 /// as digits change width.
+/// Classifies each body against the camera frustum, and the light cube too.
+///
+/// Conservative in the standard way: a body counts as outside only when
+/// *every* corner of its box fails the same plane. A box straddling a corner
+/// of the frustum can therefore be reported visible when it is not, which is
+/// the safe direction for a diagnostic -- it never claims something is missing
+/// when it is there.
+fn diagnose(
+    simulation: &crate::app::simulation::Simulation,
+    config: &crate::app::config::Config,
+    view_proj: &glam::Mat4,
+) -> crate::app::simulation::Diagnostics {
+    use crate::app::simulation::Diagnostics;
+
+    let mut d = Diagnostics {
+        n_bodies: simulation.bodies.len(),
+        ..Default::default()
+    };
+
+    for body in &simulation.bodies {
+        let Some(mesh) = body.mesh.as_ref() else {
+            d.n_bodies = d.n_bodies.saturating_sub(1);
+            continue;
+        };
+        let bounds = mesh.borrow().bounds.transform(&body.mat);
+        if bounds.is_empty() {
+            continue;
+        }
+
+        let (mut l, mut r, mut b, mut t, mut n, mut f) = (true, true, true, true, true, true);
+        for c in bounds.corners() {
+            let p = *view_proj * glam::Vec4::new(c.x, c.y, c.z, 1.0);
+            l &= p.x < -p.w;
+            r &= p.x > p.w;
+            b &= p.y < -p.w;
+            t &= p.y > p.w;
+            // wgpu clip space is z in 0..w, not -w..w.
+            n &= p.z < 0.0;
+            f &= p.z > p.w;
+        }
+
+        // Near and far first: a body behind the camera also fails the side
+        // tests, and "behind you" is the more useful thing to be told.
+        if n {
+            d.out_near += 1;
+        } else if f {
+            d.out_far += 1;
+        } else if l || r || b || t {
+            d.out_side += 1;
+        } else {
+            d.n_visible += 1;
+        }
+    }
+
+    if config.debug_light_cube_show {
+        let p = *view_proj
+            * glam::Vec4::new(
+                simulation.sun.pos.x,
+                simulation.sun.pos.y,
+                simulation.sun.pos.z,
+                1.0,
+            );
+        // Only the far plane: the cube being off to one side is the user
+        // looking elsewhere, which is not a fault worth warning about.
+        d.light_cube_clipped = p.z > p.w;
+    }
+
+    d
+}
+
 /// Tick labels and caption for the colour scale, already in screen pixels.
 ///
 /// Ticks come from the same rounding the axes use, so a scale from 87 to 349
@@ -1278,6 +1348,12 @@ impl Window {
         } else {
             self.colorbar_px = None;
         }
+
+        simulation.diagnostics = diagnose(
+            simulation,
+            config,
+            &self.uniforms.view.uniform.camera.view_proj,
+        );
 
         self.last_body_mats.clear();
         self.last_body_mats

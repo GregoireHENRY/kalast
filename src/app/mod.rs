@@ -63,6 +63,7 @@ fn expand_hud(
     template: &str,
     state: &crate::app::simulation::State,
     rate: Float,
+    diag: &crate::app::simulation::Diagnostics,
 ) -> String {
     let its = if state.is_paused { 0.0 } else { rate };
     let nit = match state.pause_at {
@@ -106,6 +107,40 @@ fn expand_hud(
                 out.push_str(&format!("{ms:.prec$}"));
             }
             "paused" => out.push_str(if state.is_paused { "PAUSED" } else { "" }),
+
+            // Scene diagnostics. `{bodies}` is the one to reach for: it reads
+            // "2/3" and only mentions a reason when something is missing.
+            "bodies" => {
+                out.push_str(&format!("{}/{}", diag.n_visible, diag.n_bodies));
+                let mut why = Vec::new();
+                if diag.out_near > 0 {
+                    why.push(format!("{} behind", diag.out_near));
+                }
+                if diag.out_far > 0 {
+                    why.push(format!("{} past far", diag.out_far));
+                }
+                if diag.out_side > 0 {
+                    why.push(format!("{} off-frame", diag.out_side));
+                }
+                if !why.is_empty() {
+                    out.push_str(&format!(" ({})", why.join(", ")));
+                }
+            }
+            "n_bodies" => out.push_str(&diag.n_bodies.to_string()),
+            "n_visible" => out.push_str(&diag.n_visible.to_string()),
+            "n_behind" => out.push_str(&diag.out_near.to_string()),
+            "n_past_far" => out.push_str(&diag.out_far.to_string()),
+            "n_offframe" => out.push_str(&diag.out_side.to_string()),
+
+            // Empty unless something is actually wrong, so a template can
+            // carry it permanently without adding a line to every frame.
+            "warn" => {
+                if diag.light_cube_clipped {
+                    out.push_str(
+                        "light cube is past the camera far plane (set camera.projection.far)",
+                    );
+                }
+            }
             // Unknown: leave it exactly as written.
             _ => {
                 out.push('{');
@@ -353,7 +388,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         .map(|h| {
                             let h = h.borrow();
                             crate::app::config::Hud {
-                                text: expand_hud(&h.text, &sim.state, self.fps_shown),
+                                text: expand_hud(&h.text, &sim.state, self.fps_shown, &sim.diagnostics),
                                 ..h.clone()
                             }
                         })
@@ -615,7 +650,7 @@ mod hud_tests {
     fn expands_the_documented_placeholders() {
         let s = state(42, false, Some(500));
         assert_eq!(
-            expand_hud("{it}/{nit} ({its} it/s)", &s, 60.4),
+            expand_hud("{it}/{nit} ({its} it/s)", &s, 60.4, &Default::default()),
             "42/500 (60 it/s)"
         );
     }
@@ -625,9 +660,9 @@ mod hud_tests {
     #[test]
     fn rates_are_integers_by_default_and_precision_is_opt_in() {
         let s = state(1, false, None);
-        assert_eq!(expand_hud("{fps}", &s, 59.62), "60");
-        assert_eq!(expand_hud("{fps:.1}", &s, 59.62), "59.6");
-        assert_eq!(expand_hud("{fps:.2f}", &s, 59.62), "59.62");
+        assert_eq!(expand_hud("{fps}", &s, 59.62, &Default::default()), "60");
+        assert_eq!(expand_hud("{fps:.1}", &s, 59.62, &Default::default()), "59.6");
+        assert_eq!(expand_hud("{fps:.2f}", &s, 59.62, &Default::default()), "59.62");
     }
 
     /// Milliseconds are the exception -- whole numbers cannot separate 8 from
@@ -635,15 +670,15 @@ mod hud_tests {
     #[test]
     fn milliseconds_keep_one_decimal_by_default() {
         let s = state(1, false, None);
-        assert_eq!(expand_hud("{ms}", &s, 120.0), "8.3");
-        assert_eq!(expand_hud("{ms:.0}", &s, 120.0), "8");
+        assert_eq!(expand_hud("{ms}", &s, 120.0, &Default::default()), "8.3");
+        assert_eq!(expand_hud("{ms:.0}", &s, 120.0, &Default::default()), "8");
     }
 
     /// `?` rather than a made-up number: the run length is genuinely unknown
     /// unless something has been told to stop at it.
     #[test]
     fn unknown_run_length_reads_as_a_question_mark() {
-        assert_eq!(expand_hud("{nit}", &state(1, false, None), 60.0), "?");
+        assert_eq!(expand_hud("{nit}", &state(1, false, None), 60.0, &Default::default()), "?");
     }
 
     /// The counter is not advancing while paused, so reporting the frame rate
@@ -651,16 +686,16 @@ mod hud_tests {
     #[test]
     fn iteration_rate_is_zero_while_paused_but_frame_rate_is_not() {
         let s = state(7, true, None);
-        assert_eq!(expand_hud("{its}|{fps}|{paused}", &s, 120.0), "0|120|PAUSED");
+        assert_eq!(expand_hud("{its}|{fps}|{paused}", &s, 120.0, &Default::default()), "0|120|PAUSED");
     }
 
     /// A typo must render, not panic or swallow the text around it.
     #[test]
     fn unknown_and_unbalanced_braces_pass_through() {
         let s = state(1, false, None);
-        assert_eq!(expand_hud("{nope} x {it}", &s, 60.0), "{nope} x 1");
-        assert_eq!(expand_hud("a {unclosed", &s, 60.0), "a {unclosed");
-        assert_eq!(expand_hud("no braces", &s, 60.0), "no braces");
+        assert_eq!(expand_hud("{nope} x {it}", &s, 60.0, &Default::default()), "{nope} x 1");
+        assert_eq!(expand_hud("a {unclosed", &s, 60.0, &Default::default()), "a {unclosed");
+        assert_eq!(expand_hud("no braces", &s, 60.0, &Default::default()), "no braces");
     }
 
 }
