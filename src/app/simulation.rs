@@ -50,6 +50,30 @@ pub struct Simulation {
     /// The live HUDs, shared with `Config::huds` -- the same objects, so
     /// editing one here is editing the one that gets drawn.
     pub huds: Vec<std::rc::Rc<std::cell::RefCell<crate::app::config::Hud>>>,
+
+    /// What the last rendered frame could actually see. Written by the
+    /// renderer after the frustums are fitted, read by the HUD placeholders.
+    pub diagnostics: Diagnostics,
+}
+
+/// Which bodies the camera frustum contains, and why the others are missing.
+///
+/// The automatic frustum fits to the bodies, so a body outside it is usually a
+/// sign something else is wrong -- a stale transform, a body parked far away
+/// to hide it, a pinned plane left over from an older script. Worth being able
+/// to see rather than infer from an empty frame.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Diagnostics {
+    pub n_bodies: usize,
+    pub n_visible: usize,
+    /// Bodies wholly outside one plane. A body can only be counted once, so
+    /// these sum with `n_visible` to `n_bodies`.
+    pub out_near: usize,
+    pub out_far: usize,
+    pub out_side: usize,
+    /// The debug light cube is enabled but sits beyond the camera's far
+    /// plane, so it is being drawn and clipped away.
+    pub light_cube_clipped: bool,
 }
 
 impl Simulation {
@@ -76,6 +100,7 @@ impl Simulation {
             hemicube_request: None,
             hemicube_result: None,
             huds: Vec::new(),
+            diagnostics: Diagnostics::default(),
         }
     }
 
