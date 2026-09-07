@@ -785,6 +785,18 @@ impl Default for Config {
 /// the viewport is a panel they are plainly two.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AppConfig {
+    /// Draw in the editor layout: viewport panel, script, config, log.
+    ///
+    /// A *mode*, not a different loop. `start()` and `step()` behave exactly
+    /// as they always did -- the frame simply also draws the UI, and the
+    /// scene lands in the viewport panel instead of filling the window. So a
+    /// script that drives its own `while app.step():` gets the editor around
+    /// it without changing a line, which is the whole reason `step()` was
+    /// made non-blocking.
+    ///
+    /// `start_editor()` is this plus `start()`.
+    pub editor: bool,
+
     /// Window size in physical pixels.
     ///
     /// The *window*, not the render. `simulation.config.width` is the image
@@ -796,6 +808,7 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
+            editor: false,
             width: 800,
             height: 600,
         }

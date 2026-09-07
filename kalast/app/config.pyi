@@ -42,6 +42,13 @@ class AppConfig:
     questions -- this one about the program you are looking at, that one about
     the thing being simulated.
     """
+    editor: bool
+    """Draw in the editor layout: viewport panel, script, config, log.
+
+    A mode, not a different loop. Turn it on and `start()` or
+    `while app.step():` draws the UI around the scene, unchanged
+    otherwise -- which is what `step()` being non-blocking was for.
+    """
     width: int
     """Window width in physical pixels.
 

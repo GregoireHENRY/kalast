@@ -379,6 +379,7 @@ impl App {
     /// into the centre of a layout, rather than blitted to the swapchain.
     pub fn start_editor(&mut self) {
         self.want_editor = true;
+        self.config.borrow_mut().editor = true;
         // Stopped until told otherwise, the way Blender and Unity open. The
         // loop still runs -- the window draws, the camera moves, the panels
         // respond -- but `state.iteration` stays put and the callbacks do
@@ -861,7 +862,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
             &self.simulation.borrow(),
         )));
 
-        if self.want_editor {
+        if self.want_editor || self.config.borrow().editor {
             let w = self.window.as_ref().unwrap();
             let mut editor = crate::app::gui::Editor::new(&win, &w.device, w.surface_config.format);
             if let Some((path, source)) = self.shared.borrow_mut().pending_script.take() {

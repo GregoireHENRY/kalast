@@ -1,13 +1,15 @@
 """Open the kalast editor.
 
-    python -m kalast                       empty scene
+    python -m kalast                       empty scene, editor drives the loop
     python -m kalast path/to/mesh.obj      with meshes loaded
-    python -m kalast examples/.../step.py  with a script in the editor
-    python -m kalast examples/.../main.py --run   ... and running
+    python -m kalast examples/.../main.py  run that script, with the editor
+                                           drawn around it
 
-The editor is a second entry point, not a change to how scripts run: a script
-that calls `app.start()` or drives `app.step()` still opens the plain render
-window from a terminal, exactly as before.
+The editor is a **mode**, not a second way to run. A script keeps its own
+shape: one that calls `app.start()` still owns the loop, one that drives
+`while app.step():` still drives it, and either way the frame also draws the
+panels. Running the same file from a terminal gives the plain window, exactly
+as before.
 """
 
 import sys
@@ -21,33 +23,37 @@ from kalast.app import App
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
-    run_now = "--run" in argv
-    argv = [a for a in argv if a != "--run"]
 
     app = App()
-    app.simulation.config.title = "kalast"
-    # Physical pixels, so this is 1280x800 points on a 2x display. The editor
-    # needs the room: three panels plus a viewport at 800 points wide leaves
-    # the viewport a sliver.
+    app.config.editor = True
+    # Physical pixels, so 1280x800 points on a 2x display. Three panels and a
+    # viewport need the room.
     app.config.width = 2560
     app.config.height = 1600
+    app.simulation.config.title = "kalast"
 
     editor.capture_output(app)
     app.script_runner = editor.make_runner()
 
+    script: Path | None = None
     for arg in argv:
         path = Path(arg)
         if path.suffix == ".py":
-            # Loaded into the buffer, not run: opening a file should show it,
-            # and Run is one click away.
-            app.set_script(str(path), path.read_text())
+            script = path
         else:
             app.simulation.load_mesh(path=str(path), mat=numpy.eye(4), flatten=True)
 
-    if run_now:
-        app.run_script()
+    if script is not None:
+        # Shown in the panel, and executed as the program. Its own `start()`
+        # or `step()` loop runs for real -- the editor draws around it.
+        app.set_script(str(script), script.read_text())
+        editor.run_toplevel(app, script.read_text(), str(script))
 
-    app.start_editor()
+    # Whatever the script did not do. A script that owned the loop has already
+    # finished by now and left `running` false; one that only set the scene up
+    # -- or no script at all -- leaves the loop to us.
+    if app.running:
+        app.start_editor()
     return 0
 
 

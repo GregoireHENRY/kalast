@@ -221,6 +221,21 @@ pub struct AppConfig {
 
 #[pymethods]
 impl AppConfig {
+    /// Draw in the editor layout: viewport panel, script, config, log.
+    ///
+    /// A mode, not a different loop. Turn it on and `start()` or
+    /// `while app.step():` draws the UI around the scene, unchanged
+    /// otherwise -- which is what `step()` being non-blocking was for.
+    #[getter]
+    fn editor(&self) -> bool {
+        self.config.borrow().editor
+    }
+
+    #[setter]
+    fn set_editor(&self, v: bool) {
+        self.config.borrow_mut().editor = v;
+    }
+
     /// Window width in physical pixels.
     ///
     /// The *window*. `simulation.config.width` is the image inside it, and
@@ -248,7 +263,10 @@ impl AppConfig {
 
     fn __repr__(&self) -> String {
         let c = self.config.borrow();
-        format!("AppConfig(width={}, height={})", c.width, c.height)
+        format!(
+            "AppConfig(editor={}, width={}, height={})",
+            c.editor, c.width, c.height
+        )
     }
 }
 

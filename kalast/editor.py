@@ -104,6 +104,35 @@ def capture_output(app: Any) -> None:
         sys.stderr = _Tee(app, sys.stderr)
 
 
+def run_toplevel(app: Any, source: str, path: str) -> None:
+    """Execute a script as the program, with the editor drawn around it.
+
+    Unlike `make_runner`, nothing is neutralised: the script's own
+    `app.start()` or `while app.step():` runs for real and owns the loop. The
+    editor is a *mode* the frame draws in, so a driven script gets the panels
+    without changing a line -- which is the point of `step()` not blocking.
+
+    `App()` still hands back the live app, so the script does not build a
+    second one and lose the editor settings already applied to this one.
+    """
+    module = types.ModuleType("__kalast_script__")
+    module.__file__ = path or "<script>"
+    module.__name__ = "__main__"
+    module.__dict__["kalast"] = kalast
+
+    def _live_app(*_args: Any, **_kwargs: Any) -> Any:
+        return app
+
+    real_app_cls = kalast.app.App
+    kalast.app.App = _live_app
+    try:
+        exec(compile(source, module.__file__, "exec"), module.__dict__)  # noqa: S102
+    except BaseException:
+        traceback.print_exc()
+    finally:
+        kalast.app.App = real_app_cls
+
+
 def make_runner() -> Callable[[Any, str, str], None]:
     """Build the callable for `app.script_runner`.
 
