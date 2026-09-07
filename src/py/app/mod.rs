@@ -129,6 +129,15 @@ impl App {
             Some((path.to_string(), source.to_string()));
     }
 
+    /// Run the script in the editor's buffer, as the Play button does.
+    ///
+    /// Takes effect on the next frame, and starts the simulation. Works
+    /// before `start_editor()` as well, which is how `python -m kalast
+    /// script.py --run` opens straight into a running scene.
+    fn run_script(&self) {
+        self.shared.borrow_mut().run_requested = true;
+    }
+
     /// Append a line to the editor's log panel, or to stdout without one.
     fn log(&self, line: &str) {
         self.shared.borrow_mut().log.push(line);

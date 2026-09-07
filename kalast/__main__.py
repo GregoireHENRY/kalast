@@ -3,6 +3,7 @@
     python -m kalast                       empty scene
     python -m kalast path/to/mesh.obj      with meshes loaded
     python -m kalast examples/.../step.py  with a script in the editor
+    python -m kalast examples/.../main.py --run   ... and running
 
 The editor is a second entry point, not a change to how scripts run: a script
 that calls `app.start()` or drives `app.step()` still opens the plain render
@@ -20,6 +21,8 @@ from kalast.app import App
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    run_now = "--run" in argv
+    argv = [a for a in argv if a != "--run"]
 
     app = App()
     app.simulation.config.title = "kalast"
@@ -40,6 +43,9 @@ def main(argv: list[str] | None = None) -> int:
             app.set_script(str(path), path.read_text())
         else:
             app.simulation.load_mesh(path=str(path), mat=numpy.eye(4), flatten=True)
+
+    if run_now:
+        app.run_script()
 
     app.start_editor()
     return 0

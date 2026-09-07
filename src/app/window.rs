@@ -1215,11 +1215,74 @@ impl Window {
         );
     }
 
+    /// Give every body a GPU buffer, and drop buffers for bodies that are
+    /// gone.
+    ///
+    /// Meshes used to be loaded only before the window existed, so the
+    /// buffers were built once in `new` and never revisited. The editor loads
+    /// them into a *running* app -- pressing Play executes a script that
+    /// calls `load_mesh` -- and without this the frame indexes
+    /// `meshes[1 + ii]` for a body that has none: "index out of bounds: the
+    /// len is 1 but the index is 1".
+    ///
+    /// Element 0 of `meshes` is the light cube, hence the offset.
+    pub fn sync_meshes(&mut self, simulation: &crate::app::simulation::Simulation) {
+        let want = 1 + simulation.bodies.len();
+        if self.meshes.len() > want {
+            self.meshes.truncate(want);
+            self.shadow_meshes.truncate(want);
+        }
+
+        while self.meshes.len() < want {
+            let body = &simulation.bodies[self.meshes.len() - 1];
+            let instance = super::gpu::InstanceInput::new(body.mat);
+            let buffer = match body.mesh.as_ref() {
+                Some(mesh) => {
+                    let mesh = mesh.borrow();
+                    super::gpu::MeshBuffer::new(
+                        &self.device,
+                        &mesh.vertices,
+                        &mesh.indices,
+                        &instance,
+                        mesh.is_flat(),
+                        &mesh.values,
+                    )
+                }
+                // A body with no mesh still needs a slot, or every body after
+                // it would be indexed one place out.
+                None => super::gpu::MeshBuffer::new(
+                    &self.device,
+                    &[],
+                    &[],
+                    &instance,
+                    false,
+                    &[],
+                ),
+            };
+            self.meshes.push(buffer);
+            self.shadow_meshes
+                .push(body.shadow_mesh.as_ref().map(|shadow| {
+                    let shadow = shadow.borrow();
+                    super::gpu::MeshBuffer::new(
+                        &self.device,
+                        &shadow.vertices,
+                        &shadow.indices,
+                        &instance,
+                        shadow.is_flat(),
+                        &[],
+                    )
+                }));
+        }
+    }
+
     pub fn update(
         &mut self,
         simulation: &mut crate::app::simulation::Simulation,
         config: &crate::app::config::Config,
     ) {
+        // Before anything indexes `meshes` against `bodies`.
+        self.sync_meshes(simulation);
+
         let (width, height) = self.render_size;
 
         // Resolve body-tracking anchors before anything reads them, so an

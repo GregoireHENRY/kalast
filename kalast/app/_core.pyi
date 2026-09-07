@@ -65,6 +65,14 @@ class App:
         Settable before `start_editor()`, which is when a launcher does it.
         """
         ...
+    def run_script(self) -> None:
+        """Run the script in the editor's buffer, as the Play button does.
+
+        Takes effect on the next frame, and starts the simulation. Works
+        before `start_editor()` as well, which is how `python -m kalast
+        script.py --run` opens straight into a running scene.
+        """
+        ...
     def log(self, line: str) -> None:
         """Append a line to the editor's log panel, or to stdout without one."""
         ...

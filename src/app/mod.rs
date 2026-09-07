@@ -55,6 +55,10 @@ pub struct Shared {
     /// Lines for the editor's log panel. Here rather than on the editor so
     /// `app.log()` works before the window exists as well as during the run.
     pub log: crate::app::gui::Log,
+    /// A run asked for from outside the UI -- `app.run_script()`, and so
+    /// `python -m kalast script.py --run`. Here rather than on the editor
+    /// because it can be raised before the window exists.
+    pub run_requested: bool,
 }
 
 impl Shared {
@@ -67,6 +71,7 @@ impl Shared {
             exit_requested: false,
             pending_script: None,
             log: crate::app::gui::Log::new(2000),
+            run_requested: false,
         }
     }
 }
@@ -592,9 +597,10 @@ impl App {
     /// `Simulation` is borrowed for the panels -- is how a `RefCell` panic
     /// happens.
     fn serve_editor_requests(&mut self) {
+        let asked = std::mem::take(&mut self.shared.borrow_mut().run_requested);
         let Some(editor) = self.editor.as_mut() else { return };
         let (run, open, save) = (
-            std::mem::take(&mut editor.run_request),
+            asked | std::mem::take(&mut editor.run_request),
             std::mem::take(&mut editor.open_request),
             std::mem::take(&mut editor.save_request),
         );
@@ -602,62 +608,94 @@ impl App {
             return;
         }
         let path = editor.script_path.clone();
-        let shared = self.shared.clone();
-        let mut shared_ref = shared.borrow_mut();
-        let shared_log = &mut shared_ref.log;
+        let source = editor.script.clone();
+
+        // Nothing is borrowed across the work below. Messages are collected
+        // and flushed at the end, because `log` borrows `shared` and so does
+        // reading the script runner -- holding one across the other panicked
+        // with `RefCell already mutably borrowed`.
+        let mut messages: Vec<String> = Vec::new();
+        let mut opened: Option<String> = None;
+        let mut saved = false;
 
         if open {
             match std::fs::read_to_string(&path) {
                 Ok(text) => {
-                    editor.script = text;
-                    editor.script_dirty = false;
-                    editor.script_ran = false;
-                    shared_log.push(format!("opened {path}"));
+                    messages.push(format!("opened {path}"));
+                    opened = Some(text);
                 }
-                Err(e) => shared_log.push(format!("cannot open {path}: {e}")),
+                Err(e) => messages.push(format!("cannot open {path}: {e}")),
             }
         }
 
         if save {
-            match std::fs::write(&path, &editor.script) {
+            match std::fs::write(&path, &source) {
                 Ok(()) => {
-                    editor.script_dirty = false;
-                    shared_log.push(format!("saved {path}"));
+                    messages.push(format!("saved {path}"));
+                    saved = true;
                 }
-                Err(e) => shared_log.push(format!("cannot save {path}: {e}")),
+                Err(e) => messages.push(format!("cannot save {path}: {e}")),
+            }
+        }
+
+        if opened.is_some() || saved {
+            if let Some(editor) = self.editor.as_mut() {
+                if let Some(text) = opened {
+                    editor.script = text;
+                    // A file just read is not what is running.
+                    editor.script_ran = false;
+                }
+                editor.script_dirty = false;
             }
         }
 
         if run {
-            let source = editor.script.clone();
-            if self.shared.borrow().script_runner.is_none() {
-                self.log("no script runner installed");
-                return;
-            }
-            let result = Python::attach(|py| {
-                let shared = self.shared.borrow();
-                let runner = shared.script_runner.as_ref().unwrap();
-                runner
-                    .callback
-                    .call1(py, (runner.app.clone(), source, path.clone()))
-                    .map_err(|e| e.to_string())
+            // Cloned out under a borrow that ends here, so the call itself --
+            // arbitrary Python, which will reach back into this app -- runs
+            // with nothing of ours held.
+            let runner = Python::attach(|py| {
+                self.shared
+                    .borrow()
+                    .script_runner
+                    .as_ref()
+                    .map(|r| (r.callback.clone_ref(py), r.app.clone()))
             });
-            match result {
-                Ok(_) => {
-                    self.log(&format!("ran {path}"));
-                    // Play runs and starts in one press; there is no second
-                    // button to go and find.
-                    self.simulation.borrow_mut().state.is_paused = false;
-                    if let Some(editor) = self.editor.as_mut() {
-                        editor.script_ran = true;
+
+            match runner {
+                None => messages.push("no script runner installed".to_string()),
+                Some((callback, app)) => {
+                    // A script *builds* the scene, so it starts from an empty
+                    // one. Without this, pressing Play twice loads the meshes
+                    // twice and the bodies stack up.
+                    {
+                        let mut sim = self.simulation.borrow_mut();
+                        sim.bodies.clear();
+                        sim.huds.clear();
+                        sim.state.iteration = 0;
                     }
-                }
-                Err(e) => {
-                    for line in e.lines() {
-                        self.log(line);
+                    let result = Python::attach(|py| {
+                        callback
+                            .call1(py, (app, source, path.clone()))
+                            .map_err(|e| e.to_string())
+                    });
+                    match result {
+                        Ok(_) => {
+                            messages.push(format!("ran {path}"));
+                            // Play runs and starts in one press; there is no
+                            // second button to go and find.
+                            self.simulation.borrow_mut().state.is_paused = false;
+                            if let Some(editor) = self.editor.as_mut() {
+                                editor.script_ran = true;
+                            }
+                        }
+                        Err(e) => messages.extend(e.lines().map(str::to_string)),
                     }
                 }
             }
+        }
+
+        for m in messages {
+            self.log(&m);
         }
     }
 
