@@ -556,6 +556,7 @@ impl App {
                 Ok(text) => {
                     editor.script = text;
                     editor.script_dirty = false;
+                    editor.script_ran = false;
                     editor.log.push(format!("opened {path}"));
                 }
                 Err(e) => editor.log.push(format!("cannot open {path}: {e}")),
@@ -588,10 +589,12 @@ impl App {
             match result {
                 Ok(_) => {
                     self.log(&format!("ran {path}"));
-                    // Run builds the scene *and* starts it. Leaving it paused
-                    // meant two buttons that both look like "go", and having
-                    // to find the second one after pressing the first.
+                    // Play runs and starts in one press; there is no second
+                    // button to go and find.
                     self.simulation.borrow_mut().state.is_paused = false;
+                    if let Some(editor) = self.editor.as_mut() {
+                        editor.script_ran = true;
+                    }
                 }
                 Err(e) => {
                     for line in e.lines() {

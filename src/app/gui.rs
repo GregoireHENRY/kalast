@@ -74,6 +74,11 @@ pub struct Editor {
     pub script_path: String,
     /// Set when the buffer differs from what was last read or written.
     pub script_dirty: bool,
+    /// Whether the buffer on screen is what is actually running.
+    ///
+    /// Cleared by an edit or an open, so Play re-runs after a change rather
+    /// than resuming a scene built from text that is no longer on screen.
+    pub script_ran: bool,
     /// Raised by the buttons, drained by the app, which owns the Python
     /// side. The UI cannot run anything itself -- it has no interpreter and
     /// no business holding the GIL mid-layout.
@@ -122,6 +127,7 @@ impl Editor {
             script: String::new(),
             script_path: String::new(),
             script_dirty: false,
+            script_ran: false,
             run_request: false,
             open_request: false,
             save_request: false,
@@ -166,7 +172,9 @@ impl Editor {
         let script = &mut self.script;
         let script_path = &mut self.script_path;
         let script_dirty = self.script_dirty;
+        let script_ran = self.script_ran;
         let dirty = &mut self.script_dirty;
+        let ran = &mut self.script_ran;
         let (mut run_request, mut open_request, mut save_request) = (false, false, false);
 
         let output = self.ctx.run_ui(raw, |ui_root| {
@@ -174,16 +182,48 @@ impl Editor {
 
             egui::Panel::top("toolbar").show(ui_root, |ui| {
                 ui.horizontal(|ui| {
-                    let label = if state.is_paused { "\u{25b6} Play" } else { "\u{23f8} Pause" };
-                    if ui.button(label)
-                        .on_hover_text("Advance the simulation, or hold it")
+                    // Play is the only way to start. A separate Run was the
+                    // same button twice: both meant "go", and you had to press
+                    // one then find the other.
+                    //
+                    // What it does depends on where the script stands. With
+                    // nothing loaded there is nothing to play, so it is dead
+                    // rather than advancing a clock nobody reads. With a
+                    // script not yet run -- or edited since it last ran -- it
+                    // runs it, which starts the simulation as a side effect.
+                    // After that it is transport.
+                    let have_script = !script.trim().is_empty();
+                    let (label, hover): (&str, &str) = if !have_script {
+                        ("\u{25b6} Play", "Open or write a script first")
+                    } else if !script_ran {
+                        ("\u{25b6} Play", "Run this script and start the simulation")
+                    } else if state.is_paused {
+                        ("\u{25b6} Play", "Resume")
+                    } else {
+                        ("\u{23f8} Pause", "Hold the simulation")
+                    };
+                    if ui
+                        .add_enabled(have_script, egui::Button::new(label))
+                        .on_hover_text(hover)
                         .clicked()
                     {
-                        state.is_paused = !state.is_paused;
+                        if script_ran {
+                            state.is_paused = !state.is_paused;
+                        } else {
+                            // Running unpauses; see `serve_editor_requests`.
+                            run_request = true;
+                        }
                     }
                     // One frame while paused: the same thing the render loop
                     // does, so the button cannot drift from the key.
-                    if ui.add_enabled(state.is_paused, egui::Button::new("\u{23ed} Step")).clicked() {
+                    if ui
+                        .add_enabled(
+                            script_ran && state.is_paused,
+                            egui::Button::new("\u{23ed} Step"),
+                        )
+                        .on_hover_text("Advance one iteration")
+                        .clicked()
+                    {
                         state.is_paused = false;
                         state.pause_at = Some(state.iteration + 1);
                     }
@@ -228,11 +268,6 @@ impl Editor {
                         if ui.add_enabled(script_dirty, egui::Button::new("save").small()).clicked() {
                             save_request = true;
                         }
-                        if ui.button("Run").on_hover_text(
-                            "Execute this script against the live scene, and start playing",
-                        ).clicked() {
-                            run_request = true;
-                        }
                     });
                     ui.add(
                         egui::TextEdit::singleline(script_path)
@@ -265,6 +300,8 @@ impl Editor {
                         );
                         if edit.changed() {
                             *dirty = true;
+                            // What is running is no longer what is shown.
+                            *ran = false;
                         }
                     });
                 });
