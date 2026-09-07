@@ -57,8 +57,66 @@ impl App {
     ///
     /// **Blocks until the window closes**, so set everything up before calling it
     /// and do per-frame work in `before_render`/`after_render`.
+    ///
+    /// Use `step()` instead to keep the loop in your own script.
     fn start(&mut self) {
         self.inner.borrow_mut().start();
+    }
+
+    /// Draw one frame. Returns `False` once the window has closed.
+    ///
+    /// The alternative to `start()`: the loop stays in the script, so there
+    /// is no callback boundary to hand state across.
+    ///
+    /// ```python
+    /// app = App()
+    /// app.simulation.load_mesh(path=..., mat=numpy.eye(4), flatten=True)
+    ///
+    /// while app.step():
+    ///     sim = app.simulation
+    ///     sim.bodies[0].mat = pose(et0 + sim.state.iteration * dt)
+    ///     sim.request_facet_shadow(0)
+    /// ```
+    ///
+    /// **Where the code goes, against the callbacks.** Work written *before*
+    /// `step()` is what `before_render` did -- it lands in the frame about to
+    /// be drawn. Work written *after* it is what `after_render` did: the
+    /// frame has rendered, so `facet_shadow()`, `facet_id_map()` and
+    /// `hemicube()` answer for the scene just drawn. Requesting and reading
+    /// a GPU result therefore sit on either side of one `step()`, which is
+    /// the ordering the two callbacks existed to enforce.
+    ///
+    /// Callbacks still run if set, inside the frame, so mixing the two works
+    /// and every existing script is unaffected.
+    ///
+    /// **`step()` does not skip a paused frame.** It draws and returns `True`
+    /// as usual, since the window must stay responsive to the key that
+    /// unpauses it; what it does not do is advance `state.iteration` or run
+    /// the callbacks. A driven loop that should also idle when paused has to
+    /// check `sim.state.is_paused` itself.
+    ///
+    /// One call is one frame. The first is slower than the rest -- it creates
+    /// the window and configures the surface.
+    ///
+    /// Not usable after `start()`: a platform event loop cannot be created
+    /// twice in one process, and `start()` consumes it. Pick one.
+    fn step(&mut self) -> bool {
+        self.inner.borrow_mut().step()
+    }
+
+    /// Ask the window to close, ending a `while app.step():` loop.
+    ///
+    /// Takes effect on the next `step()`, not immediately: closing runs the
+    /// same shutdown the window button does, which includes flushing every
+    /// queued frame export to disk.
+    fn close(&mut self) {
+        self.inner.borrow_mut().close();
+    }
+
+    /// Whether the window is still open.
+    #[getter]
+    fn running(&self) -> bool {
+        self.inner.borrow().is_running()
     }
 
     /// Runs before each frame is drawn. Set body transforms, camera and

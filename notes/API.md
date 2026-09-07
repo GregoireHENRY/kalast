@@ -46,6 +46,13 @@ app.start()                   # blocks until the window closes
 | `app.after_render` | callback run after it is drawn |
 | `app.tick` | alias for `before_render` |
 | `app.start()` | creates the window and runs the loop; **blocks** |
+| `app.step()` | draws one frame; `False` once the window has closed |
+| `app.close()` | asks the window to close; acts on the next `step()` |
+| `app.running` | whether the window is still open |
+
+There are two ways to run: `start()`, which owns the loop and calls back into
+the script, and `step()`, which hands the loop to the script. See **Driving
+the loop yourself** below.
 
 Both callbacks take **`(app, dt)`** and are optional. `dt` is the **wall-clock
 time since the last frame**, in seconds — it is `(now - last).as_secs_f64()`
@@ -89,6 +96,74 @@ loop.
 fetched through it, so it does not hit the borrow `start()` holds for the
 whole run loop. Options marked *startup only* in `CONFIG.md` still will not
 take effect, being baked into GPU resources when the window is made.
+
+## Driving the loop yourself
+
+`app.step()` draws one frame and returns `False` once the window has closed,
+so the loop can stay in the script:
+
+```python
+app = App()
+app.simulation.load_mesh(path=..., mat=numpy.eye(4), flatten=True)
+
+while app.step():
+    sim = app.simulation
+    sim.bodies[0].mat = pose(et0 + sim.state.iteration * dt)   # next frame
+    lit = sim.facet_shadow(0)                                  # frame just drawn
+    if sim.state.iteration >= 2000:
+        app.close()
+```
+
+`examples/driven_loop/main.py` is a complete one, on `res/` data only.
+
+**Where the code goes.** Work written *before* `step()` is what
+`before_render` did — it lands in the frame about to be drawn. Work written
+*after* it is what `after_render` did: that frame has rendered, so
+`facet_shadow()`, `facet_id_map()` and `hemicube()` answer for the scene just
+drawn. Request and read therefore sit on either side of one `step()`, which is
+the whole of what the two callbacks existed to enforce. In a `while` loop the
+two are the same place — the bottom of one pass is the top of the next — so
+one body covers both.
+
+**Both modes work together.** Callbacks still run inside the frame if set, so
+nothing existing changes. Pick one per script; there is no reason to mix.
+
+### What it does not do
+
+- **A paused frame still draws.** `step()` returns `True` as usual — the
+  window has to stay responsive to the key that unpauses it — but
+  `state.iteration` does not advance and the callbacks do not run. A driven
+  loop that should also idle when paused must check `sim.state.is_paused`
+  itself.
+- **Not usable after `start()`.** A platform event loop cannot be created
+  twice in one process and `start()` consumes it. `step()` afterwards reports
+  the app as stopped rather than panicking.
+- **Not on the web or iOS.** It is `winit`'s `pump_app_events`, unsupported
+  there. macOS, Windows, X11 and Wayland are fine.
+
+### What it costs
+
+Measured at 400 frames a run, release build, `vsync = False`, 8 runs of each
+interleaved, on the 2048-facet crater; medians of per-frame times:
+
+| | median frame | |
+|---|---|---|
+| `start()` | 1.51 ms | ~660 it/s |
+| `step()` | 2.06 ms | ~485 it/s |
+
+About half a millisecond a frame. That is the cost winit documents for
+`pump_app_events` on macOS, where pumping means stopping and restarting the
+`NSApplication` each time round rather than polling. Run-to-run spread was
+wide (0.86–3.87 ms for `start()`), so treat this as "the same order, `step()`
+a little slower", not as a precise ratio.
+
+Irrelevant for interactive work; worth knowing for a long export run, where
+`start()` remains the cheaper way to spend a few hours.
+
+Rendering still happens inside winit's handler either way — the caller's code
+runs *between* frames, never inside one. That is what `pump_app_events`
+requires: macOS drives drawing from `drawRect` and expects it finished before
+the callback returns.
 
 ## `sim.state`
 

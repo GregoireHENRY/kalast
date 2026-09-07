@@ -969,10 +969,66 @@ The fix is mechanical -- extract f64, then f32, then a sequence, as
 `mesh.values` does -- but it is 32 sites and none of them were today's subject.
 Open.
 
+### `app.step()` — the loop can live in the script now
+
+`start()` owns the loop and calls back into Python, which is why
+`before_render`/`after_render` exist at all: they are the only places a script
+can reach a frame. `app.step()` inverts that. It draws exactly one frame and
+returns `False` once the window has closed, so:
+
+```python
+while app.step():
+    sim.bodies[0].mat = pose(...)      # what before_render did
+    lit = sim.facet_shadow(0)          # what after_render did
+```
+
+Built on winit's `pump_app_events`. Rendering stays inside winit's handler --
+macOS drives drawing from `drawRect` and expects it finished before the
+callback returns -- and only the caller's own work happens outside, which is
+the arrangement that API is designed for. One `step()` is one *frame*, not one
+pump: the redraw a pump requests is delivered by the next one, so it pumps
+until the redraw handler has actually run.
+
+This also answers the question the callbacks raised. The `before`/`after`
+split existed to enforce one ordering rule -- a GPU result only exists after
+the frame is drawn, so request before, read after. In a `while` loop the
+bottom of one pass *is* the top of the next, so a single body covers both and
+the split stops being necessary. The callbacks still run if set; nothing
+existing changes.
+
+**Cost**, 400 frames a run, release, `vsync = False`, 8 interleaved runs of
+each, medians of per-frame time on the 2048-facet crater: `start()` 1.51 ms
+(~660 it/s), `step()` 2.06 ms (~485 it/s). Half a millisecond a frame, which
+is what winit documents for macOS, where a pump stops and restarts the
+`NSApplication` rather than polling. Run-to-run spread was wide
+(0.86--3.87 ms for `start()`), so this is "the same order, `step()` a little
+slower", not a precise ratio. Irrelevant interactively; `start()` stays the
+cheaper way to spend a few hours on an export.
+
+`app.close()` and `app.running` come with it. `close()` cannot exit the loop
+itself -- that needs the `ActiveEventLoop`, which only exists inside a handler
+-- so it raises a flag that `about_to_wait` acts on, which also means closing
+runs the same shutdown the window button does, including flushing queued frame
+exports.
+
+Not usable after `start()`: a platform event loop cannot be created twice in
+one process. `step()` afterwards reports the app stopped rather than
+panicking. Not available on web or iOS.
+
+`examples/driven_loop/main.py` is the worked example, on `res/` data only.
+
+Found while writing it: **a non-unit `camera.dir` aborts the process.** The
+check panics inside winit's launch callback, which is declared non-unwinding,
+so a rounded vector in a script gives `panic in a function that cannot unwind`
+and a hard abort rather than a Python exception. Worth normalising in the
+setter instead. Open.
+
 ### Also discussed, not done
 
 An **interactive GUI** for editing, running, pausing and inspecting a
 simulation live, in the shape of Blender or Unity rather than a script that
-runs to completion. The enabling piece is a `app.step()` that advances one
-frame under the caller's control instead of `start()` owning the loop.
-Nothing decided.
+runs to completion. `step()` is the first half of what that needs. The second
+is making the *startup-only* config options editable while running -- 18 of
+them, from `title` and `width` through `vsync`, `msaa` and `shadow_resolution`
+-- which means rebuilding window, surface, pipelines or font atlas rather than
+baking them when the window is made.

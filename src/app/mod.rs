@@ -48,6 +48,23 @@ pub struct App {
     fps_shown: Float,
     fps_window_secs: Float,
     fps_window_frames: u32,
+
+    /// Held only while the caller drives the loop with `step()`. `start()`
+    /// takes it and hands it to `run_app`, which never gives it back --
+    /// a platform event loop cannot be created twice in one process, so
+    /// the two modes cannot both own one.
+    event_loop: Option<winit::event_loop::EventLoop<crate::app::window::Window>>,
+    /// Set when a frame reaches the end of the redraw handler. `step()`
+    /// pumps until it flips, which is what makes one call mean one frame
+    /// rather than one batch of events.
+    frame_drawn: bool,
+    /// False once the window has closed. `step()` returns it, so
+    /// `while app.step():` ends on its own.
+    running: bool,
+    /// `close()` cannot call `exit()` itself -- that needs the
+    /// `ActiveEventLoop`, which only exists inside a handler -- so it
+    /// raises this and the next pump acts on it.
+    exit_requested: bool,
 }
 
 /// How long `{fps}` and `{its}` average over before updating, in seconds.
@@ -191,18 +208,112 @@ impl App {
             fps_shown: 0.0,
             fps_window_secs: 0.0,
             fps_window_frames: 0,
+
+            event_loop: None,
+            frame_drawn: false,
+            running: true,
+            exit_requested: false,
         }
     }
 
-    pub fn start(&mut self) {
+    /// Build the platform event loop, once.
+    ///
+    /// Both `start()` and `step()` need one and neither may create a second:
+    /// on every platform here `EventLoop::build` fails if one already exists
+    /// in the process.
+    fn ensure_event_loop(&mut self) {
+        if self.event_loop.is_some() {
+            return;
+        }
         self.apply_config_at_start();
+        // `init` panics on a second call, and `step()` reaches here from a
+        // process that may already have run one app.
+        let _ = env_logger::try_init();
+        self.event_loop = Some(
+            winit::event_loop::EventLoop::with_user_event()
+                .build()
+                .unwrap(),
+        );
+    }
 
-        env_logger::init();
-        let ev = winit::event_loop::EventLoop::with_user_event()
-            .build()
-            .unwrap();
-
+    /// Run the loop to completion. **Blocks until the window closes.**
+    pub fn start(&mut self) {
+        self.ensure_event_loop();
+        // `run_app` consumes the loop, so this app cannot be started or
+        // stepped again afterwards -- which is the truth on the platform
+        // as well, not a restriction added here.
+        let ev = self.event_loop.take().unwrap();
         ev.run_app(self).unwrap();
+        self.running = false;
+    }
+
+    /// Draw exactly one frame and return whether the app is still running.
+    ///
+    /// The caller owns the loop:
+    ///
+    /// ```no_run
+    /// # let mut app = kalast::app::App::new();
+    /// while app.step() {
+    ///     // between frames: place bodies, read last frame's GPU results
+    /// }
+    /// ```
+    ///
+    /// Rendering still happens inside winit's handler, which is what
+    /// `pump_app_events` requires -- macOS drives drawing from `drawRect`
+    /// and expects it finished before the callback returns. Only the
+    /// caller's own work happens outside.
+    ///
+    /// One call is one *frame*, not one pump: events are pumped until the
+    /// redraw handler has run, because the redraw a pump requests is only
+    /// delivered by the next one. At startup that also covers creating the
+    /// window and configuring the surface, so the first `step()` costs more
+    /// than the rest.
+    pub fn step(&mut self) -> bool {
+        use winit::platform::pump_events::EventLoopExtPumpEvents;
+
+        if !self.running {
+            return false;
+        }
+        self.ensure_event_loop();
+        let mut ev = match self.event_loop.take() {
+            Some(ev) => ev,
+            // `start()` consumed it. Stepping afterwards is a caller error,
+            // but reporting "not running" beats panicking inside a loop.
+            None => {
+                self.running = false;
+                return false;
+            }
+        };
+
+        self.frame_drawn = false;
+        // A frame that never arrives would hang the caller's loop with no
+        // way out, so give up rather than spin forever -- a window that
+        // cannot configure its surface is a real failure, not a slow frame.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while self.running && !self.frame_drawn {
+            if let winit::platform::pump_events::PumpStatus::Exit(_) =
+                ev.pump_app_events(Some(std::time::Duration::ZERO), self)
+            {
+                self.running = false;
+            }
+            if !self.frame_drawn && std::time::Instant::now() > deadline {
+                eprintln!("[APP] step() saw no frame in 5 s; giving up on the loop");
+                self.running = false;
+            }
+        }
+
+        self.event_loop = Some(ev);
+        self.running
+    }
+
+    /// Ask the window to close. The next `step()` returns `false`.
+    pub fn close(&mut self) {
+        self.exit_requested = true;
+    }
+
+    /// Whether the window is still open.
+    pub fn is_running(&self) -> bool {
+        self.running
     }
 
     pub fn apply_config_at_start(&mut self) {
@@ -267,6 +378,7 @@ impl App {
         let device = win.device.clone();
         win.frame_exporter.finish(&device);
 
+        self.running = false;
         ev.exit()
     }
 
@@ -318,7 +430,14 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
     /// window is visible. Together with the `Occluded` fix in `window.rs`,
     /// which lets a frame run without a drawable, a covered window now runs at
     /// full speed rather than stopping.
-    fn about_to_wait(&mut self, _ev: &winit::event_loop::ActiveEventLoop) {
+    fn about_to_wait(&mut self, ev: &winit::event_loop::ActiveEventLoop) {
+        // `close()` runs outside any handler and so has no `ActiveEventLoop`
+        // to exit with. Here is the first place that does.
+        if self.exit_requested && self.window.is_some() {
+            self.exit_requested = false;
+            self.exit(ev);
+            return;
+        }
         if let Some(win) = self.window.as_ref() {
             win.get_window().request_redraw();
         }
@@ -488,6 +607,11 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 // different times within one frame.
                 self.simulation.borrow_mut().update();
 
+                // Reached only by a frame that actually rendered: the
+                // early return above, for a surface that is not configured
+                // yet, deliberately leaves this unset so `step()` keeps
+                // pumping rather than reporting a frame that did nothing.
+                self.frame_drawn = true;
             }
 
             winit::event::WindowEvent::KeyboardInput {
