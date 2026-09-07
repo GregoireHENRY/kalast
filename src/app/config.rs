@@ -146,23 +146,6 @@ pub enum ColorbarSource {
     Lighting,
 }
 
-impl ColorbarSource {
-    pub fn parse(s: &str) -> Option<Self> {
-        match s.to_ascii_lowercase().as_str() {
-            "values" | "value" | "data" => Some(Self::Values),
-            "lighting" | "light" | "shading" => Some(Self::Lighting),
-            _ => None,
-        }
-    }
-
-    pub fn name(&self) -> &'static str {
-        match self {
-            Self::Values => "values",
-            Self::Lighting => "lighting",
-        }
-    }
-}
-
 /// A colour scale drawn over the render.
 ///
 /// Horizontal or vertical is inferred from the anchor -- a bar anchored to a
@@ -171,7 +154,6 @@ impl ColorbarSource {
 #[derive(Debug, Clone)]
 pub struct Colorbar {
     pub enabled: bool,
-    pub source: ColorbarSource,
     pub anchor: HudAnchor,
     /// Inset from the anchor, pixels.
     pub x: f32,
@@ -197,7 +179,6 @@ impl Default for Colorbar {
     fn default() -> Self {
         Self {
             enabled: false,
-            source: ColorbarSource::Values,
             anchor: HudAnchor::BottomCenter,
             x: 0.0,
             y: 48.0,
@@ -620,14 +601,6 @@ pub struct Config {
     /// output or when every body is a similar size.
     pub shadow_per_body: bool,
 
-    /// Colour facets from `mesh.values` through `colormap` instead of from
-    /// their vertex colour.
-    ///
-    /// Orthogonal to `color_mode`, which still decides whether the result is
-    /// lit: with `color_mode = 0` the data map is shaded, with `1` it is flat,
-    /// which is what a quantitative figure usually wants.
-    pub value_mode: bool,
-
     /// Range the colormap spans, or `None` to fit the loaded values each
     /// frame.
     ///
@@ -755,7 +728,6 @@ impl Default for Config {
             axes_label_size: 13.0,
             axes_label_color: [0.85, 0.85, 0.85, 1.0],
 
-            value_mode: false,
             value_min: None,
             value_max: None,
             colormap: Vec::new(),

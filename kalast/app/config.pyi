@@ -273,14 +273,6 @@ class Config:
     """
     colorbar: bool
     """Draw the colour scale. Off by default."""
-    colorbar_source: str
-    """What the bar shows: `"values"` (the `mesh.values` colormap, in your
-    units) or `"lighting"` (the diffuse shading, 0..1).
-
-    `"lighting"` is `ambient + cos(i) * visibility` -- normalised direct
-    insolation including shadowing. Not radiance, not temperature, and it
-    carries the `ambient_strength` floor, so label it for what it is.
-    """
     colorbar_anchor: str
     """Which of the nine anchors the bar sits at.
 
@@ -329,12 +321,6 @@ class Config:
     """Tick label size in pixels."""
     axes_label_color: list[float]
     """Tick label colour, `(r, g, b, a)`."""
-    value_mode: bool
-    """Colour facets from `mesh.values` through `colormap`.
-
-    Orthogonal to `color_mode`: with `0` the data map is shaded, with `1`
-    it is flat, which is usually what a quantitative figure wants.
-    """
     value_min: float | None
     """Bottom of the colour scale, or `None` to fit the data each frame.
 

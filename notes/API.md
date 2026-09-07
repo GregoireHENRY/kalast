@@ -168,7 +168,7 @@ One float per facet, in `Mesh.facets` order:
 
 ```python
 sim.bodies[0].mesh.values = temperatures      # numpy array, one per facet
-app.config.value_mode = True
+app.config.color_mode = 1                     # unlit: this *is* the data map
 app.config.colormap = "inferno"
 app.config.value_min, app.config.value_max = 90.0, 290.0
 ```
@@ -181,9 +181,11 @@ range refits every frame, so two images of the same scene sit on different
 colour scales and the difference between them reads as physics rather than as
 bookkeeping.
 
-Set `color_mode = 1` alongside it for a quantitative figure: that leaves the
-data map flat instead of shading it, so one value is one colour. See
-`CONFIG.md` for the colour bar that labels it.
+`color_mode = 1` is what shows them: the unlit mode *is* the data map for any
+mesh carrying values, and a mesh without values falls back to its vertex
+colours. There is no separate switch, because unlit is what a quantitative
+figure wants anyway — shading a data map makes one value read as two colours.
+The colour bar follows the same setting; see `CONFIG.md`.
 
 ## Frame export
 

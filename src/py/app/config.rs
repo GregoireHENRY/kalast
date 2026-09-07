@@ -625,28 +625,6 @@ impl Config {
         self.app.borrow_mut().config.colorbar.enabled = v;
     }
 
-    /// What the bar shows: `"values"` (the `mesh.values` colormap, in your
-    /// units) or `"lighting"` (the diffuse shading, 0..1).
-    ///
-    /// `"lighting"` is `ambient + cos(i) * visibility` -- normalised direct
-    /// insolation including shadowing. Not radiance, not temperature, and it
-    /// carries the `ambient_strength` floor, so label it for what it is.
-    #[getter]
-    fn colorbar_source(&self) -> String {
-        self.app.borrow().config.colorbar.source.name().to_string()
-    }
-
-    #[setter]
-    fn set_colorbar_source(&mut self, v: &str) -> PyResult<()> {
-        let src = crate::app::config::ColorbarSource::parse(v).ok_or_else(|| {
-            pyo3::exceptions::PyValueError::new_err(format!(
-                "unknown colorbar source {v:?}: expected values or lighting"
-            ))
-        })?;
-        self.app.borrow_mut().config.colorbar.source = src;
-        Ok(())
-    }
-
     /// Which of the nine anchors the bar sits at.
     ///
     /// Orientation follows: `middle-left`/`middle-right` give a vertical bar,
@@ -843,20 +821,6 @@ impl Config {
     #[setter]
     fn set_axes_label_color(&mut self, v: [f32; 4]) {
         self.app.borrow_mut().config.axes_label_color = v;
-    }
-
-    /// Colour facets from `mesh.values` through `colormap`.
-    ///
-    /// Orthogonal to `color_mode`: with `0` the data map is shaded, with `1`
-    /// it is flat, which is usually what a quantitative figure wants.
-    #[getter]
-    fn value_mode(&self) -> bool {
-        self.app.borrow().config.value_mode
-    }
-
-    #[setter]
-    fn set_value_mode(&mut self, v: bool) {
-        self.app.borrow_mut().config.value_mode = v;
     }
 
     /// Bottom of the colour scale, or `None` to fit the data each frame.

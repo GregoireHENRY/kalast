@@ -336,6 +336,13 @@ pub struct InstanceInput {
 
 pub const INSTANCE_FLAG_FLAT: u32 = 1;
 
+/// The mesh carries per-facet `values`, so `color_mode == 1` shows the data
+/// map rather than the vertex colours.
+///
+/// Needed because an empty `values` array uploads as zeros, which the shader
+/// cannot tell from real zeros.
+pub const INSTANCE_FLAG_HAS_VALUES: u32 = 2;
+
 impl Default for InstanceInput {
     fn default() -> Self {
         Self {

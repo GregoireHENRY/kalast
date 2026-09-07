@@ -182,6 +182,7 @@ fn diagnose(
 /// is labelled 100, 200, 300 rather than at the raw ends.
 fn colorbar_labels(
     cb: &crate::app::config::Colorbar,
+    color_mode: u32,
     rect: (f32, f32, f32, f32),
     lo: f32,
     hi: f32,
@@ -194,10 +195,10 @@ fn colorbar_labels(
 
     // The lighting source is a fraction by construction, so its ends are 0
     // and 1 whatever the data happens to span.
-    let (lo, hi) = match cb.source {
-        crate::app::config::ColorbarSource::Lighting => (0.0, 1.0),
-        crate::app::config::ColorbarSource::Values => (lo, hi),
-    };
+    // The lit modes show `ambient + cos(i) * visibility`, a fraction by
+    // construction, so its ends are 0 and 1 whatever the data spans. The
+    // unlit mode shows the data map, so the bar spans the data.
+    let (lo, hi) = if color_mode == 1 { (lo, hi) } else { (0.0, 1.0) };
 
     let gap = 6.0;
     for v in crate::app::axes::tick_values(lo as crate::Float, hi as crate::Float, cb.ticks) {
@@ -1130,7 +1131,7 @@ impl Window {
         // independently, so half the scale can be fixed and the other fitted.
         let mut lo = f32::INFINITY;
         let mut hi = f32::NEG_INFINITY;
-        if config.value_mode && (config.value_min.is_none() || config.value_max.is_none()) {
+        if config.color_mode == 1 && (config.value_min.is_none() || config.value_max.is_none()) {
             for body in &simulation.bodies {
                 let Some(mesh) = body.mesh.as_ref() else { continue };
                 for v in &mesh.borrow().values {
@@ -1293,7 +1294,9 @@ impl Window {
             self.axes_labels.clear();
         }
 
-        if config.colorbar.enabled {
+        // `color_mode == 2` paints every body one flat colour, so there is
+        // no scale to label.
+        if config.colorbar.enabled && config.color_mode != 2 {
             let (w, h) = (
                 self.surface_config.width.max(1) as f32,
                 self.surface_config.height.max(1) as f32,
@@ -1333,10 +1336,10 @@ impl Window {
                     bh / h * 2.0,
                 ],
                 vertical: vertical as u32,
-                source: match cb.source {
-                    crate::app::config::ColorbarSource::Values => 0,
-                    crate::app::config::ColorbarSource::Lighting => 1,
-                },
+                // 0 = the colormap, 1 = the lighting ramp. Follows
+                // `color_mode` rather than a setting of its own, so the
+                // legend cannot describe something the surface is not.
+                source: if config.color_mode == 1 { 0 } else { 1 },
                 _pad: [0; 2],
             };
             self.queue.write_buffer(
@@ -1361,11 +1364,19 @@ impl Window {
 
         // skip light cube
         for ii in 0..simulation.bodies.len() {
-            let flags = if self.meshes[1 + ii].is_flat {
+            let mut flags = if self.meshes[1 + ii].is_flat {
                 super::gpu::INSTANCE_FLAG_FLAT
             } else {
                 0
             };
+            let has_values = simulation.bodies[ii]
+                .mesh
+                .as_ref()
+                .map(|m| !m.borrow().values.is_empty())
+                .unwrap_or(false);
+            if has_values {
+                flags |= super::gpu::INSTANCE_FLAG_HAS_VALUES;
+            }
 
             // Body ii shades from shadow layer ii. Bodies past the layer cap
             // share the last one: degraded, not wrong.
@@ -1556,9 +1567,13 @@ impl Window {
         // targets the swapchain, which the exporter never reads. Drawing it
         // twice is deliberate -- the window keeps its HUD either way, and the
         // cost is one text pass on exported frames only.
-        let bar_labels: Vec<_> = match (config.colorbar.enabled, self.colorbar_px) {
+        let bar_labels: Vec<_> = match (
+            config.colorbar.enabled && config.color_mode != 2,
+            self.colorbar_px,
+        ) {
             (true, Some(rect)) => colorbar_labels(
                 &config.colorbar,
+                config.color_mode,
                 rect,
                 self.uniforms.globals.uniform.value_min,
                 self.uniforms.globals.uniform.value_max,
@@ -1780,7 +1795,7 @@ fn build_globals(
     value_range: (f32, f32),
 ) -> super::uniform::Globals {
     super::uniform::Globals {
-        value_mode: config.value_mode as u32,
+        _value_mode_removed: 0,
         value_min: value_range.0,
         value_max: value_range.1,
 

@@ -896,14 +896,26 @@ Line and grid colour `(r, g, b)`, tick label size in pixels, and label colour
 
 ## Facet colouring from data
 
-### `value_mode: bool` — default `False` *(live)*
-Colour facets from `mesh.values` through `colormap` instead of their vertex
-colour.
+### `colormap` *(live)*
+Set by name — `"viridis"`, `"inferno"`, `"turbo"`, `"grey"` — or from any
+256×3 array, so a matplotlib colormap can be handed over unchanged. Defaults
+to greyscale. An unknown name raises `ValueError` listing the built-ins.
 
-**Orthogonal to `color_mode`,** which still decides whether the result is lit:
-`color_mode = 0` shades the data map, `1` leaves it flat — which is what a
-quantitative figure usually wants, since shading a colour-coded field makes
-the same value read as two different colours.
+**There is no switch to turn data colouring on.** `color_mode = 1` — the
+unlit mode — *is* the data map, for any mesh that carries `mesh.values`; a
+mesh without values falls back to its vertex colours, which is what mode 1
+always meant.
+
+That is deliberate. Unlit is what a quantitative figure wants anyway, since
+shading a data map makes one value read as two colours, so a separate
+`value_mode` only created combinations that were either redundant or wrong.
+One setting decides what you are looking at:
+
+| `color_mode` | the surface shows | the colour bar shows |
+|---|---|---|
+| 0, 3 | diffuse lighting | lighting, 0..1 |
+| 1 | the data | the data, `value_min`..`value_max` |
+| 2 | one flat colour | nothing — the bar is not drawn |
 
 ### `value_min: float | None` — default `None` *(live)*
 ### `value_max: float | None` — default `None` *(live)*
@@ -914,11 +926,6 @@ between frames, so two images of the same scene are not on the same colour
 scale and the difference between them reads as physics rather than as
 bookkeeping.
 
-### `colormap` *(live)*
-Set by name — `"viridis"`, `"inferno"`, `"turbo"`, `"grey"` — or from any
-256×3 array, so a matplotlib colormap can be handed over unchanged. Defaults
-to greyscale. An unknown name raises `ValueError` listing the built-ins.
-
 ---
 
 ## Colour bar
@@ -926,15 +933,16 @@ to greyscale. An unknown name raises `ValueError` listing the built-ins.
 ### `colorbar: bool` — default `False` *(live)*
 Draw the colour scale over the render.
 
-### `colorbar_source: str` — default `"values"` *(live)*
-What the bar describes.
+**What the bar describes follows `color_mode`**, and is not a setting of its
+own: the legend cannot be made to describe something the surface is not. In
+the lit modes it is the diffuse shading, `ambient + cos(i) * visibility` —
+normalised direct insolation including shadowing, **not** radiance and **not**
+temperature, and it carries the `ambient_strength` floor, so label it for what
+it is. In the unlit mode it is the data map, over `value_min`..`value_max`,
+read from the same lookup table the surface uses so the two cannot disagree.
 
-- `values` — the `mesh.values` colormap, labelled in the data's own units.
-  Reads the same lookup table the surface does, so the two cannot disagree.
-- `lighting` — the diffuse shading itself, labelled 0..1:
-  `ambient + cos(i) * visibility`, i.e. normalised direct insolation
-  including shadowing. **Not radiance and not temperature**, and it carries
-  the `ambient_strength` floor. Label it accordingly.
+With `color_mode = 2` the bar is not drawn at all: every body is one flat
+colour, so there is no scale to label.
 
 ### `colorbar_label: str` *(live)*
 Caption, e.g. `"Surface temperature (K)"`. Same warning as `axes_unit`:

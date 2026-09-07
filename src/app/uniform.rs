@@ -43,9 +43,9 @@ pub struct Globals {
 
     /// Colour facets from `Mesh::values` through the colormap instead of from
     /// their vertex colour. Orthogonal to `color_mode`, which still decides
-    /// whether the result is lit: `value_mode = 1` with `color_mode = 0` is a
-    /// lit data map, with `color_mode = 1` a flat one.
-    pub value_mode: u32,
+    /// Was `value_mode`; the data map now follows `color_mode == 1`.
+    /// Kept as padding so the uniform layout is unchanged.
+    pub _value_mode_removed: u32,
     /// Range the colormap spans. Values outside are clamped, not wrapped, so
     /// an outlier saturates rather than aliasing to the far end of the scale.
     pub value_min: f32,
