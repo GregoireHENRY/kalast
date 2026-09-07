@@ -53,14 +53,17 @@ numpy = { version = "0.28" }
 bytemuck = { version = "1.25", features = ["derive"] }
 memoffset = "0.9"
 winit = { version = "0.30.13", features = ["android-native-activity"] }
-wgpu = { version = "29.0", features = ["serde"] }
-wgpu_text = "29.0"
+wgpu = { version = "30", features = ["serde"] }
+wgpu_text = "30"
 pollster = "0.4"
 image = { version = "0.25.10", default-features = false, features = [
     "png",
     "jpeg",
     "hdr",
 ] }
+egui = "0.36"
+egui-wgpu = "0.36"
+egui-winit = "0.36"
 
 
 [dev-dependencies]

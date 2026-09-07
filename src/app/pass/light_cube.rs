@@ -27,9 +27,9 @@ impl Pass {
             false,
             wgpu::PrimitiveTopology::TriangleList,
             &[
-                crate::mesh::Vertex::geometry_desc(),
-                crate::mesh::Vertex::attrib_desc(),
-                gpu::MeshBuffer::desc(),
+                Some(crate::mesh::Vertex::geometry_desc()),
+                Some(crate::mesh::Vertex::attrib_desc()),
+                Some(gpu::MeshBuffer::desc()),
             ],
         );
 

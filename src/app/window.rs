@@ -533,6 +533,10 @@ impl Window {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 force_fallback_adapter: false,
                 compatible_surface: Some(&surface),
+                // wgpu 30. Off: bucketing rounds reported limits down to
+                // coarse tiers to reduce fingerprinting, which is a browser
+                // concern, and this is trusted native code.
+                apply_limit_buckets: false,
             })
             .await
             .unwrap();
@@ -602,6 +606,7 @@ impl Window {
             width: size.width,
             height: size.height,
             present_mode: pick_present_mode(&caps, config.vsync),
+            color_space: wgpu::SurfaceColorSpace::Auto,
             desired_maximum_frame_latency: 2,
             alpha_mode: caps.alpha_modes[0],
             view_formats: vec![],
@@ -1848,7 +1853,7 @@ impl Window {
         }
 
         if let Some(texture) = surface_texture {
-            texture.present();
+            self.queue.present(texture);
         }
     }
 }

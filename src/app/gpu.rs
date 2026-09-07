@@ -81,7 +81,7 @@ impl RenderPipeline {
         // Vertex layouts. The axes carry their own -- position and colour,
         // no normals or instancing -- so this cannot be the mesh layout for
         // every pipeline.
-        buffers: &[wgpu::VertexBufferLayout],
+        buffers: &[Option<wgpu::VertexBufferLayout>],
     ) -> Self {
         // wireframe: bool,
 
@@ -924,7 +924,7 @@ struct SaveJob {
 /// worker pool and the synchronous export path so both produce byte-for-
 /// byte identical files.
 fn save_job(job: SaveJob) {
-    let data = job.buffer.slice(..).get_mapped_range();
+    let data = job.buffer.slice(..).get_mapped_range().unwrap();
 
     let mut pixels = vec![0u8; (job.width * job.height * 4) as usize];
 

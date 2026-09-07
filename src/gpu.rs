@@ -27,6 +27,7 @@ impl Context {
     pub fn new() -> Result<Arc<Self>, String> {
         let instance = wgpu::Instance::default();
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            apply_limit_buckets: false,
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: None,
             force_fallback_adapter: false,
@@ -72,7 +73,7 @@ impl Context {
             submission_index: None,
             timeout: None,
         });
-        let out = bytemuck::cast_slice::<u8, f32>(&slice.get_mapped_range()).to_vec();
+        let out = bytemuck::cast_slice::<u8, f32>(&slice.get_mapped_range().unwrap()).to_vec();
         staging.unmap();
         out
     }

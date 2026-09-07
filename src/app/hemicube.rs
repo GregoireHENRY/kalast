@@ -124,9 +124,9 @@ impl Hemicube {
                 module: &shader,
                 entry_point: Some("vs_main"),
                 buffers: &[
-                    crate::mesh::Vertex::geometry_desc(),
-                    crate::mesh::Vertex::attrib_desc(),
-                    super::gpu::MeshBuffer::desc(),
+                    Some(crate::mesh::Vertex::geometry_desc()),
+                    Some(crate::mesh::Vertex::attrib_desc()),
+                    Some(super::gpu::MeshBuffer::desc()),
                 ],
                 compilation_options: Default::default(),
             },
@@ -535,7 +535,7 @@ impl Hemicube {
                 })
                 .unwrap();
             {
-                let data = slice.get_mapped_range();
+                let data = slice.get_mapped_range().unwrap();
                 let fixed: &[u32] = bytemuck::cast_slice(&data);
                 for k in 0..(this * n_facets) as usize {
                     out[(done * n_facets) as usize + k] = fixed[k] as f32 / FIXED_SCALE;

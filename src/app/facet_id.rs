@@ -86,9 +86,9 @@ impl FacetIdPass {
                 // attrib buffer is declared but unused by this shader -- the
                 // slot has to line up so the instance data lands in slot 2.
                 buffers: &[
-                    crate::mesh::Vertex::geometry_desc(),
-                    crate::mesh::Vertex::attrib_desc(),
-                    super::gpu::MeshBuffer::desc(),
+                    Some(crate::mesh::Vertex::geometry_desc()),
+                    Some(crate::mesh::Vertex::attrib_desc()),
+                    Some(super::gpu::MeshBuffer::desc()),
                 ],
                 compilation_options: Default::default(),
             },
@@ -344,7 +344,7 @@ impl FacetIdPass {
             })
             .unwrap();
 
-        let data = slice.get_mapped_range();
+        let data = slice.get_mapped_range().unwrap();
         let mut out = Vec::with_capacity((self.width * self.height) as usize);
         for row in 0..self.height {
             let start = (row * padded) as usize;

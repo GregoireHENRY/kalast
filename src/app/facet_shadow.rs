@@ -226,7 +226,7 @@ impl FacetShadowQuery {
             })
             .unwrap();
 
-        let data = slice.get_mapped_range();
+        let data = slice.get_mapped_range().unwrap();
         let out: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
         drop(data);
         read_buffer.unmap();

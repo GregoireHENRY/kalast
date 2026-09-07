@@ -33,12 +33,12 @@ impl Pass {
             // Annotation: occluded by the scene, never occluding it.
             false,
             wgpu::PrimitiveTopology::LineList,
-            &[wgpu::VertexBufferLayout {
+            &[Some(wgpu::VertexBufferLayout {
                 array_stride: std::mem::size_of::<crate::app::axes::LineVertex>()
                     as wgpu::BufferAddress,
                 step_mode: wgpu::VertexStepMode::Vertex,
                 attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3],
-            }],
+            })],
         );
 
         Self {
