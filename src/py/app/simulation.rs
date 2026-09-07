@@ -117,6 +117,33 @@ impl Simulation {
         self.inner.borrow_mut().export = v;
     }
 
+    /// The renderer and window settings, reachable from inside a callback.
+    ///
+    /// `app.config` cannot be read there: `start()` holds the app mutably
+    /// borrowed for the whole run loop. This handle goes straight to the
+    /// config, so options can be changed per frame:
+    ///
+    /// ```python
+    /// def before_render(sim, dt):
+    ///     sim.config.colorbar = sim.state.iteration > 100
+    /// ```
+    ///
+    /// Options marked *startup only* in `CONFIG.md` still will not take
+    /// effect -- they are baked into GPU resources when the window is made.
+    #[getter]
+    fn config(&self) -> PyResult<crate::py::app::config::Config> {
+        let sim = self.inner.borrow();
+        let config = sim.config.clone().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err(
+                "this simulation has no config handle; it was not created by an App",
+            )
+        })?;
+        Ok(crate::py::app::config::Config {
+            config,
+            simulation: self.inner.clone(),
+        })
+    }
+
     /// The live HUDs -- the same objects as `app.config.huds`, not copies.
     ///
     /// Edit them in `before_render`: `sim.huds[0].text = f"{i}/{n}"`. The

@@ -54,8 +54,26 @@ one frame.
 
 **Neither runs while paused** (`P`), so a script needs no `is_paused` check of
 its own — it simply is not called. Heavy CPU work in either blocks the render
-loop, and `app.config` cannot be touched from inside them (the app is already
-mutably borrowed; you get `RuntimeError: Already mutably borrowed`).
+loop.
+
+To change settings per frame use **`sim.config`**, not `app.config`: the
+latter raises `RuntimeError: Already mutably borrowed` inside a callback,
+because `start()` holds the app borrowed for the whole run loop. Both names
+reach the same config object.
+
+## `sim.config`
+
+The renderer and window settings — the same object as `app.config`, reached
+without going through the app, so it works inside a callback:
+
+```python
+def before_render(sim, dt):
+    sim.config.colorbar = sim.state.iteration > 100
+    sim.config.color_mode = 1
+```
+
+Options marked *startup only* in `CONFIG.md` still will not take effect: they
+are baked into GPU resources when the window is created.
 
 ## `sim.state`
 

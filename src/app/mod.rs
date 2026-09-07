@@ -17,7 +17,11 @@ use std::{cell::RefCell, rc::Rc, sync::Arc};
 use crate::Float;
 
 pub struct App {
-    pub config: crate::app::config::Config,
+    /// Shared, not owned: `app.config` in Python holds the same handle, so it
+    /// stays reachable while the app itself is mutably borrowed for the whole
+    /// run loop. Without this, touching any option from `before_render`
+    /// panicked with `Already mutably borrowed`.
+    pub config: Rc<RefCell<crate::app::config::Config>>,
     pub window: Option<crate::app::window::Window>,
 
     pub now: std::time::Instant,
@@ -160,21 +164,27 @@ impl App {
     }
 
     pub fn new_with_config(config: crate::app::config::Config) -> Self {
-        let controller = frame::Controller::new(
-            config.sensitivity_move,
-            config.sensitivity_look,
-            config.sensitivity_rotate,
-            config.sensitivity_zoom,
-        );
+        let config_rc = Rc::new(RefCell::new(config));
+        let simulation = Rc::new(RefCell::new(crate::app::simulation::Simulation::new()));
+        simulation.borrow_mut().config = Some(config_rc.clone());
+        let controller = {
+            let c = config_rc.borrow();
+            frame::Controller::new(
+                c.sensitivity_move,
+                c.sensitivity_look,
+                c.sensitivity_rotate,
+                c.sensitivity_zoom,
+            )
+        };
 
         Self {
-            config,
+            config: config_rc.clone(),
             window: None,
 
             now: std::time::Instant::now(),
             dt: 0.0,
 
-            simulation: Rc::new(RefCell::new(crate::app::simulation::Simulation::new())),
+            simulation,
             before_render: None,
             after_render: None,
 
@@ -197,11 +207,11 @@ impl App {
     }
 
     pub fn apply_config_at_start(&mut self) {
-        self.controller.sensitivity_move = self.config.sensitivity_move;
-        self.controller.sensitivity_look = self.config.sensitivity_look;
-        self.controller.sensitivity_rotate = self.config.sensitivity_rotate;
-        self.controller.sensitivity_zoom = self.config.sensitivity_zoom;
-        self.controller.emulate_middle_button = self.config.emulate_middle_button;
+        self.controller.sensitivity_move = self.config.borrow().sensitivity_move;
+        self.controller.sensitivity_look = self.config.borrow().sensitivity_look;
+        self.controller.sensitivity_rotate = self.config.borrow().sensitivity_rotate;
+        self.controller.sensitivity_zoom = self.config.borrow().sensitivity_zoom;
+        self.controller.emulate_middle_button = self.config.borrow().emulate_middle_button;
     }
 
     pub fn set_tick<F>(&mut self, f: F)
@@ -276,12 +286,12 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
         // itself -- see `about_to_wait`.
         ev.set_control_flow(winit::event_loop::ControlFlow::Poll);
 
-        let size = winit::dpi::PhysicalSize::new(self.config.width, self.config.height);
+        let size = winit::dpi::PhysicalSize::new(self.config.borrow().width, self.config.borrow().height);
         let mut attrs = winit::window::Window::default_attributes()
             .with_inner_size(size)
-            .with_title(&self.config.title);
+            .with_title(&self.config.borrow().title);
 
-        if self.config.fullscreen {
+        if self.config.borrow().fullscreen {
             // Borderless on the current monitor: `None` means "wherever the
             // window lands", which is what a user pressing the green button
             // would get.
@@ -293,7 +303,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
         self.window = Some(pollster::block_on(crate::app::window::Window::new(
             ev.owned_display_handle(),
             win.clone(),
-            &self.config,
+            &self.config.borrow(),
             &self.simulation.borrow(),
         )));
     }
@@ -328,7 +338,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
             winit::event::WindowEvent::CloseRequested => self.exit(ev),
             winit::event::WindowEvent::Resized(size) => {
                 let win = self.window.as_mut().unwrap();
-                win.resize(size.width, size.height, &self.config);
+                win.resize(size.width, size.height, &self.config.borrow());
             }
             winit::event::WindowEvent::RedrawRequested => {
                 {
@@ -336,7 +346,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     win.window.request_redraw();
 
                     if !win.is_surface_configured {
-                        if self.config.debug_window {
+                        if self.config.borrow().debug_window {
                             println!("[WINDOW] surface is not configured yet")
                         }
                         return;
@@ -376,7 +386,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     sim.camera
                         .update_with_controller(&mut self.controller, self.dt);
 
-                    win.update(&mut sim, &self.config);
+                    win.update(&mut sim, &self.config.borrow());
 
                     // The HUDs are shared handles, so this reads whatever
                     // `before_render` just wrote into them. Only the text is
@@ -411,20 +421,20 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     // frame on that basis halted the simulation outright
                     // rather than just not drawing it. The frame runs either
                     // way; only the present is skipped.
-                    let surface_texture = win.get_surface_texture(&self.config);
-                    win.render(surface_texture, &self.config, &huds);
+                    let surface_texture = win.get_surface_texture(&self.config.borrow());
+                    win.render(surface_texture, &self.config.borrow(), &huds);
 
                     // After render: the shadow map now holds this frame's
                     // geometry, so a query here answers for the scene
                     // before_render just set up.
                     let one_off = sim.facet_shadow_request.take();
-                    if self.config.access_shadow_map || one_off.is_some() {
+                    if self.config.borrow().access_shadow_map || one_off.is_some() {
                         let n = sim.bodies.len();
                         sim.facet_shadow_result.resize(n, vec![]);
 
                         for body in 0..n {
                             let wanted =
-                                self.config.access_shadow_map || one_off == Some(body);
+                                self.config.borrow().access_shadow_map || one_off == Some(body);
                             if wanted {
                                 sim.facet_shadow_result[body] =
                                     win.facet_shadow_fractions(body);
@@ -504,7 +514,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     }
                     (winit::keyboard::KeyCode::KeyP, true) => {
                         let pause = self.simulation.borrow_mut().state.toggle_pause();
-                        if self.config.debug_app {
+                        if self.config.borrow().debug_app {
                             println!("[APP] Simulation paused={}", pause);
                         }
                     }
@@ -513,7 +523,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         // switch camera type
                         self.simulation.borrow_mut().camera.control.toggle();
                         let control = self.simulation.borrow().camera.control;
-                        if self.config.debug_app {
+                        if self.config.borrow().debug_app {
                             println!("[APP] Camera control changed, now is {:?}", control);
                         }
                         match control {

@@ -23,16 +23,22 @@ the window is created, inside `app.start()`. Set everything before calling it.
   fresh; `background` and the debug-draw flags are read straight from the
   config during the pass.
 
-  **This does not mean you can animate them from Python.** `app.config` cannot
-  be touched inside `before_render`/`after_render` -- the app is already
-  mutably borrowed for the duration of the callback, so any access raises
-  `RuntimeError: Already mutably borrowed`. In practice you still set
-  everything before `app.start()`. What *(live)* buys you is that the renderer
-  picks up values derived internally per frame, which is what makes automatic
-  shadow fitting possible.
+  **Change them per frame through `sim.config`**, not `app.config`:
+
+  ```python
+  def before_render(sim, dt):
+      sim.config.colorbar = sim.state.iteration > 100
+  ```
+
+  `app.config` is for setup and raises `RuntimeError: Already mutably
+  borrowed` inside a callback -- `start()` holds the app borrowed for the
+  whole run loop. `sim.config` is a handle to the same config that does not
+  go through the app, so it works mid-frame. Both names reach one object: a
+  write through either is visible from the other.
 - *(startup only)* -- read once during setup and baked into GPU resources or
   window state. Assigning to these after `start()` still updates the
-  Python-visible field but **has no effect on rendering**. These are the ones
+  Python-visible field but **has no effect on rendering**, whether through
+  `app.config` or `sim.config`. These are the ones
   that size a GPU resource (`width`, `height`, `shadow_resolution`), pick a
   pipeline (`render_back_face`), configure the surface (`vsync`, `title`), set
   up the exporter (`export_dir`, `export_sync`, `export_max_queued`), or are

@@ -25,8 +25,10 @@ impl App {
     #[getter]
     /// Renderer and window settings. See `CONFIG.md`.
     fn config(&self) -> config::Config {
+        let app = self.inner.borrow();
         config::Config {
-            app: self.inner.clone(),
+            config: app.config.clone(),
+            simulation: app.simulation.clone(),
         }
     }
 

@@ -210,110 +210,115 @@ impl Hud {
 
 #[pyclass(unsendable)]
 pub struct Config {
-    pub app: Rc<RefCell<crate::app::App>>,
+    /// The config itself, not the app that owns it. Holding the app would put
+    /// every option behind the borrow `start()` takes for the whole run loop,
+    /// which is what made `app.config.x = ...` inside `before_render` panic.
+    pub config: Rc<RefCell<crate::app::config::Config>>,
+    /// Only for `huds`, which live on the simulation.
+    pub simulation: Rc<RefCell<crate::app::simulation::Simulation>>,
 }
 
 #[pymethods]
 impl Config {
     #[getter]
     fn debug_app(&self) -> bool {
-        self.app.borrow().config.debug_app
+        self.config.borrow().debug_app
     }
 
     #[setter]
     fn set_debug_app(&mut self, v: bool) {
-        self.app.borrow_mut().config.debug_app = v;
+        self.config.borrow_mut().debug_app = v;
     }
 
     #[getter]
     fn debug_window(&self) -> bool {
-        self.app.borrow().config.debug_window
+        self.config.borrow().debug_window
     }
 
     #[setter]
     fn set_debug_window(&mut self, v: bool) {
-        self.app.borrow_mut().config.debug_window = v;
+        self.config.borrow_mut().debug_window = v;
     }
 
     #[getter]
     fn debug_window_mesh(&self) -> bool {
-        self.app.borrow().config.debug_window_mesh
+        self.config.borrow().debug_window_mesh
     }
 
     #[setter]
     fn set_debug_window_mesh(&mut self, v: bool) {
-        self.app.borrow_mut().config.debug_window_mesh = v;
+        self.config.borrow_mut().debug_window_mesh = v;
     }
 
     #[getter]
     fn debug_simulation(&self) -> bool {
-        self.app.borrow().config.debug_simulation
+        self.config.borrow().debug_simulation
     }
 
     #[setter]
     fn set_debug_simulation(&mut self, v: bool) {
-        self.app.borrow_mut().config.debug_simulation = v;
+        self.config.borrow_mut().debug_simulation = v;
     }
 
     #[getter]
     fn debug_depth_show(&self) -> bool {
-        self.app.borrow().config.debug_depth_show
+        self.config.borrow().debug_depth_show
     }
 
     #[setter]
     fn set_debug_depth_show(&mut self, v: bool) {
-        self.app.borrow_mut().config.debug_depth_show = v;
+        self.config.borrow_mut().debug_depth_show = v;
     }
 
     #[getter]
     fn debug_light_cube_show(&self) -> bool {
-        self.app.borrow().config.debug_light_cube_show
+        self.config.borrow().debug_light_cube_show
     }
 
     #[setter]
     fn set_debug_light_cube_show(&mut self, v: bool) {
-        self.app.borrow_mut().config.debug_light_cube_show = v;
+        self.config.borrow_mut().debug_light_cube_show = v;
     }
 
     #[getter]
     fn title(&self) -> String {
-        self.app.borrow().config.title.clone()
+        self.config.borrow().title.clone()
     }
 
     #[setter]
     fn set_title(&mut self, v: &str) {
-        self.app.borrow_mut().config.title = v.to_string();
+        self.config.borrow_mut().title = v.to_string();
     }
 
     #[getter]
     fn width(&self) -> u32 {
-        self.app.borrow().config.width
+        self.config.borrow().width
     }
 
     #[setter]
     fn set_width(&mut self, v: u32) {
-        self.app.borrow_mut().config.width = v;
+        self.config.borrow_mut().width = v;
     }
 
     #[getter]
     fn height(&self) -> u32 {
-        self.app.borrow().config.height
+        self.config.borrow().height
     }
 
     #[setter]
     fn set_height(&mut self, v: u32) {
-        self.app.borrow_mut().config.height = v;
+        self.config.borrow_mut().height = v;
     }
 
     #[getter]
     pub fn background(&self) -> [Float; 4] {
-        let v = self.app.borrow().config.background;
+        let v = self.config.borrow().background;
         [v.r as Float, v.g as Float, v.b as Float, v.a as Float]
     }
 
     #[setter]
     pub fn set_background(&mut self, v: [Float; 4]) {
-        let c = &mut self.app.borrow_mut().config.background;
+        let c = &mut self.config.borrow_mut().background;
         c.r = v[0] as f64;
         c.g = v[1] as f64;
         c.b = v[2] as f64;
@@ -324,12 +329,12 @@ impl Config {
     /// built-in. One that will not resolve warns and falls back. Startup only.
     #[getter]
     fn hud_font(&self) -> String {
-        self.app.borrow().config.hud_font.clone()
+        self.config.borrow().hud_font.clone()
     }
 
     #[setter]
     fn set_hud_font(&mut self, v: &str) {
-        self.app.borrow_mut().config.hud_font = v.to_string();
+        self.config.borrow_mut().hud_font = v.to_string();
     }
 
     /// The on-screen HUDs. Empty (the default) draws none.
@@ -341,9 +346,7 @@ impl Config {
     /// with no list to reassign.
     #[getter]
     fn huds(&self) -> Vec<Hud> {
-        self.app
-            .borrow()
-            .simulation
+        self.simulation
             .borrow()
             .huds
             .iter()
@@ -353,80 +356,80 @@ impl Config {
 
     #[setter]
     fn set_huds(&mut self, v: Vec<Hud>) {
-        self.app.borrow().simulation.borrow_mut().huds =
+        self.simulation.borrow_mut().huds =
             v.into_iter().map(|h| h.inner).collect();
     }
 
     /// Native fullscreen at startup. See `Config::fullscreen`.
     #[getter]
     fn fullscreen(&self) -> bool {
-        self.app.borrow().config.fullscreen
+        self.config.borrow().fullscreen
     }
 
     #[setter]
     fn set_fullscreen(&mut self, v: bool) {
-        self.app.borrow_mut().config.fullscreen = v;
+        self.config.borrow_mut().fullscreen = v;
     }
 
     #[getter]
     fn render_back_face(&self) -> bool {
-        self.app.borrow().config.render_back_face
+        self.config.borrow().render_back_face
     }
 
     #[setter]
     fn set_render_back_face(&mut self, v: bool) {
-        self.app.borrow_mut().config.render_back_face = v;
+        self.config.borrow_mut().render_back_face = v;
     }
 
     #[getter]
     fn sensitivity_move(&self) -> Float {
-        self.app.borrow().config.sensitivity_move
+        self.config.borrow().sensitivity_move
     }
 
     #[setter]
     fn set_sensitivity_move(&mut self, v: Float) {
-        self.app.borrow_mut().config.sensitivity_move = v;
+        self.config.borrow_mut().sensitivity_move = v;
     }
 
     #[getter]
     fn sensitivity_look(&self) -> Float {
-        self.app.borrow().config.sensitivity_look
+        self.config.borrow().sensitivity_look
     }
 
     #[setter]
     fn set_sensitivity_look(&mut self, v: Float) {
-        self.app.borrow_mut().config.sensitivity_look = v;
+        self.config.borrow_mut().sensitivity_look = v;
     }
 
     #[getter]
     fn sensitivity_rotate(&self) -> Float {
-        self.app.borrow().config.sensitivity_rotate
+        self.config.borrow().sensitivity_rotate
     }
 
     #[setter]
     fn set_sensitivity_rotate(&mut self, v: Float) {
-        self.app.borrow_mut().config.sensitivity_rotate = v;
+        self.config.borrow_mut().sensitivity_rotate = v;
     }
 
     #[getter]
     fn sensitivity_zoom(&self) -> Float {
-        self.app.borrow().config.sensitivity_zoom
+        self.config.borrow().sensitivity_zoom
     }
 
     #[setter]
     fn set_sensitivity_zoom(&mut self, v: Float) {
-        self.app.borrow_mut().config.sensitivity_zoom = v;
+        self.config.borrow_mut().sensitivity_zoom = v;
     }
 
     #[getter]
     pub fn color(&self) -> [Float; 4] {
-        let v = self.app.borrow().config.color;
+        let v = self.config.borrow().color;
         [v.r as Float, v.g as Float, v.b as Float, v.a as Float]
     }
 
     #[setter]
     pub fn set_color(&mut self, v: [Float; 4]) {
-        let c = &mut self.app.borrow_mut().config.color;
+        let c = &mut self.config.borrow_mut().color;
         c.r = v[0] as f64;
         c.g = v[1] as f64;
         c.b = v[2] as f64;
@@ -435,63 +438,63 @@ impl Config {
 
     #[getter]
     fn color_mode(&self) -> u32 {
-        self.app.borrow().config.color_mode
+        self.config.borrow().color_mode
     }
 
     #[setter]
     fn set_color_mode(&mut self, v: u32) {
-        self.app.borrow_mut().config.color_mode = v;
+        self.config.borrow_mut().color_mode = v;
     }
 
     #[getter]
     fn extra(&self) -> u32 {
-        self.app.borrow().config.extra
+        self.config.borrow().extra
     }
 
     #[setter]
     fn set_extra(&mut self, v: u32) {
-        self.app.borrow_mut().config.extra = v;
+        self.config.borrow_mut().extra = v;
     }
 
     #[getter]
     fn srgb_mode(&self) -> u32 {
-        self.app.borrow().config.srgb_mode
+        self.config.borrow().srgb_mode
     }
 
     #[setter]
     fn set_srgb_mode(&mut self, v: u32) {
-        self.app.borrow_mut().config.srgb_mode = v;
+        self.config.borrow_mut().srgb_mode = v;
     }
 
     #[getter]
     fn gamma(&self) -> Float {
-        self.app.borrow().config.gamma
+        self.config.borrow().gamma
     }
 
     #[setter]
     fn set_gamma(&mut self, v: Float) {
-        self.app.borrow_mut().config.gamma = v;
+        self.config.borrow_mut().gamma = v;
     }
 
     #[getter]
     fn ambient_strength(&self) -> Float {
-        self.app.borrow().config.ambient_strength
+        self.config.borrow().ambient_strength
     }
 
     #[setter]
     fn set_ambient_strength(&mut self, v: Float) {
-        self.app.borrow_mut().config.ambient_strength = v;
+        self.config.borrow_mut().ambient_strength = v;
     }
 
     #[getter]
     pub fn light_color(&self) -> [Float; 4] {
-        let v = self.app.borrow().config.light_color;
+        let v = self.config.borrow().light_color;
         [v.r as Float, v.g as Float, v.b as Float, v.a as Float]
     }
 
     #[setter]
     pub fn set_light_color(&mut self, v: [Float; 4]) {
-        let c = &mut self.app.borrow_mut().config.light_color;
+        let c = &mut self.config.borrow_mut().light_color;
         c.r = v[0] as f64;
         c.g = v[1] as f64;
         c.b = v[2] as f64;
@@ -500,34 +503,34 @@ impl Config {
 
     #[getter]
     fn light_cube_scale(&self) -> Float {
-        self.app.borrow().config.light_cube_scale
+        self.config.borrow().light_cube_scale
     }
 
     #[setter]
     fn set_light_cube_scale(&mut self, v: Float) {
-        self.app.borrow_mut().config.light_cube_scale = v;
+        self.config.borrow_mut().light_cube_scale = v;
     }
 
     /// Multisample anti-aliasing on the main pass: 1 (off), 2, 4 or 8.
     /// Takes effect when the window is created, so set it before `App.start`.
     #[getter]
     fn msaa(&self) -> u32 {
-        self.app.borrow().config.msaa
+        self.config.borrow().msaa
     }
 
     #[setter]
     fn set_msaa(&mut self, v: u32) {
-        self.app.borrow_mut().config.msaa = v;
+        self.config.borrow_mut().msaa = v;
     }
 
     #[getter]
     fn shadow_resolution(&self) -> u32 {
-        self.app.borrow().config.shadow_resolution
+        self.config.borrow().shadow_resolution
     }
 
     #[setter]
     fn set_shadow_resolution(&mut self, v: u32) {
-        self.app.borrow_mut().config.shadow_resolution = v;
+        self.config.borrow_mut().shadow_resolution = v;
     }
 
     // The three shadow constants below are Option: None (the default) means
@@ -535,52 +538,52 @@ impl Config {
     // manually-pinned one back on automatic.
     #[getter]
     fn shadow_bias_scale(&self) -> Option<f32> {
-        self.app.borrow().config.shadow_bias_scale
+        self.config.borrow().shadow_bias_scale
     }
 
     #[setter]
     fn set_shadow_bias_scale(&mut self, v: Option<f32>) {
-        self.app.borrow_mut().config.shadow_bias_scale = v;
+        self.config.borrow_mut().shadow_bias_scale = v;
     }
 
     #[getter]
     fn shadow_bias_minimum(&self) -> Option<f32> {
-        self.app.borrow().config.shadow_bias_minimum
+        self.config.borrow().shadow_bias_minimum
     }
 
     #[setter]
     fn set_shadow_bias_minimum(&mut self, v: Option<f32>) {
-        self.app.borrow_mut().config.shadow_bias_minimum = v;
+        self.config.borrow_mut().shadow_bias_minimum = v;
     }
 
     #[getter]
     fn shadow_normal_offset_scale(&self) -> Option<f32> {
-        self.app.borrow().config.shadow_normal_offset_scale
+        self.config.borrow().shadow_normal_offset_scale
     }
 
     #[setter]
     fn set_shadow_normal_offset_scale(&mut self, v: Option<f32>) {
-        self.app.borrow_mut().config.shadow_normal_offset_scale = v;
+        self.config.borrow_mut().shadow_normal_offset_scale = v;
     }
 
     #[getter]
     fn wireframe_mode(&self) -> u32 {
-        self.app.borrow().config.wireframe_mode
+        self.config.borrow().wireframe_mode
     }
 
     #[setter]
     fn set_wireframe_mode(&mut self, v: u32) {
-        self.app.borrow_mut().config.wireframe_mode = v;
+        self.config.borrow_mut().wireframe_mode = v;
     }
 
     #[getter]
     fn wireframe_width(&self) -> f32 {
-        self.app.borrow().config.wireframe_width
+        self.config.borrow().wireframe_width
     }
 
     #[setter]
     fn set_wireframe_width(&mut self, v: f32) {
-        self.app.borrow_mut().config.wireframe_width = v;
+        self.config.borrow_mut().wireframe_width = v;
     }
 
     // `[Float; 4]`, not a Rust tuple: a tuple only extracts from a Python
@@ -589,13 +592,13 @@ impl Config {
     // an array -- accepted all three. An array extracts from any sequence.
     #[getter]
     fn wireframe_color(&self) -> [Float; 4] {
-        let c = self.app.borrow().config.wireframe_color;
+        let c = self.config.borrow().wireframe_color;
         [c.r as Float, c.g as Float, c.b as Float, c.a as Float]
     }
 
     #[setter]
     fn set_wireframe_color(&mut self, v: [Float; 4]) {
-        self.app.borrow_mut().config.wireframe_color = wgpu::Color {
+        self.config.borrow_mut().wireframe_color = wgpu::Color {
             r: v[0] as f64,
             g: v[1] as f64,
             b: v[2] as f64,
@@ -605,73 +608,73 @@ impl Config {
 
     #[getter]
     fn shadow_pcf(&self) -> u32 {
-        self.app.borrow().config.shadow_pcf
+        self.config.borrow().shadow_pcf
     }
 
     #[setter]
     fn set_shadow_pcf(&mut self, v: u32) {
-        self.app.borrow_mut().config.shadow_pcf = v;
+        self.config.borrow_mut().shadow_pcf = v;
     }
 
     #[getter]
     fn vsync(&self) -> bool {
-        self.app.borrow().config.vsync
+        self.config.borrow().vsync
     }
 
     #[setter]
     fn set_vsync(&mut self, v: bool) {
-        self.app.borrow_mut().config.vsync = v;
+        self.config.borrow_mut().vsync = v;
     }
 
     #[getter]
     fn export_sync(&self) -> bool {
-        self.app.borrow().config.export_sync
+        self.config.borrow().export_sync
     }
 
     #[setter]
     fn set_export_sync(&mut self, v: bool) {
-        self.app.borrow_mut().config.export_sync = v;
+        self.config.borrow_mut().export_sync = v;
     }
 
     #[getter]
     fn export_max_queued(&self) -> u32 {
-        self.app.borrow().config.export_max_queued
+        self.config.borrow().export_max_queued
     }
 
     #[setter]
     fn set_export_max_queued(&mut self, v: u32) {
-        self.app.borrow_mut().config.export_max_queued = v;
+        self.config.borrow_mut().export_max_queued = v;
     }
 
     #[getter]
     fn emulate_middle_button(&self) -> bool {
-        self.app.borrow().config.emulate_middle_button
+        self.config.borrow().emulate_middle_button
     }
 
     #[setter]
     fn set_emulate_middle_button(&mut self, v: bool) {
-        self.app.borrow_mut().config.emulate_middle_button = v;
+        self.config.borrow_mut().emulate_middle_button = v;
     }
 
     #[getter]
     fn access_shadow_map(&self) -> bool {
-        self.app.borrow().config.access_shadow_map
+        self.config.borrow().access_shadow_map
     }
 
     #[setter]
     fn set_access_shadow_map(&mut self, v: bool) {
-        self.app.borrow_mut().config.access_shadow_map = v;
+        self.config.borrow_mut().access_shadow_map = v;
     }
 
     /// Draw the colour scale. Off by default.
     #[getter]
     fn colorbar(&self) -> bool {
-        self.app.borrow().config.colorbar.enabled
+        self.config.borrow().colorbar.enabled
     }
 
     #[setter]
     fn set_colorbar(&mut self, v: bool) {
-        self.app.borrow_mut().config.colorbar.enabled = v;
+        self.config.borrow_mut().colorbar.enabled = v;
     }
 
     /// Which of the nine anchors the bar sits at.
@@ -680,7 +683,7 @@ impl Config {
     /// anything else horizontal. Override with `colorbar_vertical`.
     #[getter]
     fn colorbar_anchor(&self) -> String {
-        self.app.borrow().config.colorbar.anchor.name().to_string()
+        self.config.borrow().colorbar.anchor.name().to_string()
     }
 
     #[setter]
@@ -688,107 +691,107 @@ impl Config {
         let a = crate::app::config::HudAnchor::parse(v).ok_or_else(|| {
             pyo3::exceptions::PyValueError::new_err(format!("unknown anchor {v:?}"))
         })?;
-        self.app.borrow_mut().config.colorbar.anchor = a;
+        self.config.borrow_mut().colorbar.anchor = a;
         Ok(())
     }
 
     /// Force the orientation, or `None` to follow the anchor.
     #[getter]
     fn colorbar_vertical(&self) -> Option<bool> {
-        self.app.borrow().config.colorbar.vertical
+        self.config.borrow().colorbar.vertical
     }
 
     #[setter]
     fn set_colorbar_vertical(&mut self, v: Option<bool>) {
-        self.app.borrow_mut().config.colorbar.vertical = v;
+        self.config.borrow_mut().colorbar.vertical = v;
     }
 
     /// Caption above the bar, e.g. `"Surface temperature (K)"`.
     #[getter]
     fn colorbar_label(&self) -> String {
-        self.app.borrow().config.colorbar.label.clone()
+        self.config.borrow().colorbar.label.clone()
     }
 
     #[setter]
     fn set_colorbar_label(&mut self, v: &str) {
-        self.app.borrow_mut().config.colorbar.label = v.to_string();
+        self.config.borrow_mut().colorbar.label = v.to_string();
     }
 
     /// Long axis of the bar, pixels.
     #[getter]
     fn colorbar_length(&self) -> f32 {
-        self.app.borrow().config.colorbar.length
+        self.config.borrow().colorbar.length
     }
 
     #[setter]
     fn set_colorbar_length(&mut self, v: f32) {
-        self.app.borrow_mut().config.colorbar.length = v;
+        self.config.borrow_mut().colorbar.length = v;
     }
 
     /// Short axis of the bar, pixels.
     #[getter]
     fn colorbar_thickness(&self) -> f32 {
-        self.app.borrow().config.colorbar.thickness
+        self.config.borrow().colorbar.thickness
     }
 
     #[setter]
     fn set_colorbar_thickness(&mut self, v: f32) {
-        self.app.borrow_mut().config.colorbar.thickness = v;
+        self.config.borrow_mut().colorbar.thickness = v;
     }
 
     /// Inset from the anchor, pixels.
     #[getter]
     fn colorbar_x(&self) -> f32 {
-        self.app.borrow().config.colorbar.x
+        self.config.borrow().colorbar.x
     }
 
     #[setter]
     fn set_colorbar_x(&mut self, v: f32) {
-        self.app.borrow_mut().config.colorbar.x = v;
+        self.config.borrow_mut().colorbar.x = v;
     }
 
     /// Inset from the anchor, pixels.
     #[getter]
     fn colorbar_y(&self) -> f32 {
-        self.app.borrow().config.colorbar.y
+        self.config.borrow().colorbar.y
     }
 
     #[setter]
     fn set_colorbar_y(&mut self, v: f32) {
-        self.app.borrow_mut().config.colorbar.y = v;
+        self.config.borrow_mut().colorbar.y = v;
     }
 
     /// Roughly how many numbered ticks, rounded to a readable step.
     #[getter]
     fn colorbar_ticks(&self) -> usize {
-        self.app.borrow().config.colorbar.ticks
+        self.config.borrow().colorbar.ticks
     }
 
     #[setter]
     fn set_colorbar_ticks(&mut self, v: usize) {
-        self.app.borrow_mut().config.colorbar.ticks = v;
+        self.config.borrow_mut().colorbar.ticks = v;
     }
 
     /// Tick and caption size in pixels.
     #[getter]
     fn colorbar_text_size(&self) -> f32 {
-        self.app.borrow().config.colorbar.text_size
+        self.config.borrow().colorbar.text_size
     }
 
     #[setter]
     fn set_colorbar_text_size(&mut self, v: f32) {
-        self.app.borrow_mut().config.colorbar.text_size = v;
+        self.config.borrow_mut().colorbar.text_size = v;
     }
 
     /// Tick and caption colour, `(r, g, b, a)`.
     #[getter]
     fn colorbar_text_color(&self) -> [f32; 4] {
-        self.app.borrow().config.colorbar.text_color
+        self.config.borrow().colorbar.text_color
     }
 
     #[setter]
     fn set_colorbar_text_color(&mut self, v: [f32; 4]) {
-        self.app.borrow_mut().config.colorbar.text_color = v;
+        self.config.borrow_mut().colorbar.text_color = v;
     }
 
     /// Reference axes: `"off"`, `"box"` (MATLAB), `"panes"` (matplotlib),
@@ -796,7 +799,7 @@ impl Config {
     /// (ground grid, Z line and gizmo).
     #[getter]
     fn axes(&self) -> String {
-        self.app.borrow().config.axes.name().to_string()
+        self.config.borrow().axes.name().to_string()
     }
 
     #[setter]
@@ -806,19 +809,19 @@ impl Config {
                 "unknown axes style {v:?}: expected off, box, panes, gizmo or blender"
             ))
         })?;
-        self.app.borrow_mut().config.axes = style;
+        self.config.borrow_mut().axes = style;
         Ok(())
     }
 
     /// Colour of the axis lines and grid, `(r, g, b)`.
     #[getter]
     fn axes_color(&self) -> [f32; 3] {
-        self.app.borrow().config.axes_color
+        self.config.borrow().axes_color
     }
 
     #[setter]
     fn set_axes_color(&mut self, v: [f32; 3]) {
-        self.app.borrow_mut().config.axes_color = v;
+        self.config.borrow_mut().axes_color = v;
     }
 
     /// Roughly how many ticks per axis.
@@ -828,12 +831,12 @@ impl Config {
     /// 0.0347 would hit the number exactly and be unreadable.
     #[getter]
     fn axes_ticks(&self) -> usize {
-        self.app.borrow().config.axes_ticks
+        self.config.borrow().axes_ticks
     }
 
     #[setter]
     fn set_axes_ticks(&mut self, v: usize) {
-        self.app.borrow_mut().config.axes_ticks = v;
+        self.config.borrow_mut().axes_ticks = v;
     }
 
     /// Appended to every tick label, e.g. `" km"`.
@@ -842,34 +845,34 @@ impl Config {
     /// metres or kilometres, so the unit has to come from here.
     #[getter]
     fn axes_unit(&self) -> String {
-        self.app.borrow().config.axes_unit.clone()
+        self.config.borrow().axes_unit.clone()
     }
 
     #[setter]
     fn set_axes_unit(&mut self, v: &str) {
-        self.app.borrow_mut().config.axes_unit = v.to_string();
+        self.config.borrow_mut().axes_unit = v.to_string();
     }
 
     /// Tick label size in pixels.
     #[getter]
     fn axes_label_size(&self) -> f32 {
-        self.app.borrow().config.axes_label_size
+        self.config.borrow().axes_label_size
     }
 
     #[setter]
     fn set_axes_label_size(&mut self, v: f32) {
-        self.app.borrow_mut().config.axes_label_size = v;
+        self.config.borrow_mut().axes_label_size = v;
     }
 
     /// Tick label colour, `(r, g, b, a)`.
     #[getter]
     fn axes_label_color(&self) -> [f32; 4] {
-        self.app.borrow().config.axes_label_color
+        self.config.borrow().axes_label_color
     }
 
     #[setter]
     fn set_axes_label_color(&mut self, v: [f32; 4]) {
-        self.app.borrow_mut().config.axes_label_color = v;
+        self.config.borrow_mut().axes_label_color = v;
     }
 
     /// Bottom of the colour scale, or `None` to fit the data each frame.
@@ -879,23 +882,23 @@ impl Config {
     /// scale and the difference reads as physics rather than bookkeeping.
     #[getter]
     fn value_min(&self) -> Option<f32> {
-        self.app.borrow().config.value_min
+        self.config.borrow().value_min
     }
 
     #[setter]
     fn set_value_min(&mut self, v: Option<f32>) {
-        self.app.borrow_mut().config.value_min = v;
+        self.config.borrow_mut().value_min = v;
     }
 
     /// Top of the colour scale, or `None` to fit the data. See `value_min`.
     #[getter]
     fn value_max(&self) -> Option<f32> {
-        self.app.borrow().config.value_max
+        self.config.borrow().value_max
     }
 
     #[setter]
     fn set_value_max(&mut self, v: Option<f32>) {
-        self.app.borrow_mut().config.value_max = v;
+        self.config.borrow_mut().value_max = v;
     }
 
     /// Colour lookup table: a built-in name or an Nx3 array of RGB in 0..1.
@@ -910,9 +913,8 @@ impl Config {
     #[getter]
     fn colormap<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, numpy::PyArray2<f32>>> {
         let rows: Vec<Vec<f32>> = self
-            .app
-            .borrow()
             .config
+            .borrow()
             .colormap
             .iter()
             .map(|c| c.to_vec())
@@ -968,41 +970,41 @@ impl Config {
             }
             rows
         };
-        self.app.borrow_mut().config.colormap = table;
+        self.config.borrow_mut().colormap = table;
         Ok(())
     }
 
     #[getter]
     fn export_hud(&self) -> bool {
-        self.app.borrow().config.export_hud
+        self.config.borrow().export_hud
     }
 
     #[setter]
     fn set_export_hud(&mut self, v: bool) {
-        self.app.borrow_mut().config.export_hud = v;
+        self.config.borrow_mut().export_hud = v;
     }
 
     #[getter]
     fn shadow_per_body(&self) -> bool {
-        self.app.borrow().config.shadow_per_body
+        self.config.borrow().shadow_per_body
     }
 
     #[setter]
     fn set_shadow_per_body(&mut self, v: bool) {
-        self.app.borrow_mut().config.shadow_per_body = v;
+        self.config.borrow_mut().shadow_per_body = v;
     }
 
     #[getter]
     fn export_dir(&self) -> String {
-        self.app.borrow().config.export_dir.clone()
+        self.config.borrow().export_dir.clone()
     }
 
     #[setter]
     fn set_export_dir(&mut self, v: &str) {
-        self.app.borrow_mut().config.export_dir = v.to_string();
+        self.config.borrow_mut().export_dir = v.to_string();
     }
 
     fn __repr__(&self) -> String {
-        format!("{:?}", self.app.borrow().config)
+        format!("{:?}", self.config.borrow())
     }
 }
