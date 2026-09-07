@@ -29,23 +29,34 @@ class App:
         The alternative to `start()`: the loop stays in the script, so there
         is no callback boundary to hand state across.
 
-        ```python
-        app = App()
-        app.simulation.load_mesh(path=..., mat=numpy.eye(4), flatten=True)
+        **`step()` goes in the middle of the loop body, not in the `while`
+        line.**
 
-        while app.step():
-            sim = app.simulation
-            sim.bodies[0].mat = pose(et0 + sim.state.iteration * dt)
+        ```python
+        sim = app.simulation
+        while app.running:
+            it = sim.state.iteration
+            sim.bodies[0].mat = pose(et0 + it * dt)   # the before_render half
             sim.request_facet_shadow(0)
+
+            if not app.step():
+                break
+
+            lit = sim.facet_shadow(0)                 # the after_render half
         ```
 
         **Where the code goes, against the callbacks.** Work written *before*
         `step()` is what `before_render` did -- it lands in the frame about to
         be drawn. Work written *after* it is what `after_render` did: the
         frame has rendered, so `facet_shadow()`, `facet_id_map()` and
-        `hemicube()` answer for the scene just drawn. Requesting and reading
-        a GPU result therefore sit on either side of one `step()`, which is
-        the ordering the two callbacks existed to enforce.
+        `hemicube()` answer for the scene just drawn.
+
+        `while app.step():` is wrong, and wrong silently: it puts every line
+        after the draw, so the pose you set applies to the next frame while
+        the result you read describes the previous one. `while True:` is wrong
+        too -- once the window closes `step()` returns at once without
+        drawing, `state.iteration` stops advancing, and a loop keyed on it
+        spins forever.
 
         Callbacks still run if set, inside the frame, so mixing the two works
         and every existing script is unaffected.

@@ -34,18 +34,34 @@ the window is created, inside `app.start()`. Set everything before calling it.
   inside it. Fetching it through the app would hit the borrow `start()` takes
   for the whole run loop and raise `RuntimeError: Already mutably borrowed`,
   which is what it used to do.
-- *(startup only)* -- read once during setup and baked into GPU resources or
-  window state. Assigning to these after `start()` still updates the
-  Python-visible field but **has no effect on rendering**, including from a
-  callback. These are the ones
-  that size a GPU resource (`width`, `height`, `shadow_resolution`), pick a
-  pipeline (`render_back_face`), configure the surface (`vsync`, `title`), set
-  up the exporter (`export_dir`, `export_sync`, `export_max_queued`), or are
-  copied to the controller once by `apply_config_at_start`
-  (`src/app/mod.rs:66`) -- the four `sensitivity_*` values.
+- *(live, ...)* -- also live, but realising the change costs something, so
+  the note says what. Each frame compares the config against what the window
+  was actually built with and acts only on a difference; a frame where nothing
+  changed does nothing. The costs are:
+  - *reconfigures the surface* (`vsync`) -- no GPU resource recreated, only
+    the swapchain's pacing.
+  - *rebuilds pipelines* (`msaa`, `render_back_face`) -- sample count and cull
+    mode are fixed when a pipeline is created, so changing either recompiles
+    the shaders. Fine on a settings change; not something to drive per frame.
+  - *reallocates the shadow map* (`shadow_resolution`) -- a new depth texture
+    plus the pipeline rebuild, since the texture is bound through the pass
+    bind groups.
+  - *rebuilds the glyph atlas* (`hud_font`) -- a brush owns its atlas, so the
+    font cannot be swapped inside one.
+  - *flushes the queue first* (`export_dir`, `export_sync`,
+    `export_max_queued`) -- frames already queued belong to the directory they
+    were queued for, so the old exporter is finished before the new one
+    replaces it, and a change made mid-export blocks until the backlog is on
+    disk.
+- *(startup only)* -- read once during setup, so a later change updates the
+  Python-visible field but **has no effect**. Only the two `debug_window*`
+  flags are left here, and only for what they print while the window is being
+  built; their per-frame prints follow the config as it stands.
 
-If you need to vary a startup-only parameter, do it across runs, not from a
-callback.
+`width` and `height` are a request, not a command: a tiling window manager or
+a fullscreen window may refuse the resize. The surface follows the `Resized`
+event that a granted request produces, so the change lands a frame or two
+later rather than instantly.
 
 Everything a script touches *outside* the config — `app.simulation`,
 `sim.state`, `sim.huds`, `sim.bodies`, the camera and Sun, the GPU-result
@@ -115,13 +131,13 @@ Accepted: `True` / `False`.
 
 ## Window
 
-### `title: String` — default `"kalast"` *(startup only)*
+### `title: String` — default `"kalast"` *(live)*
 The OS window title. Applied at `src/app/mod.rs:117` via winit's
 `.with_title()`.
 Accepted: any string.
 
-### `width: u32` — default `800` *(startup only)*
-### `height: u32` — default `600` *(startup only)*
+### `width: u32` — default `800` *(live)*
+### `height: u32` — default `600` *(live)*
 Initial window size in pixels, and therefore the render-target size and the
 resolution of exported PNGs. The exporter reads the surface dimensions, not
 these fields directly -- see `src/app/window.rs:450`, which passes
@@ -132,7 +148,7 @@ window mid-run changes the size of subsequent exports. Export buffers are
 pooled by byte size, and stale-sized pooled buffers are discarded on resize
 (`src/app/gpu.rs`, the `pool_rx.try_recv()` loop in `export_frame`).
 
-### `fullscreen: bool` — default `false` *(startup only)*
+### `fullscreen: bool` — default `false` *(live)*
 Open the window in native fullscreen on the current monitor —
 `Fullscreen::Borderless(None)`, the mode the green button gives on macOS, in
 its own Space.
@@ -165,7 +181,7 @@ to avoid. A maximised window shows none of this, despite having nearly the
 same pixel count, which is how the transition was identified as the trigger
 rather than the resolution.
 
-### `render_back_face: bool` — default `false` *(startup only)*
+### `render_back_face: bool` — default `false` *(live, rebuilds pipelines)*
 Whether triangles facing away from the camera are drawn.
 
 - `false` (default): back faces are culled -- `Some(wgpu::Face::Back)` on the
@@ -199,7 +215,7 @@ closed meshes.
 
 ## Presentation
 
-### `vsync: bool` — default `true` *(startup only)*
+### `vsync: bool` — default `true` *(live, reconfigures the surface)*
 `true` requests `wgpu::PresentMode::Fifo` (vsync, frame rate pinned to the
 display refresh rate). `false` requests `PresentMode::Immediate` (uncapped).
 Resolved by `pick_present_mode` at the bottom of `src/app/window.rs`, used at
@@ -216,7 +232,7 @@ made a 3.1M-facet scene look identical to a 100k-facet one. Details in
 Before this option existed, `present_modes[0]` (typically `Fifo`) was the
 unconditional choice, so every run was vsync-capped.
 
-### `msaa: u32` — default `4` *(startup only)*
+### `msaa: u32` — default `4` *(live, rebuilds pipelines)*
 Multisample anti-aliasing on the main render pass. `1` turns it off; `2`, `4`
 and `8` are the useful values.
 Accepted: any `int`, but a count the adapter does not support falls back to
@@ -278,7 +294,7 @@ Full write-up, validation against ray tracing and accuracy budget in
 `2026-08-26_facet_shadow_query/`.
 Accepted: `True` / `False`.
 
-### `export_dir: String` — default `"out/frames"` *(startup only)*
+### `export_dir: String` — default `"out/frames"` *(live, flushes the queue first)*
 Destination directory, created if absent (`src/app/gpu.rs`,
 `FrameExporter::new`). Numbering **resumes after any files already present**,
 so an existing run's frames are never overwritten -- the directory is scanned
@@ -289,7 +305,7 @@ Give dev/test runs their own directory. Two `FrameExporter`s pointed at the
 same directory race on both the startup index scan and any cleanup, so an
 `rm -rf` of one process's directory can delete files another just wrote.
 
-### `export_sync: bool` — default `false` *(startup only)*
+### `export_sync: bool` — default `false` *(live, flushes the queue first)*
 Chooses how exported frames reach disk.
 
 - `False` (async, default): the GPU->CPU copy is spread across frames and
@@ -328,7 +344,7 @@ abandons whatever is outstanding and leaves as many truncated trailing files
 as there are save workers.
 
 ### `huds: list[Hud]` — default `[]` *(live)*
-### `hud_font: String` — default `""` *(startup only)*
+### `hud_font: String` — default `""` *(live, rebuilds the glyph atlas)*
 On-screen overlay text, drawn over the swapchain after the blit — so by
 default it stays out of exported frames (`export_hud` adds it to those too).
 Empty draws nothing.
@@ -498,7 +514,7 @@ should be the render and nothing else. Turn it on for a screen-capture-style
 movie where the run state should be legible in the frames themselves. Costs
 one text pass, and only on frames that are actually exported.
 
-### `export_max_queued: u32` — default `64` *(startup only)*
+### `export_max_queued: u32` — default `64` *(live, flushes the queue first)*
 Upper bound on frames that have been exported but not yet written, before
 `export_frame` blocks the render loop to let the encoders catch up. Enforced
 by `apply_backpressure` in `src/app/gpu.rs`; ignored when `export_sync` is on.
@@ -554,7 +570,7 @@ Pointer-driven terms are deliberately **not** scaled by frame time -- a mouse
 delta is a displacement, not a rate. `sensitivity_move` doubles as the pan
 scale; `sensitivity_look` applies to WASD only.
 
-### `emulate_middle_button: bool` — default `true` on macOS, `false` elsewhere *(startup only)*
+### `emulate_middle_button: bool` — default `true` on macOS, `false` elsewhere *(live)*
 Treat **alt + left-drag** as a middle-drag, so the arcball can be orbited on
 hardware with no middle button -- a trackpad. Blender calls the same setting
 "Emulate 3 Button Mouse", and the binding matches, so the muscle memory
@@ -564,16 +580,16 @@ Accepted: `True` / `False`.
 Copied onto the controller once by `apply_config_at_start`, like the
 `sensitivity_*` values, so set it before `app.start()`.
 
-### `sensitivity_move: Float` — default `1.0` *(startup only)*
+### `sensitivity_move: Float` — default `1.0` *(live)*
 Translation speed. `src/app/frame.rs:197`.
 
-### `sensitivity_look: Float` — default `1.0` *(startup only)*
+### `sensitivity_look: Float` — default `1.0` *(live)*
 Look/pan speed, scaling `SENSITIVITY_LOOK`. `src/app/frame.rs:205,209`.
 
-### `sensitivity_rotate: Float` — default `1.0` *(startup only)*
+### `sensitivity_rotate: Float` — default `1.0` *(live)*
 Orbit speed, scaling `SENSITIVITY_ROTATE`. `src/app/frame.rs:178,182`.
 
-### `sensitivity_zoom: Float` — default `1.0` *(startup only)*
+### `sensitivity_zoom: Float` — default `1.0` *(live)*
 Zoom speed. `src/app/frame.rs:170`.
 
 Accepted: any float. `0.0` disables that input; negatives invert it.
@@ -745,7 +761,7 @@ not wrong. Setting it to `False` restores the old single scene-fitted map,
 which is worth doing only to reproduce older output, or when every body is a
 similar size.
 
-### `shadow_resolution: u32` — default `8192` *(startup only)*
+### `shadow_resolution: u32` — default `8192` *(live, reallocates the shadow map)*
 Side length of the square shadow map, in texels. Used **twice** at
 `src/app/window.rs:239,240` (width and height) and also passed into `Globals`
 at `src/app/window.rs:202`, where the shader uses it to compute

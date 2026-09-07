@@ -65,10 +65,77 @@ pub struct App {
     /// `ActiveEventLoop`, which only exists inside a handler -- so it
     /// raises this and the next pump acts on it.
     exit_requested: bool,
+
+    /// The values the live window was built with, to diff the config
+    /// against. `None` until there is a window.
+    realised: Option<Realised>,
 }
 
 /// How long `{fps}` and `{its}` average over before updating, in seconds.
 const HUD_RATE_WINDOW: Float = 1.0;
+
+/// What the window and its GPU resources were actually built with.
+///
+/// These options used to be read once, when the window was created, and any
+/// later change was silently ignored -- `CONFIG.md` called them *startup
+/// only*. Keeping what was realised lets each frame notice a difference and
+/// act on it, and only on a difference: reconfiguring a surface or
+/// recompiling a pipeline every frame would be ruinous.
+#[derive(Clone, PartialEq)]
+struct Realised {
+    title: String,
+    width: u32,
+    height: u32,
+    fullscreen: bool,
+    vsync: bool,
+    msaa: u32,
+    render_back_face: bool,
+    shadow_resolution: u32,
+    hud_font: String,
+    export_dir: String,
+    export_sync: bool,
+    export_max_queued: u32,
+}
+
+impl Realised {
+    fn of(c: &crate::app::config::Config) -> Self {
+        Self {
+            title: c.title.clone(),
+            width: c.width,
+            height: c.height,
+            fullscreen: c.fullscreen,
+            vsync: c.vsync,
+            msaa: c.msaa,
+            render_back_face: c.render_back_face,
+            shadow_resolution: c.shadow_resolution,
+            hud_font: c.hud_font.clone(),
+            export_dir: c.export_dir.clone(),
+            export_sync: c.export_sync,
+            export_max_queued: c.export_max_queued,
+        }
+    }
+
+    /// Whether any of these differs from the config, without building a
+    /// snapshot to compare against.
+    ///
+    /// Worth the extra method: `of` clones three `String`s, and doing that
+    /// every frame to discover that nothing changed -- which is every frame
+    /// of an ordinary run -- is an allocation in the frame path for nothing.
+    fn matches(&self, c: &crate::app::config::Config) -> bool {
+        self.width == c.width
+            && self.height == c.height
+            && self.fullscreen == c.fullscreen
+            && self.vsync == c.vsync
+            && self.msaa == c.msaa
+            && self.render_back_face == c.render_back_face
+            && self.shadow_resolution == c.shadow_resolution
+            && self.export_sync == c.export_sync
+            && self.export_max_queued == c.export_max_queued
+            && self.title == c.title
+            && self.hud_font == c.hud_font
+            && self.export_dir == c.export_dir
+    }
+}
 
 /// Fills one HUD's template in for this frame.
 ///
@@ -213,6 +280,7 @@ impl App {
             frame_drawn: false,
             running: true,
             exit_requested: false,
+            realised: None,
         }
     }
 
@@ -306,6 +374,98 @@ impl App {
         self.running
     }
 
+    /// Realise any option that changed since the window was built.
+    ///
+    /// Runs at the top of each frame, so a change made between two `step()`s,
+    /// or by the previous frame's callbacks, takes effect on this one. Each
+    /// branch is guarded by a comparison: nothing here runs on a frame where
+    /// nothing changed, which is every frame in an ordinary run.
+    fn apply_live_config(&mut self) {
+        // Cheap enough to copy unconditionally -- plain scalars into a struct
+        // this owns, no GPU resource behind them.
+        {
+            let c = self.config.borrow();
+            self.controller.sensitivity_move = c.sensitivity_move;
+            self.controller.sensitivity_look = c.sensitivity_look;
+            self.controller.sensitivity_rotate = c.sensitivity_rotate;
+            self.controller.sensitivity_zoom = c.sensitivity_zoom;
+            self.controller.emulate_middle_button = c.emulate_middle_button;
+        }
+
+        // Cloned so the config is not borrowed while `self.window` is held
+        // mutably -- both are fields of `self`.
+        let config = self.config.clone();
+        let c = config.borrow();
+
+        // The early out for the common case, before anything is cloned.
+        if self.window.is_none() {
+            return;
+        }
+        if let Some(was) = self.realised.as_ref() {
+            if was.matches(&c) {
+                return;
+            }
+        } else {
+            self.realised = Some(Realised::of(&c));
+            return;
+        }
+
+        let want = Realised::of(&c);
+        let was = self.realised.clone().unwrap();
+        let win = self.window.as_mut().unwrap();
+
+        if was.title != want.title {
+            win.window.set_title(&want.title);
+        }
+
+        if was.fullscreen != want.fullscreen {
+            win.window.set_fullscreen(want.fullscreen.then(|| {
+                winit::window::Fullscreen::Borderless(None)
+            }));
+        }
+
+        if (was.width, was.height) != (want.width, want.height) {
+            // A request, not a command: a tiling window manager or a
+            // fullscreen window may refuse it. The `Resized` event that
+            // follows a granted request is what actually reconfigures the
+            // surface, so nothing is done here beyond asking.
+            let _ = win
+                .window
+                .request_inner_size(winit::dpi::PhysicalSize::new(want.width, want.height));
+        }
+
+        if was.vsync != want.vsync {
+            win.set_vsync(want.vsync);
+        }
+
+        // Both are baked into the pipelines, so one rebuild covers them.
+        if (was.msaa, was.render_back_face) != (want.msaa, want.render_back_face) {
+            win.rebuild_passes(&c);
+        }
+
+        // Rebuilds the passes too, so only when the pipelines were not
+        // already rebuilt just above.
+        if was.shadow_resolution != want.shadow_resolution {
+            win.set_shadow_resolution(&c);
+        }
+
+        if was.hud_font != want.hud_font {
+            win.set_hud_font(&c);
+        }
+
+        if (was.export_dir, was.export_sync, was.export_max_queued)
+            != (
+                want.export_dir.clone(),
+                want.export_sync,
+                want.export_max_queued,
+            )
+        {
+            win.set_export_config(&c);
+        }
+
+        self.realised = Some(want);
+    }
+
     /// Ask the window to close. The next `step()` returns `false`.
     pub fn close(&mut self) {
         self.exit_requested = true;
@@ -316,12 +476,16 @@ impl App {
         self.running
     }
 
+    /// Kept for callers that set up a controller before any frame runs.
+    /// `apply_live_config` does the same copy at the top of every frame, so
+    /// these no longer need to be set before `start()`.
     pub fn apply_config_at_start(&mut self) {
-        self.controller.sensitivity_move = self.config.borrow().sensitivity_move;
-        self.controller.sensitivity_look = self.config.borrow().sensitivity_look;
-        self.controller.sensitivity_rotate = self.config.borrow().sensitivity_rotate;
-        self.controller.sensitivity_zoom = self.config.borrow().sensitivity_zoom;
-        self.controller.emulate_middle_button = self.config.borrow().emulate_middle_button;
+        let c = self.config.borrow();
+        self.controller.sensitivity_move = c.sensitivity_move;
+        self.controller.sensitivity_look = c.sensitivity_look;
+        self.controller.sensitivity_rotate = c.sensitivity_rotate;
+        self.controller.sensitivity_zoom = c.sensitivity_zoom;
+        self.controller.emulate_middle_button = c.emulate_middle_button;
     }
 
     pub fn set_tick<F>(&mut self, f: F)
@@ -467,6 +631,11 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         return;
                     }
                 }
+
+                // Before anything reads the config this frame, so a value
+                // changed between two `step()`s takes effect on this frame
+                // rather than the next.
+                self.apply_live_config();
 
                 let now = std::time::Instant::now();
                 self.dt = (now - self.now).as_secs_f64() as _;

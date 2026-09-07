@@ -94,36 +94,61 @@ loop.
 
 `app.config` works inside a callback: it is a handle held beside the app, not
 fetched through it, so it does not hit the borrow `start()` holds for the
-whole run loop. Options marked *startup only* in `CONFIG.md` still will not
-take effect, being baked into GPU resources when the window is made.
+whole run loop. Nearly every option is live now, including the ones baked into
+GPU resources — each frame diffs the config against what the window was built
+with and rebuilds only what changed. See the legend at the top of `CONFIG.md`
+for which cost what.
 
 ## Driving the loop yourself
 
 `app.step()` draws one frame and returns `False` once the window has closed,
-so the loop can stay in the script:
+so the loop can stay in the script. **`step()` goes in the middle of the body,
+not in the `while` line:**
 
 ```python
 app = App()
 app.simulation.load_mesh(path=..., mat=numpy.eye(4), flatten=True)
+sim = app.simulation
 
-while app.step():
-    sim = app.simulation
-    sim.bodies[0].mat = pose(et0 + sim.state.iteration * dt)   # next frame
-    lit = sim.facet_shadow(0)                                  # frame just drawn
-    if sim.state.iteration >= 2000:
+while app.running:
+    it = sim.state.iteration
+
+    sim.bodies[0].mat = pose(et0 + it * dt)     # the before_render half
+    sim.request_facet_shadow(0)
+
+    if not app.step():
+        break
+
+    lit = sim.facet_shadow(0)                   # the after_render half
+    if it >= 2000:
         app.close()
 ```
 
-`examples/driven_loop/main.py` is a complete one, on `res/` data only.
+`examples/crater_self_shadow/step.py` is a complete one — the same scene as
+that example's `main.py`, run the other way round — on `res/` data only.
 
 **Where the code goes.** Work written *before* `step()` is what
 `before_render` did — it lands in the frame about to be drawn. Work written
 *after* it is what `after_render` did: that frame has rendered, so
 `facet_shadow()`, `facet_id_map()` and `hemicube()` answer for the scene just
-drawn. Request and read therefore sit on either side of one `step()`, which is
-the whole of what the two callbacks existed to enforce. In a `while` loop the
-two are the same place — the bottom of one pass is the top of the next — so
-one body covers both.
+drawn.
+
+**`while app.step():` is wrong**, and wrong silently. It puts every line
+*after* the draw, so the pose you set applies to the next frame while the
+result you read describes the previous one — the two are a frame apart and
+nothing says so. Measured on the crater with a sun alternating between two
+elevations, against the callback path as ground truth:
+
+| | sun set this pass | `facet_shadow` read this pass |
+|---|---|---|
+| `before_render`/`after_render` | `y = 20` | `lit = 0.741` |
+| `step()` in the middle | `y = 20` | `lit = 0.741` — matches |
+| `step()` in the `while` line | `y = 20` | `lit = 1.000` — a frame late |
+
+`while app.running:` with `if not app.step(): break` is the shape that
+reproduces the callbacks exactly. `while True:` does not work either: once the
+window closes `step()` returns immediately without drawing, `state.iteration`
+stops advancing, and a loop keyed on it spins forever.
 
 **Both modes work together.** Callbacks still run inside the frame if set, so
 nothing existing changes. Pick one per script; there is no reason to mix.
@@ -143,22 +168,30 @@ nothing existing changes. Pick one per script; there is no reason to mix.
 
 ### What it costs
 
-Measured at 400 frames a run, release build, `vsync = False`, 8 runs of each
-interleaved, on the 2048-facet crater; medians of per-frame times:
+A little more than `start()`, consistently, and not by much.
 
-| | median frame | |
+400 frames a run, release, `vsync = False`, on the 2048-facet crater, the two
+modes run back to back so each pair meets the same machine conditions. Medians
+of per-frame time, the quiet pairs:
+
+| `start()` | `step()` | |
 |---|---|---|
-| `start()` | 1.51 ms | ~660 it/s |
-| `step()` | 2.06 ms | ~485 it/s |
+| 0.556 ms | 0.584 ms | +5 % |
+| 0.489 ms | 0.537 ms | +10 % |
+| 0.471 ms | 0.505 ms | +7 % |
+| 0.519 ms | 0.681 ms | +31 % |
 
-About half a millisecond a frame. That is the cost winit documents for
-`pump_app_events` on macOS, where pumping means stopping and restarting the
-`NSApplication` each time round rather than polling. Run-to-run spread was
-wide (0.86–3.87 ms for `start()`), so treat this as "the same order, `step()`
-a little slower", not as a precise ratio.
+`step()` was the slower of every pair. Under load both inflate and the gap
+widens (1.39 → 2.11 ms in one), so read the *pairs*, not the absolute numbers:
+unpaired, `start()` alone ranged 0.33–8.30 ms on this machine, which says more
+about the machine than about either mode. The window was not frontmost, which
+per `CLAUDE.md` makes any figure here a lower bound.
 
-Irrelevant for interactive work; worth knowing for a long export run, where
-`start()` remains the cheaper way to spend a few hours.
+The overhead is what winit documents for `pump_app_events` on macOS, where
+pumping stops and restarts the `NSApplication` rather than polling.
+
+Irrelevant for interactive work. Worth knowing for a long export run, where
+`start()` stays the cheaper way to spend a few hours.
 
 Rendering still happens inside winit's handler either way — the caller's code
 runs *between* frames, never inside one. That is what `pump_app_events`

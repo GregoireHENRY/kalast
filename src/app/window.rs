@@ -491,6 +491,10 @@ pub struct Window {
     pub uniforms: super::uniform::Uniforms,
     pub passes: super::pass::Passes,
 
+    /// What the surface supports, kept from creation so `vsync` can be
+    /// changed without an adapter to re-query.
+    present_modes: Vec<wgpu::PresentMode>,
+
     pub export_frame: bool,
     pub frame_exporter: super::gpu::FrameExporter,
 
@@ -773,6 +777,7 @@ impl Window {
             shadow_meshes,
             uniforms,
             passes,
+            present_modes: caps.present_modes.clone(),
 
             export_frame: false,
             frame_exporter: super::gpu::FrameExporter::new(
@@ -1082,6 +1087,83 @@ impl Window {
                 println!("[WINDOW] surface is now configured")
             }
         }
+    }
+
+    /// Re-pick the present mode and reconfigure. Cheap: no GPU resource is
+    /// recreated, only the swapchain's pacing changes.
+    pub fn set_vsync(&mut self, vsync: bool) {
+        self.surface_config.present_mode = pick_present_mode_from(&self.present_modes, vsync);
+        self.surface.configure(&self.device, &self.surface_config);
+    }
+
+    /// Recompile every render pipeline against the current config.
+    ///
+    /// What `msaa` and `render_back_face` are baked into: sample count and
+    /// cull mode are fixed at pipeline creation, so changing either means new
+    /// pipelines. Costs a shader recompile -- fine on a settings change,
+    /// not something to do per frame.
+    ///
+    /// Also the way a new shadow texture reaches the shaders: `Passes::new`
+    /// rebuilds the bind groups, which is where the texture view is bound.
+    pub fn rebuild_passes(&mut self, config: &crate::app::config::Config) {
+        self.passes = super::pass::Passes::new(
+            &self.device,
+            self.surface_config.format,
+            config,
+            &self.uniforms,
+        );
+        // `Passes::new` sizes the offscreen targets from `config.width`, which
+        // is the *requested* size and need not be the window's current one.
+        let (w, h) = (self.surface_config.width, self.surface_config.height);
+        self.passes
+            .render
+            .resize(&self.device, self.surface_config.format, w, h);
+        self.passes.depth.resize(&self.device, w, h);
+    }
+
+    /// Reallocate the shadow map at a new resolution.
+    ///
+    /// The texture is bound through the pass bind groups, so the passes have
+    /// to be rebuilt with it -- hence the cost of a pipeline recompile on top
+    /// of the allocation.
+    pub fn set_shadow_resolution(&mut self, config: &crate::app::config::Config) {
+        self.uniforms.shadow = super::gpu::Texture::create_depth_texture_shadow_pass(
+            &self.device,
+            config.shadow_resolution,
+            config.shadow_resolution,
+            super::uniform::MAX_SHADOW_LAYERS as u32,
+        );
+        self.rebuild_passes(config);
+    }
+
+    /// Load a different HUD font, or fall back to the built-in one.
+    ///
+    /// A brush owns its glyph atlas, so the font cannot be swapped inside it;
+    /// this builds a new brush at the current surface size.
+    pub fn set_hud_font(&mut self, config: &crate::app::config::Config) {
+        self.hud = hud_font(&config.hud_font).map(|font| {
+            wgpu_text::BrushBuilder::using_font(font).build(
+                &self.device,
+                self.surface_config.width,
+                self.surface_config.height,
+                self.surface_config.format,
+            )
+        });
+    }
+
+    /// Point frame export at a different directory, or change how it queues.
+    ///
+    /// The exporter is replaced rather than mutated, and the old one is
+    /// flushed first: frames already queued belong to the directory they were
+    /// queued for, and dropping them would lose work silently.
+    pub fn set_export_config(&mut self, config: &crate::app::config::Config) {
+        let device = self.device.clone();
+        self.frame_exporter.finish(&device);
+        self.frame_exporter = super::gpu::FrameExporter::new(
+            config.export_dir.clone(),
+            config.export_sync,
+            config.export_max_queued as usize,
+        );
     }
 
     pub fn update(
@@ -1829,16 +1911,22 @@ fn build_globals(
 /// choice before this was configurable, which meant a GPU fast enough to
 /// beat the display refresh rate was silently capped by it.
 fn pick_present_mode(caps: &wgpu::SurfaceCapabilities, vsync: bool) -> wgpu::PresentMode {
+    pick_present_mode_from(&caps.present_modes, vsync)
+}
+
+/// Same choice from the mode list alone, for a `vsync` change made after the
+/// adapter has been dropped.
+fn pick_present_mode_from(modes: &[wgpu::PresentMode], vsync: bool) -> wgpu::PresentMode {
     let wanted = if vsync {
         wgpu::PresentMode::Fifo
     } else {
         wgpu::PresentMode::Immediate
     };
 
-    if caps.present_modes.contains(&wanted) {
+    if modes.contains(&wanted) {
         wanted
     } else {
-        caps.present_modes[0]
+        modes[0]
     }
 }
 

@@ -977,8 +977,10 @@ can reach a frame. `app.step()` inverts that. It draws exactly one frame and
 returns `False` once the window has closed, so:
 
 ```python
-while app.step():
+while app.running:
     sim.bodies[0].mat = pose(...)      # what before_render did
+    if not app.step():
+        break
     lit = sim.facet_shadow(0)          # what after_render did
 ```
 
@@ -991,19 +993,46 @@ until the redraw handler has actually run.
 
 This also answers the question the callbacks raised. The `before`/`after`
 split existed to enforce one ordering rule -- a GPU result only exists after
-the frame is drawn, so request before, read after. In a `while` loop the
-bottom of one pass *is* the top of the next, so a single body covers both and
-the split stops being necessary. The callbacks still run if set; nothing
-existing changes.
+the frame is drawn, so request before, read after. A driven loop expresses the
+same rule as a position in the body, which is why `step()` belongs in the
+*middle* of it and not in the `while` line.
 
-**Cost**, 400 frames a run, release, `vsync = False`, 8 interleaved runs of
-each, medians of per-frame time on the 2048-facet crater: `start()` 1.51 ms
-(~660 it/s), `step()` 2.06 ms (~485 it/s). Half a millisecond a frame, which
-is what winit documents for macOS, where a pump stops and restarts the
-`NSApplication` rather than polling. Run-to-run spread was wide
-(0.86--3.87 ms for `start()`), so this is "the same order, `step()` a little
-slower", not a precise ratio. Irrelevant interactively; `start()` stays the
-cheaper way to spend a few hours on an export.
+I got that wrong first and wrote `while app.step():`, which puts every line
+after the draw: the pose set in a pass applies to the next frame while the
+result read in it describes the previous one, a frame apart with nothing
+saying so. Caught by the user reading the example, then settled by measurement
+rather than argument -- a sun alternating between two elevations on the
+crater, with the callback path as ground truth:
+
+| | sun set this pass | `facet_shadow` read this pass |
+|---|---|---|
+| `before_render`/`after_render` | `y = 20` | `lit = 0.741` |
+| `step()` in the middle | `y = 20` | `lit = 0.741` |
+| `step()` in the `while` line | `y = 20` | `lit = 1.000` |
+
+`while True:` is wrong for a second reason: after the window closes `step()`
+returns at once without drawing, so `state.iteration` stops advancing and a
+loop keyed on it spins forever. `while app.running:` with
+`if not app.step(): break` is the shape.
+
+The callbacks still run if set; nothing existing changes.
+
+**Cost**: a little more than `start()`, consistently, and not by much. 400
+frames a run, release, `vsync = False`, on the 2048-facet crater, run back to
+back so each pair meets the same conditions. Quiet pairs, medians of per-frame
+time: 0.556/0.584, 0.489/0.537, 0.471/0.505, 0.519/0.681 ms -- `step()` slower
+in every pair, by 5--31 %. Under load both inflate and the gap widens
+(1.39 → 2.11 ms).
+
+An earlier figure of "1.51 vs 2.06 ms, half a millisecond a frame" is
+withdrawn: it came from a loaded window and overstates it. Unpaired, `start()`
+alone ranged 0.33--8.30 ms on this machine, which says more about the machine
+than about either mode, so only back-to-back pairs are worth quoting. The
+window was not frontmost, which makes every figure here a lower bound.
+
+The overhead is what winit documents for macOS, where a pump stops and
+restarts the `NSApplication` rather than polling. Irrelevant interactively;
+`start()` stays the cheaper way to spend a few hours on an export.
 
 `app.close()` and `app.running` come with it. `close()` cannot exit the loop
 itself -- that needs the `ActiveEventLoop`, which only exists inside a handler
@@ -1015,7 +1044,9 @@ Not usable after `start()`: a platform event loop cannot be created twice in
 one process. `step()` afterwards reports the app stopped rather than
 panicking. Not available on web or iOS.
 
-`examples/driven_loop/main.py` is the worked example, on `res/` data only.
+`examples/crater_self_shadow/step.py` is the worked example: the crater scene
+again, so it sits beside the `start()` version of the same thing. `res/` data
+only.
 
 Found while writing it: **a non-unit `camera.dir` aborts the process.** The
 check panics inside winit's launch callback, which is declared non-unwinding,
@@ -1023,12 +1054,53 @@ so a rounded vector in a script gives `panic in a function that cannot unwind`
 and a hard abort rather than a Python exception. Worth normalising in the
 setter instead. Open.
 
+### Startup-only options are nearly all live now
+
+The other half of what an interactive editor needs. Seventeen options were
+read once, when the window was made, and a later change updated the
+Python-visible field while having no effect on anything -- which is worse than
+refusing it, since the script and the render disagree silently.
+
+Each frame now compares the config against what the window was actually built
+with, and acts only on a difference. The comparison is field-by-field against
+the config rather than against a freshly built snapshot, so the common case --
+every frame of an ordinary run -- allocates nothing.
+
+| | realised by |
+|---|---|
+| `title`, `fullscreen`, `width`, `height` | a winit call on the window |
+| `vsync` | reconfiguring the surface; nothing recreated |
+| `msaa`, `render_back_face` | rebuilding the pipelines -- sample count and cull mode are fixed at creation |
+| `shadow_resolution` | a new depth texture, plus the pipeline rebuild that rebinds it |
+| `hud_font` | a new brush; a brush owns its glyph atlas |
+| `export_dir`, `export_sync`, `export_max_queued` | a new exporter, after finishing the old one |
+| the four `sensitivity_*`, `emulate_middle_button` | copied to the controller every frame |
+
+Only `debug_window` and `debug_window_mesh` stay startup-only, and only for
+what they print while the window is being built.
+
+Verified by measuring the effect, not by checking it did not crash:
+
+- `width`/`height` -- exported frames go 640x480 then 800x600 across the
+  change.
+- `export_dir` -- frames land in one directory before it and the other after.
+- `shadow_resolution` -- the occluded fraction moves 0.3821 to 0.3770 when the
+  map drops from 8192 to 1024, which is what a coarser map should do.
+- `msaa` -- 4x to 1x changes 2,750 pixels, all on edges.
+- `render_back_face` -- with the camera *inside* `res/cube.obj`, so every face
+  presents its back: 0 non-background pixels culled, 65,536 (the whole frame)
+  once culling is off. The crater scene showed no difference at all, which is
+  correct and proves nothing -- a scene with no visible back faces cannot.
+
+`width`/`height` are a request the window manager may refuse, and the surface
+follows the `Resized` event that a granted one produces, so that change lands
+a frame or two later rather than instantly.
+
 ### Also discussed, not done
 
 An **interactive GUI** for editing, running, pausing and inspecting a
 simulation live, in the shape of Blender or Unity rather than a script that
-runs to completion. `step()` is the first half of what that needs. The second
-is making the *startup-only* config options editable while running -- 18 of
-them, from `title` and `width` through `vsync`, `msaa` and `shadow_resolution`
--- which means rebuilding window, surface, pipelines or font atlas rather than
-baking them when the window is made.
+runs to completion. Both halves of what that needs now exist -- `step()`
+for control of the loop, and a live config for changing anything while it
+runs. What is missing is the interface itself: something to drive them from,
+rather than a script.
