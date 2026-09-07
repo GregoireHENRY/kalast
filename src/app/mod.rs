@@ -1388,6 +1388,24 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
         _id: winit::event::DeviceId,
         ev: winit::event::DeviceEvent,
     ) {
+        // Device events are raw input, not addressed to a window, so they
+        // never reach `window_event` and none of its routing applied to them
+        // -- which is the whole of the camera's look and zoom. Scrolling
+        // anywhere at all, a panel included, zoomed the scene.
+        //
+        // They carry no position either, so where the pointer is has to come
+        // from the last position the UI saw.
+        if let Some(editor) = self.editor.as_ref() {
+            // WASD grabs the cursor, so its position says nothing and every
+            // motion is a look. A drag already under way keeps the scene even
+            // if the pointer has wandered onto a panel.
+            let wasd = self.simulation.borrow().camera.control == frame::Control::WASD;
+            let held = self.controller.left_pressed || self.controller.middle_pressed;
+            if !wasd && !held && !editor.pointer_on_scene() {
+                return;
+            }
+        }
+
         match ev {
             winit::event::DeviceEvent::MouseMotion { delta: (dx, dy) } => {
                 match self.simulation.borrow().camera.control {
