@@ -330,7 +330,7 @@ class Config:
     """
     value_max: float | None
     """Top of the colour scale, or `None` to fit the data. See `value_min`."""
-    colormap: object
+    colormap: numpy.object
     """Colour lookup table: a built-in name or an Nx3 array of RGB in 0..1.
 
     `"viridis"`, `"inferno"`, `"turbo"`, `"grey"`, or any matplotlib
@@ -339,6 +339,7 @@ class Config:
     app.config.colormap = matplotlib.colormaps["magma"](numpy.linspace(0, 1, 256))[:, :3]
 
     Resampled to 256 entries, so any length works.
+    The colour table in use, as a 256x3 array.
     """
     export_hud: bool
     """Burn the HUD text into exported frames as well as drawing it on screen.

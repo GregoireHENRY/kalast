@@ -265,6 +265,8 @@ fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     let config = PyModule::new(app.py(), "config")?;
     config.add_class::<app::config::Config>()?;
     config.add_class::<app::config::Hud>()?;
+    pyadd_f!(config, app::config::colormap_by_name);
+    pyadd_f!(config, app::config::colormap_names);
     app.add_submodule(&config)?;
     py.import("sys")?
         .getattr("modules")?

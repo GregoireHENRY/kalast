@@ -247,6 +247,37 @@ impl Hud {
 ///
 /// Sampled at 8 anchor points and interpolated to 256 on upload, which is
 /// within a colour step of the originals and keeps the table readable here.
+/// Resample a colour table to `n` entries, interpolating between them.
+///
+/// Interpolated, not nearest: nearest turned the 8-anchor built-ins into 8
+/// visible bands -- tolerable on a shaded body where lighting hides it,
+/// obvious on a colour scale, which is a flat ramp with nothing to hide
+/// behind.
+///
+/// Shared with the GPU upload so a table fetched from Python is the one the
+/// renderer will use, rather than a second implementation that can drift.
+pub fn resample_colormap(table: &[[f32; 3]], n: usize) -> Vec<[f32; 3]> {
+    if table.is_empty() || n == 0 {
+        return Vec::new();
+    }
+    let len = table.len();
+    (0..n)
+        .map(|i| {
+            let t = if n > 1 { i as f32 / (n - 1) as f32 } else { 0.0 };
+            let x = t * (len - 1) as f32;
+            let lo = x.floor() as usize;
+            let hi = (lo + 1).min(len - 1);
+            let f = x - lo as f32;
+            let (a, b) = (table[lo], table[hi]);
+            [
+                a[0] + (b[0] - a[0]) * f,
+                a[1] + (b[1] - a[1]) * f,
+                a[2] + (b[2] - a[2]) * f,
+            ]
+        })
+        .collect()
+}
+
 pub fn builtin_colormap(name: &str) -> Option<Vec<[f32; 3]>> {
     let anchors: &[[f32; 3]] = match name.to_ascii_lowercase().as_str() {
         "viridis" => &[

@@ -13,6 +13,8 @@ from kalast.app._core import (  # noqa
 
 from kalast.app.config import (  # noqa
     Hud,
+    colormap,
+    colormap_names,
 )
 
 del _core

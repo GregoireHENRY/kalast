@@ -897,9 +897,34 @@ Line and grid colour `(r, g, b)`, tick label size in pixels, and label colour
 ## Facet colouring from data
 
 ### `colormap` *(live)*
-Set by name — `"viridis"`, `"inferno"`, `"turbo"`, `"grey"` — or from any
-256×3 array, so a matplotlib colormap can be handed over unchanged. Defaults
-to greyscale. An unknown name raises `ValueError` listing the built-ins.
+The colour table. Accepts a built-in name, any N×3 or N×4 array (alpha
+ignored) in float32 or float64, or a sequence of `[r, g, b]` triples:
+
+```python
+app.config.colormap = "inferno"
+app.config.colormap = matplotlib.colormaps["magma"](numpy.linspace(0, 1, 256))[:, :3]
+app.config.colormap = kalast.app.colormap("inferno")[::-1]      # reversed
+```
+
+Any length works — it is resampled to 256 entries on upload, interpolated
+rather than nearest, since nearest turned the 8-anchor built-ins into 8
+visible bands. Obvious on a colour scale, which is a flat ramp with nothing
+to hide behind.
+
+Reading it back gives the stored table as an array. Defaults to greyscale, so
+a mesh with values but no colormap set still reads as data rather than one
+flat colour.
+
+**`kalast.app.colormap(name)`** returns a built-in as a 256×3 array, and
+**`kalast.app.colormap_names()`** lists them. That makes the built-ins data
+rather than a string only the setter understands, so one can be reversed,
+sliced or concatenated before use. An unknown name raises `ValueError`
+listing the built-ins.
+
+Until 7 September the setter took **only float32**, so the matplotlib call
+in its own documentation failed — numpy's default is float64 — with
+`'ndarray' object is not an instance of 'ndarray'`, which does not suggest a
+dtype problem.
 
 **There is no switch to turn data colouring on.** `color_mode = 1` — the
 unlit mode — *is* the data map, for any mesh that carries `mesh.values`; a

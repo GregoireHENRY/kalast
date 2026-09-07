@@ -1157,24 +1157,12 @@ impl Window {
         // Resampled to the uniform's fixed 256 entries, so any length of table
         // works -- matplotlib's 256 passes through untouched.
         if !config.colormap.is_empty() {
-            let n = config.colormap.len();
-            for i in 0..super::uniform::COLORMAP_SIZE {
-                let t = i as f32 / (super::uniform::COLORMAP_SIZE - 1) as f32;
-                // Interpolated, not nearest. Nearest turned the 8-anchor
-                // built-ins into 8 visible bands -- fine for a shaded body
-                // where lighting hides it, obvious on a colour scale, which is
-                // a flat ramp with nothing to hide behind.
-                let x = t * (n - 1) as f32;
-                let lo = x.floor() as usize;
-                let hi = (lo + 1).min(n - 1);
-                let f = x - lo as f32;
-                let (a, b) = (config.colormap[lo], config.colormap[hi]);
-                self.uniforms.colormap.uniform.lut[i] = crate::Vec4::new(
-                    a[0] + (b[0] - a[0]) * f,
-                    a[1] + (b[1] - a[1]) * f,
-                    a[2] + (b[2] - a[2]) * f,
-                    1.0,
-                );
+            let lut = crate::app::config::resample_colormap(
+                &config.colormap,
+                super::uniform::COLORMAP_SIZE,
+            );
+            for (i, c) in lut.iter().enumerate() {
+                self.uniforms.colormap.uniform.lut[i] = crate::Vec4::new(c[0], c[1], c[2], 1.0);
             }
             self.queue.write_buffer(
                 &self.uniforms.colormap.buffer,
