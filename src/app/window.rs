@@ -495,6 +495,15 @@ pub struct Window {
     /// changed without an adapter to re-query.
     present_modes: Vec<wgpu::PresentMode>,
 
+    /// Bumped whenever `render_texture` is replaced.
+    ///
+    /// The editor hands that texture to egui once and keeps the handle, and a
+    /// handle to a freed texture samples black. Size alone does not say --
+    /// `rebuild_passes` makes a *new* texture at the *same* size, which is
+    /// what a script setting `render_back_face` does, and the viewport went
+    /// black the moment it did.
+    pub render_generation: u64,
+
     /// Size of the *scene* render target, in physical pixels.
     ///
     /// The same as the surface when the scene fills the window, which is
@@ -801,6 +810,7 @@ impl Window {
             uniforms,
             passes,
             present_modes: caps.present_modes.clone(),
+            render_generation: 0,
             render_size,
 
             export_frame: false,
@@ -1102,6 +1112,7 @@ impl Window {
         if (config.width, config.height) == (0, 0) {
             self.render_size = (width, height);
         }
+        self.render_generation += 1;
 
         if let Some(hud) = &self.hud {
             hud.resize_view(width as f32, height as f32, &self.queue);
@@ -1135,6 +1146,7 @@ impl Window {
             .render
             .resize(&self.device, self.surface_config.format, width, height);
         self.passes.depth.resize(&self.device, width, height);
+        self.render_generation += 1;
     }
 
     /// Re-pick the present mode and reconfigure. Cheap: no GPU resource is
@@ -1168,6 +1180,7 @@ impl Window {
             .render
             .resize(&self.device, self.surface_config.format, w, h);
         self.passes.depth.resize(&self.device, w, h);
+        self.render_generation += 1;
     }
 
     /// Reallocate the shadow map at a new resolution.

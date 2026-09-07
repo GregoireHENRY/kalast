@@ -56,8 +56,11 @@ pub struct Editor {
     /// egui's handle on `render_texture`. Re-registered whenever that texture
     /// is reallocated, which a viewport resize does.
     viewport_texture: Option<egui::TextureId>,
-    /// The size `render_texture` was registered at, to notice a reallocation.
+    /// The size `render_texture` was registered at.
     registered_size: (u32, u32),
+    /// And which incarnation of it, since a rebuild makes a new texture at
+    /// the same size -- see `Window::render_generation`.
+    registered_generation: u64,
 
     /// What the viewport panel measured last frame, in physical pixels.
     ///
@@ -114,6 +117,7 @@ impl Editor {
             renderer,
             viewport_texture: None,
             registered_size: (0, 0),
+            registered_generation: u64::MAX,
             viewport_size: (
                 window.inner_size().width.max(1),
                 window.inner_size().height.max(1),
@@ -141,6 +145,7 @@ impl Editor {
         surface_view: &wgpu::TextureView,
         scene: &wgpu::Texture,
         scene_size: (u32, u32),
+        scene_generation: u64,
         config: &mut crate::app::config::Config,
         state: &mut crate::app::simulation::State,
         shared: &mut crate::app::Shared,
@@ -148,7 +153,10 @@ impl Editor {
     ) -> (u32, u32) {
         // Re-register only when the texture behind it is a different one. A
         // `TextureId` outlives a resize, but the view it points at does not.
-        if self.viewport_texture.is_none() || self.registered_size != scene_size {
+        if self.viewport_texture.is_none()
+            || self.registered_size != scene_size
+            || self.registered_generation != scene_generation
+        {
             let view = scene.create_view(&wgpu::TextureViewDescriptor::default());
             if let Some(id) = self.viewport_texture.take() {
                 self.renderer.free_texture(&id);
@@ -157,6 +165,7 @@ impl Editor {
                 Some(self.renderer
                     .register_native_texture(device, &view, wgpu::FilterMode::Linear));
             self.registered_size = scene_size;
+            self.registered_generation = scene_generation;
         }
 
         let raw = self.state.take_egui_input(window);

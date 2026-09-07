@@ -1090,6 +1090,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         .texture
                         .create_view(&wgpu::TextureViewDescriptor::default());
                     let scene_size = win.render_size;
+                    let scene_generation = win.render_generation;
                     let window = win.window.clone();
                     let wanted = {
                         let mut sim = self.simulation.borrow_mut();
@@ -1100,6 +1101,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                             &view,
                             &win.passes.render.render_texture,
                             scene_size,
+                            scene_generation,
                             &mut sim_cfg.borrow_mut(),
                             &mut sim.state,
                             &mut self.shared.borrow_mut(),
