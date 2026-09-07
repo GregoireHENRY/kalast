@@ -66,6 +66,20 @@ pub struct Editor {
     pub viewport_size: (u32, u32),
 
     pub log: Log,
+
+    /// The script buffer, so a simulation can be edited without leaving the
+    /// window. Plain text, not a file handle: what is on screen is what
+    /// `Run` executes, saved or not.
+    pub script: String,
+    pub script_path: String,
+    /// Set when the buffer differs from what was last read or written.
+    pub script_dirty: bool,
+    /// Raised by the buttons, drained by the app, which owns the Python
+    /// side. The UI cannot run anything itself -- it has no interpreter and
+    /// no business holding the GIL mid-layout.
+    pub run_request: bool,
+    pub open_request: bool,
+    pub save_request: bool,
 }
 
 impl Editor {
@@ -105,6 +119,12 @@ impl Editor {
                 window.inner_size().height.max(1),
             ),
             log: Log::new(2000),
+            script: String::new(),
+            script_path: String::new(),
+            script_dirty: false,
+            run_request: false,
+            open_request: false,
+            save_request: false,
         }
     }
 
@@ -143,6 +163,11 @@ impl Editor {
         let mut wanted = self.viewport_size;
         let texture_id = self.viewport_texture;
         let log = &mut self.log;
+        let script = &mut self.script;
+        let script_path = &mut self.script_path;
+        let script_dirty = self.script_dirty;
+        let dirty = &mut self.script_dirty;
+        let (mut run_request, mut open_request, mut save_request) = (false, false, false);
 
         let output = self.ctx.run_ui(raw, |ui_root| {
             let ppp = ui_root.ctx().pixels_per_point();
@@ -185,10 +210,62 @@ impl Editor {
                         });
                 });
 
-            egui::Panel::right("config")
+            egui::Panel::left("script")
                 .resizable(true)
                 .default_size(300.0)
-                .min_size(240.0)
+                .min_size(180.0)
+                .show(ui_root, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("Script").strong());
+                        if ui.small_button("open").clicked() {
+                            open_request = true;
+                        }
+                        if ui.add_enabled(script_dirty, egui::Button::new("save").small()).clicked() {
+                            save_request = true;
+                        }
+                        if ui.button("\u{25b6} Run").clicked() {
+                            run_request = true;
+                        }
+                    });
+                    ui.add(
+                        egui::TextEdit::singleline(script_path)
+                            .hint_text("examples/crater_self_shadow/step.py")
+                            .desired_width(f32::INFINITY),
+                    );
+                    ui.separator();
+                    // A layouter with no wrap width. Python read through a
+                    // soft wrap is Python with its indentation destroyed, and
+                    // `desired_width` alone does not prevent it: the default
+                    // layouter wraps at whatever width it is handed.
+                    let mut layouter =
+                        |ui: &egui::Ui, buf: &dyn egui::TextBuffer, _wrap: f32| {
+                            let mut job = egui::text::LayoutJob::simple(
+                                buf.as_str().to_owned(),
+                                egui::FontId::monospace(12.0),
+                                ui.visuals().text_color(),
+                                f32::INFINITY,
+                            );
+                            job.wrap.max_width = f32::INFINITY;
+                            ui.ctx().fonts_mut(|f| f.layout_job(job))
+                        };
+                    egui::ScrollArea::both().show(ui, |ui| {
+                        let edit = ui.add(
+                            egui::TextEdit::multiline(script)
+                                .code_editor()
+                                .layouter(&mut layouter)
+                                .desired_width(f32::INFINITY)
+                                .desired_rows(24),
+                        );
+                        if edit.changed() {
+                            *dirty = true;
+                        }
+                    });
+                });
+
+            egui::Panel::right("config")
+                .resizable(true)
+                .default_size(240.0)
+                .min_size(180.0)
                 .show(ui_root, |ui| {
                     ui.label(egui::RichText::new("Config").strong());
                     ui.separator();
@@ -234,6 +311,9 @@ impl Editor {
         });
 
         self.viewport_size = wanted;
+        self.run_request |= run_request;
+        self.open_request |= open_request;
+        self.save_request |= save_request;
         self.state
             .handle_platform_output(window, output.platform_output);
 

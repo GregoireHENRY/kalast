@@ -84,6 +84,31 @@ impl App {
         self.inner.borrow_mut().start_editor();
     }
 
+    /// Install what the editor's `Run` button calls.
+    ///
+    /// A callable taking `(source, path)`. `kalast.editor.make_runner(app)`
+    /// builds the standard one, which executes a script against *this* app
+    /// rather than letting it construct a second.
+    #[setter]
+    /// :pytype: Callable[[str, str], None]
+    fn set_script_runner(&mut self, callback: Py<PyAny>) {
+        self.inner.borrow_mut().script_runner = Some(callback);
+    }
+
+    /// Put a script in the editor's buffer, and name the file it came from.
+    ///
+    /// Settable before `start_editor()`, which is when a launcher does it.
+    fn set_script(&mut self, path: &str, source: &str) {
+        self.inner
+            .borrow_mut()
+            .set_script(path.to_string(), source.to_string());
+    }
+
+    /// Append a line to the editor's log panel, or to stdout without one.
+    fn log(&mut self, line: &str) {
+        self.inner.borrow_mut().log(line);
+    }
+
     /// Draw one frame. Returns `False` once the window has closed.
     ///
     /// The alternative to `start()`: the loop stays in the script, so there

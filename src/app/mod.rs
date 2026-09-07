@@ -78,6 +78,15 @@ pub struct App {
     /// Whether this app was launched as the editor. Read in `resumed`,
     /// where the window and the GPU device first exist.
     want_editor: bool,
+    /// What the editor's `Run` button calls: a Python callable taking
+    /// `(source, path)`. The UI cannot execute anything itself, and the
+    /// rules for what a kalast script may assume -- that `App()` hands back
+    /// the app already on screen, that `start()` does not open a second
+    /// window -- are Python's business, so they live there.
+    pub script_runner: Option<Py<PyAny>>,
+    /// Script buffer set before the window exists, handed to the editor when
+    /// it is built. `python -m kalast some.py` fills this.
+    pending_script: Option<(String, String)>,
 }
 
 /// How long `{fps}` and `{its}` average over before updating, in seconds.
@@ -292,6 +301,8 @@ impl App {
             realised: None,
             editor: None,
             want_editor: false,
+            script_runner: None,
+            pending_script: None,
         }
     }
 
@@ -323,7 +334,40 @@ impl App {
     /// into the centre of a layout, rather than blitted to the swapchain.
     pub fn start_editor(&mut self) {
         self.want_editor = true;
+        // Stopped until told otherwise, the way Blender and Unity open. The
+        // loop still runs -- the window draws, the camera moves, the panels
+        // respond -- but `state.iteration` stays put and the callbacks do
+        // not fire, so an empty scene does not sit there counting.
+        self.simulation.borrow_mut().state.is_paused = true;
         self.start();
+    }
+
+    /// Put a script in the editor's buffer.
+    ///
+    /// Works before the window exists -- which is when a launcher sets it,
+    /// the editor being built only once there is a GPU device -- and after.
+    pub fn set_script(&mut self, path: String, source: String) {
+        match self.editor.as_mut() {
+            Some(editor) => {
+                editor.script_path = path;
+                editor.script = source;
+                editor.script_dirty = false;
+            }
+            None => self.pending_script = Some((path, source)),
+        }
+    }
+
+    /// Append a line to the editor's log panel.
+    ///
+    /// A no-op without one, deliberately. The panel is fed by teeing
+    /// `sys.stdout`, so a fallback to `println!` here would print every line
+    /// twice in a terminal run -- once from the real stream and once from
+    /// this. `print` is how a script writes to a terminal; this is how it
+    /// writes to the panel.
+    pub fn log(&mut self, line: &str) {
+        if let Some(editor) = self.editor.as_mut() {
+            editor.log.push(line);
+        }
     }
 
     /// Run the loop to completion. **Blocks until the window closes.**
@@ -488,6 +532,69 @@ impl App {
         self.realised = Some(want);
     }
 
+    /// Act on whatever the editor's buttons asked for last frame.
+    ///
+    /// Deliberately after the frame rather than inside the UI closure:
+    /// running a script re-enters Python, which can load meshes and rewrite
+    /// the scene, and doing that while egui holds its layout -- and while
+    /// `Simulation` is borrowed for the panels -- is how a `RefCell` panic
+    /// happens.
+    fn serve_editor_requests(&mut self) {
+        let Some(editor) = self.editor.as_mut() else { return };
+        let (run, open, save) = (
+            std::mem::take(&mut editor.run_request),
+            std::mem::take(&mut editor.open_request),
+            std::mem::take(&mut editor.save_request),
+        );
+        if !(run || open || save) {
+            return;
+        }
+        let path = editor.script_path.clone();
+
+        if open {
+            match std::fs::read_to_string(&path) {
+                Ok(text) => {
+                    editor.script = text;
+                    editor.script_dirty = false;
+                    editor.log.push(format!("opened {path}"));
+                }
+                Err(e) => editor.log.push(format!("cannot open {path}: {e}")),
+            }
+        }
+
+        if save {
+            match std::fs::write(&path, &editor.script) {
+                Ok(()) => {
+                    editor.script_dirty = false;
+                    editor.log.push(format!("saved {path}"));
+                }
+                Err(e) => editor.log.push(format!("cannot save {path}: {e}")),
+            }
+        }
+
+        if run {
+            let source = editor.script.clone();
+            if self.script_runner.is_none() {
+                self.log("no script runner installed");
+                return;
+            }
+            let result = Python::attach(|py| {
+                let runner = self.script_runner.as_ref().unwrap().clone_ref(py);
+                runner
+                    .call1(py, (source, path.clone()))
+                    .map_err(|e| e.to_string())
+            });
+            match result {
+                Ok(_) => self.log(&format!("ran {path}")),
+                Err(e) => {
+                    for line in e.lines() {
+                        self.log(line);
+                    }
+                }
+            }
+        }
+    }
+
     /// Ask the window to close. The next `step()` returns `false`.
     pub fn close(&mut self) {
         self.exit_requested = true;
@@ -603,11 +710,12 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
 
         if self.want_editor {
             let w = self.window.as_ref().unwrap();
-            self.editor = Some(crate::app::gui::Editor::new(
-                &win,
-                &w.device,
-                w.surface_config.format,
-            ));
+            let mut editor = crate::app::gui::Editor::new(&win, &w.device, w.surface_config.format);
+            if let Some((path, source)) = self.pending_script.take() {
+                editor.script_path = path;
+                editor.script = source;
+            }
+            self.editor = Some(editor);
         }
     }
 
@@ -852,6 +960,8 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     win.set_render_size(wanted.0, wanted.1);
                     win.queue.present(texture);
                 }
+
+                self.serve_editor_requests();
 
                 // Advance only now that both callbacks have run, so they
                 // agree on which frame they are in -- a loop deriving an

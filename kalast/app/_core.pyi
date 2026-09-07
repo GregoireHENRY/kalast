@@ -43,6 +43,22 @@ class App:
         `python -m kalast` opens it on an empty scene.
         """
         ...
+    script_runner: Callable[[str, str], None]
+    """Install what the editor's `Run` button calls.
+
+    A callable taking `(source, path)`. `kalast.editor.make_runner(app)`
+    builds the standard one, which executes a script against *this* app
+    rather than letting it construct a second.
+    """
+    def set_script(self, path: str, source: str) -> None:
+        """Put a script in the editor's buffer, and name the file it came from.
+
+        Settable before `start_editor()`, which is when a launcher does it.
+        """
+        ...
+    def log(self, line: str) -> None:
+        """Append a line to the editor's log panel, or to stdout without one."""
+        ...
     def step(self) -> bool:
         """Draw one frame. Returns `False` once the window has closed.
 
