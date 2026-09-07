@@ -1664,6 +1664,105 @@ impl Window {
     /// for an occluded window, and skipping the whole frame on that basis
     /// stopped the simulation dead -- a multi-hour run behind another window
     /// made no progress at all rather than merely rendering less.
+
+    /// Draw the HUDs, axis tick labels and colour-bar labels onto `view`.
+    ///
+    /// One place, called from three: into `render_texture` before an export
+    /// when `export_hud` asks for it, into `render_texture` for the editor's
+    /// viewport, and onto the swapchain for an ordinary window. The three
+    /// were separate copies of the same forty lines, and one of them extended
+    /// `bar_labels` twice -- every colour-bar tick drawn on top of itself in
+    /// exported frames.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_text_overlay(
+        &mut self,
+        view: &wgpu::TextureView,
+        size: (f32, f32),
+        label: &'static str,
+        config: &crate::app::config::Config,
+        huds: &[crate::app::config::Hud],
+        axis_labels: &[(String, (f32, f32))],
+        bar_labels: &[(String, (f32, f32), wgpu_text::glyph_brush::HorizontalAlign)],
+    ) {
+        let Some(brush) = self.hud.as_mut() else {
+            return;
+        };
+        let (w, h) = size;
+
+        let mut sections: Vec<_> = huds
+            .iter()
+            .filter(|hud| !hud.text.is_empty())
+            .map(|hud| {
+                let (pos, layout) = hud_placement(hud, w, h);
+                wgpu_text::glyph_brush::Section::default()
+                    .add_text(
+                        wgpu_text::glyph_brush::Text::new(&hud.text)
+                            .with_scale(hud.size)
+                            .with_color(hud.color),
+                    )
+                    .with_screen_position(pos)
+                    .with_layout(layout)
+            })
+            .collect();
+
+        sections.extend(bar_labels.iter().map(|(text, pos, align)| {
+            wgpu_text::glyph_brush::Section::default()
+                .add_text(
+                    wgpu_text::glyph_brush::Text::new(text)
+                        .with_scale(config.colorbar.text_size)
+                        .with_color(config.colorbar.text_color),
+                )
+                .with_screen_position(*pos)
+                .with_layout(
+                    wgpu_text::glyph_brush::Layout::default_single_line()
+                        .h_align(*align)
+                        .v_align(wgpu_text::glyph_brush::VerticalAlign::Center),
+                )
+        }));
+
+        sections.extend(axis_labels.iter().map(|(text, pos)| {
+            wgpu_text::glyph_brush::Section::default()
+                .add_text(
+                    wgpu_text::glyph_brush::Text::new(text)
+                        .with_scale(config.axes_label_size)
+                        .with_color(config.axes_label_color),
+                )
+                .with_screen_position(*pos)
+                .with_layout(
+                    wgpu_text::glyph_brush::Layout::default_single_line()
+                        .h_align(wgpu_text::glyph_brush::HorizontalAlign::Center)
+                        .v_align(wgpu_text::glyph_brush::VerticalAlign::Center),
+                )
+        }));
+
+        if brush.queue(&self.device, &self.queue, sections).is_err() {
+            return;
+        }
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some(label),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            brush.draw(&mut pass);
+        }
+        self.queue.submit([encoder.finish()]);
+    }
+
     pub fn render(
         &mut self,
         surface_texture: Option<wgpu::SurfaceTexture>,
@@ -1799,105 +1898,26 @@ impl Window {
             self.render_size.1 as f32,
         );
 
-        if self.export_frame
-            && config.export_hud
-            && (huds.iter().any(|h| !h.text.is_empty())
-                || !axis_labels.is_empty()
-                || !bar_labels.is_empty())
-        {
-            if let Some(brush) = self.hud.as_mut() {
-                let view = self
-                    .passes
-                    .render
-                    .render_texture
-                    .create_view(&wgpu::TextureViewDescriptor::default());
-                let (w, h) = (
-                    self.render_size.0 as f32,
-                    self.render_size.1 as f32,
-                );
-                let mut sections: Vec<_> = huds
-                    .iter()
-                    .filter(|hud| !hud.text.is_empty())
-                    .map(|hud| {
-                        let (pos, layout) = hud_placement(hud, w, h);
-                        wgpu_text::glyph_brush::Section::default()
-                            .add_text(
-                                wgpu_text::glyph_brush::Text::new(&hud.text)
-                                    .with_scale(hud.size)
-                                    .with_color(hud.color),
-                            )
-                            .with_screen_position(pos)
-                            .with_layout(layout)
-                    })
-                    .collect();
-                sections.extend(bar_labels.iter().map(|(text, pos, align)| {
-                    wgpu_text::glyph_brush::Section::default()
-                        .add_text(
-                            wgpu_text::glyph_brush::Text::new(text)
-                                .with_scale(config.colorbar.text_size)
-                                .with_color(config.colorbar.text_color),
-                        )
-                        .with_screen_position(*pos)
-                        .with_layout(
-                            wgpu_text::glyph_brush::Layout::default_single_line()
-                                .h_align(*align)
-                                .v_align(wgpu_text::glyph_brush::VerticalAlign::Center),
-                        )
-                }));
-                sections.extend(bar_labels.iter().map(|(text, pos, align)| {
-                wgpu_text::glyph_brush::Section::default()
-                    .add_text(
-                        wgpu_text::glyph_brush::Text::new(text)
-                        .with_scale(config.colorbar.text_size)
-                        .with_color(config.colorbar.text_color),
-                    )
-                    .with_screen_position(*pos)
-                    .with_layout(
-                        wgpu_text::glyph_brush::Layout::default_single_line()
-                        .h_align(*align)
-                        .v_align(wgpu_text::glyph_brush::VerticalAlign::Center),
-                    )
-            }));
-            sections.extend(axis_labels.iter().map(|(text, pos)| {
-                    wgpu_text::glyph_brush::Section::default()
-                        .add_text(
-                            wgpu_text::glyph_brush::Text::new(text)
-                                .with_scale(config.axes_label_size)
-                                .with_color(config.axes_label_color),
-                        )
-                        .with_screen_position(*pos)
-                        .with_layout(
-                            wgpu_text::glyph_brush::Layout::default_single_line()
-                                .h_align(wgpu_text::glyph_brush::HorizontalAlign::Center)
-                                .v_align(wgpu_text::glyph_brush::VerticalAlign::Center),
-                        )
-                }));
-                if brush.queue(&self.device, &self.queue, sections).is_ok() {
-                    let mut encoder = self
-                        .device
-                        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-                    {
-                        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                            label: Some("hud export"),
-                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                view: &view,
-                                depth_slice: None,
-                                resolve_target: None,
-                                ops: wgpu::Operations {
-                                    load: wgpu::LoadOp::Load,
-                                    store: wgpu::StoreOp::Store,
-                                },
-                            })],
-                            depth_stencil_attachment: None,
-                            timestamp_writes: None,
-                            occlusion_query_set: None,
-                            multiview_mask: None,
-                        });
-                        brush.draw(&mut pass);
-                    }
-                    self.queue.submit([encoder.finish()]);
-                }
-            }
+        let any_text = huds.iter().any(|h| !h.text.is_empty())
+            || !axis_labels.is_empty()
+            || !bar_labels.is_empty();
+        let render_size = (self.render_size.0 as f32, self.render_size.1 as f32);
+
+        if self.export_frame && config.export_hud && any_text {
+            let view = self
+                .passes
+                .render
+                .render_texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
+            self.draw_text_overlay(
+                &view,
+                render_size,
+                "hud export",
+                config,
+                huds,
+                &axis_labels,
+                &bar_labels,
+            );
         }
 
         if self.export_frame {
@@ -1910,81 +1930,43 @@ impl Window {
             );
         }
 
+        // In the editor there is no swapchain pass -- `render(None, ..)` --
+        // so the HUD went nowhere and a script writing `sim.huds[0].text` saw
+        // nothing. It goes into `render_texture` instead, which is what the
+        // viewport samples.
+        //
+        // After the export above, so an exported frame stays clean unless
+        // `export_hud` asked otherwise, and before egui reads the texture.
+        if surface_texture.is_none() && any_text {
+            let view = self
+                .passes
+                .render
+                .render_texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
+            self.draw_text_overlay(
+                &view,
+                render_size,
+                "hud viewport",
+                config,
+                huds,
+                &axis_labels,
+                &bar_labels,
+            );
+        }
+
         // The on-screen HUD: drawn after the blit and straight onto the
         // swapchain, so by itself it stays out of `render_texture` and
         // therefore out of exported frames. `Config::export_hud` adds the
         // separate pass above when it should appear in them too.
-        let any_hud = huds.iter().any(|h| !h.text.is_empty());
-        if let (Some(texture), Some(brush), true) =
-            // Axis labels alone are reason enough to run the text pass:
-            // a scene with axes but no HUD still has ticks to draw.
-            (
-                &surface_texture,
-                self.hud.as_mut(),
-                any_hud || !axis_labels.is_empty() || !bar_labels.is_empty(),
-            )
-        {
+        if let (Some(texture), true) = (&surface_texture, any_text) {
             let view = texture
                 .texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
-            let (w, h) = (
+            let size = (
                 self.surface_config.width as f32,
                 self.surface_config.height as f32,
             );
-            let mut sections: Vec<_> = huds
-                .iter()
-                .filter(|hud| !hud.text.is_empty())
-                .map(|hud| {
-                    let (pos, layout) = hud_placement(hud, w, h);
-                    wgpu_text::glyph_brush::Section::default()
-                        .add_text(
-                            wgpu_text::glyph_brush::Text::new(&hud.text)
-                                .with_scale(hud.size)
-                                .with_color(hud.color),
-                        )
-                        .with_screen_position(pos)
-                        .with_layout(layout)
-                })
-                .collect();
-            sections.extend(axis_labels.iter().map(|(text, pos)| {
-                wgpu_text::glyph_brush::Section::default()
-                    .add_text(
-                        wgpu_text::glyph_brush::Text::new(text)
-                            .with_scale(config.axes_label_size)
-                            .with_color(config.axes_label_color),
-                    )
-                    .with_screen_position(*pos)
-                    .with_layout(
-                        wgpu_text::glyph_brush::Layout::default_single_line()
-                            .h_align(wgpu_text::glyph_brush::HorizontalAlign::Center)
-                            .v_align(wgpu_text::glyph_brush::VerticalAlign::Center),
-                    )
-            }));
-            if brush.queue(&self.device, &self.queue, sections).is_ok() {
-                let mut encoder = self
-                    .device
-                    .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-                {
-                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("hud"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &view,
-                            depth_slice: None,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Load,
-                                store: wgpu::StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: None,
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                        multiview_mask: None,
-                    });
-                    brush.draw(&mut pass);
-                }
-                self.queue.submit([encoder.finish()]);
-            }
+            self.draw_text_overlay(&view, size, "hud", config, huds, &axis_labels, &bar_labels);
         }
 
         if let Some(texture) = surface_texture {
