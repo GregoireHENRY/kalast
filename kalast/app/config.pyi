@@ -13,7 +13,7 @@ class Hud:
     kalast.app.Hud("{hud}", x=200, y=120, size=24.0)  # absolute, no anchor needed
     ```
     """
-    def __init__(self, text: str, anchor: str, x: float | None, y: float | None, size: float, color: list[float] | None) -> None:
+    def __init__(self, text: str, anchor: str, x: float | None, y: float | None, size: float, color: list[float] | None, align_h: str | None, align_v: str | None) -> None:
         ...
     text: str
     """The template drawn for this HUD. See `Config::huds` for placeholders."""
@@ -268,6 +268,89 @@ class Config:
 
     Read it back with `sim.facet_shadow(body)` from `after_render`. Leave it off
     unless something consumes it: it is a compute pass and a readback per frame.
+    """
+    colorbar: bool
+    """Draw the colour scale. Off by default."""
+    colorbar_source: str
+    """What the bar shows: `"values"` (the `mesh.values` colormap, in your
+    units) or `"lighting"` (the diffuse shading, 0..1).
+
+    `"lighting"` is `ambient + cos(i) * visibility` -- normalised direct
+    insolation including shadowing. Not radiance, not temperature, and it
+    carries the `ambient_strength` floor, so label it for what it is.
+    """
+    colorbar_anchor: str
+    """Which of the nine anchors the bar sits at.
+
+    Orientation follows: `middle-left`/`middle-right` give a vertical bar,
+    anything else horizontal. Override with `colorbar_vertical`.
+    """
+    colorbar_vertical: bool | None
+    """Force the orientation, or `None` to follow the anchor."""
+    colorbar_label: str
+    """Caption above the bar, e.g. `"Surface temperature (K)"`."""
+    colorbar_length: float
+    """Long axis of the bar, pixels."""
+    colorbar_thickness: float
+    """Short axis of the bar, pixels."""
+    colorbar_x: float
+    """Inset from the anchor, pixels."""
+    colorbar_y: float
+    """Inset from the anchor, pixels."""
+    colorbar_ticks: int
+    """Roughly how many numbered ticks, rounded to a readable step."""
+    colorbar_text_size: float
+    """Tick and caption size in pixels."""
+    colorbar_text_color: list[float]
+    """Tick and caption colour, `(r, g, b, a)`."""
+    axes: str
+    """Reference axes: `"off"`, `"box"` (MATLAB), `"panes"` (matplotlib),
+    `"gizmo"` (three labelled arrows at the origin) or `"blender"`
+    (ground grid, Z line and gizmo).
+    """
+    axes_color: list[float]
+    """Colour of the axis lines and grid, `(r, g, b)`."""
+    axes_ticks: int
+    """Roughly how many ticks per axis.
+
+    Approximate on purpose: the step is rounded to 1, 2 or 5 times a power
+    of ten, so the count lands near this rather than on it. Ticks at
+    0.0347 would hit the number exactly and be unreadable.
+    """
+    axes_unit: str
+    """Appended to every tick label, e.g. `" km"`.
+
+    The renderer knows the mesh is 0.437 across but not whether that is
+    metres or kilometres, so the unit has to come from here.
+    """
+    axes_label_size: float
+    """Tick label size in pixels."""
+    axes_label_color: list[float]
+    """Tick label colour, `(r, g, b, a)`."""
+    value_mode: bool
+    """Colour facets from `mesh.values` through `colormap`.
+
+    Orthogonal to `color_mode`: with `0` the data map is shaded, with `1`
+    it is flat, which is usually what a quantitative figure wants.
+    """
+    value_min: float | None
+    """Bottom of the colour scale, or `None` to fit the data each frame.
+
+    **Pin it for anything comparative.** An automatic range rescales
+    between frames, so two images of the same scene are not on the same
+    scale and the difference reads as physics rather than bookkeeping.
+    """
+    value_max: float | None
+    """Top of the colour scale, or `None` to fit the data. See `value_min`."""
+    colormap: object
+    """Colour lookup table: a built-in name or an Nx3 array of RGB in 0..1.
+
+    `"viridis"`, `"inferno"`, `"turbo"`, `"grey"`, or any matplotlib
+    colormap passed straight through:
+
+    app.config.colormap = matplotlib.colormaps["magma"](numpy.linspace(0, 1, 256))[:, :3]
+
+    Resampled to 256 entries, so any length works.
     """
     export_hud: bool
     """Burn the HUD text into exported frames as well as drawing it on screen.

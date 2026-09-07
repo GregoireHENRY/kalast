@@ -90,6 +90,27 @@ class Eye:
     def set_target(self, target: list[float]) -> None:
         """Set `anchor` to a point *and* look at it, in one call."""
         ...
+    def view_along(self, axis: str, orthographic: bool) -> None:
+        """Look straight down an axis at the whole scene, the way a plot does.
+
+        `axis` names either the axis looked along or the plane looked at, since
+        both get typed and mean the same view: `"z"` and `"xy"` are the same
+        call, as are `"x"`/`"yz"` and `"y"`/`"zx"`.
+
+        Orthographic by default, which is the point. A profile read off a
+        perspective view is not measurable -- the near and far sides of a
+        crater are at different scales -- which is why published figures of
+        this kind are orthographic. Pass `orthographic=False` to keep
+        perspective and just get the viewpoint.
+
+        Framing is left to the automatic frustum fit, so the eye's distance is
+        not something to tune. Stops the anchor following a body, if it was:
+        a plane view is about the scene, not about one body.
+
+        Does nothing if there is no geometry loaded yet -- call it after the
+        meshes.
+        """
+        ...
 
 class Projection:
     def is_orthographic(self) -> bool:

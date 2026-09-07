@@ -720,6 +720,7 @@ impl Config {
         self.app.borrow_mut().config.colorbar.x = v;
     }
 
+    /// Inset from the anchor, pixels.
     #[getter]
     fn colorbar_y(&self) -> f32 {
         self.app.borrow().config.colorbar.y

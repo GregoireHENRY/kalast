@@ -73,14 +73,24 @@ class Mesh:
         ...
     def recompute_facets(self) -> None:
         ...
+    values: numpy.object
+    """Call after mutating vertex color/color_mode/extra in place (e.g. a
+    per-facet colormap) to request a GPU re-upload on the next frame.
+    The renderer only re-uploads a mesh's color data when this has been
+    set, so a static-colored mesh never pays that cost after its
+    initial upload -- a script that recolors every frame needs to call
+    this every frame too, the same way sim.export_once() works.
+    Per-facet scalars to colour by, one per facet.
+
+    Set `config.value_mode = True` to use them. Pair with `config.colormap`
+    and, for anything comparative, a pinned `config.value_min`/`value_max`
+    -- an automatic range rescales between frames, so two images of the
+    same scene end up on different colour scales.
+
+    Setting these marks the mesh dirty, so the change reaches the GPU on
+    the next frame without a separate call.
+    """
     def mark_colors_dirty(self) -> None:
-        """Call after mutating vertex color/color_mode/extra in place (e.g. a
-        per-facet colormap) to request a GPU re-upload on the next frame.
-        The renderer only re-uploads a mesh's color data when this has been
-        set, so a static-colored mesh never pays that cost after its
-        initial upload -- a script that recolors every frame needs to call
-        this every frame too, the same way sim.export_once() works.
-        """
         ...
     def is_flat(self) -> bool:
         ...
