@@ -69,6 +69,15 @@ pub struct Editor {
     /// frame stale, which is invisible; the alternative is a blank first
     /// frame at every new size.
     pub viewport_size: (u32, u32),
+    /// Where each panel sits, in egui points, or `NOTHING` when it is not
+    /// shown.
+    ///
+    /// Kept so a revealed panel stays revealed while the pointer is on it:
+    /// the edge strip that summons the right panel is 24 points wide and the
+    /// panel is 240, so "near the edge" stops being true the moment you
+    /// reach for anything in it.
+    panels: [egui::Rect; 4],
+
     /// Where the viewport panel sits, in egui points.
     ///
     /// The scene is an egui `Image`, so egui reports the pointer as its own
@@ -128,6 +137,7 @@ impl Editor {
             viewport_texture: None,
             registered_size: (0, 0),
             registered_generation: u64::MAX,
+            panels: [egui::Rect::NOTHING; 4],
             viewport_rect: egui::Rect::NOTHING,
             viewport_size: (
                 window.inner_size().width.max(1),
@@ -155,6 +165,14 @@ impl Editor {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         surface_view: &wgpu::TextureView,
+        // Size of `surface_view`, which is **not** always the window's. A
+        // fullscreen toggle resizes the window at once, while the swapchain
+        // follows a frame or two later on the `Resized` event. egui laying
+        // out for the window and drawing into the surface meant a scissor
+        // rect wider than the target -- "Scissor Rect { w: 3024 } is not
+        // contained in the render target (1200, 800)" -- which wgpu treats as
+        // fatal.
+        surface_size: (u32, u32),
         scene: &wgpu::Texture,
         scene_size: (u32, u32),
         scene_generation: u64,
@@ -180,9 +198,44 @@ impl Editor {
             self.registered_generation = scene_generation;
         }
 
-        let raw = self.state.take_egui_input(window);
+        let mut raw = self.state.take_egui_input(window);
+        // Lay out for what is being drawn into, not for the window.
+        let ppp = self.ctx.pixels_per_point();
+        let screen = egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(surface_size.0 as f32 / ppp, surface_size.1 as f32 / ppp),
+        );
+        raw.screen_rect = Some(screen);
         let mut wanted = self.viewport_size;
         let mut vp_rect = egui::Rect::NOTHING;
+
+        // Fullscreen means the *renderer* fullscreen: the scene takes the
+        // window and the panels get out of the way, each coming back when the
+        // pointer reaches its edge -- and staying while the pointer is on it,
+        // which the edge test alone would not give.
+        let immersive = config.fullscreen;
+        const EDGE: f32 = 24.0;
+        let pointer = self.ctx.pointer_latest_pos();
+        let panels = self.panels;
+        let reveal = |i: usize, near: bool| -> bool {
+            if !immersive {
+                return true;
+            }
+            match pointer {
+                Some(p) => near || panels[i].contains(p),
+                None => false,
+            }
+        };
+        let (show_top, show_bottom, show_left, show_right) = match pointer {
+            Some(p) => (
+                reveal(0, p.y <= screen.top() + EDGE),
+                reveal(1, p.y >= screen.bottom() - EDGE),
+                reveal(2, p.x <= screen.left() + EDGE),
+                reveal(3, p.x >= screen.right() - EDGE),
+            ),
+            None => (!immersive, !immersive, !immersive, !immersive),
+        };
+        let mut rects = [egui::Rect::NOTHING; 4];
         let texture_id = self.viewport_texture;
         let script = &mut self.script;
         let script_path = &mut self.script_path;
@@ -198,7 +251,8 @@ impl Editor {
         let output = self.ctx.run_ui(raw, |ui_root| {
             let ppp = ui_root.ctx().pixels_per_point();
 
-            egui::Panel::top("toolbar").show(ui_root, |ui| {
+            if show_top {
+            rects[0] = egui::Panel::top("toolbar").show(ui_root, |ui| {
                 ui.horizontal(|ui| {
                     // Play is the only way to start. A separate Run was the
                     // same button twice: both meant "go", and you had to press
@@ -264,9 +318,11 @@ impl Editor {
                     ui.label(format!("{its:.0} it/s"));
                     ui.weak(format!("{iteration_rate:.0} fps"));
                 });
-            });
+            }).response.rect;
+            }
 
-            egui::Panel::bottom("log")
+            if show_bottom {
+            rects[1] = egui::Panel::bottom("log")
                 .resizable(true)
                 .default_size(160.0)
                 .min_size(120.0)
@@ -284,9 +340,11 @@ impl Editor {
                                 ui.label(egui::RichText::new(line).monospace());
                             }
                         });
-                });
+                }).response.rect;
+            }
 
-            egui::Panel::left("script")
+            if show_left {
+            rects[2] = egui::Panel::left("script")
                 .resizable(true)
                 .default_size(300.0)
                 .min_size(180.0)
@@ -340,12 +398,13 @@ impl Editor {
                             *dirty = true;
                             // What is running is no longer what is shown.
                             *ran = false;
-
                         }
                     });
-                });
+                }).response.rect;
+            }
 
-            egui::Panel::right("config")
+            if show_right {
+            rects[3] = egui::Panel::right("config")
                 .resizable(true)
                 .default_size(240.0)
                 .min_size(180.0)
@@ -358,7 +417,8 @@ impl Editor {
                         // remembering to add one here.
                         config_panel::config_panel(ui, config);
                     });
-                });
+                }).response.rect;
+            }
 
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
@@ -391,6 +451,7 @@ impl Editor {
 
         self.viewport_size = wanted;
         self.viewport_rect = vp_rect;
+        self.panels = rects;
         self.run_request |= run_request;
         self.restart_request |= restart_request;
         self.open_request |= open_request;
@@ -402,7 +463,7 @@ impl Editor {
             .ctx
             .tessellate(output.shapes, output.pixels_per_point);
         let desc = egui_wgpu::ScreenDescriptor {
-            size_in_pixels: [window.inner_size().width, window.inner_size().height],
+            size_in_pixels: [surface_size.0, surface_size.1],
             pixels_per_point: output.pixels_per_point,
         };
 

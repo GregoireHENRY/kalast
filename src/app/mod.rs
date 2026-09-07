@@ -1228,6 +1228,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                             &win.device,
                             &win.queue,
                             &view,
+                            (win.surface_config.width, win.surface_config.height),
                             &win.passes.render.render_texture,
                             scene_size,
                             scene_generation,

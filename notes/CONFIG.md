@@ -174,6 +174,17 @@ Open the window in native fullscreen on the current monitor —
 its own Space.
 Accepted: `True` / `False`.
 
+**In the editor it means the *renderer* fullscreen.** The scene takes the
+whole window and the panels get out of the way, each coming back when the
+pointer reaches its edge — top for the toolbar, left for the script, right for
+the config, bottom for the log — and staying while the pointer is on it.
+Measured on a 1400×900 window: the viewport goes from 320×614 to 3024×1898,
+the whole display.
+
+The edge strip is 24 points. It is deliberately not enough on its own to keep
+a panel open, since the right panel is 240 wide and reaching for anything in
+it would leave the strip; a panel stays while the pointer is anywhere over it.
+
 **Prefer this to toggling fullscreen after launch.** The two are not
 equivalent, and the difference is measurable:
 
