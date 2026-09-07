@@ -64,6 +64,7 @@ image = { version = "0.25.10", default-features = false, features = [
 egui = "0.36"
 egui-wgpu = "0.36"
 egui-winit = "0.36"
+libc = "0.2.189"
 
 
 [dev-dependencies]

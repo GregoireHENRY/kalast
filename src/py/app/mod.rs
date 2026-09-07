@@ -242,6 +242,14 @@ impl App {
         self.shared.borrow_mut().script_ran = v;
     }
 
+    /// Put stdout and stderr back and flush anything still buffered.
+    ///
+    /// `kalast.editor.capture_output` registers this with `atexit`, so a
+    /// script's last words reach the terminal. Safe to call more than once.
+    fn flush_output(&self) {
+        self.inner.borrow_mut().flush_output();
+    }
+
     /// Append a line to the editor's log panel, or to stdout without one.
     fn log(&self, line: &str) {
         self.shared.borrow_mut().log.push(line);

@@ -147,6 +147,13 @@ class App:
     is a pause toggle. A launcher that has already executed the script
     sets this, so Play does not offer to run it a second time.
     """
+    def flush_output(self) -> None:
+        """Put stdout and stderr back and flush anything still buffered.
+
+        `kalast.editor.capture_output` registers this with `atexit`, so a
+        script's last words reach the terminal. Safe to call more than once.
+        """
+        ...
     def log(self, line: str) -> None:
         """Append a line to the editor's log panel, or to stdout without one."""
         ...

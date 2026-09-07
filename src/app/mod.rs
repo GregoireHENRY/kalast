@@ -173,6 +173,10 @@ pub struct App {
     /// against. `None` until there is a window.
     realised: Option<Realised>,
 
+    /// stdout and stderr, mirrored into the log panel. Editor only: a
+    /// terminal run's output belongs on the terminal, untouched.
+    stdio: Option<crate::app::gui::StdioCapture>,
+
     /// The editor shell. `None` for a terminal run, which is every script
     /// that calls `start()` or `step()` -- those keep drawing the scene
     /// straight to the swapchain, unchanged.
@@ -402,6 +406,7 @@ impl App {
             frame_drawn: false,
             realised: None,
             editor: None,
+            stdio: None,
             want_editor: false,
             event_loop_built: false,
         }
@@ -468,6 +473,17 @@ impl App {
             }
             None => self.shared.borrow_mut().pending_script = Some((path, source)),
         }
+    }
+
+    /// Put stdout and stderr back and flush what is left in the pipe.
+    ///
+    /// Called at exit rather than left to `Drop`, which does not run: a
+    /// callback's `__globals__` refers to the app, so the app refers to
+    /// itself through Python, and a `#[pyclass]` is opaque to Python's cycle
+    /// collector. The app is never freed and the last thing a script printed
+    /// went with the pipe.
+    pub fn flush_output(&mut self) {
+        self.stdio = None; // `Drop` restores and flushes
     }
 
     /// Append a line to the editor's log panel.
@@ -979,6 +995,9 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 editor.script = source;
             }
             self.editor = Some(editor);
+            // Only now, so a run that never opens an editor keeps its
+            // descriptors as they were.
+            self.stdio = crate::app::gui::StdioCapture::new();
         }
     }
 
@@ -1099,6 +1118,10 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 // Before anything reads the config this frame, so a value
                 // changed between two `step()`s takes effect on this frame
                 // rather than the next.
+                if let Some(stdio) = self.stdio.as_mut() {
+                    stdio.drain(&mut self.shared.borrow_mut().log);
+                }
+
                 self.apply_live_config();
 
                 let now = std::time::Instant::now();

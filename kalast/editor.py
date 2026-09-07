@@ -12,7 +12,7 @@ already inside. Everything else -- config, meshes, camera, callbacks -- works
 as written. That is the point: one file runs from a terminal and from here.
 """
 
-import io
+import atexit
 import sys
 import traceback
 import types
@@ -68,40 +68,32 @@ class _EditorApp:
         )
 
 
-class _Tee(io.TextIOBase):
-    """Send writes to the editor log and to the real stream.
-
-    Both, not either: the panel is what you watch while working, the terminal
-    is what survives the window closing.
-    """
-
-    def __init__(self, app: Any, real: Any) -> None:
-        self._app = app
-        self._real = real
-        self._buf = ""
-
-    def write(self, text: str) -> int:
-        self._real.write(text)
-        self._buf += text
-        while "\n" in self._buf:
-            line, self._buf = self._buf.split("\n", 1)
-            self._app.log(line)
-        return len(text)
-
-    def flush(self) -> None:
-        self._real.flush()
-
-
 def capture_output(app: Any) -> None:
-    """Mirror `print` and tracebacks into the editor's log panel.
+    """Make Python's output reach the editor's log panel promptly.
 
-    Left installed for the life of the process, so a callback's output keeps
-    arriving every frame after the script that set it has finished.
+    The mirroring itself is done in Rust, a level below this: the editor
+    points stdout and stderr at a pipe and drains it into the panel each
+    frame, then writes it on to the real stdout. That catches the renderer's
+    own output as well -- `H` printing the camera, the mesh loader, the
+    `debug_*` flags -- which a Python-level tee never saw, since those are
+    `println!` straight to the file descriptor.
+
+    What is left to do here is buffering. Python block-buffers stdout when it
+    is not a terminal, and it is a pipe now, so `print` would arrive in
+    kilobyte lumps long after the fact. Line buffering puts it back.
     """
-    if not isinstance(sys.stdout, _Tee):
-        sys.stdout = _Tee(app, sys.stdout)
-    if not isinstance(sys.stderr, _Tee):
-        sys.stderr = _Tee(app, sys.stderr)
+    # The editor's capture cannot be left to Rust's `Drop`: a callback's
+    # globals refer to the app, so the app refers to itself through Python and
+    # is never collected. Without this the last line a script prints is lost
+    # with the pipe.
+    atexit.register(app.flush_output)
+
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(line_buffering=True)
+        except (AttributeError, ValueError):
+            # Not a text stream, or already replaced by something else.
+            pass
 
 
 class _Restart(BaseException):

@@ -109,6 +109,29 @@ pub struct Editor {
     /// frame stale, which is invisible; the alternative is a blank first
     /// frame at every new size.
     pub viewport_size: (u32, u32),
+    /// Whether each docked panel is open: top, bottom, left, right.
+    ///
+    /// egui flips these itself -- dragging a resize handle past the panel's
+    /// minimum shuts it, and the thin handle it leaves behind at the edge
+    /// drags it back, as does a double click. The state has to live somewhere
+    /// that outlasts a frame, which is here.
+    ///
+    /// The toolbar is not resizable and is always open.
+    docked_open: [bool; 4],
+
+    /// How big each floating panel is: top, bottom, left, right.
+    ///
+    /// Kept here because a floating panel is an `Area`, which has none of a
+    /// docked panel's resize machinery -- so it is dragged by a strip drawn
+    /// on its inner edge and the size remembered between reveals.
+    float_sizes: [f32; 4],
+    /// Which floating panel is being dragged, if any.
+    ///
+    /// It has to stay revealed while it is: a drag wanders off the panel
+    /// almost immediately, and losing the panel mid-drag would make it
+    /// impossible to make one bigger.
+    resizing: Option<usize>,
+
     /// Where each panel sits, in egui points, or `NOTHING` when it is not
     /// shown.
     ///
@@ -178,6 +201,9 @@ impl Editor {
             registered_size: (0, 0),
             registered_generation: u64::MAX,
             panels: [egui::Rect::NOTHING; 4],
+            docked_open: [true; 4],
+            float_sizes: [30.0, 160.0, 300.0, 240.0],
+            resizing: None,
             viewport_rect: egui::Rect::NOTHING,
             viewport_size: (
                 window.inner_size().width.max(1),
@@ -259,9 +285,17 @@ impl Editor {
         // inside the window, the other about the window itself.
         let immersive = app_config.focus;
         let pointer = self.ctx.pointer_latest_pos();
-        let [show_top, show_bottom, show_left, show_right] =
-            reveal_panels(immersive, pointer, screen, &self.panels);
+        let mut shows = reveal_panels(immersive, pointer, screen, &self.panels);
+        // Whatever is being dragged stays up, wherever the pointer has got to.
+        if let Some(i) = self.resizing {
+            shows[i] = true;
+        }
+        let [show_top, show_bottom, show_left, show_right] = shows;
         let mut rects = [egui::Rect::NOTHING; 4];
+        let mut out_sizes = self.float_sizes;
+        let mut out_resizing = self.resizing;
+        let open_docked = self.docked_open;
+        let mut out_open = self.docked_open;
         // Read before the panel closures are built: the toolbar needs to know
         // whether there is a script, the script panel needs the buffer, and
         // one cannot borrow it while the other holds it.
@@ -468,26 +502,95 @@ impl Editor {
             // over it. In focus mode no side panel takes anything, so the
             // central panel is the whole window and revealing one does not
             // resize the render target.
+            let (screen_w, screen_h) = (screen.width(), screen.height());
             let float = |ctx: &egui::Context,
                          id: &'static str,
                          rect: egui::Rect,
+                         side: usize,
+                         size: &mut f32,
+                         resizing: &mut Option<usize>,
                          add: &mut dyn FnMut(&mut egui::Ui)| -> egui::Rect {
                 egui::Area::new(id.into())
                     .order(egui::Order::Foreground)
                     .fixed_pos(rect.min)
                     .show(ctx, |ui| {
                         ui.set_max_size(rect.size());
-                        egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        let framed = egui::Frame::popup(ui.style()).show(ui, |ui| {
                             ui.set_min_size(rect.size());
                             add(ui);
                         });
+
+                        // A grab strip on the inner edge, standing in for the
+                        // resize handle a docked panel has and an `Area` does
+                        // not.
+                        //
+                        // Measured from where the panel actually ended up, not
+                        // from the rect it was asked for: the frame adds its
+                        // own margins and a short panel does not fill the
+                        // height it was given, so a handle placed from the
+                        // request sat away from the edge it belongs to.
+                        let actual = framed.response.rect;
+                        const GRAB: f32 = 6.0;
+                        let strip = match side {
+                            0 => egui::Rect::from_min_max(
+                                egui::pos2(actual.left(), actual.bottom() - GRAB),
+                                actual.max,
+                            ),
+                            1 => egui::Rect::from_min_max(
+                                actual.min,
+                                egui::pos2(actual.right(), actual.top() + GRAB),
+                            ),
+                            2 => egui::Rect::from_min_max(
+                                egui::pos2(actual.right() - GRAB, actual.top()),
+                                actual.max,
+                            ),
+                            _ => egui::Rect::from_min_max(
+                                actual.min,
+                                egui::pos2(actual.left() + GRAB, actual.bottom()),
+                            ),
+                        };
+                        let grab = ui.interact(
+                            strip,
+                            ui.id().with("grab"),
+                            egui::Sense::drag(),
+                        );
+                        if grab.hovered() || grab.dragged() {
+                            ui.ctx().set_cursor_icon(if side < 2 {
+                                egui::CursorIcon::ResizeVertical
+                            } else {
+                                egui::CursorIcon::ResizeHorizontal
+                            });
+                        }
+                        if grab.dragged() {
+                            let d = grab.drag_delta();
+                            *size += match side {
+                                0 => d.y,
+                                1 => -d.y,
+                                2 => d.x,
+                                _ => -d.x,
+                            };
+                            // Never past the window, and never negative --
+                            // dragged shut is a legitimate place to leave one.
+                            // Never larger than the window, and never
+                            // negative -- dragged shut is a fine place to
+                            // leave one.
+                            let limit = if side < 2 { screen_h } else { screen_w };
+                            *size = size.clamp(0.0, limit);
+                            *resizing = Some(side);
+                        }
+                        if grab.drag_stopped() {
+                            *resizing = None;
+                        }
                     })
                     .response
                     .rect
             };
 
-            // Sizes for the floating panels, mirroring the docked ones.
-            let (top_h, bottom_h, left_w, right_w) = (30.0, 160.0, 300.0, 240.0);
+            // Remembered between reveals, so a panel dragged wider stays
+            // wider the next time the pointer summons it.
+            let mut sizes = self.float_sizes;
+            let mut resizing = self.resizing;
+            let [top_h, bottom_h, left_w, right_w] = sizes;
 
             let scene_panel = |ui_root: &mut egui::Ui,
                                vp_rect: &mut egui::Rect,
@@ -515,50 +618,62 @@ impl Editor {
                 if show_top {
                     let r =
                         egui::Rect::from_min_size(screen.min, egui::vec2(screen.width(), top_h));
-                    rects[0] = float(&ctx, "toolbar", r, &mut toolbar_ui);
+                    rects[0] = float(&ctx, "toolbar", r, 0, &mut sizes[0], &mut resizing, &mut toolbar_ui);
                 }
                 if show_bottom {
                     let r = egui::Rect::from_min_size(
                         egui::pos2(screen.left(), screen.bottom() - bottom_h),
                         egui::vec2(screen.width(), bottom_h),
                     );
-                    rects[1] = float(&ctx, "log", r, &mut log_ui);
+                    rects[1] = float(&ctx, "log", r, 1, &mut sizes[1], &mut resizing, &mut log_ui);
                 }
                 if show_left {
                     let r =
                         egui::Rect::from_min_size(screen.min, egui::vec2(left_w, screen.height()));
-                    rects[2] = float(&ctx, "script", r, &mut script_ui);
+                    rects[2] = float(&ctx, "script", r, 2, &mut sizes[2], &mut resizing, &mut script_ui);
                 }
                 if show_right {
                     let r = egui::Rect::from_min_size(
                         egui::pos2(screen.right() - right_w, screen.top()),
                         egui::vec2(right_w, screen.height()),
                     );
-                    rects[3] = float(&ctx, "config", r, &mut config_ui);
+                    rects[3] = float(&ctx, "config", r, 3, &mut sizes[3], &mut resizing, &mut config_ui);
                 }
+                out_sizes = sizes;
+                out_resizing = resizing;
             } else {
                 rects[0] = egui::Panel::top("toolbar").show(ui_root, toolbar_ui).response.rect;
+                // `show_collapsible`, not `show`: dragging a resize handle
+                // past the minimum shuts the panel, and a thin handle stays at
+                // the window edge to drag it back -- the way an editor's side
+                // bars work. Double clicking the edge toggles it too.
+                //
+                // `min_size` is the threshold it collapses past, so it is a
+                // real size again rather than the 0.0 that made "closed" and
+                // "very narrow" the same thing and left nothing to grab.
+                let mut open = open_docked;
                 rects[1] = egui::Panel::bottom("log")
                     .resizable(true)
                     .default_size(bottom_h)
                     .min_size(120.0)
-                    .show(ui_root, log_ui)
-                    .response
-                    .rect;
+                    .show_collapsible(ui_root, &mut open[1], log_ui)
+                    .map(|r| r.response.rect)
+                    .unwrap_or(egui::Rect::NOTHING);
                 rects[2] = egui::Panel::left("script")
                     .resizable(true)
                     .default_size(left_w)
                     .min_size(180.0)
-                    .show(ui_root, script_ui)
-                    .response
-                    .rect;
+                    .show_collapsible(ui_root, &mut open[2], script_ui)
+                    .map(|r| r.response.rect)
+                    .unwrap_or(egui::Rect::NOTHING);
                 rects[3] = egui::Panel::right("config")
                     .resizable(true)
                     .default_size(right_w)
                     .min_size(180.0)
-                    .show(ui_root, config_ui)
-                    .response
-                    .rect;
+                    .show_collapsible(ui_root, &mut open[3], config_ui)
+                    .map(|r| r.response.rect)
+                    .unwrap_or(egui::Rect::NOTHING);
+                out_open = open;
                 scene_panel(ui_root, &mut vp_rect, &mut wanted);
             }
         });
@@ -566,6 +681,9 @@ impl Editor {
         self.viewport_size = wanted;
         self.viewport_rect = vp_rect;
         self.panels = rects;
+        self.float_sizes = out_sizes;
+        self.resizing = out_resizing;
+        self.docked_open = out_open;
         self.run_request |= run_request;
         self.restart_request |= restart_request;
         self.open_request |= open_request;
@@ -629,9 +747,17 @@ impl Editor {
         if self.ctx.egui_is_using_pointer() {
             return false;
         }
-        self.ctx
-            .pointer_latest_pos()
-            .is_some_and(|p| self.viewport_rect.contains(p))
+        let Some(p) = self.ctx.pointer_latest_pos() else {
+            return false;
+        };
+        if !self.viewport_rect.contains(p) {
+            return false;
+        }
+        // And not over a panel drawn on top of it. In focus mode the viewport
+        // *is* the whole window, so the rect test alone put every panel on the
+        // scene's side -- and scrolling the script zoomed the render, which is
+        // the thing the docked layout had already been fixed not to do.
+        !self.panels.iter().any(|r| r.contains(p))
     }
 
     /// Give a window event to the UI first.
@@ -714,5 +840,139 @@ mod reveal_tests {
     #[test]
     fn no_pointer_shows_nothing_in_focus_mode() {
         assert_eq!(reveal_panels(true, None, screen(), &nothing()), [false; 4]);
+    }
+}
+
+/// Everything written to stdout and stderr, mirrored into the log panel.
+///
+/// The panel used to be fed by teeing Python's `sys.stdout`, which caught
+/// `print` and tracebacks and nothing else. The renderer's own output --
+/// `H` printing the camera, the mesh loader, every `debug_*` flag -- is
+/// `println!` from Rust, straight to file descriptor 1, and never went near
+/// Python. Pressing `H` and seeing nothing in the log is what that looks
+/// like.
+///
+/// So it is captured a level down, where both end up: the descriptors are
+/// pointed at a pipe, and each frame drains it into the log **and** writes it
+/// on to the real stdout, so a terminal still shows everything it did.
+pub struct StdioCapture {
+    reader: std::fs::File,
+    /// The original stdout, kept so output still reaches the terminal.
+    tty: std::fs::File,
+    /// Bytes seen since the last newline.
+    partial: String,
+}
+
+impl StdioCapture {
+    /// Redirect stdout and stderr into a pipe. `None` if that fails, in which
+    /// case output keeps going to the terminal and the panel stays empty --
+    /// worth nobody's run failing over.
+    pub fn new() -> Option<Self> {
+        use std::os::fd::{AsRawFd as _, FromRawFd as _};
+
+        let (reader, writer) = std::io::pipe().ok()?;
+        // SAFETY: plain descriptor calls. `dup` copies the current stdout so
+        // it can be written to afterwards; `dup2` points 1 and 2 at the pipe.
+        // A negative return means the redirect did not happen, and the
+        // original descriptors are untouched.
+        unsafe {
+            let saved = libc::dup(libc::STDOUT_FILENO);
+            if saved < 0 {
+                return None;
+            }
+            if libc::dup2(writer.as_raw_fd(), libc::STDOUT_FILENO) < 0
+                || libc::dup2(writer.as_raw_fd(), libc::STDERR_FILENO) < 0
+            {
+                libc::dup2(saved, libc::STDOUT_FILENO);
+                libc::close(saved);
+                return None;
+            }
+            // Non-blocking, so draining never stalls a frame waiting for a
+            // line nobody is going to write.
+            let flags = libc::fcntl(reader.as_raw_fd(), libc::F_GETFL);
+            libc::fcntl(reader.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK);
+
+            Some(Self {
+                reader: std::fs::File::from_raw_fd({
+                    let fd = reader.as_raw_fd();
+                    std::mem::forget(reader);
+                    fd
+                }),
+                tty: std::fs::File::from_raw_fd(saved),
+                partial: String::new(),
+            })
+        }
+    }
+
+    /// Give stdout and stderr back, flushing whatever is still in the pipe.
+    ///
+    /// Not optional: the tee back to the terminal happens in `drain`, so
+    /// anything written after the last frame -- which includes everything a
+    /// script prints on its way out -- would be swallowed with the pipe. A
+    /// test that printed its result and stopped saw nothing at all.
+    fn restore(&mut self) {
+        use std::io::{Read as _, Write as _};
+        use std::os::fd::AsRawFd as _;
+
+        // Descriptors first, so anything printed from here on goes straight
+        // out rather than into a pipe nobody will read again.
+        // SAFETY: putting back the descriptor saved in `new`.
+        unsafe {
+            libc::dup2(self.tty.as_raw_fd(), libc::STDOUT_FILENO);
+            libc::dup2(self.tty.as_raw_fd(), libc::STDERR_FILENO);
+        }
+
+        // Read in the same non-blocking loop `drain` uses. `read_to_end`
+        // gives up the moment the pipe would block, which on a pipe with no
+        // writer left is immediately -- so the last thing a script printed,
+        // the line it exists to report, went nowhere.
+        let mut buf = [0u8; 8192];
+        loop {
+            match self.reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let _ = self.tty.write_all(&buf[..n]);
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(_) => break,
+            }
+        }
+        if !self.partial.is_empty() {
+            let _ = self.tty.write_all(self.partial.as_bytes());
+            self.partial.clear();
+        }
+        let _ = self.tty.flush();
+    }
+
+    /// Move whatever has been written since last time into the log.
+    pub fn drain(&mut self, log: &mut Log) {
+        use std::io::{Read as _, Write as _};
+
+        let mut buf = [0u8; 8192];
+        loop {
+            match self.reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    // On to the real stdout as well: the terminal is what
+                    // survives the window closing.
+                    let _ = self.tty.write_all(&buf[..n]);
+                    let _ = self.tty.flush();
+                    self.partial.push_str(&String::from_utf8_lossy(&buf[..n]));
+                    while let Some(i) = self.partial.find('\n') {
+                        let line: String = self.partial.drain(..=i).collect();
+                        log.push(line.trim_end_matches(['\n', '\r']));
+                    }
+                }
+                // Nothing waiting, which is the usual case.
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(_) => break,
+            }
+        }
+    }
+}
+
+impl Drop for StdioCapture {
+    fn drop(&mut self) {
+        self.restore();
     }
 }
