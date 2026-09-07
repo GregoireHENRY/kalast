@@ -140,6 +140,51 @@ impl App {
         self.shared.borrow_mut().run_requested = true;
     }
 
+    /// Take a script the editor's Play button has asked to run, if any.
+    ///
+    /// Returns `(path, source)` once per request, or `None`. Call it
+    /// **between** frames and execute what comes back:
+    ///
+    /// ```python
+    /// while app.step():
+    ///     asked = app.take_script_request()
+    ///     if asked:
+    ///         kalast.editor.run_toplevel(app, asked[1], asked[0])
+    /// ```
+    ///
+    /// The frame cannot run a script itself: one that drives its own
+    /// `while app.step():` would be a loop nested inside the frame it is
+    /// trying to drive. Between frames it runs as the program it is,
+    /// whatever shape it has.
+    fn take_script_request(&self) -> Option<(String, String)> {
+        self.shared.borrow_mut().script_pending.take()
+    }
+
+    /// Whether a run has been asked for and not yet taken.
+    ///
+    /// A peek, unlike `take_script_request`, so a script that is driving its
+    /// own loop can notice the request without consuming it and unwind back
+    /// to whoever owns the loop.
+    #[getter]
+    fn script_requested(&self) -> bool {
+        self.shared.borrow().script_pending.is_some()
+    }
+
+    /// Whether the script in the editor's buffer is the one that is running.
+    ///
+    /// Drives the Play button: `False` and it runs the script, `True` and it
+    /// is a pause toggle. A launcher that has already executed the script
+    /// sets this, so Play does not offer to run it a second time.
+    #[getter]
+    fn script_ran(&self) -> bool {
+        self.shared.borrow().script_ran
+    }
+
+    #[setter]
+    fn set_script_ran(&self, v: bool) {
+        self.shared.borrow_mut().script_ran = v;
+    }
+
     /// Append a line to the editor's log panel, or to stdout without one.
     fn log(&self, line: &str) {
         self.shared.borrow_mut().log.push(line);

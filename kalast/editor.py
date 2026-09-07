@@ -104,6 +104,51 @@ def capture_output(app: Any) -> None:
         sys.stderr = _Tee(app, sys.stderr)
 
 
+class _Restart(BaseException):
+    """Unwind a running script because another has been asked for.
+
+    `BaseException`, not `Exception`: a script with a broad `except` around
+    its loop should not be able to swallow the request and carry on.
+    """
+
+
+class _ScriptApp:
+    """The live app, with `step()` watching for a new run request.
+
+    A script that drives its own loop holds it for as long as it wants, so
+    Play on a *different* script would otherwise not be seen until the first
+    one finished -- which for a long run is never. Checking on each step and
+    unwinding hands the loop back to whoever owns it.
+    """
+
+    __slots__ = ("_app",)
+
+    def __init__(self, app: Any) -> None:
+        object.__setattr__(self, "_app", app)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(object.__getattribute__(self, "_app"), name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        setattr(object.__getattribute__(self, "_app"), name, value)
+
+    def step(self) -> bool:
+        app = object.__getattribute__(self, "_app")
+        alive = app.step()
+        if app.script_requested:
+            raise _Restart
+        return alive
+
+    def start(self) -> None:
+        # `start()` owns the loop in Rust and cannot be unwound from Python,
+        # so it is run as `while step():` instead -- the same frames, with a
+        # check between them.
+        app = object.__getattribute__(self, "_app")
+        while self.step():
+            if not app.running:
+                break
+
+
 def run_toplevel(app: Any, source: str, path: str) -> None:
     """Execute a script as the program, with the editor drawn around it.
 
@@ -120,14 +165,21 @@ def run_toplevel(app: Any, source: str, path: str) -> None:
     module.__name__ = "__main__"
     module.__dict__["kalast"] = kalast
 
+    proxy = _ScriptApp(app)
+
     def _live_app(*_args: Any, **_kwargs: Any) -> Any:
-        return app
+        return proxy
 
     real_app_cls = kalast.app.App
     kalast.app.App = _live_app
     try:
         exec(compile(source, module.__file__, "exec"), module.__dict__)  # noqa: S102
+    except _Restart:
+        # Another script was asked for. Not an error, and not printed.
+        pass
     except BaseException:
+        # Printed, not raised: a mistake in the buffer should show up in the
+        # log panel, not take the window down.
         traceback.print_exc()
     finally:
         kalast.app.App = real_app_cls

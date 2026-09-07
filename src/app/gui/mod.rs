@@ -74,11 +74,6 @@ pub struct Editor {
     pub script_path: String,
     /// Set when the buffer differs from what was last read or written.
     pub script_dirty: bool,
-    /// Whether the buffer on screen is what is actually running.
-    ///
-    /// Cleared by an edit or an open, so Play re-runs after a change rather
-    /// than resuming a scene built from text that is no longer on screen.
-    pub script_ran: bool,
     /// Raised by the buttons, drained by the app, which owns the Python
     /// side. The UI cannot run anything itself -- it has no interpreter and
     /// no business holding the GIL mid-layout.
@@ -126,7 +121,6 @@ impl Editor {
             script: String::new(),
             script_path: String::new(),
             script_dirty: false,
-            script_ran: false,
             run_request: false,
             open_request: false,
             save_request: false,
@@ -149,7 +143,7 @@ impl Editor {
         scene_size: (u32, u32),
         config: &mut crate::app::config::Config,
         state: &mut crate::app::simulation::State,
-        log: &mut Log,
+        shared: &mut crate::app::Shared,
         iteration_rate: f32,
     ) -> (u32, u32) {
         // Re-register only when the texture behind it is a different one. A
@@ -171,9 +165,10 @@ impl Editor {
         let script = &mut self.script;
         let script_path = &mut self.script_path;
         let script_dirty = self.script_dirty;
-        let script_ran = self.script_ran;
+        let script_ran = shared.script_ran;
+        let log = &mut shared.log;
         let dirty = &mut self.script_dirty;
-        let ran = &mut self.script_ran;
+        let ran = &mut shared.script_ran;
         let (mut run_request, mut open_request, mut save_request) = (false, false, false);
 
         let output = self.ctx.run_ui(raw, |ui_root| {
@@ -315,6 +310,7 @@ impl Editor {
                             *dirty = true;
                             // What is running is no longer what is shown.
                             *ran = false;
+
                         }
                     });
                 });

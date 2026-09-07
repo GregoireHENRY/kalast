@@ -73,6 +73,39 @@ class App:
         script.py --run` opens straight into a running scene.
         """
         ...
+    def take_script_request(self) -> tuple[str, str] | None:
+        """Take a script the editor's Play button has asked to run, if any.
+
+        Returns `(path, source)` once per request, or `None`. Call it
+        **between** frames and execute what comes back:
+
+        ```python
+        while app.step():
+            asked = app.take_script_request()
+            if asked:
+                kalast.editor.run_toplevel(app, asked[1], asked[0])
+        ```
+
+        The frame cannot run a script itself: one that drives its own
+        `while app.step():` would be a loop nested inside the frame it is
+        trying to drive. Between frames it runs as the program it is,
+        whatever shape it has.
+        """
+        ...
+    script_requested: bool
+    """Whether a run has been asked for and not yet taken.
+
+    A peek, unlike `take_script_request`, so a script that is driving its
+    own loop can notice the request without consuming it and unwind back
+    to whoever owns the loop.
+    """
+    script_ran: bool
+    """Whether the script in the editor's buffer is the one that is running.
+
+    Drives the Play button: `False` and it runs the script, `True` and it
+    is a pause toggle. A launcher that has already executed the script
+    sets this, so Play does not offer to run it a second time.
+    """
     def log(self, line: str) -> None:
         """Append a line to the editor's log panel, or to stdout without one."""
         ...

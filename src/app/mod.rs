@@ -55,10 +55,20 @@ pub struct Shared {
     /// Lines for the editor's log panel. Here rather than on the editor so
     /// `app.log()` works before the window exists as well as during the run.
     pub log: crate::app::gui::Log,
-    /// A run asked for from outside the UI -- `app.run_script()`, and so
-    /// `python -m kalast script.py --run`. Here rather than on the editor
-    /// because it can be raised before the window exists.
+    /// A run asked for from outside the UI -- `app.run_script()`. Here
+    /// rather than on the editor because it can be raised before the window
+    /// exists.
     pub run_requested: bool,
+    /// A script the UI has asked to run, waiting for the caller to take it.
+    ///
+    /// The frame cannot run it: a driven script's own loop cannot nest inside
+    /// the frame that is drawing it. So Play leaves it here and the loop
+    /// owner picks it up *between* frames, where the script runs as the
+    /// program it is -- whichever shape it has.
+    pub script_pending: Option<(String, String)>,
+    /// Whether the buffer on screen is what is actually running. Here rather
+    /// than on the editor so a launcher can set it before the window exists.
+    pub script_ran: bool,
 }
 
 impl Shared {
@@ -72,6 +82,8 @@ impl Shared {
             pending_script: None,
             log: crate::app::gui::Log::new(2000),
             run_requested: false,
+            script_pending: None,
+            script_ran: false,
         }
     }
 }
@@ -620,6 +632,8 @@ impl App {
         let mut messages: Vec<String> = Vec::new();
         let mut opened: Option<String> = None;
         let mut saved = false;
+        // A file just read is not what is running.
+        let mut fresh = false;
 
         if open {
             match std::fs::read_to_string(&path) {
@@ -645,61 +659,39 @@ impl App {
             if let Some(editor) = self.editor.as_mut() {
                 if let Some(text) = opened {
                     editor.script = text;
-                    // A file just read is not what is running.
-                    editor.script_ran = false;
+                    fresh = true;
                 }
                 editor.script_dirty = false;
+            }
+            if fresh {
+                self.shared.borrow_mut().script_ran = false;
             }
         }
 
         if run {
-            // Cloned out under a borrow that ends here, so the call itself --
-            // arbitrary Python, which will reach back into this app -- runs
-            // with nothing of ours held.
-            let runner = Python::attach(|py| {
-                self.shared
-                    .borrow()
-                    .script_runner
-                    .as_ref()
-                    .map(|r| (r.callback.clone_ref(py), r.app.clone()))
-            });
-
-            match runner {
-                None => messages.push("no script runner installed".to_string()),
-                Some((callback, app)) => {
-                    // A script *builds* the scene, so it starts from an empty
-                    // one. Without this, pressing Play twice loads the meshes
-                    // twice and the bodies stack up.
-                    {
-                        let mut sim = self.simulation.borrow_mut();
-                        sim.bodies.clear();
-                        sim.huds.clear();
-                        sim.state.iteration = 0;
-                    }
-                    let result = Python::attach(|py| {
-                        callback
-                            .call1(py, (app, source, path.clone()))
-                            .map_err(|e| e.to_string())
-                    });
-                    match result {
-                        Ok(_) => {
-                            messages.push(format!("ran {path}"));
-                            // Play runs and starts in one press; there is no
-                            // second button to go and find.
-                            self.simulation.borrow_mut().state.is_paused = false;
-                            if let Some(editor) = self.editor.as_mut() {
-                                editor.script_ran = true;
-                            }
-                        }
-                        Err(e) => messages.extend(e.lines().map(str::to_string)),
-                    }
-                }
-            }
+            // Not executed here. This is inside a frame, and a script that
+            // drives its own `while app.step():` cannot run inside one -- it
+            // would be a loop inside the loop it is trying to drive, which is
+            // exactly what froze the window.
+            //
+            // So the request is left standing for the caller to take between
+            // frames, where a script of either shape runs as the program it
+            // is. `App::take_script_request` is that handoff.
+            self.shared.borrow_mut().script_pending = Some((path.clone(), source));
         }
 
         for m in messages {
             self.log(&m);
         }
+    }
+
+    /// Take a script the UI has asked to run, if there is one.
+    ///
+    /// Call it between frames -- `while app.step(): ...` -- and execute what
+    /// comes back. Doing it there rather than inside the frame is what lets a
+    /// script drive its own loop.
+    pub fn take_script_request(&mut self) -> Option<(String, String)> {
+        self.shared.borrow_mut().script_pending.take()
     }
 
     /// Ask the window to close. The next `step()` returns `false`.
@@ -868,7 +860,6 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
             if let Some((path, source)) = self.shared.borrow_mut().pending_script.take() {
                 editor.script_path = path;
                 editor.script = source;
-                editor.script_ran = false;
             }
             self.editor = Some(editor);
         }
@@ -1111,7 +1102,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                             scene_size,
                             &mut sim_cfg.borrow_mut(),
                             &mut sim.state,
-                            &mut self.shared.borrow_mut().log,
+                            &mut self.shared.borrow_mut(),
                             self.fps_shown as f32,
                         )
                     };
