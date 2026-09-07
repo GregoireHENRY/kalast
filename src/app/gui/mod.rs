@@ -55,8 +55,13 @@ const EDGE: f32 = 24.0;
 /// left, right.
 const FLOAT_DEFAULTS: [f32; 4] = [30.0, 160.0, 300.0, 240.0];
 
-/// A panel smaller than this counts as put away rather than merely narrow.
-/// The same figure the docked panels collapse past.
+/// A *floating* panel smaller than this counts as put away rather than merely
+/// narrow, and comes back at its usual size when next summoned.
+///
+/// The docked panels use a comfortable `min_size` instead -- 120 or 180 --
+/// because there the same number is also the smallest a panel can be dragged,
+/// and squeezing one through widths nothing can be read at is worse than
+/// shutting it in one drag.
 const COLLAPSE: f32 = 8.0;
 
 /// Which panels to draw: `[top, bottom, left, right]`.
@@ -677,32 +682,35 @@ impl Editor {
                 // dragged *and* the size below which it collapses. egui has a
                 // `collapse_threshold` for exactly this, but it is private.
                 //
-                // So it is small. At 120 or 180 a panel could not be made
-                // narrow, and vanished in one jump the moment it tried --
-                // which is neither resizing nor closing. At `COLLAPSE` a
-                // panel resizes smoothly to almost nothing and only then
-                // gives up, which is the behaviour asked for -- and it is the
-                // same figure the floating panels use, so the two layouts
-                // agree on what "put away" means.
+                // A comfortable size rather than a small one, tried both
+                // ways round and preferred like this: a panel keeps a usable
+                // width for as long as it is open, and shutting it is one
+                // decisive drag rather than a slow squeeze through sizes
+                // nothing can be read at.
+                //
+                // The floating panels use `COLLAPSE` instead. They are not
+                // the same question: those are summoned and dismissed by the
+                // pointer already, so shrinking one is about the size it will
+                // have next time, not about getting rid of it.
                 let mut open = open_docked;
                 rects[1] = egui::Panel::bottom("log")
                     .resizable(true)
                     .default_size(bottom_h)
-                    .min_size(COLLAPSE)
+                    .min_size(120.0)
                     .show_collapsible(ui_root, &mut open[1], log_ui)
                     .map(|r| r.response.rect)
                     .unwrap_or(egui::Rect::NOTHING);
                 rects[2] = egui::Panel::left("script")
                     .resizable(true)
                     .default_size(left_w)
-                    .min_size(COLLAPSE)
+                    .min_size(180.0)
                     .show_collapsible(ui_root, &mut open[2], script_ui)
                     .map(|r| r.response.rect)
                     .unwrap_or(egui::Rect::NOTHING);
                 rects[3] = egui::Panel::right("config")
                     .resizable(true)
                     .default_size(right_w)
-                    .min_size(COLLAPSE)
+                    .min_size(180.0)
                     .show_collapsible(ui_root, &mut open[3], config_ui)
                     .map(|r| r.response.rect)
                     .unwrap_or(egui::Rect::NOTHING);
