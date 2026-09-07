@@ -19,6 +19,19 @@ pub struct Simulation {
 
 #[pymethods]
 impl Simulation {
+    /// Empty the scene: bodies, HUDs, the iteration counter and any pending
+    /// GPU request.
+    ///
+    /// What the editor calls before running a script, because `load_mesh`
+    /// appends -- run a script twice without it and its meshes are loaded
+    /// twice.
+    ///
+    /// The config survives, deliberately: it is what the script sets on its
+    /// way through *and* what the panel edits by hand.
+    fn reset(&self) {
+        self.inner.borrow_mut().reset();
+    }
+
     #[getter]
     /// Every setting: shading, shadows, axes, colour bar, export, window.
     /// See `CONFIG.md`.

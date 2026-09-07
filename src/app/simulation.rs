@@ -198,6 +198,34 @@ impl Simulation {
         (!b.is_empty()).then_some(b)
     }
 
+    /// Empty the scene, ready for a script to build it again.
+    ///
+    /// What Restart needs, and what a first Play needs too: `load_mesh`
+    /// *appends*, so running a script twice without this loads its meshes
+    /// twice and the bodies stack up.
+    ///
+    /// The config is deliberately **not** reset. It is what the script sets
+    /// on its way through, and it is also what the panel edits by hand --
+    /// wiping it would throw away the second along with the first.
+    ///
+    /// Pending GPU requests and their results go too: they describe a scene
+    /// that no longer exists, and a stale `facet_shadow_result` indexed by
+    /// body would be read against a different set of bodies.
+    pub fn reset(&mut self) {
+        self.bodies.clear();
+        self.huds.clear();
+        self.state.iteration = 0;
+        self.state.pause_at = None;
+
+        self.export_once = false;
+        self.facet_shadow_request = None;
+        self.facet_shadow_result.clear();
+        self.facet_id_request = false;
+        self.facet_id_result = None;
+        self.hemicube_request = None;
+        self.hemicube_result = None;
+    }
+
     pub fn update(&mut self) {
         if self.state.is_paused {
             return;

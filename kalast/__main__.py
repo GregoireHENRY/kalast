@@ -58,6 +58,9 @@ def main(argv: list[str] | None = None) -> int:
         # Play runs *and* starts. Not optional: a driven script's exit test is
         # usually on `state.iteration`, which does not advance while paused,
         # so running one paused loops forever.
+        # `load_mesh` appends, so a second run without this stacks the
+        # scene: two craters, and Restart looking like it did nothing.
+        app.simulation.reset()
         app.simulation.state.is_paused = False
         # Between frames, so a script that drives its own loop nests here
         # rather than inside the frame -- and runs to completion before this

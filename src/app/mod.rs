@@ -140,6 +140,9 @@ pub struct App {
     /// Whether this app was launched as the editor. Read in `resumed`,
     /// where the window and the GPU device first exist.
     want_editor: bool,
+    /// Whether the platform event loop has ever been created. See
+    /// `ensure_event_loop`.
+    event_loop_built: bool,
 }
 
 /// How long `{fps}` and `{its}` average over before updating, in seconds.
@@ -360,6 +363,7 @@ impl App {
             realised: None,
             editor: None,
             want_editor: false,
+            event_loop_built: false,
         }
     }
 
@@ -372,6 +376,17 @@ impl App {
         if self.event_loop.is_some() {
             return;
         }
+        // Built once per process, and this says whether that has happened --
+        // `event_loop` being `None` does not, since `step()` takes it for the
+        // duration of a pump. If something unwound through that, the loop is
+        // gone for good and rebuilding raises `RecreationAttempt`; report the
+        // app as stopped instead of panicking on the way out.
+        if self.event_loop_built {
+            eprintln!("[APP] the event loop was lost, most likely to a panic; stopping");
+            self.shared.borrow_mut().running = false;
+            return;
+        }
+        self.event_loop_built = true;
         self.apply_config_at_start();
         // `init` panics on a second call, and `step()` reaches here from a
         // process that may already have run one app.
@@ -779,9 +794,37 @@ impl App {
                 callback,
                 simulation,
             }) => {
-                Python::attach(|py: Python<'_>| {
-                    callback.call1(py, (simulation.clone(), dt)).unwrap();
+                let failed = Python::attach(|py: Python<'_>| {
+                    match callback.call1(py, (simulation.clone(), dt)) {
+                        Ok(_) => false,
+                        Err(e) => {
+                            // Printed, not unwrapped. A mistake in a callback
+                            // used to abort the process: `.unwrap()` on the
+                            // `PyErr` panicked, and the panic unwound through
+                            // `step()`, which had taken the event loop and so
+                            // never gave it back.
+                            e.print(py);
+                            true
+                        }
+                    }
                 });
+                if failed {
+                    // Dropped rather than left to raise every frame. A
+                    // callback that fails once fails every time, and a
+                    // traceback per frame buries the first one.
+                    let mut s = shared.borrow_mut();
+                    if before {
+                        s.before_render = None;
+                    } else {
+                        s.after_render = None;
+                    }
+                    s.log.push(if before {
+                        "before_render raised; it has been disconnected -- fix it and press Restart"
+                    } else {
+                        "after_render raised; it has been disconnected -- fix it and press Restart"
+                    });
+                    return;
+                }
             }
             None => {}
         }
