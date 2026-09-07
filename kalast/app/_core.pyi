@@ -23,6 +23,26 @@ class App:
         Use `step()` instead to keep the loop in your own script.
         """
         ...
+    def start_editor(self) -> None:
+        """Open the editor: the renderer as one panel in a Blender-style layout.
+
+        **Blocks until the window closes**, like `start()`, and runs the same
+        loop. The difference is where the scene lands -- into an offscreen
+        texture at the viewport panel's size, which the UI samples into the
+        centre of the layout, rather than blitted to the swapchain.
+
+        `start()` and `step()` are untouched by this: a script run from a
+        terminal draws straight to the window as it always has.
+
+        ```python
+        app = App()
+        app.simulation.load_mesh(path=..., mat=numpy.eye(4), flatten=True)
+        app.start_editor()
+        ```
+
+        `python -m kalast` opens it on an empty scene.
+        """
+        ...
     def step(self) -> bool:
         """Draw one frame. Returns `False` once the window has closed.
 

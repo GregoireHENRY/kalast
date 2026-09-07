@@ -495,6 +495,16 @@ pub struct Window {
     /// changed without an adapter to re-query.
     present_modes: Vec<wgpu::PresentMode>,
 
+    /// Size of the *scene* render target, in physical pixels.
+    ///
+    /// The same as the surface when the scene fills the window, which is
+    /// every terminal run. The editor draws the scene into a panel smaller
+    /// than the window, and then the two differ: everything about the image
+    /// -- aspect ratio, the axes projection, where the colour bar sits, what
+    /// an exported frame measures -- follows this, while the swapchain and
+    /// the UI drawn on it follow `surface_config`.
+    pub render_size: (u32, u32),
+
     pub export_frame: bool,
     pub frame_exporter: super::gpu::FrameExporter,
 
@@ -767,6 +777,8 @@ impl Window {
             )
         });
 
+        let render_size = (surface_config.width, surface_config.height);
+
         Self {
             window,
             instance,
@@ -783,6 +795,7 @@ impl Window {
             uniforms,
             passes,
             present_modes: caps.present_modes.clone(),
+            render_size,
 
             export_frame: false,
             frame_exporter: super::gpu::FrameExporter::new(
@@ -845,7 +858,7 @@ impl Window {
     /// readback, so it is meant for the frames a product is wanted from, not
     /// for every frame of a long run.
     pub fn facet_id_map(&mut self) -> (Vec<u32>, Vec<u32>, u32, u32) {
-        let (w, h) = (self.surface_config.width, self.surface_config.height);
+        let (w, h) = self.render_size;
         if self.facet_id.is_none() {
             self.facet_id = Some(super::facet_id::FacetIdPass::new(
                 &self.device,
@@ -1076,6 +1089,9 @@ impl Window {
         self.surface_config.width = width;
         self.surface_config.height = height;
         self.surface.configure(&self.device, &self.surface_config);
+        // The editor overrides this straight afterwards with the viewport
+        // panel's size; a terminal run leaves the two equal.
+        self.render_size = (width, height);
 
         if let Some(hud) = &self.hud {
             hud.resize_view(width as f32, height as f32, &self.queue);
@@ -1092,6 +1108,23 @@ impl Window {
                 println!("[WINDOW] surface is now configured")
             }
         }
+    }
+
+    /// Render the scene at a size other than the window's.
+    ///
+    /// For the editor, whose viewport is a panel. Reallocates the colour,
+    /// MSAA and depth targets, so it is guarded on an actual change --
+    /// dragging a splitter would otherwise reallocate every frame.
+    pub fn set_render_size(&mut self, width: u32, height: u32) {
+        let (width, height) = (width.max(1), height.max(1));
+        if self.render_size == (width, height) {
+            return;
+        }
+        self.render_size = (width, height);
+        self.passes
+            .render
+            .resize(&self.device, self.surface_config.format, width, height);
+        self.passes.depth.resize(&self.device, width, height);
     }
 
     /// Re-pick the present mode and reconfigure. Cheap: no GPU resource is
@@ -1119,7 +1152,7 @@ impl Window {
         );
         // `Passes::new` sizes the offscreen targets from `config.width`, which
         // is the *requested* size and need not be the window's current one.
-        let (w, h) = (self.surface_config.width, self.surface_config.height);
+        let (w, h) = self.render_size;
         self.passes
             .render
             .resize(&self.device, self.surface_config.format, w, h);
@@ -1176,8 +1209,7 @@ impl Window {
         simulation: &mut crate::app::simulation::Simulation,
         config: &crate::app::config::Config,
     ) {
-        let width = self.surface_config.width;
-        let height = self.surface_config.height;
+        let (width, height) = self.render_size;
 
         // Resolve body-tracking anchors before anything reads them, so an
         // orbiting camera follows a moving body instead of the place it was
@@ -1373,8 +1405,8 @@ impl Window {
         // no scale to label.
         if config.colorbar.enabled && config.color_mode != 2 {
             let (w, h) = (
-                self.surface_config.width.max(1) as f32,
-                self.surface_config.height.max(1) as f32,
+                self.render_size.0.max(1) as f32,
+                self.render_size.1.max(1) as f32,
             );
             let cb = &config.colorbar;
             let vertical = cb.is_vertical();
@@ -1660,8 +1692,8 @@ impl Window {
             &self.axes_labels,
             &self.uniforms.view.uniform.camera.view_proj,
             &config.axes_unit,
-            self.surface_config.width as f32,
-            self.surface_config.height as f32,
+            self.render_size.0 as f32,
+            self.render_size.1 as f32,
         );
 
         if self.export_frame
@@ -1677,8 +1709,8 @@ impl Window {
                     .render_texture
                     .create_view(&wgpu::TextureViewDescriptor::default());
                 let (w, h) = (
-                    self.surface_config.width as f32,
-                    self.surface_config.height as f32,
+                    self.render_size.0 as f32,
+                    self.render_size.1 as f32,
                 );
                 let mut sections: Vec<_> = huds
                     .iter()
@@ -1770,8 +1802,8 @@ impl Window {
                 &self.device,
                 &self.queue,
                 &self.passes.render.render_texture,
-                self.surface_config.width,
-                self.surface_config.height,
+                self.render_size.0,
+                self.render_size.1,
             );
         }
 

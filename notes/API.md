@@ -99,6 +99,47 @@ GPU resources — each frame diffs the config against what the window was built
 with and rebuilds only what changed. See the legend at the top of `CONFIG.md`
 for which cost what.
 
+## The editor
+
+`app.start_editor()` opens the renderer as one panel of a layout, in the shape
+of Blender or Unity: a toolbar, the viewport, a config panel and a log.
+`python -m kalast` opens it on an empty scene, or with meshes named on the
+command line.
+
+**It does not change how scripts run.** `start()` and `step()` draw the scene
+straight to the swapchain exactly as before; the editor is a second entry
+point, not a mode the other two acquired. A script run from a terminal is
+unaffected.
+
+What differs inside is only where the scene lands. It has always been rendered
+into `render_texture` and blitted to the swapchain at the end — the editor
+skips the blit and lets egui sample that texture into the centre of the
+layout instead. `render(None, …)` is the call for that, and it is the same
+path an occluded window already takes: a full frame minus the blit and the
+present.
+
+### Two sizes, not one
+
+`Window::render_size` is the *scene* target; `surface_config` stays the
+window. They are equal for every terminal run and differ in the editor, where
+the viewport is a panel:
+
+| | follows |
+|---|---|
+| aspect ratio, frustum fits, axis tick projection | `render_size` |
+| where the colour bar sits, what an exported frame measures | `render_size` |
+| the swapchain, the UI drawn on it, cursor centring | `surface_config` |
+
+So an exported frame in the editor measures the viewport, not the window —
+which is the check that the layout is real rather than a full-window render
+with panels painted over it. At a 1280×800 window on a 2× display the viewport
+came out 680×514: 640 − 300 points of config panel, 400 − 120 of log − 23 of
+toolbar.
+
+The viewport is sized from the *previous* frame's layout, because the scene
+must be rendered before egui runs. On a resize the image is one frame stale,
+which is invisible; the alternative is a blank frame at every new size.
+
 ## Driving the loop yourself
 
 `app.step()` draws one frame and returns `False` once the window has closed,

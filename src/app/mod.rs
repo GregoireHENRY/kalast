@@ -4,6 +4,7 @@ pub mod config;
 pub mod facet_id;
 pub mod facet_shadow;
 pub mod frame;
+pub mod gui;
 pub mod hemicube;
 pub mod gpu;
 pub mod pass;
@@ -69,6 +70,14 @@ pub struct App {
     /// The values the live window was built with, to diff the config
     /// against. `None` until there is a window.
     realised: Option<Realised>,
+
+    /// The editor shell. `None` for a terminal run, which is every script
+    /// that calls `start()` or `step()` -- those keep drawing the scene
+    /// straight to the swapchain, unchanged.
+    editor: Option<crate::app::gui::Editor>,
+    /// Whether this app was launched as the editor. Read in `resumed`,
+    /// where the window and the GPU device first exist.
+    want_editor: bool,
 }
 
 /// How long `{fps}` and `{its}` average over before updating, in seconds.
@@ -281,6 +290,8 @@ impl App {
             running: true,
             exit_requested: false,
             realised: None,
+            editor: None,
+            want_editor: false,
         }
     }
 
@@ -302,6 +313,17 @@ impl App {
                 .build()
                 .unwrap(),
         );
+    }
+
+    /// Run the editor shell to completion. **Blocks until the window
+    /// closes.**
+    ///
+    /// The same loop `start()` runs. The difference is where the scene lands:
+    /// into `render_texture` at the viewport panel's size, which egui samples
+    /// into the centre of a layout, rather than blitted to the swapchain.
+    pub fn start_editor(&mut self) {
+        self.want_editor = true;
+        self.start();
     }
 
     /// Run the loop to completion. **Blocks until the window closes.**
@@ -578,6 +600,15 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
             &self.config.borrow(),
             &self.simulation.borrow(),
         )));
+
+        if self.want_editor {
+            let w = self.window.as_ref().unwrap();
+            self.editor = Some(crate::app::gui::Editor::new(
+                &win,
+                &w.device,
+                w.surface_config.format,
+            ));
+        }
     }
 
     /// Keep a redraw pending, every time the event queue empties.
@@ -613,6 +644,16 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
         _id: winit::window::WindowId,
         event: winit::event::WindowEvent,
     ) {
+        // The UI gets first refusal. Without this a drag on a slider would
+        // also orbit the camera behind the panel.
+        if let (Some(editor), Some(win)) = (self.editor.as_mut(), self.window.as_ref()) {
+            let window = win.window.clone();
+            let consumed = editor.on_window_event(&window, &event);
+            if consumed && !matches!(event, winit::event::WindowEvent::RedrawRequested) {
+                return;
+            }
+        }
+
         match event {
             winit::event::WindowEvent::CloseRequested => self.exit(ev),
             winit::event::WindowEvent::Resized(size) => {
@@ -658,6 +699,11 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 // window keeps drawing the paused scene and stays responsive
                 // to input; only the simulation stops advancing.
                 let paused = self.simulation.borrow().state.is_paused;
+
+                // Held across the borrow below: the editor draws after it,
+                // because the UI needs `&mut Simulation::state` for its
+                // play/pause buttons and cannot take it while the frame does.
+                let mut editor_surface: Option<wgpu::SurfaceTexture> = None;
 
                 if !paused {
                     Self::run_callback(&self.before_render, &self.simulation, self.dt);
@@ -706,7 +752,16 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     // rather than just not drawing it. The frame runs either
                     // way; only the present is skipped.
                     let surface_texture = win.get_surface_texture(&self.config.borrow());
-                    win.render(surface_texture, &self.config.borrow(), &huds);
+                    if self.editor.is_some() {
+                        // The scene goes offscreen and the swapchain is left
+                        // to the UI. `render(None, ..)` is exactly that, and
+                        // it is the same path an occluded window already
+                        // takes -- a full frame minus the blit and present.
+                        win.render(None, &self.config.borrow(), &huds);
+                        editor_surface = surface_texture;
+                    } else {
+                        win.render(surface_texture, &self.config.borrow(), &huds);
+                    }
 
                     // After render: the shadow map now holds this frame's
                     // geometry, so a query here answers for the scene
@@ -768,6 +823,34 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 // Simulation itself, so it cannot run while it is held.
                 if !paused {
                     Self::run_callback(&self.after_render, &self.simulation, self.dt);
+                }
+
+                if let (Some(editor), Some(texture)) = (self.editor.as_mut(), editor_surface) {
+                    let win = self.window.as_mut().unwrap();
+                    let view = texture
+                        .texture
+                        .create_view(&wgpu::TextureViewDescriptor::default());
+                    let scene_size = win.render_size;
+                    let window = win.window.clone();
+                    let wanted = {
+                        let mut sim = self.simulation.borrow_mut();
+                        editor.draw(
+                            &window,
+                            &win.device,
+                            &win.queue,
+                            &view,
+                            &win.passes.render.render_texture,
+                            scene_size,
+                            &mut self.config.borrow_mut(),
+                            &mut sim.state,
+                            self.fps_shown as f32,
+                        )
+                    };
+                    // Applied for the *next* frame: this one is already drawn
+                    // at the old size, and reallocating the targets underneath
+                    // it would throw the image away mid-frame.
+                    win.set_render_size(wanted.0, wanted.1);
+                    win.queue.present(texture);
                 }
 
                 // Advance only now that both callbacks have run, so they
