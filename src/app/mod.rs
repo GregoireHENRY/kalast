@@ -17,6 +17,60 @@ use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 use crate::Float;
 
+/// State a script reaches while the loop is running.
+///
+/// Separate from `App` because the loop holds `&mut App` for its whole
+/// duration -- winit's `run_app(self)` -- and Python reaches the app through
+/// an `Rc<RefCell<App>>`, so that borrow is live from the moment `start()` is
+/// called until the window closes. Anything left on `App` is unreachable from
+/// Python for the entire run: assigning `app.before_render` or calling
+/// `app.log` panicked with `RefCell already borrowed`.
+///
+/// `config` and `simulation` never had the problem, because they were always
+/// separate handles. This is the same arrangement for everything else a
+/// script touches.
+pub struct Shared {
+    /// Runs before the frame is drawn: set body transforms, camera and sun
+    /// here. Exposed to Python as `before_render` (and `tick`).
+    pub before_render: Option<Tick>,
+    /// Runs after the frame is drawn, once GPU results for this frame exist
+    /// -- notably `Simulation::facet_shadow_result`, which is only filled
+    /// once the shadow map holds this frame's geometry.
+    ///
+    /// Scene changes made here take effect on the *next* frame: the GPU work
+    /// for this one is already submitted.
+    pub after_render: Option<Tick>,
+    /// What the editor's `Run` button calls.
+    pub script_runner: Option<ScriptRunner>,
+    /// False once the window has closed. `step()` returns it, so
+    /// `while app.step():` ends on its own.
+    pub running: bool,
+    /// `close()` cannot call `exit()` itself -- that needs the
+    /// `ActiveEventLoop`, which only exists inside a handler -- so it raises
+    /// this and the next pump acts on it.
+    pub exit_requested: bool,
+    /// Script buffer set before the window exists, handed to the editor when
+    /// it is built. `python -m kalast some.py` fills this.
+    pub pending_script: Option<(String, String)>,
+    /// Lines for the editor's log panel. Here rather than on the editor so
+    /// `app.log()` works before the window exists as well as during the run.
+    pub log: crate::app::gui::Log,
+}
+
+impl Shared {
+    fn new() -> Self {
+        Self {
+            before_render: None,
+            after_render: None,
+            script_runner: None,
+            running: true,
+            exit_requested: false,
+            pending_script: None,
+            log: crate::app::gui::Log::new(2000),
+        }
+    }
+}
+
 pub struct App {
     /// Shared, not owned: `app.config` in Python holds the same handle, so it
     /// stays reachable while the app itself is mutably borrowed for the whole
@@ -29,16 +83,8 @@ pub struct App {
     pub dt: Float,
 
     pub simulation: Rc<RefCell<crate::app::simulation::Simulation>>,
-    /// Runs before the frame is drawn: set body transforms, camera and
-    /// sun here. Exposed to Python as `before_render` (and `tick`).
-    pub before_render: Option<Tick>,
-    /// Runs after the frame is drawn, once GPU results for this frame
-    /// exist -- notably `Simulation::facet_shadow_result`, which is only
-    /// filled once the shadow map holds this frame's geometry.
-    ///
-    /// Scene changes made here take effect on the *next* frame: the GPU
-    /// work for this one is already submitted.
-    pub after_render: Option<Tick>,
+    /// Everything a script can reach while the loop runs. See `Shared`.
+    pub shared: Rc<RefCell<Shared>>,
 
     pub controller: frame::Controller,
 
@@ -59,13 +105,6 @@ pub struct App {
     /// pumps until it flips, which is what makes one call mean one frame
     /// rather than one batch of events.
     frame_drawn: bool,
-    /// False once the window has closed. `step()` returns it, so
-    /// `while app.step():` ends on its own.
-    running: bool,
-    /// `close()` cannot call `exit()` itself -- that needs the
-    /// `ActiveEventLoop`, which only exists inside a handler -- so it
-    /// raises this and the next pump acts on it.
-    exit_requested: bool,
 
     /// The values the live window was built with, to diff the config
     /// against. `None` until there is a window.
@@ -78,15 +117,6 @@ pub struct App {
     /// Whether this app was launched as the editor. Read in `resumed`,
     /// where the window and the GPU device first exist.
     want_editor: bool,
-    /// What the editor's `Run` button calls: a Python callable taking
-    /// `(source, path)`. The UI cannot execute anything itself, and the
-    /// rules for what a kalast script may assume -- that `App()` hands back
-    /// the app already on screen, that `start()` does not open a second
-    /// window -- are Python's business, so they live there.
-    pub script_runner: Option<ScriptRunner>,
-    /// Script buffer set before the window exists, handed to the editor when
-    /// it is built. `python -m kalast some.py` fills this.
-    pending_script: Option<(String, String)>,
 }
 
 /// How long `{fps}` and `{its}` average over before updating, in seconds.
@@ -286,8 +316,7 @@ impl App {
             dt: 0.0,
 
             simulation,
-            before_render: None,
-            after_render: None,
+            shared: Rc::new(RefCell::new(Shared::new())),
 
             controller,
             fps_shown: 0.0,
@@ -296,13 +325,9 @@ impl App {
 
             event_loop: None,
             frame_drawn: false,
-            running: true,
-            exit_requested: false,
             realised: None,
             editor: None,
             want_editor: false,
-            script_runner: None,
-            pending_script: None,
         }
     }
 
@@ -353,7 +378,7 @@ impl App {
                 editor.script = source;
                 editor.script_dirty = false;
             }
-            None => self.pending_script = Some((path, source)),
+            None => self.shared.borrow_mut().pending_script = Some((path, source)),
         }
     }
 
@@ -365,9 +390,7 @@ impl App {
     /// this. `print` is how a script writes to a terminal; this is how it
     /// writes to the panel.
     pub fn log(&mut self, line: &str) {
-        if let Some(editor) = self.editor.as_mut() {
-            editor.log.push(line);
-        }
+        self.shared.borrow_mut().log.push(line);
     }
 
     /// Run the loop to completion. **Blocks until the window closes.**
@@ -378,7 +401,7 @@ impl App {
         // as well, not a restriction added here.
         let ev = self.event_loop.take().unwrap();
         ev.run_app(self).unwrap();
-        self.running = false;
+        self.shared.borrow_mut().running = false;
     }
 
     /// Draw exactly one frame and return whether the app is still running.
@@ -405,7 +428,7 @@ impl App {
     pub fn step(&mut self) -> bool {
         use winit::platform::pump_events::EventLoopExtPumpEvents;
 
-        if !self.running {
+        if !self.shared.borrow().running {
             return false;
         }
         self.ensure_event_loop();
@@ -414,7 +437,7 @@ impl App {
             // `start()` consumed it. Stepping afterwards is a caller error,
             // but reporting "not running" beats panicking inside a loop.
             None => {
-                self.running = false;
+                self.shared.borrow_mut().running = false;
                 return false;
             }
         };
@@ -424,20 +447,20 @@ impl App {
         // way out, so give up rather than spin forever -- a window that
         // cannot configure its surface is a real failure, not a slow frame.
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        while self.running && !self.frame_drawn {
+        while self.shared.borrow().running && !self.frame_drawn {
             if let winit::platform::pump_events::PumpStatus::Exit(_) =
                 ev.pump_app_events(Some(std::time::Duration::ZERO), self)
             {
-                self.running = false;
+                self.shared.borrow_mut().running = false;
             }
             if !self.frame_drawn && std::time::Instant::now() > deadline {
                 eprintln!("[APP] step() saw no frame in 5 s; giving up on the loop");
-                self.running = false;
+                self.shared.borrow_mut().running = false;
             }
         }
 
         self.event_loop = Some(ev);
-        self.running
+        self.shared.borrow().running
     }
 
     /// Realise any option that changed since the window was built.
@@ -550,6 +573,9 @@ impl App {
             return;
         }
         let path = editor.script_path.clone();
+        let shared = self.shared.clone();
+        let mut shared_ref = shared.borrow_mut();
+        let shared_log = &mut shared_ref.log;
 
         if open {
             match std::fs::read_to_string(&path) {
@@ -557,9 +583,9 @@ impl App {
                     editor.script = text;
                     editor.script_dirty = false;
                     editor.script_ran = false;
-                    editor.log.push(format!("opened {path}"));
+                    shared_log.push(format!("opened {path}"));
                 }
-                Err(e) => editor.log.push(format!("cannot open {path}: {e}")),
+                Err(e) => shared_log.push(format!("cannot open {path}: {e}")),
             }
         }
 
@@ -567,20 +593,21 @@ impl App {
             match std::fs::write(&path, &editor.script) {
                 Ok(()) => {
                     editor.script_dirty = false;
-                    editor.log.push(format!("saved {path}"));
+                    shared_log.push(format!("saved {path}"));
                 }
-                Err(e) => editor.log.push(format!("cannot save {path}: {e}")),
+                Err(e) => shared_log.push(format!("cannot save {path}: {e}")),
             }
         }
 
         if run {
             let source = editor.script.clone();
-            if self.script_runner.is_none() {
+            if self.shared.borrow().script_runner.is_none() {
                 self.log("no script runner installed");
                 return;
             }
             let result = Python::attach(|py| {
-                let runner = self.script_runner.as_ref().unwrap();
+                let shared = self.shared.borrow();
+                let runner = shared.script_runner.as_ref().unwrap();
                 runner
                     .callback
                     .call1(py, (runner.app.clone(), source, path.clone()))
@@ -607,12 +634,12 @@ impl App {
 
     /// Ask the window to close. The next `step()` returns `false`.
     pub fn close(&mut self) {
-        self.exit_requested = true;
+        self.shared.borrow_mut().exit_requested = true;
     }
 
     /// Whether the window is still open.
     pub fn is_running(&self) -> bool {
-        self.running
+        self.shared.borrow().running
     }
 
     /// Kept for callers that set up a controller before any frame runs.
@@ -631,7 +658,7 @@ impl App {
     where
         F: Fn(&mut simulation::Simulation, Float) + 'static,
     {
-        self.before_render = Some(Tick::Rust(Box::new(f)));
+        self.shared.borrow_mut().before_render = Some(Tick::Rust(Box::new(f)));
     }
 
     pub fn with_tick<F>(mut self, f: F) -> Self
@@ -646,13 +673,33 @@ impl App {
     where
         F: Fn(&mut simulation::Simulation, Float) + 'static,
     {
-        self.after_render = Some(Tick::Rust(Box::new(f)));
+        self.shared.borrow_mut().after_render = Some(Tick::Rust(Box::new(f)));
     }
 
     /// Invokes one of the two frame callbacks. Both take the same arguments
     /// and differ only in when the app calls them.
-    fn run_callback(callback: &Option<Tick>, sim: &Rc<RefCell<simulation::Simulation>>, dt: Float) {
-        match callback {
+    ///
+    /// The tick is taken out of `shared` for the duration of the call and put
+    /// back after. A callback is allowed to assign `app.before_render` from
+    /// inside itself, and holding the borrow across the call would panic the
+    /// moment one did; putting it back only when the slot is still empty
+    /// means a callback that replaces itself keeps the replacement.
+    fn run_callback(
+        shared: &Rc<RefCell<Shared>>,
+        before: bool,
+        sim: &Rc<RefCell<simulation::Simulation>>,
+        dt: Float,
+    ) {
+        let taken = {
+            let mut s = shared.borrow_mut();
+            if before {
+                s.before_render.take()
+            } else {
+                s.after_render.take()
+            }
+        };
+
+        match &taken {
             Some(Tick::Rust(f)) => {
                 f(&mut sim.borrow_mut(), dt);
             }
@@ -665,6 +712,16 @@ impl App {
                 });
             }
             None => {}
+        }
+
+        let mut s = shared.borrow_mut();
+        let slot = if before {
+            &mut s.before_render
+        } else {
+            &mut s.after_render
+        };
+        if slot.is_none() {
+            *slot = taken;
         }
     }
 
@@ -684,7 +741,7 @@ impl App {
         let device = win.device.clone();
         win.frame_exporter.finish(&device);
 
-        self.running = false;
+        self.shared.borrow_mut().running = false;
         ev.exit()
     }
 
@@ -724,9 +781,10 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
         if self.want_editor {
             let w = self.window.as_ref().unwrap();
             let mut editor = crate::app::gui::Editor::new(&win, &w.device, w.surface_config.format);
-            if let Some((path, source)) = self.pending_script.take() {
+            if let Some((path, source)) = self.shared.borrow_mut().pending_script.take() {
                 editor.script_path = path;
                 editor.script = source;
+                editor.script_ran = false;
             }
             self.editor = Some(editor);
         }
@@ -749,8 +807,8 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
     fn about_to_wait(&mut self, ev: &winit::event_loop::ActiveEventLoop) {
         // `close()` runs outside any handler and so has no `ActiveEventLoop`
         // to exit with. Here is the first place that does.
-        if self.exit_requested && self.window.is_some() {
-            self.exit_requested = false;
+        if self.shared.borrow().exit_requested && self.window.is_some() {
+            self.shared.borrow_mut().exit_requested = false;
             self.exit(ev);
             return;
         }
@@ -827,7 +885,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 let mut editor_surface: Option<wgpu::SurfaceTexture> = None;
 
                 if !paused {
-                    Self::run_callback(&self.before_render, &self.simulation, self.dt);
+                    Self::run_callback(&self.shared, true, &self.simulation, self.dt);
                 }
 
                 {
@@ -943,7 +1001,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 // Outside the borrow above: the callback takes the
                 // Simulation itself, so it cannot run while it is held.
                 if !paused {
-                    Self::run_callback(&self.after_render, &self.simulation, self.dt);
+                    Self::run_callback(&self.shared, false, &self.simulation, self.dt);
                 }
 
                 if let (Some(editor), Some(texture)) = (self.editor.as_mut(), editor_surface) {
@@ -964,6 +1022,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                             scene_size,
                             &mut self.config.borrow_mut(),
                             &mut sim.state,
+                            &mut self.shared.borrow_mut().log,
                             self.fps_shown as f32,
                         )
                     };

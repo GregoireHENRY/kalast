@@ -12,6 +12,11 @@ use pyo3::prelude::*;
 #[derive(Clone)]
 pub struct App {
     pub inner: Rc<RefCell<crate::app::App>>,
+    /// Everything a script may touch while the loop runs.
+    ///
+    /// Held beside `inner`, never through it: `start()` borrows `inner` for
+    /// the whole run, so a setter reaching through it would panic.
+    pub shared: Rc<RefCell<crate::app::Shared>>,
     /// Held alongside `inner`, not fetched through it. `start()` borrows the
     /// app mutably for the whole run loop, so a getter that went through
     /// `inner` would panic from inside a callback -- which is exactly where
@@ -25,12 +30,17 @@ impl App {
     #[new]
     fn new() -> Self {
         let inner = Rc::new(RefCell::new(crate::app::App::new()));
-        let (config, simulation) = {
+        let (config, simulation, shared) = {
             let app = inner.borrow();
-            (app.config.clone(), app.simulation.clone())
+            (
+                app.config.clone(),
+                app.simulation.clone(),
+                app.shared.clone(),
+            )
         };
         Self {
             inner,
+            shared,
             config,
             simulation,
         }
@@ -89,7 +99,7 @@ impl App {
     /// :pytype: Callable[[str, str], None]
     fn set_script_runner(&self, callback: Py<PyAny>) {
         let app = self.clone();
-        self.inner.borrow_mut().script_runner =
+        self.shared.borrow_mut().script_runner =
             Some(crate::app::ScriptRunner { callback, app });
     }
 
@@ -97,14 +107,15 @@ impl App {
     ///
     /// Settable before `start_editor()`, which is when a launcher does it.
     fn set_script(&self, path: &str, source: &str) {
-        self.inner
-            .borrow_mut()
-            .set_script(path.to_string(), source.to_string());
+        // Straight into `pending_script`: the editor may not exist yet, and
+        // if it does the frame picks this up on its next pass.
+        self.shared.borrow_mut().pending_script =
+            Some((path.to_string(), source.to_string()));
     }
 
     /// Append a line to the editor's log panel, or to stdout without one.
     fn log(&self, line: &str) {
-        self.inner.borrow_mut().log(line);
+        self.shared.borrow_mut().log.push(line);
     }
 
     /// Draw one frame. Returns `False` once the window has closed.
@@ -165,13 +176,13 @@ impl App {
     /// same shutdown the window button does, which includes flushing every
     /// queued frame export to disk.
     fn close(&self) {
-        self.inner.borrow_mut().close();
+        self.shared.borrow_mut().exit_requested = true;
     }
 
     /// Whether the window is still open.
     #[getter]
     fn running(&self) -> bool {
-        self.inner.borrow().is_running()
+        self.shared.borrow().running
     }
 
     /// Runs before each frame is drawn. Set body transforms, camera and
@@ -196,7 +207,7 @@ impl App {
     #[setter]
     fn set_before_render(&self, callback: Py<PyAny>) {
         let simulation = self.get_simulation();
-        self.inner.borrow_mut().before_render =
+        self.shared.borrow_mut().before_render =
             Some(crate::app::Tick::Python { callback, simulation });
     }
 
@@ -224,7 +235,7 @@ impl App {
     #[setter]
     fn set_after_render(&self, callback: Py<PyAny>) {
         let simulation = self.get_simulation();
-        self.inner.borrow_mut().after_render =
+        self.shared.borrow_mut().after_render =
             Some(crate::app::Tick::Python { callback, simulation });
     }
 }

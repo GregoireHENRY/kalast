@@ -65,8 +65,6 @@ pub struct Editor {
     /// frame at every new size.
     pub viewport_size: (u32, u32),
 
-    pub log: Log,
-
     /// The script buffer, so a simulation can be edited without leaving the
     /// window. Plain text, not a file handle: what is on screen is what
     /// `Run` executes, saved or not.
@@ -123,7 +121,6 @@ impl Editor {
                 window.inner_size().width.max(1),
                 window.inner_size().height.max(1),
             ),
-            log: Log::new(2000),
             script: String::new(),
             script_path: String::new(),
             script_dirty: false,
@@ -150,6 +147,7 @@ impl Editor {
         scene_size: (u32, u32),
         config: &mut crate::app::config::Config,
         state: &mut crate::app::simulation::State,
+        log: &mut Log,
         iteration_rate: f32,
     ) -> (u32, u32) {
         // Re-register only when the texture behind it is a different one. A
@@ -168,7 +166,6 @@ impl Editor {
         let raw = self.state.take_egui_input(window);
         let mut wanted = self.viewport_size;
         let texture_id = self.viewport_texture;
-        let log = &mut self.log;
         let script = &mut self.script;
         let script_path = &mut self.script_path;
         let script_dirty = self.script_dirty;
@@ -269,11 +266,18 @@ impl Editor {
                             save_request = true;
                         }
                     });
-                    ui.add(
+                    // Enter in the path field opens it: typing a filename and
+                    // then having to find a button is a step nobody wants.
+                    let path_edit = ui.add(
                         egui::TextEdit::singleline(script_path)
                             .hint_text("examples/crater_self_shadow/step.py")
                             .desired_width(f32::INFINITY),
                     );
+                    if path_edit.lost_focus()
+                        && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                    {
+                        open_request = true;
+                    }
                     ui.separator();
                     // A layouter with no wrap width. Python read through a
                     // soft wrap is Python with its indentation destroyed, and
