@@ -61,6 +61,9 @@ pub struct Shared {
     pub run_requested: bool,
     /// The same, but from Restart: rebuild and stop at the start.
     pub restart_requested: bool,
+    /// Read the file named in the script panel's path field, as its `open`
+    /// button does.
+    pub open_requested: bool,
     /// A script the UI has asked to run, waiting for the caller to take it.
     ///
     /// The frame cannot run it: a driven script's own loop cannot nest inside
@@ -89,6 +92,7 @@ impl Shared {
             log: crate::app::gui::Log::new(2000),
             run_requested: false,
             restart_requested: false,
+            open_requested: false,
             script_pending: None,
             script_ran: false,
         }
@@ -634,18 +638,29 @@ impl App {
     /// `Simulation` is borrowed for the panels -- is how a `RefCell` panic
     /// happens.
     fn serve_editor_requests(&mut self) {
-        let (asked, asked_restart) = {
+        // A script set while the window is up. `resumed` only takes this at
+        // creation, so before this `app.set_script()` mid-run went nowhere.
+        let pending = self.shared.borrow_mut().pending_script.take();
+        if let (Some((path, source)), Some(editor)) = (pending, self.editor.as_mut()) {
+            editor.script_path = path;
+            editor.script = source;
+            editor.script_dirty = false;
+            self.shared.borrow_mut().script_ran = false;
+        }
+
+        let (asked, asked_restart, asked_open) = {
             let mut s = self.shared.borrow_mut();
             (
                 std::mem::take(&mut s.run_requested),
                 std::mem::take(&mut s.restart_requested),
+                std::mem::take(&mut s.open_requested),
             )
         };
         let asked = asked | asked_restart;
         let Some(editor) = self.editor.as_mut() else { return };
         let (run, open, save) = (
             asked | std::mem::take(&mut editor.run_request),
-            std::mem::take(&mut editor.open_request),
+            asked_open | std::mem::take(&mut editor.open_request),
             std::mem::take(&mut editor.save_request),
         );
         if !(run || open || save) {
@@ -693,7 +708,17 @@ impl App {
                 editor.script_dirty = false;
             }
             if fresh {
-                self.shared.borrow_mut().script_ran = false;
+                let mut shared = self.shared.borrow_mut();
+                shared.script_ran = false;
+                // Opening a file *shows* it: build the scene and hold at
+                // iteration 0, the same as naming one on the command line.
+                // Without this the viewport stayed black until Play, and Step
+                // stayed grey because nothing had run.
+                //
+                // Next frame, not this one: `source` was read from the buffer
+                // at the top of this function, before the open replaced it,
+                // so running now would run the file we just closed.
+                shared.restart_requested = true;
             }
         }
 

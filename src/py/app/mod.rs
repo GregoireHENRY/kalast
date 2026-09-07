@@ -140,6 +140,13 @@ impl App {
         self.shared.borrow_mut().run_requested = true;
     }
 
+    /// Read the file named by `set_script`'s path, as the panel's `open`
+    /// button does -- which also builds the scene and holds it at iteration
+    /// 0, so there is something to look at and Step has something to step.
+    fn open_script(&self) {
+        self.shared.borrow_mut().open_requested = true;
+    }
+
     /// Rebuild the scene from the script and stop at the start, as the
     /// Restart button does.
     ///

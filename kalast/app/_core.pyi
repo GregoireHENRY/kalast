@@ -73,6 +73,12 @@ class App:
         script.py --run` opens straight into a running scene.
         """
         ...
+    def open_script(self) -> None:
+        """Read the file named by `set_script`'s path, as the panel's `open`
+        button does -- which also builds the scene and holds it at iteration
+        0, so there is something to look at and Step has something to step.
+        """
+        ...
     def restart_script(self) -> None:
         """Rebuild the scene from the script and stop at the start, as the
         Restart button does.
