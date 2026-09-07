@@ -181,6 +181,31 @@ impl App {
         self.shared.borrow_mut().script_pending.take()
     }
 
+    /// Where the UI last saw the pointer, in egui points, or `None`.
+    ///
+    /// `None` is the usual state of an unfocused window: macOS delivers
+    /// mouse-moved events only to the front application.
+    #[getter]
+    fn pointer(&self) -> Option<(f32, f32)> {
+        self.shared.borrow().pointer
+    }
+
+    /// The size the pointer is measured against, in egui points.
+    #[getter]
+    fn ui_size(&self) -> (f32, f32) {
+        self.shared.borrow().ui_size
+    }
+
+    /// Which panels the last frame drew: `(top, bottom, left, right)`.
+    ///
+    /// All four in the ordinary layout. With `config.focus` on, only the ones
+    /// the pointer has summoned to an edge.
+    #[getter]
+    fn panels_shown(&self) -> (bool, bool, bool, bool) {
+        let p = self.shared.borrow().panels_shown;
+        (p[0], p[1], p[2], p[3])
+    }
+
     /// The iteration the frame on screen was drawn for.
     ///
     /// Not `simulation.state.iteration`, which counts iterations *finished*:

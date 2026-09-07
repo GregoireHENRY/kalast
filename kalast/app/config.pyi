@@ -107,10 +107,13 @@ class Config:
     Everything about the image follows this -- the camera's aspect ratio,
     where axis ticks project, where the colour bar sits, and what an
     exported frame measures.
+    :label: image width
     :range: 0..=7680
     """
     height: int
-    """:range: 0..=4320"""
+    """:label: image height
+    :range: 0..=4320
+    """
     background: list[float]
     """Colour the frame is cleared to, `(r, g, b, a)`.
 

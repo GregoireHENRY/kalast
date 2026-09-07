@@ -48,6 +48,46 @@ impl Log {
     }
 }
 
+/// How close to an edge the pointer must come to summon a panel, in points.
+const EDGE: f32 = 24.0;
+
+/// Which panels to draw: `[top, bottom, left, right]`.
+///
+/// All of them unless the renderer has the window to itself, in which case
+/// each is summoned by the pointer reaching its edge -- and stays while the
+/// pointer is anywhere over it, since the 24-point strip is far narrower than
+/// the panel and reaching for anything in one would otherwise dismiss it.
+///
+/// `panels` is where each was last drawn, or `Rect::NOTHING` for one that was
+/// not; a panel that is not showing cannot keep itself showing.
+///
+/// A pure function so the arithmetic can be tested: driving a real pointer at
+/// a real window is not possible from a test, because macOS delivers
+/// mouse-moved events only to the front application.
+fn reveal_panels(
+    immersive: bool,
+    pointer: Option<egui::Pos2>,
+    screen: egui::Rect,
+    panels: &[egui::Rect; 4],
+) -> [bool; 4] {
+    if !immersive {
+        return [true; 4];
+    }
+    let Some(p) = pointer else {
+        // The UI has never seen a pointer -- an unfocused window, usually.
+        // Nothing to summon a panel with, so nothing is shown; the first move
+        // inside the window fixes it.
+        return [false; 4];
+    };
+    let near = [
+        p.y <= screen.top() + EDGE,
+        p.y >= screen.bottom() - EDGE,
+        p.x <= screen.left() + EDGE,
+        p.x >= screen.right() - EDGE,
+    ];
+    std::array::from_fn(|i| near[i] || panels[i].contains(p))
+}
+
 pub struct Editor {
     ctx: egui::Context,
     state: egui_winit::State,
@@ -218,28 +258,13 @@ impl Editor {
         // Driven by `focus` and not by `fullscreen`: one is about what is
         // inside the window, the other about the window itself.
         let immersive = app_config.focus;
-        const EDGE: f32 = 24.0;
         let pointer = self.ctx.pointer_latest_pos();
-        let panels = self.panels;
-        let reveal = |i: usize, near: bool| -> bool {
-            if !immersive {
-                return true;
-            }
-            match pointer {
-                Some(p) => near || panels[i].contains(p),
-                None => false,
-            }
-        };
-        let (show_top, show_bottom, show_left, show_right) = match pointer {
-            Some(p) => (
-                reveal(0, p.y <= screen.top() + EDGE),
-                reveal(1, p.y >= screen.bottom() - EDGE),
-                reveal(2, p.x <= screen.left() + EDGE),
-                reveal(3, p.x >= screen.right() - EDGE),
-            ),
-            None => (!immersive, !immersive, !immersive, !immersive),
-        };
+        let [show_top, show_bottom, show_left, show_right] =
+            reveal_panels(immersive, pointer, screen, &self.panels);
         let mut rects = [egui::Rect::NOTHING; 4];
+        shared.panels_shown = [show_top, show_bottom, show_left, show_right];
+        shared.pointer = pointer.map(|p| (p.x, p.y));
+        shared.ui_size = (screen.width(), screen.height());
         let texture_id = self.viewport_texture;
         let script = &mut self.script;
         let script_path = &mut self.script_path;
@@ -254,6 +279,58 @@ impl Editor {
 
         let output = self.ctx.run_ui(raw, |ui_root| {
             let ppp = ui_root.ctx().pixels_per_point();
+
+            // The scene itself, drawn the same way in both layouts and
+            // differing only in what it is given.
+            let scene_ui = |ui: &mut egui::Ui, into: egui::Rect| {
+                if let Some(id) = texture_id {
+                    // Fit rather than fill: the scene was rendered at last
+                    // frame's size, and stretching it to this frame's would
+                    // distort during a drag.
+                    let scene_aspect = scene_size.0 as f32 / scene_size.1.max(1) as f32;
+                    let mut size = into.size();
+                    if size.x / size.y > scene_aspect {
+                        size.x = size.y * scene_aspect;
+                    } else {
+                        size.y = size.x / scene_aspect;
+                    }
+                    // Painted into a rect worked out here, not laid out by
+                    // the `Ui`. An `Area` is unbounded, so asking it to centre
+                    // something centres it in an infinite region -- which put
+                    // the scene in the bottom-right corner of the window,
+                    // mostly out of view.
+                    egui::Image::new(egui::load::SizedTexture::new(id, size))
+                        .paint_at(ui, egui::Rect::from_center_size(into.center(), size));
+                }
+            };
+
+            // Added before the panels, not after. Both this and the
+            // panels live in egui's background layer, and layers of the
+            // same order are painted in the order they were added -- so
+            // creating it last drew the scene *over* the panels and they
+            // never appeared.
+            if immersive {
+                // Behind everything, at the full window size, so the panels
+                // float *over* the scene instead of taking space from it.
+                //
+                // A side panel shrinks the central area, which would resize
+                // the render target every time one appeared -- reallocating
+                // its colour, MSAA and depth textures, and shifting the image
+                // under the pointer. In focus mode the scene keeps the whole
+                // window and the panels are laid on top.
+                vp_rect = screen;
+                wanted = (
+                    ((screen.width() * ppp).round() as u32).max(1),
+                    ((screen.height() * ppp).round() as u32).max(1),
+                );
+                egui::Area::new("viewport".into())
+                    .order(egui::Order::Background)
+                    .fixed_pos(screen.min)
+                    .show(ui_root.ctx(), |ui| {
+                        ui.set_min_size(screen.size());
+                        scene_ui(ui, screen);
+                    });
+            }
 
             if show_top {
             rects[0] = egui::Panel::top("toolbar").show(ui_root, |ui| {
@@ -424,48 +501,8 @@ impl Editor {
                 }).response.rect;
             }
 
-            // The scene itself, drawn the same way in both layouts and
-            // differing only in what it is given.
-            let scene_ui = |ui: &mut egui::Ui, into: egui::Rect| {
-                if let Some(id) = texture_id {
-                    // Fit rather than fill: the scene was rendered at last
-                    // frame's size, and stretching it to this frame's would
-                    // distort during a drag.
-                    let scene_aspect = scene_size.0 as f32 / scene_size.1.max(1) as f32;
-                    let mut size = into.size();
-                    if size.x / size.y > scene_aspect {
-                        size.x = size.y * scene_aspect;
-                    } else {
-                        size.y = size.x / scene_aspect;
-                    }
-                    ui.centered_and_justified(|ui| {
-                        ui.add(egui::Image::new(egui::load::SizedTexture::new(id, size)));
-                    });
-                }
-            };
 
-            if immersive {
-                // Behind everything, at the full window size, so the panels
-                // float *over* the scene instead of taking space from it.
-                //
-                // A side panel shrinks the central area, which would resize
-                // the render target every time one appeared -- reallocating
-                // its colour, MSAA and depth textures, and shifting the image
-                // under the pointer. In focus mode the scene keeps the whole
-                // window and the panels are laid on top.
-                vp_rect = screen;
-                wanted = (
-                    ((screen.width() * ppp).round() as u32).max(1),
-                    ((screen.height() * ppp).round() as u32).max(1),
-                );
-                egui::Area::new("viewport".into())
-                    .order(egui::Order::Background)
-                    .fixed_pos(screen.min)
-                    .show(ui_root.ctx(), |ui| {
-                        ui.set_min_size(screen.size());
-                        scene_ui(ui, screen);
-                    });
-            } else {
+            if !immersive {
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
                     .show(ui_root, |ui| {
@@ -564,5 +601,74 @@ impl Editor {
         event: &winit::event::WindowEvent,
     ) -> bool {
         self.state.on_window_event(window, event).consumed
+    }
+}
+
+#[cfg(test)]
+mod reveal_tests {
+    use super::*;
+
+    fn screen() -> egui::Rect {
+        egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1500.0, 925.0))
+    }
+
+    fn nothing() -> [egui::Rect; 4] {
+        [egui::Rect::NOTHING; 4]
+    }
+
+    #[test]
+    fn every_panel_shows_when_the_renderer_does_not_own_the_window() {
+        let at = Some(egui::pos2(750.0, 500.0));
+        assert_eq!(reveal_panels(false, at, screen(), &nothing()), [true; 4]);
+        // Even with no pointer at all.
+        assert_eq!(reveal_panels(false, None, screen(), &nothing()), [true; 4]);
+    }
+
+    #[test]
+    fn each_edge_summons_its_own_panel_and_no_other() {
+        let s = screen();
+        let cases = [
+            (egui::pos2(750.0, 4.0), [true, false, false, false]),
+            (egui::pos2(750.0, 921.0), [false, true, false, false]),
+            (egui::pos2(4.0, 500.0), [false, false, true, false]),
+            (egui::pos2(1496.0, 500.0), [false, false, false, true]),
+        ];
+        for (p, want) in cases {
+            assert_eq!(
+                reveal_panels(true, Some(p), s, &nothing()),
+                want,
+                "pointer at {p:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_middle_summons_nothing() {
+        let at = Some(egui::pos2(750.0, 500.0));
+        assert_eq!(reveal_panels(true, at, screen(), &nothing()), [false; 4]);
+    }
+
+    /// The 24-point strip is far narrower than a panel, so reaching for
+    /// anything inside one would dismiss it if only the strip counted.
+    #[test]
+    fn a_panel_stays_while_the_pointer_is_over_it() {
+        let s = screen();
+        let mut panels = nothing();
+        // The config panel as drawn: 240 wide, down the right-hand side.
+        panels[3] = egui::Rect::from_min_max(egui::pos2(1260.0, 0.0), egui::pos2(1500.0, 925.0));
+
+        // Well inside it, and nowhere near the edge strip.
+        let deep = egui::pos2(1300.0, 500.0);
+        assert!(deep.x < s.right() - EDGE, "the test point must clear the strip");
+        assert_eq!(
+            reveal_panels(true, Some(deep), s, &panels),
+            [false, false, false, true],
+            "a panel must stay while the pointer is on it"
+        );
+    }
+
+    #[test]
+    fn no_pointer_shows_nothing_in_focus_mode() {
+        assert_eq!(reveal_panels(true, None, screen(), &nothing()), [false; 4]);
     }
 }

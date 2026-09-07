@@ -52,6 +52,24 @@ pub struct Shared {
     /// Script buffer set before the window exists, handed to the editor when
     /// it is built. `python -m kalast some.py` fills this.
     pub pending_script: Option<(String, String)>,
+    /// Where the UI last saw the pointer, in egui points, and the size of
+    /// the area it is measured against.
+    ///
+    /// `None` when the UI has never seen one -- which is the usual state of a
+    /// window that is not focused, since macOS only delivers mouse-moved
+    /// events to the front application. Worth being able to tell apart from
+    /// "the pointer is somewhere that reveals nothing".
+    pub pointer: Option<(f32, f32)>,
+    pub ui_size: (f32, f32),
+
+    /// Which panels the last frame drew: top, bottom, left, right.
+    ///
+    /// All four in the ordinary layout. In focus mode, only the ones the
+    /// pointer has summoned. Exposed so the edge behaviour can be checked
+    /// without a camera -- it is the one part of the UI with no other visible
+    /// effect.
+    pub panels_shown: [bool; 4],
+
     /// The iteration the frame on screen was drawn for.
     ///
     /// Not `state.iteration`, which counts iterations *completed*: it is
@@ -96,6 +114,9 @@ impl Shared {
             running: true,
             exit_requested: false,
             pending_script: None,
+            pointer: None,
+            ui_size: (0.0, 0.0),
+            panels_shown: [true; 4],
             drawn_iteration: 0,
             log: crate::app::gui::Log::new(2000),
             run_requested: false,

@@ -111,6 +111,20 @@ class App:
         whatever shape it has.
         """
         ...
+    pointer: tuple[float, float] | None
+    """Where the UI last saw the pointer, in egui points, or `None`.
+
+    `None` is the usual state of an unfocused window: macOS delivers
+    mouse-moved events only to the front application.
+    """
+    ui_size: tuple[float, float]
+    """The size the pointer is measured against, in egui points."""
+    panels_shown: tuple[bool, bool, bool, bool]
+    """Which panels the last frame drew: `(top, bottom, left, right)`.
+
+    All four in the ordinary layout. With `config.focus` on, only the ones
+    the pointer has summoned to an edge.
+    """
     drawn_iteration: int
     """The iteration the frame on screen was drawn for.
 
