@@ -81,8 +81,8 @@ print(f"TIRI FOV from the IK: {numpy.degrees(HX):.4f} x {numpy.degrees(HY):.4f} 
       f"half-angles, {NPX}x{NPY}")
 
 app = kalast.app.App()
-app.simulation.config.width = NPX
-app.simulation.config.height = NPY
+app.config.width = NPX
+app.config.height = NPY
 app.simulation.config.vsync = False
 app.simulation.config.access_shadow_map = True
 app.simulation.config.huds = [kalast.app.Hud("")]   # filled in before_render

@@ -1,7 +1,27 @@
 # `app.simulation.config` reference
 
-Every option on the app config, what it accepts, what it does, and where in
-the code it takes effect.
+Every option on the **simulation's** config, what it accepts, what it does,
+and where in the code it takes effect.
+
+There are two configs, and they answer different questions.
+`app.simulation.config` -- this document -- is about the thing being simulated
+and the image made of it. `app.config` is about the application you are
+looking at: its window now, its panel layout and colours as the editor grows.
+It holds `width` and `height` only, so far.
+
+**Both have `width`/`height`, and they are not the same number.**
+`app.config.width` is the OS window. `app.simulation.config.width` is the
+*image*: the camera's aspect ratio, where axis ticks project, where the colour
+bar sits, and what an exported frame measures. It defaults to `0`, meaning
+"follow the window" -- what a terminal run wants, and what every script got
+when there was one pair of these. Set it to pin the render independently: a 4K
+export from a small window, say.
+
+While the two differ the window shows the **top-left of the image, not a
+scaled version**, because the blit is a straight texel copy and cannot scale.
+The export still gets the full pinned frame, which is the point of pinning it.
+The editor has no such limit -- egui samples the render texture into a panel
+of any size.
 
 Defined in `src/app/config.rs` (`Config` struct + its `Default` impl).
 Exposed to Python in `src/py/app/config.rs` -- every field has a getter and a

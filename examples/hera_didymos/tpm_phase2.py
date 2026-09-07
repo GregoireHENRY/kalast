@@ -348,8 +348,8 @@ for n in ACTIVE:
 
 # -------------------------------------------------------------- rendering
 app = kalast.app.App()
-app.simulation.config.width = 512
-app.simulation.config.height = 512
+app.config.width = 512
+app.config.height = 512
 app.simulation.config.vsync = False
 app.simulation.config.export_dir = f"{OUT}/frames"
 app.simulation.config.access_shadow_map = SHADOWING

@@ -40,8 +40,11 @@ app.start()                   # blocks until the window closes
 
 | | |
 |---|---|
-| `app.simulation.config` | the config object — `CONFIG.md` |
-| `app.simulation` | the scene: bodies, camera, sun, state, HUDs |
+| `app.config` | the **application**: window size now, panels and colours later |
+| `app.simulation` | the simulation: bodies, camera, sun, state, HUDs |
+| `app.simulation.config` | the **simulation's** settings — `CONFIG.md` |
+| `app.log(line)` | append a line to the editor's log panel |
+| `app.start_editor()` | open the editor shell; **blocks** |
 | `app.before_render` | callback run before the frame is drawn |
 | `app.after_render` | callback run after it is drawn |
 | `app.tick` | alias for `before_render` |
@@ -49,6 +52,11 @@ app.start()                   # blocks until the window closes
 | `app.step()` | draws one frame; `False` once the window has closed |
 | `app.close()` | asks the window to close; acts on the next `step()` |
 | `app.running` | whether the window is still open |
+
+Two configs, and `width`/`height` exist on both without meaning the same
+thing: `app.config.width` is the OS window, `app.simulation.config.width` is
+the image inside it and defaults to following the window. See the top of
+`CONFIG.md`.
 
 There are two ways to run: `start()`, which owns the loop and calls back into
 the script, and `step()`, which hands the loop to the script. See **Driving

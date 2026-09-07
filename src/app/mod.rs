@@ -77,6 +77,10 @@ pub struct App {
     /// run loop. Without this, touching any option from `before_render`
     /// panicked with `Already mutably borrowed`.
     pub config: Rc<RefCell<crate::app::config::Config>>,
+    /// The application's own settings: window size now, panel layout and
+    /// colours as the editor grows. Held as its own handle for the same
+    /// reason everything else is -- the loop borrows `App` for its duration.
+    pub app_config: Rc<RefCell<crate::app::config::AppConfig>>,
     pub window: Option<crate::app::window::Window>,
 
     pub now: std::time::Instant,
@@ -132,8 +136,11 @@ const HUD_RATE_WINDOW: Float = 1.0;
 #[derive(Clone, PartialEq)]
 struct Realised {
     title: String,
+    /// The window, from `AppConfig`.
     width: u32,
     height: u32,
+    /// The image, from the simulation's config. `(0, 0)` follows the window.
+    render: (u32, u32),
     fullscreen: bool,
     vsync: bool,
     msaa: u32,
@@ -146,11 +153,15 @@ struct Realised {
 }
 
 impl Realised {
-    fn of(c: &crate::app::config::Config) -> Self {
+    fn of(c: &crate::app::config::Config, a: &crate::app::config::AppConfig) -> Self {
         Self {
             title: c.title.clone(),
-            width: c.width,
-            height: c.height,
+            // The window from the app config, the image from the
+            // simulation's -- two different questions since the editor made
+            // them two different sizes.
+            width: a.width,
+            height: a.height,
+            render: (c.width, c.height),
             fullscreen: c.fullscreen,
             vsync: c.vsync,
             msaa: c.msaa,
@@ -169,9 +180,10 @@ impl Realised {
     /// Worth the extra method: `of` clones three `String`s, and doing that
     /// every frame to discover that nothing changed -- which is every frame
     /// of an ordinary run -- is an allocation in the frame path for nothing.
-    fn matches(&self, c: &crate::app::config::Config) -> bool {
-        self.width == c.width
-            && self.height == c.height
+    fn matches(&self, c: &crate::app::config::Config, a: &crate::app::config::AppConfig) -> bool {
+        self.width == a.width
+            && self.height == a.height
+            && self.render == (c.width, c.height)
             && self.fullscreen == c.fullscreen
             && self.vsync == c.vsync
             && self.msaa == c.msaa
@@ -297,6 +309,7 @@ impl App {
 
     pub fn new_with_config(config: crate::app::config::Config) -> Self {
         let config_rc = Rc::new(RefCell::new(config));
+        let app_config = Rc::new(RefCell::new(crate::app::config::AppConfig::default()));
         let simulation = Rc::new(RefCell::new(crate::app::simulation::Simulation::new()));
         let controller = {
             let c = config_rc.borrow();
@@ -310,6 +323,7 @@ impl App {
 
         Self {
             config: config_rc.clone(),
+            app_config,
             window: None,
 
             now: std::time::Instant::now(),
@@ -485,21 +499,23 @@ impl App {
         // mutably -- both are fields of `self`.
         let config = self.config.clone();
         let c = config.borrow();
+        let app_config = self.app_config.clone();
+        let a = app_config.borrow();
 
         // The early out for the common case, before anything is cloned.
         if self.window.is_none() {
             return;
         }
         if let Some(was) = self.realised.as_ref() {
-            if was.matches(&c) {
+            if was.matches(&c, &a) {
                 return;
             }
         } else {
-            self.realised = Some(Realised::of(&c));
+            self.realised = Some(Realised::of(&c, &a));
             return;
         }
 
-        let want = Realised::of(&c);
+        let want = Realised::of(&c, &a);
         let was = self.realised.clone().unwrap();
         let win = self.window.as_mut().unwrap();
 
@@ -511,6 +527,19 @@ impl App {
             win.window.set_fullscreen(want.fullscreen.then(|| {
                 winit::window::Fullscreen::Borderless(None)
             }));
+        }
+
+        // The image. `(0, 0)` follows the window, which is what a terminal
+        // run does and what every script did when there was one pair of
+        // these. The editor overrides it from the viewport panel each frame,
+        // so a pinned render size only holds outside the editor.
+        if was.render != want.render && self.editor.is_none() {
+            let (w, h) = if want.render == (0, 0) {
+                (win.surface_config.width, win.surface_config.height)
+            } else {
+                want.render
+            };
+            win.set_render_size(w, h);
         }
 
         if (was.width, was.height) != (want.width, want.height) {
@@ -757,7 +786,10 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
         // itself -- see `about_to_wait`.
         ev.set_control_flow(winit::event_loop::ControlFlow::Poll);
 
-        let size = winit::dpi::PhysicalSize::new(self.config.borrow().width, self.config.borrow().height);
+        let size = winit::dpi::PhysicalSize::new(
+            self.app_config.borrow().width,
+            self.app_config.borrow().height,
+        );
         let mut attrs = winit::window::Window::default_attributes()
             .with_inner_size(size)
             .with_title(&self.config.borrow().title);

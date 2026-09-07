@@ -26,8 +26,8 @@ def main(argv: list[str] | None = None) -> int:
     # Physical pixels, so this is 1280x800 points on a 2x display. The editor
     # needs the room: three panels plus a viewport at 800 points wide leaves
     # the viewport a sliver.
-    app.simulation.config.width = 2560
-    app.simulation.config.height = 1600
+    app.config.width = 2560
+    app.config.height = 1600
 
     editor.capture_output(app)
     app.script_runner = editor.make_runner()

@@ -334,13 +334,17 @@ pub struct Config {
 
     /// The OS window title.
     pub title: String,
-    /// Initial window width in pixels.
+    /// Render size in physical pixels -- the *image*, not the window.
     ///
-    /// Also the render-target size and therefore the resolution of exported PNGs --
-    /// though the exporter reads the *live* surface size, so resizing mid-run
-    /// changes the size of subsequent exports.
+    /// `0` means "follow the window", which is what a terminal run wants and
+    /// what every script got when there was only one pair of these. Set it to
+    /// pin the render independently: a 4K export from a small window, or a
+    /// fixed frame size while the editor's viewport panel is dragged about.
+    ///
+    /// Everything about the image follows this -- the camera's aspect ratio,
+    /// where axis ticks project, where the colour bar sits, and what an
+    /// exported frame measures.
     pub width: u32,
-    /// Initial window height in pixels. See `width`.
     pub height: u32,
 
     /// Font for the HUD: a **name** or a **path**, or empty for the built-in
@@ -697,8 +701,8 @@ impl Default for Config {
             debug_light_cube_show: false,
 
             title: "kalast".to_string(),
-            width: 800,
-            height: 600,
+            width: 0,
+            height: 0,
 
             background: wgpu::Color::BLACK,
             hud_font: String::new(),
@@ -764,6 +768,36 @@ impl Default for Config {
             colormap: Vec::new(),
 
             emulate_middle_button: cfg!(target_os = "macos"),
+        }
+    }
+}
+
+/// Settings for the **application**, not the simulation.
+///
+/// Two configs, because they answer different questions. This one is about
+/// the program you are looking at: how big its window is, and -- as the
+/// editor grows -- where its panels sit and what colour they are. The
+/// simulation's own config, `app.simulation.config`, is about the thing being
+/// simulated and the image made of it.
+///
+/// The split only became visible with the editor. While the scene filled the
+/// window, "the window" and "the image" were one number; in a layout where
+/// the viewport is a panel they are plainly two.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AppConfig {
+    /// Window size in physical pixels.
+    ///
+    /// The *window*, not the render. `simulation.config.width` is the image
+    /// inside it, and follows this unless it is set.
+    pub width: u32,
+    pub height: u32,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            width: 800,
+            height: 600,
         }
     }
 }

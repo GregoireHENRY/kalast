@@ -95,8 +95,8 @@ for d in ("diffuse", "temperature", "radiance"):
 
 # -------------------------------------------------------------- rendering
 app = kalast.app.App()
-app.simulation.config.width = NPX
-app.simulation.config.height = NPY
+app.config.width = NPX
+app.config.height = NPY
 app.simulation.config.vsync = False
 app.simulation.config.export_dir = str(OUT / "diffuse")
 app.simulation.config.access_shadow_map = False

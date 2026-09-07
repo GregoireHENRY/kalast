@@ -13,8 +13,8 @@ def before_render(sim: Simulation, dt: float) -> None:
 app = kalast.app.App()
 app.simulation.config.debug_app = True
 app.simulation.config.debug_window = True
-app.simulation.config.width = 1024
-app.simulation.config.height = 768
+app.config.width = 1024
+app.config.height = 768
 app.simulation.config.color_mode = 1
 app.simulation.config.wireframe_mode = 2
 app.simulation.camera.pos = [10.0, 0.0, 0.0]

@@ -68,8 +68,8 @@ for name in BODIES:
     state[name] = {"prop": prop, "T": t[:, 0], "n": t.shape[0]}
 
 app = kalast.app.App()
-app.simulation.config.width = 256
-app.simulation.config.height = 256
+app.config.width = 256
+app.config.height = 256
 app.simulation.config.vsync = False
 for i, name in enumerate(BODIES):
     app.simulation.load_mesh(path=MESH[name], mat=numpy.eye(4), flatten=True)

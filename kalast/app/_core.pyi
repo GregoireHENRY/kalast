@@ -4,11 +4,19 @@
 
 import numpy  # noqa: F401
 from typing import Callable
+from kalast.app.config import AppConfig
 from kalast.app.simulation import Simulation
 
 class App:
     def __init__(self) -> None:
         ...
+    config: AppConfig
+    """The application's own settings: window size, and panel layout and
+    colours as the editor grows.
+
+    Not the simulation's -- that is `app.simulation.config`, and it is
+    where shading, shadows, axes, the colour bar and export live.
+    """
     simulation: Simulation
     """The scene: bodies, camera, Sun, iteration state and HUDs."""
     def start(self) -> None:

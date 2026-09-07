@@ -112,6 +112,9 @@ impl Pass {
         format: wgpu::TextureFormat,
         config: &crate::app::config::Config,
         layouts: &[Option<&wgpu::BindGroupLayout>],
+        // See `Passes::new`: `config.width` is `0` while the image follows
+        // the window, so the real size has to be handed in.
+        size: (u32, u32),
     ) -> Self {
         // Culling is a main-pass-only decision: the shadow pass deliberately
         // stays unculled so non-closed geometry still casts from whichever
@@ -149,10 +152,10 @@ impl Pass {
         );
 
         let (render_texture, render_view) =
-            create_render_target(device, format, config.width, config.height);
+            create_render_target(device, format, size.0, size.1);
 
         let msaa = (samples > 1)
-            .then(|| Msaa::new(device, format, config.width, config.height, samples));
+            .then(|| Msaa::new(device, format, size.0, size.1, samples));
 
         Self {
             pipeline,

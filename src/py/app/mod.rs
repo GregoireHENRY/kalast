@@ -17,6 +17,8 @@ pub struct App {
     /// Held beside `inner`, never through it: `start()` borrows `inner` for
     /// the whole run, so a setter reaching through it would panic.
     pub shared: Rc<RefCell<crate::app::Shared>>,
+    /// The application's own settings, beside the simulation's.
+    pub app_config: Rc<RefCell<crate::app::config::AppConfig>>,
     /// Held alongside `inner`, not fetched through it. `start()` borrows the
     /// app mutably for the whole run loop, so a getter that went through
     /// `inner` would panic from inside a callback -- which is exactly where
@@ -38,11 +40,25 @@ impl App {
                 app.shared.clone(),
             )
         };
+        let app_config = inner.borrow().app_config.clone();
         Self {
             inner,
             shared,
+            app_config,
             config,
             simulation,
+        }
+    }
+
+    #[getter]
+    /// The application's own settings: window size, and panel layout and
+    /// colours as the editor grows.
+    ///
+    /// Not the simulation's -- that is `app.simulation.config`, and it is
+    /// where shading, shadows, axes, the colour bar and export live.
+    fn config(&self) -> config::AppConfig {
+        config::AppConfig {
+            config: self.app_config.clone(),
         }
     }
 

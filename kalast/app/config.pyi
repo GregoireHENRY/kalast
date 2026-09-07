@@ -35,6 +35,22 @@ class Hud:
     color: list[float]
     """Text colour, `(r, g, b, a)`."""
 
+class AppConfig:
+    """Settings for the application: the window now, panels and colours later.
+
+    Separate from `simulation.config` because they answer different
+    questions -- this one about the program you are looking at, that one about
+    the thing being simulated.
+    """
+    width: int
+    """Window width in physical pixels.
+
+    The *window*. `simulation.config.width` is the image inside it, and
+    follows this unless it is set.
+    """
+    height: int
+    """Window height in physical pixels."""
+
 class Config:
     debug_app: bool
     """Print app lifecycle events: pause and camera-mode changes."""
@@ -67,14 +83,18 @@ class Config:
     title: str
     """The OS window title."""
     width: int
-    """Initial window width in pixels.
+    """Render size in physical pixels -- the *image*, not the window.
 
-    Also the render-target size and therefore the resolution of exported PNGs --
-    though the exporter reads the *live* surface size, so resizing mid-run
-    changes the size of subsequent exports.
+    `0` means "follow the window", which is what a terminal run wants and
+    what every script got when there was only one pair of these. Set it to
+    pin the render independently: a 4K export from a small window, or a
+    fixed frame size while the editor's viewport panel is dragged about.
+
+    Everything about the image follows this -- the camera's aspect ratio,
+    where axis ticks project, where the colour bar sits, and what an
+    exported frame measures.
     """
     height: int
-    """Initial window height in pixels. See `width`."""
     background: list[float]
     """Colour the frame is cleared to, `(r, g, b, a)`.
 

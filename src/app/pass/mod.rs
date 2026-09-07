@@ -24,6 +24,10 @@ impl Passes {
         format: wgpu::TextureFormat,
         config: &crate::app::config::Config,
         uniforms: &super::uniform::Uniforms,
+        // The render size, passed in rather than read from the config: since
+        // the window and the image became two different sizes,
+        // `config.width` is `0` whenever the image is following the window.
+        size: (u32, u32),
     ) -> Self {
         let layouts_all = uniforms.layouts_all();
         let bindings = uniforms.bindings(device);
@@ -35,12 +39,12 @@ impl Passes {
         Self {
             shadow: shadow::Pass::new(device, &uniforms.layouts_for_shadow()),
 
-            render: render::Pass::new(device, format, config, &layouts_all),
+            render: render::Pass::new(device, format, config, &layouts_all, size),
             light_cube: light_cube::Pass::new(device, format, &layouts_all, samples),
             axes: axes::Pass::new(device, format, &layouts_all, samples),
             colorbar: colorbar::Pass::new(device, format, &layouts_all, samples),
 
-            depth: depth::Pass::new(device, config.width, config.height, format),
+            depth: depth::Pass::new(device, size.0, size.1, format),
 
             bindings,
         }

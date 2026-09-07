@@ -762,7 +762,13 @@ impl Window {
             bar,
         };
 
-        let passes = super::pass::Passes::new(&device, surface_config.format, &config, &uniforms);
+        let passes = super::pass::Passes::new(
+            &device,
+            surface_config.format,
+            &config,
+            &uniforms,
+            (surface_config.width, surface_config.height),
+        );
 
         // The font is embedded rather than read from `res/`, so the overlay
         // works from any working directory. A font that will not load leaves
@@ -1089,9 +1095,13 @@ impl Window {
         self.surface_config.width = width;
         self.surface_config.height = height;
         self.surface.configure(&self.device, &self.surface_config);
-        // The editor overrides this straight afterwards with the viewport
-        // panel's size; a terminal run leaves the two equal.
-        self.render_size = (width, height);
+        // Only when the image is following the window, which is the
+        // default. A pinned `simulation.config.width` survives a resize --
+        // that is the point of pinning it. The editor overrides this straight
+        // afterwards with the viewport panel's size.
+        if (config.width, config.height) == (0, 0) {
+            self.render_size = (width, height);
+        }
 
         if let Some(hud) = &self.hud {
             hud.resize_view(width as f32, height as f32, &self.queue);
@@ -1149,6 +1159,7 @@ impl Window {
             self.surface_config.format,
             config,
             &self.uniforms,
+            self.render_size,
         );
         // `Passes::new` sizes the offscreen targets from `config.width`, which
         // is the *requested* size and need not be the window's current one.
@@ -1653,9 +1664,25 @@ impl Window {
                     origin: wgpu::Origin3d::ZERO,
                     aspect: wgpu::TextureAspect::All,
                 },
+                // The overlap of the two, not the window's size.
+                //
+                // This is a straight texel copy, so it cannot scale. While the
+                // image follows the window they are equal and it copies the
+                // whole frame. A *pinned* `simulation.config.width` makes them
+                // differ, and then the window shows the top-left of the image
+                // rather than a scaled version of it -- the export still gets
+                // the full pinned frame, which is what pinning is for.
+                //
+                // Without the clamp this is a validation error: a 900x700
+                // window copying from a 1600x400 image "would end up
+                // overrunning the bounds of the Source texture".
+                //
+                // Scaling instead of cropping needs a fullscreen textured
+                // quad. The editor already does the equivalent, since egui
+                // samples the texture into a panel of any size.
                 wgpu::Extent3d {
-                    width: self.surface_config.width,
-                    height: self.surface_config.height,
+                    width: self.surface_config.width.min(self.render_size.0),
+                    height: self.surface_config.height.min(self.render_size.1),
                     depth_or_array_layers: 1,
                 },
             );

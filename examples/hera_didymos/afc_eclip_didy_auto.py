@@ -58,8 +58,8 @@ def after_render(sim: Simulation, dt: float) -> None:
 
 
 app = kalast.app.App()
-app.simulation.config.width = 1020
-app.simulation.config.height = 1020
+app.config.width = 1020
+app.config.height = 1020
 app.simulation.config.color_mode = 0
 app.simulation.config.access_shadow_map = True
 app.simulation.camera.projection.fovy = 5.5 * RPD

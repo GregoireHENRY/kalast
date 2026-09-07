@@ -208,6 +208,50 @@ impl Hud {
     }
 }
 
+/// Settings for the application: the window now, panels and colours later.
+///
+/// Separate from `simulation.config` because they answer different
+/// questions -- this one about the program you are looking at, that one about
+/// the thing being simulated.
+#[pyclass(unsendable)]
+#[derive(Clone)]
+pub struct AppConfig {
+    pub config: Rc<RefCell<crate::app::config::AppConfig>>,
+}
+
+#[pymethods]
+impl AppConfig {
+    /// Window width in physical pixels.
+    ///
+    /// The *window*. `simulation.config.width` is the image inside it, and
+    /// follows this unless it is set.
+    #[getter]
+    fn width(&self) -> u32 {
+        self.config.borrow().width
+    }
+
+    #[setter]
+    fn set_width(&self, v: u32) {
+        self.config.borrow_mut().width = v;
+    }
+
+    /// Window height in physical pixels.
+    #[getter]
+    fn height(&self) -> u32 {
+        self.config.borrow().height
+    }
+
+    #[setter]
+    fn set_height(&self, v: u32) {
+        self.config.borrow_mut().height = v;
+    }
+
+    fn __repr__(&self) -> String {
+        let c = self.config.borrow();
+        format!("AppConfig(width={}, height={})", c.width, c.height)
+    }
+}
+
 #[pyclass(unsendable)]
 pub struct Config {
     /// The config itself, not the app that owns it. Holding the app would put

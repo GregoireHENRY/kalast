@@ -83,8 +83,8 @@ print(f"closed box: {nv} vertices, {nf} facets, inward-facing, "
       f"hemicube {RES} px")
 
 app = kalast.app.App()
-app.simulation.config.width = 256
-app.simulation.config.height = 256
+app.config.width = 256
+app.config.height = 256
 app.simulation.config.vsync = False
 app.simulation.load_mesh(path=str(BOX), mat=numpy.eye(4), flatten=True)
 

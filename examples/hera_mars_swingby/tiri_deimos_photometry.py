@@ -93,8 +93,8 @@ ET0 = spice.str2et("2025-03-12 12:00:00 UTC")     # the restart's own epoch
 OUT.mkdir(parents=True, exist_ok=True)
 
 app = kalast.app.App()
-app.simulation.config.width = 512
-app.simulation.config.height = 512
+app.config.width = 512
+app.config.height = 512
 app.simulation.config.vsync = False
 app.simulation.config.access_shadow_map = True
 app.simulation.config.huds = [kalast.app.Hud("")]   # filled in before_render
