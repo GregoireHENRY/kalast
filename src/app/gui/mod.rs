@@ -648,28 +648,36 @@ impl Editor {
                 // the window edge to drag it back -- the way an editor's side
                 // bars work. Double clicking the edge toggles it too.
                 //
-                // `min_size` is the threshold it collapses past, so it is a
-                // real size again rather than the 0.0 that made "closed" and
-                // "very narrow" the same thing and left nothing to grab.
+                // `min_size` is doing two jobs, because egui does not let
+                // them be separated: it is the smallest a panel can be
+                // dragged *and* the size below which it collapses. egui has a
+                // `collapse_threshold` for exactly this, but it is private.
+                //
+                // So it is small. At 120 or 180 a panel could not be made
+                // narrow, and vanished in one jump the moment it tried --
+                // which is neither resizing nor closing. At `COLLAPSE` a
+                // panel resizes smoothly to almost nothing and only then
+                // gives up, which is the behaviour asked for.
+                const COLLAPSE: f32 = 8.0;
                 let mut open = open_docked;
                 rects[1] = egui::Panel::bottom("log")
                     .resizable(true)
                     .default_size(bottom_h)
-                    .min_size(120.0)
+                    .min_size(COLLAPSE)
                     .show_collapsible(ui_root, &mut open[1], log_ui)
                     .map(|r| r.response.rect)
                     .unwrap_or(egui::Rect::NOTHING);
                 rects[2] = egui::Panel::left("script")
                     .resizable(true)
                     .default_size(left_w)
-                    .min_size(180.0)
+                    .min_size(COLLAPSE)
                     .show_collapsible(ui_root, &mut open[2], script_ui)
                     .map(|r| r.response.rect)
                     .unwrap_or(egui::Rect::NOTHING);
                 rects[3] = egui::Panel::right("config")
                     .resizable(true)
                     .default_size(right_w)
-                    .min_size(180.0)
+                    .min_size(COLLAPSE)
                     .show_collapsible(ui_root, &mut open[3], config_ui)
                     .map(|r| r.response.rect)
                     .unwrap_or(egui::Rect::NOTHING);
