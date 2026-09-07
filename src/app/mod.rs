@@ -1048,6 +1048,20 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 let win = self.window.as_mut().unwrap();
                 win.resize(size.width, size.height, &sim_cfg.borrow());
             }
+
+            // Was not handled at all, and the surface was left describing the
+            // old backing scale. Entering fullscreen with the green button is
+            // one of the ways macOS sends this -- a `Resized` may or may not
+            // follow, so waiting for one leaves the swapchain at a size the
+            // drawable no longer has.
+            //
+            // Reconfiguring from the window's own size, rather than scaling
+            // the old one, since that is what the drawable will be.
+            winit::event::WindowEvent::ScaleFactorChanged { .. } => {
+                let win = self.window.as_mut().unwrap();
+                let size = win.window.inner_size();
+                win.resize(size.width, size.height, &sim_cfg.borrow());
+            }
             winit::event::WindowEvent::RedrawRequested => {
                 {
                     let win = self.window.as_mut().unwrap();
