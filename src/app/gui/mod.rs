@@ -51,6 +51,14 @@ impl Log {
 /// How close to an edge the pointer must come to summon a panel, in points.
 const EDGE: f32 = 24.0;
 
+/// How big each floating panel is when it has not been dragged: top, bottom,
+/// left, right.
+const FLOAT_DEFAULTS: [f32; 4] = [30.0, 160.0, 300.0, 240.0];
+
+/// A panel smaller than this counts as put away rather than merely narrow.
+/// The same figure the docked panels collapse past.
+const COLLAPSE: f32 = 8.0;
+
 /// Which panels to draw: `[top, bottom, left, right]`.
 ///
 /// All of them unless the renderer has the window to itself, in which case
@@ -202,7 +210,7 @@ impl Editor {
             registered_generation: u64::MAX,
             panels: [egui::Rect::NOTHING; 4],
             docked_open: [true; 4],
-            float_sizes: [30.0, 160.0, 300.0, 240.0],
+            float_sizes: FLOAT_DEFAULTS,
             resizing: None,
             viewport_rect: egui::Rect::NOTHING,
             viewport_size: (
@@ -294,6 +302,7 @@ impl Editor {
         let mut rects = [egui::Rect::NOTHING; 4];
         let mut out_sizes = self.float_sizes;
         let mut out_resizing = self.resizing;
+        let was_shown = self.panels.map(|r| r.is_positive());
         let open_docked = self.docked_open;
         let mut out_open = self.docked_open;
         // Read before the panel closures are built: the toolbar needs to know
@@ -571,9 +580,8 @@ impl Editor {
                             };
                             // Never past the window, and never negative --
                             // dragged shut is a legitimate place to leave one.
-                            // Never larger than the window, and never
-                            // negative -- dragged shut is a fine place to
-                            // leave one.
+                            // Down to nothing is allowed: that is what
+                            // putting one away looks like here.
                             let limit = if side < 2 { screen_h } else { screen_w };
                             *size = size.clamp(0.0, limit);
                             *resizing = Some(side);
@@ -590,6 +598,22 @@ impl Editor {
             // wider the next time the pointer summons it.
             let mut sizes = self.float_sizes;
             let mut resizing = self.resizing;
+
+            // A floating panel can be dragged away to nothing, like a docked
+            // one. Unlike a docked one it has no handle left behind to drag
+            // back -- it is summoned by the pointer instead -- so a panel that
+            // was put away comes back at its usual size when it is next
+            // asked for. Without this, dragging one to nothing hid it for
+            // good: every later reveal showed a panel zero points wide.
+            //
+            // Only as it reappears, judged by whether it was drawn last
+            // frame, or it would spring back under the hand that shrank it.
+            for i in 0..4 {
+                let reappearing = !was_shown[i];
+                if reappearing && sizes[i] < COLLAPSE {
+                    sizes[i] = FLOAT_DEFAULTS[i];
+                }
+            }
             let [top_h, bottom_h, left_w, right_w] = sizes;
 
             let scene_panel = |ui_root: &mut egui::Ui,
@@ -657,8 +681,9 @@ impl Editor {
                 // narrow, and vanished in one jump the moment it tried --
                 // which is neither resizing nor closing. At `COLLAPSE` a
                 // panel resizes smoothly to almost nothing and only then
-                // gives up, which is the behaviour asked for.
-                const COLLAPSE: f32 = 8.0;
+                // gives up, which is the behaviour asked for -- and it is the
+                // same figure the floating panels use, so the two layouts
+                // agree on what "put away" means.
                 let mut open = open_docked;
                 rects[1] = egui::Panel::bottom("log")
                     .resizable(true)
