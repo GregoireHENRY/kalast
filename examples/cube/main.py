@@ -5,7 +5,7 @@ import numpy
 import kalast
 
 
-def before_render(sim: kalast.app.simulation.Simulation, dt: float):
+def before_render(app, dt):
     pass
 
 

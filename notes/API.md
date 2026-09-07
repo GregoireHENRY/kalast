@@ -31,8 +31,18 @@ app.start()                   # blocks until the window closes
 | `app.tick` | alias for `before_render` |
 | `app.start()` | creates the window and runs the loop; **blocks** |
 
-Both callbacks take `(sim, dt)` and are optional. `dt` is the frame time in
-seconds.
+Both callbacks take **`(app, dt)`** and are optional. `dt` is the frame time
+in seconds.
+
+```python
+def before_render(app, dt):
+    sim = app.simulation          # the scene
+    app.config.colorbar = True    # settings, changeable per frame
+```
+
+They receive the app rather than the simulation because `config` and
+`simulation` are siblings: placing a body and changing a setting are both
+things a frame wants to do, and neither is reachable from the other.
 
 **`start()` blocks until the window closes**, so everything else is set before
 it, and everything per-frame happens inside the callbacks.
@@ -56,24 +66,10 @@ one frame.
 its own — it simply is not called. Heavy CPU work in either blocks the render
 loop.
 
-To change settings per frame use **`sim.config`**, not `app.config`: the
-latter raises `RuntimeError: Already mutably borrowed` inside a callback,
-because `start()` holds the app borrowed for the whole run loop. Both names
-reach the same config object.
-
-## `sim.config`
-
-The renderer and window settings — the same object as `app.config`, reached
-without going through the app, so it works inside a callback:
-
-```python
-def before_render(sim, dt):
-    sim.config.colorbar = sim.state.iteration > 100
-    sim.config.color_mode = 1
-```
-
-Options marked *startup only* in `CONFIG.md` still will not take effect: they
-are baked into GPU resources when the window is created.
+`app.config` works inside a callback: it is a handle held beside the app, not
+fetched through it, so it does not hit the borrow `start()` holds for the
+whole run loop. Options marked *startup only* in `CONFIG.md` still will not
+take effect, being baked into GPU resources when the window is made.
 
 ## `sim.state`
 

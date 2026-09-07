@@ -116,7 +116,8 @@ def incident(name):
     return SOLAR_CONSTANT * cosi / (d / AU) ** 2
 
 
-def before_render(sim, _dt):
+def before_render(app, _dt):
+    sim = app.simulation
     place(sim)
     if sim.state.iteration < 2:
         return
@@ -184,7 +185,8 @@ def report():
           "measured about 2x. A term called negligible here really is.")
 
 
-def after_render(sim, _dt):
+def after_render(app, _dt):
+    sim = app.simulation
     if current[0] is None:
         return
     name, builder = current[0]

@@ -23,22 +23,21 @@ the window is created, inside `app.start()`. Set everything before calling it.
   fresh; `background` and the debug-draw flags are read straight from the
   config during the pass.
 
-  **Change them per frame through `sim.config`**, not `app.config`:
+  **Change them per frame from a callback**, which receives the app:
 
   ```python
-  def before_render(sim, dt):
-      sim.config.colorbar = sim.state.iteration > 100
+  def before_render(app, dt):
+      app.config.colorbar = app.simulation.state.iteration > 100
   ```
 
-  `app.config` is for setup and raises `RuntimeError: Already mutably
-  borrowed` inside a callback -- `start()` holds the app borrowed for the
-  whole run loop. `sim.config` is a handle to the same config that does not
-  go through the app, so it works mid-frame. Both names reach one object: a
-  write through either is visible from the other.
+  This works because `py::App` holds the config beside the app rather than
+  inside it. Fetching it through the app would hit the borrow `start()` takes
+  for the whole run loop and raise `RuntimeError: Already mutably borrowed`,
+  which is what it used to do.
 - *(startup only)* -- read once during setup and baked into GPU resources or
   window state. Assigning to these after `start()` still updates the
-  Python-visible field but **has no effect on rendering**, whether through
-  `app.config` or `sim.config`. These are the ones
+  Python-visible field but **has no effect on rendering**, including from a
+  callback. These are the ones
   that size a GPU resource (`width`, `height`, `shadow_resolution`), pick a
   pipeline (`render_back_face`), configure the surface (`vsync`, `title`), set
   up the exporter (`export_dir`, `export_sync`, `export_max_queued`), or are

@@ -8,7 +8,8 @@ import kalast
 from kalast.util import AU_KM, RPD
 
 
-def before_render(sim: kalast.app.simulation.Simulation, dt: float):
+def before_render(app, dt):
+    sim = app.simulation
     if sim.state.is_paused:
         return
 
@@ -38,7 +39,8 @@ def before_render(sim: kalast.app.simulation.Simulation, dt: float):
 
 
 
-def after_render(sim: kalast.app.simulation.Simulation, dt: float):
+def after_render(app, dt):
+    sim = app.simulation
     et = et0 + sim.state.iteration * simu_dt
     if et > etf:
         return

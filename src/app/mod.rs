@@ -166,7 +166,6 @@ impl App {
     pub fn new_with_config(config: crate::app::config::Config) -> Self {
         let config_rc = Rc::new(RefCell::new(config));
         let simulation = Rc::new(RefCell::new(crate::app::simulation::Simulation::new()));
-        simulation.borrow_mut().config = Some(config_rc.clone());
         let controller = {
             let c = config_rc.borrow();
             frame::Controller::new(
@@ -243,12 +242,9 @@ impl App {
             Some(Tick::Rust(f)) => {
                 f(&mut sim.borrow_mut(), dt);
             }
-            Some(Tick::Python {
-                callback,
-                simulation,
-            }) => {
+            Some(Tick::Python { callback, app }) => {
                 Python::attach(|py: Python<'_>| {
-                    callback.call1(py, (simulation.clone(), dt)).unwrap();
+                    callback.call1(py, (app.clone(), dt)).unwrap();
                 });
             }
             None => {}
@@ -639,7 +635,10 @@ pub enum Tick {
     Rust(Box<dyn for<'a> Fn(&'a mut simulation::Simulation, Float)>),
     Python {
         callback: Py<PyAny>,
-        simulation: crate::py::app::simulation::Simulation,
+        /// The whole app, not just the scene: `config` and `simulation` are
+        /// siblings, and a callback needs both -- one to place bodies, the
+        /// other to change a setting for the coming frame.
+        app: crate::py::app::App,
     },
 }
 

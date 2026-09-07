@@ -9,7 +9,8 @@ from kalast.util import AU, AU_KM, RPD, DPR, PI  # noqa
 from kalast.entity import MARS, DIDYMOS, DIMORPHOS  # noqa
 
 
-def before_render(sim: kalast.app.simulation.Simulation, dt: float):
+def before_render(app, dt):
+    sim = app.simulation
     global et
 
     if sim.state.is_paused:

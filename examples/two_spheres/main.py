@@ -5,7 +5,8 @@ import numpy
 import kalast
 
 
-def before_render(sim, dt):
+def before_render(app, dt):
+    sim = app.simulation
     if sim.state.is_paused:
         return
 

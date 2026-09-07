@@ -37,11 +37,11 @@ def pos_mat(target, frame, et):
     return m4
 
 
-def before_render(sim, _dt):
+def before_render(app, _dt):
     pass
 
 
-def after_render(sim, _dt):
+def after_render(app, _dt):
     pass
 
 

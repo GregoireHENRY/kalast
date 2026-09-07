@@ -204,7 +204,8 @@ def epoch_of(i):
     return float(fine_epochs[min(i - n_coarse, n_fine - 1)])
 
 
-def before_render(sim, _dt):
+def before_render(app, _dt):
+    sim = app.simulation
     i = state["i"]
     if i > n_coarse + n_fine:
         return
@@ -367,7 +368,8 @@ def write_image(row, et, ids, offsets):
     return name, d, gsd, filled.sum(), tmap[filled] if filled.any() else numpy.array([0.0])
 
 
-def after_render(sim, _dt):
+def after_render(app, _dt):
+    sim = app.simulation
     i = state["i"]
     if i > n_coarse + n_fine:
         return

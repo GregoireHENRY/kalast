@@ -4,7 +4,6 @@
 
 import numpy  # noqa: F401
 from kalast.routines.setup import Body
-from kalast.app.config import Config
 from kalast.app.frame import Eye
 from kalast.app.config import Hud
 from kalast.mesh import Mesh
@@ -41,21 +40,6 @@ class Simulation:
         ...
     export: bool
     """Whether every frame is exported. Destination is `config.export_dir`."""
-    config: Config
-    """The renderer and window settings, reachable from inside a callback.
-
-    `app.config` cannot be read there: `start()` holds the app mutably
-    borrowed for the whole run loop. This handle goes straight to the
-    config, so options can be changed per frame:
-
-    ```python
-    def before_render(sim, dt):
-    sim.config.colorbar = sim.state.iteration > 100
-    ```
-
-    Options marked *startup only* in `CONFIG.md` still will not take
-    effect -- they are baked into GPU resources when the window is made.
-    """
     huds: list[Hud]
     """The live HUDs -- the same objects as `app.config.huds`, not copies.
 

@@ -96,14 +96,16 @@ builder = heating.ViewFactorBuilder(
 )
 
 
-def before_render(sim, _dt):
+def before_render(app, _dt):
+    sim = app.simulation
     sim.camera.pos = numpy.array([5.0, 0.0, 0.0])
     sim.camera.dir = numpy.array([-1.0, 0.0, 0.0])
     if sim.state.iteration >= 2:
         builder.request(sim)
 
 
-def after_render(sim, _dt):
+def after_render(app, _dt):
+    sim = app.simulation
     if sim.state.iteration < 2 or builder.done:
         return
     if not builder.collect(sim, [nface]):

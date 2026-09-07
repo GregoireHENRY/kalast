@@ -173,7 +173,8 @@ def faces(centre, normal, tangent):
     ]
 
 
-def before_render(sim, dt):
+def before_render(app, dt):
+    sim = app.simulation
     k = state["i"]
     if k >= len(samples) * 5:
         return
@@ -187,7 +188,8 @@ def before_render(sim, dt):
     sim.request_facet_id()
 
 
-def after_render(sim, dt):
+def after_render(app, dt):
+    sim = app.simulation
     k = state["i"]
     if state["t0"] is None:
         state["t0"] = time.perf_counter()

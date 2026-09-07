@@ -186,7 +186,8 @@ def sweep():
     print(f"\nwrote {OUT}/roughness_sweep.csv")
 
 
-def before_render(sim, _dt):
+def before_render(app, _dt):
+    sim = app.simulation
     i = st["i"]
     if i > n_pre:
         return
@@ -201,7 +202,8 @@ def before_render(sim, _dt):
     sim.huds[0].text = f"preroll {i}/{n_pre}"
 
 
-def after_render(sim, _dt):
+def after_render(app, _dt):
+    sim = app.simulation
     i = st["i"]
     if i > n_pre:
         return

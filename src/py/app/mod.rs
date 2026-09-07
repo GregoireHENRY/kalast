@@ -9,34 +9,47 @@ use std::{cell::RefCell, rc::Rc};
 use pyo3::prelude::*;
 
 #[pyclass(unsendable)]
+#[derive(Clone)]
 pub struct App {
     pub inner: Rc<RefCell<crate::app::App>>,
+    /// Held alongside `inner`, not fetched through it. `start()` borrows the
+    /// app mutably for the whole run loop, so a getter that went through
+    /// `inner` would panic from inside a callback -- which is exactly where
+    /// changing a setting is wanted.
+    pub config: Rc<RefCell<crate::app::config::Config>>,
+    pub simulation: Rc<RefCell<crate::app::simulation::Simulation>>,
 }
 
 #[pymethods]
 impl App {
     #[new]
     fn new() -> Self {
+        let inner = Rc::new(RefCell::new(crate::app::App::new()));
+        let (config, simulation) = {
+            let app = inner.borrow();
+            (app.config.clone(), app.simulation.clone())
+        };
         Self {
-            inner: Rc::new(RefCell::new(crate::app::App::new())),
+            inner,
+            config,
+            simulation,
         }
     }
 
     #[getter]
     /// Renderer and window settings. See `CONFIG.md`.
     fn config(&self) -> config::Config {
-        let app = self.inner.borrow();
         config::Config {
-            config: app.config.clone(),
-            simulation: app.simulation.clone(),
+            config: self.config.clone(),
+            simulation: self.simulation.clone(),
         }
     }
 
     #[getter]
     /// The scene: bodies, camera, Sun, iteration state and HUDs.
-    fn get_simulation(&mut self) -> simulation::Simulation {
+    fn get_simulation(&self) -> simulation::Simulation {
         simulation::Simulation {
-            inner: self.inner.borrow_mut().simulation.clone(),
+            inner: self.simulation.clone(),
         }
     }
 
@@ -52,10 +65,8 @@ impl App {
     /// sun here.
     #[setter]
     fn set_before_render(&mut self, callback: Py<PyAny>) {
-        self.inner.borrow_mut().before_render = Some(crate::app::Tick::Python {
-            callback,
-            simulation: self.get_simulation(),
-        });
+        let app = self.clone();
+        self.inner.borrow_mut().before_render = Some(crate::app::Tick::Python { callback, app });
     }
 
     /// Alias for `before_render`, kept because it is what every example and
@@ -75,9 +86,7 @@ impl App {
     /// rate stops meaning much).
     #[setter]
     fn set_after_render(&mut self, callback: Py<PyAny>) {
-        self.inner.borrow_mut().after_render = Some(crate::app::Tick::Python {
-            callback,
-            simulation: self.get_simulation(),
-        });
+        let app = self.clone();
+        self.inner.borrow_mut().after_render = Some(crate::app::Tick::Python { callback, app });
     }
 }

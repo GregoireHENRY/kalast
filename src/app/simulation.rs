@@ -47,11 +47,6 @@ pub struct Simulation {
     ///
     /// Drawn onto the swapchain after the scene has been blitted to it, so it
     /// never reaches `render_texture` and never appears in exported frames.
-    /// Shared handle to the app config, so `sim.config` reaches every option
-    /// from inside `before_render` -- where going through the app cannot
-    /// work, since `start()` holds it mutably borrowed for the whole loop.
-    pub config: Option<std::rc::Rc<std::cell::RefCell<crate::app::config::Config>>>,
-
     /// The live HUDs, shared with `Config::huds` -- the same objects, so
     /// editing one here is editing the one that gets drawn.
     pub huds: Vec<std::rc::Rc<std::cell::RefCell<crate::app::config::Hud>>>,
@@ -104,7 +99,6 @@ impl Simulation {
 
             hemicube_request: None,
             hemicube_result: None,
-            config: None,
             huds: Vec::new(),
             diagnostics: Diagnostics::default(),
         }

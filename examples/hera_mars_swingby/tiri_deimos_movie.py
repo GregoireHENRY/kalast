@@ -111,7 +111,8 @@ state = {"i": 0, "phase": 0, "deimos": None, "written": 0}
 t0 = time.perf_counter()
 
 
-def before_render(sim, _dt):
+def before_render(app, _dt):
+    sim = app.simulation
     i = state["i"]
     if i >= N_FRAMES:
         return
@@ -168,7 +169,8 @@ def mars_mask(ids, offsets):
     return (ids > lo) & (ids <= lo + n_mars)
 
 
-def after_render(sim, _dt):
+def after_render(app, _dt):
+    sim = app.simulation
     i = state["i"]
     if i >= N_FRAMES:
         return

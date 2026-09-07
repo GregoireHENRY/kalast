@@ -681,7 +681,8 @@ def _checkpoint(it, et):
     tmp.replace(ptr)
 
 
-def before_render(sim, dt_frame):
+def before_render(app, dt_frame):
+    sim = app.simulation
     """Place the scene for this step, and keep the view-factor build fed."""
     if step["n"] > n_steps:
         # Past the last step there is no scene to place, but an in-flight
@@ -827,7 +828,8 @@ def coupling(ins, et_now):
     return out
 
 
-def after_render(sim, dt_frame):
+def after_render(app, dt_frame):
+    sim = app.simulation
     if clock["done"]:
         return
     if clock["t0"] is None:
