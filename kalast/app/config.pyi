@@ -100,8 +100,10 @@ class Config:
     Everything about the image follows this -- the camera's aspect ratio,
     where axis ticks project, where the colour bar sits, and what an
     exported frame measures.
+    :range: 0..=7680
     """
     height: int
+    """:range: 0..=4320"""
     background: list[float]
     """Colour the frame is cleared to, `(r, g, b, a)`.
 
@@ -140,13 +142,21 @@ class Config:
     correctly from whichever side faces the light.
     """
     sensitivity_move: float
-    """Multiplier for WASD movement speed."""
+    """Multiplier for WASD movement speed.
+    :range: 0.1..=5.0
+    """
     sensitivity_look: float
-    """Multiplier for mouse-look speed in WASD mode."""
+    """Multiplier for mouse-look speed in WASD mode.
+    :range: 0.1..=5.0
+    """
     sensitivity_rotate: float
-    """Multiplier for arcball orbit speed."""
+    """Multiplier for arcball orbit speed.
+    :range: 0.1..=5.0
+    """
     sensitivity_zoom: float
-    """Multiplier for scroll and pinch zoom speed."""
+    """Multiplier for scroll and pinch zoom speed.
+    :range: 0.1..=5.0
+    """
     color: list[float]
     """Flat colour used when `color_mode` is 2, `(r, g, b, a)`."""
     color_mode: int
@@ -158,21 +168,28 @@ class Config:
     | 1 | raw vertex/instance colour, no lighting |
     | 2 | the flat `color` |
     | 3 | as 0 but with shadows disabled |
+    :range: 0..=3
     """
     extra: int
-    """Free integer passed through to the shader, for one-off experiments."""
+    """Free integer passed through to the shader, for one-off experiments.
+    :range: 0..=10
+    """
     srgb_mode: int
     """0 converts sRGB to linear before shading; 1 treats colours as already
     linear.
+    :range: 0..=2
     """
     gamma: float
-    """Exponent used by the sRGB conversion when `srgb_mode` is 0."""
+    """Exponent used by the sRGB conversion when `srgb_mode` is 0.
+    :range: 0.1..=4.0
+    """
     ambient_strength: float
     """Light added to every fragment regardless of shadowing.
 
     Deliberately tiny by default: a shadowed facet on an airless body receives
     almost nothing, and a visible ambient term would be inventing light that is
     not there.
+    :range: 0.0..=1.0
     """
     light_color: list[float]
     """Colour of the Sun, `(r, g, b, a)`."""
@@ -180,6 +197,7 @@ class Config:
     """Size of the debug light cube, in world units.
 
     Only drawn when `debug_light_cube_show` is on.
+    :range: 0.0..=5.0
     """
     msaa: int
     """Multisample anti-aliasing on the main pass: 1 (off), 2, 4 or 8.
@@ -195,6 +213,7 @@ class Config:
 
     It also feeds the automatic bias, which is expressed relative to one texel,
     so changing it changes the shadow bias with it.
+    :range: 512..=16384
     """
     shadow_bias_scale: float | None
     """Slope-dependent term of the depth-comparison bias. `None` fits it per
@@ -229,9 +248,12 @@ class Config:
     Barycentric edge detection in the main fragment shader, so the overlay
     cannot z-fight. Needs a flattened mesh -- indexed meshes share vertices, so
     the barycentrics are meaningless and the CPU side warns once.
+    :range: 0..=2
     """
     wireframe_width: float
-    """Wireframe half-width in screen pixels."""
+    """Wireframe half-width in screen pixels.
+    :range: 0.1..=10.0
+    """
     wireframe_color: list[float]
     """Wireframe colour, `(r, g, b, a)`; alpha is dropped.
 
@@ -250,6 +272,7 @@ class Config:
     The normal offset scales with this, since an N-radius kernel reaches N texels
     away and a one-texel offset would let those taps flip. `shadow_pcf = 0` is
     bit-identical to the pre-scaling behaviour.
+    :range: 0..=16
     """
     vsync: bool
     """Cap the frame rate to the display refresh.
@@ -272,6 +295,7 @@ class Config:
     Unbounded, this reached 30 GB RSS growing at ~2 GB/s while only ~5.6 frames
     per second actually reached disk, and the loop still claimed 626 it/s --
     measuring queue growth rather than work done.
+    :range: 1..=512
     """
     emulate_middle_button: bool
     """Treat alt + left-drag as a middle-drag, so the arcball can be orbited

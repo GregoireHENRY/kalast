@@ -11,6 +11,8 @@
 //! been drawn offscreen and blitted at the end -- so showing it in a panel
 //! costs a sampler, not a copy.
 
+mod config_panel;
+
 use std::collections::VecDeque;
 
 /// Lines shown in the log panel.
@@ -325,15 +327,10 @@ impl Editor {
                     ui.label(egui::RichText::new("Config").strong());
                     ui.separator();
                     egui::ScrollArea::vertical().show(ui, |ui| {
-                        // A placeholder set until the generated panel lands:
-                        // enough to prove a widget writes through to the
-                        // renderer on the next frame.
-                        ui.add(egui::Slider::new(&mut config.shadow_pcf, 0..=16).text("shadow_pcf"));
-                        ui.add(egui::Slider::new(&mut config.msaa, 1..=8).text("msaa"));
-                        ui.add(egui::Slider::new(&mut config.gamma, 0.1..=4.0).text("gamma"));
-                        ui.checkbox(&mut config.render_back_face, "render_back_face");
-                        ui.checkbox(&mut config.colorbar.enabled, "colorbar");
-                        ui.checkbox(&mut config.vsync, "vsync");
+                        // Generated from `src/app/config.rs`, so a field
+                        // added there gets a widget without anyone
+                        // remembering to add one here.
+                        config_panel::config_panel(ui, config);
                     });
                 });
 

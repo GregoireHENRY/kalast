@@ -201,6 +201,34 @@ hand-written `.pyi` files that had been **commented out entirely** -- so they
 completed nothing while looking like the surface was covered, which is worse
 than having none.
 
+## The editor's config panel
+
+Same story as the stubs, same reason: `src/app/gui/config_panel.rs` is
+**generated** from `src/app/config.rs`, not written by hand.
+
+```sh
+python tools/gen_config_panel.py     # after adding a field to Config
+python tests/test_config_panel.py    # checks it is current and complete
+```
+
+Two guards, both needed: the committed file must match what the generator
+produces, *and* every field must appear in it. The second catches the case
+that matters -- a new option with no widget is invisible, because the panel
+still looks complete.
+
+The Rust doc comments carry what the type cannot:
+
+| marker | effect |
+|---|---|
+| `/// :range: 0..=16` | a slider with those bounds instead of a drag field |
+| `/// :step: 0.01` | drag speed |
+| `/// :skip:` | no widget; for things edited from a script, like `colormap` |
+| `/// :group: Shadows` | override which collapsing header it lands in |
+
+Otherwise the widget follows the type, and the first sentence of the doc
+becomes the hover text -- so documenting a field in Rust documents it in the
+UI.
+
 ## Notes
 
 `notes/` holds dated write-ups (`YYYY-MM-DD_topic`). Two are **undated on

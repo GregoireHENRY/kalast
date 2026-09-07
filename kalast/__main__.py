@@ -37,6 +37,12 @@ def main(argv: list[str] | None = None) -> int:
 
     script: Path | None = None
     for arg in argv:
+        if arg.startswith("-"):
+            # `--run` used to be needed, when a script was loaded into the
+            # buffer and waited for a click. A script is executed now, so
+            # there is nothing to ask for; accepted and ignored rather than
+            # taken for a filename, which is what `load_mesh("--run")` did.
+            continue
         path = Path(arg)
         if path.suffix == ".py":
             script = path

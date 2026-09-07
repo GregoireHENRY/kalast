@@ -156,10 +156,14 @@ pub struct Colorbar {
     pub enabled: bool,
     pub anchor: HudAnchor,
     /// Inset from the anchor, pixels.
+    /// :range: 0.0..=1.0
     pub x: f32,
+    /// :range: 0.0..=1.0
     pub y: f32,
     /// Long and short axis of the bar, pixels.
+    /// :range: 0.0..=1.0
     pub length: f32,
+    /// :range: 0.0..=0.5
     pub thickness: f32,
     /// `None` infers from the anchor.
     pub vertical: Option<bool>,
@@ -167,7 +171,9 @@ pub struct Colorbar {
     pub label: String,
     /// Roughly how many numbered ticks; rounded to a readable step as the axes
     /// are.
+    /// :range: 1..=20
     pub ticks: usize,
+    /// :range: 4.0..=64.0
     pub text_size: f32,
     pub text_color: [f32; 4],
     /// Outline drawn around the strip, so it reads as a scale rather than as
@@ -344,7 +350,9 @@ pub struct Config {
     /// Everything about the image follows this -- the camera's aspect ratio,
     /// where axis ticks project, where the colour bar sits, and what an
     /// exported frame measures.
+    /// :range: 0..=7680
     pub width: u32,
+    /// :range: 0..=4320
     pub height: u32,
 
     /// Font for the HUD: a **name** or a **path**, or empty for the built-in
@@ -421,15 +429,20 @@ pub struct Config {
     /// Counts the adapter does not support fall back to 4, then to 1. Note
     /// that `debug_depth_show` only mirrors the main pass's depth at 1: above
     /// that the pass writes its own multisampled depth buffer instead.
+    /// :range: 1..=8
     pub msaa: u32,
 
     /// Multiplier for WASD movement speed.
+    /// :range: 0.1..=5.0
     pub sensitivity_move: Float,
     /// Multiplier for mouse-look speed in WASD mode.
+    /// :range: 0.1..=5.0
     pub sensitivity_look: Float,
     /// Multiplier for arcball orbit speed.
+    /// :range: 0.1..=5.0
     pub sensitivity_rotate: Float,
     /// Multiplier for scroll and pinch zoom speed.
+    /// :range: 0.1..=5.0
     pub sensitivity_zoom: Float,
 
     // See app/uniform.rs Globals struct for shader
@@ -443,14 +456,18 @@ pub struct Config {
     /// | 1 | raw vertex/instance colour, no lighting |
     /// | 2 | the flat `color` |
     /// | 3 | as 0 but with shadows disabled |
+    /// :range: 0..=3
     pub color_mode: u32,
     /// Free integer passed through to the shader, for one-off experiments.
+    /// :range: 0..=10
     pub extra: u32,
 
     /// 0 converts sRGB to linear before shading; 1 treats colours as already
     /// linear.
+    /// :range: 0..=2
     pub srgb_mode: u32,
     /// Exponent used by the sRGB conversion when `srgb_mode` is 0.
+    /// :range: 0.1..=4.0
     pub gamma: Float,
 
     /// Light added to every fragment regardless of shadowing.
@@ -458,12 +475,14 @@ pub struct Config {
     /// Deliberately tiny by default: a shadowed facet on an airless body receives
     /// almost nothing, and a visible ambient term would be inventing light that is
     /// not there.
+    /// :range: 0.0..=1.0
     pub ambient_strength: f32,
     /// Colour of the Sun, `(r, g, b, a)`.
     pub light_color: wgpu::Color,
     /// Size of the debug light cube, in world units.
     ///
     /// Only drawn when `debug_light_cube_show` is on.
+    /// :range: 0.0..=5.0
     pub light_cube_scale: Float,
 
     /// Side length of each square shadow map, in texels.
@@ -475,6 +494,7 @@ pub struct Config {
     ///
     /// It also feeds the automatic bias, which is expressed relative to one texel,
     /// so changing it changes the shadow bias with it.
+    /// :range: 512..=16384
     pub shadow_resolution: u32,
     /// Percentage-closer-filtering kernel *radius*: 0 is a single hardware 2x2
     /// comparison, N is a `(2N+1)^2` grid averaged.
@@ -486,6 +506,7 @@ pub struct Config {
     /// The normal offset scales with this, since an N-radius kernel reaches N texels
     /// away and a one-texel offset would let those taps flip. `shadow_pcf = 0` is
     /// bit-identical to the pre-scaling behaviour.
+    /// :range: 0..=16
     pub shadow_pcf: u32,
 
     // None means "derive from the fitted light frustum and shadow_resolution"
@@ -526,6 +547,7 @@ pub struct Config {
     /// Barycentric edge detection in the main fragment shader, so the overlay
     /// cannot z-fight. Needs a flattened mesh -- indexed meshes share vertices, so
     /// the barycentrics are meaningless and the CPU side warns once.
+    /// :range: 0..=2
     pub wireframe_mode: u32,
     /// Wireframe colour, `(r, g, b, a)`; alpha is dropped.
     ///
@@ -536,6 +558,7 @@ pub struct Config {
     // Line half-width in pixels. Screen-space, so thickness stays constant
     // regardless of distance or zoom.
     /// Wireframe half-width in screen pixels.
+    /// :range: 0.1..=10.0
     pub wireframe_width: f32,
 
     // Present with vsync (wgpu Fifo) instead of uncapped (Immediate).
@@ -579,6 +602,7 @@ pub struct Config {
     /// Unbounded, this reached 30 GB RSS growing at ~2 GB/s while only ~5.6 frames
     /// per second actually reached disk, and the loop still claimed 626 it/s --
     /// measuring queue growth rather than work done.
+    /// :range: 1..=512
     pub export_max_queued: u32,
 
     // Directory frame exports (export/export_once) are written to, as
@@ -651,6 +675,7 @@ pub struct Config {
     /// Set by name (`"viridis"`, `"inferno"`, `"turbo"`, `"grey"`) or from any
     /// 256x3 array, so a matplotlib colormap can be handed over unchanged.
     /// Defaults to greyscale.
+    /// :skip:
     pub colormap: Vec<[f32; 3]>,
 
     /// Colour scale drawn over the render. Off by default.
@@ -668,6 +693,7 @@ pub struct Config {
     /// Roughly how many ticks per axis. The step is rounded to 1, 2 or 5
     /// times a power of ten first, so the count lands near this rather than
     /// on it -- a figure with ticks at 0.0347 is unreadable.
+    /// :range: 1..=20
     pub axes_ticks: usize,
     /// Appended to every tick label, e.g. `" km"`.
     ///
@@ -675,6 +701,7 @@ pub struct Config {
     /// metres or kilometres, so the unit has to come from the script.
     pub axes_unit: String,
     /// Tick label size in pixels, and their colour.
+    /// :range: 4.0..=64.0
     pub axes_label_size: f32,
     pub axes_label_color: [f32; 4],
 
