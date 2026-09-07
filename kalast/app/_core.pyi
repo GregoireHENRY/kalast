@@ -3,6 +3,7 @@
 # Regenerate after changing any #[pyclass]:  python tools/gen_stubs.py
 
 import numpy  # noqa: F401
+from typing import Callable
 from kalast.app.config import Config
 from kalast.app.simulation import Simulation
 
@@ -20,15 +21,30 @@ class App:
         and do per-frame work in `before_render`/`after_render`.
         """
         ...
-    before_render: object
+    before_render: Callable[[App, float], None]
     """Runs before each frame is drawn. Set body transforms, camera and
     sun here.
+
+    Called as `f(app, dt)`. `dt` is the **wall-clock time since the last
+    frame**, in seconds -- not a simulation step, so integrating physics
+    with it ties the result to the frame rate.
+
+    **Annotate the parameter** -- `def before_render(app: App, dt: float)`
+    -- or an editor has no way to know what `app` is and completes nothing
+    inside the body.
+
+    ```python
+    def before_render(app: App, dt: float) -> None:
+        sim = app.simulation
+        sim.huds[0].text = f"it={sim.state.iteration}  {dt * 1e3:.1f} ms"
+        sim.bodies[0].mat = pos_mat("MARS", "IAU_MARS", et0 + sim.state.iteration * step)
+    ```
     """
-    tick: object
+    tick: Callable[[App, float], None]
     """Alias for `before_render`, kept because it is what every example and
     existing script uses.
     """
-    after_render: object
+    after_render: Callable[[App, float], None]
     """Runs after each frame is drawn, when GPU results for that frame
     exist -- `sim.facet_shadow()` is only filled in once the shadow map
     holds this frame's geometry, so this is where to consume it without
@@ -37,5 +53,7 @@ class App:
     Scene changes made here apply to the *next* frame, and heavy CPU work
     here blocks the render loop (fine for a simulation run, but frame
     rate stops meaning much).
+
+    Called as `f(app, dt)`, same shape as `before_render`.
     """
 

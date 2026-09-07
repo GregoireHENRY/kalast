@@ -42,6 +42,7 @@ import pandas
 import spiceypy as spice
 
 import kalast
+from kalast.app import App
 import kalast.tiri_alignment as tiri_align  # 0.60 deg alignment the FK lacks
 import kalast.tpm.nonuniform as nonuniform
 import kalast.tpm.properties as properties
@@ -111,7 +112,7 @@ state = {"i": 0, "phase": 0, "deimos": None, "written": 0}
 t0 = time.perf_counter()
 
 
-def before_render(app, _dt):
+def before_render(app: App, _dt: float) -> None:
     sim = app.simulation
     i = state["i"]
     if i >= N_FRAMES:
@@ -169,7 +170,7 @@ def mars_mask(ids, offsets):
     return (ids > lo) & (ids <= lo + n_mars)
 
 
-def after_render(app, _dt):
+def after_render(app: App, _dt: float) -> None:
     sim = app.simulation
     i = state["i"]
     if i >= N_FRAMES:

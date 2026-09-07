@@ -15,3 +15,16 @@ from kalast import (  # noqa
 )
 
 del _rs  # noqa
+
+__all__ = [
+    "app",
+    "astro",
+    "entity",
+    "io",
+    "math",
+    "mesh",
+    "plot",
+    "spice",
+    "tpm",
+    "util",
+]

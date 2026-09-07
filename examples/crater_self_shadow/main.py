@@ -6,7 +6,7 @@ import kalast
 from kalast.app import App, Hud
 
 
-def before_render(app, dt):
+def before_render(app: App, dt: float) -> None:
     pass
 
 

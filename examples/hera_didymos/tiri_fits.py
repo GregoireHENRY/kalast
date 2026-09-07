@@ -61,6 +61,7 @@ import spiceypy as spice
 from astropy.io import fits
 
 import kalast
+from kalast.app import App
 import kalast.tpm.radiance as radiance
 from kalast.util import AU
 
@@ -137,7 +138,7 @@ for b, n in zip(BODIES, n_facets):
 done = {"v": False}
 
 
-def before_render(app, dt_frame):
+def before_render(app: App, dt_frame: float) -> None:
     sim = app.simulation
     if done["v"]:
         return
@@ -168,7 +169,7 @@ def before_render(app, dt_frame):
     sim.request_facet_id()
 
 
-def after_render(app, dt_frame):
+def after_render(app: App, dt_frame: float) -> None:
     sim = app.simulation
     if done["v"]:
         return

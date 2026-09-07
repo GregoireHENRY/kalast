@@ -33,6 +33,7 @@ matplotlib.use("Agg")
 from matplotlib import cm, colors, image as mpimg
 
 import kalast
+from kalast.app import App
 import kalast.tpm.radiance as radiance
 
 # ---------------------------------------------------------------- settings
@@ -133,7 +134,7 @@ def place(sim, et):
     return numpy.asarray(p_sun), numpy.asarray(p_dimo)
 
 
-def before_render(app, dt_frame):
+def before_render(app: App, dt_frame: float) -> None:
     sim = app.simulation
     k = sim.state.iteration
     if k >= n_frames or clock["done"]:
@@ -143,7 +144,7 @@ def before_render(app, dt_frame):
     sim.request_facet_id()  # the geometry behind the other two
 
 
-def after_render(app, dt_frame):
+def after_render(app: App, dt_frame: float) -> None:
     sim = app.simulation
     k = sim.state.iteration
     if clock["done"]:

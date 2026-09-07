@@ -336,7 +336,7 @@ class Config:
     `"viridis"`, `"inferno"`, `"turbo"`, `"grey"`, or any matplotlib
     colormap passed straight through:
 
-    app.config.colormap = matplotlib.colormaps["magma"](numpy.linspace(0, 1, 256))[:, :3]
+        app.config.colormap = matplotlib.colormaps["magma"](numpy.linspace(0, 1, 256))[:, :3]
 
     Resampled to 256 entries, so any length works.
     The colour table in use, as a 256x3 array.

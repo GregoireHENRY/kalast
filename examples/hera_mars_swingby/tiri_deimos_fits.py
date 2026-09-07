@@ -54,6 +54,7 @@ import spiceypy as spice
 from astropy.io import fits
 
 import kalast
+from kalast.app import App
 import kalast.tiri_alignment as tiri_align  # 0.60 deg alignment the FK lacks
 import kalast.tiri_timing as tiri_timing    # empirical -24.89 s, see the module
 
@@ -204,7 +205,7 @@ def epoch_of(i):
     return float(fine_epochs[min(i - n_coarse, n_fine - 1)])
 
 
-def before_render(app, _dt):
+def before_render(app: App, _dt: float) -> None:
     sim = app.simulation
     i = state["i"]
     if i > n_coarse + n_fine:
@@ -368,7 +369,7 @@ def write_image(row, et, ids, offsets):
     return name, d, gsd, filled.sum(), tmap[filled] if filled.any() else numpy.array([0.0])
 
 
-def after_render(app, _dt):
+def after_render(app: App, _dt: float) -> None:
     sim = app.simulation
     i = state["i"]
     if i > n_coarse + n_fine:

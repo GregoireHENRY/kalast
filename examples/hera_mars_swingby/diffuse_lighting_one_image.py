@@ -17,6 +17,7 @@ import spiceypy as spice
 from astropy.io import fits  # noqa
 
 import kalast
+from kalast.app import App
 from kalast.util import DPR, RPD, AU, SOLAR_CONSTANT  # noqa
 
 # Phobos is drawn 10x oversized, deliberately. All three meshes are already in
@@ -37,11 +38,11 @@ def pos_mat(target, frame, et):
     return m4
 
 
-def before_render(app, _dt):
+def before_render(app: App, _dt: float) -> None:
     pass
 
 
-def after_render(app, _dt):
+def after_render(app: App, _dt: float) -> None:
     pass
 
 

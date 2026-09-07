@@ -33,6 +33,7 @@ from pathlib import Path
 import numpy
 
 import kalast
+from kalast.app import App
 from kalast.tpm import heating
 from kalast.util import STEFAN_BOLTZMANN
 
@@ -96,7 +97,7 @@ builder = heating.ViewFactorBuilder(
 )
 
 
-def before_render(app, _dt):
+def before_render(app: App, _dt: float) -> None:
     sim = app.simulation
     sim.camera.pos = numpy.array([5.0, 0.0, 0.0])
     sim.camera.dir = numpy.array([-1.0, 0.0, 0.0])
@@ -104,7 +105,7 @@ def before_render(app, _dt):
         builder.request(sim)
 
 
-def after_render(app, _dt):
+def after_render(app: App, _dt: float) -> None:
     sim = app.simulation
     if sim.state.iteration < 2 or builder.done:
         return

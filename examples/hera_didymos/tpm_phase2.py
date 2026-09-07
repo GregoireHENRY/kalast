@@ -57,6 +57,7 @@ import pandas
 import spiceypy as spice
 
 import kalast
+from kalast.app import App
 import kalast.tpm.heating as heating
 import kalast.tpm.nonuniform as nonuniform
 import kalast.tpm.properties as properties
@@ -681,7 +682,7 @@ def _checkpoint(it, et):
     tmp.replace(ptr)
 
 
-def before_render(app, dt_frame):
+def before_render(app: App, dt_frame: float) -> None:
     sim = app.simulation
     """Place the scene for this step, and keep the view-factor build fed."""
     if step["n"] > n_steps:
@@ -828,7 +829,7 @@ def coupling(ins, et_now):
     return out
 
 
-def after_render(app, dt_frame):
+def after_render(app: App, dt_frame: float) -> None:
     sim = app.simulation
     if clock["done"]:
         return

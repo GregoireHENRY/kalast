@@ -38,6 +38,7 @@ import pandas
 import spiceypy as spice
 
 import kalast
+from kalast.app import App
 import kalast.tiri_timing as tiri_timing
 import kalast.tpm.nonuniform as nonuniform
 import kalast.tpm.properties as properties
@@ -186,7 +187,7 @@ def sweep():
     print(f"\nwrote {OUT}/roughness_sweep.csv")
 
 
-def before_render(app, _dt):
+def before_render(app: App, _dt: float) -> None:
     sim = app.simulation
     i = st["i"]
     if i > n_pre:
@@ -202,7 +203,7 @@ def before_render(app, _dt):
     sim.huds[0].text = f"preroll {i}/{n_pre}"
 
 
-def after_render(app, _dt):
+def after_render(app: App, _dt: float) -> None:
     sim = app.simulation
     i = st["i"]
     if i > n_pre:

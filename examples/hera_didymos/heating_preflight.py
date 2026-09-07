@@ -29,6 +29,7 @@ import pandas
 import spiceypy as spice
 
 import kalast
+from kalast.app import App
 from kalast.tpm import heating, properties, routine
 from kalast.util import AU, SOLAR_CONSTANT, STEFAN_BOLTZMANN
 
@@ -116,7 +117,7 @@ def incident(name):
     return SOLAR_CONSTANT * cosi / (d / AU) ** 2
 
 
-def before_render(app, _dt):
+def before_render(app: App, _dt: float) -> None:
     sim = app.simulation
     place(sim)
     if sim.state.iteration < 2:
@@ -185,7 +186,7 @@ def report():
           "measured about 2x. A term called negligible here really is.")
 
 
-def after_render(app, _dt):
+def after_render(app: App, _dt: float) -> None:
     sim = app.simulation
     if current[0] is None:
         return

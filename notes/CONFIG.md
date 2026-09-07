@@ -26,7 +26,7 @@ the window is created, inside `app.start()`. Set everything before calling it.
   **Change them per frame from a callback**, which receives the app:
 
   ```python
-  def before_render(app, dt):
+  def before_render(app: App, dt: float) -> None:
       app.config.colorbar = app.simulation.state.iteration > 100
   ```
 
@@ -347,8 +347,8 @@ app.config.huds = [
 app.config.hud_font = "Arial"                 # or a path; built-in otherwise
 
 
-def before_render(sim, dt):
-    sim.huds[2].text = f"epoch {spice.et2utc(et, 'C', 0)}"
+def before_render(app: App, dt: float) -> None:
+    app.simulation.huds[2].text = f"epoch {spice.et2utc(et, 'C', 0)}"
 ```
 
 A HUD that `before_render` does not touch keeps the text it had — these are

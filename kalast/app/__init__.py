@@ -18,3 +18,18 @@ from kalast.app.config import (  # noqa
 )
 
 del _core
+
+# PEP 561: a re-export is only public if it is named here. Without it a strict
+# type checker rejects `from kalast.app import App` -- which is what every
+# example writes -- with "does not explicitly export attribute".
+__all__ = [
+    "App",
+    "Hud",
+    "body",
+    "colormap",
+    "colormap_names",
+    "config",
+    "frame",
+    "gpu",
+    "simulation",
+]

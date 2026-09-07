@@ -4,11 +4,12 @@ import numpy
 import spiceypy as spice
 
 import kalast
+from kalast.app import App
 
 from kalast.util import AU_KM, RPD
 
 
-def before_render(app, dt):
+def before_render(app: App, dt: float) -> None:
     sim = app.simulation
     if sim.state.is_paused:
         return
@@ -39,7 +40,7 @@ def before_render(app, dt):
 
 
 
-def after_render(app, dt):
+def after_render(app: App, dt: float) -> None:
     sim = app.simulation
     et = et0 + sim.state.iteration * simu_dt
     if et > etf:

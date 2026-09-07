@@ -66,9 +66,33 @@ def py_type(rust: str) -> str:
 
 def clean_doc(raw: str) -> str:
     """`/// ...` lines -> plain text, blank lines preserved."""
+    # `.strip()` per line would flatten the indentation inside a ``` fence,
+    # turning an example into invalid Python on hover. Drop the `///` and the
+    # single space Rust convention puts after it, and nothing more.
     return "\n".join(
-        l.strip().removeprefix("///").strip() for l in (raw or "").strip().splitlines()
+        l.strip().removeprefix("///").removeprefix(" ").rstrip()
+        for l in (raw or "").strip().splitlines()
     ).strip()
+
+
+def pytype_override(doc: str):
+    """Pull a `:pytype: <annotation>` line out of a doc comment.
+
+    The Rust signature is the source of truth for everything it can express,
+    but some things it cannot: `Py<PyAny>` is the only type a pyo3 setter can
+    give a callback, and `object` completes nothing. A `:pytype:` line in the
+    doc comment says what the Python side really takes, so the annotation
+    still lives in the Rust source rather than in a table here.
+
+    Returns (annotation or None, doc with the marker removed).
+    """
+    kept, found = [], None
+    for line in (doc or "").splitlines():
+        if m := re.fullmatch(r":pytype:\s*(.+)", line.strip()):
+            found = m.group(1).strip()
+            continue
+        kept.append(line)
+    return found, "\n".join(kept).strip()
 
 
 def struct_field_docs(path: str, struct: str) -> dict:
@@ -156,10 +180,13 @@ def parse(src: str):
             doc = clean_doc(doc)
             gm = re.search(r"#\[getter(?:\((\w+)\))?\]", attrs)
             sm = re.search(r"#\[setter(?:\((\w+)\))?\]", attrs)
+            override, doc = pytype_override(doc)
             if gm:
                 # pyo3 strips a `get_` prefix unless the attribute renames it.
                 attr = gm.group(1) or name.removeprefix("get_")
-                by_name[cls].append(("attr", attr, py_type(ret or "object"), doc))
+                by_name[cls].append(
+                    ("attr", attr, override or py_type(ret or "object"), doc)
+                )
             elif sm:
                 # A setter with no getter is still a settable attribute --
                 # `app.before_render` is one, and skipping setters outright
@@ -170,7 +197,7 @@ def parse(src: str):
                     a = a.strip()
                     if a and not a.startswith(("&self", "self", "mut self", "py:")) and ":" in a:
                         typ = py_type(a.split(":", 1)[1])
-                by_name[cls].append(("setter", attr, typ, doc))
+                by_name[cls].append(("setter", attr, override or typ, doc))
             else:
                 params = []
                 for a in args.split(","):
@@ -181,7 +208,13 @@ def parse(src: str):
                         pn, pt = a.split(":", 1)
                         params.append(f"{pn.strip()}: {py_type(pt)}")
                 by_name[cls].append(
-                    ("meth", name, (py_type(ret) if ret else "None"), doc, params)
+                    (
+                        "meth",
+                        name,
+                        override or (py_type(ret) if ret else "None"),
+                        doc,
+                        params,
+                    )
                 )
     return classes
 
@@ -214,8 +247,10 @@ def docstring(text, indent):
     return out
 
 
+TYPING_NAMES = {"Any", "Callable", "Iterable", "Literal", "Sequence"}
+
 KNOWN_BUILTINS = {"int", "float", "str", "bool", "object", "None", "list",
-                  "tuple", "dict", "numpy"}
+                  "tuple", "dict", "numpy"} | TYPING_NAMES
 
 
 def resolve(annotation: str, defined: set, index: dict) -> str:
@@ -245,6 +280,8 @@ def render(classes, index=None) -> str:
                     referenced.update(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", p))
 
     imports = []
+    if used := sorted(referenced & TYPING_NAMES):
+        imports.append("from typing import " + ", ".join(used))
     for name in sorted(referenced - defined):
         mod = (index or {}).get(name)
         if mod:

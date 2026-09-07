@@ -63,6 +63,23 @@ impl App {
 
     /// Runs before each frame is drawn. Set body transforms, camera and
     /// sun here.
+    ///
+    /// Called as `f(app, dt)`. `dt` is the **wall-clock time since the last
+    /// frame**, in seconds -- not a simulation step, so integrating physics
+    /// with it ties the result to the frame rate.
+    ///
+    /// **Annotate the parameter** -- `def before_render(app: App, dt: float)`
+    /// -- or an editor has no way to know what `app` is and completes nothing
+    /// inside the body.
+    ///
+    /// ```python
+    /// def before_render(app: App, dt: float) -> None:
+    ///     sim = app.simulation
+    ///     sim.huds[0].text = f"it={sim.state.iteration}  {dt * 1e3:.1f} ms"
+    ///     sim.bodies[0].mat = pos_mat("MARS", "IAU_MARS", et0 + sim.state.iteration * step)
+    /// ```
+    ///
+    /// :pytype: Callable[[App, float], None]
     #[setter]
     fn set_before_render(&mut self, callback: Py<PyAny>) {
         let app = self.clone();
@@ -71,6 +88,8 @@ impl App {
 
     /// Alias for `before_render`, kept because it is what every example and
     /// existing script uses.
+    ///
+    /// :pytype: Callable[[App, float], None]
     #[setter]
     fn set_tick(&mut self, callback: Py<PyAny>) {
         self.set_before_render(callback);
@@ -84,6 +103,10 @@ impl App {
     /// Scene changes made here apply to the *next* frame, and heavy CPU work
     /// here blocks the render loop (fine for a simulation run, but frame
     /// rate stops meaning much).
+    ///
+    /// Called as `f(app, dt)`, same shape as `before_render`.
+    ///
+    /// :pytype: Callable[[App, float], None]
     #[setter]
     fn set_after_render(&mut self, callback: Py<PyAny>) {
         let app = self.clone();

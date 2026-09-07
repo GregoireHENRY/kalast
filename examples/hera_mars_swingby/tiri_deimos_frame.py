@@ -25,6 +25,7 @@ import spiceypy as spice
 from astropy.io import fits
 
 import kalast
+from kalast.app import App
 import kalast.tiri_alignment as tiri_align
 import kalast.tpm.nonuniform as nonuniform
 import kalast.tpm.properties as properties
@@ -141,7 +142,7 @@ def place(sim, et, phase):
     sim.camera.up = [0.0, 1.0, 0.0]
 
 
-def before_render(app, _dt):
+def before_render(app: App, _dt: float) -> None:
     sim = app.simulation
     i = st["i"]
     if i > n_pre:
@@ -153,7 +154,7 @@ def before_render(app, _dt):
     sim.huds[0].text = f"{i}/{n_pre}"
 
 
-def after_render(app, _dt):
+def after_render(app: App, _dt: float) -> None:
     sim = app.simulation
     i = st["i"]
     if i > n_pre:

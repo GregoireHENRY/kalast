@@ -5,11 +5,12 @@ import pandas  # noqa
 import spiceypy as spice
 
 import kalast
+from kalast.app import App
 from kalast.util import AU, AU_KM, RPD, DPR, PI  # noqa
 from kalast.entity import MARS, DIDYMOS, DIMORPHOS  # noqa
 
 
-def before_render(app, dt):
+def before_render(app: App, dt: float) -> None:
     sim = app.simulation
     global et
 

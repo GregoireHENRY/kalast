@@ -8,6 +8,22 @@ Editor completion comes from the generated stubs in `kalast/**.pyi`; run
 `python tools/gen_stubs.py` after changing any `#[pyclass]`, and
 `python tests/test_stubs.py` to check they are current.
 
+**Annotate callback parameters, or completion stops at the callback
+boundary.** A stub can say what `App` has, but nothing tells an editor what
+gets *passed* to a plain `def` — the assignment `app.before_render = f` is
+checked against the declared type, it does not flow back into `f`'s
+parameters. So `app.` inside an unannotated `def before_render(app, dt)`
+offers nothing, no matter how complete the stubs are:
+
+```python
+from kalast.app import App
+
+def before_render(app: App, dt: float) -> None:
+    app.config.        # completes only because of the `: App`
+```
+
+All the examples are written this way.
+
 Defined in `src/py/app/`. Rust types map to Python as `bool` → `bool`,
 `u32`/`usize` → `int`, `f32`/`Float` → `float`, `String` → `str`, `Vec3`/`Mat4`
 → `numpy` arrays.
@@ -31,11 +47,14 @@ app.start()                   # blocks until the window closes
 | `app.tick` | alias for `before_render` |
 | `app.start()` | creates the window and runs the loop; **blocks** |
 
-Both callbacks take **`(app, dt)`** and are optional. `dt` is the frame time
-in seconds.
+Both callbacks take **`(app, dt)`** and are optional. `dt` is the **wall-clock
+time since the last frame**, in seconds — it is `(now - last).as_secs_f64()`
+at `src/app/mod.rs:353`, not a simulation step, so integrating physics with it
+ties the answer to the frame rate. Step the physics on `sim.state.iteration`
+instead.
 
 ```python
-def before_render(app, dt):
+def before_render(app: App, dt: float) -> None:
     sim = app.simulation          # the scene
     app.config.colorbar = True    # settings, changeable per frame
 ```
@@ -91,8 +110,8 @@ Declare them once at setup, edit them per frame:
 ```python
 app.config.huds = [kalast.app.Hud("{it}/{nit}"), kalast.app.Hud("")]
 
-def before_render(sim, dt):
-    sim.huds[1].text = f"epoch {utc}"
+def before_render(app: App, dt: float) -> None:
+    app.simulation.huds[1].text = f"epoch {utc}"
 ```
 
 Text written here is still a template. A HUD left untouched keeps its text.

@@ -3,9 +3,10 @@
 import numpy
 
 import kalast
+from kalast.app import App
 
 
-def before_render(app, dt):
+def before_render(app: App, dt: float) -> None:
     sim = app.simulation
     if sim.state.is_paused:
         return

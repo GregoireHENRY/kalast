@@ -43,6 +43,7 @@ from pathlib import Path
 import numpy
 
 import kalast
+from kalast.app import App
 
 RES = 128          # hemicube face resolution
 SUBDIV = 3         # subdivision level of the emitting square, for area-averaging
@@ -173,7 +174,7 @@ def faces(centre, normal, tangent):
     ]
 
 
-def before_render(app, dt):
+def before_render(app: App, dt: float) -> None:
     sim = app.simulation
     k = state["i"]
     if k >= len(samples) * 5:
@@ -188,7 +189,7 @@ def before_render(app, dt):
     sim.request_facet_id()
 
 
-def after_render(app, dt):
+def after_render(app: App, dt: float) -> None:
     sim = app.simulation
     k = state["i"]
     if state["t0"] is None:
