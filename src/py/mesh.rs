@@ -524,12 +524,29 @@ impl Mesh {
     }
 
     #[setter]
-    fn set_values(&mut self, values: numpy::borrow::PyReadonlyArray1<Float>) -> PyResult<()> {
+    fn set_values(&mut self, values: &Bound<'_, PyAny>) -> PyResult<()> {
         let mesh = self.inner.borrow();
         let n_facets = mesh.facets.len();
         drop(mesh);
 
-        let v = values.as_slice()?;
+        // Either float width, and a plain sequence. `Float` is f32 unless the
+        // `use_f64` feature is on, so extracting it directly rejected the
+        // float64 that `numpy.linspace` and every other numpy default
+        // produces -- with `'ndarray' object is not an instance of 'ndarray'`,
+        // which says nothing about dtype.
+        let v: Vec<Float> = if let Ok(a) = values.extract::<numpy::borrow::PyReadonlyArray1<f64>>()
+        {
+            a.as_slice()?.iter().map(|x| *x as Float).collect()
+        } else if let Ok(a) = values.extract::<numpy::borrow::PyReadonlyArray1<f32>>() {
+            a.as_slice()?.iter().map(|x| *x as Float).collect()
+        } else {
+            values.extract::<Vec<Float>>().map_err(|_| {
+                pyo3::exceptions::PyTypeError::new_err(
+                    "values must be a 1-D float array or a sequence of floats",
+                )
+            })?
+        };
+        let v = &v[..];
         if v.len() != n_facets {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "values has {} entries but the mesh has {n_facets} facets",

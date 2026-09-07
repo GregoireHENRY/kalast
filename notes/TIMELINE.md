@@ -845,11 +845,12 @@ coloured by a physical quantity rather than by shading.
   `colormap`, `value_min`, `value_max`. Colormaps by name or from any 256x3
   array, so a matplotlib one can be handed over unchanged. Orthogonal to
   `color_mode`, which still decides whether the result is shaded -- flat is
-  what a quantitative figure wants.
+  what a quantitative figure wants. *(`value_mode` was removed on the 7th;
+  see below.)*
 - **A colour bar**, drawn through the same lookup table as the surface so the
   two cannot disagree. `colorbar_source` picks between the data map and the
   diffuse shading, the latter labelled 0..1 and explicitly **not** radiance or
-  temperature.
+  temperature. *(`colorbar_source` was removed on the 7th; see below.)*
 - **Nine HUD anchors**, with `align_h`/`align_v` separating alignment within
   the block from where the block sits.
 - **Axis-aligned plane views**, `camera.view_along(axis)`, orthographic by
@@ -869,3 +870,109 @@ Two things worth carrying: `axes_unit` and `colorbar_label` are free text that
 **nothing checks**, so a wrong unit mislabels a figure silently; and an
 automatic `value_min`/`value_max` rescales per frame, which is the quiet way
 to make two images non-comparable.
+
+---
+
+## 7 September — one switch instead of three, and a Python surface you can see
+
+### Three settings collapsed into one
+
+`color_mode`, `value_mode` and `colorbar_source` were three answers to one
+question, so the wrong combinations were reachable: a shaded data map, or a
+colour bar labelled 0..1 sitting beside a surface showing temperature. None of
+them were errors, they just drew a figure that lied.
+
+`color_mode` decides all of it now, and the other two are gone. Mode 1 -- the
+unlit mode -- *is* the data map for any mesh carrying `mesh.values`, falling
+back to vertex colours when it has none, which is what mode 1 always meant.
+Modes 0 and 3 shade, so the bar labels lighting. Mode 2 is a single flat
+colour, so **the bar is not drawn at all** -- a colour bar for one colour
+carries no information.
+
+Unlit is what a quantitative figure wants anyway: shading a data map makes one
+value read as two colours.
+
+### Colormaps take arrays, and there is a function to make them
+
+`config.colormap` accepts a name or a 256x3 array; `kalast.app.colormap(name)`
+returns the array, `colormap_names()` lists what is built in. The matplotlib
+route -- `plt.get_cmap("inferno")(numpy.linspace(0, 1, 256))[:, :3]` -- works
+unchanged, which it did not before: see the dtype trap below.
+
+### HUDs are a list, and they are written from the callback
+
+`config.hud_text` and the `{hud}` placeholder are gone. `config.huds` is a list
+of `Hud`, each with its own text, anchor, position and colour; `sim.huds` hands
+the same objects to `before_render` so a script can rewrite them per frame, and
+a HUD not touched there keeps what it had.
+
+Text is a template: `{it}`, `{nit}`, `{its}`, `{fps}`, `{ms}`, `{et}`, `{time}`
+and the rest, all listed in `CONFIG.md`. Rates are averaged over at least a
+second and printed as integers unless a format says otherwise -- `{its}`
+flickering through four significant figures is unreadable, and nobody needs
+1/1000 s of an iteration rate. Anchor is inferred when `x`/`y` are set, so
+`Hud(text=..., x=20, y=20)` does not also need `anchor="custom"`.
+
+Font is global, `config.hud_font`, by installed name (`"Arial"`) as well as by
+path -- resolved against the platform font directories.
+
+### The Python surface is now visible to an editor
+
+`app.config.<tab>` offered nothing, because an editor cannot introspect a
+compiled extension. The repo already carried hand-written `.pyi` files, and
+they were **commented out in their entirety** -- so they completed nothing
+while looking like the surface was covered, which is worse than having none.
+
+`tools/gen_stubs.py` now generates them from the Rust source for 11 modules,
+carrying `///` docs across as docstrings, and `tests/test_stubs.py` checks two
+ways that must both pass: the committed stubs match what the generator
+produces, *and* every class matches `dir()` on a live object -- the second
+catching the generator misreading an attribute, which it did, twice.
+
+Everything reachable from Python now has a doc comment, arguments included.
+
+### Callbacks receive the app
+
+`before_render(sim, dt)` could not reach the config, so nothing could be
+changed once the simulation had started. Callbacks now take the app --
+`before_render(app, dt)`, with `app.config` and `app.simulation` -- and the
+config is a shared handle, so a write from inside a frame takes effect on the
+next one. 30 callbacks across 18 examples rewritten.
+
+A first attempt hung the config off the simulation as `sim.config`. That was
+wrong and was reverted: `App` owns both, and the callback should see the same
+shape the script does before `start()`.
+
+### Two faults found by rendering, not by reading
+
+**`f4bab94` committed the Rust half of the `color_mode` change without the
+shader.** `git add src notes` and not `shaders`. The uniform layout still
+matched, so it compiled and ran, and drew vertex colours where a data map was
+asked for. Committed in `7aedbb6`.
+
+**numpy's default dtype is rejected almost everywhere.** `Float` is `f32`
+unless the `use_f64` feature is on, so `PyReadonlyArray1<Float>` refuses the
+float64 that `numpy.linspace`, `numpy.zeros` and `plt.get_cmap` all produce.
+The message names the problem badly:
+
+    argument 'y': 'ndarray' object is not an instance of 'ndarray'
+
+`config.colormap` and `mesh.values` now take f64, f32 or a plain sequence.
+**About 32 other Python-facing arguments across seven files still do not** --
+`src/math.rs`, `src/py/mesh.rs`, `src/py/routines/setup.rs`,
+`src/py/tpm/column.rs`, `src/tpm/core.rs`, `src/tpm/routine.rs`,
+`src/tpm/emit.rs`. Confirmed live, not inferred from the types:
+`kalast.math.trapez(numpy.linspace(0, 1, 5), numpy.linspace(0, 1, 5))` fails,
+the same call with `.astype(numpy.float32)` returns 0.5.
+
+The fix is mechanical -- extract f64, then f32, then a sequence, as
+`mesh.values` does -- but it is 32 sites and none of them were today's subject.
+Open.
+
+### Also discussed, not done
+
+An **interactive GUI** for editing, running, pausing and inspecting a
+simulation live, in the shape of Blender or Unity rather than a script that
+runs to completion. The enabling piece is a `app.step()` that advances one
+frame under the caller's control instead of `start()` owning the loop.
+Nothing decided.

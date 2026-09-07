@@ -15,7 +15,7 @@ struct Globals {
     wireframe_mode: u32,
     wireframe_width: f32,
     wireframe_color: vec3<f32>,
-    value_mode: u32,
+    _value_mode_removed: u32,
     value_min: f32,
     value_max: f32,
 };
@@ -288,17 +288,15 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 fn fs_shaded(in: VertexOutput) -> vec4<f32> {
-    // `value_mode` is orthogonal to `color_mode`: it decides *what* the
-    // surface colour is, while `color_mode` decides whether that colour is
-    // lit. So a data map can be shaded (0) or flat (1).
-    let surface_color = select(
-        in.color,
-        colormap_lookup(in.value),
-        globals.value_mode == 1u,
-    );
+    // `color_mode == 1` is the unlit mode, and unlit is what a quantitative
+    // figure wants: shading a data map makes one value read as two colours.
+    // So that mode *is* the data map, when the mesh carries values -- there
+    // is no second switch to keep in step with it. A mesh without values
+    // falls back to its vertex colours, which is what mode 1 always meant.
+    let has_values = (in.flags & 2u) != 0u;
 
     if globals.color_mode == 1 {
-        var color = surface_color;
+        var color = select(in.color, colormap_lookup(in.value), has_values);
         if globals.srgb_mode == 0 {
             color = srgb_to_linear(color, globals.gamma);
         }
@@ -316,7 +314,7 @@ fn fs_shaded(in: VertexOutput) -> vec4<f32> {
     // 0 or else
     //
     // else {
-    let object_color = vec4<f32>(surface_color, 1.0);
+    let object_color = vec4<f32>(in.color, 1.0);
 
     let light_dir = normalize(view.light.pos - in.world_pos);
     let ndotl = max(dot(in.world_normal, light_dir), 0.0);
