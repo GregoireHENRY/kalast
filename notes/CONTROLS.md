@@ -14,13 +14,27 @@ Handled in `src/app/mod.rs` (`window_event` / `device_event`) and
 |---|---|---|
 | `Escape` | any | Quit, flushing the frame-export queue first |
 | `H` | any | Print camera pos / up / dir / anchor / projection |
-| `P` | any | Toggle simulation pause |
+| `P` | any | Toggle simulation pause — the editor's Play/Pause button |
+| `K` | any | Advance one iteration and hold — the editor's Step button |
 | `T` | any | Toggle camera control, Arcball ⇄ WASD |
 | `W` `A` `S` `D` | WASD | Move forward / left / back / right |
 | `Space` | WASD | Move up |
 | `Left Shift` | WASD | Move down |
 | `Option` / `Alt` | Arcball | Held with a left-drag, stands in for the middle button — see below |
 | `Left Shift` | Arcball | Held during a drag, pans instead of orbiting — see below |
+
+**The editor's Restart has no key, deliberately.** It clears the scene and
+runs the script again, so a keystroke would throw away a long run; it is worth
+having to aim for the button.
+
+### `K` — one iteration
+
+The two lines the editor's Step button runs: set `state.pause_at` one ahead
+and clear `is_paused`, so the next frame advances and `Simulation::update`
+holds it again on the mark. Same code, so the key and the button cannot drift
+apart.
+
+Nothing happens while a script has not run — there is no iteration to take.
 
 ### `Escape` — quit
 

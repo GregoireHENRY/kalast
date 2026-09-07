@@ -374,11 +374,11 @@ impl Editor {
                     let (label, hover): (&str, &str) = if !have_script {
                         ("\u{25b6} Play", "Open or write a script first")
                     } else if !script_ran {
-                        ("\u{25b6} Play", "Run this script and start the simulation")
+                        ("\u{25b6} Play", "Run this script and start the simulation  (P)")
                     } else if state.is_paused {
-                        ("\u{25b6} Play", "Resume")
+                        ("\u{25b6} Play", "Resume  (P)")
                     } else {
-                        ("\u{23f8} Pause", "Hold the simulation")
+                        ("\u{23f8} Pause", "Hold the simulation  (P)")
                     };
                     if ui
                         .add_enabled(have_script, egui::Button::new(label))
@@ -407,7 +407,7 @@ impl Editor {
                             script_ran && state.is_paused,
                             egui::Button::new("\u{23ed} Step"),
                         )
-                        .on_hover_text("Advance one iteration")
+                        .on_hover_text("Advance one iteration  (K)")
                         .clicked()
                     {
                         state.is_paused = false;

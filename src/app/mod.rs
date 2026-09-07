@@ -1372,6 +1372,18 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         }
                     }
 
+                    // One iteration, then hold: exactly what the editor's
+                    // Step button does, so the two cannot drift apart.
+                    //
+                    // Restart deliberately has no key. It clears the scene and
+                    // runs the script again, which is a long run thrown away
+                    // by a keystroke -- worth having to aim for.
+                    (winit::keyboard::KeyCode::KeyK, true) => {
+                        let mut sim = self.simulation.borrow_mut();
+                        sim.state.pause_at = Some(sim.state.iteration + 1);
+                        sim.state.is_paused = false;
+                    }
+
                     (winit::keyboard::KeyCode::KeyT, true) => {
                         // switch camera type
                         self.simulation.borrow_mut().camera.control.toggle();
