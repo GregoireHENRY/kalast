@@ -7,10 +7,10 @@ There are two configs, and they answer different questions.
 `app.simulation.config` -- this document -- is about the thing being simulated
 and the image made of it. `app.config` is about the application you are
 looking at: its window now, its panel layout and colours as the editor grows.
-It holds `editor`, `maximize`, `width` and `height`.
+It holds `editor`, `focus`, `width` and `height`.
 
-### `app.config.maximize: bool` — default `False` *(live)*
-Give the renderer the whole window: the panels get out of the way, each
+### `app.config.focus: bool` — default `False` *(live)*
+Give the whole window to the renderer: the panels get out of the way, each
 coming back when the pointer reaches its edge — top for the toolbar, left for
 the script, right for the config, bottom for the log — and staying while the
 pointer is anywhere over it.
@@ -19,9 +19,17 @@ The edge strip is 24 points, and deliberately not enough on its own to hold a
 panel open: the config panel is 240 wide, so reaching for anything in it would
 leave the strip and the panel would vanish under the pointer.
 
-About what is *inside* the window. The window itself is yours to size — double
-click its title bar, drag a corner — and this does not touch it. Measured on a
-1400×900 window: the viewport goes from 320×614 to 1400×900.
+Focus on the scene, in other words — not on the window, which is yours to size
+by double clicking its title bar or dragging a corner, and which this does not
+touch. Measured on a 1400×900 window: the viewport goes from 320×614 to
+1400×900.
+
+**The panels float over the scene here, they do not take space from it.** A
+side panel shrinks the central area, so revealing one would reallocate the
+render target's colour, MSAA and depth textures and shift the image under the
+pointer. In focus mode the scene is drawn at the full window size behind
+everything and the panels are laid on top, so the viewport is the same size
+whether a panel is showing or not.
 
 Independent of `simulation.config.fullscreen`, which is the OS window and
 nothing else. Set both for an immersive fullscreen.
@@ -199,7 +207,7 @@ its own Space.
 Accepted: `True` / `False`.
 
 This is the **window** and nothing else. For the renderer to take the whole
-window with the panels out of the way, see `app.config.maximize` below —
+window with the panels out of the way, see `app.config.focus` below —
 they are independent, and setting both gives an immersive fullscreen.
 
 **Prefer this to toggling fullscreen after launch.** The two are not

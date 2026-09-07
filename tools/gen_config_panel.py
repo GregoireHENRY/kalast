@@ -8,6 +8,8 @@ Rust struct gets a widget here without anyone remembering to add one, and
 
 What the Rust source cannot say, the doc comments can:
 
+    /// :label: window width    what the widget is called, when the field
+                               name alone is ambiguous
     /// :range: 0..=16          slider bounds instead of a drag field
     /// :step: 0.01             drag speed
     /// :skip:                  no widget (edited from a script, not by hand)
@@ -60,7 +62,7 @@ GROUPS = [
 ]
 FALLBACK_GROUP = "Window"
 GROUP_ORDER = [
-    "Application", "Shading", "Shadows", "Wireframe", "Lighting", "Data colouring",
+    "Shading", "Shadows", "Wireframe", "Lighting", "Data colouring",
     "Axes", "Colour bar", "HUD", "Export", "GPU results", "Controls",
     "Window", "Debug",
 ]
@@ -124,7 +126,7 @@ def widget(path: str, name: str, rust: str, doc: str) -> list[str]:
     hover = summary(doc)
     rng = marker(doc, "range")
     step = marker(doc, "step")
-    label = name
+    label = marker(doc, "label") or name
 
     def hovered(expr: str) -> list[str]:
         if not hover:
@@ -241,12 +243,13 @@ def main() -> int:
     src = SOURCE.read_text()
     grouped: dict[str, list[str]] = {}
 
-    # `AppConfig` first: it is about the program you are looking at, which is
-    # the shorter and more immediate list.
+    # Grouped by the same rules as `Config`'s, so these land beside the
+    # options they belong with -- `focus` next to `fullscreen` and `title`,
+    # not in a section of their own about which struct they happen to live on.
     for name, rust, doc in fields("AppConfig", src):
         lines = widget(f"a.{name}", name, rust, doc)
         if lines:
-            grouped.setdefault("Application", []).extend(lines)
+            grouped.setdefault(group_of(name, doc), []).extend(lines)
 
     for name, rust, doc in fields("Config", src):
         lines = widget(f"c.{name}", name, rust, doc)

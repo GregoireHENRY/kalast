@@ -49,8 +49,8 @@ class AppConfig:
     `while app.step():` draws the UI around the scene, unchanged
     otherwise -- which is what `step()` being non-blocking was for.
     """
-    maximize: bool
-    """Give the renderer the whole window: panels out of the way, each
+    focus: bool
+    """Give the whole window to the renderer: panels out of the way, each
     coming back when the pointer reaches its edge.
 
     About what is *inside* the window, not the window itself -- that is

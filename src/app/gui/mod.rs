@@ -215,10 +215,9 @@ impl Editor {
         // while the pointer is on it, which the edge test alone would not
         // give.
         //
-        // Driven by `maximize` and not by `fullscreen`: one is about what is
-        // inside the window, the other about the window. Set both for an
-        // immersive fullscreen.
-        let immersive = app_config.maximize;
+        // Driven by `focus` and not by `fullscreen`: one is about what is
+        // inside the window, the other about the window itself.
+        let immersive = app_config.focus;
         const EDGE: f32 = 24.0;
         let pointer = self.ctx.pointer_latest_pos();
         let panels = self.panels;
@@ -425,33 +424,62 @@ impl Editor {
                 }).response.rect;
             }
 
-            egui::CentralPanel::default()
-                .frame(egui::Frame::NONE)
-                .show(ui_root, |ui| {
-                    let avail = ui.available_size();
-                    vp_rect = ui.available_rect_before_wrap();
-                    // What the *next* scene render should be, in physical
-                    // pixels: egui works in points.
-                    wanted = (
-                        ((avail.x * ppp).round() as u32).max(1),
-                        ((avail.y * ppp).round() as u32).max(1),
-                    );
-                    if let Some(id) = texture_id {
-                        // Fit rather than fill: the scene was rendered at
-                        // last frame's size, and stretching it to this
-                        // frame's would distort during a drag.
-                        let scene_aspect = scene_size.0 as f32 / scene_size.1.max(1) as f32;
-                        let mut size = avail;
-                        if size.x / size.y > scene_aspect {
-                            size.x = size.y * scene_aspect;
-                        } else {
-                            size.y = size.x / scene_aspect;
-                        }
-                        ui.centered_and_justified(|ui| {
-                            ui.add(egui::Image::new(egui::load::SizedTexture::new(id, size)));
-                        });
+            // The scene itself, drawn the same way in both layouts and
+            // differing only in what it is given.
+            let scene_ui = |ui: &mut egui::Ui, into: egui::Rect| {
+                if let Some(id) = texture_id {
+                    // Fit rather than fill: the scene was rendered at last
+                    // frame's size, and stretching it to this frame's would
+                    // distort during a drag.
+                    let scene_aspect = scene_size.0 as f32 / scene_size.1.max(1) as f32;
+                    let mut size = into.size();
+                    if size.x / size.y > scene_aspect {
+                        size.x = size.y * scene_aspect;
+                    } else {
+                        size.y = size.x / scene_aspect;
                     }
-                });
+                    ui.centered_and_justified(|ui| {
+                        ui.add(egui::Image::new(egui::load::SizedTexture::new(id, size)));
+                    });
+                }
+            };
+
+            if immersive {
+                // Behind everything, at the full window size, so the panels
+                // float *over* the scene instead of taking space from it.
+                //
+                // A side panel shrinks the central area, which would resize
+                // the render target every time one appeared -- reallocating
+                // its colour, MSAA and depth textures, and shifting the image
+                // under the pointer. In focus mode the scene keeps the whole
+                // window and the panels are laid on top.
+                vp_rect = screen;
+                wanted = (
+                    ((screen.width() * ppp).round() as u32).max(1),
+                    ((screen.height() * ppp).round() as u32).max(1),
+                );
+                egui::Area::new("viewport".into())
+                    .order(egui::Order::Background)
+                    .fixed_pos(screen.min)
+                    .show(ui_root.ctx(), |ui| {
+                        ui.set_min_size(screen.size());
+                        scene_ui(ui, screen);
+                    });
+            } else {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show(ui_root, |ui| {
+                        let avail = ui.available_size();
+                        vp_rect = ui.available_rect_before_wrap();
+                        // What the *next* scene render should be, in physical
+                        // pixels: egui works in points.
+                        wanted = (
+                            ((avail.x * ppp).round() as u32).max(1),
+                            ((avail.y * ppp).round() as u32).max(1),
+                        );
+                        scene_ui(ui, vp_rect);
+                    });
+            }
         });
 
         self.viewport_size = wanted;

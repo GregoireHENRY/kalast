@@ -10,11 +10,6 @@ use crate::app::config::{AppConfig, Config};
 /// the next frame -- including the ones that rebuild a pipeline or
 /// reallocate the shadow map, which `App::apply_live_config` notices.
 pub fn config_panel(ui: &mut egui::Ui, c: &mut Config, a: &mut AppConfig) {
-    ui.collapsing("Application", |ui| {
-        ui.checkbox(&mut a.maximize, "maximize").on_hover_text("Give the renderer the whole window: panels out of the way, each coming back when the pointer reaches its edge.");
-        ui.add(egui::DragValue::new(&mut a.width).speed(1.0).prefix("width  ")).on_hover_text("Window size in physical pixels.");
-        ui.add(egui::DragValue::new(&mut a.height).speed(1.0).prefix("height  "));
-    });
     ui.collapsing("Shading", |ui| {
         ui.horizontal(|ui| {
             ui.label("background").on_hover_text("Colour the frame is cleared to, `(r, g, b, a)`.");
@@ -225,12 +220,15 @@ pub fn config_panel(ui: &mut egui::Ui, c: &mut Config, a: &mut AppConfig) {
         ui.checkbox(&mut c.emulate_middle_button, "emulate_middle_button").on_hover_text("Treat alt + left-drag as a middle-drag, so the arcball can be orbited on hardware with no middle button. Blender calls the same setting \"Emulate 3 Button Mouse\". Defaults on for macOS, where a trackpad is the common case, and off elsewhere. Let `Option`/`Alt` + left-drag stand in for a middle-drag.");
     });
     ui.collapsing("Window", |ui| {
+        ui.checkbox(&mut a.focus, "focus").on_hover_text("Give the whole window to the renderer: panels out of the way, each coming back when the pointer reaches its edge.");
+        ui.add(egui::DragValue::new(&mut a.width).speed(1.0).prefix("window width  ")).on_hover_text("Window size in physical pixels.");
+        ui.add(egui::DragValue::new(&mut a.height).speed(1.0).prefix("window height  "));
         ui.horizontal(|ui| {
             ui.label("title").on_hover_text("The OS window title.");
             ui.add(egui::TextEdit::singleline(&mut c.title).desired_width(120.0));
         });
-        ui.add(egui::Slider::new(&mut c.width, 0..=7680).text("width")).on_hover_text("Render size in physical pixels -- the *image*, not the window.");
-        ui.add(egui::Slider::new(&mut c.height, 0..=4320).text("height"));
+        ui.add(egui::Slider::new(&mut c.width, 0..=7680).text("image width")).on_hover_text("Render size in physical pixels -- the *image*, not the window.");
+        ui.add(egui::Slider::new(&mut c.height, 0..=4320).text("image height"));
         ui.checkbox(&mut c.fullscreen, "fullscreen").on_hover_text("Open the window in native fullscreen (borderless, current monitor).");
         ui.add(egui::Slider::new(&mut c.extra, 0..=10).text("extra")).on_hover_text("Free integer passed through to the shader, for one-off experiments.");
         ui.checkbox(&mut c.vsync, "vsync").on_hover_text("Cap the frame rate to the display refresh.");

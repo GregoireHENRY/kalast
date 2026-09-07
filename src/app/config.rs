@@ -350,8 +350,10 @@ pub struct Config {
     /// Everything about the image follows this -- the camera's aspect ratio,
     /// where axis ticks project, where the colour bar sits, and what an
     /// exported frame measures.
+    /// :label: image width
     /// :range: 0..=7680
     pub width: u32,
+    /// :label: image height
     /// :range: 0..=4320
     pub height: u32,
 
@@ -828,25 +830,28 @@ pub struct AppConfig {
     /// leaves nothing to switch it back on with.
     pub editor: bool,
 
-    /// Give the renderer the whole window: panels out of the way, each
+    /// Give the whole window to the renderer: panels out of the way, each
     /// coming back when the pointer reaches its edge.
     ///
-    /// The *renderer*, not the window. The window is yours to size -- double
-    /// click its title bar, drag a corner -- and this is about what is inside
-    /// it. So a maximised renderer looks like a plain render window, with the
-    /// panels a pointer-flick away: top for the toolbar, left for the script,
-    /// right for the config, bottom for the log.
+    /// Focus on the scene, in other words. Not on the window -- that is yours
+    /// to size, by double clicking its title bar or dragging a corner -- but
+    /// on what is inside it. A focused renderer looks like a plain render
+    /// window, with the panels a pointer-flick away: top for the toolbar,
+    /// left for the script, right for the config, bottom for the log.
     ///
     /// Independent of `simulation.config.fullscreen`, which is the OS window
-    /// and nothing else. Set both for an immersive fullscreen; set this alone
-    /// and the window stays where it is.
-    pub maximize: bool,
+    /// and nothing else. Set both to be rid of everything at once; set this
+    /// alone and the window stays where it is.
+    pub focus: bool,
 
     /// Window size in physical pixels.
     ///
     /// The *window*, not the render. `simulation.config.width` is the image
     /// inside it, and follows this unless it is set.
+    ///
+    /// :label: window width
     pub width: u32,
+    /// :label: window height
     pub height: u32,
 }
 
@@ -854,7 +859,7 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             editor: false,
-            maximize: false,
+            focus: false,
             width: 800,
             height: 600,
         }
