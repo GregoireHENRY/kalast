@@ -2,11 +2,14 @@
 
 import numpy
 
-import kalast
 from kalast.app import App, Hud
 
 
 def before_render(app: App, dt: float) -> None:
+    pass
+
+
+def after_render(app: App, dt: float) -> None:
     pass
 
 
@@ -17,8 +20,8 @@ app.config.render_back_face = True
 app.config.wireframe_mode = 2
 app.config.wireframe_color = [0.05, 0.05, 0.05, 1.0]
 app.config.shadow_pcf = 8
-app.config.axes = "blender"
-app.config.colorbar = True
+# app.config.axes = "blender"
+# app.config.colorbar = True
 app.simulation.huds = [
     Hud("it={it}/{nit} fps={fps} {paused}", size=14),
 ]
@@ -32,5 +35,9 @@ app.simulation.load_mesh(
     path="res/plane_crater_1024-5000_h=0.437.obj", mat=mat, flatten=True
 )
 
+# See step.py for a different way of starting kalast.
+# app.start() blocks, and is 5-30% faster than app.step() depending on load
+# -- see "What it costs" in notes/API.md.
 app.before_render = before_render
+app.after_render = after_render
 app.start()
