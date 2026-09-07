@@ -971,7 +971,15 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
         if let (Some(editor), Some(win)) = (self.editor.as_mut(), self.window.as_ref()) {
             let window = win.window.clone();
             let consumed = editor.on_window_event(&window, &event);
-            if consumed && !matches!(event, winit::event::WindowEvent::RedrawRequested) {
+            // egui claims every pointer event over one of its widgets, and
+            // the viewport *is* one -- an `Image`. Without this the camera
+            // never saw a drag on the scene: orbit, pan and zoom all went to
+            // egui and were dropped.
+            let scene = editor.pointer_on_scene();
+            if consumed
+                && !scene
+                && !matches!(event, winit::event::WindowEvent::RedrawRequested)
+            {
                 return;
             }
         }

@@ -232,6 +232,18 @@ impl Simulation {
         }
 
         self.state.iteration += 1;
+
+        // `pause_at` was set in three places and enforced in none: the Step
+        // button raised it and unpaused, and nothing ever paused again, so
+        // Step ran on like Play. A HUD's `{nit}` read it the whole time.
+        //
+        // `==`, not `>=`: the counter moves one at a time, so exact is
+        // enough, and it means Play after an automatic pause advances past
+        // the mark instead of stopping on it again. `pause_at` is left set,
+        // because `{nit}` uses it as the length of the run.
+        if self.state.pause_at == Some(self.state.iteration) {
+            self.state.is_paused = true;
+        }
     }
 
     pub fn toggle_export(&mut self) {
@@ -306,5 +318,51 @@ impl State {
     pub fn toggle_pause(&mut self) -> bool {
         self.is_paused = !self.is_paused;
         self.is_paused
+    }
+}
+
+#[cfg(test)]
+mod pause_tests {
+    use super::*;
+
+    /// `pause_at` used to be set and never acted on, which made Step behave
+    /// as Play.
+    #[test]
+    fn pause_at_stops_the_counter_and_step_advances_exactly_one() {
+        let mut sim = Simulation::new();
+        sim.state.pause_at = Some(3);
+
+        for _ in 0..10 {
+            sim.update();
+        }
+        assert_eq!(sim.state.iteration, 3, "must stop on the mark");
+        assert!(sim.state.is_paused);
+
+        // What the Step button does: one more iteration, then hold again.
+        sim.state.is_paused = false;
+        sim.state.pause_at = Some(sim.state.iteration + 1);
+        for _ in 0..10 {
+            sim.update();
+        }
+        assert_eq!(sim.state.iteration, 4, "Step is one iteration, not a run");
+        assert!(sim.state.is_paused);
+    }
+
+    /// Resuming past an automatic pause must not stop on the same mark again.
+    #[test]
+    fn resuming_advances_past_the_mark() {
+        let mut sim = Simulation::new();
+        sim.state.pause_at = Some(2);
+        for _ in 0..5 {
+            sim.update();
+        }
+        assert_eq!(sim.state.iteration, 2);
+
+        sim.state.is_paused = false;
+        for _ in 0..5 {
+            sim.update();
+        }
+        assert_eq!(sim.state.iteration, 7, "Play carries on past `pause_at`");
+        assert!(!sim.state.is_paused);
     }
 }

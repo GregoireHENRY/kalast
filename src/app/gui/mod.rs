@@ -69,6 +69,13 @@ pub struct Editor {
     /// frame stale, which is invisible; the alternative is a blank first
     /// frame at every new size.
     pub viewport_size: (u32, u32),
+    /// Where the viewport panel sits, in egui points.
+    ///
+    /// The scene is an egui `Image`, so egui reports the pointer as its own
+    /// whenever it is over one -- and the camera controller, which is given
+    /// what egui does not want, never saw a drag on the scene. This says
+    /// where "the scene" is so those events can be let through.
+    viewport_rect: egui::Rect,
 
     /// The script buffer, so a simulation can be edited without leaving the
     /// window. Plain text, not a file handle: what is on screen is what
@@ -121,6 +128,7 @@ impl Editor {
             viewport_texture: None,
             registered_size: (0, 0),
             registered_generation: u64::MAX,
+            viewport_rect: egui::Rect::NOTHING,
             viewport_size: (
                 window.inner_size().width.max(1),
                 window.inner_size().height.max(1),
@@ -174,6 +182,7 @@ impl Editor {
 
         let raw = self.state.take_egui_input(window);
         let mut wanted = self.viewport_size;
+        let mut vp_rect = egui::Rect::NOTHING;
         let texture_id = self.viewport_texture;
         let script = &mut self.script;
         let script_path = &mut self.script_path;
@@ -349,6 +358,7 @@ impl Editor {
                 .frame(egui::Frame::NONE)
                 .show(ui_root, |ui| {
                     let avail = ui.available_size();
+                    vp_rect = ui.available_rect_before_wrap();
                     // What the *next* scene render should be, in physical
                     // pixels: egui works in points.
                     wanted = (
@@ -374,6 +384,7 @@ impl Editor {
         });
 
         self.viewport_size = wanted;
+        self.viewport_rect = vp_rect;
         self.run_request |= run_request;
         self.restart_request |= restart_request;
         self.open_request |= open_request;
@@ -426,6 +437,20 @@ impl Editor {
         }
 
         self.viewport_size
+    }
+
+    /// Whether a pointer event belongs to the scene rather than the UI.
+    ///
+    /// True when the pointer is over the viewport and egui is not in the
+    /// middle of a drag of its own -- a slider grabbed and dragged across the
+    /// viewport keeps belonging to the slider.
+    pub fn pointer_on_scene(&self) -> bool {
+        if self.ctx.egui_is_using_pointer() {
+            return false;
+        }
+        self.ctx
+            .pointer_latest_pos()
+            .is_some_and(|p| self.viewport_rect.contains(p))
     }
 
     /// Give a window event to the UI first.

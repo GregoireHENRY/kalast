@@ -46,9 +46,11 @@ def main(argv: list[str] | None = None) -> int:
         else:
             app.simulation.load_mesh(path=str(path), mat=numpy.eye(4), flatten=True)
 
-    # Loaded, not played. An editor that starts running before you press Play
-    # gives you nothing to press and no way back to the start.
-    app.simulation.state.is_paused = True
+    # A script named on the command line is *shown*: built and rendered at
+    # iteration 0, then held. Loading one and getting a black viewport until
+    # you find Play is no way to open a file.
+    if any(not a.startswith("-") and a.endswith(".py") for a in argv):
+        app.restart_script()
 
     while app.step():
         asked = app.take_script_request()
@@ -58,16 +60,18 @@ def main(argv: list[str] | None = None) -> int:
         # `load_mesh` appends, so a run without this stacks the scene: two
         # craters, and Restart looking like it did nothing.
         app.simulation.reset()
-        # Play rebuilds *and* runs; Restart rebuilds and stops at the start.
+        # Play rebuilds and runs. Restart rebuilds and runs *one iteration*,
+        # then stops -- not "does not run at all", which would leave a black
+        # viewport and nothing to look at. One iteration means the callbacks
+        # fire once, so a script that places its bodies per iteration shows
+        # them where iteration 0 puts them rather than at the origin.
         #
-        # A driven script left paused still goes round its own loop -- there
+        # A driven script left stopped still goes round its own loop -- there
         # is no holding a `while` the script owns -- but nothing advances, so
-        # the scene sits still and the window stays responsive. Play releases
-        # it. What Play must not do is leave it paused: a driven script's exit
-        # test is usually on `state.iteration`, so it would never finish, and
-        # pressing Play and seeing nothing move is the confusion this button
-        # started as.
-        app.simulation.state.is_paused = paused
+        # the scene sits still and the window stays responsive.
+        if paused:
+            app.simulation.state.pause_at = 1
+        app.simulation.state.is_paused = False
         # Between frames, so a script that drives its own loop nests here
         # rather than inside the frame -- and runs to completion before this
         # loop resumes.
