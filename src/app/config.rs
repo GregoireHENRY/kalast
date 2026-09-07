@@ -229,7 +229,8 @@ pub struct Hud {
     /// Template text; see `Config::huds` for the placeholders.
     pub text: String,
     pub anchor: HudAnchor,
-    /// Inset from the anchor in pixels, or absolute position for `Custom`.
+    /// Inset from the anchor in pixels. With the default top-left anchor
+    /// this is simply the position, since that anchor is the origin.
     pub x: f32,
     pub y: f32,
     /// Font size in pixels.

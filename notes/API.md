@@ -113,6 +113,18 @@ Both are an `Eye`.
 | `target()`, `right()`, `distance_anchor()` | derived quantities |
 | `set_control_arcball()` / `set_control_wasd()` / `set_control_none()` | input mode |
 | `control_toggle()`, `is_control_*()` | same, from a script |
+| `view_along(axis, orthographic=True)` | look down `+x`/`-x`/`+y`/`-y`/`+z`/`-z` |
+
+`view_along` is for the plane views a figure wants. It switches to an
+**orthographic** projection by default, because a perspective view of a plane
+is not measurable — the near and far sides of a crater are at different
+scales, which is why published figures of this kind are orthographic. Pass
+`orthographic=False` to keep perspective and just take the viewpoint.
+
+Framing is left to the automatic frustum fit, so the eye's distance is not
+something to tune. It clears `anchor_body` if set: a plane view is about the
+scene, not one body. It does nothing if no geometry is loaded, so call it
+after the meshes.
 
 **The Sun ignores `dir` and `anchor`.** Since per-body shadow layers landed,
 each layer aims itself from `sun.pos` at the body it covers, so `sun.pos`
@@ -149,6 +161,29 @@ per-facet data and the wireframe overlay work.
 `path`. The shadow map only decides which fragments are lit, so a coarser
 occluder buys performance without touching per-facet science data — unlike
 loading a coarser `path`, which would invalidate anything facet-indexed.
+
+### `mesh.values` — colouring facets from data
+
+One float per facet, in `Mesh.facets` order:
+
+```python
+sim.bodies[0].mesh.values = temperatures      # numpy array, one per facet
+app.config.value_mode = True
+app.config.colormap = "inferno"
+app.config.value_min, app.config.value_max = 90.0, 290.0
+```
+
+Assigning marks the mesh dirty, so the change reaches the GPU on the next
+frame with no separate call.
+
+**Pin `value_min`/`value_max` for anything comparative.** Left automatic the
+range refits every frame, so two images of the same scene sit on different
+colour scales and the difference between them reads as physics rather than as
+bookkeeping.
+
+Set `color_mode = 1` alongside it for a quantitative figure: that leaves the
+data map flat instead of shading it, so one value is one colour. See
+`CONFIG.md` for the colour bar that labels it.
 
 ## Frame export
 

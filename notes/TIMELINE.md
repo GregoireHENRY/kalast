@@ -825,3 +825,47 @@ surprises:
   at 111/111 documented; `mesh`, `entity`, `routines` and the `tpm` classes
   are stubbed but largely undocumented. `python tools/gen_stubs.py` picks up
   any `///` added to them.
+
+---
+
+## 4 to 6 September — figure furniture: axes, colour bar, data colouring
+
+Done on the other machine, pulled on the 7th. These are what turns a render
+into something publishable: a measured frame, a labelled scale, and facets
+coloured by a physical quantity rather than by shading.
+
+- **Reference axes in four styles**, `config.axes`: `box` (MATLAB's `box on`,
+  every edge a ruler), `panes` (matplotlib's `Axes3D`, gridded far panes that
+  give depth cues a bare box does not), `gizmo` (three arrows at the origin,
+  for fly-throughs where a box would occlude the subject), and `blender` (a
+  ground grid with Z picked out). Tick steps round to 1, 2 or 5 times a power
+  of ten, so a count lands near `axes_ticks` rather than on it -- ticks at
+  0.0347 are unreadable.
+- **Facet colouring from data**, `mesh.values` plus `config.value_mode`,
+  `colormap`, `value_min`, `value_max`. Colormaps by name or from any 256x3
+  array, so a matplotlib one can be handed over unchanged. Orthogonal to
+  `color_mode`, which still decides whether the result is shaded -- flat is
+  what a quantitative figure wants.
+- **A colour bar**, drawn through the same lookup table as the surface so the
+  two cannot disagree. `colorbar_source` picks between the data map and the
+  diffuse shading, the latter labelled 0..1 and explicitly **not** radiance or
+  temperature.
+- **Nine HUD anchors**, with `align_h`/`align_v` separating alignment within
+  the block from where the block sits.
+- **Axis-aligned plane views**, `camera.view_along(axis)`, orthographic by
+  default because a perspective plane view is not measurable.
+- **The camera reports what it can see**, and warns when the light cube is
+  clipped -- which is the failure that made the cube invisible rather than
+  wrong, since the camera's far plane fits to scene bounds and the Sun is
+  outside them.
+
+### Documented on the 7th
+
+The 22 new options had no `CONFIG.md` entries, `view_along` and `mesh.values`
+were not in `API.md`, and `CONFIG.md` still claimed four HUD anchors where the
+code now takes nine. All written up now.
+
+Two things worth carrying: `axes_unit` and `colorbar_label` are free text that
+**nothing checks**, so a wrong unit mislabels a figure silently; and an
+automatic `value_min`/`value_max` rescales per frame, which is the quiet way
+to make two images non-comparable.

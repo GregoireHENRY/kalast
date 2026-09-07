@@ -22,7 +22,9 @@ class Hud:
     `bottom-left` or `bottom-right`.
     """
     x: float
-    """Inset from the anchor in pixels, or absolute position for `Custom`."""
+    """Inset from the anchor in pixels. With the default top-left anchor
+    this is simply the position, since that anchor is the origin.
+    """
     y: float
     """Vertical inset from the anchor, in pixels.
 

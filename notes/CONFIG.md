@@ -399,10 +399,19 @@ color=None)`.
 `size` is the font size in pixels and is **per HUD**, so a large counter and a
 small frame-rate readout cost nothing extra. `color` is `(r, g, b, a)`.
 
-`anchor` is one of `top-left`, `top-right`, `bottom-left`, `bottom-right`.
-Hyphens, underscores and spaces are interchangeable, and case is ignored,
-since all of those get typed. Anything else raises `ValueError` listing the
-valid values rather than silently defaulting.
+`anchor` is one of nine: `top-left`, `top-center`, `top-right`,
+`middle-left`, `middle-center`, `middle-right`, `bottom-left`,
+`bottom-center`, `bottom-right`. Hyphens, underscores and spaces are
+interchangeable, and case is ignored, since all of those get typed. Anything
+else raises `ValueError` listing the valid values rather than silently
+defaulting.
+
+`align_h` (`left`/`center`/`right`) and `align_v` (`top`/`center`/`bottom`)
+set how the text block aligns *within itself*, separately from where it sits.
+`None`, the default, follows the anchor — which is what you want almost
+always. They matter when a multi-line block should read left-aligned while
+sitting against the right edge, where following the anchor would ragged-right
+it.
 
 `x`/`y` are an **inset from the anchor**, defaulting to 8 and 6 — so a
 bottom-right HUD sits as far from its own edges as a top-left one does, and
@@ -847,6 +856,107 @@ self-shadow acne that no automatic setting could clear, and `shadow_per_body =
 False` did not visibly help because the single scene layer was mis-sized too.
 `fit_light_view_proj` now returns its extents instead of having them
 reverse-engineered from the matrix.
+
+---
+
+## Reference axes
+
+### `axes: str` — default `"off"` *(live)*
+Draw a measured frame around the scene, in one of four styles.
+
+| | |
+|---|---|
+| `off` | nothing |
+| `box` | closed box, ticked on the near edges — MATLAB's `box on`; every edge is a ruler |
+| `panes` | the three far panes, gridded, ticks on their outer edges — matplotlib's `Axes3D`; reads as a room the body sits in, so the grid gives depth cues a bare box does not |
+| `gizmo` | three labelled arrows at the origin and nothing else — for fly-throughs, where a box would occlude the subject every time the camera swings |
+| `blender` | ground grid on XY with the Z axis picked out, as Blender's viewport |
+
+Accepted: those names; anything else raises `ValueError` listing them.
+
+### `axes_ticks: int` *(live)*
+Roughly how many ticks per axis. The step is rounded to 1, 2 or 5 times a
+power of ten first, so the count lands *near* this rather than on it — ticks
+at 0.0347 are unreadable.
+
+### `axes_unit: str` *(live)*
+Appended to every tick label, e.g. `" km"`.
+
+The renderer knows a mesh is 0.437 across but not whether that is metres or
+kilometres, so the unit has to come from the script. **Nothing checks it**, so
+a wrong unit here mislabels a figure silently.
+
+### `axes_color: list[float]` *(live)*
+### `axes_label_size: float` *(live)*
+### `axes_label_color: list[float]` *(live)*
+Line and grid colour `(r, g, b)`, tick label size in pixels, and label colour
+`(r, g, b, a)`.
+
+---
+
+## Facet colouring from data
+
+### `value_mode: bool` — default `False` *(live)*
+Colour facets from `mesh.values` through `colormap` instead of their vertex
+colour.
+
+**Orthogonal to `color_mode`,** which still decides whether the result is lit:
+`color_mode = 0` shades the data map, `1` leaves it flat — which is what a
+quantitative figure usually wants, since shading a colour-coded field makes
+the same value read as two different colours.
+
+### `value_min: float | None` — default `None` *(live)*
+### `value_max: float | None` — default `None` *(live)*
+Ends of the colour scale, or `None` to fit the data each frame.
+
+**Pin both for anything comparative.** An automatic range silently rescales
+between frames, so two images of the same scene are not on the same colour
+scale and the difference between them reads as physics rather than as
+bookkeeping.
+
+### `colormap` *(live)*
+Set by name — `"viridis"`, `"inferno"`, `"turbo"`, `"grey"` — or from any
+256×3 array, so a matplotlib colormap can be handed over unchanged. Defaults
+to greyscale. An unknown name raises `ValueError` listing the built-ins.
+
+---
+
+## Colour bar
+
+### `colorbar: bool` — default `False` *(live)*
+Draw the colour scale over the render.
+
+### `colorbar_source: str` — default `"values"` *(live)*
+What the bar describes.
+
+- `values` — the `mesh.values` colormap, labelled in the data's own units.
+  Reads the same lookup table the surface does, so the two cannot disagree.
+- `lighting` — the diffuse shading itself, labelled 0..1:
+  `ambient + cos(i) * visibility`, i.e. normalised direct insolation
+  including shadowing. **Not radiance and not temperature**, and it carries
+  the `ambient_strength` floor. Label it accordingly.
+
+### `colorbar_label: str` *(live)*
+Caption, e.g. `"Surface temperature (K)"`. Same warning as `axes_unit`:
+nothing checks it against what is actually mapped.
+
+### `colorbar_anchor: str` *(live)*
+### `colorbar_x: float` *(live)*
+### `colorbar_y: float` *(live)*
+Placement, using the same nine anchors and inset convention as `Hud`.
+
+### `colorbar_vertical: bool | None` — default `None` *(live)*
+Orientation. `None` infers it from the anchor, which is right for the corners.
+
+### `colorbar_length: float` *(live)*
+### `colorbar_thickness: float` *(live)*
+Long and short axis of the bar, in pixels.
+
+### `colorbar_ticks: int` *(live)*
+### `colorbar_text_size: float` *(live)*
+### `colorbar_text_color: list[float]` *(live)*
+Roughly how many numbered ticks — rounded to a readable step as the axes are —
+plus label size and colour.
 
 ---
 
