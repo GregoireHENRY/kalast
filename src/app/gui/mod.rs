@@ -81,6 +81,9 @@ pub struct Editor {
     /// side. The UI cannot run anything itself -- it has no interpreter and
     /// no business holding the GIL mid-layout.
     pub run_request: bool,
+    /// Set when the run was asked for by Restart rather than Play. The scene
+    /// is rebuilt either way; this says whether it then runs.
+    pub restart_request: bool,
     pub open_request: bool,
     pub save_request: bool,
 }
@@ -126,6 +129,7 @@ impl Editor {
             script_path: String::new(),
             script_dirty: false,
             run_request: false,
+            restart_request: false,
             open_request: false,
             save_request: false,
         }
@@ -179,6 +183,7 @@ impl Editor {
         let dirty = &mut self.script_dirty;
         let ran = &mut shared.script_ran;
         let (mut run_request, mut open_request, mut save_request) = (false, false, false);
+        let mut restart_request = false;
 
         let output = self.ctx.run_ui(raw, |ui_root| {
             let ppp = ui_root.ctx().pixels_per_point();
@@ -219,10 +224,11 @@ impl Editor {
                     }
                     if ui
                         .add_enabled(script_ran, egui::Button::new("\u{27f2} Restart"))
-                        .on_hover_text("Clear the scene and run the script again")
+                        .on_hover_text("Rebuild the scene from the script and stop at the start")
                         .clicked()
                     {
                         run_request = true;
+                        restart_request = true;
                     }
                     // One frame while paused: the same thing the render loop
                     // does, so the button cannot drift from the key.
@@ -369,6 +375,7 @@ impl Editor {
 
         self.viewport_size = wanted;
         self.run_request |= run_request;
+        self.restart_request |= restart_request;
         self.open_request |= open_request;
         self.save_request |= save_request;
         self.state

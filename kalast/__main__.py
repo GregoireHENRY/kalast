@@ -54,14 +54,20 @@ def main(argv: list[str] | None = None) -> int:
         asked = app.take_script_request()
         if asked is None:
             continue
-        path, source = asked
-        # Play runs *and* starts. Not optional: a driven script's exit test is
-        # usually on `state.iteration`, which does not advance while paused,
-        # so running one paused loops forever.
-        # `load_mesh` appends, so a second run without this stacks the
-        # scene: two craters, and Restart looking like it did nothing.
+        path, source, paused = asked
+        # `load_mesh` appends, so a run without this stacks the scene: two
+        # craters, and Restart looking like it did nothing.
         app.simulation.reset()
-        app.simulation.state.is_paused = False
+        # Play rebuilds *and* runs; Restart rebuilds and stops at the start.
+        #
+        # A driven script left paused still goes round its own loop -- there
+        # is no holding a `while` the script owns -- but nothing advances, so
+        # the scene sits still and the window stays responsive. Play releases
+        # it. What Play must not do is leave it paused: a driven script's exit
+        # test is usually on `state.iteration`, so it would never finish, and
+        # pressing Play and seeing nothing move is the confusion this button
+        # started as.
+        app.simulation.state.is_paused = paused
         # Between frames, so a script that drives its own loop nests here
         # rather than inside the frame -- and runs to completion before this
         # loop resumes.

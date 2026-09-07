@@ -59,13 +59,19 @@ pub struct Shared {
     /// rather than on the editor because it can be raised before the window
     /// exists.
     pub run_requested: bool,
+    /// The same, but from Restart: rebuild and stop at the start.
+    pub restart_requested: bool,
     /// A script the UI has asked to run, waiting for the caller to take it.
     ///
     /// The frame cannot run it: a driven script's own loop cannot nest inside
     /// the frame that is drawing it. So Play leaves it here and the loop
     /// owner picks it up *between* frames, where the script runs as the
     /// program it is -- whichever shape it has.
-    pub script_pending: Option<(String, String)>,
+    /// `(path, source, paused)` -- `paused` when it came from Restart,
+    /// which rebuilds the scene and stops at the start rather than running
+    /// it. Play sets it false: pressing Play and having nothing move is the
+    /// confusion this whole button started as.
+    pub script_pending: Option<(String, String, bool)>,
     /// Whether the buffer on screen is what is actually running. Here rather
     /// than on the editor so a launcher can set it before the window exists.
     pub script_ran: bool,
@@ -82,6 +88,7 @@ impl Shared {
             pending_script: None,
             log: crate::app::gui::Log::new(2000),
             run_requested: false,
+            restart_requested: false,
             script_pending: None,
             script_ran: false,
         }
@@ -627,7 +634,14 @@ impl App {
     /// `Simulation` is borrowed for the panels -- is how a `RefCell` panic
     /// happens.
     fn serve_editor_requests(&mut self) {
-        let asked = std::mem::take(&mut self.shared.borrow_mut().run_requested);
+        let (asked, asked_restart) = {
+            let mut s = self.shared.borrow_mut();
+            (
+                std::mem::take(&mut s.run_requested),
+                std::mem::take(&mut s.restart_requested),
+            )
+        };
+        let asked = asked | asked_restart;
         let Some(editor) = self.editor.as_mut() else { return };
         let (run, open, save) = (
             asked | std::mem::take(&mut editor.run_request),
@@ -692,7 +706,13 @@ impl App {
             // So the request is left standing for the caller to take between
             // frames, where a script of either shape runs as the program it
             // is. `App::take_script_request` is that handoff.
-            self.shared.borrow_mut().script_pending = Some((path.clone(), source));
+            let paused = asked_restart
+                | self
+                    .editor
+                    .as_mut()
+                    .map(|e| std::mem::take(&mut e.restart_request))
+                    .unwrap_or(false);
+            self.shared.borrow_mut().script_pending = Some((path.clone(), source, paused));
         }
 
         for m in messages {
@@ -705,7 +725,7 @@ impl App {
     /// Call it between frames -- `while app.step(): ...` -- and execute what
     /// comes back. Doing it there rather than inside the frame is what lets a
     /// script drive its own loop.
-    pub fn take_script_request(&mut self) -> Option<(String, String)> {
+    pub fn take_script_request(&mut self) -> Option<(String, String, bool)> {
         self.shared.borrow_mut().script_pending.take()
     }
 

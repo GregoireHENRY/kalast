@@ -73,17 +73,30 @@ class App:
         script.py --run` opens straight into a running scene.
         """
         ...
-    def take_script_request(self) -> tuple[str, str] | None:
+    def restart_script(self) -> None:
+        """Rebuild the scene from the script and stop at the start, as the
+        Restart button does.
+
+        The difference from `run_script()` is only what happens afterwards:
+        this leaves the simulation paused.
+        """
+        ...
+    def take_script_request(self) -> tuple[str, str, bool] | None:
         """Take a script the editor's Play button has asked to run, if any.
 
-        Returns `(path, source)` once per request, or `None`. Call it
+        Returns `(path, source, paused)` once per request, or `None`.
+        `paused` is true when Restart asked -- rebuild the scene and stop at
+        the start -- and false for Play, which rebuilds and runs. Call it
         **between** frames and execute what comes back:
 
         ```python
         while app.step():
             asked = app.take_script_request()
             if asked:
-                kalast.editor.run_toplevel(app, asked[1], asked[0])
+                path, source, paused = asked
+                app.simulation.reset()
+                app.simulation.state.is_paused = paused
+                kalast.editor.run_toplevel(app, source, path)
         ```
 
         The frame cannot run a script itself: one that drives its own

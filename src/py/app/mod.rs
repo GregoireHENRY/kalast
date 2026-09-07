@@ -140,23 +140,37 @@ impl App {
         self.shared.borrow_mut().run_requested = true;
     }
 
+    /// Rebuild the scene from the script and stop at the start, as the
+    /// Restart button does.
+    ///
+    /// The difference from `run_script()` is only what happens afterwards:
+    /// this leaves the simulation paused.
+    fn restart_script(&self) {
+        self.shared.borrow_mut().restart_requested = true;
+    }
+
     /// Take a script the editor's Play button has asked to run, if any.
     ///
-    /// Returns `(path, source)` once per request, or `None`. Call it
+    /// Returns `(path, source, paused)` once per request, or `None`.
+    /// `paused` is true when Restart asked -- rebuild the scene and stop at
+    /// the start -- and false for Play, which rebuilds and runs. Call it
     /// **between** frames and execute what comes back:
     ///
     /// ```python
     /// while app.step():
     ///     asked = app.take_script_request()
     ///     if asked:
-    ///         kalast.editor.run_toplevel(app, asked[1], asked[0])
+    ///         path, source, paused = asked
+    ///         app.simulation.reset()
+    ///         app.simulation.state.is_paused = paused
+    ///         kalast.editor.run_toplevel(app, source, path)
     /// ```
     ///
     /// The frame cannot run a script itself: one that drives its own
     /// `while app.step():` would be a loop nested inside the frame it is
     /// trying to drive. Between frames it runs as the program it is,
     /// whatever shape it has.
-    fn take_script_request(&self) -> Option<(String, String)> {
+    fn take_script_request(&self) -> Option<(String, String, bool)> {
         self.shared.borrow_mut().script_pending.take()
     }
 
