@@ -2,14 +2,19 @@
 //
 // Regenerate after changing `Config`:  python tools/gen_config_panel.py
 
-use crate::app::config::Config;
+use crate::app::config::{AppConfig, Config};
 
-/// Every option on the simulation's config, grouped.
+/// Every option on both configs, grouped.
 ///
 /// Written straight into the live config, so a change takes effect on
 /// the next frame -- including the ones that rebuild a pipeline or
 /// reallocate the shadow map, which `App::apply_live_config` notices.
-pub fn config_panel(ui: &mut egui::Ui, c: &mut Config) {
+pub fn config_panel(ui: &mut egui::Ui, c: &mut Config, a: &mut AppConfig) {
+    ui.collapsing("Application", |ui| {
+        ui.checkbox(&mut a.maximize, "maximize").on_hover_text("Give the renderer the whole window: panels out of the way, each coming back when the pointer reaches its edge.");
+        ui.add(egui::DragValue::new(&mut a.width).speed(1.0).prefix("width  ")).on_hover_text("Window size in physical pixels.");
+        ui.add(egui::DragValue::new(&mut a.height).speed(1.0).prefix("height  "));
+    });
     ui.collapsing("Shading", |ui| {
         ui.horizontal(|ui| {
             ui.label("background").on_hover_text("Colour the frame is cleared to, `(r, g, b, a)`.");

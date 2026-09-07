@@ -236,6 +236,21 @@ impl AppConfig {
         self.config.borrow_mut().editor = v;
     }
 
+    /// Give the renderer the whole window: panels out of the way, each
+    /// coming back when the pointer reaches its edge.
+    ///
+    /// About what is *inside* the window, not the window itself -- that is
+    /// still yours to size. Independent of `simulation.config.fullscreen`.
+    #[getter]
+    fn maximize(&self) -> bool {
+        self.config.borrow().maximize
+    }
+
+    #[setter]
+    fn set_maximize(&self, v: bool) {
+        self.config.borrow_mut().maximize = v;
+    }
+
     /// Window width in physical pixels.
     ///
     /// The *window*. `simulation.config.width` is the image inside it, and
@@ -264,8 +279,8 @@ impl AppConfig {
     fn __repr__(&self) -> String {
         let c = self.config.borrow();
         format!(
-            "AppConfig(editor={}, width={}, height={})",
-            c.editor, c.width, c.height
+            "AppConfig(editor={}, maximize={}, width={}, height={})",
+            c.editor, c.maximize, c.width, c.height
         )
     }
 }

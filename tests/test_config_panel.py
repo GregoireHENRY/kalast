@@ -42,12 +42,18 @@ def test_every_field_has_a_widget() -> None:
     src = CONFIG.read_text()
     panel = PANEL.read_text()
     missing = []
-    for struct, prefix in (("Config", "c."), ("Colorbar", "c.colorbar.")):
+    for struct, prefix in (
+        ("Config", "c."),
+        ("Colorbar", "c.colorbar."),
+        ("AppConfig", "a."),
+    ):
         for name in fields(struct):
-            skipped = re.search(
-                rf"///\s*:skip:\s*\n\s*pub {name}:", src
+            # The whole doc block, not just the line above `pub`: `:skip:` is
+            # allowed anywhere in it, and the generator reads it that way.
+            block = re.search(
+                rf"((?:^[ \t]*///[^\n]*\n)*)[ \t]*pub {name}:", src, re.M
             )
-            if skipped:
+            if block and ":skip:" in block.group(1):
                 continue
             if f"{prefix}{name}" not in panel:
                 missing.append(f"{prefix}{name}")

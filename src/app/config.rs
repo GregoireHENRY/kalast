@@ -822,7 +822,25 @@ pub struct AppConfig {
     /// made non-blocking.
     ///
     /// `start_editor()` is this plus `start()`.
+    ///
+    /// :skip:
+    /// No widget: a checkbox that switches the UI off from inside the UI
+    /// leaves nothing to switch it back on with.
     pub editor: bool,
+
+    /// Give the renderer the whole window: panels out of the way, each
+    /// coming back when the pointer reaches its edge.
+    ///
+    /// The *renderer*, not the window. The window is yours to size -- double
+    /// click its title bar, drag a corner -- and this is about what is inside
+    /// it. So a maximised renderer looks like a plain render window, with the
+    /// panels a pointer-flick away: top for the toolbar, left for the script,
+    /// right for the config, bottom for the log.
+    ///
+    /// Independent of `simulation.config.fullscreen`, which is the OS window
+    /// and nothing else. Set both for an immersive fullscreen; set this alone
+    /// and the window stays where it is.
+    pub maximize: bool,
 
     /// Window size in physical pixels.
     ///
@@ -836,6 +854,7 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             editor: false,
+            maximize: false,
             width: 800,
             height: 600,
         }

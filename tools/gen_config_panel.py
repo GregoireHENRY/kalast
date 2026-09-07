@@ -60,7 +60,7 @@ GROUPS = [
 ]
 FALLBACK_GROUP = "Window"
 GROUP_ORDER = [
-    "Shading", "Shadows", "Wireframe", "Lighting", "Data colouring",
+    "Application", "Shading", "Shadows", "Wireframe", "Lighting", "Data colouring",
     "Axes", "Colour bar", "HUD", "Export", "GPU results", "Controls",
     "Window", "Debug",
 ]
@@ -241,6 +241,13 @@ def main() -> int:
     src = SOURCE.read_text()
     grouped: dict[str, list[str]] = {}
 
+    # `AppConfig` first: it is about the program you are looking at, which is
+    # the shorter and more immediate list.
+    for name, rust, doc in fields("AppConfig", src):
+        lines = widget(f"a.{name}", name, rust, doc)
+        if lines:
+            grouped.setdefault("Application", []).extend(lines)
+
     for name, rust, doc in fields("Config", src):
         lines = widget(f"c.{name}", name, rust, doc)
         if lines:
@@ -257,14 +264,14 @@ def main() -> int:
         "//",
         "// Regenerate after changing `Config`:  python tools/gen_config_panel.py",
         "",
-        "use crate::app::config::Config;",
+        "use crate::app::config::{AppConfig, Config};",
         "",
-        "/// Every option on the simulation's config, grouped.",
+        "/// Every option on both configs, grouped.",
         "///",
         "/// Written straight into the live config, so a change takes effect on",
         "/// the next frame -- including the ones that rebuild a pipeline or",
         "/// reallocate the shadow map, which `App::apply_live_config` notices.",
-        "pub fn config_panel(ui: &mut egui::Ui, c: &mut Config) {",
+        "pub fn config_panel(ui: &mut egui::Ui, c: &mut Config, a: &mut AppConfig) {",
     ]
     for group in GROUP_ORDER + sorted(set(grouped) - set(GROUP_ORDER)):
         if group not in grouped:

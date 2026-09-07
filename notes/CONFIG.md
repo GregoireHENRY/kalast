@@ -7,7 +7,31 @@ There are two configs, and they answer different questions.
 `app.simulation.config` -- this document -- is about the thing being simulated
 and the image made of it. `app.config` is about the application you are
 looking at: its window now, its panel layout and colours as the editor grows.
-It holds `width` and `height` only, so far.
+It holds `editor`, `maximize`, `width` and `height`.
+
+### `app.config.maximize: bool` — default `False` *(live)*
+Give the renderer the whole window: the panels get out of the way, each
+coming back when the pointer reaches its edge — top for the toolbar, left for
+the script, right for the config, bottom for the log — and staying while the
+pointer is anywhere over it.
+
+The edge strip is 24 points, and deliberately not enough on its own to hold a
+panel open: the config panel is 240 wide, so reaching for anything in it would
+leave the strip and the panel would vanish under the pointer.
+
+About what is *inside* the window. The window itself is yours to size — double
+click its title bar, drag a corner — and this does not touch it. Measured on a
+1400×900 window: the viewport goes from 320×614 to 1400×900.
+
+Independent of `simulation.config.fullscreen`, which is the OS window and
+nothing else. Set both for an immersive fullscreen.
+
+### `app.config.editor: bool` — default `False` *(startup only in practice)*
+Draw in the editor layout. `start_editor()` is this plus `start()`, and
+`python -m kalast` sets it.
+
+Deliberately **not** in the config panel: a checkbox that switches the UI off
+from inside the UI leaves nothing to switch it back on with.
 
 **Both have `width`/`height`, and they are not the same number.**
 `app.config.width` is the OS window. `app.simulation.config.width` is the
@@ -174,16 +198,9 @@ Open the window in native fullscreen on the current monitor —
 its own Space.
 Accepted: `True` / `False`.
 
-**In the editor it means the *renderer* fullscreen.** The scene takes the
-whole window and the panels get out of the way, each coming back when the
-pointer reaches its edge — top for the toolbar, left for the script, right for
-the config, bottom for the log — and staying while the pointer is on it.
-Measured on a 1400×900 window: the viewport goes from 320×614 to 3024×1898,
-the whole display.
-
-The edge strip is 24 points. It is deliberately not enough on its own to keep
-a panel open, since the right panel is 240 wide and reaching for anything in
-it would leave the strip; a panel stays while the pointer is anywhere over it.
+This is the **window** and nothing else. For the renderer to take the whole
+window with the panels out of the way, see `app.config.maximize` below —
+they are independent, and setting both gives an immersive fullscreen.
 
 **Prefer this to toggling fullscreen after launch.** The two are not
 equivalent, and the difference is measurable:

@@ -177,6 +177,7 @@ impl Editor {
         scene_size: (u32, u32),
         scene_generation: u64,
         config: &mut crate::app::config::Config,
+        app_config: &mut crate::app::config::AppConfig,
         state: &mut crate::app::simulation::State,
         shared: &mut crate::app::Shared,
         iteration_rate: f32,
@@ -209,11 +210,15 @@ impl Editor {
         let mut wanted = self.viewport_size;
         let mut vp_rect = egui::Rect::NOTHING;
 
-        // Fullscreen means the *renderer* fullscreen: the scene takes the
-        // window and the panels get out of the way, each coming back when the
-        // pointer reaches its edge -- and staying while the pointer is on it,
-        // which the edge test alone would not give.
-        let immersive = config.fullscreen;
+        // The scene takes the window and the panels get out of the way,
+        // each coming back when the pointer reaches its edge -- and staying
+        // while the pointer is on it, which the edge test alone would not
+        // give.
+        //
+        // Driven by `maximize` and not by `fullscreen`: one is about what is
+        // inside the window, the other about the window. Set both for an
+        // immersive fullscreen.
+        let immersive = app_config.maximize;
         const EDGE: f32 = 24.0;
         let pointer = self.ctx.pointer_latest_pos();
         let panels = self.panels;
@@ -415,7 +420,7 @@ impl Editor {
                         // Generated from `src/app/config.rs`, so a field
                         // added there gets a widget without anyone
                         // remembering to add one here.
-                        config_panel::config_panel(ui, config);
+                        config_panel::config_panel(ui, config, app_config);
                     });
                 }).response.rect;
             }

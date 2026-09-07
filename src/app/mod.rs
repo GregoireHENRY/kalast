@@ -1247,6 +1247,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                             scene_size,
                             scene_generation,
                             &mut sim_cfg.borrow_mut(),
+                            &mut self.config.borrow_mut(),
                             &mut sim.state,
                             &mut self.shared.borrow_mut(),
                             self.fps_shown as f32,
