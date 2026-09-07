@@ -28,6 +28,7 @@ PROBE = textwrap.dedent("""
     from kalast.app import App
 
     script = sys.argv[1] if len(sys.argv) > 1 else None
+    steps = int(sys.argv[2]) if len(sys.argv) > 2 else 0
 
     app = App()
     app.config.editor = True
@@ -54,6 +55,13 @@ PROBE = textwrap.dedent("""
             app.script_ran = True
             editor.run_toplevel(app, source, path)
         if frames == 120:
+            for _ in range(steps):
+                # Exactly what the Step button does.
+                st = app.simulation.state
+                st.pause_at = st.iteration + 1
+                st.is_paused = False
+                for _ in range(15):
+                    app.step()
             st = app.simulation.state
             print("PROBE %d %s %d %d" % (st.iteration, st.is_paused,
                                          len(app.simulation.bodies),
@@ -62,11 +70,13 @@ PROBE = textwrap.dedent("""
 """)
 
 
-def probe(script: str | None) -> tuple[int, bool, int, int]:
+def probe(script: str | None, steps: int = 0) -> tuple[int, bool, int, int]:
     path = ROOT / "tests" / "_editor_probe.py"
     path.write_text(PROBE)
     try:
-        args = [sys.executable, str(path)] + ([script] if script else [])
+        args = [sys.executable, str(path)]
+        if script:
+            args += [script, str(steps)]
         r = subprocess.run(args, capture_output=True, text=True, timeout=120, cwd=ROOT)
     finally:
         path.unlink(missing_ok=True)
@@ -92,6 +102,19 @@ def test_a_script_is_built_and_held_at_iteration_zero() -> None:
     # `state.iteration` counts iterations finished; the toolbar shows the one
     # on screen, and the screen is showing iteration 0.
     assert drawn == 0, f"the frame shown is iteration 0, got {drawn}"
+
+
+def test_step_advances_exactly_one_rendered_iteration() -> None:
+    """Step used to move the counter without rendering anything.
+
+    The UI is drawn near the end of a frame, so Step unpaused after that
+    frame had already skipped its callbacks -- and `update()`, re-reading the
+    flag, counted an iteration that never ran. `pause_at` fired straight
+    afterwards, so the counter moved, nothing was drawn, and it looked stuck.
+    """
+    _, paused, _, drawn = probe("examples/crater_self_shadow/main.py", steps=3)
+    assert drawn == 3, f"three Steps should show iteration 3, got {drawn}"
+    assert paused, "and it should be held again afterwards"
 
 
 def main() -> int:

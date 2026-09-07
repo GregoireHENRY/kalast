@@ -1263,7 +1263,22 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 // agree on which frame they are in -- a loop deriving an
                 // epoch from `state.iteration` would otherwise see two
                 // different times within one frame.
-                self.simulation.borrow_mut().update();
+                //
+                // Gated on the pause state this frame *started* with, not the
+                // one now. The UI is drawn near the end of the frame, so
+                // pressing Step unpauses after the callbacks have already
+                // been skipped and nothing new has been rendered -- and
+                // `update()` re-reading the flag would then count an
+                // iteration that never ran. `pause_at` fired immediately
+                // afterwards, so Step advanced the counter, drew nothing, and
+                // looked stuck.
+                //
+                // Skipping it here leaves the change to the next frame, which
+                // does run the callbacks and render, which is what Step
+                // means.
+                if !paused {
+                    self.simulation.borrow_mut().update();
+                }
 
                 // Reached only by a frame that actually rendered: the
                 // early return above, for a surface that is not configured
