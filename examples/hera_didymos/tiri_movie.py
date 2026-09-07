@@ -33,7 +33,7 @@ matplotlib.use("Agg")
 from matplotlib import cm, colors, image as mpimg
 
 import kalast
-from kalast.app import App
+from kalast.app import Simulation
 import kalast.tpm.radiance as radiance
 
 # ---------------------------------------------------------------- settings
@@ -95,11 +95,11 @@ for d in ("diffuse", "temperature", "radiance"):
 
 # -------------------------------------------------------------- rendering
 app = kalast.app.App()
-app.config.width = NPX
-app.config.height = NPY
-app.config.vsync = False
-app.config.export_dir = str(OUT / "diffuse")
-app.config.access_shadow_map = False
+app.simulation.config.width = NPX
+app.simulation.config.height = NPY
+app.simulation.config.vsync = False
+app.simulation.config.export_dir = str(OUT / "diffuse")
+app.simulation.config.access_shadow_map = False
 
 app.simulation.camera.projection.fovy = numpy.radians(tiri.fovy)
 for b in BODIES:
@@ -134,8 +134,7 @@ def place(sim, et):
     return numpy.asarray(p_sun), numpy.asarray(p_dimo)
 
 
-def before_render(app: App, dt_frame: float) -> None:
-    sim = app.simulation
+def before_render(sim: Simulation, dt_frame: float) -> None:
     k = sim.state.iteration
     if k >= n_frames or clock["done"]:
         return
@@ -144,8 +143,7 @@ def before_render(app: App, dt_frame: float) -> None:
     sim.request_facet_id()  # the geometry behind the other two
 
 
-def after_render(app: App, dt_frame: float) -> None:
-    sim = app.simulation
+def after_render(sim: Simulation, dt_frame: float) -> None:
     k = sim.state.iteration
     if clock["done"]:
         return

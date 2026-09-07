@@ -4,11 +4,16 @@
 
 import numpy  # noqa: F401
 from kalast.routines.setup import Body
+from kalast.app.config import Config
 from kalast.app.frame import Eye
 from kalast.app.config import Hud
 from kalast.mesh import Mesh
 
 class Simulation:
+    config: Config
+    """Every setting: shading, shadows, axes, colour bar, export, window.
+    See `CONFIG.md`.
+    """
     state: State
     """Iteration counter and pause state."""
     bodies: list[Body]

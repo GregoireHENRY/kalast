@@ -83,7 +83,7 @@ pub struct App {
     /// rules for what a kalast script may assume -- that `App()` hands back
     /// the app already on screen, that `start()` does not open a second
     /// window -- are Python's business, so they live there.
-    pub script_runner: Option<Py<PyAny>>,
+    pub script_runner: Option<ScriptRunner>,
     /// Script buffer set before the window exists, handed to the editor when
     /// it is built. `python -m kalast some.py` fills this.
     pending_script: Option<(String, String)>,
@@ -579,13 +579,20 @@ impl App {
                 return;
             }
             let result = Python::attach(|py| {
-                let runner = self.script_runner.as_ref().unwrap().clone_ref(py);
+                let runner = self.script_runner.as_ref().unwrap();
                 runner
-                    .call1(py, (source, path.clone()))
+                    .callback
+                    .call1(py, (runner.app.clone(), source, path.clone()))
                     .map_err(|e| e.to_string())
             });
             match result {
-                Ok(_) => self.log(&format!("ran {path}")),
+                Ok(_) => {
+                    self.log(&format!("ran {path}"));
+                    // Run builds the scene *and* starts it. Leaving it paused
+                    // meant two buttons that both look like "go", and having
+                    // to find the second one after pressing the first.
+                    self.simulation.borrow_mut().state.is_paused = false;
+                }
                 Err(e) => {
                     for line in e.lines() {
                         self.log(line);
@@ -646,9 +653,12 @@ impl App {
             Some(Tick::Rust(f)) => {
                 f(&mut sim.borrow_mut(), dt);
             }
-            Some(Tick::Python { callback, app }) => {
+            Some(Tick::Python {
+                callback,
+                simulation,
+            }) => {
                 Python::attach(|py: Python<'_>| {
-                    callback.call1(py, (app.clone(), dt)).unwrap();
+                    callback.call1(py, (simulation.clone(), dt)).unwrap();
                 });
             }
             None => {}
@@ -1117,14 +1127,24 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
     }
 }
 
+/// What the editor's `Run` button calls.
+pub struct ScriptRunner {
+    pub callback: Py<PyAny>,
+    /// A handle of its own on the same app, exactly as `Tick::Python` carries
+    /// one. Handing the script the object it was installed from would work
+    /// only until that object's own method is on the stack -- which, during
+    /// `start_editor`, it always is.
+    pub app: crate::py::app::App,
+}
+
 pub enum Tick {
     Rust(Box<dyn for<'a> Fn(&'a mut simulation::Simulation, Float)>),
     Python {
         callback: Py<PyAny>,
-        /// The whole app, not just the scene: `config` and `simulation` are
-        /// siblings, and a callback needs both -- one to place bodies, the
-        /// other to change a setting for the coming frame.
-        app: crate::py::app::App,
+        /// The simulation, which carries its own config. A handle of its own,
+        /// not one reached through the app: the pyclass whose `start()` is on
+        /// the stack is borrowed for the whole run loop.
+        simulation: crate::py::app::simulation::Simulation,
     },
 }
 

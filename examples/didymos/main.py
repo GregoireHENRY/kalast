@@ -4,13 +4,12 @@ import numpy
 import spiceypy as spice
 
 import kalast
-from kalast.app import App
+from kalast.app import Simulation
 
 from kalast.util import AU_KM
 
 
-def before_render(app: App, dt: float) -> None:
-    sim = app.simulation
+def before_render(sim: Simulation, dt: float) -> None:
     if sim.state.is_paused:
         return
 
@@ -35,12 +34,12 @@ def before_render(app: App, dt: float) -> None:
 
 app = kalast.app.App()
 
-app.config.color_mode = 0
-# app.config.debug_light_cube_show = True
+app.simulation.config.color_mode = 0
+# app.simulation.config.debug_light_cube_show = True
 
-app.config.shadow_normal_offset_scale = 2e-4
-app.config.shadow_bias_scale = 1e-3
-app.config.shadow_bias_minimum = 5e-4
+app.simulation.config.shadow_normal_offset_scale = 2e-4
+app.simulation.config.shadow_bias_scale = 1e-3
+app.simulation.config.shadow_bias_minimum = 5e-4
 
 app.simulation.sun.pos = [0.0, 50.0, 0.0]
 app.simulation.sun.look_anchor()

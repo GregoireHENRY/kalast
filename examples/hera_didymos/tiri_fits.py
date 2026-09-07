@@ -61,7 +61,7 @@ import spiceypy as spice
 from astropy.io import fits
 
 import kalast
-from kalast.app import App
+from kalast.app import Simulation
 import kalast.tpm.radiance as radiance
 from kalast.util import AU
 
@@ -116,11 +116,11 @@ for b in BODIES:
 
 # -------------------------------------------------------------- rendering
 app = kalast.app.App()
-app.config.width = NPX
-app.config.height = NPY
-app.config.vsync = False
+app.simulation.config.width = NPX
+app.simulation.config.height = NPY
+app.simulation.config.vsync = False
 # The ID pass reads geometry, not the shadow map, so nothing here needs it.
-app.config.access_shadow_map = False
+app.simulation.config.access_shadow_map = False
 
 app.simulation.camera.projection.fovy = numpy.radians(tiri.fovy)
 
@@ -138,8 +138,7 @@ for b, n in zip(BODIES, n_facets):
 done = {"v": False}
 
 
-def before_render(app: App, dt_frame: float) -> None:
-    sim = app.simulation
+def before_render(sim: Simulation, dt_frame: float) -> None:
     if done["v"]:
         return
 
@@ -169,8 +168,7 @@ def before_render(app: App, dt_frame: float) -> None:
     sim.request_facet_id()
 
 
-def after_render(app: App, dt_frame: float) -> None:
-    sim = app.simulation
+def after_render(sim: Simulation, dt_frame: float) -> None:
     if done["v"]:
         return
     result = sim.facet_id_map()

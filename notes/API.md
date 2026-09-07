@@ -1,6 +1,6 @@
 # Python API reference
 
-Everything a script touches outside `app.config`, which has its own reference
+Everything a script touches outside `app.simulation.config`, which has its own reference
 in `CONFIG.md`. Undated in the filename because it is a living document — add
 to it whenever something is exposed to Python.
 
@@ -18,8 +18,8 @@ offers nothing, no matter how complete the stubs are:
 ```python
 from kalast.app import App
 
-def before_render(app: App, dt: float) -> None:
-    app.config.        # completes only because of the `: App`
+def before_render(sim: Simulation, dt: float) -> None:
+    app.simulation.config.        # completes only because of the `: App`
 ```
 
 All the examples are written this way.
@@ -30,7 +30,7 @@ Defined in `src/py/app/`. Rust types map to Python as `bool` → `bool`,
 
 ```python
 app = kalast.app.App()
-app.config...                 # see CONFIG.md
+app.simulation.config...                 # see CONFIG.md
 app.simulation.load_mesh(...)
 app.before_render = before_render
 app.start()                   # blocks until the window closes
@@ -40,7 +40,7 @@ app.start()                   # blocks until the window closes
 
 | | |
 |---|---|
-| `app.config` | the config object — `CONFIG.md` |
+| `app.simulation.config` | the config object — `CONFIG.md` |
 | `app.simulation` | the scene: bodies, camera, sun, state, HUDs |
 | `app.before_render` | callback run before the frame is drawn |
 | `app.after_render` | callback run after it is drawn |
@@ -61,14 +61,21 @@ ties the answer to the frame rate. Step the physics on `sim.state.iteration`
 instead.
 
 ```python
-def before_render(app: App, dt: float) -> None:
+def before_render(sim: Simulation, dt: float) -> None:
     sim = app.simulation          # the scene
-    app.config.colorbar = True    # settings, changeable per frame
+    app.simulation.config.colorbar = True    # settings, changeable per frame
 ```
 
-They receive the app rather than the simulation because `config` and
-`simulation` are siblings: placing a body and changing a setting are both
-things a frame wants to do, and neither is reachable from the other.
+They receive the **simulation**, which carries its own config, so a frame can
+place a body and change a setting through one handle.
+
+This is the second answer to that question, and the first was not wrong at the
+time. While `App` meant "the renderer and the scene", `config` and
+`simulation` really were siblings and a callback needed both, so it got the
+app. `App` now means the *application* — the window, the editor, the loop, the
+script runner — and settings belong to the thing they configure, not to the
+shell around it. Hence `app.simulation.config`, and a callback that takes the
+simulation alone.
 
 **`start()` blocks until the window closes**, so everything else is set before
 it, and everything per-frame happens inside the callbacks.
@@ -92,7 +99,7 @@ one frame.
 its own — it simply is not called. Heavy CPU work in either blocks the render
 loop.
 
-`app.config` works inside a callback: it is a handle held beside the app, not
+`app.simulation.config` works inside a callback: it is a handle held beside the app, not
 fetched through it, so it does not hit the borrow `start()` holds for the
 whole run loop. Nearly every option is live now, including the ones baked into
 GPU resources — each frame diffs the config against what the window was built
@@ -253,13 +260,13 @@ thing that tells the engine how long a run is meant to be.
 
 ## `sim.huds`
 
-The live HUD list — **the same objects as `app.config.huds`**, not copies.
+The live HUD list — **the same objects as `app.simulation.config.huds`**, not copies.
 Declare them once at setup, edit them per frame:
 
 ```python
-app.config.huds = [kalast.app.Hud("{it}/{nit}"), kalast.app.Hud("")]
+app.simulation.config.huds = [kalast.app.Hud("{it}/{nit}"), kalast.app.Hud("")]
 
-def before_render(app: App, dt: float) -> None:
+def before_render(sim: Simulation, dt: float) -> None:
     app.simulation.huds[1].text = f"epoch {utc}"
 ```
 
@@ -350,9 +357,9 @@ One float per facet, in `Mesh.facets` order:
 
 ```python
 sim.bodies[0].mesh.values = temperatures      # numpy array, one per facet
-app.config.color_mode = 1                     # unlit: this *is* the data map
-app.config.colormap = "inferno"
-app.config.value_min, app.config.value_max = 90.0, 290.0
+app.simulation.config.color_mode = 1                     # unlit: this *is* the data map
+app.simulation.config.colormap = "inferno"
+app.simulation.config.value_min, app.simulation.config.value_max = 90.0, 290.0
 ```
 
 Assigning marks the mesh dirty, so the change reaches the GPU on the next

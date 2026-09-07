@@ -33,7 +33,7 @@ from pathlib import Path
 import numpy
 
 import kalast
-from kalast.app import App
+from kalast.app import Simulation
 from kalast.tpm import heating
 from kalast.util import STEFAN_BOLTZMANN
 
@@ -83,9 +83,9 @@ print(f"closed box: {nv} vertices, {nf} facets, inward-facing, "
       f"hemicube {RES} px")
 
 app = kalast.app.App()
-app.config.width = 256
-app.config.height = 256
-app.config.vsync = False
+app.simulation.config.width = 256
+app.simulation.config.height = 256
+app.simulation.config.vsync = False
 app.simulation.load_mesh(path=str(BOX), mat=numpy.eye(4), flatten=True)
 
 mesh = app.simulation.bodies[0].mesh
@@ -97,16 +97,14 @@ builder = heating.ViewFactorBuilder(
 )
 
 
-def before_render(app: App, _dt: float) -> None:
-    sim = app.simulation
+def before_render(sim: Simulation, _dt: float) -> None:
     sim.camera.pos = numpy.array([5.0, 0.0, 0.0])
     sim.camera.dir = numpy.array([-1.0, 0.0, 0.0])
     if sim.state.iteration >= 2:
         builder.request(sim)
 
 
-def after_render(app: App, _dt: float) -> None:
-    sim = app.simulation
+def after_render(sim: Simulation, _dt: float) -> None:
     if sim.state.iteration < 2 or builder.done:
         return
     if not builder.collect(sim, [nface]):

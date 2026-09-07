@@ -29,7 +29,7 @@ import pandas
 import spiceypy as spice
 
 import kalast
-from kalast.app import App
+from kalast.app import Simulation
 from kalast.tpm import heating, properties, routine
 from kalast.util import AU, SOLAR_CONSTANT, STEFAN_BOLTZMANN
 
@@ -68,9 +68,9 @@ for name in BODIES:
     state[name] = {"prop": prop, "T": t[:, 0], "n": t.shape[0]}
 
 app = kalast.app.App()
-app.config.width = 256
-app.config.height = 256
-app.config.vsync = False
+app.simulation.config.width = 256
+app.simulation.config.height = 256
+app.simulation.config.vsync = False
 for i, name in enumerate(BODIES):
     app.simulation.load_mesh(path=MESH[name], mat=numpy.eye(4), flatten=True)
     mesh = app.simulation.bodies[i].mesh
@@ -117,8 +117,7 @@ def incident(name):
     return SOLAR_CONSTANT * cosi / (d / AU) ** 2
 
 
-def before_render(app: App, _dt: float) -> None:
-    sim = app.simulation
+def before_render(sim: Simulation, _dt: float) -> None:
     place(sim)
     if sim.state.iteration < 2:
         return
@@ -186,8 +185,7 @@ def report():
           "measured about 2x. A term called negligible here really is.")
 
 
-def after_render(app: App, _dt: float) -> None:
-    sim = app.simulation
+def after_render(sim: Simulation, _dt: float) -> None:
     if current[0] is None:
         return
     name, builder = current[0]

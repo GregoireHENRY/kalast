@@ -1,17 +1,17 @@
-# `app.config` reference
+# `app.simulation.config` reference
 
 Every option on the app config, what it accepts, what it does, and where in
 the code it takes effect.
 
 Defined in `src/app/config.rs` (`Config` struct + its `Default` impl).
 Exposed to Python in `src/py/app/config.rs` -- every field has a getter and a
-setter, so all of them are readable and writable as `app.config.<name>`.
+setter, so all of them are readable and writable as `app.simulation.config.<name>`.
 
 ```python
 app = kalast.app.App()
-app.config.width = 1020
-app.config.vsync = False
-print(app.config)          # __repr__ dumps the whole struct
+app.simulation.config.width = 1020
+app.simulation.config.vsync = False
+print(app.simulation.config)   # __repr__ dumps the whole struct
 ```
 
 **Timing matters -- most options are read once.** The config is consumed when
@@ -26,8 +26,8 @@ the window is created, inside `app.start()`. Set everything before calling it.
   **Change them per frame from a callback**, which receives the app:
 
   ```python
-  def before_render(app: App, dt: float) -> None:
-      app.config.colorbar = app.simulation.state.iteration > 100
+  def before_render(sim: Simulation, dt: float) -> None:
+      sim.config.colorbar = sim.state.iteration > 100
   ```
 
   This works because `py::App` holds the config beside the app rather than
@@ -349,21 +349,21 @@ On-screen overlay text, drawn over the swapchain after the blit — so by
 default it stays out of exported frames (`export_hud` adds it to those too).
 Empty draws nothing.
 
-`app.config.huds` and `app.simulation.huds` are **the same list**, not two.
+`app.simulation.config.huds` and `app.simulation.huds` are **the same list**, not two.
 Declare the HUDs once at setup and edit them per frame in `before_render`;
 the objects handed back are the live ones, so setting `.text` takes effect
 without reassigning anything.
 
 ```python
-app.config.huds = [
+app.simulation.config.huds = [
     kalast.app.Hud("{it}/{nit} ({its} it/s)"),                 # top-left
     kalast.app.Hud("{fps} fps  {ms} ms", anchor="bottom-right"),
     kalast.app.Hud("", x=200, y=120, size=24.0),               # filled in below
 ]
-app.config.hud_font = "Arial"                 # or a path; built-in otherwise
+app.simulation.config.hud_font = "Arial"                 # or a path; built-in otherwise
 
 
-def before_render(app: App, dt: float) -> None:
+def before_render(sim: Simulation, dt: float) -> None:
     app.simulation.huds[2].text = f"epoch {spice.et2utc(et, 'C', 0)}"
 ```
 
@@ -449,9 +449,9 @@ position to `top-left` and was removed as a second name for the default.
 HUD; empty uses the built-in DejaVu Sans:
 
 ```python
-app.config.hud_font = "Arial"                      # name
-app.config.hud_font = "Times New Roman"            # spaces and case ignored
-app.config.hud_font = "/Library/Fonts/Arial.ttf"   # path
+app.simulation.config.hud_font = "Arial"                      # name
+app.simulation.config.hud_font = "Times New Roman"            # spaces and case ignored
+app.simulation.config.hud_font = "/Library/Fonts/Arial.ttf"   # path
 ```
 
 Anything that exists on disk is treated as a path; anything else is looked up
@@ -922,9 +922,9 @@ The colour table. Accepts a built-in name, any N×3 or N×4 array (alpha
 ignored) in float32 or float64, or a sequence of `[r, g, b]` triples:
 
 ```python
-app.config.colormap = "inferno"
-app.config.colormap = matplotlib.colormaps["magma"](numpy.linspace(0, 1, 256))[:, :3]
-app.config.colormap = kalast.app.colormap("inferno")[::-1]      # reversed
+app.simulation.config.colormap = "inferno"
+app.simulation.config.colormap = matplotlib.colormaps["magma"](numpy.linspace(0, 1, 256))[:, :3]
+app.simulation.config.colormap = kalast.app.colormap("inferno")[::-1]      # reversed
 ```
 
 Any length works — it is resampled to 256 entries on upload, interpolated

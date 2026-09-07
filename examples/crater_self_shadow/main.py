@@ -2,26 +2,26 @@
 
 import numpy
 
-from kalast.app import App, Hud
+from kalast.app import App, Hud, Simulation
 
 
-def before_render(app: App, dt: float) -> None:
+def before_render(sim: Simulation, dt: float) -> None:
     pass
 
 
-def after_render(app: App, dt: float) -> None:
+def after_render(sim: Simulation, dt: float) -> None:
     pass
 
 
 app = App()
-app.config.vsync = False
-app.config.debug_light_cube_show = True
-app.config.render_back_face = True
-app.config.wireframe_mode = 2
-app.config.wireframe_color = [0.05, 0.05, 0.05, 1.0]
-app.config.shadow_pcf = 8
-# app.config.axes = "blender"
-# app.config.colorbar = True
+app.simulation.config.vsync = False
+app.simulation.config.debug_light_cube_show = True
+app.simulation.config.render_back_face = True
+app.simulation.config.wireframe_mode = 2
+app.simulation.config.wireframe_color = [0.05, 0.05, 0.05, 1.0]
+app.simulation.config.shadow_pcf = 8
+# app.simulation.config.axes = "blender"
+# app.simulation.config.colorbar = True
 app.simulation.huds = [
     Hud("it={it}/{nit} fps={fps} {paused}", size=14),
 ]
@@ -36,8 +36,7 @@ app.simulation.load_mesh(
 )
 
 # See step.py for a different way of starting kalast.
-# app.start() blocks, and is 5-30% faster than app.step() depending on load
-# -- see "What it costs" in notes/API.md.
+# app.start() blocks, and is up to 30% faster than app.step() depending on load
 app.before_render = before_render
 app.after_render = after_render
 app.start()

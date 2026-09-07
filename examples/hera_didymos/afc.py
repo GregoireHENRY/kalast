@@ -5,13 +5,12 @@ import pandas  # noqa
 import spiceypy as spice
 
 import kalast
-from kalast.app import App
+from kalast.app import Simulation
 from kalast.util import AU, AU_KM, RPD, DPR, PI  # noqa
 from kalast.entity import MARS, DIDYMOS, DIMORPHOS  # noqa
 
 
-def before_render(app: App, dt: float) -> None:
-    sim = app.simulation
+def before_render(sim: Simulation, dt: float) -> None:
     global et
 
     if sim.state.is_paused:
@@ -52,13 +51,13 @@ def before_render(app: App, dt: float) -> None:
 
 
 app = kalast.app.App()
-app.config.width = 1020
-app.config.height = 1020
-app.config.color_mode = 0
+app.simulation.config.width = 1020
+app.simulation.config.height = 1020
+app.simulation.config.color_mode = 0
 
-app.config.shadow_normal_offset_scale = 2e-4
-app.config.shadow_bias_scale = 1e-3
-app.config.shadow_bias_minimum = 5e-4
+app.simulation.config.shadow_normal_offset_scale = 2e-4
+app.simulation.config.shadow_bias_scale = 1e-3
+app.simulation.config.shadow_bias_minimum = 5e-4
 
 spice.kclear()
 spice.furnsh("/Users/gregoireh/data/spice/hera/kernels/mk/hera_plan_local.tm")

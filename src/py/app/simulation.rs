@@ -9,10 +9,26 @@ use crate::Float;
 #[derive(Clone)]
 pub struct Simulation {
     pub inner: Rc<RefCell<crate::app::simulation::Simulation>>,
+    /// Held beside the scene, not reached through the app.
+    ///
+    /// Settings are part of the simulation -- how it is shaded, how its
+    /// shadows are sampled, what its render measures -- so they live here.
+    /// `App` is the application around it: the window, the editor, the loop.
+    pub config: Rc<RefCell<crate::app::config::Config>>,
 }
 
 #[pymethods]
 impl Simulation {
+    #[getter]
+    /// Every setting: shading, shadows, axes, colour bar, export, window.
+    /// See `CONFIG.md`.
+    fn config(&self) -> super::config::Config {
+        super::config::Config {
+            config: self.config.clone(),
+            simulation: self.inner.clone(),
+        }
+    }
+
     #[getter]
     /// Iteration counter and pause state.
     fn state(&self) -> State {

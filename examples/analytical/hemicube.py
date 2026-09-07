@@ -43,7 +43,7 @@ from pathlib import Path
 import numpy
 
 import kalast
-from kalast.app import App
+from kalast.app import Simulation
 
 RES = 128          # hemicube face resolution
 SUBDIV = 3         # subdivision level of the emitting square, for area-averaging
@@ -138,10 +138,10 @@ print(f"emitter sampled at {len(samples)} points, total area {total_area:.4f}")
 
 # --- render ---------------------------------------------------------------
 app = kalast.app.App()
-app.config.width = RES
-app.config.height = RES
-app.config.vsync = False
-app.config.access_shadow_map = False
+app.simulation.config.width = RES
+app.simulation.config.height = RES
+app.simulation.config.vsync = False
+app.simulation.config.access_shadow_map = False
 app.simulation.camera.projection.fovy = numpy.pi / 2.0     # 90 deg: one cube face
 app.simulation.load_mesh(path=str(obj), mat=numpy.eye(4), flatten=True)
 n_facets = len(app.simulation.bodies[0].mesh.facets)
@@ -174,8 +174,7 @@ def faces(centre, normal, tangent):
     ]
 
 
-def before_render(app: App, dt: float) -> None:
-    sim = app.simulation
+def before_render(sim: Simulation, dt: float) -> None:
     k = state["i"]
     if k >= len(samples) * 5:
         return
@@ -189,8 +188,7 @@ def before_render(app: App, dt: float) -> None:
     sim.request_facet_id()
 
 
-def after_render(app: App, dt: float) -> None:
-    sim = app.simulation
+def after_render(sim: Simulation, dt: float) -> None:
     k = state["i"]
     if state["t0"] is None:
         state["t0"] = time.perf_counter()

@@ -4,13 +4,12 @@ import numpy
 import spiceypy as spice
 
 import kalast
-from kalast.app import App
+from kalast.app import Simulation
 
 from kalast.util import AU_KM, RPD
 
 
-def before_render(app: App, dt: float) -> None:
-    sim = app.simulation
+def before_render(sim: Simulation, dt: float) -> None:
     if sim.state.is_paused:
         return
 
@@ -39,9 +38,7 @@ def before_render(app: App, dt: float) -> None:
     sim.camera.up = m_afc_ej2k @ numpy.array([1.0, 0.0, 0.0])
 
 
-
-def after_render(app: App, dt: float) -> None:
-    sim = app.simulation
+def after_render(sim: Simulation, dt: float) -> None:
     et = et0 + sim.state.iteration * simu_dt
     if et > etf:
         return
@@ -61,10 +58,10 @@ def after_render(app: App, dt: float) -> None:
 
 
 app = kalast.app.App()
-app.config.width = 1020
-app.config.height = 1020
-app.config.color_mode = 0
-app.config.access_shadow_map = True
+app.simulation.config.width = 1020
+app.simulation.config.height = 1020
+app.simulation.config.color_mode = 0
+app.simulation.config.access_shadow_map = True
 app.simulation.camera.projection.fovy = 5.5 * RPD
 
 spice.kclear()

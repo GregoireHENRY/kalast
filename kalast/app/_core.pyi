@@ -4,14 +4,11 @@
 
 import numpy  # noqa: F401
 from typing import Callable
-from kalast.app.config import Config
 from kalast.app.simulation import Simulation
 
 class App:
     def __init__(self) -> None:
         ...
-    config: Config
-    """Renderer and window settings. See `CONFIG.md`."""
     simulation: Simulation
     """The scene: bodies, camera, Sun, iteration state and HUDs."""
     def start(self) -> None:
@@ -46,9 +43,13 @@ class App:
     script_runner: Callable[[str, str], None]
     """Install what the editor's `Run` button calls.
 
-    A callable taking `(source, path)`. `kalast.editor.make_runner(app)`
-    builds the standard one, which executes a script against *this* app
-    rather than letting it construct a second.
+    A callable taking `(app, source, path)`. `kalast.editor.make_runner()`
+    builds the standard one, which executes a script against the app it is
+    handed rather than letting it construct a second.
+
+    The app arrives as an argument rather than being captured when the
+    runner is installed: a script must reach the app through a handle of
+    its own, not through the object whose `start_editor` is running.
     """
     def set_script(self, path: str, source: str) -> None:
         """Put a script in the editor's buffer, and name the file it came from.

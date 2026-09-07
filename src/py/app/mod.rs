@@ -37,19 +37,11 @@ impl App {
     }
 
     #[getter]
-    /// Renderer and window settings. See `CONFIG.md`.
-    fn config(&self) -> config::Config {
-        config::Config {
-            config: self.config.clone(),
-            simulation: self.simulation.clone(),
-        }
-    }
-
-    #[getter]
     /// The scene: bodies, camera, Sun, iteration state and HUDs.
     fn get_simulation(&self) -> simulation::Simulation {
         simulation::Simulation {
             inner: self.simulation.clone(),
+            config: self.config.clone(),
         }
     }
 
@@ -59,7 +51,7 @@ impl App {
     /// and do per-frame work in `before_render`/`after_render`.
     ///
     /// Use `step()` instead to keep the loop in your own script.
-    fn start(&mut self) {
+    fn start(&self) {
         self.inner.borrow_mut().start();
     }
 
@@ -80,32 +72,38 @@ impl App {
     /// ```
     ///
     /// `python -m kalast` opens it on an empty scene.
-    fn start_editor(&mut self) {
+    fn start_editor(&self) {
         self.inner.borrow_mut().start_editor();
     }
 
     /// Install what the editor's `Run` button calls.
     ///
-    /// A callable taking `(source, path)`. `kalast.editor.make_runner(app)`
-    /// builds the standard one, which executes a script against *this* app
-    /// rather than letting it construct a second.
+    /// A callable taking `(app, source, path)`. `kalast.editor.make_runner()`
+    /// builds the standard one, which executes a script against the app it is
+    /// handed rather than letting it construct a second.
+    ///
+    /// The app arrives as an argument rather than being captured when the
+    /// runner is installed: a script must reach the app through a handle of
+    /// its own, not through the object whose `start_editor` is running.
     #[setter]
     /// :pytype: Callable[[str, str], None]
-    fn set_script_runner(&mut self, callback: Py<PyAny>) {
-        self.inner.borrow_mut().script_runner = Some(callback);
+    fn set_script_runner(&self, callback: Py<PyAny>) {
+        let app = self.clone();
+        self.inner.borrow_mut().script_runner =
+            Some(crate::app::ScriptRunner { callback, app });
     }
 
     /// Put a script in the editor's buffer, and name the file it came from.
     ///
     /// Settable before `start_editor()`, which is when a launcher does it.
-    fn set_script(&mut self, path: &str, source: &str) {
+    fn set_script(&self, path: &str, source: &str) {
         self.inner
             .borrow_mut()
             .set_script(path.to_string(), source.to_string());
     }
 
     /// Append a line to the editor's log panel, or to stdout without one.
-    fn log(&mut self, line: &str) {
+    fn log(&self, line: &str) {
         self.inner.borrow_mut().log(line);
     }
 
@@ -157,7 +155,7 @@ impl App {
     ///
     /// Not usable after `start()`: a platform event loop cannot be created
     /// twice in one process, and `start()` consumes it. Pick one.
-    fn step(&mut self) -> bool {
+    fn step(&self) -> bool {
         self.inner.borrow_mut().step()
     }
 
@@ -166,7 +164,7 @@ impl App {
     /// Takes effect on the next `step()`, not immediately: closing runs the
     /// same shutdown the window button does, which includes flushing every
     /// queued frame export to disk.
-    fn close(&mut self) {
+    fn close(&self) {
         self.inner.borrow_mut().close();
     }
 
@@ -196,9 +194,10 @@ impl App {
     ///
     /// :pytype: Callable[[App, float], None]
     #[setter]
-    fn set_before_render(&mut self, callback: Py<PyAny>) {
-        let app = self.clone();
-        self.inner.borrow_mut().before_render = Some(crate::app::Tick::Python { callback, app });
+    fn set_before_render(&self, callback: Py<PyAny>) {
+        let simulation = self.get_simulation();
+        self.inner.borrow_mut().before_render =
+            Some(crate::app::Tick::Python { callback, simulation });
     }
 
     /// Alias for `before_render`, kept because it is what every example and
@@ -206,7 +205,7 @@ impl App {
     ///
     /// :pytype: Callable[[App, float], None]
     #[setter]
-    fn set_tick(&mut self, callback: Py<PyAny>) {
+    fn set_tick(&self, callback: Py<PyAny>) {
         self.set_before_render(callback);
     }
 
@@ -223,8 +222,9 @@ impl App {
     ///
     /// :pytype: Callable[[App, float], None]
     #[setter]
-    fn set_after_render(&mut self, callback: Py<PyAny>) {
-        let app = self.clone();
-        self.inner.borrow_mut().after_render = Some(crate::app::Tick::Python { callback, app });
+    fn set_after_render(&self, callback: Py<PyAny>) {
+        let simulation = self.get_simulation();
+        self.inner.borrow_mut().after_render =
+            Some(crate::app::Tick::Python { callback, simulation });
     }
 }

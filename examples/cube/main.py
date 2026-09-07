@@ -3,20 +3,20 @@
 import numpy
 
 import kalast
-from kalast.app import App
+from kalast.app import Simulation
 
 
-def before_render(app: App, dt: float) -> None:
+def before_render(sim: Simulation, dt: float) -> None:
     pass
 
 
 app = kalast.app.App()
-app.config.debug_app = True
-app.config.debug_window = True
-app.config.width = 1024
-app.config.height = 768
-app.config.color_mode = 1
-app.config.wireframe_mode = 2
+app.simulation.config.debug_app = True
+app.simulation.config.debug_window = True
+app.simulation.config.width = 1024
+app.simulation.config.height = 768
+app.simulation.config.color_mode = 1
+app.simulation.config.wireframe_mode = 2
 app.simulation.camera.pos = [10.0, 0.0, 0.0]
 app.simulation.camera.dir = [-1.0, 0.0, 0.0]
 

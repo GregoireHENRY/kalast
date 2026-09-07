@@ -175,7 +175,10 @@ impl Editor {
             egui::Panel::top("toolbar").show(ui_root, |ui| {
                 ui.horizontal(|ui| {
                     let label = if state.is_paused { "\u{25b6} Play" } else { "\u{23f8} Pause" };
-                    if ui.button(label).clicked() {
+                    if ui.button(label)
+                        .on_hover_text("Advance the simulation, or hold it")
+                        .clicked()
+                    {
                         state.is_paused = !state.is_paused;
                     }
                     // One frame while paused: the same thing the render loop
@@ -186,7 +189,9 @@ impl Editor {
                     }
                     ui.separator();
                     ui.label(format!("iteration {}", state.iteration));
-                    ui.label(format!("{iteration_rate:.0} it/s"));
+                    let its = if state.is_paused { 0.0 } else { iteration_rate };
+                    ui.label(format!("{its:.0} it/s"));
+                    ui.weak(format!("{iteration_rate:.0} fps"));
                 });
             });
 
@@ -223,7 +228,9 @@ impl Editor {
                         if ui.add_enabled(script_dirty, egui::Button::new("save").small()).clicked() {
                             save_request = true;
                         }
-                        if ui.button("\u{25b6} Run").clicked() {
+                        if ui.button("Run").on_hover_text(
+                            "Execute this script against the live scene, and start playing",
+                        ).clicked() {
                             run_request = true;
                         }
                     });

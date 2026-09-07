@@ -22,15 +22,15 @@ def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
 
     app = App()
-    app.config.title = "kalast"
+    app.simulation.config.title = "kalast"
     # Physical pixels, so this is 1280x800 points on a 2x display. The editor
     # needs the room: three panels plus a viewport at 800 points wide leaves
     # the viewport a sliver.
-    app.config.width = 2560
-    app.config.height = 1600
+    app.simulation.config.width = 2560
+    app.simulation.config.height = 1600
 
     editor.capture_output(app)
-    app.script_runner = editor.make_runner(app)
+    app.script_runner = editor.make_runner()
 
     for arg in argv:
         path = Path(arg)

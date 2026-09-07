@@ -38,7 +38,7 @@ import pandas
 import spiceypy as spice
 
 import kalast
-from kalast.app import App
+from kalast.app import Simulation
 import kalast.tiri_timing as tiri_timing
 import kalast.tpm.nonuniform as nonuniform
 import kalast.tpm.properties as properties
@@ -93,11 +93,11 @@ ET0 = spice.str2et("2025-03-12 12:00:00 UTC")     # the restart's own epoch
 OUT.mkdir(parents=True, exist_ok=True)
 
 app = kalast.app.App()
-app.config.width = 512
-app.config.height = 512
-app.config.vsync = False
-app.config.access_shadow_map = True
-app.config.huds = [kalast.app.Hud("")]   # filled in before_render
+app.simulation.config.width = 512
+app.simulation.config.height = 512
+app.simulation.config.vsync = False
+app.simulation.config.access_shadow_map = True
+app.simulation.config.huds = [kalast.app.Hud("")]   # filled in before_render
 app.simulation.load_mesh(path=MESH, mat=numpy.eye(4), flatten=True)
 nface = len(app.simulation.bodies[0].mesh.facets)
 pos = numpy.array([app.simulation.bodies[0].mesh.facets[k].pos
@@ -187,8 +187,7 @@ def sweep():
     print(f"\nwrote {OUT}/roughness_sweep.csv")
 
 
-def before_render(app: App, _dt: float) -> None:
-    sim = app.simulation
+def before_render(sim: Simulation, _dt: float) -> None:
     i = st["i"]
     if i > n_pre:
         return
@@ -203,8 +202,7 @@ def before_render(app: App, _dt: float) -> None:
     sim.huds[0].text = f"preroll {i}/{n_pre}"
 
 
-def after_render(app: App, _dt: float) -> None:
-    sim = app.simulation
+def after_render(sim: Simulation, _dt: float) -> None:
     i = st["i"]
     if i > n_pre:
         return

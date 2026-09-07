@@ -5,11 +5,11 @@ import numpy
 from kalast.app import App, Hud
 
 app = App()
-app.config.vsync = False
-app.config.render_back_face = True
-app.config.access_shadow_map = True
-app.config.wireframe_mode = 2
-app.config.wireframe_color = [0.05, 0.05, 0.05, 1.0]
+app.simulation.config.vsync = False
+app.simulation.config.render_back_face = True
+app.simulation.config.access_shadow_map = True
+app.simulation.config.wireframe_mode = 2
+app.simulation.config.wireframe_color = [0.05, 0.05, 0.05, 1.0]
 app.simulation.huds = [Hud("", size=16)]
 app.simulation.sun.pos = [0.0, 20.0, 5.0]
 app.simulation.camera.pos = [1.5778934, 1.9384689, 1.5082116]
@@ -29,7 +29,7 @@ while app.running:
 
     # Everything before app.step() is app.before_render()
     # Everything after is app.after_render()
-    if not app.step():
+    app.step()
 
     shadow = sim.facet_shadow(0)
     lit = float((shadow < 0.5).mean()) if len(shadow) else 0.0

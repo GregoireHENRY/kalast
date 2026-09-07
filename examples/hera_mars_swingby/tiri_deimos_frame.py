@@ -25,7 +25,7 @@ import spiceypy as spice
 from astropy.io import fits
 
 import kalast
-from kalast.app import App
+from kalast.app import Simulation
 import kalast.tiri_alignment as tiri_align
 import kalast.tpm.nonuniform as nonuniform
 import kalast.tpm.properties as properties
@@ -81,11 +81,11 @@ print(f"TIRI FOV from the IK: {numpy.degrees(HX):.4f} x {numpy.degrees(HY):.4f} 
       f"half-angles, {NPX}x{NPY}")
 
 app = kalast.app.App()
-app.config.width = NPX
-app.config.height = NPY
-app.config.vsync = False
-app.config.access_shadow_map = True
-app.config.huds = [kalast.app.Hud("")]   # filled in before_render
+app.simulation.config.width = NPX
+app.simulation.config.height = NPY
+app.simulation.config.vsync = False
+app.simulation.config.access_shadow_map = True
+app.simulation.config.huds = [kalast.app.Hud("")]   # filled in before_render
 app.simulation.camera.projection.fovy = 2.0 * HY
 app.simulation.load_mesh(path=MESH, mat=numpy.eye(4), flatten=True)
 app.simulation.load_mesh(path=SPHERE, mat=numpy.eye(4), flatten=True)
@@ -142,8 +142,7 @@ def place(sim, et, phase):
     sim.camera.up = [0.0, 1.0, 0.0]
 
 
-def before_render(app: App, _dt: float) -> None:
-    sim = app.simulation
+def before_render(sim: Simulation, _dt: float) -> None:
     i = st["i"]
     if i > n_pre:
         return
@@ -154,8 +153,7 @@ def before_render(app: App, _dt: float) -> None:
     sim.huds[0].text = f"{i}/{n_pre}"
 
 
-def after_render(app: App, _dt: float) -> None:
-    sim = app.simulation
+def after_render(sim: Simulation, _dt: float) -> None:
     i = st["i"]
     if i > n_pre:
         return

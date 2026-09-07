@@ -96,12 +96,13 @@ def test_stubs_match_the_built_module():
     """
     app = kalast.app.App()
     cases = [
-        # App first: `app.config.<tab>` is the whole point, and it was the one
-        # class this test did not cover when the stubs first shipped -- so a
-        # `get_simulation` that pyo3 exposes as `simulation`, and three
-        # setter-only attributes that were missing outright, both slipped past.
+        # App first: `app.simulation.config.<tab>` is the whole point, and it
+        # was the one class this test did not cover when the stubs first
+        # shipped -- so a `get_simulation` that pyo3 exposes as `simulation`,
+        # and three setter-only attributes that were missing outright, both
+        # slipped past.
         ("kalast/app/_core.pyi", "App", app),
-        ("kalast/app/config.pyi", "Config", app.config),
+        ("kalast/app/config.pyi", "Config", app.simulation.config),
         ("kalast/app/config.pyi", "Hud", kalast.app.Hud("x")),
         ("kalast/app/simulation.pyi", "Simulation", app.simulation),
         ("kalast/app/simulation.pyi", "State", app.simulation.state),

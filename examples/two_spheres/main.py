@@ -3,11 +3,10 @@
 import numpy
 
 import kalast
-from kalast.app import App
+from kalast.app import Simulation
 
 
-def before_render(app: App, dt: float) -> None:
-    sim = app.simulation
+def before_render(sim: Simulation, dt: float) -> None:
     if sim.state.is_paused:
         return
 
@@ -17,9 +16,9 @@ def before_render(app: App, dt: float) -> None:
 
 
 app = kalast.app.App()
-app.config.color_mode = 0
-app.config.debug_light_cube_show = True
-app.config.wireframe_mode = 2
+app.simulation.config.color_mode = 0
+app.simulation.config.debug_light_cube_show = True
+app.simulation.config.wireframe_mode = 2
 app.simulation.sun.pos = [0.0, 20.0, 0.0]
 app.simulation.sun.look_anchor()
 app.simulation.camera.pos = [-0.9687278, 13.656183, 7.445293]

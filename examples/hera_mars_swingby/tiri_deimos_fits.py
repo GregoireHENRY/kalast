@@ -54,7 +54,7 @@ import spiceypy as spice
 from astropy.io import fits
 
 import kalast
-from kalast.app import App
+from kalast.app import Simulation
 import kalast.tiri_alignment as tiri_align  # 0.60 deg alignment the FK lacks
 import kalast.tiri_timing as tiri_timing    # empirical -24.89 s, see the module
 
@@ -134,11 +134,11 @@ print(f"  detector {NPX}x{NPY}, fovy {tiri.fovy:.1f} deg")
 
 # -------------------------------------------------------------- rendering
 app = kalast.app.App()
-app.config.width = NPX
-app.config.height = NPY
-app.config.vsync = False
-app.config.access_shadow_map = True
-app.config.huds = [kalast.app.Hud("")]   # filled in before_render
+app.simulation.config.width = NPX
+app.simulation.config.height = NPY
+app.simulation.config.vsync = False
+app.simulation.config.access_shadow_map = True
+app.simulation.config.huds = [kalast.app.Hud("")]   # filled in before_render
 app.simulation.camera.projection.fovy = numpy.radians(tiri.fovy)
 
 app.simulation.load_mesh(path=MESH, mat=numpy.eye(4), flatten=True)
@@ -205,8 +205,7 @@ def epoch_of(i):
     return float(fine_epochs[min(i - n_coarse, n_fine - 1)])
 
 
-def before_render(app: App, _dt: float) -> None:
-    sim = app.simulation
+def before_render(sim: Simulation, _dt: float) -> None:
     i = state["i"]
     if i > n_coarse + n_fine:
         return
@@ -369,8 +368,7 @@ def write_image(row, et, ids, offsets):
     return name, d, gsd, filled.sum(), tmap[filled] if filled.any() else numpy.array([0.0])
 
 
-def after_render(app: App, _dt: float) -> None:
-    sim = app.simulation
+def after_render(sim: Simulation, _dt: float) -> None:
     i = state["i"]
     if i > n_coarse + n_fine:
         return

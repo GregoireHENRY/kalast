@@ -42,7 +42,7 @@ import pandas
 import spiceypy as spice
 
 import kalast
-from kalast.app import App
+from kalast.app import Simulation
 import kalast.tiri_alignment as tiri_align  # 0.60 deg alignment the FK lacks
 import kalast.tpm.nonuniform as nonuniform
 import kalast.tpm.properties as properties
@@ -88,11 +88,11 @@ print(f"  {UTC0} -> {UTC1}, {N_FRAMES} frames at {NPX}x{NPY}")
 OUT.mkdir(parents=True, exist_ok=True)
 
 app = kalast.app.App()
-app.config.width = NPX
-app.config.height = NPY
-app.config.vsync = False
-app.config.access_shadow_map = True
-app.config.huds = [kalast.app.Hud("")]   # filled in before_render
+app.simulation.config.width = NPX
+app.simulation.config.height = NPY
+app.simulation.config.vsync = False
+app.simulation.config.access_shadow_map = True
+app.simulation.config.huds = [kalast.app.Hud("")]   # filled in before_render
 app.simulation.camera.projection.fovy = numpy.radians(tiri.fovy)
 
 # Two bodies loaded, but only one is ever *placed in front of the camera* at a
@@ -112,8 +112,7 @@ state = {"i": 0, "phase": 0, "deimos": None, "written": 0}
 t0 = time.perf_counter()
 
 
-def before_render(app: App, _dt: float) -> None:
-    sim = app.simulation
+def before_render(sim: Simulation, _dt: float) -> None:
     i = state["i"]
     if i >= N_FRAMES:
         return
@@ -170,8 +169,7 @@ def mars_mask(ids, offsets):
     return (ids > lo) & (ids <= lo + n_mars)
 
 
-def after_render(app: App, _dt: float) -> None:
-    sim = app.simulation
+def after_render(sim: Simulation, _dt: float) -> None:
     i = state["i"]
     if i >= N_FRAMES:
         return

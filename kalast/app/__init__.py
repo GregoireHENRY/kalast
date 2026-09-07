@@ -11,6 +11,10 @@ from kalast.app._core import (  # noqa
     App,
 )
 
+from kalast.app.simulation import (  # noqa
+    Simulation,
+)
+
 from kalast.app.config import (  # noqa
     Hud,
     colormap,
@@ -25,6 +29,7 @@ del _core
 __all__ = [
     "App",
     "Hud",
+    "Simulation",
     "body",
     "colormap",
     "colormap_names",

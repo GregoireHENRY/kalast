@@ -57,7 +57,7 @@ import pandas
 import spiceypy as spice
 
 import kalast
-from kalast.app import App
+from kalast.app import Simulation
 import kalast.tpm.heating as heating
 import kalast.tpm.nonuniform as nonuniform
 import kalast.tpm.properties as properties
@@ -348,12 +348,12 @@ for n in ACTIVE:
 
 # -------------------------------------------------------------- rendering
 app = kalast.app.App()
-app.config.width = 512
-app.config.height = 512
-app.config.vsync = False
-app.config.export_dir = f"{OUT}/frames"
-app.config.access_shadow_map = SHADOWING
-app.config.huds = [kalast.app.Hud("")]   # filled in before_render
+app.simulation.config.width = 512
+app.simulation.config.height = 512
+app.simulation.config.vsync = False
+app.simulation.config.export_dir = f"{OUT}/frames"
+app.simulation.config.access_shadow_map = SHADOWING
+app.simulation.config.huds = [kalast.app.Hud("")]   # filled in before_render
 app.simulation.camera.projection.fovy = 20.0 * RPD
 
 # In "self" mode each body must be alone in the scene, or the other would
@@ -514,7 +514,6 @@ snap_n = {"i": 0}
 # mutual is self plus an extra occluder.
 REF = ACTIVE[0] if SHADOW_MODE == "self" else "DIDYMOS"
 REF_FRAME = getattr(kalast.entity, REF).frame
-
 
 
 # --------------------------------------------------- view-factor driver
@@ -682,8 +681,7 @@ def _checkpoint(it, et):
     tmp.replace(ptr)
 
 
-def before_render(app: App, dt_frame: float) -> None:
-    sim = app.simulation
+def before_render(sim: Simulation, dt_frame: float) -> None:
     """Place the scene for this step, and keep the view-factor build fed."""
     if step["n"] > n_steps:
         # Past the last step there is no scene to place, but an in-flight
@@ -829,8 +827,7 @@ def coupling(ins, et_now):
     return out
 
 
-def after_render(app: App, dt_frame: float) -> None:
-    sim = app.simulation
+def after_render(sim: Simulation, dt_frame: float) -> None:
     if clock["done"]:
         return
     if clock["t0"] is None:

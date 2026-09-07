@@ -94,14 +94,20 @@ def capture_output(app: Any) -> None:
         sys.stderr = _Tee(app, sys.stderr)
 
 
-def make_runner(app: Any) -> Callable[[str, str], None]:
-    """Build the callable for `app.script_runner`."""
-    proxy = _EditorApp(app)
+def make_runner() -> Callable[[Any, str, str], None]:
+    """Build the callable for `app.script_runner`.
 
-    def _live_app(*_args: Any, **_kwargs: Any) -> _EditorApp:
-        return proxy
+    The app arrives per call rather than being captured here: it has to be a
+    handle of the script's own, not the object whose `start_editor()` is
+    still on the stack.
+    """
 
-    def run(source: str, path: str) -> None:
+    def run(app: Any, source: str, path: str) -> None:
+        proxy = _EditorApp(app)
+
+        def _live_app(*_args: Any, **_kwargs: Any) -> _EditorApp:
+            return proxy
+
         # Its own module, so the script gets a clean namespace that does not
         # leak into the next run, and `__name__ == "__main__"` holds -- which
         # is what an example guards on, and unmodified examples are the point.
