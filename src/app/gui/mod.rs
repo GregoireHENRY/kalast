@@ -262,6 +262,10 @@ impl Editor {
         let [show_top, show_bottom, show_left, show_right] =
             reveal_panels(immersive, pointer, screen, &self.panels);
         let mut rects = [egui::Rect::NOTHING; 4];
+        // Read before the panel closures are built: the toolbar needs to know
+        // whether there is a script, the script panel needs the buffer, and
+        // one cannot borrow it while the other holds it.
+        let has_script = !self.script.trim().is_empty();
         shared.panels_shown = [show_top, show_bottom, show_left, show_right];
         shared.pointer = pointer.map(|p| (p.x, p.y));
         shared.ui_size = (screen.width(), screen.height());
@@ -304,36 +308,9 @@ impl Editor {
                 }
             };
 
-            // Added before the panels, not after. Both this and the
-            // panels live in egui's background layer, and layers of the
-            // same order are painted in the order they were added -- so
-            // creating it last drew the scene *over* the panels and they
-            // never appeared.
-            if immersive {
-                // Behind everything, at the full window size, so the panels
-                // float *over* the scene instead of taking space from it.
-                //
-                // A side panel shrinks the central area, which would resize
-                // the render target every time one appeared -- reallocating
-                // its colour, MSAA and depth textures, and shifting the image
-                // under the pointer. In focus mode the scene keeps the whole
-                // window and the panels are laid on top.
-                vp_rect = screen;
-                wanted = (
-                    ((screen.width() * ppp).round() as u32).max(1),
-                    ((screen.height() * ppp).round() as u32).max(1),
-                );
-                egui::Area::new("viewport".into())
-                    .order(egui::Order::Background)
-                    .fixed_pos(screen.min)
-                    .show(ui_root.ctx(), |ui| {
-                        ui.set_min_size(screen.size());
-                        scene_ui(ui, screen);
-                    });
-            }
-
-            if show_top {
-            rects[0] = egui::Panel::top("toolbar").show(ui_root, |ui| {
+            // Each panel's contents, named once so the same code can go in a
+            // side panel or a floating one.
+            let toolbar_ui = |ui: &mut egui::Ui| {
                 ui.horizontal(|ui| {
                     // Play is the only way to start. A separate Run was the
                     // same button twice: both meant "go", and you had to press
@@ -345,7 +322,7 @@ impl Editor {
                     // script not yet run -- or edited since it last ran -- it
                     // runs it, which starts the simulation as a side effect.
                     // After that it is transport.
-                    let have_script = !script.trim().is_empty();
+                    let have_script = has_script;
                     let (label, hover): (&str, &str) = if !have_script {
                         ("\u{25b6} Play", "Open or write a script first")
                     } else if !script_ran {
@@ -399,15 +376,8 @@ impl Editor {
                     ui.label(format!("{its:.0} it/s"));
                     ui.weak(format!("{iteration_rate:.0} fps"));
                 });
-            }).response.rect;
-            }
-
-            if show_bottom {
-            rects[1] = egui::Panel::bottom("log")
-                .resizable(true)
-                .default_size(160.0)
-                .min_size(120.0)
-                .show(ui_root, |ui| {
+            };
+            let log_ui = |ui: &mut egui::Ui| {
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new("Log").strong());
                         if ui.small_button("clear").clicked() {
@@ -421,15 +391,8 @@ impl Editor {
                                 ui.label(egui::RichText::new(line).monospace());
                             }
                         });
-                }).response.rect;
-            }
-
-            if show_left {
-            rects[2] = egui::Panel::left("script")
-                .resizable(true)
-                .default_size(300.0)
-                .min_size(180.0)
-                .show(ui_root, |ui| {
+                };
+            let script_ui = |ui: &mut egui::Ui| {
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new("Script").strong());
                         if ui.small_button("open").clicked() {
@@ -481,15 +444,8 @@ impl Editor {
                             *ran = false;
                         }
                     });
-                }).response.rect;
-            }
-
-            if show_right {
-            rects[3] = egui::Panel::right("config")
-                .resizable(true)
-                .default_size(240.0)
-                .min_size(180.0)
-                .show(ui_root, |ui| {
+                };
+            let config_ui = |ui: &mut egui::Ui| {
                     ui.label(egui::RichText::new("Config").strong());
                     ui.separator();
                     egui::ScrollArea::vertical().show(ui, |ui| {
@@ -498,24 +454,112 @@ impl Editor {
                         // remembering to add one here.
                         config_panel::config_panel(ui, config, app_config);
                     });
-                }).response.rect;
-            }
+                };
 
+            // Floating panels get their own layers, which egui paints *above*
+            // the root -- where side panels and the central panel live.
+            //
+            // That ordering is why the scene cannot just go in a background
+            // `Area` instead: the root layer is painted first whatever order
+            // an `Area` asks for, so the scene covered the panels and nothing
+            // appeared at any edge, however early the `Area` was created.
+            //
+            // So the scene stays in the central panel and the panels float
+            // over it. In focus mode no side panel takes anything, so the
+            // central panel is the whole window and revealing one does not
+            // resize the render target.
+            let float = |ctx: &egui::Context,
+                         id: &'static str,
+                         rect: egui::Rect,
+                         add: &mut dyn FnMut(&mut egui::Ui)| -> egui::Rect {
+                egui::Area::new(id.into())
+                    .order(egui::Order::Foreground)
+                    .fixed_pos(rect.min)
+                    .show(ctx, |ui| {
+                        ui.set_max_size(rect.size());
+                        egui::Frame::popup(ui.style()).show(ui, |ui| {
+                            ui.set_min_size(rect.size());
+                            add(ui);
+                        });
+                    })
+                    .response
+                    .rect
+            };
 
-            if !immersive {
+            // Sizes for the floating panels, mirroring the docked ones.
+            let (top_h, bottom_h, left_w, right_w) = (30.0, 160.0, 300.0, 240.0);
+
+            let scene_panel = |ui_root: &mut egui::Ui,
+                               vp_rect: &mut egui::Rect,
+                               wanted: &mut (u32, u32)| {
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
                     .show(ui_root, |ui| {
-                        let avail = ui.available_size();
-                        vp_rect = ui.available_rect_before_wrap();
-                        // What the *next* scene render should be, in physical
-                        // pixels: egui works in points.
-                        wanted = (
-                            ((avail.x * ppp).round() as u32).max(1),
-                            ((avail.y * ppp).round() as u32).max(1),
+                        *vp_rect = ui.available_rect_before_wrap();
+                        *wanted = (
+                            ((vp_rect.width() * ppp).round() as u32).max(1),
+                            ((vp_rect.height() * ppp).round() as u32).max(1),
                         );
-                        scene_ui(ui, vp_rect);
+                        scene_ui(ui, *vp_rect);
                     });
+            };
+
+            if immersive {
+                scene_panel(ui_root, &mut vp_rect, &mut wanted);
+
+                let ctx = ui_root.ctx().clone();
+                let mut toolbar_ui = toolbar_ui;
+                let mut log_ui = log_ui;
+                let mut script_ui = script_ui;
+                let mut config_ui = config_ui;
+                if show_top {
+                    let r =
+                        egui::Rect::from_min_size(screen.min, egui::vec2(screen.width(), top_h));
+                    rects[0] = float(&ctx, "toolbar", r, &mut toolbar_ui);
+                }
+                if show_bottom {
+                    let r = egui::Rect::from_min_size(
+                        egui::pos2(screen.left(), screen.bottom() - bottom_h),
+                        egui::vec2(screen.width(), bottom_h),
+                    );
+                    rects[1] = float(&ctx, "log", r, &mut log_ui);
+                }
+                if show_left {
+                    let r =
+                        egui::Rect::from_min_size(screen.min, egui::vec2(left_w, screen.height()));
+                    rects[2] = float(&ctx, "script", r, &mut script_ui);
+                }
+                if show_right {
+                    let r = egui::Rect::from_min_size(
+                        egui::pos2(screen.right() - right_w, screen.top()),
+                        egui::vec2(right_w, screen.height()),
+                    );
+                    rects[3] = float(&ctx, "config", r, &mut config_ui);
+                }
+            } else {
+                rects[0] = egui::Panel::top("toolbar").show(ui_root, toolbar_ui).response.rect;
+                rects[1] = egui::Panel::bottom("log")
+                    .resizable(true)
+                    .default_size(bottom_h)
+                    .min_size(120.0)
+                    .show(ui_root, log_ui)
+                    .response
+                    .rect;
+                rects[2] = egui::Panel::left("script")
+                    .resizable(true)
+                    .default_size(left_w)
+                    .min_size(180.0)
+                    .show(ui_root, script_ui)
+                    .response
+                    .rect;
+                rects[3] = egui::Panel::right("config")
+                    .resizable(true)
+                    .default_size(right_w)
+                    .min_size(180.0)
+                    .show(ui_root, config_ui)
+                    .response
+                    .rect;
+                scene_panel(ui_root, &mut vp_rect, &mut wanted);
             }
         });
 
