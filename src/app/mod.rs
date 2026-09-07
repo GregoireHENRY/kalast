@@ -52,6 +52,13 @@ pub struct Shared {
     /// Script buffer set before the window exists, handed to the editor when
     /// it is built. `python -m kalast some.py` fills this.
     pub pending_script: Option<(String, String)>,
+    /// The iteration the frame on screen was drawn for.
+    ///
+    /// Not `state.iteration`, which counts iterations *completed*: it is
+    /// incremented at the end of a frame, so once the frame for iteration 0
+    /// has been drawn it already reads 1. The toolbar wants the number you
+    /// are looking at, which is the value the frame was drawn with.
+    pub drawn_iteration: usize,
     /// Lines for the editor's log panel. Here rather than on the editor so
     /// `app.log()` works before the window exists as well as during the run.
     pub log: crate::app::gui::Log,
@@ -89,6 +96,7 @@ impl Shared {
             running: true,
             exit_requested: false,
             pending_script: None,
+            drawn_iteration: 0,
             log: crate::app::gui::Log::new(2000),
             run_requested: false,
             restart_requested: false,
@@ -996,13 +1004,38 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
         if let (Some(editor), Some(win)) = (self.editor.as_mut(), self.window.as_ref()) {
             let window = win.window.clone();
             let consumed = editor.on_window_event(&window, &event);
+
+            // Pointer events belong to whatever the pointer is over, and
+            // `consumed` alone does not decide it in either direction.
+            //
             // egui claims every pointer event over one of its widgets, and
-            // the viewport *is* one -- an `Image`. Without this the camera
-            // never saw a drag on the scene: orbit, pan and zoom all went to
-            // egui and were dropped.
-            let scene = editor.pointer_on_scene();
-            if consumed
-                && !scene
+            // the viewport *is* one -- an `Image` -- so the camera saw no
+            // drag on the scene at all. But egui does *not* claim a scroll
+            // over a panel's background, so that fell through to the camera
+            // and scrolling the script panel zoomed the render.
+            //
+            // So: the scene gets pointer events only while the pointer is on
+            // it, and the UI gets them the rest of the time.
+            let pointer = matches!(
+                event,
+                winit::event::WindowEvent::MouseInput { .. }
+                    | winit::event::WindowEvent::MouseWheel { .. }
+                    | winit::event::WindowEvent::CursorMoved { .. }
+                    | winit::event::WindowEvent::CursorLeft { .. }
+            );
+            if pointer {
+                // A drag that began on the scene keeps it, even once the
+                // pointer wanders over a panel -- releasing the button
+                // outside the viewport must still end the drag, or the camera
+                // would be left spinning.
+                // Any button held, not `is_dragging()`, which only knows
+                // about the middle button and its alt-left stand-in: a plain
+                // left drag has to survive straying over a panel too.
+                let held = self.controller.left_pressed || self.controller.middle_pressed;
+                if !editor.pointer_on_scene() && !held {
+                    return;
+                }
+            } else if consumed
                 && !matches!(event, winit::event::WindowEvent::RedrawRequested)
             {
                 return;
@@ -1212,6 +1245,19 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 }
 
                 self.serve_editor_requests();
+
+                // What the frame just drawn was drawn for, before the
+                // counter moves past it.
+                //
+                // Only when the frame advanced. A paused frame redraws the
+                // same scene, and by then `state.iteration` has already moved
+                // one past what is on screen -- taking it there would report
+                // the number the pause stopped *at* rather than the one being
+                // shown, which is exactly the off-by-one this is here to fix.
+                if !paused {
+                    self.shared.borrow_mut().drawn_iteration =
+                        self.simulation.borrow().state.iteration;
+                }
 
                 // Advance only now that both callbacks have run, so they
                 // agree on which frame they are in -- a loop deriving an

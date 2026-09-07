@@ -55,13 +55,14 @@ PROBE = textwrap.dedent("""
             editor.run_toplevel(app, source, path)
         if frames == 120:
             st = app.simulation.state
-            print("PROBE %d %s %d" % (st.iteration, st.is_paused,
-                                      len(app.simulation.bodies)), flush=True)
+            print("PROBE %d %s %d %d" % (st.iteration, st.is_paused,
+                                         len(app.simulation.bodies),
+                                         app.drawn_iteration), flush=True)
             break
 """)
 
 
-def probe(script: str | None) -> tuple[int, bool, int]:
+def probe(script: str | None) -> tuple[int, bool, int, int]:
     path = ROOT / "tests" / "_editor_probe.py"
     path.write_text(PROBE)
     try:
@@ -71,23 +72,26 @@ def probe(script: str | None) -> tuple[int, bool, int]:
         path.unlink(missing_ok=True)
     for line in r.stdout.splitlines():
         if line.startswith("PROBE"):
-            _, it, paused, bodies = line.split()
-            return int(it), paused == "True", int(bodies)
+            _, it, paused, bodies, drawn = line.split()
+            return int(it), paused == "True", int(bodies), int(drawn)
     raise AssertionError("probe produced nothing:\n" + r.stdout + r.stderr)
 
 
 def test_no_script_does_not_advance() -> None:
-    it, paused, bodies = probe(None)
+    it, paused, bodies, drawn = probe(None)
     assert bodies == 0, "nothing should be loaded"
     assert it == 0, f"the counter must hold at 0 over an empty scene, got {it}"
     assert paused
 
 
 def test_a_script_is_built_and_held_at_iteration_zero() -> None:
-    it, paused, bodies = probe("examples/crater_self_shadow/main.py")
+    it, paused, bodies, drawn = probe("examples/crater_self_shadow/main.py")
     assert bodies == 1, "the script's mesh should be loaded"
     assert it == 1, f"exactly one iteration should have run, got {it}"
     assert paused, "and then it should hold"
+    # `state.iteration` counts iterations finished; the toolbar shows the one
+    # on screen, and the screen is showing iteration 0.
+    assert drawn == 0, f"the frame shown is iteration 0, got {drawn}"
 
 
 def main() -> int:

@@ -188,6 +188,7 @@ impl Editor {
         let script_path = &mut self.script_path;
         let script_dirty = self.script_dirty;
         let script_ran = shared.script_ran;
+        let drawn = shared.drawn_iteration;
         let log = &mut shared.log;
         let dirty = &mut self.script_dirty;
         let ran = &mut shared.script_ran;
@@ -253,7 +254,12 @@ impl Editor {
                         state.pause_at = Some(state.iteration + 1);
                     }
                     ui.separator();
-                    ui.label(format!("iteration {}", state.iteration));
+                    // What is on screen, not how many have finished. After
+                    // the frame for iteration 0 is drawn `state.iteration` is
+                    // already 1, and reading "iteration 1" under a picture of
+                    // iteration 0 is a lie of exactly one frame.
+                    ui.label(format!("iteration {drawn}"))
+                        .on_hover_text("The iteration the frame you are looking at was drawn for");
                     let its = if state.is_paused { 0.0 } else { iteration_rate };
                     ui.label(format!("{its:.0} it/s"));
                     ui.weak(format!("{iteration_rate:.0} fps"));

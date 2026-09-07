@@ -181,6 +181,17 @@ impl App {
         self.shared.borrow_mut().script_pending.take()
     }
 
+    /// The iteration the frame on screen was drawn for.
+    ///
+    /// Not `simulation.state.iteration`, which counts iterations *finished*:
+    /// it moves at the end of a frame, so once iteration 0 has been drawn it
+    /// already reads 1. This is the number the editor's toolbar shows, being
+    /// the one you are actually looking at.
+    #[getter]
+    fn drawn_iteration(&self) -> usize {
+        self.shared.borrow().drawn_iteration
+    }
+
     /// Whether a run has been asked for and not yet taken.
     ///
     /// A peek, unlike `take_script_request`, so a script that is driving its
