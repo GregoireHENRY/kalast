@@ -46,9 +46,19 @@ def main(argv: list[str] | None = None) -> int:
         else:
             app.simulation.load_mesh(path=str(path), mat=numpy.eye(4), flatten=True)
 
+    # Held, always. Nothing here owns a simulation worth advancing until a
+    # script has built one, and an editor whose counter climbs over an empty
+    # scene gives you nothing to press and no way back to the start.
+    #
+    # This was here, went out with the auto-run below, and had to come back:
+    # the auto-run covers the case where a script *was* named, and says
+    # nothing about the case where none was.
+    app.simulation.state.is_paused = True
+
     # A script named on the command line is *shown*: built and rendered at
-    # iteration 0, then held. Loading one and getting a black viewport until
-    # you find Play is no way to open a file.
+    # iteration 0, then held. Opening one and getting a black viewport until
+    # you find Play is no way to open a file. The run below clears the pause
+    # for exactly one iteration and `pause_at` puts it back.
     if any(not a.startswith("-") and a.endswith(".py") for a in argv):
         app.restart_script()
 
