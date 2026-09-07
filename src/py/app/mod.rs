@@ -17,13 +17,15 @@ pub struct App {
     /// Held beside `inner`, never through it: `start()` borrows `inner` for
     /// the whole run, so a setter reaching through it would panic.
     pub shared: Rc<RefCell<crate::app::Shared>>,
-    /// The application's own settings, beside the simulation's.
-    pub app_config: Rc<RefCell<crate::app::config::AppConfig>>,
+    /// The application's own settings. `App` owns this one.
+    pub config: Rc<RefCell<crate::app::config::AppConfig>>,
+    /// The simulation's settings. `Simulation` owns it; this is a handle.
+    ///
     /// Held alongside `inner`, not fetched through it. `start()` borrows the
     /// app mutably for the whole run loop, so a getter that went through
     /// `inner` would panic from inside a callback -- which is exactly where
     /// changing a setting is wanted.
-    pub config: Rc<RefCell<crate::app::config::Config>>,
+    pub sim_config: Rc<RefCell<crate::app::config::Config>>,
     pub simulation: Rc<RefCell<crate::app::simulation::Simulation>>,
 }
 
@@ -32,20 +34,20 @@ impl App {
     #[new]
     fn new() -> Self {
         let inner = Rc::new(RefCell::new(crate::app::App::new()));
-        let (config, simulation, shared) = {
+        let (config, simulation, shared, sim_config) = {
             let app = inner.borrow();
             (
                 app.config.clone(),
                 app.simulation.clone(),
                 app.shared.clone(),
+                app.simulation.borrow().config.clone(),
             )
         };
-        let app_config = inner.borrow().app_config.clone();
         Self {
             inner,
             shared,
-            app_config,
             config,
+            sim_config,
             simulation,
         }
     }
@@ -58,7 +60,7 @@ impl App {
     /// where shading, shadows, axes, the colour bar and export live.
     fn config(&self) -> config::AppConfig {
         config::AppConfig {
-            config: self.app_config.clone(),
+            config: self.config.clone(),
         }
     }
 
@@ -67,7 +69,7 @@ impl App {
     fn get_simulation(&self) -> simulation::Simulation {
         simulation::Simulation {
             inner: self.simulation.clone(),
-            config: self.config.clone(),
+            config: self.sim_config.clone(),
         }
     }
 

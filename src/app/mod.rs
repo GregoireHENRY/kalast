@@ -81,11 +81,13 @@ pub struct App {
     /// stays reachable while the app itself is mutably borrowed for the whole
     /// run loop. Without this, touching any option from `before_render`
     /// panicked with `Already mutably borrowed`.
-    pub config: Rc<RefCell<crate::app::config::Config>>,
-    /// The application's own settings: window size now, panel layout and
-    /// colours as the editor grows. Held as its own handle for the same
-    /// reason everything else is -- the loop borrows `App` for its duration.
-    pub app_config: Rc<RefCell<crate::app::config::AppConfig>>,
+    /// The **application's** settings: window size now, panel layout and
+    /// colours as the editor grows.
+    ///
+    /// Not the simulation's -- that lives on `Simulation`, which is the thing
+    /// it describes. Held as its own handle for the same reason everything
+    /// else is: the loop borrows `App` for its whole duration.
+    pub config: Rc<RefCell<crate::app::config::AppConfig>>,
     pub window: Option<crate::app::window::Window>,
 
     pub now: std::time::Instant,
@@ -313,9 +315,9 @@ impl App {
     }
 
     pub fn new_with_config(config: crate::app::config::Config) -> Self {
-        let config_rc = Rc::new(RefCell::new(config));
-        let app_config = Rc::new(RefCell::new(crate::app::config::AppConfig::default()));
         let simulation = Rc::new(RefCell::new(crate::app::simulation::Simulation::new()));
+        let config_rc = simulation.borrow().config.clone();
+        *config_rc.borrow_mut() = config;
         let controller = {
             let c = config_rc.borrow();
             frame::Controller::new(
@@ -327,8 +329,7 @@ impl App {
         };
 
         Self {
-            config: config_rc.clone(),
-            app_config,
+            config: Rc::new(RefCell::new(crate::app::config::AppConfig::default())),
             window: None,
 
             now: std::time::Instant::now(),
@@ -492,7 +493,8 @@ impl App {
         // Cheap enough to copy unconditionally -- plain scalars into a struct
         // this owns, no GPU resource behind them.
         {
-            let c = self.config.borrow();
+            let c = self.sim_config();
+            let c = c.borrow();
             self.controller.sensitivity_move = c.sensitivity_move;
             self.controller.sensitivity_look = c.sensitivity_look;
             self.controller.sensitivity_rotate = c.sensitivity_rotate;
@@ -502,9 +504,9 @@ impl App {
 
         // Cloned so the config is not borrowed while `self.window` is held
         // mutably -- both are fields of `self`.
-        let config = self.config.clone();
+        let config = self.sim_config();
         let c = config.borrow();
-        let app_config = self.app_config.clone();
+        let app_config = self.config.clone();
         let a = app_config.borrow();
 
         // The early out for the common case, before anything is cloned.
@@ -709,11 +711,21 @@ impl App {
         self.shared.borrow().running
     }
 
+    /// The simulation's config, as a handle.
+    ///
+    /// Cloned out under a short borrow, so the caller can hold it across a
+    /// `borrow_mut` of the simulation itself -- they are different cells.
+    /// Must not be called while the simulation is already mutably borrowed.
+    pub fn sim_config(&self) -> Rc<RefCell<crate::app::config::Config>> {
+        self.simulation.borrow().config.clone()
+    }
+
     /// Kept for callers that set up a controller before any frame runs.
     /// `apply_live_config` does the same copy at the top of every frame, so
     /// these no longer need to be set before `start()`.
     pub fn apply_config_at_start(&mut self) {
-        let c = self.config.borrow();
+        let c = self.sim_config();
+        let c = c.borrow();
         self.controller.sensitivity_move = c.sensitivity_move;
         self.controller.sensitivity_look = c.sensitivity_look;
         self.controller.sensitivity_rotate = c.sensitivity_rotate;
@@ -825,14 +837,14 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
         ev.set_control_flow(winit::event_loop::ControlFlow::Poll);
 
         let size = winit::dpi::PhysicalSize::new(
-            self.app_config.borrow().width,
-            self.app_config.borrow().height,
+            self.config.borrow().width,
+            self.config.borrow().height,
         );
         let mut attrs = winit::window::Window::default_attributes()
             .with_inner_size(size)
-            .with_title(&self.config.borrow().title);
+            .with_title(&self.sim_config().borrow().title);
 
-        if self.config.borrow().fullscreen {
+        if self.sim_config().borrow().fullscreen {
             // Borderless on the current monitor: `None` means "wherever the
             // window lands", which is what a user pressing the green button
             // would get.
@@ -841,10 +853,11 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
 
         let win = Arc::new(ev.create_window(attrs).unwrap());
 
+        let sim_cfg = self.sim_config();
         self.window = Some(pollster::block_on(crate::app::window::Window::new(
             ev.owned_display_handle(),
             win.clone(),
-            &self.config.borrow(),
+            &sim_cfg.borrow(),
             &self.simulation.borrow(),
         )));
 
@@ -893,6 +906,11 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
         _id: winit::window::WindowId,
         event: winit::event::WindowEvent,
     ) {
+        // Cloned once, up front: the simulation's config is a different cell
+        // from the simulation, so this can be held across a `borrow_mut` of
+        // the scene -- but obtaining it cannot, since it reads the field.
+        let sim_cfg = self.sim_config();
+
         // The UI gets first refusal. Without this a drag on a slider would
         // also orbit the camera behind the panel.
         if let (Some(editor), Some(win)) = (self.editor.as_mut(), self.window.as_ref()) {
@@ -907,7 +925,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
             winit::event::WindowEvent::CloseRequested => self.exit(ev),
             winit::event::WindowEvent::Resized(size) => {
                 let win = self.window.as_mut().unwrap();
-                win.resize(size.width, size.height, &self.config.borrow());
+                win.resize(size.width, size.height, &sim_cfg.borrow());
             }
             winit::event::WindowEvent::RedrawRequested => {
                 {
@@ -915,7 +933,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     win.window.request_redraw();
 
                     if !win.is_surface_configured {
-                        if self.config.borrow().debug_window {
+                        if self.sim_config().borrow().debug_window {
                             println!("[WINDOW] surface is not configured yet")
                         }
                         return;
@@ -965,7 +983,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     sim.camera
                         .update_with_controller(&mut self.controller, self.dt);
 
-                    win.update(&mut sim, &self.config.borrow());
+                    win.update(&mut sim, &sim_cfg.borrow());
 
                     // The HUDs are shared handles, so this reads whatever
                     // `before_render` just wrote into them. Only the text is
@@ -1000,29 +1018,29 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     // frame on that basis halted the simulation outright
                     // rather than just not drawing it. The frame runs either
                     // way; only the present is skipped.
-                    let surface_texture = win.get_surface_texture(&self.config.borrow());
+                    let surface_texture = win.get_surface_texture(&sim_cfg.borrow());
                     if self.editor.is_some() {
                         // The scene goes offscreen and the swapchain is left
                         // to the UI. `render(None, ..)` is exactly that, and
                         // it is the same path an occluded window already
                         // takes -- a full frame minus the blit and present.
-                        win.render(None, &self.config.borrow(), &huds);
+                        win.render(None, &sim_cfg.borrow(), &huds);
                         editor_surface = surface_texture;
                     } else {
-                        win.render(surface_texture, &self.config.borrow(), &huds);
+                        win.render(surface_texture, &sim_cfg.borrow(), &huds);
                     }
 
                     // After render: the shadow map now holds this frame's
                     // geometry, so a query here answers for the scene
                     // before_render just set up.
                     let one_off = sim.facet_shadow_request.take();
-                    if self.config.borrow().access_shadow_map || one_off.is_some() {
+                    if sim_cfg.borrow().access_shadow_map || one_off.is_some() {
                         let n = sim.bodies.len();
                         sim.facet_shadow_result.resize(n, vec![]);
 
                         for body in 0..n {
                             let wanted =
-                                self.config.borrow().access_shadow_map || one_off == Some(body);
+                                sim_cfg.borrow().access_shadow_map || one_off == Some(body);
                             if wanted {
                                 sim.facet_shadow_result[body] =
                                     win.facet_shadow_fractions(body);
@@ -1090,7 +1108,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                             &view,
                             &win.passes.render.render_texture,
                             scene_size,
-                            &mut self.config.borrow_mut(),
+                            &mut sim_cfg.borrow_mut(),
                             &mut sim.state,
                             &mut self.shared.borrow_mut().log,
                             self.fps_shown as f32,
@@ -1138,7 +1156,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     }
                     (winit::keyboard::KeyCode::KeyP, true) => {
                         let pause = self.simulation.borrow_mut().state.toggle_pause();
-                        if self.config.borrow().debug_app {
+                        if self.sim_config().borrow().debug_app {
                             println!("[APP] Simulation paused={}", pause);
                         }
                     }
@@ -1147,7 +1165,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         // switch camera type
                         self.simulation.borrow_mut().camera.control.toggle();
                         let control = self.simulation.borrow().camera.control;
-                        if self.config.borrow().debug_app {
+                        if self.sim_config().borrow().debug_app {
                             println!("[APP] Camera control changed, now is {:?}", control);
                         }
                         match control {

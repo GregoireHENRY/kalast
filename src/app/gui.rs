@@ -211,6 +211,13 @@ impl Editor {
                             run_request = true;
                         }
                     }
+                    if ui
+                        .add_enabled(script_ran, egui::Button::new("\u{27f2} Restart"))
+                        .on_hover_text("Clear the scene and run the script again")
+                        .clicked()
+                    {
+                        run_request = true;
+                    }
                     // One frame while paused: the same thing the render loop
                     // does, so the button cannot drift from the key.
                     if ui

@@ -51,11 +51,21 @@ class _EditorApp:
         pass
 
     def step(self) -> bool:
-        # A driven loop cannot run here: this call happens *inside* the
-        # editor's frame, so stepping would re-enter the frame that is
-        # already running. Report the app as stopped and the script's
-        # `while app.step():` exits after one pass, having done its setup.
-        return False
+        # Returning False was worse than useless. A driven loop written
+        # `while app.running:` sees the *real* app still running, so it never
+        # breaks -- and since this all happens inside the editor's own frame,
+        # it spins forever and the window freezes on a black viewport.
+        #
+        # Raising stops the script at the first step with an explanation in
+        # the log panel, and everything above the loop -- the config, the
+        # meshes, the camera -- has already been applied, so the scene is
+        # there to look at.
+        raise RuntimeError(
+            "app.step() does not work inside the editor: the editor owns the "
+            "loop, and this call is already inside one of its frames.\n"
+            "Move the per-frame work into before_render/after_render, or run "
+            "this script from a terminal, where step() drives the loop itself."
+        )
 
 
 class _Tee(io.TextIOBase):

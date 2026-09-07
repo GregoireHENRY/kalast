@@ -3,6 +3,17 @@ use std::{cell::RefCell, rc::Rc};
 
 #[derive(Debug)]
 pub struct Simulation {
+    /// How this simulation is shaded, shadowed, labelled and exported.
+    ///
+    /// Owned here, not by `App`. Nearly every option describes the thing
+    /// being simulated or the image made of it, so this is where it belongs;
+    /// `App` has a config of its own for the application around it.
+    ///
+    /// A handle rather than a plain field because Python holds it too --
+    /// `app.simulation.config` has to stay reachable while the render loop
+    /// borrows the simulation.
+    pub config: std::rc::Rc<std::cell::RefCell<crate::app::config::Config>>,
+
     pub state: State,
 
     pub bodies: Vec<crate::app::body::Body>,
@@ -82,6 +93,10 @@ impl Simulation {
         sun.projection.mode = crate::app::frame::ProjectionMode::Orthographic;
 
         Self {
+            config: std::rc::Rc::new(std::cell::RefCell::new(
+                crate::app::config::Config::default(),
+            )),
+
             state: State::new(),
 
             bodies: vec![],
