@@ -472,6 +472,16 @@ impl App {
             shared: Rc::new(RefCell::new({
                 let mut s = Shared::new();
                 s.native = launched_by_editor;
+                // The file this was built from, put in the Script panel so
+                // the window says what it is running. Read here rather than
+                // by the example, which should not have to know it is being
+                // shown.
+                if let Some(path) = std::env::var_os("KALAST_SCRIPT") {
+                    let path = path.to_string_lossy().into_owned();
+                    if let Ok(source) = std::fs::read_to_string(&path) {
+                        s.pending_script = Some((path, source));
+                    }
+                }
                 s
             })),
 
@@ -847,7 +857,7 @@ impl App {
                                 Some(c) => (c.terminal(), c.terminal()),
                                 None => (None, None),
                             };
-                            match crate::app::cargo::launch(&name, release, out, err) {
+                            match crate::app::cargo::launch(&name, &path, release, out, err) {
                                 // Handed over: one kalast window at a time.
                                 // The example carries the editor UI, so what
                                 // opens is the same thing that closes, with

@@ -107,6 +107,7 @@ fn show(cmd: &std::process::Command) -> String {
 /// frame to get back to.
 pub fn launch(
     name: &str,
+    source: &str,
     release: bool,
     out: Option<std::process::Stdio>,
     err: Option<std::process::Stdio>,
@@ -134,6 +135,9 @@ pub fn launch(
         // example owns its own `main` and may take arguments of its own.
         // Running the same binary from a terminal is unaffected.
         .env("KALAST_EDITOR", "1")
+        // ...and which file it was built from, so its Script panel shows the
+        // source of what is running rather than an empty box.
+        .env("KALAST_SCRIPT", source)
         .spawn()
         .map(|_| ())
         .map_err(|e| format!("could not launch {}: {e}", bin.display()))

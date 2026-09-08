@@ -148,8 +148,14 @@ window to step. Once it is compiled, Play launches it.
 launched it closes, so there is one kalast window at a time: what opens is the
 same thing that closed, with a scene in it. Its toolbar controls *its*
 simulation — Play pauses and resumes, Step steps, `Restart` does not apply
-because the program is the run. To edit and recompile, run `python -m kalast
-<file>.rs` again.
+because the program is the run. Its left panel is headed **Running** and holds
+the `.rs` it was built from, so the window says what it is; the compile row is
+not there, since Play is its pause button and there is nothing left to launch.
+To edit and recompile, run `python -m kalast <file>.rs` again.
+
+The launcher passes both facts in the environment: `KALAST_EDITOR=1` for the
+UI, `KALAST_SCRIPT=<path>` for the source. Neither is set by anything else, so
+`cargo run --example ...` is untouched.
 
 It has to be a second process: an example has its own `main`, links kalast as
 a library, and creates its own window and event loop, so it cannot be hosted

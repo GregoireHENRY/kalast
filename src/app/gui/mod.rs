@@ -536,7 +536,7 @@ impl Editor {
                 };
             let script_ui = |ui: &mut egui::Ui| {
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("Script").strong());
+                        ui.label(egui::RichText::new(if native { "Running" } else { "Script" }).strong());
                         if ui.small_button("open").clicked() {
                             open_request = true;
                         }
@@ -562,7 +562,11 @@ impl Editor {
                     // launch it instead -- cargo and the example both inherit
                     // this process's redirected stdout, so their output still
                     // arrives in the Log below.
-                    if is_rust {
+                    // Not in a launched example: it is already running the
+                    // thing, and there is no Play left to launch a rebuild
+                    // with -- Play is its pause button. The source is here to
+                    // read, not to act on.
+                    if is_rust && !native {
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new("Rust").weak());
                             ui.selectable_value(rust_release, false, "debug")
