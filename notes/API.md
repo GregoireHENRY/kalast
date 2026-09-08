@@ -140,10 +140,21 @@ example is a separate program that links kalast as a library, so it is
 compiled and launched and opens a window of its own.
 
 The Script panel grows a row for one — a `debug`/`release` choice and a
-`build` button — and **Play** launches it, building it first if it has not
-been built. `Restart` does not apply: the example builds its own scene, in
-its own process. `Step` still steps *this* window's simulation, which is
-empty unless something was loaded into it.
+`compile` button. Until a binary exists for the selected profile, **Play**,
+`Restart` and `Step` are all grey: there is nothing to run and nothing in this
+window to step. Once it is compiled, Play launches it.
+
+**The launched example draws the editor around its own scene**, so Play gives
+the same window a Python script does rather than a bare renderer. It is still
+a separate process with a window of its own — that cannot be otherwise — but
+its toolbar controls *its* simulation: Play pauses and resumes, Step steps,
+and `Restart` does not apply because the program is the run.
+
+That is switched on by `KALAST_EDITOR=1`, which the launcher sets and nothing
+else does, so `cargo run --example ...` from a terminal is exactly as it was.
+It also raises the default window to 2000×1300, since four panels in an
+800×600 window leave the scene in a corner; an example that sets its own size
+still wins.
 
 cargo and the example both inherit this process's redirected stdout, so their
 output arrives in the Log beside everything else, and the command is echoed

@@ -111,6 +111,12 @@ pub struct Shared {
     /// has been drawn it already reads 1. The toolbar wants the number you
     /// are looking at, which is the value the frame was drawn with.
     pub drawn_iteration: usize,
+
+    /// This window is a compiled example the editor launched, not a script
+    /// it is hosting. There is no script to run or restart -- the program
+    /// *is* the script, and it is already running -- so the transport
+    /// controls its simulation directly.
+    pub native: bool,
     /// Lines for the editor's log panel. Here rather than on the editor so
     /// `app.log()` works before the window exists as well as during the run.
     pub log: crate::app::gui::Log,
@@ -152,6 +158,7 @@ impl Shared {
             ui_size: (0.0, 0.0),
             panels_shown: [true; 4],
             drawn_iteration: 0,
+            native: false,
             log: crate::app::gui::Log::new(2000),
             run_requested: false,
             restart_requested: false,
@@ -424,6 +431,10 @@ impl App {
     }
 
     pub fn new_with_config(config: crate::app::config::Config) -> Self {
+        // Set by the editor when it launches a compiled example: draw the
+        // editor around whatever this program builds. Nothing else sets it,
+        // so a terminal run is exactly as it was.
+        let launched_by_editor = std::env::var_os("KALAST_EDITOR").is_some();
         let simulation = Rc::new(RefCell::new(crate::app::simulation::Simulation::new()));
         let config_rc = simulation.borrow().config.clone();
         *config_rc.borrow_mut() = config;
@@ -437,15 +448,32 @@ impl App {
             )
         };
 
+        let app_config = {
+            let mut c = crate::app::config::AppConfig::default();
+            if launched_by_editor {
+                c.editor = true;
+                // Four panels in an 800x600 window leave the scene in a
+                // corner. Only the *default* is raised -- an example that
+                // sets its own size does so after this and still wins.
+                c.width = 2000;
+                c.height = 1300;
+            }
+            c
+        };
+
         Self {
-            config: Rc::new(RefCell::new(crate::app::config::AppConfig::default())),
+            config: Rc::new(RefCell::new(app_config)),
             window: None,
 
             now: std::time::Instant::now(),
             dt: 0.0,
 
             simulation,
-            shared: Rc::new(RefCell::new(Shared::new())),
+            shared: Rc::new(RefCell::new({
+                let mut s = Shared::new();
+                s.native = launched_by_editor;
+                s
+            })),
 
             controller,
             fps_shown: 0.0,
@@ -779,9 +807,22 @@ impl App {
         // never reaches the script runner.
         let mut rust_messages: Vec<String> = Vec::new();
         {
-            let busy_now = editor
-                .building
-                .load(std::sync::atomic::Ordering::SeqCst);
+            // Reading `Cargo.toml` and stat-ing a file, so not every frame:
+            // only when the path or profile changes, or a compile just
+            // finished and may have produced the binary.
+            let key = (
+                editor.script_path.trim_end().to_string(),
+                editor.rust_release,
+            );
+            let busy = editor.building.load(std::sync::atomic::Ordering::SeqCst);
+            if editor.rust_key != key || (editor.was_building && !busy) {
+                editor.rust_key = key.clone();
+                editor.rust_built = crate::app::cargo::example_for(&key.0)
+                    .is_some_and(|n| crate::app::cargo::binary(&n, key.1).is_file());
+            }
+            editor.was_building = busy;
+        }
+        {
             let (build, launch, release) = (
                 std::mem::take(&mut editor.build_request),
                 std::mem::take(&mut editor.launch_request),
@@ -797,18 +838,8 @@ impl App {
                             crate::app::cargo::build(&name, release, busy.clone());
                         }
                         if launch {
-                            match crate::app::cargo::launch(&name, release) {
-                                Ok(()) => {}
-                                // Not built yet: build it and launch when
-                                // that finishes, rather than making the
-                                // first press of Play do nothing but
-                                // complain.
-                                Err(_) if !busy_now => {
-                                    busy.store(true, std::sync::atomic::Ordering::SeqCst);
-                                    crate::app::cargo::build(&name, release, busy.clone());
-                                    editor.launch_when_built = true;
-                                }
-                                Err(e) => rust_messages.push(e),
+                            if let Err(e) = crate::app::cargo::launch(&name, release) {
+                                rust_messages.push(e);
                             }
                         }
                     }
@@ -819,17 +850,6 @@ impl App {
                         "{path} is not listed in Cargo.toml -- add an [[example]] with \
                          name and path = \"{path}\""
                     )),
-                }
-            }
-        }
-
-        if editor.launch_when_built && !editor.building.load(std::sync::atomic::Ordering::SeqCst) {
-            editor.launch_when_built = false;
-            let path = editor.script_path.trim_end().to_string();
-            let release = editor.rust_release;
-            if let Some(name) = crate::app::cargo::example_for(&path) {
-                if let Err(e) = crate::app::cargo::launch(&name, release) {
-                    rust_messages.push(e);
                 }
             }
         }

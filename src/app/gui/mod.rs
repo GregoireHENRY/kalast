@@ -188,7 +188,13 @@ pub struct Editor {
     pub launch_request: bool,
     /// Play pressed on an example that was not built: the build is running
     /// and this says to launch it when it finishes.
-    pub launch_when_built: bool,
+    /// Whether a compiled binary exists for the `.rs` in the panel, at the
+    /// selected profile. Refreshed by the app when the path, the profile or
+    /// a build changes -- not every frame, since answering it means reading
+    /// `Cargo.toml` and stat-ing a file.
+    pub rust_built: bool,
+    pub rust_key: (String, bool),
+    pub was_building: bool,
     /// Held while a `cargo build` thread is running, so the buttons can go
     /// grey rather than starting a second one on top of the first.
     pub building: std::sync::Arc<std::sync::atomic::AtomicBool>,
@@ -246,7 +252,9 @@ impl Editor {
             rust_release: true,
             build_request: false,
             launch_request: false,
-            launch_when_built: false,
+            rust_built: false,
+            rust_key: (String::new(), false),
+            was_building: false,
             building: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
@@ -356,6 +364,8 @@ impl Editor {
         // A Rust example is built and launched rather than run in this
         // process, so the transport buttons do not apply to one.
         let building = self.building.load(std::sync::atomic::Ordering::SeqCst);
+        let rust_built = self.rust_built;
+        let native = shared.native;
         let rust_release = &mut self.rust_release;
         let (mut build_request, mut launch_request) = (false, false);
         let mut restart_request = false;
@@ -406,14 +416,33 @@ impl Editor {
                     // script not yet run -- or edited since it last ran -- it
                     // runs it, which starts the simulation as a side effect.
                     // After that it is transport.
-                    let have_script = has_script;
-                    let (label, hover): (&str, &str) = if is_rust {
+                    // Native: this window *is* a compiled example, launched
+                    // by an editor. There is no script to run -- the program
+                    // is already running -- so Play is a pause toggle.
+                    let have_script = if native {
+                        true
+                    } else if is_rust {
+                        // Nothing to launch until it has been compiled.
+                        rust_built
+                    } else {
+                        has_script
+                    };
+                    let (label, hover): (&str, &str) = if native {
+                        if state.is_paused {
+                            ("\u{25b6} Play", "Resume  (P)")
+                        } else {
+                            ("\u{23f8} Pause", "Hold the simulation  (P)")
+                        }
+                    } else if is_rust {
                         // Play is Play. For a Rust example that means
-                        // launching the built binary in its own window --
+                        // launching the compiled binary in its own window --
                         // it is a separate program and cannot be hosted in
-                        // this one -- and building it first if it is not
-                        // built yet.
-                        ("\u{25b6} Play", "Launch this example, building it first if needed")
+                        // this one.
+                        if rust_built {
+                            ("\u{25b6} Play", "Launch this example")
+                        } else {
+                            ("\u{25b6} Play", "Compile it first")
+                        }
                     } else if !have_script {
                         ("\u{25b6} Play", "Open or write a script first")
                     } else if !script_ran {
@@ -428,7 +457,9 @@ impl Editor {
                         .on_hover_text(hover)
                         .clicked()
                     {
-                        if is_rust {
+                        if native {
+                            state.is_paused = !state.is_paused;
+                        } else if is_rust {
                             launch_request = true;
                         } else if script_ran {
                             state.is_paused = !state.is_paused;
@@ -438,8 +469,10 @@ impl Editor {
                         }
                     }
                     if ui
-                        .add_enabled(script_ran && !is_rust, egui::Button::new("\u{27f2} Restart"))
-                        .on_hover_text(if is_rust {
+                        .add_enabled(script_ran && !is_rust && !native, egui::Button::new("\u{27f2} Restart"))
+                        .on_hover_text(if native {
+                            "This window is the example; close it and launch again"
+                        } else if is_rust {
                             "A Rust example builds its own scene, in its own process"
                         } else {
                             "Rebuild the scene from the script and stop at the start"
@@ -453,10 +486,11 @@ impl Editor {
                     // does, so the button cannot drift from the key.
                     if ui
                         .add_enabled(
-                            // With a Rust example open there is no script to
-                            // have run, but this window still has a
-                            // simulation and the button still steps it.
-                            (script_ran || is_rust) && state.is_paused,
+                            // A hosted script must have run; a native window
+                            // is itself the run. A `.rs` in the panel has
+                            // nothing to step here at all until it is
+                            // compiled and launched into its own window.
+                            (script_ran || native) && state.is_paused,
                             egui::Button::new("\u{23ed} Step"),
                         )
                         .on_hover_text("Advance one iteration  (K)")
@@ -539,11 +573,11 @@ impl Editor {
                                      and what any run worth keeping wants",
                                 );
                             if ui
-                                .add_enabled(!building, egui::Button::new("build"))
+                                .add_enabled(!building, egui::Button::new("compile"))
                                 .on_hover_text(if building {
-                                    "a build is already running"
+                                    "a compile is already running"
                                 } else {
-                                    "Compile this example"
+                                    "cargo build for this example"
                                 })
                                 .clicked()
                             {

@@ -115,6 +115,16 @@ pub fn launch(name: &str, release: bool) -> Result<(), String> {
     }
     println!("$ {}", bin.display());
     std::process::Command::new(&bin)
+        // A launched example draws the editor around its own scene, so
+        // pressing Play gives the same window as a Python script does rather
+        // than a bare renderer. It is still a separate process with a window
+        // of its own -- it links kalast as a library and cannot be hosted --
+        // but it is not a different kind of thing to look at.
+        //
+        // An environment variable rather than an argument, because the
+        // example owns its own `main` and may take arguments of its own.
+        // Running the same binary from a terminal is unaffected.
+        .env("KALAST_EDITOR", "1")
         .spawn()
         .map(|_| ())
         .map_err(|e| format!("could not launch {}: {e}", bin.display()))
