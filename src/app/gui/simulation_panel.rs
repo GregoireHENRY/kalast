@@ -425,6 +425,136 @@ fn eye_ui(ui: &mut egui::Ui, eye: &mut crate::app::frame::Eye, bodies: &[String]
     }
 }
 
+/// The text overlays: what each says, where it sits, how it looks.
+///
+/// `text` is the *template*, not the line on screen -- `{it}`, `{fps}` and
+/// the rest are filled in every frame. A script that assigns `hud.text`
+/// each iteration owns it, and an edit here lasts until its next
+/// assignment; the expanded result is shown underneath so both are visible.
+fn huds_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
+    use crate::app::config::{HAlign, Hud, HudAnchor, VAlign};
+
+    if sim.huds.is_empty() {
+        ui.label(egui::RichText::new("none").weak());
+    }
+
+    let mut remove = None;
+    for (i, handle) in sim.huds.iter().enumerate() {
+        let mut hud = handle.borrow_mut();
+        egui::CollapsingHeader::new(format!("hud {i}"))
+            .id_salt(i)
+            .default_open(true)
+            .show(ui, |ui| {
+                ui.add(
+                    egui::TextEdit::multiline(&mut hud.text)
+                        .desired_rows(1)
+                        .desired_width(f32::INFINITY)
+                        .font(egui::TextStyle::Monospace),
+                )
+                .on_hover_text(
+                    "Template. {it} {drawn} {nit} {its} {fps} {ms} {bodies} {paused} {warn}, \
+                     with an optional precision as {fps:.1}.",
+                );
+
+                // What that template comes out as this frame. Worth showing
+                // even when it is the same string: a HUD a script rewrites
+                // every iteration has no placeholders left by the time it
+                // gets here, and seeing the line on screen next to the field
+                // is what says so.
+                let shown = crate::app::expand_hud(
+                    &hud.text,
+                    &sim.state,
+                    0.0,
+                    &sim.diagnostics,
+                    sim.state.iteration,
+                );
+                ui.label(egui::RichText::new(shown).weak().small());
+
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("anchor").weak());
+                    egui::ComboBox::from_id_salt("anchor")
+                        .selected_text(format!("{:?}", hud.anchor))
+                        .show_ui(ui, |ui| {
+                            for a in [
+                                HudAnchor::TopLeft,
+                                HudAnchor::TopCenter,
+                                HudAnchor::TopRight,
+                                HudAnchor::MiddleLeft,
+                                HudAnchor::MiddleCenter,
+                                HudAnchor::MiddleRight,
+                                HudAnchor::BottomLeft,
+                                HudAnchor::BottomCenter,
+                                HudAnchor::BottomRight,
+                            ] {
+                                let label = format!("{a:?}");
+                                ui.selectable_value(&mut hud.anchor, a, label);
+                            }
+                        });
+                });
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("inset").weak());
+                    ui.add(egui::DragValue::new(&mut hud.x).speed(1.0));
+                    ui.add(egui::DragValue::new(&mut hud.y).speed(1.0));
+                })
+                .response
+                .on_hover_text("Pixels from the anchor");
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("size").weak());
+                    ui.add(egui::DragValue::new(&mut hud.size).speed(0.5).range(1.0..=200.0));
+                    ui.color_edit_button_rgba_unmultiplied(&mut hud.color);
+                });
+
+                // `None` means "follow the anchor", which is what a HUD
+                // wants unless it is being pinned somewhere unusual -- so
+                // the default stays reachable rather than being overwritten
+                // the moment the picker is touched.
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("align").weak());
+                    egui::ComboBox::from_id_salt("align_h")
+                        .selected_text(match hud.align_h {
+                            Some(a) => format!("{a:?}"),
+                            None => "anchor".to_string(),
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut hud.align_h, None, "anchor");
+                            for a in [HAlign::Left, HAlign::Center, HAlign::Right] {
+                                let label = format!("{a:?}");
+                                ui.selectable_value(&mut hud.align_h, Some(a), label);
+                            }
+                        });
+                    egui::ComboBox::from_id_salt("align_v")
+                        .selected_text(match hud.align_v {
+                            Some(a) => format!("{a:?}"),
+                            None => "anchor".to_string(),
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut hud.align_v, None, "anchor");
+                            for a in [VAlign::Top, VAlign::Center, VAlign::Bottom] {
+                                let label = format!("{a:?}");
+                                ui.selectable_value(&mut hud.align_v, Some(a), label);
+                            }
+                        });
+                });
+
+                if ui.button("remove").clicked() {
+                    remove = Some(i);
+                }
+            });
+    }
+
+    if let Some(i) = remove {
+        sim.huds.remove(i);
+    }
+
+    if ui.button("add HUD").clicked() {
+        // A template rather than empty text, so a new HUD says something the
+        // moment it appears and shows what a placeholder looks like.
+        sim.huds.push(std::rc::Rc::new(std::cell::RefCell::new(Hud::new(
+            "it={drawn}  {fps} fps",
+        ))));
+    }
+}
+
 /// A collapsing section, opened by default or not.
 fn group(ui: &mut egui::Ui, title: &str, open: bool, add: impl FnOnce(&mut egui::Ui)) {
     egui::CollapsingHeader::new(title)
@@ -474,24 +604,7 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation) {
     });
     group(ui, "Sun", false, |ui| eye_ui(ui, &mut sim.sun, &names, true));
 
-    group(ui, "HUDs", true, |ui| {
-        if sim.huds.is_empty() {
-            ui.label(egui::RichText::new("none").weak());
-        }
-        for (i, hud) in sim.huds.iter().enumerate() {
-            let mut hud = hud.borrow_mut();
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(format!("{i}")).weak());
-                // The expanded text, as drawn -- a callback usually rewrites
-                // this every frame, so editing it here is a preview at best.
-                ui.add(
-                    egui::TextEdit::singleline(&mut hud.text)
-                        .desired_width(f32::INFINITY)
-                        .font(egui::TextStyle::Monospace),
-                );
-            });
-        }
-    });
+    group(ui, "HUDs", true, |ui| huds_ui(ui, sim));
 
     group(ui, "Export", false, |ui| {
         ui.checkbox(&mut sim.export, "export")

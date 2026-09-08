@@ -41,6 +41,15 @@ Draw in the editor layout. `start_editor()` is this plus `start()`, and
 Deliberately **not** in the config panel: a checkbox that switches the UI off
 from inside the UI leaves nothing to switch it back on with.
 
+### `app.config.toolbar: str` *(live)*
+What the editor's toolbar says beside Play, Restart and Step. Default
+`"iteration {drawn}    {its} it/s    {fps} fps"`; empty for a bare toolbar.
+
+The same template as a HUD, so every placeholder below works here too --
+including a precision, as `{fps:.1}`. It reads `{drawn}` rather than `{it}` by
+default because once the frame for iteration 0 is drawn the counter is already
+1, and "iteration 1" under a picture of iteration 0 is a lie of one frame.
+
 **Both have `width`/`height`, and they are not the same number.**
 `app.config.width` is the OS window. `app.simulation.config.width` is the
 *image*: the camera's aspect ratio, where axis ticks project, where the colour
@@ -453,6 +462,7 @@ is there.
 | | |
 |---|---|
 | `{it}` | iteration count, `sim.state.iteration` |
+| `{drawn}` | the iteration the frame **on screen** was drawn for |
 | `{nit}` | `sim.state.pause_at` if set, else `?` |
 | `{its}` | iterations per second; `0` while paused |
 | `{fps}` | frames per second |
@@ -462,6 +472,12 @@ is there.
 `{ms}` is the same information as `{fps}` inverted, but it is the one you
 compare against a frame budget: 8.3 ms is the whole of a 120 Hz frame, and
 "11.8" says immediately that you are missing it where "85 fps" does not.
+
+`{drawn}` trails `{it}` by one for the whole of every frame: the counter moves
+on only after the frame it belongs to has been drawn, so `{it}` is how many
+iterations have been *begun* and `{drawn}` is the one you are looking at. While
+paused they differ too -- the counter has already stepped past what is on
+screen, and `{drawn}` stays on the last frame that advanced.
 
 `{nit}` reads `?` rather than a number when nothing has set `pause_at`, because
 the engine genuinely does not know how long your run is. `{its}` and `{fps}`

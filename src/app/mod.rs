@@ -313,11 +313,12 @@ impl Realised {
 /// A placeholder may carry a precision, `{fps:.2}`. Rates default to **zero**
 /// decimals: a frame rate quoted to a tenth is noise, and the digit changes
 /// every update without telling the reader anything.
-fn expand_hud(
+pub(crate) fn expand_hud(
     template: &str,
     state: &crate::app::simulation::State,
     rate: Float,
     diag: &crate::app::simulation::Diagnostics,
+    drawn: usize,
 ) -> String {
     let its = if state.is_paused { 0.0 } else { rate };
     let nit = match state.pause_at {
@@ -350,6 +351,11 @@ fn expand_hud(
         let (name, prec) = split(raw);
         match name.as_str() {
             "it" => out.push_str(&state.iteration.to_string()),
+            // The frame you are looking at, not how many have been begun.
+            // Once the frame for iteration 0 is drawn `{it}` is already 1,
+            // and a caption of "1" under a picture of 0 is a lie of exactly
+            // one frame.
+            "drawn" => out.push_str(&drawn.to_string()),
             "nit" => out.push_str(&nit),
             "its" => out.push_str(&format!("{its:.prec$}")),
             "fps" => out.push_str(&format!("{rate:.prec$}")),
@@ -1223,6 +1229,17 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
 
                     win.update(&mut sim, &sim_cfg.borrow());
 
+                    // Which iteration this frame is *for*. Running, that is
+                    // the counter as it stands -- it moves on only after the
+                    // frame. Paused, it has already moved past what is on
+                    // screen, so the last advancing frame's number is the
+                    // honest one.
+                    let drawn = if paused {
+                        self.shared.borrow().drawn_iteration
+                    } else {
+                        sim.state.iteration
+                    };
+
                     // The HUDs are shared handles, so this reads whatever
                     // `before_render` just wrote into them. Only the text is
                     // expanded; position, size and colour are used as they
@@ -1233,7 +1250,13 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         .map(|h| {
                             let h = h.borrow();
                             crate::app::config::Hud {
-                                text: expand_hud(&h.text, &sim.state, self.fps_shown, &sim.diagnostics),
+                                text: expand_hud(
+                                    &h.text,
+                                    &sim.state,
+                                    self.fps_shown,
+                                    &sim.diagnostics,
+                                    drawn,
+                                ),
                                 ..h.clone()
                             }
                         })
@@ -1623,11 +1646,23 @@ mod hud_tests {
         s
     }
 
+    /// `{drawn}` is the frame on screen and `{it}` the counter, and the
+    /// two differ by one for the whole of every frame -- which is the
+    /// reason `{drawn}` exists.
+    #[test]
+    fn drawn_is_not_the_iteration_counter() {
+        let s = state(7, false, None);
+        assert_eq!(
+            expand_hud("{drawn} of {it}", &s, 60.0, &Default::default(), 6),
+            "6 of 7"
+        );
+    }
+
     #[test]
     fn expands_the_documented_placeholders() {
         let s = state(42, false, Some(500));
         assert_eq!(
-            expand_hud("{it}/{nit} ({its} it/s)", &s, 60.4, &Default::default()),
+            expand_hud("{it}/{nit} ({its} it/s)", &s, 60.4, &Default::default(), s.iteration),
             "42/500 (60 it/s)"
         );
     }
@@ -1637,9 +1672,9 @@ mod hud_tests {
     #[test]
     fn rates_are_integers_by_default_and_precision_is_opt_in() {
         let s = state(1, false, None);
-        assert_eq!(expand_hud("{fps}", &s, 59.62, &Default::default()), "60");
-        assert_eq!(expand_hud("{fps:.1}", &s, 59.62, &Default::default()), "59.6");
-        assert_eq!(expand_hud("{fps:.2f}", &s, 59.62, &Default::default()), "59.62");
+        assert_eq!(expand_hud("{fps}", &s, 59.62, &Default::default(), s.iteration), "60");
+        assert_eq!(expand_hud("{fps:.1}", &s, 59.62, &Default::default(), s.iteration), "59.6");
+        assert_eq!(expand_hud("{fps:.2f}", &s, 59.62, &Default::default(), s.iteration), "59.62");
     }
 
     /// Milliseconds are the exception -- whole numbers cannot separate 8 from
@@ -1647,15 +1682,15 @@ mod hud_tests {
     #[test]
     fn milliseconds_keep_one_decimal_by_default() {
         let s = state(1, false, None);
-        assert_eq!(expand_hud("{ms}", &s, 120.0, &Default::default()), "8.3");
-        assert_eq!(expand_hud("{ms:.0}", &s, 120.0, &Default::default()), "8");
+        assert_eq!(expand_hud("{ms}", &s, 120.0, &Default::default(), s.iteration), "8.3");
+        assert_eq!(expand_hud("{ms:.0}", &s, 120.0, &Default::default(), s.iteration), "8");
     }
 
     /// `?` rather than a made-up number: the run length is genuinely unknown
     /// unless something has been told to stop at it.
     #[test]
     fn unknown_run_length_reads_as_a_question_mark() {
-        assert_eq!(expand_hud("{nit}", &state(1, false, None), 60.0, &Default::default()), "?");
+        assert_eq!(expand_hud("{nit}", &state(1, false, None), 60.0, &Default::default(), 1), "?");
     }
 
     /// The counter is not advancing while paused, so reporting the frame rate
@@ -1663,16 +1698,16 @@ mod hud_tests {
     #[test]
     fn iteration_rate_is_zero_while_paused_but_frame_rate_is_not() {
         let s = state(7, true, None);
-        assert_eq!(expand_hud("{its}|{fps}|{paused}", &s, 120.0, &Default::default()), "0|120|PAUSED");
+        assert_eq!(expand_hud("{its}|{fps}|{paused}", &s, 120.0, &Default::default(), s.iteration), "0|120|PAUSED");
     }
 
     /// A typo must render, not panic or swallow the text around it.
     #[test]
     fn unknown_and_unbalanced_braces_pass_through() {
         let s = state(1, false, None);
-        assert_eq!(expand_hud("{nope} x {it}", &s, 60.0, &Default::default()), "{nope} x 1");
-        assert_eq!(expand_hud("a {unclosed", &s, 60.0, &Default::default()), "a {unclosed");
-        assert_eq!(expand_hud("no braces", &s, 60.0, &Default::default()), "no braces");
+        assert_eq!(expand_hud("{nope} x {it}", &s, 60.0, &Default::default(), s.iteration), "{nope} x 1");
+        assert_eq!(expand_hud("a {unclosed", &s, 60.0, &Default::default(), s.iteration), "a {unclosed");
+        assert_eq!(expand_hud("no braces", &s, 60.0, &Default::default(), s.iteration), "no braces");
     }
 
 }

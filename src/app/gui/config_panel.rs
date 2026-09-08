@@ -224,6 +224,10 @@ pub fn config_panel(ui: &mut egui::Ui, c: &mut Config, a: &mut AppConfig) {
         ui.add(egui::DragValue::new(&mut a.width).speed(1.0).prefix("window width  ")).on_hover_text("Window size in physical pixels.");
         ui.add(egui::DragValue::new(&mut a.height).speed(1.0).prefix("window height  "));
         ui.horizontal(|ui| {
+            ui.label("toolbar text").on_hover_text("What the editor's toolbar says beside the transport buttons.");
+            ui.add(egui::TextEdit::singleline(&mut a.toolbar).desired_width(120.0));
+        });
+        ui.horizontal(|ui| {
             ui.label("title").on_hover_text("The OS window title.");
             ui.add(egui::TextEdit::singleline(&mut c.title).desired_width(120.0));
         });

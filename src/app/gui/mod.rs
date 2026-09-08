@@ -365,8 +365,11 @@ impl Editor {
 
             // Each panel's contents, named once so the same code can go in a
             // side panel or a floating one.
+            let toolbar = app_config.toolbar.clone();
             let toolbar_ui = |ui: &mut egui::Ui| {
                 let mut sim = sim.borrow_mut();
+                let sim = &mut **sim;
+                let diagnostics = &sim.diagnostics;
                 let state = &mut sim.state;
                 ui.horizontal(|ui| {
                     // Play is the only way to start. A separate Run was the
@@ -423,15 +426,23 @@ impl Editor {
                         state.pause_at = Some(state.iteration + 1);
                     }
                     ui.separator();
-                    // What is on screen, not how many have finished. After
-                    // the frame for iteration 0 is drawn `state.iteration` is
-                    // already 1, and reading "iteration 1" under a picture of
-                    // iteration 0 is a lie of exactly one frame.
-                    ui.label(format!("iteration {drawn}"))
-                        .on_hover_text("The iteration the frame you are looking at was drawn for");
-                    let its = if state.is_paused { 0.0 } else { iteration_rate };
-                    ui.label(format!("{its:.0} it/s"));
-                    ui.weak(format!("{iteration_rate:.0} fps"));
+                    // The same template a HUD takes, so the toolbar says
+                    // whatever this run wants it to -- and `{drawn}` rather
+                    // than `{it}` by default, because once the frame for
+                    // iteration 0 is drawn `state.iteration` is already 1,
+                    // and "1" under a picture of 0 is a lie of one frame.
+                    if !toolbar.is_empty() {
+                        ui.label(crate::app::expand_hud(
+                            &toolbar,
+                            state,
+                            iteration_rate as crate::Float,
+                            diagnostics,
+                            drawn,
+                        ))
+                        .on_hover_text(
+                            "app.config.toolbar -- {drawn} {it} {its} {fps} {ms} {bodies} {paused} {warn}",
+                        );
+                    }
                 });
             };
             let log_ui = |ui: &mut egui::Ui| {

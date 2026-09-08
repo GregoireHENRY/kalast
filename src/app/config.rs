@@ -853,6 +853,18 @@ pub struct AppConfig {
     pub width: u32,
     /// :label: window height
     pub height: u32,
+
+    /// What the editor's toolbar says beside the transport buttons.
+    ///
+    /// The same template as `huds`, so every placeholder works here too --
+    /// `{drawn}` for the iteration on screen, `{it}` for how many have been
+    /// begun, `{its}`, `{fps}`, `{ms}`, `{bodies}`, `{paused}`, `{warn}` --
+    /// and a precision may be attached, as `{fps:.1}`.
+    ///
+    /// Empty for a bare toolbar.
+    ///
+    /// :label: toolbar text
+    pub toolbar: String,
 }
 
 impl Default for AppConfig {
@@ -862,6 +874,7 @@ impl Default for AppConfig {
             focus: false,
             width: 800,
             height: 600,
+            toolbar: "iteration {drawn}    {its} it/s    {fps} fps".to_string(),
         }
     }
 }

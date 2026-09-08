@@ -276,11 +276,28 @@ impl AppConfig {
         self.config.borrow_mut().height = v;
     }
 
+    /// What the editor's toolbar says beside the transport buttons.
+    ///
+    /// The same template as `simulation.config.huds`, so every placeholder
+    /// works here too -- `{drawn}` for the iteration on screen, `{it}` for
+    /// how many have been begun, `{its}`, `{fps}`, `{ms}`, `{bodies}`,
+    /// `{paused}`, `{warn}` -- and a precision may be attached, as
+    /// `{fps:.1}`. Empty for a bare toolbar.
+    #[getter]
+    fn toolbar(&self) -> String {
+        self.config.borrow().toolbar.clone()
+    }
+
+    #[setter]
+    fn set_toolbar(&self, v: String) {
+        self.config.borrow_mut().toolbar = v;
+    }
+
     fn __repr__(&self) -> String {
         let c = self.config.borrow();
         format!(
-            "AppConfig(editor={}, focus={}, width={}, height={})",
-            c.editor, c.focus, c.width, c.height
+            "AppConfig(editor={}, focus={}, width={}, height={}, toolbar={:?})",
+            c.editor, c.focus, c.width, c.height, c.toolbar
         )
     }
 }

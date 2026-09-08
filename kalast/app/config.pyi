@@ -64,6 +64,15 @@ class AppConfig:
     """
     height: int
     """Window height in physical pixels."""
+    toolbar: str
+    """What the editor's toolbar says beside the transport buttons.
+
+    The same template as `simulation.config.huds`, so every placeholder
+    works here too -- `{drawn}` for the iteration on screen, `{it}` for
+    how many have been begun, `{its}`, `{fps}`, `{ms}`, `{bodies}`,
+    `{paused}`, `{warn}` -- and a precision may be attached, as
+    `{fps:.1}`. Empty for a bare toolbar.
+    """
 
 class Config:
     debug_app: bool
