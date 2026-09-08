@@ -29,10 +29,13 @@ def main(argv: list[str] | None = None) -> int:
 
     app = App()
     app.config.editor = True
-    # Physical pixels, so 1280x800 points on a 2x display. Three panels and a
-    # viewport need the room.
-    app.config.width = 2560
-    app.config.height = 1600
+    # Size is left at 0, meaning "fit the monitor" -- the renderer takes 85 %
+    # of the primary screen when an editor is being created, which is the room
+    # three panels and a viewport need without assuming how big the screen is.
+    #
+    # It used to ask for 2560x1600 in physical pixels: right for the 2x display
+    # it was written on, and larger than the whole screen on a 1920x1080 one,
+    # where the window opened with its edges past the edge of the monitor.
     app.simulation.config.title = "kalast"
 
     editor.capture_output(app)
