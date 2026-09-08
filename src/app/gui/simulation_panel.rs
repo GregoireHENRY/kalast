@@ -456,11 +456,12 @@ fn huds_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
                      with an optional precision as {fps:.1}.",
                 );
 
-                // What that template comes out as this frame. Worth showing
-                // even when it is the same string: a HUD a script rewrites
-                // every iteration has no placeholders left by the time it
-                // gets here, and seeing the line on screen next to the field
-                // is what says so.
+                // What that template comes out as this frame, but only when
+                // the two differ. A dim copy of the field directly under the
+                // field reads as a second field, and clicking it does
+                // nothing -- and it is an exact copy for the common case of
+                // a HUD a script rewrites every iteration, which has no
+                // placeholders left by the time the panel sees it.
                 let shown = crate::app::expand_hud(
                     &hud.text,
                     &sim.state,
@@ -468,7 +469,12 @@ fn huds_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
                     &sim.diagnostics,
                     sim.state.iteration,
                 );
-                ui.label(egui::RichText::new(shown).weak().small());
+                if shown != hud.text {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("shows as").weak().small());
+                        ui.label(egui::RichText::new(shown).monospace().small());
+                    });
+                }
 
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new("anchor").weak());
