@@ -591,6 +591,87 @@ fn huds_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
     }
 }
 
+/// The picked facets: what is selected, and the two ways to change it that a
+/// pointer cannot do -- clearing the lot, and naming one by index.
+fn selection_ui(ui: &mut egui::Ui, sim: &mut Simulation, color: crate::Vec3) {
+    ui.label(
+        egui::RichText::new("click a facet in the scene to select it; click it again to drop it")
+            .weak()
+            .small(),
+    );
+
+    if sim.selected_facets.is_empty() {
+        ui.label(egui::RichText::new("none selected").weak());
+    }
+
+    // Applied after the loop: dropping one mid-iteration shifts the rest.
+    let mut drop_it = None;
+    let many = sim.bodies.len() > 1;
+    for (i, s) in sim.selected_facets.iter().enumerate() {
+        ui.horizontal(|ui| {
+            let name = if many {
+                format!("body {} facet {}", s.body, s.facet)
+            } else {
+                format!("facet {}", s.facet)
+            };
+            ui.label(egui::RichText::new(name).monospace());
+            if ui.small_button("\u{00d7}").on_hover_text("Deselect").clicked() {
+                drop_it = Some(i);
+            }
+        });
+    }
+    if let Some(i) = drop_it {
+        let (body, facet) = {
+            let s = &sim.selected_facets[i];
+            (s.body, s.facet)
+        };
+        sim.toggle_facet(body, facet, color);
+    }
+
+    ui.horizontal(|ui| {
+        if ui
+            .add_enabled(
+                !sim.selected_facets.is_empty(),
+                egui::Button::new("clear all"),
+            )
+            .on_hover_text("Put every selected facet back to the colour it had")
+            .clicked()
+        {
+            sim.clear_selection();
+        }
+
+        // By index, for a facet found in a data product rather than on
+        // screen -- and for one facing away from the camera, which no click
+        // can reach.
+        let id = ui.id().with("add");
+        let mut body = ui.data_mut(|d| d.get_temp::<usize>(id.with("body"))).unwrap_or(0);
+        let mut facet = ui.data_mut(|d| d.get_temp::<usize>(id)).unwrap_or(0);
+        if many {
+            ui.label(egui::RichText::new("body").weak());
+            ui.add(egui::DragValue::new(&mut body).range(0..=sim.bodies.len().saturating_sub(1)));
+        }
+        ui.label(egui::RichText::new("facet").weak());
+        let facets = sim
+            .bodies
+            .get(body)
+            .and_then(|b| b.mesh.as_ref())
+            .map(|m| m.borrow().facets.len())
+            .unwrap_or(0);
+        ui.add(egui::DragValue::new(&mut facet).range(0..=facets.saturating_sub(1)));
+        if ui
+            .add_enabled(facets > 0, egui::Button::new("add"))
+            .on_hover_text("Select this facet by index")
+            .clicked()
+        {
+            sim.toggle_facet(body, facet, color);
+        }
+        ui.data_mut(|d| {
+            d.insert_temp(id, facet);
+            d.insert_temp(id.with("body"), body);
+        });
+    });
+}
+
 /// A collapsing section, opened by default or not.
 fn group(ui: &mut egui::Ui, title: &str, open: bool, add: impl FnOnce(&mut egui::Ui)) {
     egui::CollapsingHeader::new(title)
@@ -599,15 +680,15 @@ fn group(ui: &mut egui::Ui, title: &str, open: bool, add: impl FnOnce(&mut egui:
 }
 
 /// The simulation's live state: what is loaded, where it is, what it can see.
-pub fn simulation_panel(ui: &mut egui::Ui, sim: &mut Simulation) {
+pub fn simulation_panel(ui: &mut egui::Ui, sim: &mut Simulation, selection_color: crate::Vec3) {
     // The config panel below has its own "Export" header, and egui derives a
     // widget's id from its label -- so without a namespace the two collide
     // and egui paints a red "first/second use of widget ID" warning over
     // both.
-    ui.push_id("simulation", |ui| panel(ui, sim));
+    ui.push_id("simulation", |ui| panel(ui, sim, selection_color));
 }
 
-fn panel(ui: &mut egui::Ui, sim: &mut Simulation) {
+fn panel(ui: &mut egui::Ui, sim: &mut Simulation, selection_color: crate::Vec3) {
     group(ui, "State", true, |ui| {
         // Named as the field is, because that is what a script writes --
         // and it is one ahead of the toolbar's counter on purpose: the
@@ -635,6 +716,10 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation) {
     // Named for the anchor-body picker below, and collected first because
     // that reads `bodies` while the picker holds `camera` mutably.
     let names: Vec<String> = sim.bodies.iter().map(body_name).collect();
+    group(ui, "Selection", true, |ui| {
+        selection_ui(ui, sim, selection_color)
+    });
+
     group(ui, "Camera", false, |ui| {
         eye_ui(ui, &mut sim.camera, &names, false)
     });

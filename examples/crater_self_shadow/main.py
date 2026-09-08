@@ -23,7 +23,7 @@ def after_render(sim: Simulation, dt: float) -> None:
     # is still dark if it faces away, which on this crater is most of the far
     # wall. `facet_shadow` alone answered the wrong question.
     illum = sim.facet_illumination(0)
-    lit = float((illum > 0).mean()) if len(shadow) else 0.0
+    lit = float((illum > 0).mean()) if illum is not None else 0.0
     sim.huds[0].text = f"it={it}  lit {lit * 100:.1f} %"
 
 

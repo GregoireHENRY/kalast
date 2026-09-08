@@ -108,6 +108,43 @@ Both are modifiers rather than actions: they change what a pointer drag does in
 Arcball mode. `Left Shift` turns an orbit into a pan; `Option` makes a left
 drag act as a middle drag. See the next section.
 
+## Selecting facets
+
+| Gesture | Does |
+|---|---|
+| Click on the scene | Select the facet under the pointer; click it again to drop it |
+
+A *click*, not a drag: press and release within four pixels. Anything longer
+is a camera gesture, so `Option` + drag still orbits and a plain drag is still
+free for whatever the control mode does with it.
+
+The facet turns `config.selection_color` (yellow by default) and is drawn
+unlit, while the rest of the body keeps its shading — the shader honours a
+per-facet colour mode, so one facet can be marked without flattening the whole
+render. Deselecting restores whatever the facet's vertices had.
+
+Each click prints the facet index, the exact intersection in world *and* body
+coordinates, its latitude and longitude, and the whole selection so far:
+
+```
+selected body 0 facet 107
+  hit world -0.154289 -0.389472 -0.106714
+  hit body  -0.154289 -0.389472 -0.106714   lat -14.2914 lon -111.6110
+  selected (1): 0:107
+```
+
+The editor's **Selection** panel lists them, drops one with ×, clears all, and
+adds one by index — which is the only way to reach a facet that is facing away
+from the camera.
+
+From a script: `sim.selected_facets`, `sim.toggle_facet(body, facet)`,
+`sim.clear_selection()`, and `sim.pick_facet(origin, direction)` for the ray
+test on its own. See `API.md`.
+
+**On an indexed mesh the colour bleeds into the neighbouring facets**, because
+they share the three vertices being painted. Load with `flatten=True`, which
+per-facet work wants anyway.
+
 ## Mouse and trackpad — Arcball (the default)
 
 **With a three-button mouse:**

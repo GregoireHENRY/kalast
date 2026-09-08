@@ -729,6 +729,33 @@ away:
 | 92° | 25.5 % | 0.5 % |
 | 183° | 99.2 % | 0.0 % |
 
+### Selecting facets
+
+```python
+sim.toggle_facet(body, facet)      # select, or deselect if already selected
+sim.selected_facets                # [(body, facet), ...]
+sim.clear_selection()              # put them all back
+sim.pick_facet(origin, direction)  # (body, facet, world_point, body_point) or None
+```
+
+What a click in the viewport does, so the pointer and a script cannot get out
+of step. `toggle_facet` returns whether the facet is selected afterwards.
+
+Selecting writes `config.selection_color` onto the facet's own vertices and
+marks them colour-mode 1, which the shader honours **for that facet alone** —
+the rest of the body keeps its shading. Deselecting restores what was there,
+so a script that repaints the mesh while a facet is selected will have that
+overwritten on deselect; there is no way to tell an intervening change from
+the selection's own.
+
+`pick_facet` carries the ray into each body's own frame before intersecting,
+so `body_point` is in the coordinates the shape model is defined in — which is
+what a latitude and longitude have to come from. It returns the nearest hit
+across every body.
+
+**Indexed meshes bleed**: the three vertices are shared with neighbouring
+facets. Load with `flatten=True`.
+
 ### Facet index map — feeds the FITS products
 
 ```python

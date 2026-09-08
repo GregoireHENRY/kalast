@@ -563,6 +563,16 @@ pub struct Config {
     ///
     /// Barycentric edge detection in the main fragment shader, so the overlay
     /// cannot z-fight. Needs a flattened mesh -- indexed meshes share vertices, so
+    /// Colour a facet takes when it is selected, `(r, g, b, a)`.
+    ///
+    /// Selecting writes this onto the facet's own vertices and marks them
+    /// colour-mode 1, which the shader honours for that facet alone -- so a
+    /// picked facet is unlit and this colour while the rest of the body keeps
+    /// its shading. Deselecting puts back what was there.
+    ///
+    /// :group: Selection
+    pub selection_color: wgpu::Color,
+
     /// the barycentrics are meaningless and the CPU side warns once.
     /// :range: 0..=2
     pub wireframe_mode: u32,
@@ -783,6 +793,12 @@ impl Default for Config {
             msaa: 4,
 
             wireframe_mode: 0,
+            selection_color: wgpu::Color {
+                r: 1.0,
+                g: 0.85,
+                b: 0.1,
+                a: 1.0,
+            },
             wireframe_color: wgpu::Color::BLACK,
             wireframe_width: 1.0,
 

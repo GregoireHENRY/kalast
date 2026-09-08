@@ -72,7 +72,7 @@ pub fn config_panel(ui: &mut egui::Ui, c: &mut Config, a: &mut AppConfig) {
         ui.checkbox(&mut c.shadow_per_body, "shadow_per_body").on_hover_text("Fit a shadow map per body instead of one fitted to the whole scene.");
     });
     ui.collapsing("Wireframe", |ui| {
-        ui.add(egui::Slider::new(&mut c.wireframe_mode, 0..=2).text("wireframe_mode")).on_hover_text("0 shaded only, 1 wireframe only, 2 wireframe over the shaded mesh.");
+        ui.add(egui::Slider::new(&mut c.wireframe_mode, 0..=2).text("wireframe_mode")).on_hover_text("the barycentrics are meaningless and the CPU side warns once.");
         ui.horizontal(|ui| {
             ui.label("wireframe_color").on_hover_text("Wireframe colour, `(r, g, b, a)`; alpha is dropped.");
             let mut rgba = [c.wireframe_color.r as f32, c.wireframe_color.g as f32,
@@ -198,6 +198,19 @@ pub fn config_panel(ui: &mut egui::Ui, c: &mut Config, a: &mut AppConfig) {
         ui.horizontal(|ui| {
             ui.label("hud_font").on_hover_text("Font for the HUD: a **name** or a **path**, or empty for the built-in DejaVu Sans.");
             ui.add(egui::TextEdit::singleline(&mut c.hud_font).desired_width(120.0));
+        });
+    });
+    ui.collapsing("Selection", |ui| {
+        ui.horizontal(|ui| {
+            ui.label("selection_color").on_hover_text("0 shaded only, 1 wireframe only, 2 wireframe over the shaded mesh.");
+            let mut rgba = [c.selection_color.r as f32, c.selection_color.g as f32,
+                            c.selection_color.b as f32, c.selection_color.a as f32];
+            if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
+                c.selection_color = wgpu::Color {
+                    r: rgba[0] as f64, g: rgba[1] as f64,
+                    b: rgba[2] as f64, a: rgba[3] as f64,
+                };
+            }
         });
     });
     ui.collapsing("Export", |ui| {

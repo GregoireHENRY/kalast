@@ -252,6 +252,58 @@ impl Simulation {
         Some(numpy::PyArray1::from_slice(py, v))
     }
 
+    /// The facets picked by clicking, as `(body, facet)` pairs.
+    #[getter]
+    fn selected_facets(&self) -> Vec<(usize, usize)> {
+        self.inner
+            .borrow()
+            .selected_facets
+            .iter()
+            .map(|s| (s.body, s.facet))
+            .collect()
+    }
+
+    /// Select a facet, or deselect it if it already is.
+    ///
+    /// Returns whether it is selected afterwards. The same call a click
+    /// makes, so a script and the pointer cannot get out of step.
+    ///
+    /// The facet takes `config.selection_color` and colour-mode 1, which the
+    /// shader honours for that facet alone; deselecting puts back whatever
+    /// its vertices had. On an *indexed* mesh those vertices are shared with
+    /// its neighbours and the colour bleeds -- load with `flatten=True`,
+    /// which per-facet work wants anyway.
+    fn toggle_facet(&mut self, body: usize, facet: usize) -> bool {
+        let color = {
+            let sim = self.inner.borrow();
+            let c = sim.config.borrow().selection_color;
+            crate::Vec3::new(c.r as Float, c.g as Float, c.b as Float)
+        };
+        self.inner.borrow_mut().toggle_facet(body, facet, color)
+    }
+
+    /// Put every selected facet back to the colour it had, and empty the list.
+    fn clear_selection(&mut self) {
+        self.inner.borrow_mut().clear_selection();
+    }
+
+    /// The nearest facet a ray hits, across every body.
+    ///
+    /// `(body, facet, world_point, body_point)`, or `None`. The body point is
+    /// in the shape model's own frame, which is what a latitude and longitude
+    /// have to come from.
+    fn pick_facet(
+        &self,
+        origin: [Float; 3],
+        direction: [Float; 3],
+    ) -> Option<(usize, usize, [Float; 3], [Float; 3])> {
+        let (body, facet, world, local) = self.inner.borrow().pick_facet(
+            crate::Vec3::from(origin),
+            crate::Vec3::from(direction).normalize_or_zero(),
+        )?;
+        Some((body, facet, world.to_array(), local.to_array()))
+    }
+
     /// Per-facet direct insolation, normalised: `max(0, cos i) * (1 - occluded)`.
     ///
     /// **This, not `facet_shadow`, is what "lit" means.** The shadow map

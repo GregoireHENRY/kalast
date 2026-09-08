@@ -117,6 +117,9 @@ struct VertexOutput {
     // Flat: every corner of a facet carries the same value, and interpolating
     // would smear one facet's datum into its neighbour.
     @location(7) @interpolate(flat) value: f32,
+    // Per-vertex colour mode, overriding the global one for this facet alone.
+    // Flat, like the others: a mode must not be blended across a triangle.
+    @location(8) @interpolate(flat) color_mode: u32,
 };
 
 fn srgb_to_linear(color: vec3<f32>, gamma: f32) -> vec3<f32> {
@@ -152,6 +155,7 @@ fn vs_main(
     // }
 
     out.color = vertex.color;
+    out.color_mode = vertex.color_mode;
 
     out.world_normal = normalize(normal_matrix * vertex.normal);
 
@@ -288,6 +292,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 fn fs_shaded(in: VertexOutput) -> vec4<f32> {
+    // A facet carrying its own colour mode overrides the global one. This is
+    // what makes a selection visible on one facet without unlighting the rest
+    // of the body: the attribute has been on the mesh and in the vertex
+    // buffer all along, and nothing read it.
+    if in.color_mode == 1u {
+        var picked = in.color;
+        if globals.srgb_mode == 0 {
+            picked = srgb_to_linear(picked, globals.gamma);
+        }
+        return vec4<f32>(picked, 1.0);
+    }
+
     // `color_mode == 1` is the unlit mode, and unlit is what a quantitative
     // figure wants: shading a data map makes one value read as two colours.
     // So that mode *is* the data map, when the mesh carries values -- there

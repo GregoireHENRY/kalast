@@ -161,7 +161,7 @@ pub struct Editor {
     /// whenever it is over one -- and the camera controller, which is given
     /// what egui does not want, never saw a drag on the scene. This says
     /// where "the scene" is so those events can be let through.
-    viewport_rect: egui::Rect,
+    pub viewport_rect: egui::Rect,
 
     /// The script buffer, so a simulation can be edited without leaving the
     /// window. Plain text, not a file handle: what is on screen is what
@@ -633,7 +633,15 @@ impl Editor {
                         // where the camera and Sun are, what the last frame
                         // could see -- then what it was asked to be.
                         let mut sim = sim.borrow_mut();
-                        simulation_panel::simulation_panel(ui, &mut sim);
+                        // Passed in rather than read from `sim.config`: that
+                        // is the same RefCell this panel is being drawn with
+                        // open, and reading it here panics.
+                        let c = config.selection_color;
+                        simulation_panel::simulation_panel(
+                            ui,
+                            &mut sim,
+                            crate::Vec3::new(c.r as crate::Float, c.g as crate::Float, c.b as crate::Float),
+                        );
                         drop(sim);
 
                         ui.collapsing("Config", |ui| {
@@ -954,6 +962,12 @@ impl Editor {
     /// Returns true when egui wants it -- a click on a slider, a keystroke in
     /// the script editor -- in which case the camera controller must not also
     /// act on it, or dragging a slider would orbit the scene behind it.
+    /// Points per physical pixel, for turning a cursor position into the
+    /// coordinates the panel rectangles are in.
+    pub fn scale(&self) -> f32 {
+        self.ctx.pixels_per_point()
+    }
+
     pub fn on_window_event(
         &mut self,
         window: &winit::window::Window,

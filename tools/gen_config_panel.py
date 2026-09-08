@@ -63,7 +63,7 @@ GROUPS = [
 FALLBACK_GROUP = "Window"
 GROUP_ORDER = [
     "Shading", "Shadows", "Wireframe", "Lighting", "Data colouring",
-    "Axes", "Colour bar", "HUD", "Export", "GPU results", "Controls",
+    "Axes", "Colour bar", "HUD", "Selection", "Export", "GPU results", "Controls",
     "Window", "Debug",
 ]
 

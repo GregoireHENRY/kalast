@@ -274,11 +274,7 @@ class Config:
     Deimos in the same scene.
     """
     wireframe_mode: int
-    """0 shaded only, 1 wireframe only, 2 wireframe over the shaded mesh.
-
-    Barycentric edge detection in the main fragment shader, so the overlay
-    cannot z-fight. Needs a flattened mesh -- indexed meshes share vertices, so
-    the barycentrics are meaningless and the CPU side warns once.
+    """the barycentrics are meaningless and the CPU side warns once.
     :range: 0..=2
     """
     wireframe_width: float

@@ -209,6 +209,13 @@ pub struct App {
     /// pumps until it flips, which is what makes one call mean one frame
     /// rather than one batch of events.
     frame_drawn: bool,
+    /// Last cursor position in physical pixels, for turning a click into a
+    /// ray. The editor knows the pointer in egui points; a plain window does
+    /// not, and this is what both fall back on.
+    cursor: Option<(f64, f64)>,
+    /// Where the left button went down, so a click can be told from a drag:
+    /// only a press and release in the same place is a selection.
+    left_press: Option<(f64, f64)>,
     /// Whether the loop is being driven by `step()` rather than owned by
     /// `start()`. Only the stepped one has to stop at one frame per call.
     stepping: bool,
@@ -493,6 +500,8 @@ impl App {
             event_loop: None,
             frame_drawn: false,
             stepping: false,
+            cursor: None,
+            left_press: None,
             realised: None,
             editor: None,
             stdio: None,
@@ -987,6 +996,114 @@ impl App {
     }
 
     /// Ask the window to close. The next `step()` returns `false`.
+    /// Pick the facet under the pointer and toggle its selection.
+    ///
+    /// The ray is built from the same view-projection the frame was drawn
+    /// with, so what is picked is what is under the cursor rather than what
+    /// would be under it next frame.
+    fn select_at_cursor(&mut self) {
+        let Some((cx, cy)) = self.cursor else { return };
+        let Some(win) = self.window.as_ref() else { return };
+        let (rw, rh) = win.render_size;
+        if rw == 0 || rh == 0 {
+            return;
+        }
+
+        // Where the click landed inside the *image*, 0..1. In the editor the
+        // scene is fitted into the viewport panel and letterboxed, so the
+        // panel rectangle is not the image rectangle.
+        let (u, v) = match self.editor.as_ref() {
+            Some(editor) if editor.viewport_rect.width() > 0.0 => {
+                let ppp = editor.scale();
+                let (px, py) = (cx as f32 / ppp, cy as f32 / ppp);
+                let into = editor.viewport_rect;
+                let aspect = rw as f32 / rh as f32;
+                let mut size = into.size();
+                if size.x / size.y > aspect {
+                    size.x = size.y * aspect;
+                } else {
+                    size.y = size.x / aspect;
+                }
+                let min = into.center() - size * 0.5;
+                ((px - min.x) / size.x, (py - min.y) / size.y)
+            }
+            _ => {
+                let size = win.window.inner_size();
+                (
+                    cx as f32 / size.width.max(1) as f32,
+                    cy as f32 / size.height.max(1) as f32,
+                )
+            }
+        };
+        if !(0.0..=1.0).contains(&u) || !(0.0..=1.0).contains(&v) {
+            return;
+        }
+
+        let (origin, dir) = {
+            let sim = self.simulation.borrow();
+            let aspect = rw as Float / rh as Float;
+            let Ok(view_proj) = sim.camera.view_proj(aspect) else {
+                return;
+            };
+            let inverse = view_proj.inverse();
+            // wgpu clip space: x and y in -1..1 with y up, depth in 0..1.
+            let (x, y) = ((2.0 * u as Float) - 1.0, 1.0 - (2.0 * v as Float));
+            let near = inverse.project_point3(crate::Vec3::new(x, y, 0.0));
+            let far = inverse.project_point3(crate::Vec3::new(x, y, 1.0));
+            let dir = (far - near).normalize_or_zero();
+            if dir == crate::Vec3::ZERO {
+                return;
+            }
+            (near, dir)
+        };
+
+        let picked = self.simulation.borrow().pick_facet(origin, dir);
+        let Some((body, facet, world, local)) = picked else {
+            println!("nothing under the pointer");
+            return;
+        };
+
+        let color = {
+            let c = self.sim_config();
+            let c = c.borrow().selection_color;
+            crate::Vec3::new(c.r as Float, c.g as Float, c.b as Float)
+        };
+        let now_selected = self
+            .simulation
+            .borrow_mut()
+            .toggle_facet(body, facet, color);
+
+        let (lat, lon) = crate::app::simulation::lat_lon(local);
+        let list = {
+            let sim = self.simulation.borrow();
+            let mut v: Vec<String> = sim
+                .selected_facets
+                .iter()
+                .map(|s| format!("{}:{}", s.body, s.facet))
+                .collect();
+            v.sort();
+            v
+        };
+        println!(
+            "{} body {body} facet {facet}",
+            if now_selected { "selected" } else { "deselected" }
+        );
+        println!("  hit world {:.6} {:.6} {:.6}", world.x, world.y, world.z);
+        println!(
+            "  hit body  {:.6} {:.6} {:.6}   lat {lat:.4} lon {lon:.4}",
+            local.x, local.y, local.z
+        );
+        println!(
+            "  selected ({}): {}",
+            list.len(),
+            if list.is_empty() {
+                "none".to_string()
+            } else {
+                list.join(" ")
+            }
+        );
+    }
+
     pub fn close(&mut self) {
         self.shared.borrow_mut().exit_requested = true;
     }
@@ -1672,12 +1789,32 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 }
             }
 
+            // The camera orbits from `DeviceEvent::MouseMotion`, which is
+            // raw and carries no position, so this is the only place the
+            // pointer's actual location arrives.
+            winit::event::WindowEvent::CursorMoved { position, .. } => {
+                self.cursor = Some((position.x, position.y));
+            }
+
             winit::event::WindowEvent::MouseInput { state, button, .. } => match button {
                 winit::event::MouseButton::Middle => {
                     self.controller.middle_pressed = state.is_pressed();
                 }
                 winit::event::MouseButton::Left => {
                     self.controller.left_pressed = state.is_pressed();
+
+                    // A plain left click picks a facet. Not alt-left, which
+                    // is the orbit drag, and not a left drag either -- only a
+                    // press and release within a few pixels, so pointing at
+                    // something and moving the camera stay distinguishable.
+                    if state.is_pressed() {
+                        self.left_press = self.cursor;
+                    } else if let (Some(down), Some(up)) = (self.left_press.take(), self.cursor) {
+                        let moved = (down.0 - up.0).hypot(down.1 - up.1);
+                        if moved < 4.0 && !self.controller.alt_pressed {
+                            self.select_at_cursor();
+                        }
+                    }
                 }
                 _ => {}
             },

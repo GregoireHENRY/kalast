@@ -74,6 +74,12 @@ pub struct Simulation {
     /// shifts which body an index means.
     pub meshes_dirty: bool,
 
+    /// Facets picked by clicking, or added by index.
+    ///
+    /// Each remembers what its vertices looked like before, so deselecting
+    /// puts the facet back rather than leaving it a colour nobody chose.
+    pub selected_facets: Vec<Selection>,
+
     /// What the last rendered frame could actually see. Written by the
     /// renderer after the frustums are fitted, read by the HUD placeholders.
     pub diagnostics: Diagnostics,
@@ -127,6 +133,7 @@ impl Simulation {
             hemicube_request: None,
             hemicube_result: None,
             huds: Vec::new(),
+            selected_facets: Vec::new(),
             meshes_dirty: false,
             diagnostics: Diagnostics::default(),
         }
@@ -490,5 +497,255 @@ mod illumination_tests {
         let sim = scene();
         assert!(sim.facet_illumination(0).is_none());
         assert!(sim.facet_illumination(9).is_none());
+    }
+}
+
+/// One selected facet, and what it looked like before.
+#[derive(Debug, Clone)]
+pub struct Selection {
+    pub body: usize,
+    pub facet: usize,
+    /// The three vertices' `(color, color_mode)` as they were, so deselecting
+    /// restores rather than guesses. A script that repaints the mesh while a
+    /// facet is selected will have that overwritten on deselect -- there is
+    /// no way to tell an intervening change from the selection's own.
+    previous: [(crate::Vec3, u32); 3],
+}
+
+impl Simulation {
+    /// Which vertices a facet owns, in the order the mesh stores them.
+    fn facet_vertices(mesh: &crate::mesh::Mesh, facet: usize) -> Option<[usize; 3]> {
+        if mesh.is_flat() {
+            let i = facet * 3;
+            (i + 2 < mesh.vertices.len()).then_some([i, i + 1, i + 2])
+        } else {
+            let i = facet * 3;
+            (i + 2 < mesh.indices.len()).then_some([
+                mesh.indices[i] as usize,
+                mesh.indices[i + 1] as usize,
+                mesh.indices[i + 2] as usize,
+            ])
+        }
+    }
+
+    pub fn is_selected(&self, body: usize, facet: usize) -> bool {
+        self.selected_facets
+            .iter()
+            .any(|s| s.body == body && s.facet == facet)
+    }
+
+    /// Select a facet, or deselect it if it already is. Returns whether it is
+    /// selected afterwards.
+    ///
+    /// On an indexed mesh the three vertices are shared with neighbouring
+    /// facets, so the colour bleeds into them. Load with `flatten=True` --
+    /// which per-facet work wants anyway -- for a selection that stops at the
+    /// facet's own edges.
+    pub fn toggle_facet(&mut self, body: usize, facet: usize, color: crate::Vec3) -> bool {
+        if let Some(i) = self
+            .selected_facets
+            .iter()
+            .position(|s| s.body == body && s.facet == facet)
+        {
+            let s = self.selected_facets.remove(i);
+            if let Some(mesh) = self.bodies.get(body).and_then(|b| b.mesh.as_ref()) {
+                let mut mesh = mesh.borrow_mut();
+                if let Some(v) = Self::facet_vertices(&mesh, facet) {
+                    for (slot, (c, m)) in v.into_iter().zip(s.previous) {
+                        mesh.vertices[slot].color = c;
+                        mesh.vertices[slot].color_mode = m;
+                    }
+                    mesh.colors_dirty = true;
+                }
+            }
+            return false;
+        }
+
+        let Some(handle) = self.bodies.get(body).and_then(|b| b.mesh.as_ref()) else {
+            return false;
+        };
+        let mut mesh = handle.borrow_mut();
+        let Some(v) = Self::facet_vertices(&mesh, facet) else {
+            return false;
+        };
+
+        let mut previous = [(crate::Vec3::ZERO, 0u32); 3];
+        for (slot, prev) in v.into_iter().zip(previous.iter_mut()) {
+            let vertex = &mut mesh.vertices[slot];
+            *prev = (vertex.color, vertex.color_mode);
+            vertex.color = color;
+            // The shader reads this per facet and it overrides the global
+            // mode, so the rest of the body is untouched.
+            vertex.color_mode = 1;
+        }
+        mesh.colors_dirty = true;
+        drop(mesh);
+
+        self.selected_facets.push(Selection {
+            body,
+            facet,
+            previous,
+        });
+        true
+    }
+
+    /// Put every selected facet back and empty the list.
+    pub fn clear_selection(&mut self) {
+        let selected = std::mem::take(&mut self.selected_facets);
+        for s in selected {
+            if let Some(mesh) = self.bodies.get(s.body).and_then(|b| b.mesh.as_ref()) {
+                let mut mesh = mesh.borrow_mut();
+                if let Some(v) = Self::facet_vertices(&mesh, s.facet) {
+                    for (slot, (c, m)) in v.into_iter().zip(s.previous) {
+                        mesh.vertices[slot].color = c;
+                        mesh.vertices[slot].color_mode = m;
+                    }
+                    mesh.colors_dirty = true;
+                }
+            }
+        }
+    }
+
+    /// The nearest facet a ray hits, across every body.
+    ///
+    /// Returns `(body, facet, world point, body-frame point)`. The ray is
+    /// carried into each body's own frame before intersecting, so the second
+    /// point is in the coordinates a shape model is defined in -- which is
+    /// what a latitude and longitude have to be computed from.
+    pub fn pick_facet(
+        &self,
+        origin: crate::Vec3,
+        dir: crate::Vec3,
+    ) -> Option<(usize, usize, crate::Vec3, crate::Vec3)> {
+        let mut best: Option<(crate::Float, usize, usize, crate::Vec3, crate::Vec3)> = None;
+
+        for (i, body) in self.bodies.iter().enumerate() {
+            let Some(mesh) = body.mesh.as_ref() else {
+                continue;
+            };
+            let inverse = body.mat.inverse();
+            let local_origin = inverse.transform_point3(origin);
+            let local_dir = inverse.transform_vector3(dir).normalize_or_zero();
+            if local_dir == crate::Vec3::ZERO {
+                continue;
+            }
+
+            let Some((facet, local_hit)) = mesh.borrow().intersect(&local_origin, &local_dir, true)
+            else {
+                continue;
+            };
+            let world = body.mat.transform_point3(local_hit);
+            let distance = (world - origin).length();
+            if best.as_ref().is_none_or(|b| distance < b.0) {
+                best = Some((distance, i, facet, world, local_hit));
+            }
+        }
+
+        best.map(|(_, body, facet, world, local)| (body, facet, world, local))
+    }
+}
+
+/// Latitude and longitude of a point in a body's own frame, in degrees.
+///
+/// Planetocentric: latitude from the equator, longitude east from the prime
+/// meridian, both straight out of the Cartesian coordinates. Undefined at the
+/// origin, which reads as `(0, 0)`.
+pub fn lat_lon(p: crate::Vec3) -> (crate::Float, crate::Float) {
+    let r = p.length();
+    if r <= crate::Float::EPSILON {
+        return (0.0, 0.0);
+    }
+    (
+        (p.z / r).clamp(-1.0, 1.0).asin().to_degrees(),
+        p.y.atan2(p.x).to_degrees(),
+    )
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::*;
+
+    fn cube() -> Simulation {
+        let mut mesh = crate::mesh::Mesh::load("res/cube.obj", |v| v);
+        mesh.flatten();
+        let mut sim = Simulation::new();
+        sim.bodies.push(crate::app::body::Body {
+            mesh: Some(std::rc::Rc::new(std::cell::RefCell::new(mesh))),
+            ..Default::default()
+        });
+        sim
+    }
+
+    #[test]
+    fn selecting_paints_the_facet_and_deselecting_puts_it_back() {
+        let mut sim = cube();
+        let before = {
+            let m = sim.bodies[0].mesh.as_ref().unwrap().borrow();
+            (m.vertices[3].color, m.vertices[3].color_mode)
+        };
+
+        let yellow = crate::Vec3::new(1.0, 0.85, 0.1);
+        assert!(sim.toggle_facet(0, 1, yellow), "first click selects");
+        {
+            let m = sim.bodies[0].mesh.as_ref().unwrap().borrow();
+            assert_eq!(m.vertices[3].color, yellow);
+            // Mode 1 on the facet's own vertices is what the shader reads to
+            // override the global mode for this facet alone.
+            assert_eq!(m.vertices[3].color_mode, 1);
+            assert!(m.colors_dirty);
+            // and nothing else moved
+            assert_eq!(m.vertices[0].color_mode, before.1);
+        }
+        assert!(sim.is_selected(0, 1));
+
+        assert!(!sim.toggle_facet(0, 1, yellow), "second click deselects");
+        let m = sim.bodies[0].mesh.as_ref().unwrap().borrow();
+        assert_eq!((m.vertices[3].color, m.vertices[3].color_mode), before);
+        assert!(sim.selected_facets.is_empty());
+    }
+
+    #[test]
+    fn clearing_restores_every_one() {
+        let mut sim = cube();
+        let yellow = crate::Vec3::new(1.0, 0.85, 0.1);
+        let before = sim.bodies[0].mesh.as_ref().unwrap().borrow().vertices.clone();
+        for f in [0, 3, 7] {
+            sim.toggle_facet(0, f, yellow);
+        }
+        assert_eq!(sim.selected_facets.len(), 3);
+
+        sim.clear_selection();
+        assert!(sim.selected_facets.is_empty());
+        let m = sim.bodies[0].mesh.as_ref().unwrap().borrow();
+        for (a, b) in m.vertices.iter().zip(&before) {
+            assert_eq!((a.color, a.color_mode), (b.color, b.color_mode));
+        }
+    }
+
+    /// A ray down the +Z axis must hit the cube's top, and the hit must be on
+    /// the surface rather than at the ray's origin.
+    #[test]
+    fn picking_returns_the_nearest_facet_and_where_it_was_hit() {
+        let sim = cube();
+        let hit = sim.pick_facet(crate::Vec3::new(0.0, 0.0, 10.0), -crate::Vec3::Z);
+        let (body, facet, world, local) = hit.expect("a ray at the cube should hit it");
+        assert_eq!(body, 0);
+        assert!(facet < sim.bodies[0].mesh.as_ref().unwrap().borrow().facets.len());
+        // The cube is the unit cube about the origin, so the top is at z = 1.
+        assert!((world.z - 1.0).abs() < 1e-5, "hit {world}");
+        assert_eq!(world, local, "identity transform: the two frames agree");
+
+        assert!(
+            sim.pick_facet(crate::Vec3::new(0.0, 0.0, 10.0), crate::Vec3::Z).is_none(),
+            "a ray pointing away hits nothing"
+        );
+    }
+
+    #[test]
+    fn lat_lon_is_planetocentric_degrees() {
+        assert_eq!(lat_lon(crate::Vec3::new(1.0, 0.0, 0.0)), (0.0, 0.0));
+        assert_eq!(lat_lon(crate::Vec3::new(0.0, 1.0, 0.0)), (0.0, 90.0));
+        assert_eq!(lat_lon(crate::Vec3::new(0.0, 0.0, 2.0)).0, 90.0);
+        assert_eq!(lat_lon(crate::Vec3::ZERO), (0.0, 0.0));
     }
 }

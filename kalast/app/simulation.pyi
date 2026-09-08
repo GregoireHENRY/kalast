@@ -122,6 +122,32 @@ class Simulation:
         each frame, then read this from `after_render`.
         """
         ...
+    selected_facets: list[tuple[int, int]]
+    """The facets picked by clicking, as `(body, facet)` pairs."""
+    def toggle_facet(self, body: int, facet: int) -> bool:
+        """Select a facet, or deselect it if it already is.
+
+        Returns whether it is selected afterwards. The same call a click
+        makes, so a script and the pointer cannot get out of step.
+
+        The facet takes `config.selection_color` and colour-mode 1, which the
+        shader honours for that facet alone; deselecting puts back whatever
+        its vertices had. On an *indexed* mesh those vertices are shared with
+        its neighbours and the colour bleeds -- load with `flatten=True`,
+        which per-facet work wants anyway.
+        """
+        ...
+    def clear_selection(self) -> None:
+        """Put every selected facet back to the colour it had, and empty the list."""
+        ...
+    def pick_facet(self, origin: list[float], direction: list[float]) -> tuple[int, int, list[float], list[float]] | None:
+        """The nearest facet a ray hits, across every body.
+
+        `(body, facet, world_point, body_point)`, or `None`. The body point is
+        in the shape model's own frame, which is what a latitude and longitude
+        have to come from.
+        """
+        ...
     def facet_illumination(self, body: int) -> numpy.object | None:
         """Per-facet direct insolation, normalised: `max(0, cos i) * (1 - occluded)`.
 
