@@ -65,11 +65,16 @@ egui = "0.36"
 egui-wgpu = "0.36"
 egui-winit = "0.36"
 libc = "0.2.189"
+raw-window-handle = "0.6.2"
 
 
 [dev-dependencies]
 rstest = "0.26.1"
 serial_test = "3.4.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponder"] }
 
 # Release (`maturin develop --release`) is what every benchmark and every
 # production run should use; debug is 2-15x slower here, worst on the

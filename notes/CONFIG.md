@@ -214,6 +214,17 @@ This is the **window** and nothing else. For the renderer to take the whole
 window with the panels out of the way, see `app.config.focus` — the two are
 independent, and setting both is rid of everything at once.
 
+**The green button does this too, on macOS.** It is AppKit's
+`toggleFullScreen:` and winit offers no hook, so the window opts out of native
+fullscreen instead — `NSWindowCollectionBehavior::FullScreenPrimary` cleared —
+which turns that button into a plain zoom. A zoom is instant and stays on the
+Space, and `App` reads one as "fullscreen was asked for": it puts the zoom
+back and applies the simple fullscreen. The window therefore remembers the
+size it had before the button was pressed.
+
+`F` toggles it from the keyboard, which is the way out: simple fullscreen
+hides the title bar, and with it the button.
+
 **The transition used to be the expensive part, and is not any more.** Native
 fullscreen — `Fullscreen::Borderless`, what the green button does — moves the
 window to a Space of its own, and that animation was measured stalling the
@@ -234,8 +245,10 @@ swapchain and invalidated the drawable pool while the render loop kept asking
 at full rate.
 
 Simple fullscreen has none of that machinery — it is a resize. Measured over
-140 frames across a toggle at `shadow_pcf = 4`, the worst frame was 25 ms and
-it fell 109 frames *after* the toggle, so it was not the transition at all.
+140 frames across a toggle at `shadow_pcf = 4`, four runs: 24, 25, 26 and
+53 ms, and only twice did the worst frame fall anywhere near the toggle. One
+long frame is what reallocating the swapchain and every render target at a
+larger size costs, and it is the whole of it.
 
 It also took the scale-factor change with it, which is what used to crash a
 green-button fullscreen before `ScaleFactorChanged` was handled at all.

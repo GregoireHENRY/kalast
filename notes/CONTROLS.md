@@ -16,6 +16,7 @@ Handled in `src/app/mod.rs` (`window_event` / `device_event`) and
 | `H` | any | Print camera pos / up / dir / anchor / projection |
 | `P` | any | Toggle simulation pause — the editor's Play/Pause button |
 | `K` | any | Advance one iteration and hold — the editor's Step button |
+| `F` | any | Toggle fullscreen — the same thing the green button does |
 | `T` | any | Toggle camera control, Arcball ⇄ WASD |
 | `W` `A` `S` `D` | WASD | Move forward / left / back / right |
 | `Space` | WASD | Move up |
@@ -26,6 +27,14 @@ Handled in `src/app/mod.rs` (`window_event` / `device_event`) and
 **The editor's Restart has no key, deliberately.** It clears the scene and
 runs the script again, so a keystroke would throw away a long run; it is worth
 having to aim for the button.
+
+### `F` — fullscreen
+
+The same simple fullscreen `simulation.config.fullscreen` gives, and the same
+thing the window's green button does; see `CONFIG.md`.
+
+Worth having as a key because simple fullscreen hides the title bar, and with
+it the button that got you there.
 
 ### `K` — one iteration
 

@@ -5,6 +5,8 @@ pub mod facet_id;
 pub mod facet_shadow;
 pub mod frame;
 pub mod gui;
+#[cfg(target_os = "macos")]
+pub mod macos;
 pub mod hemicube;
 pub mod gpu;
 pub mod pass;
@@ -218,6 +220,13 @@ pub struct App {
     /// Whether the platform event loop has ever been created. See
     /// `ensure_event_loop`.
     event_loop_built: bool,
+    /// Whether the window was zoomed last frame, to catch the edge.
+    ///
+    /// macOS only, and only because the green button is not winit's to
+    /// intercept: native fullscreen is turned off for the window, which makes
+    /// that button a plain zoom, and a zoom is then read as "fullscreen was
+    /// asked for".
+    zoomed: bool,
 }
 
 /// How long `{fps}` and `{its}` average over before updating, in seconds.
@@ -440,6 +449,7 @@ impl App {
             stdio: None,
             want_editor: false,
             event_loop_built: false,
+            zoomed: false,
         }
     }
 
@@ -605,6 +615,23 @@ impl App {
     /// branch is guarded by a comparison: nothing here runs on a frame where
     /// nothing changed, which is every frame in an ordinary run.
     fn apply_live_config(&mut self) {
+        // The green button. Native fullscreen is off for this window, so the
+        // button zooms instead -- instantly, with no Space -- and a zoom is
+        // taken to mean fullscreen was asked for. The zoom is undone before
+        // the simple fullscreen replaces it, so the window remembers the size
+        // it had and `is_zoomed` stops reporting the same press for ever.
+        #[cfg(target_os = "macos")]
+        if let Some(win) = self.window.as_ref() {
+            let zoomed = crate::app::macos::is_zoomed(&win.window);
+            if zoomed && !self.zoomed {
+                crate::app::macos::unzoom(&win.window);
+                let cfg = self.sim_config();
+                let want = !cfg.borrow().fullscreen;
+                cfg.borrow_mut().fullscreen = want;
+            }
+            self.zoomed = zoomed;
+        }
+
         // Cheap enough to copy unconditionally -- plain scalars into a struct
         // this owns, no GPU resource behind them.
         {
@@ -1003,6 +1030,10 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
         // After creation, not through `with_fullscreen`: that attribute can
         // only ask for the native kind, and simple fullscreen is a call on a
         // window that exists.
+        // Before anything else can press it.
+        #[cfg(target_os = "macos")]
+        crate::app::macos::disable_native_fullscreen(&win);
+
         if self.sim_config().borrow().fullscreen {
             set_window_fullscreen(&win, true);
         }
@@ -1398,6 +1429,15 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         if self.sim_config().borrow().debug_app {
                             println!("[APP] Simulation paused={}", pause);
                         }
+                    }
+
+                    // A way out of fullscreen. Needed on macOS in particular:
+                    // simple fullscreen hides the title bar, and with it the
+                    // green button that got you there.
+                    (winit::keyboard::KeyCode::KeyF, true) => {
+                        let cfg = self.sim_config();
+                        let want = !cfg.borrow().fullscreen;
+                        cfg.borrow_mut().fullscreen = want;
                     }
 
                     // One iteration, then hold: exactly what the editor's
