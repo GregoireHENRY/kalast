@@ -493,10 +493,7 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation) {
         }
     });
 
-    // "Recording" rather than "Export", because the config section further
-    // down this same list is called Export and holds where the frames go
-    // and how they are written. This is only the switch.
-    group(ui, "Recording", false, |ui| {
+    group(ui, "Export", false, |ui| {
         ui.checkbox(&mut sim.export, "export")
             .on_hover_text("Write every frame from now on");
         if ui
@@ -507,7 +504,7 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation) {
             sim.export_once = true;
         }
         ui.label(
-            egui::RichText::new("Where they land is under Export")
+            egui::RichText::new("Where they land is under Config > Export")
                 .weak()
                 .small(),
         );

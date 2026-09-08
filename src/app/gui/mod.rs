@@ -506,11 +506,10 @@ impl Editor {
                     ui.label(egui::RichText::new("Simulation").strong());
                     ui.separator();
                     egui::ScrollArea::vertical().show(ui, |ui| {
-                        // One flat list of sections. The config belongs to
-                        // the simulation, so its groups are categories of
-                        // it in the same sense State and Bodies are, and
-                        // giving them a heading of their own only made them
-                        // look like a different kind of thing.
+                        // One section per field of the simulation -- state,
+                        // bodies, camera, and so on -- and the config is one
+                        // of those fields, so it is one of those sections
+                        // with its own groups inside it.
                         //
                         // What the run *is* comes first -- bodies loaded,
                         // where the camera and Sun are, what the last frame
@@ -519,10 +518,12 @@ impl Editor {
                         simulation_panel::simulation_panel(ui, &mut sim);
                         drop(sim);
 
-                        // Generated from `src/app/config.rs`, so a field
-                        // added there gets a widget without anyone
-                        // remembering to add one here.
-                        config_panel::config_panel(ui, config, app_config);
+                        ui.collapsing("Config", |ui| {
+                            // Generated from `src/app/config.rs`, so a field
+                            // added there gets a widget without anyone
+                            // remembering to add one here.
+                            config_panel::config_panel(ui, config, app_config);
+                        });
                     });
                 };
 
