@@ -12,7 +12,6 @@ Handled in `src/app/mod.rs` (`window_event` / `device_event`) and
 
 | Key | Mode | Does |
 |---|---|---|
-| `Escape` | any | Quit, flushing the frame-export queue first |
 | `H` | any | Print camera pos / up / dir / anchor / projection |
 | `P` | any | Toggle simulation pause — the editor's Play/Pause button |
 | `K` | any | Advance one iteration and hold — the editor's Step button |
@@ -45,7 +44,11 @@ apart.
 
 Nothing happens while a script has not run — there is no iteration to take.
 
-### `Escape` — quit
+### Quitting
+
+**`Escape` is deliberately not bound.** It used to quit, which is a long run
+thrown away by the key most often pressed to mean "stop what you are doing".
+Closing the window does it instead, or ⌘Q.
 
 `App::exit` blocks on `FrameExporter::finish()` before quitting, so every
 queued frame reaches disk. Killing the process instead loses whatever is still

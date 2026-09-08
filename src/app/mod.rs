@@ -1351,7 +1351,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                             scene_generation,
                             &mut sim_cfg.borrow_mut(),
                             &mut self.config.borrow_mut(),
-                            &mut sim.state,
+                            &mut sim,
                             &mut self.shared.borrow_mut(),
                             self.fps_shown as f32,
                         )
@@ -1419,7 +1419,10 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 self.controller.handle_key(code, is_pressed);
 
                 match (code, is_pressed) {
-                    (winit::keyboard::KeyCode::Escape, true) => self.exit(ev),
+                    // `Escape` is deliberately not bound. It quit, which is a
+                    // long run thrown away by the key most often pressed to
+                    // mean "stop what you are doing" -- and quitting is
+                    // already the window's close button, and Cmd-Q.
                     (winit::keyboard::KeyCode::Space, true) => {
                         // let win = self.window.as_mut().unwrap();
                         // win.toggle_color_xy = !win.toggle_color_xy;
