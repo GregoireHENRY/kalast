@@ -151,15 +151,12 @@ fn mesh_ui(ui: &mut egui::Ui, mesh: &crate::mesh::Mesh) {
     // Not "winding", which is the order the three are listed in and
     // decides which way the normal points -- a different property, and the
     // one `flip_facets` repairs.
-    row(
-        ui,
-        "shading",
-        if mesh.is_flat() {
-            "flat (vertices per facet)"
-        } else {
-            "smooth (vertices shared)"
-        },
-    );
+    row(ui, "shading", if mesh.is_flat() { "flat" } else { "smooth" })
+        .on_hover_text(
+            "Flat means every facet owns its three vertices instead of sharing \
+             corners with its neighbours, so each shades as a plate and a \
+             per-facet value colours exactly one triangle. What flatten=True asks for.",
+        );
     // Three rows rather than one long one: a side panel is narrow, and a
     // row wide enough to hold six numbers makes the whole panel that wide.
     let b = &mesh.bounds;
