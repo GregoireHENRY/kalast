@@ -12,6 +12,7 @@
 //! costs a sampler, not a copy.
 
 mod config_panel;
+mod simulation_panel;
 
 use std::collections::VecDeque;
 
@@ -257,7 +258,7 @@ impl Editor {
         scene_generation: u64,
         config: &mut crate::app::config::Config,
         app_config: &mut crate::app::config::AppConfig,
-        state: &mut crate::app::simulation::State,
+        sim: &mut crate::app::simulation::Simulation,
         shared: &mut crate::app::Shared,
         iteration_rate: f32,
     ) -> (u32, u32) {
@@ -277,6 +278,12 @@ impl Editor {
             self.registered_size = scene_size;
             self.registered_generation = scene_generation;
         }
+
+        // Two panel closures both want the simulation -- the toolbar reads
+        // the clock, the inspector shows everything else -- and both are
+        // built before either runs. Only one is ever entered per frame, but
+        // the borrow checker cannot see that, so the check moves to runtime.
+        let sim = std::cell::RefCell::new(sim);
 
         let mut raw = self.state.take_egui_input(window);
         // Lay out for what is being drawn into, not for the window.
@@ -329,7 +336,7 @@ impl Editor {
         let (mut run_request, mut open_request, mut save_request) = (false, false, false);
         let mut restart_request = false;
 
-        let output = self.ctx.run_ui(raw, |ui_root| {
+        let mut output = self.ctx.run_ui(raw, |ui_root| {
             let ppp = ui_root.ctx().pixels_per_point();
 
             // The scene itself, drawn the same way in both layouts and
@@ -359,6 +366,8 @@ impl Editor {
             // Each panel's contents, named once so the same code can go in a
             // side panel or a floating one.
             let toolbar_ui = |ui: &mut egui::Ui| {
+                let mut sim = sim.borrow_mut();
+                let state = &mut sim.state;
                 ui.horizontal(|ui| {
                     // Play is the only way to start. A separate Run was the
                     // same button twice: both meant "go", and you had to press
@@ -494,9 +503,19 @@ impl Editor {
                     });
                 };
             let config_ui = |ui: &mut egui::Ui| {
-                    ui.label(egui::RichText::new("Config").strong());
-                    ui.separator();
                     egui::ScrollArea::vertical().show(ui, |ui| {
+                        // What the run *is* -- bodies loaded, where the
+                        // camera and Sun are, what the last frame could see
+                        // -- above what it was asked to be.
+                        ui.label(egui::RichText::new("Simulation").strong());
+                        ui.separator();
+                        let mut sim = sim.borrow_mut();
+                        simulation_panel::simulation_panel(ui, &mut sim);
+                        drop(sim);
+
+                        ui.add_space(10.0);
+                        ui.label(egui::RichText::new("Config").strong());
+                        ui.separator();
                         // Generated from `src/app/config.rs`, so a field
                         // added there gets a widget without anyone
                         // remembering to add one here.
@@ -775,6 +794,11 @@ impl Editor {
         for id in &output.textures_delta.free {
             self.renderer.free_texture(id);
         }
+        // Both lists are iterated by reference, which leaves them full, and
+        // epaint asserts in debug builds that a delta it handed out was
+        // consumed -- so a debug editor panicked on its first frame, on a
+        // path a release build never checks.
+        output.textures_delta.clear();
 
         self.viewport_size
     }
