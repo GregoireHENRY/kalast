@@ -202,6 +202,9 @@ pub struct App {
     /// pumps until it flips, which is what makes one call mean one frame
     /// rather than one batch of events.
     frame_drawn: bool,
+    /// Whether the loop is being driven by `step()` rather than owned by
+    /// `start()`. Only the stepped one has to stop at one frame per call.
+    stepping: bool,
 
     /// The values the live window was built with, to diff the config
     /// against. `None` until there is a window.
@@ -451,6 +454,7 @@ impl App {
 
             event_loop: None,
             frame_drawn: false,
+            stepping: false,
             realised: None,
             editor: None,
             stdio: None,
@@ -547,6 +551,9 @@ impl App {
 
     /// Run the loop to completion. **Blocks until the window closes.**
     pub fn start(&mut self) {
+        // `start()` owns the loop and draws continuously; the one-frame
+        // guard belongs only to the stepped path.
+        self.stepping = false;
         self.ensure_event_loop();
         // `run_app` consumes the loop, so this app cannot be started or
         // stepped again afterwards -- which is the truth on the platform
@@ -594,6 +601,7 @@ impl App {
             }
         };
 
+        self.stepping = true;
         self.frame_drawn = false;
         // A frame that never arrives would hang the caller's loop with no
         // way out, so give up rather than spin forever -- a window that
@@ -1234,6 +1242,21 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 win.resize(size.width, size.height, &sim_cfg.borrow());
             }
             winit::event::WindowEvent::RedrawRequested => {
+                // One `step()` is one frame, and this is what makes that
+                // true. The handler re-requests a redraw on entry, so a
+                // single `pump_app_events` dispatches every redraw it can
+                // feed itself: a tight Rust loop got about five frames per
+                // call, five `update()`s, and the work done before the call
+                // applied to only the first of them -- exactly the mismatch
+                // between a moved Sun and the shadow map that the
+                // before/after-`step()` idiom exists to avoid. Python's
+                // slower loop happened to get one, so it never showed there.
+                //
+                // The redraw stays requested, so the next `step()` has one
+                // waiting and loses nothing.
+                if self.stepping && self.frame_drawn {
+                    return;
+                }
                 {
                     let win = self.window.as_mut().unwrap();
                     win.window.request_redraw();

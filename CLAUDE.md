@@ -161,6 +161,12 @@ here more than once:
 
 Take medians over repeats and discard the first run after a rebuild.
 
+**A Rust example and the Python module do not compare end to end** -- not yet.
+A `cargo` example binary sits pinned at the panel's refresh rate whatever the
+workload, while the extension module does not, with the same adapter, the same
+surface size and `Immediate` granted to both. Compare the loop *body* if you
+want a language number; see `notes/2026-09-08_step_one_frame_and_a_bad_benchmark.md`.
+
 **The occluded-window rule is gone; the cause was a bug, now fixed.** This
 file used to say to keep the render window visible and frontmost, because
 occluded runs came in at 1.8-64 it/s beside siblings agreeing within 1 it/s.

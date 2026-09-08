@@ -633,6 +633,11 @@ impl Window {
 
         // List of supported configurations by the adapter, device, surface.
         if config.debug_window {
+            let info = adapter.get_info();
+            println!(
+                "[WINDOW] adapter {:?} {:?} backend {:?} driver {:?}",
+                info.name, info.device_type, info.backend, info.driver
+            );
             println!("[WINDOW] adapter features: {}", adapter.features());
             println!("[WINDOW] device features: {}", device.features());
             println!(
@@ -1123,7 +1128,14 @@ impl Window {
         self.is_surface_configured = true;
         if !is_surface_configured && self.is_surface_configured {
             if config.debug_window {
-                println!("[WINDOW] surface is now configured")
+                println!(
+                    "[WINDOW] surface configured {}x{} physical, scale {:.2}, render {}x{}",
+                    self.surface_config.width,
+                    self.surface_config.height,
+                    self.window.scale_factor(),
+                    self.render_size.0,
+                    self.render_size.1
+                )
             }
         }
     }
@@ -2056,11 +2068,29 @@ fn build_globals(
 /// choice before this was configurable, which meant a GPU fast enough to
 /// beat the display refresh rate was silently capped by it.
 fn pick_present_mode(caps: &wgpu::SurfaceCapabilities, vsync: bool) -> wgpu::PresentMode {
-    pick_present_mode_from(&caps.present_modes, vsync)
+    let picked = pick_present_mode_from(&caps.present_modes, vsync);
+    // Printed unconditionally rather than under `debug_window`, because a
+    // `vsync = false` that silently got `Fifo` is the difference between a
+    // number that means something and the panel's refresh rate, and it has
+    // already produced one wrong conclusion in this repo's notes.
+    if !vsync && picked != wgpu::PresentMode::Immediate {
+        println!(
+            "[WINDOW] vsync is off but this surface offers no Immediate mode:              presenting {picked:?}, so the loop runs at the display refresh rate.              Available: {:?}",
+            caps.present_modes
+        );
+    }
+    picked
 }
 
 /// Same choice from the mode list alone, for a `vsync` change made after the
 /// adapter has been dropped.
+/// Which present mode a `vsync` setting actually gets.
+///
+/// `vsync = false` asks for `Immediate` and **does not always get it**: a
+/// surface that does not offer it falls back to `modes[0]`, which is `Fifo`
+/// on Metal -- so the loop runs at the panel's refresh rate no matter what
+/// the config says. Worth knowing before reading any it/s figure; the
+/// `debug_window` print below names what was chosen.
 fn pick_present_mode_from(modes: &[wgpu::PresentMode], vsync: bool) -> wgpu::PresentMode {
     let wanted = if vsync {
         wgpu::PresentMode::Fifo

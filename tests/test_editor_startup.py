@@ -117,6 +117,44 @@ def test_step_advances_exactly_one_rendered_iteration() -> None:
     assert paused, "and it should be held again afterwards"
 
 
+def test_one_step_is_one_frame() -> None:
+    """`step()` must draw exactly one frame, not "at least one".
+
+    The redraw handler re-requests a redraw on entry, so a single
+    `pump_app_events` dispatches every redraw it can feed itself. A tight Rust
+    loop got about five frames per `step()` -- five `update()`s, with the work
+    done before the call applied to only the first of them, which is exactly
+    the mismatch between a moved Sun and the shadow map that the
+    before/after-`step()` idiom exists to avoid. Python's slower loop happened
+    to get one, so it never showed here.
+    """
+    path = ROOT / "tests" / "_step_probe.py"
+    path.write_text(textwrap.dedent("""
+        from kalast.app import App
+
+        app = App()
+        app.config.width, app.config.height = 320, 240
+        app.simulation.config.vsync = False
+
+        steps = 0
+        while steps < 40 and app.step():
+            steps += 1
+        print("STEPS %d %d" % (steps, app.simulation.state.iteration), flush=True)
+    """))
+    try:
+        r = subprocess.run([sys.executable, str(path)], capture_output=True,
+                           text=True, timeout=120, cwd=ROOT)
+    finally:
+        path.unlink(missing_ok=True)
+    line = next((l for l in r.stdout.splitlines() if l.startswith("STEPS")), None)
+    assert line, "probe produced nothing:\n" + r.stdout + r.stderr
+    _, steps, iteration = line.split()
+    assert steps == "40", f"the loop should have run 40 times, got {steps}"
+    assert iteration == steps, (
+        f"{steps} steps must be {steps} iterations, got {iteration}"
+    )
+
+
 def main() -> int:
     failed = 0
     for name, fn in sorted(globals().items()):
