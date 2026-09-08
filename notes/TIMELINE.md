@@ -1125,4 +1125,6 @@ field names would have nothing useful to say about a `Mat4`.
   cast at the call.
 - A non-unit `camera.dir` aborts the process rather than raising: the panic
   happens inside winit's launch callback, which cannot unwind.
-- Shadow bias is not calibrated against the crater's exact 63.281 %.
+- Shadow bias is not calibrated against the crater's exact 63.281 %. The
+  *slope* term now is, against ray-traced truth -- see
+  `notes/2026-09-08_shadow_bias.md` -- which leaves the absolute figure open.

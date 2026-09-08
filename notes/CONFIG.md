@@ -931,6 +931,13 @@ So `shadow_bias_scale` sets the angle-dependent term and
 `src/app/window.rs:203,204`.
 Accepted: any float `>= 0.0`.
 
+`None` fits both from the light frustum and the shadow map size, in units of
+one texel's depth: **one** texel-depth for the slope term and one for the
+floor. The slope factor was ten until it was measured against ray-traced
+truth, at which point it turned out to be lighting the night side -- a crater
+with the Sun below its plane reported up to 0.6 % of facets sunlit. See
+`notes/2026-09-08_shadow_bias.md`.
+
 **A receiver-plane term is applied per PCF tap**, on top of these. The
 gradient `d(depth)/d(uv)` is derived from the facet normal and the layer
 matrix, so a tap at `offset` compares against `depth + dot(offset, grad)` --

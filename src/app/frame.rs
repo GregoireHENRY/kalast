@@ -169,6 +169,33 @@ pub struct ShadowFit {
 /// different `shadow_resolution`, gets consistent results without retuning.
 /// Hand-picked constants cannot do that -- values tuned for a 780 m body seen
 /// from 25 km are meaningless for anything else.
+/// Slope term, in units of one texel's depth. Multiplied by `(1 - N.L)^2` in
+/// the shader, so it is at its largest at grazing incidence -- where a shadow
+/// texel covers the most depth, and where light therefore leaks.
+///
+/// **Was 10, which lit the night side.** A crater with the Sun below its
+/// plane reported 0.0-0.6 % of facets sunlit, flickering as the Sun moved,
+/// because the grazing-angle bias let the far wall escape a shadow test that
+/// the ray tracer says it fails. At 1 that is 0.00 % at every angle from
+/// 100 deg to 260 deg, with no acne appearing in exchange: measured against
+/// ray-traced truth over 15 Sun angles, false-lit facets fall from 288 to
+/// 250 and false-dark stays at 0. The remaining 250 are terminator facets
+/// straddling a shadow edge, which report partial occlusion rather than
+/// none.
+///
+/// See `notes/2026-09-08_shadow_bias.md` for the sweep.
+pub const BIAS_SCALE_FACTOR: Float = 1.0;
+
+/// Floor, in units of one texel's depth, for surfaces facing the light
+/// head-on. Not reducible: at 0 the same sweep grows 24 false-dark facets,
+/// which is acne.
+pub const BIAS_MIN_FACTOR: Float = 1.0;
+
+/// Normal offset, in texels. One texel diagonal is the worst-case in-texel
+/// distance a surface can span, and the sweep confirms it: 0.7 is slightly
+/// worse, 0.3 doubles the false-lit count, and 0 produces 498 false-dark.
+pub const NORMAL_OFFSET_FACTOR: Float = std::f64::consts::SQRT_2 as Float;
+
 pub fn fit_shadow(light: &Resolved, shadow_resolution: u32) -> ShadowFit {
     let resolution = shadow_resolution.max(1) as Float;
 
@@ -184,12 +211,12 @@ pub fn fit_shadow(light: &Resolved, shadow_resolution: u32) -> ShadowFit {
     ShadowFit {
         // Push the sample about one texel diagonal along the normal, which is
         // the worst-case in-texel distance a surface can span.
-        normal_offset_scale: (world_per_texel * std::f64::consts::SQRT_2 as Float) as f32,
+        normal_offset_scale: (world_per_texel * NORMAL_OFFSET_FACTOR) as f32,
         // Slope term: at grazing angles a texel covers far more depth, and
         // this is multiplied by (1 - N.L)^2 in the shader.
-        bias_scale: (texel_depth * 10.0) as f32,
+        bias_scale: (texel_depth * BIAS_SCALE_FACTOR) as f32,
         // Floor for surfaces facing the light head-on.
-        bias_minimum: texel_depth as f32,
+        bias_minimum: (texel_depth * BIAS_MIN_FACTOR) as f32,
     }
 }
 
