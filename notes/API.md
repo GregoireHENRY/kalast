@@ -206,14 +206,16 @@ Rust struct and guarded by a test, so an option cannot be added without a
 widget appearing. See the top of `CONFIG.md`.
 
 **The simulation is covered except for one cluster.** State, bodies, camera,
-Sun, HUDs and export all have sections, and bodies can be added, removed,
-reloaded, reshaded and transformed there. Not covered:
+Sun, HUDs, selection and export all have sections. Bodies can be added,
+removed, reloaded, reshaded and transformed there; HUDs added, removed,
+shaped and pinned; facets selected by clicking the scene or by index. Not
+covered:
 
 | | |
 |---|---|
 | `facet_shadow`, `facet_id_map`, `hemicube` and their `request_*` | a query is only half of it -- a result needs somewhere to be looked at, and a per-facet array is not a side panel |
 | the camera's control mode and aiming helpers | bound to keys already (`T` cycles the mode), and `view_along` belongs to a figure being composed, not to a settings list |
-| `flip_facets`, `inward_facing_facets`, `intersect`, `recompute_facets`, `mark_colors_dirty`, `update_all_vertices_colors` | surgery on a mesh, done once when a shape model turns out to be wrong, not while a run is going |
+| `flip_facets`, `inward_facing_facets`, `recompute_facets`, `mark_colors_dirty`, `update_all_vertices_colors` | surgery on a mesh, done once when a shape model turns out to be wrong, not while a run is going. `intersect` is no longer among them -- it is what a click uses to pick a facet |
 
 **Some members are not panel-shaped at all** and are excluded from that count:
 program entry points (`start`, `start_editor`, `tick`), the editor's own

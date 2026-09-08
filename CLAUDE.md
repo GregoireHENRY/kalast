@@ -121,6 +121,13 @@ instead of hardcoding would remove this whole problem, and is not done.
   benchmark or real data run. Not just timing work: any run whose output you
   intend to keep or publish.
 
+**The Python module and a Rust example are two separate builds.** `maturin
+develop` updates what `python -m kalast` and every `.py` run use; `cargo build
+--release --example <name>` updates the example binary. A change to shared
+code needs both, and neither command warns that the other is stale -- which
+looks exactly like the change not working. The editor's `compile` button
+covers the example side for you; from a terminal, remember both.
+
 Debug is 2-15x slower here, worst on the per-pixel frame-export loops
 (measured 22.6 -> 53.1 it/s at 3.1M facets with export on), so a debug data
 run wastes hours for nothing.

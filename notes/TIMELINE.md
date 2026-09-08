@@ -1119,6 +1119,32 @@ The simulation panel beside it is hand-written on purpose: it shows runtime
 state -- facet counts, fitted frustums, HUD text -- where a generator reading
 field names would have nothing useful to say about a `Mat4`.
 
+### The editor grew teeth, and four bugs came out of it
+
+Using the editor on real scenes found things that scripts had been quietly
+living with. Each has its own note or its own entry above; together they are
+the reason this stretch is worth reading.
+
+- **`step()` drew more than one frame.** The redraw handler re-requests a
+  redraw on entry, so one pump could dispatch five, and the work done before
+  the call applied to only the first. Python's slower loop happened to get
+  one, so it took a Rust example to show it.
+  `notes/2026-09-08_step_one_frame_and_a_bad_benchmark.md`.
+- **The shadow bias lit the night side.** Ten texel-depths of slope term,
+  largest exactly at grazing incidence. Calibrated against ray-traced truth;
+  `notes/2026-09-08_shadow_bias.md`.
+- **The editor viewport was a gamma too dark**, all of it, from one sRGB
+  decode too many. `notes/2026-09-08_editor_gamma.md`.
+- **`lit` was counting facets nothing was blocking**, not facets in sunlight.
+  With the Sun on the far side it read 99.2 % where the answer is 0.
+  `sim.facet_illumination` is the quantity; see `API.md`.
+
+What the editor gained, all documented where it belongs rather than here:
+bodies that can be reloaded, reshaded, added and removed; HUDs that can be
+added, shaped and pinned away from a script; `app.config.toolbar` as a
+template; facet selection by clicking; and Rust examples that compile and
+launch from the Script panel.
+
 ### Still open
 
 - ~32 Python-facing arguments reject float64, so a numpy scalar has to be
@@ -1128,3 +1154,19 @@ field names would have nothing useful to say about a `Mat4`.
 - Shadow bias is not calibrated against the crater's exact 63.281 %. The
   *slope* term now is, against ray-traced truth -- see
   `notes/2026-09-08_shadow_bias.md` -- which leaves the absolute figure open.
+- **250 facet-instances over 15 Sun angles** still disagree with a
+  centroid ray, all reporting occlusion of 0.5 or 0.75. They are facets
+  straddling a shadow edge and a centroid ray cannot adjudicate them; a
+  vertex ray is worse, because one launched from a shared vertex escapes
+  between facets.
+- **A Rust example and the Python module do not compare end to end.** The
+  example binary sits pinned at the display refresh whatever the workload
+  while the module does not, with the same adapter, the same surface and
+  `Immediate` granted to both. Until that is understood, compare the loop
+  *body* and nothing else.
+- **A Rust example cannot be hosted in the editor's window.** It owns its
+  `main`, its window and its event loop, so Play hands the window over
+  instead. Genuinely hosting one means either rendering it headless into a
+  shared surface with input forwarded over IPC, or loading it as a dynamic
+  library into the editor -- the second is how Rust hot-reload frameworks
+  do it, and the only one that is one process.
