@@ -1093,6 +1093,19 @@ impl StdioCapture {
     /// Redirect stdout and stderr into a pipe. `None` if that fails, in which
     /// case output keeps going to the terminal and the panel stays empty --
     /// worth nobody's run failing over.
+    #[cfg(not(unix))]
+    pub fn new() -> Option<Self> {
+        // Windows has no `dup2` on descriptor 1, and the equivalent
+        // (`SetStdHandle` plus a CRT `_dup2`) does not redirect what Rust's
+        // `println!` already holds, nor what a Python extension writes
+        // through its own CRT. Capture is therefore unavailable here, which
+        // is a supported outcome rather than a failure: output keeps going to
+        // the terminal and the editor's log panel stays empty. Everything
+        // downstream already takes `Option` and handles `None`.
+        None
+    }
+
+    #[cfg(unix)]
     pub fn new() -> Option<Self> {
         use std::os::fd::{AsRawFd as _, FromRawFd as _};
 
@@ -1136,6 +1149,13 @@ impl StdioCapture {
     /// anything written after the last frame -- which includes everything a
     /// script prints on its way out -- would be swallowed with the pipe. A
     /// test that printed its result and stopped saw nothing at all.
+    #[cfg(not(unix))]
+    fn restore(&mut self) {
+        // Unreachable: `new` returns `None` on Windows, so no instance
+        // exists to drop. Present so the type compiles.
+    }
+
+    #[cfg(unix)]
     fn restore(&mut self) {
         use std::io::{Read as _, Write as _};
         use std::os::fd::AsRawFd as _;
