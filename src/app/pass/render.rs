@@ -20,7 +20,10 @@ pub fn create_render_target(
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT
             | wgpu::TextureUsages::COPY_SRC
             | wgpu::TextureUsages::TEXTURE_BINDING,
-        view_formats: &[],
+        // The non-sRGB twin is allowed as a view, so the editor can sample
+        // the stored bytes without the hardware converting them to linear
+        // first. See `Editor::draw`.
+        view_formats: &[format.remove_srgb_suffix()],
     });
 
     let view = texture.create_view(&Default::default());

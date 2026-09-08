@@ -294,7 +294,19 @@ impl Editor {
             || self.registered_size != scene_size
             || self.registered_generation != scene_generation
         {
-            let view = scene.create_view(&wgpu::TextureViewDescriptor::default());
+            // A *non-sRGB* view of an sRGB texture: sampling returns the
+            // stored bytes unchanged instead of converting them to linear.
+            //
+            // The scene is already encoded -- it is what an exported frame
+            // contains, and what the plain window blits -- so egui must pass
+            // it through, not decode it. With the default view the editor
+            // showed every colour raised to the gamma: a flat 0.5 grey
+            // measured 0.216 on screen, 0.5^2.2, against 0.502 in the plain
+            // window and 0.502 in the exported PNG.
+            let view = scene.create_view(&wgpu::TextureViewDescriptor {
+                format: Some(scene.format().remove_srgb_suffix()),
+                ..Default::default()
+            });
             if let Some(id) = self.viewport_texture.take() {
                 self.renderer.free_texture(&id);
             }
