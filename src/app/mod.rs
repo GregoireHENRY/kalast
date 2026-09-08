@@ -1074,25 +1074,69 @@ impl App {
             .toggle_facet(body, facet, color);
 
         let (lat, lon) = crate::app::simulation::lat_lon(local);
-        let list = {
+        let (list, geometry) = {
             let sim = self.simulation.borrow();
-            let mut v: Vec<String> = sim
+
+            // Sorted as numbers, not as text: string order put facet 1322
+            // ahead of 553.
+            let mut pairs: Vec<(usize, usize)> = sim
                 .selected_facets
                 .iter()
-                .map(|s| format!("{}:{}", s.body, s.facet))
+                .map(|s| (s.body, s.facet))
                 .collect();
-            v.sort();
-            v
+            pairs.sort_unstable();
+            let many = sim.bodies.len() > 1;
+            let list: Vec<String> = pairs
+                .iter()
+                .map(|(b, f)| {
+                    if many {
+                        format!("{b}:{f}")
+                    } else {
+                        f.to_string()
+                    }
+                })
+                .collect();
+
+            // Everything below is in the body's own frame, which is where the
+            // mesh data lives and what a script indexes.
+            let geometry = sim.bodies.get(body).and_then(|b| b.mesh.as_ref()).map(|m| {
+                let m = m.borrow();
+                let f = m.facets[facet];
+                let v = m.get_facet_positions(facet).map(|p| *p);
+                (f.normal, f.pos, f.area, v)
+            });
+            (list, geometry)
         };
+
         println!(
             "{} body {body} facet {facet}",
             if now_selected { "selected" } else { "deselected" }
         );
-        println!("  hit world {:.6} {:.6} {:.6}", world.x, world.y, world.z);
         println!(
-            "  hit body  {:.6} {:.6} {:.6}   lat {lat:.4} lon {lon:.4}",
+            "  hit    {:.6} {:.6} {:.6}   lat {lat:.4} lon {lon:.4}",
             local.x, local.y, local.z
         );
+        // Only when the two differ. With the body at the origin unrotated
+        // they are the same numbers, and printing them twice says nothing.
+        if (world - local).length() > 1e-9 {
+            println!(
+                "  world  {:.6} {:.6} {:.6}",
+                world.x, world.y, world.z
+            );
+        }
+        if let Some((normal, center, area, v)) = geometry {
+            println!(
+                "  normal {:.6} {:.6} {:.6}",
+                normal.x, normal.y, normal.z
+            );
+            println!(
+                "  center {:.6} {:.6} {:.6}   area {area:.6}",
+                center.x, center.y, center.z
+            );
+            for (i, p) in v.iter().enumerate() {
+                println!("  v{i}     {:.6} {:.6} {:.6}", p.x, p.y, p.z);
+            }
+        }
         println!(
             "  selected ({}): {}",
             list.len(),
