@@ -111,9 +111,27 @@ class Config:
     debug_light_cube_show: bool
     """Draw a cube at the light's position, so the Sun is visible.
 
-    Size comes from `light_cube_scale`. The camera's far plane fits to scene
-    bounds, which exclude the Sun, so seeing it usually means pinning
+    Size comes from `light_cube_scale`. On its own this usually shows
+    nothing: the camera's far plane is fitted to the bodies, and the Sun
+    is well outside them. Turn on `debug_light_cube_fit` as well, or pin
     `camera.projection.far` past it.
+    """
+    debug_light_cube_fit: bool
+    """Fit the camera's frustum around the light cube too, not just the
+    bodies.
+
+    What makes `debug_light_cube_show` show something. Without it the Sun
+    sits past the fitted far plane and is clipped away -- correctly, since
+    the fit is about the geometry being studied.
+
+    The **camera** only. The light's own frustum stays fitted to the
+    bodies, because it is what the shadow map covers: stretching it to the
+    Sun would spend the whole map on empty space and leave the bodies a
+    few texels across.
+
+    Costs the depth range: a far plane at the Sun rather than at the
+    body's edge is a much longer near-to-far span, so depth precision
+    drops. For looking at where the light is, not for a figure.
     """
     title: str
     """The OS window title."""

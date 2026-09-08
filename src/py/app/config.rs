@@ -394,6 +394,16 @@ impl Config {
     }
 
     #[getter]
+    fn debug_light_cube_fit(&self) -> bool {
+        self.config.borrow().debug_light_cube_fit
+    }
+
+    #[setter]
+    fn set_debug_light_cube_fit(&mut self, v: bool) {
+        self.config.borrow_mut().debug_light_cube_fit = v;
+    }
+
+    #[getter]
     fn title(&self) -> String {
         self.config.borrow().title.clone()
     }
