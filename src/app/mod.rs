@@ -1333,9 +1333,9 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
         } else {
             0.7
         };
-        let (auto_w, auto_h) = ev
-            .primary_monitor()
-            .or_else(|| ev.available_monitors().next())
+        let monitor = ev.primary_monitor().or_else(|| ev.available_monitors().next());
+        let (auto_w, auto_h) = monitor
+            .as_ref()
             .map(|m| {
                 let s = m.size();
                 (
@@ -1354,6 +1354,23 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
         let mut attrs = winit::window::Window::default_attributes()
             .with_inner_size(size)
             .with_title(&self.sim_config().borrow().title);
+
+        // Centre on *one* monitor, not on the desktop. Left to the window
+        // manager, a window on a multi-monitor desktop is centred on the
+        // whole virtual area -- on two 1920-wide screens that puts a
+        // 1648-wide window at x = 1096, straddling the join, so it reads as
+        // being bigger than a screen when it is only in the wrong place.
+        //
+        // `monitor.position()` is the monitor's own origin in desktop
+        // coordinates, so this works whichever monitor is primary and
+        // whatever their arrangement.
+        if let Some(m) = monitor.as_ref() {
+            let origin = m.position();
+            let s = m.size();
+            let x = origin.x + ((s.width as i32 - size.width as i32) / 2).max(0);
+            let y = origin.y + ((s.height as i32 - size.height as i32) / 2).max(0);
+            attrs = attrs.with_position(winit::dpi::PhysicalPosition::new(x, y));
+        }
 
         let win = Arc::new(ev.create_window(attrs).unwrap());
         // After creation, not through `with_fullscreen`: that attribute can
