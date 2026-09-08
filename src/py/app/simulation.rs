@@ -135,6 +135,44 @@ impl Simulation {
         );
     }
 
+    /// Take a body out of the scene, by index.
+    ///
+    /// The bodies after it shift down, so an index held across this call
+    /// means a different body -- including `camera.anchor_body`, which is
+    /// followed by index and will quietly follow its neighbour.
+    ///
+    /// There was no way to do this from a script at all: `bodies` hands back
+    /// fresh wrappers, so removing from that list removes from a copy, and
+    /// the only route was `reset()` and loading everything again.
+    fn remove_body(&mut self, index: usize) -> PyResult<()> {
+        let mut sim = self.inner.borrow_mut();
+        if index >= sim.bodies.len() {
+            return Err(pyo3::exceptions::PyIndexError::new_err(format!(
+                "body index {index} out of range: {} loaded",
+                sim.bodies.len()
+            )));
+        }
+        sim.bodies.remove(index);
+        // Every slot after it now means a different body, so the GPU
+        // buffers cannot be reused by index.
+        sim.meshes_dirty = true;
+        Ok(())
+    }
+
+    /// Rebuild the GPU buffers from the meshes on the next frame.
+    ///
+    /// Call after changing a mesh's *shape* rather than its placement --
+    /// `mesh.flatten()`, `mesh.smoothen()`, replacing its vertices. The
+    /// buffers are built from the meshes once and thereafter only the
+    /// transforms are re-uploaded, so without this the render goes on
+    /// showing the geometry as it was, with no error to say so.
+    ///
+    /// Moving a body needs nothing: `body.mat` is uploaded every frame.
+    /// Colours have their own, cheaper route in `mesh.mark_colors_dirty()`.
+    fn rebuild_meshes(&mut self) {
+        self.inner.borrow_mut().meshes_dirty = true;
+    }
+
     #[getter]
     /// Whether every frame is exported. Destination is `config.export_dir`.
     fn export(&self) -> bool {

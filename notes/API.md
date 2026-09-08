@@ -133,6 +133,33 @@ layout instead. `render(None, …)` is the call for that, and it is the same
 path an occluded window already takes: a full frame minus the blit and the
 present.
 
+### Driving the editor from a script
+
+The editor's own loop lives in `kalast/__main__.py` rather than inside
+`start_editor()`, because a script has to run *between* frames — one with its
+own `while app.step():` cannot run inside the frame that is drawing it. These
+are what that loop is built from, and what a custom launcher would use:
+
+| | |
+|---|---|
+| `set_script(path, source)` | load a script into the panel without running it |
+| `run_script()` | Play: build the scene and start |
+| `restart_script()` | Restart: rebuild and hold at the start |
+| `open_script()` | read the file named in the panel's path field |
+| `take_script_request()` | `(path, source, paused)` when a button asked for a run, else `None`; clears it |
+| `script_requested` | the same, as a peek that does not clear |
+| `script_runner` | the callable the launcher installs to execute a script |
+| `script_ran` | whether what is on screen came from the current source |
+| `drawn_iteration` | the iteration the frame on screen was drawn for — `{drawn}` in a template |
+| `log` | the captured stdout/stderr the Log panel shows |
+| `flush_output` | push buffered output into it; `atexit` calls this |
+| `pointer` | where the UI last saw the pointer, in egui points, or `None` |
+| `ui_size` | the size that is measured against |
+| `panels_shown` | `(top, bottom, left, right)` — all four normally, only the summoned ones in `focus` |
+
+`pointer` is `None` for an unfocused window on macOS, which delivers
+mouse-moved events only to the front application.
+
 ### Two sizes, not one
 
 `Window::render_size` is the *scene* target; `surface_config` stays the
@@ -279,7 +306,21 @@ def before_render(sim: Simulation, dt: float) -> None:
 ```
 
 Text written here is still a template. A HUD left untouched keeps its text.
-See `CONFIG.md` for placeholders, anchors, size, colour and font.
+See `CONFIG.md` for the placeholders and the font.
+
+Each `Hud` carries:
+
+| | |
+|---|---|
+| `text` | the template |
+| `pin` | used instead of `text` while set — see below |
+| `anchor` | which corner `x`/`y` are measured from |
+| `x`, `y` | inset from the anchor, in pixels |
+| `size` | font size in pixels |
+| `color` | `(r, g, b, a)`, each 0–1 |
+
+All of them are editable in the editor's HUDs section, which can also add and
+remove HUDs.
 
 **A callback that assigns `text` every iteration owns it**, and an edit made
 anywhere else is gone by the next frame. Pausing does not help a *driven*
@@ -309,6 +350,23 @@ A list, in load order. Each `Body` has:
 sim.bodies[0].mat[:3, :3] = spice.pxform("IAU_MARS", "HERA_TIRI", et)
 sim.bodies[0].mat[:3, 3] = position_km
 ```
+
+`bodies` hands back fresh wrappers each time, so removing from the list it
+returns removes from a copy. `sim.remove_body(i)` is the real thing:
+
+```python
+sim.remove_body(1)          # IndexError if there is no body 1
+```
+
+The bodies after it shift down, so an index held across the call means a
+different body — `camera.anchor_body` included, which follows by index and
+will quietly follow the neighbour.
+
+`sim.reset()` empties the scene entirely: bodies, HUDs, the iteration counter
+and any pending GPU request. The config survives, deliberately — it is what a
+script sets on its way through *and* what the editor's panel edits by hand.
+The editor calls it before running a script, because `load_mesh` appends and a
+script run twice would otherwise load its meshes twice.
 
 ## `sim.camera` and `sim.sun`
 
@@ -347,13 +405,49 @@ Use `set_control_none()` for a scripted render whose camera is placed from
 SPICE, so a stray drag cannot move an instrument pointing. Note `T` still
 switches out of it — see `CONTROLS.md`.
 
+### Control mode
+
+Which mouse and key bindings drive an `Eye`. `CONTROLS.md` has the bindings
+themselves.
+
+| | |
+|---|---|
+| `set_control_arcball()` | orbit the anchor — the default |
+| `set_control_wasd()` | fly |
+| `set_control_none()` | frozen, for a camera a script places every frame |
+| `control_toggle()` | cycle |
+| `is_control_arcball()`, `is_control_wasd()`, `is_control_none()` | which it is |
+
+And the aiming helpers, which move `pos`/`dir`/`up` together rather than one
+at a time:
+
+| | |
+|---|---|
+| `look_anchor()` | point `dir` at `anchor`, leaving `pos` alone. No effect on the Sun, whose layers aim themselves from `pos` |
+| `set_target(p)` | set `anchor` to a point *and* look at it |
+| `view_along(axis, orthographic=True)` | look straight down an axis at the whole scene, the way a plot does. `"z"` and `"xy"` are the same call. Orthographic by default, because a profile read off a perspective view is not measurable. Needs geometry loaded |
+| `fix_up()` | re-orthogonalise `up` against `dir`. An `up` parallel to `dir` normalises a zero vector, and the NaN freezes the camera for good |
+| `up_world` | the reference up an arcball keeps the camera aligned to |
+
+Read-only, derived from the above:
+
+| | |
+|---|---|
+| `target()` | `pos + dir` |
+| `right()` | unit vector pointing right in the image plane |
+| `distance_anchor()` | how far the eye is from `anchor` |
+| `mat()`, `lookto()`, `view_proj()` | the rotation, the view matrix, and view × projection |
+
+These are **methods, not properties** — `cam.target()`, not `cam.target`.
+`pos`, `dir`, `up`, `anchor`, `anchor_body` and `up_world` are properties.
+
 ### `Eye.projection`
 
 | | |
 |---|---|
 | `fovy`, `near`, `far`, `side` | `None` means *fitted automatically each frame* |
 | `resolved_near`, `resolved_far`, `resolved_side` | what the fit actually chose |
-| `set_perspective()`, `set_orthographic()`, `is_*()` | projection mode |
+| `set_perspective()`, `set_orthographic()` | projection mode; `is_perspective()`, `is_orthographic()` read it |
 
 Assigning any of `near`/`far`/`side` **pins** it and defeats the automatic fit
 for that plane; assigning `None` restores automatic. `fovy` is never automatic
@@ -373,6 +467,60 @@ per-facet data and the wireframe overlay work.
 `path`. The shadow map only decides which fragments are lit, so a coarser
 occluder buys performance without touching per-facet science data — unlike
 loading a coarser `path`, which would invalidate anything facet-indexed.
+
+### `sim.rebuild_meshes()` — after changing a mesh's *shape*
+
+The GPU buffers are built from the meshes once and thereafter only the
+transforms are re-uploaded. So a change of **placement** needs nothing —
+`body.mat` goes up every frame — but a change of **shape** is invisible until
+the buffers are rebuilt, with no error to say so:
+
+```python
+mesh.smoothen()             # or flatten(), or replacing vertices
+sim.rebuild_meshes()        # ...or the render keeps the old geometry
+```
+
+`sim.remove_body` does it for you, since removing from the middle changes what
+every later index means. Colours have their own, cheaper route in
+`mesh.mark_colors_dirty()`.
+
+### What a `Mesh` carries
+
+Per-vertex arrays, one row per vertex, in the order the buffers hold them —
+which after `flatten=True` is three unshared rows per facet:
+
+| | |
+|---|---|
+| `positions`, `normals` | `(n, 3)` |
+| `textures` | `(n, 2)` texture coordinates |
+| `tangents`, `bitangents` | `(n, 3)`, for normal mapping |
+| `colors` | `(n, 3)` |
+| `color_modes` | `(n,)`, per-vertex selector for what the shader outputs |
+| `vertices`, `facets` | views over the rows themselves, as `Vertex` / `Facet` objects |
+| `indices` | `(3f,)` triangle indices — after `flatten` these are `0..3f`, one per row |
+| `values` | `(f,)` per-facet scalar to colour by; see below |
+| `material_id` | index into the model's materials, or `None` |
+
+And the operations on one:
+
+| | |
+|---|---|
+| `is_flat()` | whether each facet owns its vertices — a method, not a property |
+| `flatten()`, `smoothen()` | switch between that and shared corners. Follow with `sim.rebuild_meshes()` |
+| `recompute_facets()` | recompute centres, normals and areas after moving vertices |
+| `mark_colors_dirty()` | re-upload colours next frame, after writing `colors` in place |
+| `update_all_vertices_colors(mode, color)` | set every vertex to one colour and mode |
+| `get_facet_positions(i)` | the three corners of one facet |
+| `get_facet_normals(i)`, `get_facet_colors(i)` | the same three, other attributes |
+| `get_facet_indices(i)`, `get_facet_vertices(i)` | its indices, and its `Vertex` rows |
+| `inward_facing_facets()` | indices whose normal points into the body — a shape-model sanity check |
+| `flip_facets(indices)` | reverse their winding; returns how many. Before `start()`, since the buffers are built once |
+| `intersect(p, u, exit_first)` | ray cast: `(facet, point)` or `None` |
+
+A facet whose winding is reversed is permanently dark in the thermophysical
+model, and a hemicube placed on it reports a self view factor near 1 — which
+is what `inward_facing_facets` is for. It assumes a roughly star-shaped body,
+so read the result rather than trusting it.
 
 ### `mesh.values` — colouring facets from data
 
