@@ -1114,9 +1114,6 @@ impl Window {
         }
         self.render_generation += 1;
 
-        if let Some(hud) = &self.hud {
-            hud.resize_view(width as f32, height as f32, &self.queue);
-        }
         self.passes
             .render
             .resize(&self.device, self.surface_config.format, width, height);
@@ -1698,6 +1695,22 @@ impl Window {
             return;
         };
         let (w, h) = size;
+
+        // The brush projects glyphs against a view it is told about, and the
+        // three callers below draw into three different targets: the render
+        // texture at `render_size` for the export and for the editor's
+        // viewport, the swapchain at the window's size for a plain run.
+        //
+        // This used to be set only from `resize`, i.e. always the window --
+        // so in the editor, where the viewport panel is narrower than the
+        // window, the text was projected for one rectangle and drawn into
+        // another. It came out scaled by the ratio of the two, differently
+        // in x and y, which is to say it followed the panel splitters: drag
+        // one and the HUD stretched.
+        //
+        // Setting it here, from the size actually being drawn into, is the
+        // only place that can be right for all three.
+        brush.resize_view(w, h, &self.queue);
 
         let mut sections: Vec<_> = huds
             .iter()
