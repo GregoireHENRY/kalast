@@ -949,8 +949,8 @@ impl Default for AppConfig {
         Self {
             editor: false,
             focus: false,
-            width: 800,
-            height: 600,
+            width: 0,
+            height: 0,
             toolbar: "iteration {drawn}    {its} it/s    {fps} fps".to_string(),
         }
     }

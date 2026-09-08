@@ -459,11 +459,12 @@ impl App {
             let mut c = crate::app::config::AppConfig::default();
             if launched_by_editor {
                 c.editor = true;
-                // Four panels in an 800x600 window leave the scene in a
-                // corner. Only the *default* is raised -- an example that
-                // sets its own size does so after this and still wins.
-                c.width = 2000;
-                c.height = 1300;
+                // The editor needs more room than a bare render window --
+                // four panels around an 800x600 scene leave it in a corner --
+                // but the amount is decided from the monitor in `resumed`,
+                // not fixed here. It used to be 2000x1300, which is larger
+                // than a 1920x1080 screen: chosen on a display that could
+                // take it, and off the edge of one that cannot.
             }
             c
         };
@@ -1310,9 +1311,45 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
         // itself -- see `about_to_wait`.
         ev.set_control_flow(winit::event_loop::ControlFlow::Poll);
 
+        // A zero width or height means "pick one", and the pick is made from
+        // the monitor rather than from a constant. Passing 0 through to winit
+        // got its own fallback, which is a fixed 800x600 that knows nothing
+        // about the screen it lands on -- fine on the display it was chosen
+        // for, wrong on anything else.
+        //
+        // 70% of the *work area*, not the full bounds, so the taskbar or dock
+        // does not eat the bottom of the window. Each axis is resolved on its
+        // own, so setting only `width` still gets a sensible height.
+        let (want_w, want_h) = {
+            let c = self.config.borrow();
+            (c.width, c.height)
+        };
+        // The editor wraps the scene in panels, so it wants more of the
+        // screen than a bare render window does. Neither takes all of it:
+        // the remainder is what the title bar and taskbar live in, and what
+        // lets the window be moved without being dragged off-screen.
+        let fraction = if self.want_editor || self.config.borrow().editor {
+            0.85
+        } else {
+            0.7
+        };
+        let (auto_w, auto_h) = ev
+            .primary_monitor()
+            .or_else(|| ev.available_monitors().next())
+            .map(|m| {
+                let s = m.size();
+                (
+                    (s.width as f32 * fraction) as u32,
+                    (s.height as f32 * fraction) as u32,
+                )
+            })
+            // No monitor to ask -- headless, or a compositor that will not
+            // say. The old fixed default is as good a guess as any.
+            .unwrap_or((800, 600));
+
         let size = winit::dpi::PhysicalSize::new(
-            self.config.borrow().width,
-            self.config.borrow().height,
+            if want_w == 0 { auto_w.max(320) } else { want_w },
+            if want_h == 0 { auto_h.max(240) } else { want_h },
         );
         let mut attrs = winit::window::Window::default_attributes()
             .with_inner_size(size)
