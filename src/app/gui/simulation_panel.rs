@@ -143,15 +143,21 @@ fn mesh_ui(ui: &mut egui::Ui, mesh: &crate::mesh::Mesh) {
     row(ui, "facets", mesh.facets.len().to_string());
     row(ui, "vertices", mesh.vertices.len().to_string());
     row(ui, "indices", mesh.indices.len().to_string());
-    // Flattened means three unshared vertices per facet -- what the
-    // per-facet science data needs, and what `flatten=True` asks for.
+    // Flattened means every facet owns its three vertices instead of
+    // sharing corners with its neighbours: each shades as a flat plate,
+    // and a per-facet value colours exactly one triangle. What
+    // `flatten=True` asks for, and what per-facet science data needs.
+    //
+    // Not "winding", which is the order the three are listed in and
+    // decides which way the normal points -- a different property, and the
+    // one `flip_facets` repairs.
     row(
         ui,
-        "winding",
+        "shading",
         if mesh.is_flat() {
-            "flat (unshared)"
+            "flat (vertices per facet)"
         } else {
-            "smooth (shared)"
+            "smooth (vertices shared)"
         },
     );
     // Three rows rather than one long one: a side panel is narrow, and a
