@@ -29,6 +29,37 @@ use crate::Float;
 /// `config` and `simulation` never had the problem, because they were always
 /// separate handles. This is the same arrangement for everything else a
 /// script touches.
+/// Put a window in or out of fullscreen.
+///
+/// On macOS this is the *simple* fullscreen -- the pre-Lion kind, the one
+/// Electron gives VSCode. The window grows to cover the screen and stays on
+/// the Space it is on: no new desktop, no swipe to reach it, and other
+/// windows can still sit on top.
+///
+/// Native fullscreen, `Fullscreen::Borderless`, is what this used to do, and
+/// it moves the window to a Space of its own. That is where the transition
+/// cost came from -- the Space animation starves the drawable pool, measured
+/// at 104 ms and 588 ms of `nextDrawable` -- and where the scale-factor change
+/// that used to crash it came from too. Simple fullscreen has neither: it is
+/// a resize.
+///
+/// Elsewhere it is `Fullscreen::Borderless`, which is the closest thing those
+/// platforms have.
+fn set_window_fullscreen(window: &winit::window::Window, on: bool) {
+    #[cfg(target_os = "macos")]
+    {
+        use winit::platform::macos::WindowExtMacOS as _;
+        // Refuses while the window is in *native* fullscreen, which is the
+        // one case it cannot get out of; nothing here puts it there.
+        window.set_simple_fullscreen(on);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        window.set_fullscreen(on.then(|| winit::window::Fullscreen::Borderless(None)));
+    }
+}
+
 pub struct Shared {
     /// Runs before the frame is drawn: set body transforms, camera and sun
     /// here. Exposed to Python as `before_render` (and `tick`).
@@ -615,9 +646,7 @@ impl App {
         }
 
         if was.fullscreen != want.fullscreen {
-            win.window.set_fullscreen(want.fullscreen.then(|| {
-                winit::window::Fullscreen::Borderless(None)
-            }));
+            set_window_fullscreen(&win.window, want.fullscreen);
         }
 
         // The image. `(0, 0)` follows the window, which is what a terminal
@@ -970,14 +999,13 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
             .with_inner_size(size)
             .with_title(&self.sim_config().borrow().title);
 
-        if self.sim_config().borrow().fullscreen {
-            // Borderless on the current monitor: `None` means "wherever the
-            // window lands", which is what a user pressing the green button
-            // would get.
-            attrs = attrs.with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
-        }
-
         let win = Arc::new(ev.create_window(attrs).unwrap());
+        // After creation, not through `with_fullscreen`: that attribute can
+        // only ask for the native kind, and simple fullscreen is a call on a
+        // window that exists.
+        if self.sim_config().borrow().fullscreen {
+            set_window_fullscreen(&win, true);
+        }
 
         let sim_cfg = self.sim_config();
         self.window = Some(pollster::block_on(crate::app::window::Window::new(

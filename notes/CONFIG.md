@@ -201,41 +201,44 @@ pooled by byte size, and stale-sized pooled buffers are discarded on resize
 (`src/app/gpu.rs`, the `pool_rx.try_recv()` loop in `export_frame`).
 
 ### `fullscreen: bool` — default `false` *(live)*
-Open the window in native fullscreen on the current monitor —
-`Fullscreen::Borderless(None)`, the mode the green button gives on macOS, in
-its own Space.
-Accepted: `True` / `False`.
+Fill the screen. Accepted: `True` / `False`.
+
+On macOS this is the **simple** fullscreen — the pre-Lion kind, the one
+Electron gives VS Code. The window grows to cover the screen, menu bar
+included, and stays on the Space it is on: no new desktop, no swipe to reach
+it, and other windows can still sit on top of it. `WindowExtMacOS::
+set_simple_fullscreen`. Elsewhere it is `Fullscreen::Borderless(None)`, which
+is the nearest those platforms have.
 
 This is the **window** and nothing else. For the renderer to take the whole
-window with the panels out of the way, see `app.config.focus` below —
-they are independent, and setting both gives an immersive fullscreen.
+window with the panels out of the way, see `app.config.focus` — the two are
+independent, and setting both is rid of everything at once.
 
-**Prefer this to toggling fullscreen after launch.** The two are not
-equivalent, and the difference is measurable:
+**The transition used to be the expensive part, and is not any more.** Native
+fullscreen — `Fullscreen::Borderless`, what the green button does — moves the
+window to a Space of its own, and that animation was measured stalling the
+render loop badly:
 
 | | stall acquiring a drawable |
 |---|---|
-| launched fullscreen, `shadow_pcf = 0` | 104 ms, once, at startup |
-| launched fullscreen, `shadow_pcf = 4` | 588 ms, once, at startup |
-| **toggled** to fullscreen while running | **1001 ms and 3725 ms**, repeatedly |
+| launched native fullscreen, `shadow_pcf = 0` | 104 ms, once, at startup |
+| launched native fullscreen, `shadow_pcf = 4` | 588 ms, once, at startup |
+| **toggled** to native fullscreen while running | **1001 ms and 3725 ms**, repeatedly |
+| toggled to **simple** fullscreen while running | nothing measurable |
 
-1001 ms is not a coincidence: it is Metal's `nextDrawable` timeout, so during
-a toggle the compositor hands out no drawable at all for a full second. The
-macOS Space animation moves the window to a new surface mid-flight, winit
-delivers a burst of `Resized` events, and each one reconfigures the swapchain
-and invalidates the drawable pool — while the render loop keeps asking for a
-drawable at full rate. The window is unresponsive for that whole time and the
-camera motion accumulated meanwhile is applied in one jump when it ends.
+1001 ms was not a coincidence: it is Metal's `nextDrawable` timeout, so during
+a native toggle the compositor handed out no drawable at all for a full
+second. The Space animation moved the window to a new surface mid-flight,
+winit delivered a burst of `Resized` events, and each one reconfigured the
+swapchain and invalidated the drawable pool while the render loop kept asking
+at full rate.
 
-`shadow_pcf` amplifies it without causing it: the stall is present at 0, and
-PCF makes each frame long enough (13.6 ms against an 8.3 ms budget at 120 Hz)
-to deepen the hole. `vsync` is not the cause either — off gives 451 ms against
-588 ms on.
+Simple fullscreen has none of that machinery — it is a resize. Measured over
+140 frames across a toggle at `shadow_pcf = 4`, the worst frame was 25 ms and
+it fell 109 frames *after* the toggle, so it was not the transition at all.
 
-**The startup stall is not fixed, only smaller and one-off.** Toggling is what
-to avoid. A maximised window shows none of this, despite having nearly the
-same pixel count, which is how the transition was identified as the trigger
-rather than the resolution.
+It also took the scale-factor change with it, which is what used to crash a
+green-button fullscreen before `ScaleFactorChanged` was handled at all.
 
 ### `render_back_face: bool` — default `false` *(live, rebuilds pipelines)*
 Whether triangles facing away from the camera are drawn.
