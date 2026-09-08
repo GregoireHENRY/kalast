@@ -630,7 +630,12 @@ impl Simulation {
                 continue;
             }
 
-            let Some((facet, local_hit)) = mesh.borrow().intersect(&local_origin, &local_dir, true)
+            // `exit_first: false`. True returns the first facet in *mesh
+            // order*, not the first along the ray -- so clicking the rim of a
+            // crater selected whichever of the two surfaces the ray crosses
+            // happens to be stored first, which is not the one you can see.
+            let Some((facet, local_hit)) =
+                mesh.borrow().intersect(&local_origin, &local_dir, false)
             else {
                 continue;
             };
@@ -722,18 +727,31 @@ mod selection_tests {
         }
     }
 
-    /// A ray down the +Z axis must hit the cube's top, and the hit must be on
-    /// the surface rather than at the ray's origin.
+    /// The hit must be the **nearest** face, from either side.
+    ///
+    /// A ray through a cube crosses two faces, and one direction alone cannot
+    /// tell a nearest-hit search from a first-in-mesh-order one: whichever
+    /// face is stored first passes by luck. Both directions cannot both be
+    /// lucky. This is what clicking the rim of a crater got wrong -- it
+    /// selected the wall inside rather than the surface in front of it.
     #[test]
-    fn picking_returns_the_nearest_facet_and_where_it_was_hit() {
+    fn picking_returns_the_nearest_facet_from_either_side() {
         let sim = cube();
-        let hit = sim.pick_facet(crate::Vec3::new(0.0, 0.0, 10.0), -crate::Vec3::Z);
-        let (body, facet, world, local) = hit.expect("a ray at the cube should hit it");
+        let n = sim.bodies[0].mesh.as_ref().unwrap().borrow().facets.len();
+
+        let (body, facet, world, local) = sim
+            .pick_facet(crate::Vec3::new(0.0, 0.0, 10.0), -crate::Vec3::Z)
+            .expect("a ray at the cube should hit it");
         assert_eq!(body, 0);
-        assert!(facet < sim.bodies[0].mesh.as_ref().unwrap().borrow().facets.len());
-        // The cube is the unit cube about the origin, so the top is at z = 1.
-        assert!((world.z - 1.0).abs() < 1e-5, "hit {world}");
+        assert!(facet < n);
+        // The unit cube about the origin: coming down, the top at z = 1.
+        assert!((world.z - 1.0).abs() < 1e-5, "from above, hit {world}");
         assert_eq!(world, local, "identity transform: the two frames agree");
+
+        let (_, _, world, _) = sim
+            .pick_facet(crate::Vec3::new(0.0, 0.0, -10.0), crate::Vec3::Z)
+            .expect("and from below");
+        assert!((world.z + 1.0).abs() < 1e-5, "from below, hit {world}");
 
         assert!(
             sim.pick_facet(crate::Vec3::new(0.0, 0.0, 10.0), crate::Vec3::Z).is_none(),
