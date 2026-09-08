@@ -1096,11 +1096,33 @@ Verified by measuring the effect, not by checking it did not crash:
 follows the `Resized` event that a granted one produces, so that change lands
 a frame or two later rather than instantly.
 
-### Also discussed, not done
+### The editor -- done, and it is a mode rather than a second way to run
 
-An **interactive GUI** for editing, running, pausing and inspecting a
-simulation live, in the shape of Blender or Unity rather than a script that
-runs to completion. Both halves of what that needs now exist -- `step()`
-for control of the loop, and a live config for changing anything while it
-runs. What is missing is the interface itself: something to drive them from,
-rather than a script.
+The **interactive GUI** discussed here is built: `python -m kalast` opens a
+Blender-shaped window -- scene in the middle, script on the left, log along
+the bottom, config and live simulation variables on the right -- with Play,
+Restart and Step across the top (`P` and `K`). `python examples/.../main.py`
+still gives the plain window it always did; the editor is a flag on the same
+`App`, not a second application.
+
+What made it possible was already here: `step()` for control of the loop, and
+a live config for changing anything while it runs.
+
+Two of its panels are **generated** rather than written, for the same reason
+in both cases -- a panel that silently omits a new field looks complete:
+
+- `src/app/gui/config_panel.rs` from `src/app/config.rs`, guarded by
+  `tests/test_config_panel.py`.
+- `kalast/**.pyi` from the Rust source, guarded by `tests/test_stubs.py`.
+
+The simulation panel beside it is hand-written on purpose: it shows runtime
+state -- facet counts, fitted frustums, HUD text -- where a generator reading
+field names would have nothing useful to say about a `Mat4`.
+
+### Still open
+
+- ~32 Python-facing arguments reject float64, so a numpy scalar has to be
+  cast at the call.
+- A non-unit `camera.dir` aborts the process rather than raising: the panic
+  happens inside winit's launch callback, which cannot unwind.
+- Shadow bias is not calibrated against the crater's exact 63.281 %.
