@@ -141,6 +141,25 @@ impl Hud {
         self.inner.borrow_mut().text = v.to_string();
     }
 
+    /// Used in place of `text` while it is set, whatever `text` says.
+    ///
+    /// For taking a HUD off a script and giving it to a person. A callback
+    /// that assigns `text` every iteration owns it completely, and a driven
+    /// script goes on assigning even while paused -- pausing stops the
+    /// iteration counter, not a `while` loop the script owns -- so there is
+    /// nowhere else for an edit to stand.
+    ///
+    /// Typing in the editor's HUDs section sets it; its release button, or
+    /// `None` here, gives the HUD back.
+    #[getter]
+    fn pin(&self) -> Option<String> {
+        self.inner.borrow().pin.clone()
+    }
+    #[setter]
+    fn set_pin(&mut self, v: Option<String>) {
+        self.inner.borrow_mut().pin = v;
+    }
+
     #[getter]
     /// Which corner `x`/`y` are measured from: `top-left`, `top-right`,
     /// `bottom-left` or `bottom-right`.

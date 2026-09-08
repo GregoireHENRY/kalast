@@ -281,16 +281,20 @@ def before_render(sim: Simulation, dt: float) -> None:
 Text written here is still a template. A HUD left untouched keeps its text.
 See `CONFIG.md` for placeholders, anchors, size, colour and font.
 
-**A callback that assigns `text` every iteration owns it.** The editor's HUDs
-section edits the same field, so an edit made there lasts until the next
-assignment -- which at 120 fps is no time at all, and looks exactly like a
-field refusing to take an edit. The panel says so when it happens; pausing
-stops the callbacks and lets the edit stand.
+**A callback that assigns `text` every iteration owns it**, and an edit made
+anywhere else is gone by the next frame. Pausing does not help a *driven*
+script: pausing stops the iteration counter, not a `while` loop the script
+owns, so `sim.huds[0].text = ...` keeps firing.
 
-The way round it is to put the wording in the template and leave the callback
-only the part it computes -- `Hud("lit {v:.1f} %")` cannot be done today,
-since a placeholder can only name something the engine knows, so a value from
-Python has to be formatted in Python.
+`hud.pin` is where an edit can stand. While it is set it is used in place of
+`text`, whatever `text` says, and the script goes on writing `text`
+harmlessly. Typing in the editor's HUDs section sets it; its release button,
+or `hud.pin = None`, hands the HUD back.
+
+```python
+app.simulation.huds[0].pin = "lit {paused}"   # mine now
+app.simulation.huds[0].pin = None             # the script's again
+```
 
 ## `sim.bodies`
 

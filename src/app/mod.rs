@@ -1250,8 +1250,11 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         .map(|h| {
                             let h = h.borrow();
                             crate::app::config::Hud {
+                                // A pinned HUD is the editor's, not the
+                                // script's; `text` goes on being written and
+                                // goes on being ignored.
                                 text: expand_hud(
-                                    &h.text,
+                                    h.pin.as_deref().unwrap_or(&h.text),
                                     &sim.state,
                                     self.fps_shown,
                                     &sim.diagnostics,

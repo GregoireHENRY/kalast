@@ -445,53 +445,61 @@ fn huds_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
             .id_salt(i)
             .default_open(true)
             .show(ui, |ui| {
-                // Whether something other than this field is writing the
-                // text. What was left here at the end of the last frame is
-                // what this field last saw -- including its own edit -- so
-                // anything different arrived from outside, which in practice
-                // means a script assigning `hud.text` every iteration.
-                let seen = ui.id().with(("seen", i));
-                let written_elsewhere = ui
-                    .data_mut(|d| d.get_temp::<String>(seen))
-                    .is_some_and(|last| last != hud.text);
+                // Typing here takes the HUD off the script: what is typed
+                // goes in `pin`, which the frame uses in place of `text`.
+                // Without that an edit cannot survive at all -- a callback
+                // assigns `text` every iteration, and a *driven* script goes
+                // on assigning even while paused, since pausing stops the
+                // iteration counter and not a `while` loop the script owns.
+                let pinned = hud.pin.is_some();
+                let mut buf = hud.pin.clone().unwrap_or_else(|| hud.text.clone());
+                let edited = ui
+                    .add(
+                        egui::TextEdit::multiline(&mut buf)
+                            .desired_rows(1)
+                            .desired_width(f32::INFINITY)
+                            .font(egui::TextStyle::Monospace),
+                    )
+                    .on_hover_text(
+                        "Template. {it} {drawn} {nit} {its} {fps} {ms} {bodies} {paused} {warn}, \
+                         with an optional precision as {fps:.1}. Typing takes this HUD \
+                         off the script.",
+                    )
+                    .changed();
+                if edited || pinned {
+                    hud.pin = Some(buf);
+                }
 
-                ui.add(
-                    egui::TextEdit::multiline(&mut hud.text)
-                        .desired_rows(1)
-                        .desired_width(f32::INFINITY)
-                        .font(egui::TextStyle::Monospace),
-                )
-                .on_hover_text(
-                    "Template. {it} {drawn} {nit} {its} {fps} {ms} {bodies} {paused} {warn}, \
-                     with an optional precision as {fps:.1}.",
-                );
-                ui.data_mut(|d| d.insert_temp(seen, hud.text.clone()));
-
-                // An edit that will not survive the next iteration looks
-                // exactly like a field that will not take one, so say which
-                // it is rather than leaving it to be discovered.
-                if written_elsewhere {
-                    ui.label(
-                        egui::RichText::new("the script rewrites this every iteration -- pause to edit")
-                            .weak()
-                            .small(),
-                    );
+                if hud.pin.is_some() {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new("pinned here, not the script")
+                                .weak()
+                                .small(),
+                        );
+                        if ui
+                            .small_button("release")
+                            .on_hover_text("Give the HUD back to the script")
+                            .clicked()
+                        {
+                            hud.pin = None;
+                        }
+                    });
                 }
 
                 // What that template comes out as this frame, but only when
                 // the two differ. A dim copy of the field directly under the
                 // field reads as a second field, and clicking it does
-                // nothing -- and it is an exact copy for the common case of
-                // a HUD a script rewrites every iteration, which has no
-                // placeholders left by the time the panel sees it.
+                // nothing.
+                let template = hud.pin.as_deref().unwrap_or(&hud.text);
                 let shown = crate::app::expand_hud(
-                    &hud.text,
+                    template,
                     &sim.state,
                     0.0,
                     &sim.diagnostics,
                     sim.state.iteration,
                 );
-                if shown != hud.text {
+                if shown != *template {
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new("shows as").weak().small());
                         ui.label(egui::RichText::new(shown).monospace().small());

@@ -473,6 +473,18 @@ is there.
 compare against a frame budget: 8.3 ms is the whole of a 120 Hz frame, and
 "11.8" says immediately that you are missing it where "85 fps" does not.
 
+#### `pin`
+
+A HUD's `pin` is used in place of its `text` while it is set, whatever `text`
+says. It is how the editor's HUDs section takes a HUD off a script: a callback
+that assigns `text` every iteration owns it completely, and a *driven* script
+(`while app.step():`) goes on assigning even while paused -- pausing stops the
+iteration counter, not a `while` loop the script owns -- so there is nowhere
+else an edit could stand.
+
+Typing in that section sets it; its release button, or `hud.pin = None`, gives
+the HUD back. The script goes on writing `text` throughout, harmlessly.
+
 `{drawn}` trails `{it}` by one for the whole of every frame: the counter moves
 on only after the frame it belongs to has been drawn, so `{it}` is how many
 iterations have been *begun* and `{drawn}` is the one you are looking at. While

@@ -215,6 +215,20 @@ impl Colorbar {
 pub struct Hud {
     /// Template text; see `Config::huds` for the placeholders.
     pub text: String,
+
+    /// Used in place of `text` while it is set, whatever `text` says.
+    ///
+    /// For taking a HUD off a script and giving it to a person. A callback
+    /// that assigns `text` every iteration owns it completely -- an edit
+    /// made anywhere else is gone by the next frame, and a *driven* script
+    /// keeps assigning even while the simulation is paused, since pausing
+    /// stops the iteration counter and not a `while` loop the script owns.
+    /// There is nowhere to make an edit stand except beside `text`.
+    ///
+    /// Set by typing in the editor's HUDs section, cleared by its release
+    /// button. The script goes on writing `text`, harmlessly, and gets the
+    /// HUD back the moment this is `None` again.
+    pub pin: Option<String>,
     pub anchor: HudAnchor,
     /// Inset from the anchor in pixels. With the default top-left anchor
     /// this is simply the position, since that anchor is the origin.
@@ -233,6 +247,7 @@ impl Hud {
     pub fn new(text: &str) -> Self {
         Self {
             text: text.to_string(),
+            pin: None,
             anchor: HudAnchor::TopLeft,
             x: 8.0,
             y: 6.0,

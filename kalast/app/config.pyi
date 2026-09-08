@@ -17,6 +17,18 @@ class Hud:
         ...
     text: str
     """The template drawn for this HUD. See `Config::huds` for placeholders."""
+    pin: str | None
+    """Used in place of `text` while it is set, whatever `text` says.
+
+    For taking a HUD off a script and giving it to a person. A callback
+    that assigns `text` every iteration owns it completely, and a driven
+    script goes on assigning even while paused -- pausing stops the
+    iteration counter, not a `while` loop the script owns -- so there is
+    nowhere else for an edit to stand.
+
+    Typing in the editor's HUDs section sets it; its release button, or
+    `None` here, gives the HUD back.
+    """
     anchor: str
     """Which corner `x`/`y` are measured from: `top-left`, `top-right`,
     `bottom-left` or `bottom-right`.
