@@ -503,19 +503,22 @@ impl Editor {
                     });
                 };
             let config_ui = |ui: &mut egui::Ui| {
+                    ui.label(egui::RichText::new("Simulation").strong());
+                    ui.separator();
                     egui::ScrollArea::vertical().show(ui, |ui| {
-                        // What the run *is* -- bodies loaded, where the
-                        // camera and Sun are, what the last frame could see
-                        // -- above what it was asked to be.
-                        ui.label(egui::RichText::new("Simulation").strong());
-                        ui.separator();
+                        // One flat list of sections. The config belongs to
+                        // the simulation, so its groups are categories of
+                        // it in the same sense State and Bodies are, and
+                        // giving them a heading of their own only made them
+                        // look like a different kind of thing.
+                        //
+                        // What the run *is* comes first -- bodies loaded,
+                        // where the camera and Sun are, what the last frame
+                        // could see -- then what it was asked to be.
                         let mut sim = sim.borrow_mut();
                         simulation_panel::simulation_panel(ui, &mut sim);
                         drop(sim);
 
-                        ui.add_space(10.0);
-                        ui.label(egui::RichText::new("Config").strong());
-                        ui.separator();
                         // Generated from `src/app/config.rs`, so a field
                         // added there gets a widget without anyone
                         // remembering to add one here.

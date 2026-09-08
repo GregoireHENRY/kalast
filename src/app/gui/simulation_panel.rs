@@ -35,7 +35,7 @@ fn vec3(ui: &mut egui::Ui, label: &str, v: &mut crate::Vec3, speed: f64) -> bool
 /// above, and a shape model's full path is routinely wider than the panel,
 /// so spelling it out again both repeats itself and sets the panel's width
 /// for every other row. The whole path is one hover away.
-fn path_row(ui: &mut egui::Ui, path: Option<&std::path::Path>) {
+fn dir_row(ui: &mut egui::Ui, path: Option<&std::path::Path>) {
     let Some(path) = path else { return };
     let dir = path.parent().unwrap_or(std::path::Path::new("."));
     let dir = dir.to_string_lossy();
@@ -56,109 +56,260 @@ fn body_name(body: &crate::app::body::Body) -> String {
         .unwrap_or_else(|| "built in memory".to_string())
 }
 
+/// A string kept in egui's own memory, for the text fields this panel needs
+/// but has nowhere to store: it is a function over the simulation, not a
+/// struct with state of its own.
+fn remembered(ui: &egui::Ui, id: egui::Id, initial: impl FnOnce() -> String) -> String {
+    ui.data_mut(|d| d.get_temp::<String>(id))
+        .unwrap_or_else(initial)
+}
+
+fn remember(ui: &egui::Ui, id: egui::Id, value: String) {
+    ui.data_mut(|d| d.insert_temp(id, value));
+}
+
+/// Read a mesh without taking the process down with it.
+///
+/// `Mesh::load` unwraps its way through the file: a path that is not there,
+/// or an `.obj` it cannot parse, is a panic. That is defensible for a script
+/// -- it fails on the line that asked -- but not for a text field someone is
+/// still typing into, where a half-finished path would end the session and
+/// everything running in it.
+fn try_load(path: &str, flat: bool) -> Result<crate::mesh::Mesh, String> {
+    let p = std::path::Path::new(path);
+    if !p.is_file() {
+        return Err(format!("no such file: {path}"));
+    }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut mesh = crate::mesh::Mesh::load(p, |v| v);
+        if flat {
+            mesh.flatten();
+        }
+        mesh
+    }))
+    .map_err(|_| format!("could not read {path} as a mesh"))
+}
+
+/// The bodies in the scene, and the means to change which ones they are.
+fn bodies_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
+    if sim.bodies.is_empty() {
+        ui.label(egui::RichText::new("none loaded").weak());
+    }
+
+    // Both are applied after the loop: removing a body while iterating over
+    // them shifts every index behind it.
+    let mut remove = None;
+    let mut dirty = false;
+
+    for i in 0..sim.bodies.len() {
+        let name = body_name(&sim.bodies[i]);
+        let mut drop_it = false;
+        egui::CollapsingHeader::new(format!("body {i}  {name}"))
+            .id_salt(i)
+            .default_open(true)
+            .show(ui, |ui| {
+                dirty |= body_ui(ui, i, &mut sim.bodies[i]);
+                if ui
+                    .button("remove")
+                    .on_hover_text("Take this body out of the scene")
+                    .clicked()
+                {
+                    drop_it = true;
+                }
+            });
+        if drop_it {
+            remove = Some(i);
+        }
+    }
+
+    if let Some(i) = remove {
+        sim.bodies.remove(i);
+        dirty = true;
+    }
+
+    // Adding one. A path rather than a file dialog, the same way the script
+    // panel opens a file -- there is no native picker in this window.
+    ui.add_space(6.0);
+    let id = ui.id().with("add");
+    let mut path = remembered(ui, id, String::new);
+    let mut flat = ui.data_mut(|d| d.get_temp::<bool>(id.with("flat"))).unwrap_or(true);
+    ui.add(
+        egui::TextEdit::singleline(&mut path)
+            .hint_text("path to an .obj")
+            .desired_width(f32::INFINITY),
+    );
+    ui.horizontal(|ui| {
+        ui.checkbox(&mut flat, "flat")
+            .on_hover_text("Give every facet its own vertices, as `flatten=True` does");
+        if ui.button("add body").clicked() && !path.is_empty() {
+            match try_load(&path, flat) {
+                Ok(mesh) => {
+                    sim.add_mesh(mesh, crate::Mat4::IDENTITY);
+                    dirty = true;
+                    remember(ui, id.with("error"), String::new());
+                    path.clear();
+                }
+                Err(e) => remember(ui, id.with("error"), e),
+            }
+        }
+    });
+    let error = remembered(ui, id.with("error"), String::new);
+    if !error.is_empty() {
+        ui.colored_label(egui::Color32::from_rgb(220, 120, 120), error);
+    }
+    remember(ui, id, path);
+    ui.data_mut(|d| d.insert_temp(id.with("flat"), flat));
+
+    sim.meshes_dirty |= dirty;
+}
+
 /// One body: which file it is, and the shape of what was loaded. Counts and
 /// bounds rather than the arrays themselves -- 3.1M facets is not something
 /// to put in a side panel, and the questions actually asked of a mesh here
 /// are "did it flatten", "how big is it" and "does it carry values".
-fn body_ui(ui: &mut egui::Ui, i: usize, body: &crate::app::body::Body) {
-    let mesh = body.mesh.as_ref();
-    // The file name alone in the header, since a full path is usually long
-    // enough to widen the panel on its own; the whole thing goes below.
-    let file = body_name(body);
+///
+/// Returns whether the GPU buffers have to be rebuilt.
+fn body_ui(ui: &mut egui::Ui, i: usize, body: &mut crate::app::body::Body) -> bool {
+    let mut dirty = false;
+    let Some(handle) = body.mesh.clone() else {
+        ui.label(egui::RichText::new("no mesh").weak());
+        return false;
+    };
 
-    egui::CollapsingHeader::new(format!("body {i}  {file}"))
-        .id_salt(i)
-        .default_open(true)
-        .show(ui, |ui| {
-            let Some(mesh) = mesh else {
-                ui.label(egui::RichText::new("no mesh").weak());
-                return;
-            };
-            let mesh = mesh.borrow();
-
-            path_row(ui, mesh.path.as_deref());
-            mesh_ui(ui, &mesh);
-
-            // The values a colormap reads, if a script has written any. Their
-            // range is the useful part: an all-zero column and a missing one
-            // look identical in the render.
-            if mesh.values.is_empty() {
-                row(ui, "values", "none");
-            } else {
-                let lo = mesh.values.iter().copied().fold(Float::INFINITY, Float::min);
-                let hi = mesh
-                    .values
-                    .iter()
-                    .copied()
-                    .fold(Float::NEG_INFINITY, Float::max);
-                row(
-                    ui,
-                    "values",
-                    format!("{} facets, {lo:.4} to {hi:.4}", mesh.values.len()),
-                );
+    // The path is editable and takes effect on `reload`, so the same field
+    // both says where this body came from and points it somewhere else.
+    let id = ui.id().with(("path", i));
+    let current = handle
+        .borrow()
+        .path
+        .as_ref()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let mut path = remembered(ui, id, || current.clone());
+    ui.add(
+        egui::TextEdit::singleline(&mut path)
+            .desired_width(f32::INFINITY)
+            .font(egui::TextStyle::Monospace),
+    );
+    ui.horizontal(|ui| {
+        let changed = path != current;
+        if ui
+            .add_enabled(changed, egui::Button::new("reload"))
+            .on_hover_text("Replace this body's mesh with the file above, keeping its transform")
+            .clicked()
+        {
+            let flat = handle.borrow().is_flat();
+            match try_load(&path, flat) {
+                Ok(mesh) => {
+                    // Written into the existing handle rather than swapped
+                    // for a new one, so a Python `Mesh` holding this body
+                    // keeps pointing at it.
+                    *handle.borrow_mut() = mesh;
+                    dirty = true;
+                    remember(ui, id.with("error"), String::new());
+                }
+                Err(e) => remember(ui, id.with("error"), e),
             }
-            drop(mesh);
+        }
+        if changed && ui.small_button("revert").clicked() {
+            path = current.clone();
+        }
+    });
+    let error = remembered(ui, id.with("error"), String::new);
+    if !error.is_empty() {
+        ui.colored_label(egui::Color32::from_rgb(220, 120, 120), error);
+    }
+    remember(ui, id, path);
 
-            if let Some(shadow) = body.shadow_mesh.as_ref() {
-                let shadow = shadow.borrow();
-                ui.add_space(4.0);
-                ui.label(
-                    egui::RichText::new(format!(
-                        "shadow mesh  {}",
-                        shadow
-                            .path
-                            .as_ref()
-                            .and_then(|p| p.file_name())
-                            .map(|f| f.to_string_lossy().into_owned())
-                            .unwrap_or_default()
-                    ))
-                    .weak(),
-                );
-                path_row(ui, shadow.path.as_deref());
-                mesh_ui(ui, &shadow);
-            }
+    let mut mesh = handle.borrow_mut();
+    dirty |= mesh_ui(ui, &mut mesh);
 
-            // Model to world. Read-only: bodies are usually placed by a
-            // script every frame, so an edit here would last one frame.
-            ui.add_space(4.0);
-            ui.label(egui::RichText::new("mat").weak());
-            let m = body.mat.to_cols_array_2d();
-            for r in 0..4 {
-                row(
-                    ui,
-                    "",
-                    format!(
-                        "{:>7.3} {:>7.3} {:>7.3} {:>7.3}",
-                        m[0][r], m[1][r], m[2][r], m[3][r]
-                    ),
-                );
+    // The values a colormap reads, if a script has written any. Their range
+    // is the useful part: an all-zero column and a missing one look
+    // identical in the render.
+    if mesh.values.is_empty() {
+        row(ui, "values", "none");
+    } else {
+        let lo = mesh.values.iter().copied().fold(Float::INFINITY, Float::min);
+        let hi = mesh
+            .values
+            .iter()
+            .copied()
+            .fold(Float::NEG_INFINITY, Float::max);
+        row(
+            ui,
+            "values",
+            format!("{} facets, {lo:.4} to {hi:.4}", mesh.values.len()),
+        );
+    }
+    drop(mesh);
+
+    if let Some(shadow) = body.shadow_mesh.as_ref() {
+        let mut shadow = shadow.borrow_mut();
+        ui.add_space(4.0);
+        ui.label(
+            egui::RichText::new(format!(
+                "shadow mesh  {}",
+                shadow
+                    .path
+                    .as_ref()
+                    .and_then(|p| p.file_name())
+                    .map(|f| f.to_string_lossy().into_owned())
+                    .unwrap_or_default()
+            ))
+            .weak(),
+        );
+        dir_row(ui, shadow.path.as_deref());
+        dirty |= mesh_ui(ui, &mut shadow);
+    }
+
+    // Model to world, editable. Usually written by a script every frame, in
+    // which case an edit here lasts one frame -- but for a scene that is
+    // placed once, this is where to place it.
+    ui.add_space(4.0);
+    ui.label(egui::RichText::new("mat").weak())
+        .on_hover_text("Model to world. A script that sets `body.mat` every iteration wins over this.");
+    for r in 0..4 {
+        ui.horizontal(|ui| {
+            for c in 0..4 {
+                ui.add(egui::DragValue::new(&mut body.mat.col_mut(c)[r]).speed(0.01));
             }
         });
+    }
+
+    dirty
 }
 
-/// Counts, winding and extent for one mesh.
-fn mesh_ui(ui: &mut egui::Ui, mesh: &crate::mesh::Mesh) {
+/// Counts, shading and extent for one mesh. Returns whether it was changed
+/// in a way the GPU buffers have to follow.
+fn mesh_ui(ui: &mut egui::Ui, mesh: &mut crate::mesh::Mesh) -> bool {
     // One number per row, for the same reason the bounds are split: the
     // widest row in a side panel is the panel's width.
     row(ui, "facets", mesh.facets.len().to_string());
     row(ui, "vertices", mesh.vertices.len().to_string());
     row(ui, "indices", mesh.indices.len().to_string());
-    // Flattened means every facet owns its three vertices instead of
-    // sharing corners with its neighbours: each shades as a flat plate,
-    // and a per-facet value colours exactly one triangle. What
-    // `flatten=True` asks for, and what per-facet science data needs.
-    //
-    // Not "winding", which is the order the three are listed in and
-    // decides which way the normal points -- a different property, and the
-    // one `flip_facets` repairs.
-    row(ui, "shading", if mesh.is_flat() { "flat" } else { "smooth" })
-        .on_hover_text(
-            "Flat means every facet owns its three vertices instead of sharing \
-             corners with its neighbours, so each shades as a plate and a \
-             per-facet value colours exactly one triangle. What flatten=True asks for.",
-        );
-    // Three rows rather than one long one: a side panel is narrow, and a
-    // row wide enough to hold six numbers makes the whole panel that wide.
+
+    let was = mesh.is_flat();
+    let mut flat = was;
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("shading").weak())
+            .on_hover_text(
+                "Flat gives every facet its own three vertices instead of sharing \
+                 corners with its neighbours, so each shades as a plate and a \
+                 per-facet value colours exactly one triangle. What flatten=True asks for.",
+            );
+        ui.selectable_value(&mut flat, true, "flat");
+        ui.selectable_value(&mut flat, false, "smooth");
+    });
+    let changed = flat != was;
+    if changed {
+        if flat {
+            mesh.flatten();
+        } else {
+            mesh.smoothen();
+        }
+    }
+
     let b = &mesh.bounds;
     row(ui, "min", format!("{:.3} {:.3} {:.3}", b.min.x, b.min.y, b.min.z));
     row(ui, "max", format!("{:.3} {:.3} {:.3}", b.max.x, b.max.y, b.max.z));
@@ -167,6 +318,8 @@ fn mesh_ui(ui: &mut egui::Ui, mesh: &crate::mesh::Mesh) {
     if let Some(id) = mesh.material_id {
         row(ui, "material", id.to_string());
     }
+
+    changed
 }
 
 fn eye_ui(ui: &mut egui::Ui, eye: &mut crate::app::frame::Eye, bodies: &[String], is_sun: bool) {
@@ -311,14 +464,7 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation) {
         });
     });
 
-    group(ui, "Bodies", true, |ui| {
-        if sim.bodies.is_empty() {
-            ui.label(egui::RichText::new("none loaded").weak());
-        }
-        for (i, body) in sim.bodies.iter().enumerate() {
-            body_ui(ui, i, body);
-        }
-    });
+    group(ui, "Bodies", true, |ui| bodies_ui(ui, sim));
 
     // Named for the anchor-body picker below, and collected first because
     // that reads `bodies` while the picker holds `camera` mutably.
@@ -347,13 +493,21 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation) {
         }
     });
 
-    group(ui, "Export", false, |ui| {
-        ui.checkbox(&mut sim.export, "exporting every frame");
-        if ui.button("export one frame").clicked() {
+    // "Recording" rather than "Export", because the config section further
+    // down this same list is called Export and holds where the frames go
+    // and how they are written. This is only the switch.
+    group(ui, "Recording", false, |ui| {
+        ui.checkbox(&mut sim.export, "export")
+            .on_hover_text("Write every frame from now on");
+        if ui
+            .button("export one frame")
+            .on_hover_text("Write the next frame only")
+            .clicked()
+        {
             sim.export_once = true;
         }
         ui.label(
-            egui::RichText::new("Frames land in simulation.config.export_dir")
+            egui::RichText::new("Where they land is under Export")
                 .weak()
                 .small(),
         );
@@ -376,4 +530,53 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation) {
             );
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The shading toggle is `flatten`/`smoothen` and nothing else, so it
+    /// has to survive being pressed more than once: `flatten` stashes the
+    /// vertices it is about to replace, and a second call with nothing
+    /// restored would stash the flattened ones and lose the originals.
+    #[test]
+    fn shading_toggles_back_and_forth() {
+        let mut mesh = crate::mesh::Mesh::load("res/ico3.obj", |v| v);
+        let smooth = mesh.vertices.len();
+        let facets = mesh.facets.len();
+        assert!(!mesh.is_flat());
+
+        for _ in 0..3 {
+            mesh.flatten();
+            assert!(mesh.is_flat());
+            assert_eq!(mesh.vertices.len(), facets * 3);
+
+            mesh.smoothen();
+            assert!(!mesh.is_flat());
+            assert_eq!(mesh.vertices.len(), smooth);
+            assert_eq!(mesh.facets.len(), facets);
+        }
+    }
+
+    /// A path being typed into is a path that does not exist yet, and
+    /// `Mesh::load` unwraps -- so the panel must not reach it until the file
+    /// is there.
+    #[test]
+    fn a_missing_file_is_an_error_not_a_panic() {
+        assert!(try_load("res/there-is-no-such-mesh.obj", true).is_err());
+        assert!(try_load("", true).is_err());
+        // A directory is not a mesh either, and `is_file` is what says so.
+        assert!(try_load("res", true).is_err());
+    }
+
+    #[test]
+    fn loading_flat_gives_every_facet_its_own_vertices() {
+        let mesh = try_load("res/ico3.obj", true).unwrap();
+        assert!(mesh.is_flat());
+        assert_eq!(mesh.vertices.len(), mesh.facets.len() * 3);
+
+        let mesh = try_load("res/ico3.obj", false).unwrap();
+        assert!(!mesh.is_flat());
+    }
 }

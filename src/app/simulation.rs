@@ -62,6 +62,18 @@ pub struct Simulation {
     /// editing one here is editing the one that gets drawn.
     pub huds: Vec<std::rc::Rc<std::cell::RefCell<crate::app::config::Hud>>>,
 
+    /// Set when a body's geometry has been replaced rather than moved --
+    /// a mesh reloaded from another file, flattened or smoothed, a body
+    /// added in the middle or removed. The GPU buffers are built from the
+    /// meshes once and then only their transforms are re-uploaded, so a
+    /// change of topology is invisible until they are rebuilt; `sync_meshes`
+    /// takes this flag and does that.
+    ///
+    /// Adding or removing at the *end* is noticed on its own, from the body
+    /// count. This is for everything that leaves the count the same, or
+    /// shifts which body an index means.
+    pub meshes_dirty: bool,
+
     /// What the last rendered frame could actually see. Written by the
     /// renderer after the frustums are fitted, read by the HUD placeholders.
     pub diagnostics: Diagnostics,
@@ -115,6 +127,7 @@ impl Simulation {
             hemicube_request: None,
             hemicube_result: None,
             huds: Vec::new(),
+            meshes_dirty: false,
             diagnostics: Diagnostics::default(),
         }
     }

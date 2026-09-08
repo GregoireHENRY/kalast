@@ -1239,7 +1239,17 @@ impl Window {
     /// len is 1 but the index is 1".
     ///
     /// Element 0 of `meshes` is the light cube, hence the offset.
-    pub fn sync_meshes(&mut self, simulation: &crate::app::simulation::Simulation) {
+    pub fn sync_meshes(&mut self, simulation: &mut crate::app::simulation::Simulation) {
+        // A body whose mesh was swapped, reflattened, or inserted before
+        // another one keeps its slot and its count, so nothing below would
+        // notice. Dropping every body buffer makes the loop rebuild them
+        // all -- a re-upload of the scene, which is what a change of
+        // topology costs, and only when something asked for it.
+        if std::mem::take(&mut simulation.meshes_dirty) {
+            self.meshes.truncate(1);
+            self.shadow_meshes.truncate(1);
+        }
+
         let want = 1 + simulation.bodies.len();
         if self.meshes.len() > want {
             self.meshes.truncate(want);
