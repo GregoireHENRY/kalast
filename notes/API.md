@@ -133,6 +133,43 @@ layout instead. `render(None, …)` is the call for that, and it is the same
 path an occluded window already takes: a full frame minus the blit and the
 present.
 
+### Rust examples
+
+The editor opens `.rs` as well as `.py`, but it cannot host one: a Rust
+example is a separate program that links kalast as a library, so it is
+compiled and launched and opens a window of its own.
+
+The Script panel grows a row for one — a `debug`/`release` choice and a
+`build` button — and **Play** launches it, building it first if it has not
+been built. `Restart` does not apply: the example builds its own scene, in
+its own process. `Step` still steps *this* window's simulation, which is
+empty unless something was loaded into it.
+
+cargo and the example both inherit this process's redirected stdout, so their
+output arrives in the Log beside everything else, and the command is echoed
+there as it was run:
+
+```
+$ cargo build --color=never --example crater_step --release
+built target/release/examples/crater_step
+$ target/release/examples/crater_step
+```
+
+Examples are named explicitly in `Cargo.toml` rather than auto-discovered,
+because each sits beside a Python script of the same name in a directory
+cargo does not look into. That table is also what maps an opened file back to
+the `--example` that builds it, so a `.rs` with no entry gets a message
+saying to add one:
+
+```toml
+[[example]]
+name = "crater_step"
+path = "examples/crater_self_shadow/step.rs"
+```
+
+Release by default, because a debug build of this renderer is 2-15x slower
+and an example run for its numbers wants the fast one.
+
 ### What the panel reaches
 
 The editor is a front end for the API in this document, and it does not cover

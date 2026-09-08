@@ -1,0 +1,121 @@
+//! Building and launching a Rust example from the editor.
+//!
+//! A `.py` script runs *inside* the editor: the same process, the same
+//! window, the scene appearing in the viewport. A `.rs` example cannot --
+//! it is a separate program that links kalast as a library, so it has to be
+//! compiled and then launched, and it opens a window of its own.
+//!
+//! So the editor is a different kind of thing for Rust: an editor, a build
+//! button and a launcher, rather than a host. What it does keep is the log
+//! -- cargo and the example both inherit the redirected stdout, so their
+//! output lands in the Log panel beside everything else.
+
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Which `[[example]]` a path belongs to, read from `Cargo.toml`.
+///
+/// Examples in this repo are named explicitly rather than auto-discovered,
+/// because each lives beside a Python script of the same name in a directory
+/// cargo does not look into. That table is also the only thing that maps a
+/// file back to the `--example` argument that builds it.
+pub fn example_for(path: &str) -> Option<String> {
+    let manifest = std::fs::read_to_string("Cargo.toml").ok()?;
+    let wanted = std::path::Path::new(path);
+
+    let (mut name, mut found) = (None, None);
+    for line in manifest.lines() {
+        let line = line.trim();
+        if line == "[[example]]" {
+            (name, found) = (None, None);
+            continue;
+        }
+        // A new table ends the one being read.
+        if line.starts_with('[') && line != "[[example]]" {
+            (name, found) = (None, None);
+            continue;
+        }
+        if let Some(v) = field(line, "name") {
+            name = Some(v);
+        }
+        if let Some(v) = field(line, "path") {
+            found = Some(v);
+        }
+        if let (Some(n), Some(p)) = (&name, &found) {
+            if std::path::Path::new(p) == wanted {
+                return Some(n.clone());
+            }
+        }
+    }
+    None
+}
+
+fn field(line: &str, key: &str) -> Option<String> {
+    let rest = line.strip_prefix(key)?.trim_start().strip_prefix('=')?;
+    Some(rest.trim().trim_matches('"').to_string())
+}
+
+/// Where cargo puts the built example.
+pub fn binary(name: &str, release: bool) -> std::path::PathBuf {
+    let profile = if release { "release" } else { "debug" };
+    std::path::Path::new("target")
+        .join(profile)
+        .join("examples")
+        .join(name)
+}
+
+/// Run `cargo build --example <name>` on a thread, so the frame keeps going.
+///
+/// `busy` is held for the life of the build and cleared however it ends,
+/// including a cargo that could not be started at all -- a button that stays
+/// disabled forever is worse than a build that failed.
+///
+/// Colour is off because the Log renders text, not terminal escapes.
+pub fn build(name: &str, release: bool, busy: Arc<AtomicBool>) {
+    let name = name.to_string();
+    std::thread::spawn(move || {
+        let mut cmd = std::process::Command::new("cargo");
+        cmd.args(["build", "--color=never", "--example", &name]);
+        if release {
+            cmd.arg("--release");
+        }
+        // Echo it exactly as run, so the log says what happened and the
+        // line can be pasted into a terminal to see it happen again.
+        println!("$ {}", show(&cmd));
+        match cmd.status() {
+            Ok(s) if s.success() => println!("built {}", binary(&name, release).display()),
+            Ok(s) => println!("build failed: cargo exited with {s}"),
+            Err(e) => println!("build failed: could not run cargo: {e}"),
+        }
+        busy.store(false, Ordering::SeqCst);
+    });
+}
+
+/// A command as it would be typed.
+fn show(cmd: &std::process::Command) -> String {
+    let mut out = cmd.get_program().to_string_lossy().into_owned();
+    for a in cmd.get_args() {
+        out.push(' ');
+        out.push_str(&a.to_string_lossy());
+    }
+    out
+}
+
+/// Launch a built example as its own process.
+///
+/// Not waited on: it owns a window and a run loop, and this one has its own
+/// frame to get back to.
+pub fn launch(name: &str, release: bool) -> Result<(), String> {
+    let bin = binary(name, release);
+    if !bin.is_file() {
+        return Err(format!(
+            "{} is not built yet -- press build first",
+            bin.display()
+        ));
+    }
+    println!("$ {}", bin.display());
+    std::process::Command::new(&bin)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("could not launch {}: {e}", bin.display()))
+}

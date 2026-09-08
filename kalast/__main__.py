@@ -41,10 +41,18 @@ def main(argv: list[str] | None = None) -> int:
         if arg.startswith("-"):
             continue
         path = Path(arg)
-        if path.suffix == ".py":
+        # `.rs` opens in the panel like a script, but it is a Rust example --
+        # a separate program that links kalast -- so it is built and launched
+        # from there rather than run in this process.
+        if path.suffix in (".py", ".rs"):
             app.set_script(str(path), path.read_text())
-        else:
+        elif path.suffix == ".obj":
             app.simulation.load_mesh(path=str(path), mat=numpy.eye(4), flatten=True)
+        else:
+            # Anything else used to be handed to the OBJ parser, which read a
+            # Rust file as a mesh, produced no vertices, and took the process
+            # down with "buffer slice can not be empty".
+            print(f"don't know what to do with {path}: expected .py, .rs or .obj")
 
     # Held, always. Nothing here owns a simulation worth advancing until a
     # script has built one, and an editor whose counter climbs over an empty
@@ -59,6 +67,8 @@ def main(argv: list[str] | None = None) -> int:
     # iteration 0, then held. Opening one and getting a black viewport until
     # you find Play is no way to open a file. The run below clears the pause
     # for exactly one iteration and `pause_at` puts it back.
+    # Only Python auto-runs: a Rust example has to be compiled first, and
+    # there is nothing to show until it is.
     if any(not a.startswith("-") and a.endswith(".py") for a in argv):
         app.restart_script()
 

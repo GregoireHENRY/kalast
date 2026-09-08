@@ -1,5 +1,6 @@
 pub mod axes;
 pub mod body;
+pub mod cargo;
 pub mod config;
 pub mod facet_id;
 pub mod facet_shadow;
@@ -765,6 +766,71 @@ impl App {
         };
         let asked = asked | asked_restart;
         let Some(editor) = self.editor.as_mut() else { return };
+        // Rust first, and on its own: building or launching an example has
+        // nothing to do with the Python path below, and a `.rs` in the panel
+        // never reaches the script runner.
+        let mut rust_messages: Vec<String> = Vec::new();
+        {
+            let busy_now = editor
+                .building
+                .load(std::sync::atomic::Ordering::SeqCst);
+            let (build, launch, release) = (
+                std::mem::take(&mut editor.build_request),
+                std::mem::take(&mut editor.launch_request),
+                editor.rust_release,
+            );
+            if build || launch {
+                let path = editor.script_path.trim_end().to_string();
+                let busy = editor.building.clone();
+                match crate::app::cargo::example_for(&path) {
+                    Some(name) => {
+                        if build {
+                            busy.store(true, std::sync::atomic::Ordering::SeqCst);
+                            crate::app::cargo::build(&name, release, busy.clone());
+                        }
+                        if launch {
+                            match crate::app::cargo::launch(&name, release) {
+                                Ok(()) => {}
+                                // Not built yet: build it and launch when
+                                // that finishes, rather than making the
+                                // first press of Play do nothing but
+                                // complain.
+                                Err(_) if !busy_now => {
+                                    busy.store(true, std::sync::atomic::Ordering::SeqCst);
+                                    crate::app::cargo::build(&name, release, busy.clone());
+                                    editor.launch_when_built = true;
+                                }
+                                Err(e) => rust_messages.push(e),
+                            }
+                        }
+                    }
+                    // Naming it is the only way to know what to build: cargo
+                    // does not look into these directories, so a file with no
+                    // entry is not an example as far as it is concerned.
+                    None => rust_messages.push(format!(
+                        "{path} is not listed in Cargo.toml -- add an [[example]] with \
+                         name and path = \"{path}\""
+                    )),
+                }
+            }
+        }
+
+        if editor.launch_when_built && !editor.building.load(std::sync::atomic::Ordering::SeqCst) {
+            editor.launch_when_built = false;
+            let path = editor.script_path.trim_end().to_string();
+            let release = editor.rust_release;
+            if let Some(name) = crate::app::cargo::example_for(&path) {
+                if let Err(e) = crate::app::cargo::launch(&name, release) {
+                    rust_messages.push(e);
+                }
+            }
+        }
+
+        for m in rust_messages.drain(..) {
+            self.log(&m);
+        }
+        let Some(editor) = self.editor.as_mut() else { return };
+
         let (run, open, save) = (
             asked | std::mem::take(&mut editor.run_request),
             asked_open | std::mem::take(&mut editor.open_request),

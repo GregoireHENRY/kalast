@@ -179,6 +179,19 @@ pub struct Editor {
     pub restart_request: bool,
     pub open_request: bool,
     pub save_request: bool,
+
+    /// Which profile the Rust buttons act on. Release by default, because a
+    /// debug build of this renderer is 2-15x slower and an example run for
+    /// its numbers wants the fast one.
+    pub rust_release: bool,
+    pub build_request: bool,
+    pub launch_request: bool,
+    /// Play pressed on an example that was not built: the build is running
+    /// and this says to launch it when it finishes.
+    pub launch_when_built: bool,
+    /// Held while a `cargo build` thread is running, so the buttons can go
+    /// grey rather than starting a second one on top of the first.
+    pub building: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Editor {
@@ -230,6 +243,11 @@ impl Editor {
             restart_request: false,
             open_request: false,
             save_request: false,
+            rust_release: true,
+            build_request: false,
+            launch_request: false,
+            launch_when_built: false,
+            building: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 
@@ -327,6 +345,7 @@ impl Editor {
         let texture_id = self.viewport_texture;
         let script = &mut self.script;
         let script_path = &mut self.script_path;
+        let is_rust = script_path.trim_end().ends_with(".rs");
         let script_dirty = self.script_dirty;
         let script_ran = shared.script_ran;
         let drawn = shared.drawn_iteration;
@@ -334,6 +353,11 @@ impl Editor {
         let dirty = &mut self.script_dirty;
         let ran = &mut shared.script_ran;
         let (mut run_request, mut open_request, mut save_request) = (false, false, false);
+        // A Rust example is built and launched rather than run in this
+        // process, so the transport buttons do not apply to one.
+        let building = self.building.load(std::sync::atomic::Ordering::SeqCst);
+        let rust_release = &mut self.rust_release;
+        let (mut build_request, mut launch_request) = (false, false);
         let mut restart_request = false;
 
         let mut output = self.ctx.run_ui(raw, |ui_root| {
@@ -383,7 +407,14 @@ impl Editor {
                     // runs it, which starts the simulation as a side effect.
                     // After that it is transport.
                     let have_script = has_script;
-                    let (label, hover): (&str, &str) = if !have_script {
+                    let (label, hover): (&str, &str) = if is_rust {
+                        // Play is Play. For a Rust example that means
+                        // launching the built binary in its own window --
+                        // it is a separate program and cannot be hosted in
+                        // this one -- and building it first if it is not
+                        // built yet.
+                        ("\u{25b6} Play", "Launch this example, building it first if needed")
+                    } else if !have_script {
                         ("\u{25b6} Play", "Open or write a script first")
                     } else if !script_ran {
                         ("\u{25b6} Play", "Run this script and start the simulation  (P)")
@@ -397,7 +428,9 @@ impl Editor {
                         .on_hover_text(hover)
                         .clicked()
                     {
-                        if script_ran {
+                        if is_rust {
+                            launch_request = true;
+                        } else if script_ran {
                             state.is_paused = !state.is_paused;
                         } else {
                             // Running unpauses; see `serve_editor_requests`.
@@ -405,8 +438,12 @@ impl Editor {
                         }
                     }
                     if ui
-                        .add_enabled(script_ran, egui::Button::new("\u{27f2} Restart"))
-                        .on_hover_text("Rebuild the scene from the script and stop at the start")
+                        .add_enabled(script_ran && !is_rust, egui::Button::new("\u{27f2} Restart"))
+                        .on_hover_text(if is_rust {
+                            "A Rust example builds its own scene, in its own process"
+                        } else {
+                            "Rebuild the scene from the script and stop at the start"
+                        })
                         .clicked()
                     {
                         run_request = true;
@@ -416,7 +453,10 @@ impl Editor {
                     // does, so the button cannot drift from the key.
                     if ui
                         .add_enabled(
-                            script_ran && state.is_paused,
+                            // With a Rust example open there is no script to
+                            // have run, but this window still has a
+                            // simulation and the button still steps it.
+                            (script_ran || is_rust) && state.is_paused,
                             egui::Button::new("\u{23ed} Step"),
                         )
                         .on_hover_text("Advance one iteration  (K)")
@@ -481,6 +521,35 @@ impl Editor {
                         && ui.input(|i| i.key_pressed(egui::Key::Enter))
                     {
                         open_request = true;
+                    }
+                    // A Rust example is a separate program: it links kalast
+                    // as a library and opens its own window, so it cannot be
+                    // hosted in this one the way a script is. Build it and
+                    // launch it instead -- cargo and the example both inherit
+                    // this process's redirected stdout, so their output still
+                    // arrives in the Log below.
+                    if is_rust {
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("Rust").weak());
+                            ui.selectable_value(rust_release, false, "debug")
+                                .on_hover_text("cargo build --example ...");
+                            ui.selectable_value(rust_release, true, "release")
+                                .on_hover_text(
+                                    "cargo build --release --example ... -- 2-15x faster here, \
+                                     and what any run worth keeping wants",
+                                );
+                            if ui
+                                .add_enabled(!building, egui::Button::new("build"))
+                                .on_hover_text(if building {
+                                    "a build is already running"
+                                } else {
+                                    "Compile this example"
+                                })
+                                .clicked()
+                            {
+                                build_request = true;
+                            }
+                        });
                     }
                     ui.separator();
                     // A layouter with no wrap width. Python read through a
@@ -763,6 +832,8 @@ impl Editor {
         self.restart_request |= restart_request;
         self.open_request |= open_request;
         self.save_request |= save_request;
+        self.build_request |= build_request;
+        self.launch_request |= launch_request;
         self.state
             .handle_platform_output(window, output.platform_output);
 

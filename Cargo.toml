@@ -89,3 +89,12 @@ objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponde
 #
 # Deliberately NOT set: panic = "abort" -- PyO3 turns Rust panics into Python
 # exceptions, which needs unwinding.
+
+# Examples are not auto-discovered here: cargo looks for `examples/*.rs` or
+# `examples/<name>/main.rs`, and these directories hold a Python script of the
+# same name beside the Rust one. Naming them explicitly also gives the editor
+# something to map an opened file back to -- it reads this table to work out
+# which `--example` to build.
+[[example]]
+name = "crater_step"
+path = "examples/crater_self_shadow/step.rs"
