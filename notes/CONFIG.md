@@ -7,7 +7,18 @@ There are two configs, and they answer different questions.
 `app.simulation.config` -- this document -- is about the thing being simulated
 and the image made of it. `app.config` is about the application you are
 looking at: its window now, its panel layout and colours as the editor grows.
-It holds `editor`, `focus`, `width` and `height`.
+It holds `editor`, `focus`, `width`, `height` and `toolbar`.
+
+**Every option in this document has a widget in the editor's Config section**,
+and that is guaranteed rather than kept up by hand: `src/app/gui/config_panel.rs`
+is generated from `src/app/config.rs`, and `tests/test_config_panel.py` fails
+if a field has no widget. Add an option and it appears in the panel. The two
+exceptions are marked `:skip:` in the Rust and say why in their entry here --
+`colormap`, which is an array a script passes, and `app.config.editor`, a
+checkbox that would switch the UI off from inside the UI.
+
+The reverse is not true of the rest of the API: see **What the panel reaches**
+in `API.md` for what the editor does *not* get to.
 
 ### `app.config.focus: bool` — default `False` *(live)*
 Give the whole window to the renderer: the panels get out of the way, each

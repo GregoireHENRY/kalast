@@ -133,6 +133,54 @@ layout instead. `render(None, …)` is the call for that, and it is the same
 path an occluded window already takes: a full frame minus the blit and the
 present.
 
+### What the panel reaches
+
+The editor is a front end for the API in this document, and it does not cover
+all of it. Roughly six of every seven members that a panel could sensibly
+carry have a widget; what follows is the rest, and why.
+
+**The config is complete by construction.** Its panel is generated from the
+Rust struct and guarded by a test, so an option cannot be added without a
+widget appearing. See the top of `CONFIG.md`.
+
+**The simulation is covered except for one cluster.** State, bodies, camera,
+Sun, HUDs and export all have sections, and bodies can be added, removed,
+reloaded, reshaded and transformed there. Not covered:
+
+| | |
+|---|---|
+| `facet_shadow`, `facet_id_map`, `hemicube` and their `request_*` | a query is only half of it -- a result needs somewhere to be looked at, and a per-facet array is not a side panel |
+| the camera's control mode and aiming helpers | bound to keys already (`T` cycles the mode), and `view_along` belongs to a figure being composed, not to a settings list |
+| `flip_facets`, `inward_facing_facets`, `intersect`, `recompute_facets`, `mark_colors_dirty`, `update_all_vertices_colors` | surgery on a mesh, done once when a shape model turns out to be wrong, not while a run is going |
+
+**Some members are not panel-shaped at all** and are excluded from that count:
+program entry points (`start`, `start_editor`, `tick`), the editor's own
+plumbing (`set_script`, `take_script_request`, `script_runner`, `pointer`,
+`ui_size`, `panels_shown`, `flush_output`), matrices derived from state the
+panel already shows (`mat`, `view_proj`, `right`), and the bulk per-vertex
+arrays -- 3.1M rows is not something to put in a side panel.
+
+### Who wins, the panel or the script
+
+They write the same fields, and the script writes last: a callback that
+assigns something every iteration owns it, and a panel edit lasts until the
+next assignment. That is not a race to be fixed -- it is what a script
+assigning every frame means -- but it does mean an edit can look like it was
+refused.
+
+Where it bites, and what to do:
+
+| | |
+|---|---|
+| `hud.text` | `hud.pin` overrides it outright; the HUDs section sets that when you type. The only field with an override |
+| `body.mat` | an edit lasts one frame against a script that places bodies per iteration. Fine for a scene placed once |
+| `camera.pos`/`dir`/`up` | same, and the same for a camera driven from SPICE |
+| `config.*` | no contention in practice: scripts set these once at the top |
+
+Pausing stops callbacks, so an edit holds -- **except against a driven
+script**, whose `while app.step():` keeps running while paused. Pausing stops
+the iteration counter, not a loop the script owns.
+
 ### Driving the editor from a script
 
 The editor's own loop lives in `kalast/__main__.py` rather than inside
