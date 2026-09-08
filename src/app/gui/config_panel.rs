@@ -257,5 +257,6 @@ pub fn config_panel(ui: &mut egui::Ui, c: &mut Config, a: &mut AppConfig) {
         ui.checkbox(&mut c.debug_simulation, "debug_simulation").on_hover_text("**Does nothing.** The field exists and is settable from Python, but no code reads it. Left as a placeholder.");
         ui.checkbox(&mut c.debug_depth_show, "debug_depth_show").on_hover_text("Draw the shadow/depth map as an overlay instead of leaving it offscreen.");
         ui.checkbox(&mut c.debug_light_cube_show, "debug_light_cube_show").on_hover_text("Draw a cube at the light's position, so the Sun is visible.");
+        ui.checkbox(&mut c.debug_light_cube_fit, "debug_light_cube_fit").on_hover_text("Fit the camera's frustum around the light cube too, not just the bodies.");
     });
 }
