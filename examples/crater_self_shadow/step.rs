@@ -76,14 +76,17 @@ fn main() {
 
         // ...and everything after it is `after_render`.
         //
-        // The borrow is scoped, because `facet_shadow` hands back a slice
-        // into the simulation and writing the HUD needs it back.
+        // Insolation, not occlusion: a facet with nothing between it and the
+        // Sun is still dark if it faces away, which on this crater is most of
+        // the far wall. `facet_shadow` alone answered the wrong question.
+        //
+        // The borrow is scoped, because writing the HUD needs it back.
         let lit = {
             let sim = app.simulation.borrow();
-            match sim.facet_shadow(0) {
-                Some(shadow) => {
-                    let n = shadow.iter().filter(|&&s| s < 0.5).count();
-                    n as f32 / shadow.len() as f32
+            match sim.facet_illumination(0) {
+                Some(illum) => {
+                    let n = illum.iter().filter(|&&i| i > 0.0).count();
+                    n as f32 / illum.len() as f32
                 }
                 None => 0.0,
             }

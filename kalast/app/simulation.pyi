@@ -122,6 +122,29 @@ class Simulation:
         each frame, then read this from `after_render`.
         """
         ...
+    def facet_illumination(self, body: int) -> numpy.object | None:
+        """Per-facet direct insolation, normalised: `max(0, cos i) * (1 - occluded)`.
+
+        **This, not `facet_shadow`, is what "lit" means.** The shadow map
+        answers one question -- is anything between this facet and the Sun --
+        and a facet with nothing in the way is still dark if it faces away.
+        On a crater that is most of the far wall; on a convex body it is about
+        half of it.
+
+        0 is dark, 1 is facing the Sun with nothing in the way. The cosine is
+        clamped at zero, so a facet tilted away reads 0 rather than negative.
+
+        ```python
+        illum = sim.facet_illumination(0)
+        lit = float((illum > 0).mean())          # fraction receiving any sun
+        mean_insolation = float(illum.mean())    # and how much, on average
+        ```
+
+        Same availability as `facet_shadow`: `None` until a shadow result for
+        that body has been read this frame, which `config.access_shadow_map`
+        or `request_facet_shadow` arranges.
+        """
+        ...
     def request_hemicube(self, body: int, facets: numpy.object, resolution: int, batch: int) -> None:
         """Ask for hemicube view factors for `facets` of `body`, this frame.
 

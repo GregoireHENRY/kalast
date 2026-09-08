@@ -682,16 +682,52 @@ sim.request_facet_shadow(body)      # before_render
 frac = sim.facet_shadow(body)       # after_render -> array or None
 ```
 
-One entry per facet in `Mesh.facets` order: `0.0` fully lit, `1.0` fully
-shadowed, quarter steps between (4 samples per facet). `1.0 - frac` is the lit
-fraction.
+One entry per facet in `Mesh.facets` order: `0.0` nothing in the way, `1.0`
+fully blocked, quarter steps between (4 samples per facet).
 
 Set `config.access_shadow_map = True` to have every body computed every frame
 instead of requesting per body.
 
+**`1.0 - frac` is not the lit fraction**, which is what it looks like and what
+this document used to say. It is the *unblocked* fraction. A facet with
+nothing between it and the Sun is still dark if it faces away, and nothing in
+this array knows which way a facet points.
+
 **This is the TPM's occlusion term, not a rendering detail.** It is read back
 from the shadow map, so it inherits the shadow bias — see the calibration note
 in `2026-09-04_shadow_fixes.md` before trusting absolute values.
+
+### Per-facet insolation — what "lit" means
+
+```python
+illum = sim.facet_illumination(body)     # after_render -> array or None
+lit = float((illum > 0).mean())          # fraction receiving any sun
+mean = float(illum.mean())               # and how much, on average
+```
+
+`max(0, cos i) * (1 - occluded)`, one entry per facet: **0 is dark, 1 is facing
+the Sun with nothing in the way.** The same quantity the shader shades with,
+without the `ambient_strength` floor — the `Lighting` colour bar is this plus
+ambient. The cosine is clamped at zero for the reason `tpm::core::radiation_sun`
+gives: a facet tilted away receives nothing, it does not radiate into the Sun.
+
+Available exactly when `facet_shadow` is, and derived from it rather than read
+back separately — the occlusion comes from the GPU, the cosine is geometry
+already to hand, and computing it here keeps the per-frame readback the size
+it was, which matters at 3.1M facets.
+
+**Use this and not `facet_shadow` to answer "how much of the body is lit".**
+The crater example used the occlusion alone and was wrong by a lot; with the
+Sun swung to the far side of the plane it read 99.2 % lit where the true
+figure is 0.0 %, because nothing was blocking facets that were all facing
+away:
+
+| Sun angle | occlusion alone | insolation |
+|---|---|---|
+| 0° | 100.0 % | 100.0 % |
+| 69° | 60.9 % | 49.6 % |
+| 92° | 25.5 % | 0.5 % |
+| 183° | 99.2 % | 0.0 % |
 
 ### Facet index map — feeds the FITS products
 

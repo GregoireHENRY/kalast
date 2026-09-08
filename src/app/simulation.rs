@@ -298,6 +298,52 @@ impl Simulation {
             .filter(|v| !v.is_empty())
             .map(|v| v.as_slice())
     }
+
+    /// Per-facet direct insolation, normalised: `max(0, cos i) * (1 - occluded)`.
+    ///
+    /// **This, not `facet_shadow`, is what "lit" means.** The shadow map
+    /// answers one question -- is anything between this facet and the Sun --
+    /// and a facet with nothing in the way is still dark if it faces away.
+    /// On a crater the difference is most of the far wall: unoccluded,
+    /// pointing into the ground, receiving nothing. Counting those as lit
+    /// overstates the illuminated fraction by however much of the body has
+    /// its back to the Sun, which for a convex body is about half of it.
+    ///
+    /// Same quantity the shader shades with, without the `ambient_strength`
+    /// floor: the `Lighting` colour bar is this plus ambient. The cosine is
+    /// clamped at zero for the reason `tpm::core::radiation_sun` gives --
+    /// a facet tilted away receives nothing, it does not radiate into the
+    /// Sun -- so 0 means dark and 1 means facing the Sun with nothing in
+    /// the way.
+    ///
+    /// Derived rather than read back: the occlusion comes from the GPU, the
+    /// cosine is geometry this already has, and computing it here keeps the
+    /// per-frame readback the size it was -- which matters at 3.1M facets.
+    ///
+    /// `None` when no shadow result for that body has been read this frame,
+    /// exactly as `facet_shadow`.
+    pub fn facet_illumination(&self, body: usize) -> Option<Vec<f32>> {
+        let shadow = self.facet_shadow(body)?;
+        let b = self.bodies.get(body)?;
+        let mesh = b.mesh.as_ref()?.borrow();
+
+        // Rotation (and any scale) but not translation: a normal is a
+        // direction. Renormalised, so a scaled body still reports a cosine.
+        let rot = crate::Mat3::from_mat4(b.mat);
+
+        Some(
+            mesh.facets
+                .iter()
+                .zip(shadow)
+                .map(|(f, &occluded)| {
+                    let pos = b.mat.transform_point3(f.pos);
+                    let normal = (rot * f.normal).normalize_or_zero();
+                    let to_sun = (self.sun.pos - pos).normalize_or_zero();
+                    (normal.dot(to_sun).max(0.0) as f32) * (1.0 - occluded)
+                })
+                .collect(),
+        )
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -377,5 +423,72 @@ mod pause_tests {
         }
         assert_eq!(sim.state.iteration, 7, "Play carries on past `pause_at`");
         assert!(!sim.state.is_paused);
+    }
+}
+
+#[cfg(test)]
+mod illumination_tests {
+    use super::*;
+
+    /// Two facets, both with nothing between them and the Sun: one facing it,
+    /// one facing away. The shadow map cannot tell them apart -- that is the
+    /// bug this exists to fix.
+    fn scene() -> Simulation {
+        let mut mesh = crate::mesh::Mesh::new();
+        mesh.facets = vec![
+            crate::mesh::Facet {
+                pos: crate::Vec3::ZERO,
+                normal: crate::Vec3::Z,
+                area: 1.0,
+            },
+            crate::mesh::Facet {
+                pos: crate::Vec3::ZERO,
+                normal: -crate::Vec3::Z,
+                area: 1.0,
+            },
+        ];
+
+        let mut sim = Simulation::new();
+        sim.sun.pos = crate::Vec3::new(0.0, 0.0, 10.0);
+        sim.bodies.push(crate::app::body::Body {
+            mesh: Some(std::rc::Rc::new(std::cell::RefCell::new(mesh))),
+            ..Default::default()
+        });
+        sim
+    }
+
+    #[test]
+    fn a_facet_facing_away_is_dark_however_unshadowed_it_is() {
+        let mut sim = scene();
+        sim.facet_shadow_result = vec![vec![0.0, 0.0]];
+
+        let illum = sim.facet_illumination(0).unwrap();
+        assert_eq!(illum[0], 1.0, "facing the Sun, nothing in the way");
+        assert_eq!(
+            illum[1], 0.0,
+            "facing away -- unshadowed, and receiving nothing"
+        );
+    }
+
+    #[test]
+    fn occlusion_scales_it_and_shadow_alone_does_not_answer_the_question() {
+        let mut sim = scene();
+        sim.facet_shadow_result = vec![vec![0.25, 0.0]];
+
+        let illum = sim.facet_illumination(0).unwrap();
+        assert_eq!(illum[0], 0.75, "a quarter occluded");
+
+        // What the old `lit` counted: not-mostly-shadowed. Both facets pass,
+        // and half of them receive nothing at all.
+        let shadow = sim.facet_shadow(0).unwrap();
+        assert_eq!(shadow.iter().filter(|&&s| s < 0.5).count(), 2);
+        assert_eq!(illum.iter().filter(|&&i| i > 0.0).count(), 1);
+    }
+
+    #[test]
+    fn no_shadow_result_is_none_not_zeros() {
+        let sim = scene();
+        assert!(sim.facet_illumination(0).is_none());
+        assert!(sim.facet_illumination(9).is_none());
     }
 }
