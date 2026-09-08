@@ -795,8 +795,8 @@ impl Default for Config {
             wireframe_mode: 0,
             selection_color: wgpu::Color {
                 r: 1.0,
-                g: 0.85,
-                b: 0.1,
+                g: 1.0,
+                b: 0.0,
                 a: 1.0,
             },
             wireframe_color: wgpu::Color::BLACK,

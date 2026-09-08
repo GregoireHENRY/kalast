@@ -1143,7 +1143,7 @@ non-indexed geometry. Smooth meshes render shaded with a one-time warning
 rather than noise; the check is per mesh, via `INSTANCE_FLAG_FLAT` in
 `InstanceInput.flags`.
 
-### `selection_color: wgpu::Color` — default yellow `(1.0, 0.85, 0.1, 1.0)` *(live)*
+### `selection_color: wgpu::Color` — default yellow `(1.0, 1.0, 0.0, 1.0)` *(live)*
 The colour a facet takes when selected — by clicking it in the viewport, or
 through `sim.toggle_facet`. Written onto the facet's own vertices together
 with colour-mode 1, which the shader honours for that facet alone, so the rest
