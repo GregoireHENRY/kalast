@@ -7,13 +7,16 @@
 //! transform's sixteen numbers.
 
 use crate::app::simulation::Simulation;
+use crate::Float;
 
-/// A labelled row, so every readout lines up the same way.
-fn row(ui: &mut egui::Ui, label: &str, value: impl Into<String>) {
+/// A labelled row, so every readout lines up the same way. Returns the
+/// value's response, for the rows that want a hover on it.
+fn row(ui: &mut egui::Ui, label: &str, value: impl Into<String>) -> egui::Response {
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(label).weak());
-        ui.label(egui::RichText::new(value.into()).monospace());
-    });
+        ui.label(egui::RichText::new(value.into()).monospace())
+    })
+    .inner
 }
 
 /// Three drag fields for a vector, returning whether any changed.
@@ -28,65 +31,241 @@ fn vec3(ui: &mut egui::Ui, label: &str, v: &mut crate::Vec3, speed: f64) -> bool
     changed
 }
 
-fn eye_ui(ui: &mut egui::Ui, eye: &mut crate::app::frame::Eye, is_sun: bool) {
+/// Where the file is, without the file: its name is already the header just
+/// above, and a shape model's full path is routinely wider than the panel,
+/// so spelling it out again both repeats itself and sets the panel's width
+/// for every other row. The whole path is one hover away.
+fn path_row(ui: &mut egui::Ui, path: Option<&std::path::Path>) {
+    let Some(path) = path else { return };
+    let dir = path.parent().unwrap_or(std::path::Path::new("."));
+    let dir = dir.to_string_lossy();
+    row(ui, "in", if dir.is_empty() { ".".into() } else { dir })
+        .on_hover_text(path.to_string_lossy());
+}
+
+/// A body's file name, or a stand-in for one built in memory.
+fn body_name(body: &crate::app::body::Body) -> String {
+    body.mesh
+        .as_ref()
+        .and_then(|m| {
+            m.borrow()
+                .path
+                .as_ref()
+                .and_then(|p| p.file_name().map(|f| f.to_string_lossy().into_owned()))
+        })
+        .unwrap_or_else(|| "built in memory".to_string())
+}
+
+/// One body: which file it is, and the shape of what was loaded. Counts and
+/// bounds rather than the arrays themselves -- 3.1M facets is not something
+/// to put in a side panel, and the questions actually asked of a mesh here
+/// are "did it flatten", "how big is it" and "does it carry values".
+fn body_ui(ui: &mut egui::Ui, i: usize, body: &crate::app::body::Body) {
+    let mesh = body.mesh.as_ref();
+    // The file name alone in the header, since a full path is usually long
+    // enough to widen the panel on its own; the whole thing goes below.
+    let file = body_name(body);
+
+    egui::CollapsingHeader::new(format!("body {i}  {file}"))
+        .id_salt(i)
+        .default_open(true)
+        .show(ui, |ui| {
+            let Some(mesh) = mesh else {
+                ui.label(egui::RichText::new("no mesh").weak());
+                return;
+            };
+            let mesh = mesh.borrow();
+
+            path_row(ui, mesh.path.as_deref());
+            mesh_ui(ui, &mesh);
+
+            // The values a colormap reads, if a script has written any. Their
+            // range is the useful part: an all-zero column and a missing one
+            // look identical in the render.
+            if mesh.values.is_empty() {
+                row(ui, "values", "none");
+            } else {
+                let lo = mesh.values.iter().copied().fold(Float::INFINITY, Float::min);
+                let hi = mesh
+                    .values
+                    .iter()
+                    .copied()
+                    .fold(Float::NEG_INFINITY, Float::max);
+                row(
+                    ui,
+                    "values",
+                    format!("{} facets, {lo:.4} to {hi:.4}", mesh.values.len()),
+                );
+            }
+            drop(mesh);
+
+            if let Some(shadow) = body.shadow_mesh.as_ref() {
+                let shadow = shadow.borrow();
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new(format!(
+                        "shadow mesh  {}",
+                        shadow
+                            .path
+                            .as_ref()
+                            .and_then(|p| p.file_name())
+                            .map(|f| f.to_string_lossy().into_owned())
+                            .unwrap_or_default()
+                    ))
+                    .weak(),
+                );
+                path_row(ui, shadow.path.as_deref());
+                mesh_ui(ui, &shadow);
+            }
+
+            // Model to world. Read-only: bodies are usually placed by a
+            // script every frame, so an edit here would last one frame.
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new("mat").weak());
+            let m = body.mat.to_cols_array_2d();
+            for r in 0..4 {
+                row(
+                    ui,
+                    "",
+                    format!(
+                        "{:>7.3} {:>7.3} {:>7.3} {:>7.3}",
+                        m[0][r], m[1][r], m[2][r], m[3][r]
+                    ),
+                );
+            }
+        });
+}
+
+/// Counts, winding and extent for one mesh.
+fn mesh_ui(ui: &mut egui::Ui, mesh: &crate::mesh::Mesh) {
+    // One number per row, for the same reason the bounds are split: the
+    // widest row in a side panel is the panel's width.
+    row(ui, "facets", mesh.facets.len().to_string());
+    row(ui, "vertices", mesh.vertices.len().to_string());
+    row(ui, "indices", mesh.indices.len().to_string());
+    // Flattened means three unshared vertices per facet -- what the
+    // per-facet science data needs, and what `flatten=True` asks for.
+    row(
+        ui,
+        "winding",
+        if mesh.is_flat() {
+            "flat (unshared)"
+        } else {
+            "smooth (shared)"
+        },
+    );
+    // Three rows rather than one long one: a side panel is narrow, and a
+    // row wide enough to hold six numbers makes the whole panel that wide.
+    let b = &mesh.bounds;
+    row(ui, "min", format!("{:.3} {:.3} {:.3}", b.min.x, b.min.y, b.min.z));
+    row(ui, "max", format!("{:.3} {:.3} {:.3}", b.max.x, b.max.y, b.max.z));
+    let e = b.max - b.min;
+    row(ui, "extent", format!("{:.3} {:.3} {:.3}", e.x, e.y, e.z));
+    if let Some(id) = mesh.material_id {
+        row(ui, "material", id.to_string());
+    }
+}
+
+fn eye_ui(ui: &mut egui::Ui, eye: &mut crate::app::frame::Eye, bodies: &[String], is_sun: bool) {
     vec3(ui, "pos", &mut eye.pos, 0.05);
 
+    // The Sun's frame is not a camera anyone reframes: it looks at the scene
+    // from wherever `pos` puts it, orthographically, and its anchor follows
+    // the geometry. Showing those as settings would only invite changing
+    // something that is not a choice.
     if !is_sun {
         // Direction and up must stay unit vectors -- a short one panics the
-        // renderer, inside a callback that cannot unwind -- so they are shown
-        // and renormalised rather than edited raw.
+        // renderer, inside a callback that cannot unwind -- so they are
+        // renormalised on every edit rather than trusted.
         if vec3(ui, "dir", &mut eye.dir, 0.01) {
             eye.dir = eye.dir.normalize_or_zero();
         }
         if vec3(ui, "up", &mut eye.up, 0.01) {
             eye.up = eye.up.normalize_or_zero();
         }
-    }
 
-    vec3(ui, "anchor", &mut eye.anchor, 0.05);
-    row(
-        ui,
-        "anchor body",
-        match eye.anchor_body {
-            Some(i) => i.to_string(),
-            None => "none".to_string(),
-        },
-    );
+        vec3(ui, "anchor", &mut eye.anchor, 0.05);
 
-    let p = &mut eye.projection;
-    row(ui, "mode", format!("{:?}", p.mode));
-    // An orthographic frustum has no field of view; `side` is its width, and
-    // showing a dead angle beside it only invites editing it.
-    if p.mode == crate::app::frame::ProjectionMode::Perspective {
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("fovy").weak());
-            let mut deg = p.fovy.to_degrees();
-            if ui
-                .add(egui::DragValue::new(&mut deg).speed(0.2).suffix("°"))
-                .changed()
-            {
-                p.fovy = deg.to_radians();
-            }
+            ui.label(egui::RichText::new("anchor body").weak());
+            let selected = match eye.anchor_body {
+                Some(i) => bodies
+                    .get(i)
+                    .map(|n| format!("{i}  {n}"))
+                    .unwrap_or_else(|| i.to_string()),
+                None => "none".to_string(),
+            };
+            egui::ComboBox::from_id_salt("anchor_body")
+                .selected_text(selected)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut eye.anchor_body, None, "none");
+                    for (i, name) in bodies.iter().enumerate() {
+                        ui.selectable_value(&mut eye.anchor_body, Some(i), format!("{i}  {name}"));
+                    }
+                });
         });
     }
 
-    // The resolved values rather than the requests: an unset one is fitted
-    // to the scene every frame, and the fitted number is what explains the
-    // picture. Which of the two it is matters as much as the value.
-    let r = p.resolved();
-    for (name, set, value) in [
-        ("near", p.near.is_some(), r.near),
-        ("far", p.far.is_some(), r.far),
-        ("side", p.side.is_some(), r.side),
+    let p = &mut eye.projection;
+
+    if !is_sun {
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("mode").weak());
+            egui::ComboBox::from_id_salt("mode")
+                .selected_text(format!("{:?}", p.mode))
+                .show_ui(ui, |ui| {
+                    use crate::app::frame::ProjectionMode::*;
+                    ui.selectable_value(&mut p.mode, Perspective, "Perspective");
+                    ui.selectable_value(&mut p.mode, Orthographic, "Orthographic");
+                });
+        });
+
+        // An orthographic frustum has no field of view -- `side` is its
+        // width -- so a dead angle here would only invite editing it.
+        if p.mode == crate::app::frame::ProjectionMode::Perspective {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("fovy").weak());
+                let mut deg = p.fovy.to_degrees();
+                if ui
+                    .add(egui::DragValue::new(&mut deg).speed(0.2).suffix("\u{b0}"))
+                    .changed()
+                {
+                    p.fovy = deg.to_radians();
+                }
+            });
+        }
+    }
+
+    // Each plane is either pinned to a number or fitted to the scene every
+    // frame. The tick is which of the two, and the value beside it is what
+    // is actually in the matrix either way -- untick and it goes back to
+    // following the geometry, from the number it was last fitted to.
+    let fitted = p.resolved();
+    for (name, field, value) in [
+        ("near", &mut p.near, fitted.near),
+        ("far", &mut p.far, fitted.far),
+        ("side", &mut p.side, fitted.side),
     ] {
-        row(
-            ui,
-            name,
-            format!(
-                "{value:.4} {}",
-                if set { "(pinned)" } else { "(fitted)" }
-            ),
-        );
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(name).weak());
+            let mut pinned = field.is_some();
+            if ui
+                .checkbox(&mut pinned, "")
+                .on_hover_text("Pin this plane. Unticked, it is fitted to the scene every frame.")
+                .changed()
+            {
+                *field = pinned.then_some(value);
+            }
+            match field {
+                Some(v) => {
+                    ui.add(egui::DragValue::new(v).speed(0.01));
+                }
+                None => {
+                    ui.label(egui::RichText::new(format!("{value:.4}")).monospace());
+                    ui.label(egui::RichText::new("fitted").weak().small());
+                }
+            }
+        });
     }
 }
 
@@ -134,28 +313,17 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation) {
             ui.label(egui::RichText::new("none loaded").weak());
         }
         for (i, body) in sim.bodies.iter().enumerate() {
-            let facets = body
-                .mesh
-                .as_ref()
-                .map(|m| m.borrow().facets.len())
-                .unwrap_or(0);
-            let shadow = body.shadow_mesh.as_ref().map(|m| m.borrow().facets.len());
-            // Where it is, which is the part of a 4x4 anyone reads.
-            let p = body.mat.w_axis;
-            row(
-                ui,
-                &format!("body {i}"),
-                match shadow {
-                    Some(n) => format!("{facets} facets, {n} shadow"),
-                    None => format!("{facets} facets"),
-                },
-            );
-            row(ui, "  at", format!("{:.3} {:.3} {:.3}", p.x, p.y, p.z));
+            body_ui(ui, i, body);
         }
     });
 
-    group(ui, "Camera", false, |ui| eye_ui(ui, &mut sim.camera, false));
-    group(ui, "Sun", false, |ui| eye_ui(ui, &mut sim.sun, true));
+    // Named for the anchor-body picker below, and collected first because
+    // that reads `bodies` while the picker holds `camera` mutably.
+    let names: Vec<String> = sim.bodies.iter().map(body_name).collect();
+    group(ui, "Camera", false, |ui| {
+        eye_ui(ui, &mut sim.camera, &names, false)
+    });
+    group(ui, "Sun", false, |ui| eye_ui(ui, &mut sim.sun, &names, true));
 
     group(ui, "HUDs", true, |ui| {
         if sim.huds.is_empty() {

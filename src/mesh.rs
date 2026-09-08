@@ -284,6 +284,13 @@ pub struct Mesh {
     // Call `recompute_bounds` after mutating vertex positions in place.
     pub bounds: Aabb,
 
+    /// The file this was loaded from, or `None` for a mesh built in memory.
+    ///
+    /// Kept so the editor can say *which* shape model a body is, which is
+    /// the first thing anyone wants to know about a scene they did not
+    /// build a minute ago. Every mesh in one `.obj` carries the same path.
+    pub path: Option<std::path::PathBuf>,
+
     // Per-facet scalar to colour by -- a temperature, an insolation, a
     // shadowed fraction. Empty when the mesh is coloured by vertex colour
     // instead, which is the default.
@@ -308,6 +315,7 @@ impl Mesh {
                 min: Vec3::ZERO,
                 max: Vec3::ZERO,
             },
+            path: None,
             values: vec![],
         }
     }
@@ -883,6 +891,7 @@ impl Model {
                     _vertices_before_flatten: vec![],
                     colors_dirty: false,
                     bounds,
+                    path: Some(path.to_path_buf()),
                     values: vec![],
                 };
 
