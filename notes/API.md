@@ -281,6 +281,17 @@ def before_render(sim: Simulation, dt: float) -> None:
 Text written here is still a template. A HUD left untouched keeps its text.
 See `CONFIG.md` for placeholders, anchors, size, colour and font.
 
+**A callback that assigns `text` every iteration owns it.** The editor's HUDs
+section edits the same field, so an edit made there lasts until the next
+assignment -- which at 120 fps is no time at all, and looks exactly like a
+field refusing to take an edit. The panel says so when it happens; pausing
+stops the callbacks and lets the edit stand.
+
+The way round it is to put the wording in the template and leave the callback
+only the part it computes -- `Hud("lit {v:.1f} %")` cannot be done today,
+since a placeholder can only name something the engine knows, so a value from
+Python has to be formatted in Python.
+
 ## `sim.bodies`
 
 A list, in load order. Each `Body` has:

@@ -445,6 +445,16 @@ fn huds_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
             .id_salt(i)
             .default_open(true)
             .show(ui, |ui| {
+                // Whether something other than this field is writing the
+                // text. What was left here at the end of the last frame is
+                // what this field last saw -- including its own edit -- so
+                // anything different arrived from outside, which in practice
+                // means a script assigning `hud.text` every iteration.
+                let seen = ui.id().with(("seen", i));
+                let written_elsewhere = ui
+                    .data_mut(|d| d.get_temp::<String>(seen))
+                    .is_some_and(|last| last != hud.text);
+
                 ui.add(
                     egui::TextEdit::multiline(&mut hud.text)
                         .desired_rows(1)
@@ -455,6 +465,18 @@ fn huds_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
                     "Template. {it} {drawn} {nit} {its} {fps} {ms} {bodies} {paused} {warn}, \
                      with an optional precision as {fps:.1}.",
                 );
+                ui.data_mut(|d| d.insert_temp(seen, hud.text.clone()));
+
+                // An edit that will not survive the next iteration looks
+                // exactly like a field that will not take one, so say which
+                // it is rather than leaving it to be discovered.
+                if written_elsewhere {
+                    ui.label(
+                        egui::RichText::new("the script rewrites this every iteration -- pause to edit")
+                            .weak()
+                            .small(),
+                    );
+                }
 
                 // What that template comes out as this frame, but only when
                 // the two differ. A dim copy of the field directly under the
