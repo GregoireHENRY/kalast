@@ -806,6 +806,7 @@ impl App {
         // nothing to do with the Python path below, and a `.rs` in the panel
         // never reaches the script runner.
         let mut rust_messages: Vec<String> = Vec::new();
+        let mut handed_over = false;
         {
             // Reading `Cargo.toml` and stat-ing a file, so not every frame:
             // only when the path or profile changes, or a compile just
@@ -838,8 +839,21 @@ impl App {
                             crate::app::cargo::build(&name, release, busy.clone());
                         }
                         if launch {
-                            if let Err(e) = crate::app::cargo::launch(&name, release) {
-                                rust_messages.push(e);
+                            // The example writes to the terminal, not to this
+                            // process's log pipe: the editor is about to go,
+                            // and a child holding the write end of a pipe
+                            // nobody reads takes a SIGPIPE on its next line.
+                            let (out, err) = match self.stdio.as_ref() {
+                                Some(c) => (c.terminal(), c.terminal()),
+                                None => (None, None),
+                            };
+                            match crate::app::cargo::launch(&name, release, out, err) {
+                                // Handed over: one kalast window at a time.
+                                // The example carries the editor UI, so what
+                                // opens is the same thing that closes, with
+                                // a scene in it.
+                                Ok(()) => handed_over = true,
+                                Err(e) => rust_messages.push(e),
                             }
                         }
                     }
@@ -856,6 +870,13 @@ impl App {
 
         for m in rust_messages.drain(..) {
             self.log(&m);
+        }
+        if handed_over {
+            // Not `exit()`: the window has to come down and the buffered
+            // output has to reach the terminal, both of which happen on the
+            // way out of the loop.
+            self.shared.borrow_mut().running = false;
+            return;
         }
         let Some(editor) = self.editor.as_mut() else { return };
 

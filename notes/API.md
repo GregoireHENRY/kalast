@@ -144,11 +144,19 @@ The Script panel grows a row for one — a `debug`/`release` choice and a
 `Restart` and `Step` are all grey: there is nothing to run and nothing in this
 window to step. Once it is compiled, Play launches it.
 
-**The launched example draws the editor around its own scene**, so Play gives
-the same window a Python script does rather than a bare renderer. It is still
-a separate process with a window of its own — that cannot be otherwise — but
-its toolbar controls *its* simulation: Play pauses and resumes, Step steps,
-and `Restart` does not apply because the program is the run.
+**Play hands over.** The example carries the editor UI, and the editor that
+launched it closes, so there is one kalast window at a time: what opens is the
+same thing that closed, with a scene in it. Its toolbar controls *its*
+simulation — Play pauses and resumes, Step steps, `Restart` does not apply
+because the program is the run. To edit and recompile, run `python -m kalast
+<file>.rs` again.
+
+It has to be a second process: an example has its own `main`, links kalast as
+a library, and creates its own window and event loop, so it cannot be hosted
+in the editor's window the way a Python script is. Handing over is as close to
+one window as that allows. The launched example writes to the terminal rather
+than the editor's log pipe -- it outlives the editor, and a child holding the
+write end of a pipe nobody reads takes a `SIGPIPE` on its next line.
 
 That is switched on by `KALAST_EDITOR=1`, which the launcher sets and nothing
 else does, so `cargo run --example ...` from a terminal is exactly as it was.

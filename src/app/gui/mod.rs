@@ -1049,6 +1049,17 @@ pub struct StdioCapture {
 }
 
 impl StdioCapture {
+    /// The terminal this process started with, for a child to write to.
+    ///
+    /// A child spawned with inherited stdio writes into the *pipe* this holds
+    /// open, which is fine while the editor is here to read it -- and fatal
+    /// the moment the editor exits, because the read end goes with it and the
+    /// child's next `write` takes a `SIGPIPE`. A launched example outlives
+    /// the editor that launched it, so it gets the terminal instead.
+    pub fn terminal(&self) -> Option<std::process::Stdio> {
+        self.tty.try_clone().ok().map(std::process::Stdio::from)
+    }
+
     /// Redirect stdout and stderr into a pipe. `None` if that fails, in which
     /// case output keeps going to the terminal and the panel stays empty --
     /// worth nobody's run failing over.

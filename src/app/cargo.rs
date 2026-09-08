@@ -105,7 +105,12 @@ fn show(cmd: &std::process::Command) -> String {
 ///
 /// Not waited on: it owns a window and a run loop, and this one has its own
 /// frame to get back to.
-pub fn launch(name: &str, release: bool) -> Result<(), String> {
+pub fn launch(
+    name: &str,
+    release: bool,
+    out: Option<std::process::Stdio>,
+    err: Option<std::process::Stdio>,
+) -> Result<(), String> {
     let bin = binary(name, release);
     if !bin.is_file() {
         return Err(format!(
@@ -114,7 +119,11 @@ pub fn launch(name: &str, release: bool) -> Result<(), String> {
         ));
     }
     println!("$ {}", bin.display());
-    std::process::Command::new(&bin)
+    let mut cmd = std::process::Command::new(&bin);
+    if let (Some(out), Some(err)) = (out, err) {
+        cmd.stdout(out).stderr(err);
+    }
+    cmd
         // A launched example draws the editor around its own scene, so
         // pressing Play gives the same window as a Python script does rather
         // than a bare renderer. It is still a separate process with a window
