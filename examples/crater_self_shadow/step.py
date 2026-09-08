@@ -4,6 +4,7 @@ import numpy
 
 from kalast.app import App, Hud
 
+
 app = App()
 app.simulation.config.vsync = False
 app.simulation.config.render_back_face = True
