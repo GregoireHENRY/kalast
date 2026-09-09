@@ -99,8 +99,23 @@ bought nothing. Medians of five runs, first discarded:
 | 2 | 3.207 | 3.256 | 1.789 | 1.936 |
 | 4 | 3.690 | 3.680 | 3.247 | 3.042 |
 
-Every difference is inside the run-to-run spread. So the ~1 ms per extra body
-is **per render pass, not per submit** -- the same thing the depth-pass probe
+Every difference is inside the run-to-run spread.
+
+Cubes are not proof for a real scene, so the same A/B was run on Didymos and
+Dimorphos at 3,145,728 facets each, four runs a side:
+
+| | shadow | render | span | frame |
+|---|---|---|---|---|
+| submit per layer | 25.93 | 20.28 | 34.31 | 34.49 |
+| one submit | 28.64 | 20.24 | 34.21 | 34.34 |
+
+Neutral there too: the span moves 0.3 %, the frame less than the spread
+between runs. The one figure that does move is `shadow` itself, *upwards* --
+the passes share a command buffer now, so each one's residency window covers
+the others. A good reminder of what the per-pass numbers are and are not:
+`span` is the honest one.
+
+So the ~1 ms per extra body is **per render pass, not per submit** -- the same thing the depth-pass probe
 above hinted at. Collapsing command buffers cannot touch it; collapsing the
 *passes* is what would, and there are two ways to do that on this machine:
 
