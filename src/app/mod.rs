@@ -141,7 +141,7 @@ pub struct Shared {
     /// between two -- loading runs the example's `main`, which for a driven
     /// one calls `step()`, and stepping from inside a frame re-enters the
     /// event loop.
-    pub load_requested: Option<bool>,
+    pub load_requested: Option<(String, bool)>,
     /// A load failed on a library that is stale or built against a different
     /// kalast. Build it and try again -- once.
     pub rebuild_then_load: bool,
@@ -941,7 +941,7 @@ impl App {
         // nothing to do with the Python path below, and a `.rs` in the panel
         // never reaches the script runner.
         let mut rust_messages: Vec<String> = Vec::new();
-        let mut load: Option<bool> = None;
+        let mut load: Option<(String, bool)> = None;
         {
             // Reading `Cargo.toml` and stat-ing a file, so not every frame:
             // only when the path or profile changes, or a compile just
@@ -988,7 +988,7 @@ impl App {
                     editor.load_after_build = retry;
                 }
                 if launch && !stale {
-                    load = Some(release);
+                    load = Some((path.clone(), release));
                 }
             }
         }
@@ -998,8 +998,8 @@ impl App {
         }
         // Recorded, not done: this is inside a frame, and an example's `main`
         // may call `step()`. `editor_tick` picks it up between two.
-        if let Some(release) = load {
-            self.shared.borrow_mut().load_requested = Some(release);
+        if let Some(request) = load {
+            self.shared.borrow_mut().load_requested = Some(request);
         }
         let Some(editor) = self.editor.as_mut() else { return };
 
@@ -1206,8 +1206,8 @@ impl App {
         // `main` owns a loop of its own if it wants one, and that nests here
         // rather than re-entering the frame that asked for it.
         let load = self.shared.borrow_mut().load_requested.take();
-        if let Some(release) = load {
-            self.load_example(release);
+        if let Some((path, release)) = load {
+            self.load_example(&path, release);
             return EditorTick::Frame;
         }
         let Some((path, source, paused)) = self.take_script_request() else {
@@ -1291,7 +1291,7 @@ impl App {
     /// The Python front door runs a `.py` in the process you are looking at;
     /// this is the same for a `.rs`, and the reason the editor no longer
     /// closes and reopens to show one.
-    fn load_example(&mut self, release: bool) {
+    fn load_example(&mut self, example: &str, release: bool) {
         // Order matters, and the wrong order is a crash rather than a bug.
         // The callbacks currently armed are function pointers into the
         // library about to be unloaded, so they go first; the scene goes with
@@ -1304,7 +1304,7 @@ impl App {
         self.simulation.borrow_mut().reset();
         drop(self.loaded_example.take());
 
-        match crate::app::cargo::load_example(release, self) {
+        match crate::app::cargo::load_example(std::path::Path::new(example), release, self) {
             Ok(library) => self.loaded_example = Some(library),
             Err(e) => {
                 // `eprintln!` only: the editor tees stdout and stderr into

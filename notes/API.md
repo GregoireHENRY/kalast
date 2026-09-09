@@ -171,7 +171,18 @@ written in it to make that true. An example keeps its `fn main`, its own
 from a terminal exactly as before.
 
 The editor compiles it into a dynamic library through a wrapper it generates
-under `target/kalast-hosted/`, loads that, and calls the example's `main`.
+under `target/kalast-hosted/`, loads that, and calls the example's `main`. The
+library is named after the example -- `libcrater_self_shadow_step.dylib` -- so
+the log says which one is loaded, and so two examples both called `main.rs`
+cannot be mistaken for each other's build.
+
+It has **its own build directory**, one per feature set
+(`target/kalast-hosted/{python,plain}/`). Sharing the repo's was tried, to
+avoid compiling kalast twice, and it broke `cargo run --bin kalast`: the
+wrapper builds kalast *with* `python`, those artifacts landed beside the plain
+ones, and the next plain build linked against them and failed on `library
+'python3.14' not found` -- in the binary whose whole point is not needing it.
+The cost is a first build per feature set; after that it is incremental.
 Three things make the example *this* window rather than a second one:
 
 - **The host drives the loop.** The guest is its own copy of the crate, with

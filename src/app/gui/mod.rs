@@ -65,6 +65,14 @@ const FLOAT_DEFAULTS: [f32; 4] = [30.0, 160.0, 300.0, 240.0];
 /// shutting it in one drag.
 const COLLAPSE: f32 = 8.0;
 
+/// Least size of a transport button, in points.
+///
+/// Wide enough for the longest label any of them takes, so that none of them
+/// moves when one of them changes: Play becomes Pause every time the
+/// simulation is held, and at the rate `K` can be held down that turned the
+/// whole row -- and the iteration readout beside it -- into a blur.
+const TRANSPORT: egui::Vec2 = egui::vec2(78.0, 0.0);
+
 /// Which panels to draw: `[top, bottom, left, right]`.
 ///
 /// All of them unless the renderer has the window to itself, in which case
@@ -468,8 +476,16 @@ impl Editor {
                     } else {
                         ("\u{23f8} Pause", "Hold the simulation  (P)")
                     };
+                    // A fixed width, because the label changes: "Pause" is
+                    // wider than "Play", so the button grew and shrank with
+                    // the state and pushed Restart and Step along with it.
+                    // Holding K made all three jitter, and the readout beside
+                    // them with it.
                     if ui
-                        .add_enabled(have_script, egui::Button::new(label))
+                        .add_enabled(
+                            have_script,
+                            egui::Button::new(label).min_size(TRANSPORT),
+                        )
                         .on_hover_text(hover)
                         .clicked()
                     {
@@ -485,7 +501,10 @@ impl Editor {
                         }
                     }
                     if ui
-                        .add_enabled(script_ran && !native, egui::Button::new("\u{27f2} Restart"))
+                        .add_enabled(
+                            script_ran && !native,
+                            egui::Button::new("\u{27f2} Restart").min_size(TRANSPORT),
+                        )
                         .on_hover_text(if native {
                             "This window is the example; close it and launch again"
                         } else if loaded {
@@ -512,7 +531,7 @@ impl Editor {
                             // a hosted script, a native window, or a Rust
                             // example loaded into this one.
                             (script_ran || native) && state.is_paused,
-                            egui::Button::new("\u{23ed} Step"),
+                            egui::Button::new("\u{23ed} Step").min_size(TRANSPORT),
                         )
                         .on_hover_text("Advance one iteration  (K)")
                         .clicked()
