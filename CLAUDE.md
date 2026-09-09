@@ -3,6 +3,37 @@
 Committed to the repo so it applies on every machine this is cloned to, not
 just the one it was written on.
 
+## Rust core, Python wrapper
+
+**The engine is Rust. Python is a binding, not a place to put behaviour.**
+Anything a user can do from Python should be a call into Rust that a Rust
+program could make just as well. If a feature only works when driven from
+Python, it is in the wrong language.
+
+This is not a style preference. It is why kalast is fast, and it is what keeps
+a Rust example and a Python script the same program with two front doors.
+
+Two ways it slips, both of which have happened:
+
+- **A loop or a policy written in Python because that was where the caller
+  was.** `kalast/__main__.py` grew the editor's whole run loop -- argv
+  parsing, the pause and auto-run policy, the rebuild-on-Play cycle -- so the
+  editor could not be opened from Rust at all. There is no `[[bin]]`, and
+  `App::start_editor()` opens a window whose Play button does nothing, because
+  the part that rebuilds lives in Python.
+- **A second implementation next to the Rust one.** `kalast/editor.py`
+  captures stdout for the log panel; `src/app/gui/mod.rs` has `StdioCapture`
+  doing the same thing. Two implementations of one feature, and since the Rust
+  one is compiled out on Windows they do not even behave alike.
+
+The honest exception is the interpreter itself: running a `.py` script means
+`exec`, which needs CPython. The rule that keeps this from becoming an excuse
+is **Rust owns the loop and calls Python for the interpreter**, not the other
+way round -- a callback Python registers, not a loop Python runs.
+
+When adding anything to `kalast/*.py`, ask what a Rust caller would do for the
+same thing. If the answer is "cannot", the design is wrong.
+
 ## Destructive commands
 
 Only run `rm -rf` (or `git clean -f`, mass deletes, bulk overwrites) on

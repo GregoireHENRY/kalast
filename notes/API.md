@@ -28,6 +28,17 @@ Defined in `src/py/app/`. Rust types map to Python as `bool` → `bool`,
 `u32`/`usize` → `int`, `f32`/`Float` → `float`, `String` → `str`, `Vec3`/`Mat4`
 → `numpy` arrays.
 
+**Everything here is a binding, not an implementation.** The engine is Rust;
+this reference describes the door into it. Every entry below should be a thin
+call onto something a Rust program could call just as directly — if a feature
+only works when driven from Python, it is in the wrong language. See
+"Rust core, Python wrapper" in `CLAUDE.md` for why, and for the two ways it
+has slipped in practice.
+
+The one honest exception is running a `.py` script, which needs CPython to
+`exec` it. Even there the rule is that Rust owns the loop and calls Python for
+the interpreter, rather than Python owning a loop Rust cannot enter.
+
 ```python
 app = kalast.app.App()
 app.simulation.config...                 # see CONFIG.md
