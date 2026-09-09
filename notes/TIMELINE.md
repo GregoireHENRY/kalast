@@ -1410,3 +1410,35 @@ counts unequal, so a swap shows. Always check a regression test fails without
 the fix.
 
 `notes/2026-09-09_occlusion_queries.md` has the rest.
+
+### A window that does not steal focus
+
+`app.config.open_in_background` opens the render window without taking the
+keyboard, so a script that opens a window per case — or a long run started
+while you are doing something else — no longer interrupts what is in front of
+it. Asked for directly: "make the kalast app window not take focus so I can
+keep my personal work uninterrupted".
+
+**Two things are needed on macOS**, and the first alone does nothing useful.
+`WindowAttributes::with_active(false)` orders the window in rather than making
+it key. But the *application* activates at launch independently, and winit asks
+it to do so ignoring whatever else is in front — `activate_ignoring_other_apps`
+defaults to `true`. So the event loop is built with that turned off as well.
+
+Measured rather than assumed: sampling the frontmost application every 400 ms
+through a 3.5 s run, three runs each, the default holds the kalast process in
+front for the first ~1.2 s and `open_in_background` never takes focus at all.
+The run is otherwise identical — same iteration count, and the exported frame
+is **pixel-identical** to a focused one, which is worth checking here because
+an *occluded* window used to stop the simulation dead.
+
+Two smaller decisions. It is **not in the config panel**: it is read once while
+the window is created, so by the time a panel exists to tick it in, the window
+it would have governed is open. And it is not called `background` — `Config`
+already has one, the clear colour, and `AppConfig` already has `focus`, which
+is the panels inside the window. The name collision was caught by
+`test_config_panel.py` failing on the wrong struct's field, which is a better
+outcome than shipping two `background`s across the two config objects the
+9 September handoff already lists as a standing source of mistakes.
+
+Unsupported on X11 and Wayland, where winit cannot ask for it.

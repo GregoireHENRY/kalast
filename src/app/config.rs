@@ -991,6 +991,35 @@ pub struct AppConfig {
     /// alone and the window stays where it is.
     pub focus: bool,
 
+    /// Open the window without taking focus, so a run can go on beside
+    /// other work.
+    ///
+    /// A render window normally comes up *key* and pulls the keyboard away
+    /// from whatever was in front of it, which is fine for one run and not
+    /// fine for a script that opens a window per case. With this set the
+    /// window is ordered in behind the active application instead, and
+    /// nothing is typed into it by accident.
+    ///
+    /// **Startup only** -- it decides how the window is first shown, and how
+    /// the application announces itself, neither of which can be taken back
+    /// afterwards. Set it before `start()` or the first `step()`.
+    ///
+    /// The window is still drawn and still interactive; it simply has to be
+    /// clicked before it takes the keyboard.
+    ///
+    /// Named at length because two shorter names were taken and both mean
+    /// something else: `focus` here is the panels *inside* the window, and
+    /// `simulation.config.background` is the colour the frame is cleared to.
+    ///
+    /// Unsupported on X11 and Wayland, where winit cannot ask for it, and the
+    /// window comes up focused as before.
+    ///
+    /// :skip:
+    /// No widget: it is read once, while the window is being created. By the
+    /// time there is a panel to tick it in, the window it would have governed
+    /// is already open, and a checkbox that does nothing is worse than none.
+    pub open_in_background: bool,
+
     /// Window size in physical pixels.
     ///
     /// The *window*, not the render. `simulation.config.width` is the image
@@ -1020,6 +1049,7 @@ impl Default for AppConfig {
         Self {
             editor: false,
             focus: false,
+            open_in_background: false,
             width: 0,
             height: 0,
             toolbar: "iteration {drawn}    {its} it/s    {fps} fps".to_string(),

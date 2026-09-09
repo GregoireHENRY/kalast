@@ -45,6 +45,50 @@ whether a panel is showing or not.
 Independent of `simulation.config.fullscreen`, which is the OS window and
 nothing else. Set both for an immersive fullscreen.
 
+### `app.config.open_in_background: bool` — default `False` *(startup only)*
+Open the window **without taking focus**, so a run can go on beside other work.
+
+```python
+app = kalast.app.App()
+app.config.open_in_background = True   # before start() or the first step()
+```
+
+A render window normally comes up *key* and pulls the keyboard away from
+whatever was in front of it. That is fine once and not fine for a script that
+opens a window per case, or for a long run started while you are doing
+something else. With this set the window is ordered in behind the active
+application instead: drawn, animating and interactive, but it has to be clicked
+before it takes the keyboard.
+
+Measured on macOS, sampling the frontmost application every 400 ms through a
+3.5 s run, three runs each:
+
+| | first ~1.2 s | rest of the run |
+|---|---|---|
+| default | **the kalast process** | back to the terminal |
+| `open_in_background` | the terminal | the terminal |
+
+It never takes focus at all, and the run is unaffected: same iteration count,
+and the exported frame is **pixel-identical** to a focused run. (Not to be
+confused with an *occluded* window, which used to stop the simulation entirely
+— that was a bug and is fixed; see `2026-09-09_gpu_pass_timings.md`.)
+
+Two things are needed on macOS and this does both: the window is ordered in
+rather than made key, **and** the application is stopped from activating over
+whatever is in front — winit asks it to do that by default, and the window
+attribute alone leaves the app coming forward regardless.
+
+**Startup only**, and not in the config panel: it is read once while the window
+is being created, so by the time there is a panel to tick it in, the window it
+would have governed is already open.
+
+Unsupported on X11 and Wayland, where winit cannot ask for it; the window comes
+up focused there as before.
+
+**Not `simulation.config.background`**, which is the colour the frame is
+cleared to, and not `app.config.focus`, which is about the panels *inside* the
+window. Three unrelated things, which is why this one has the long name.
+
 ### `app.config.editor: bool` — default `False` *(startup only in practice)*
 Draw in the editor layout. `start_editor()` is this plus `start()`, and
 `python -m kalast` sets it.

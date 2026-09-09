@@ -645,6 +645,16 @@ impl App {
         // process that may already have run one app.
         let _ = env_logger::try_init();
         let mut builder = winit::event_loop::EventLoop::with_user_event();
+        // `with_active(false)` on the window is only half of not stealing
+        // focus on macOS: the *application* activates at launch on its own,
+        // and winit asks it to do so ignoring whatever else is in front
+        // (`activate_ignoring_other_apps` defaults to true). Turning that off
+        // leaves the window ordered in without the app coming forward.
+        #[cfg(target_os = "macos")]
+        if self.config.borrow().open_in_background {
+            use winit::platform::macos::EventLoopBuilderExtMacOS;
+            builder.with_activate_ignoring_other_apps(false);
+        }
         self.event_loop = Some(builder.build().unwrap());
     }
 
@@ -1756,8 +1766,15 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
             if want_w == 0 { auto_w.max(320) } else { want_w },
             if want_h == 0 { auto_h.max(240) } else { want_h },
         );
+        // `with_active(false)` orders the window in *behind* the active
+        // application rather than making it key, so a run does not take the
+        // keyboard from whatever the user is doing. On macOS that is only
+        // half of it -- see `ensure_event_loop`, which stops the application
+        // itself activating.
+        let background = self.config.borrow().open_in_background;
         let mut attrs = winit::window::Window::default_attributes()
             .with_inner_size(size)
+            .with_active(!background)
             .with_title(&self.sim_config().borrow().title);
 
         // Centre on *one* monitor, not on the desktop. Left to the window

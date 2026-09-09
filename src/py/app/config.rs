@@ -270,6 +270,30 @@ impl AppConfig {
         self.config.borrow_mut().focus = v;
     }
 
+    /// Open the window without taking focus, so a run can go on beside other
+    /// work.
+    ///
+    /// A render window normally comes up key and pulls the keyboard away from
+    /// whatever was in front of it. With this set it is ordered in behind the
+    /// active application instead: still drawn, still interactive, but it has
+    /// to be clicked before it takes the keyboard.
+    ///
+    /// **Startup only.** It decides how the window is first shown and how the
+    /// application announces itself, so set it before `start()` or the first
+    /// `step()`. Unrelated to `focus`, which is about the panels *inside* the
+    /// window.
+    ///
+    /// Unsupported on X11 and Wayland; the window comes up focused there.
+    #[getter]
+    fn open_in_background(&self) -> bool {
+        self.config.borrow().open_in_background
+    }
+
+    #[setter]
+    fn set_open_in_background(&self, v: bool) {
+        self.config.borrow_mut().open_in_background = v;
+    }
+
     /// Window width in physical pixels.
     ///
     /// The *window*. `simulation.config.width` is the image inside it, and
