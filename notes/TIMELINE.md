@@ -1145,6 +1145,24 @@ added, shaped and pinned away from a script; `app.config.toolbar` as a
 template; facet selection by clicking; and Rust examples that compile and
 launch from the Script panel.
 
+### The editor became a front end for both languages
+
+`python -m kalast` and `cargo run --bin kalast` are the same loop --
+`App::run_editor` in the engine -- and both run both kinds of example **in the
+window you are looking at**. A Rust example is compiled to a cdylib and
+loaded; a Python script is executed by an interpreter the binary embeds.
+Nothing is written in an example to make either work, and both still run
+standalone from a terminal.
+
+`notes/2026-09-09_editor_hosts_both_languages.md` has the mechanism, the two
+checks that keep the two copies of the crate honest, and the three approaches
+that were tried and are wrong.
+
+Python is a **default** feature now rather than an optional one, because
+running Python needs an interpreter in the process. The property the audit was
+written for survives as `--no-default-features`, which is what a cargo feature
+is for.
+
 ### Still open
 
 - ~32 Python-facing arguments reject float64, so a numpy scalar has to be
