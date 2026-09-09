@@ -165,6 +165,15 @@ instead of hardcoding would remove this whole problem, and is not done.
   benchmark or real data run. Not just timing work: any run whose output you
   intend to keep or publish.
 
+**On Windows, build with `python tools/develop.py`** rather than calling
+maturin directly. A mapped DLL cannot be written on Windows, and VS Code's
+language server keeps `kalast/_rs.pyd` mapped for the whole editor session, so
+plain `maturin develop` throws the finished build away at the copy step with
+`os error 32`. The wrapper renames the old module aside first -- renaming a
+mapped image *is* allowed -- and passes everything through, so
+`python tools/develop.py --release` works too. macOS does not need it and is
+unaffected either way.
+
 **Python is a default feature.** `cargo build` links pyo3 and, for the binary,
 an interpreter -- which is what lets `cargo run --bin kalast` run a `.py` in
 its own window. For the engine alone, `--no-default-features`; that is also
