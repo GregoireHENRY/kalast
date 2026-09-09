@@ -180,6 +180,11 @@ pub fn build(
     bounds: &crate::mesh::Aabb,
     grid: [f32; 3],
     tick_target: usize,
+    // Whether the shaded grid is drawing the ground plane. When it is, these
+    // segments would land on the same lines at the same spacing and only
+    // brighten them inside the scene bounds -- a rectangle of slightly
+    // stronger grid with nothing to explain it.
+    shaded_ground: bool,
 ) -> Axes {
     let mut lines = Vec::new();
     let mut labels = Vec::new();
@@ -325,7 +330,7 @@ pub fn build(
         }
 
         AxesStyle::Gizmo | AxesStyle::Blender => {
-            if style == AxesStyle::Blender {
+            if style == AxesStyle::Blender && !shaded_ground {
                 // Ground grid on XY, at the tick spacing so it means
                 // something rather than being decoration.
                 let dim = [grid[0] * 0.45, grid[1] * 0.45, grid[2] * 0.45];
@@ -345,7 +350,11 @@ pub fn build(
                         dim,
                     );
                 }
-                // Z picked out, since a flat grid alone gives no sense of up.
+            }
+
+            // Z picked out either way, since a flat grid alone gives no sense
+            // of up and the shaded grid has no third axis to give one.
+            if style == AxesStyle::Blender {
                 seg(
                     &mut lines,
                     Vec3::new(0.0, 0.0, lo.z),

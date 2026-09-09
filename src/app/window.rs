@@ -1674,6 +1674,7 @@ impl Window {
                 &bounds,
                 config.axes_color,
                 config.axes_ticks,
+                config.grid,
             );
             self.passes
                 .axes
