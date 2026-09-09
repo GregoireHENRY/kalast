@@ -58,6 +58,7 @@ impl Passes {
         target: &wgpu::TextureView,
         meshes: &[super::gpu::MeshBuffer],
         shadow_meshes: &[Option<super::gpu::MeshBuffer>],
+        layer: u32,
         timer: Option<&super::gpu_timing::GpuTimer>,
     ) {
         self.shadow.render(
@@ -66,6 +67,7 @@ impl Passes {
             meshes,
             shadow_meshes,
             &self.bindings,
+            layer,
             timer.and_then(|t| t.scope(super::gpu_timing::Scope::Shadow)),
         );
     }
@@ -112,6 +114,9 @@ pub struct Bindings {
     pub shadow: wgpu::BindGroup,
     pub colormap: wgpu::BindGroup,
     pub bar: wgpu::BindGroup,
+    /// Which layer the shadow pass is drawing, picked by dynamic offset.
+    pub shadow_layer: wgpu::BindGroup,
+    pub layer_stride: u32,
 }
 
 impl Bindings {
@@ -123,8 +128,16 @@ impl Bindings {
         render_pass.set_bind_group(4, Some(&self.bar), &[]);
     }
 
-    pub fn for_shadow(&self, render_pass: &mut wgpu::RenderPass) {
+    /// `layer` is the shadow map layer being drawn into, and reaches the
+    /// shader as a dynamic offset -- which is what lets every layer share one
+    /// encoder instead of needing a submit each.
+    pub fn for_shadow(&self, render_pass: &mut wgpu::RenderPass, layer: u32) {
         render_pass.set_bind_group(0, Some(&self.globals), &[]);
         render_pass.set_bind_group(1, Some(&self.view), &[]);
+        render_pass.set_bind_group(
+            2,
+            Some(&self.shadow_layer),
+            &[layer * self.layer_stride],
+        );
     }
 }

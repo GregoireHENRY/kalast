@@ -858,6 +858,7 @@ impl Window {
             shadow,
             colormap,
             bar,
+            layer_select: super::uniform::LayerSelect::new(&device),
         };
 
         let passes = super::pass::Passes::new(
@@ -1989,31 +1990,32 @@ impl Window {
             }
         };
 
-        // Shadow layers first, one submit each. A uniform write is ordered
-        // against submits, not against command recording, so recording every
-        // layer into one encoder would leave them all drawing with whichever
-        // matrix was written last.
+        // Shadow layers first: one pass each, all in one encoder and one
+        // submit.
+        //
+        // This used to be a submit per layer. The pass was told which layer
+        // it was drawing by rewriting `light.view_proj` between layers, and a
+        // queue write is ordered against submits rather than against command
+        // recording -- so every layer sharing an encoder would have drawn
+        // with whichever matrix was written last. The layer index reaches the
+        // shader as a dynamic offset now (`uniform::LayerSelect`), nothing is
+        // rewritten between passes, and the submits collapse into one.
         let n_layers = (self.uniforms.view.uniform.light.n_layers as usize)
             .min(self.uniforms.shadow.layer_views.len());
-        for i in 0..n_layers {
-            self.uniforms.view.uniform.light.view_proj =
-                self.uniforms.view.uniform.light.view_proj_layers[i];
-            self.queue.write_buffer(
-                &self.uniforms.view.buffer,
-                0,
-                bytemuck::bytes_of(&self.uniforms.view.uniform),
-            );
-
+        if n_layers > 0 {
             let mut enc = self
                 .device
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-            self.passes.render_shadow_layer(
-                &mut enc,
-                &self.uniforms.shadow.layer_views[i],
-                &self.meshes,
-                &self.shadow_meshes,
-                self.timer.as_ref().filter(|_| config.gpu_timing),
-            );
+            for i in 0..n_layers {
+                self.passes.render_shadow_layer(
+                    &mut enc,
+                    &self.uniforms.shadow.layer_views[i],
+                    &self.meshes,
+                    &self.shadow_meshes,
+                    i as u32,
+                    self.timer.as_ref().filter(|_| config.gpu_timing),
+                );
+            }
             self.queue.submit([enc.finish()]);
         }
 

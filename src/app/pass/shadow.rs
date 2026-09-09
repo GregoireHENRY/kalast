@@ -50,6 +50,7 @@ impl Pass {
         meshes: &[gpu::MeshBuffer],
         shadow_meshes: &[Option<gpu::MeshBuffer>],
         bindings: &super::Bindings,
+        layer: u32,
         timestamps: Option<wgpu::RenderPassTimestampWrites<'_>>,
     ) {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -68,7 +69,7 @@ impl Pass {
 
         render_pass.set_pipeline(&self.pipeline.inner);
 
-        bindings.for_shadow(&mut render_pass);
+        bindings.for_shadow(&mut render_pass, layer);
 
         for (ii, mesh) in meshes.iter().enumerate().skip(1) {
             let occluder = shadow_meshes

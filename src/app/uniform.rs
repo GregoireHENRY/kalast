@@ -152,12 +152,94 @@ pub struct Bar {
     pub _pad: [u32; 2],
 }
 
+/// Which shadow layer a pass is drawing into, selected by dynamic offset.
+///
+/// The shadow pass used to be told this by rewriting `Light::view_proj`
+/// between passes -- which forced one *submit* per layer, since a queue write
+/// is ordered against submits and not against command recording, and every
+/// layer recorded into one encoder would have drawn with the last matrix
+/// written. All the matrices are already uploaded in `view_proj_layers`, so
+/// the only thing that varies per pass is an index; handing that over as a
+/// dynamic offset lets every layer share one encoder and one submit.
+///
+/// A dynamic offset rather than an immediate (push constant) because it needs
+/// no device feature and behaves the same on every backend.
+pub struct LayerSelect {
+    pub buffer: wgpu::Buffer,
+    pub layout: wgpu::BindGroupLayout,
+    pub bind_group: wgpu::BindGroup,
+    /// Stride between entries: the device's minimum uniform offset alignment,
+    /// 256 bytes on Metal. A dynamic offset must be a multiple of it.
+    pub stride: u32,
+}
+
+impl LayerSelect {
+    pub fn new(device: &wgpu::Device) -> Self {
+        // 16 bytes of payload, because a uniform binding's size must be a
+        // multiple of 16; the other 12 are padding the shader declares.
+        const ENTRY: u64 = 16;
+        let stride = device
+            .limits()
+            .min_uniform_buffer_offset_alignment
+            .max(ENTRY as u32);
+
+        let mut contents = vec![0u8; stride as usize * MAX_SHADOW_LAYERS];
+        for i in 0..MAX_SHADOW_LAYERS {
+            contents[i * stride as usize..][..4].copy_from_slice(&(i as u32).to_ne_bytes());
+        }
+
+        let buffer = wgpu::util::DeviceExt::create_buffer_init(
+            device,
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("shadow layer index"),
+                contents: &contents,
+                usage: wgpu::BufferUsages::UNIFORM,
+            },
+        );
+
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("shadow layer index"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: true,
+                    min_binding_size: std::num::NonZeroU64::new(ENTRY),
+                },
+                count: None,
+            }],
+        });
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("shadow layer index"),
+            layout: &layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &buffer,
+                    offset: 0,
+                    size: std::num::NonZeroU64::new(ENTRY),
+                }),
+            }],
+        });
+
+        Self {
+            buffer,
+            layout,
+            bind_group,
+            stride,
+        }
+    }
+}
+
 pub struct Uniforms {
     pub globals: super::gpu::UniformBuffer<Globals>,
     pub view: super::gpu::UniformBuffer<View>,
     pub colormap: super::gpu::UniformBuffer<Colormap>,
     pub bar: super::gpu::UniformBuffer<Bar>,
     pub shadow: super::gpu::Texture,
+    pub layer_select: LayerSelect,
     // pub textures: Vec<super::gpu::Texture>,
 }
 
@@ -174,7 +256,11 @@ impl Uniforms {
     }
 
     pub fn layouts_for_shadow(&self) -> Vec<Option<&wgpu::BindGroupLayout>> {
-        vec![Some(&self.globals.layout), Some(&self.view.layout)]
+        vec![
+            Some(&self.globals.layout),
+            Some(&self.view.layout),
+            Some(&self.layer_select.layout),
+        ]
     }
 
     pub fn bindings(&self, device: &wgpu::Device) -> super::pass::Bindings {
@@ -184,6 +270,8 @@ impl Uniforms {
             shadow: self.shadow.bind_group(device).unwrap(),
             colormap: self.colormap.bind_group(device),
             bar: self.bar.bind_group(device),
+            shadow_layer: self.layer_select.bind_group.clone(),
+            layer_stride: self.layer_select.stride,
             // textures: self.textures[0].bind_group(device).unwrap(),
         }
     }
