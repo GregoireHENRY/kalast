@@ -7,7 +7,6 @@ import kalast
 
 app = kalast.app.App()
 app.simulation.config.debug_light_cube_show = True
-# app.simulation.config.debug_light_cube_fit = True
 app.simulation.config.wireframe_mode = 2
 app.simulation.config.wireframe_color = [0.05, 0.05, 0.05, 1.0]
 app.simulation.camera.pos = [18.0, 5.0, 10.0]

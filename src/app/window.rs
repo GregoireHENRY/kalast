@@ -1493,6 +1493,12 @@ impl Window {
             self.uniforms.view.uniform.light.view_proj_layers[0];
 
         self.uniforms.view.uniform.light.pos = simulation.sun.pos;
+        // Every frame, like the position. It was written once when the window
+        // was made and never again, so `light_color` was documented as live
+        // and was not: setting it from the config panel, or from a callback,
+        // did nothing, and only a value set before `start()` ever reached the
+        // shader.
+        self.uniforms.view.uniform.light.color = super::gpu::color_vec3(&config.light_color);
 
         self.queue.write_buffer(
             &self.uniforms.view.buffer,

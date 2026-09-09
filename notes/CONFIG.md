@@ -827,8 +827,14 @@ bodies have essentially no ambient fill, and raising it washes out the
 terminator.
 
 ### `light_color: wgpu::Color` — default `WHITE` *(live)*
-The light's color, feeding both the ambient and diffuse terms. Passed at
-`src/app/window.rs:231` as part of the `Light` uniform.
+The light's colour, feeding both the ambient and diffuse terms, and the colour
+the debug light cube is drawn in. Part of the `Light` uniform, refreshed each
+frame beside the Sun's position.
+
+Live only since 9 September: it was written when the window was made and never
+again, so it was documented as live and was not. A value set before `start()`
+reached the shader, and one set from a callback or from the config panel did
+nothing at all.
 Accepted: `(r, g, b, a)`; alpha dropped.
 
 ### `light_cube_scale: Float` — default `0.25` *(live)*
