@@ -137,12 +137,36 @@ straight to the swapchain exactly as before; the editor is a second entry
 point, not a mode the other two acquired. A script run from a terminal is
 unaffected.
 
+A script that drives `while app.step():` keeps driving it here too. It runs
+*between* the editor's frames, so its loop nests inside the editor's rather
+than fighting it -- `start()` and `close()` are the calls that become no-ops,
+because those ask to own a loop the script is already inside.
+
 What differs inside is only where the scene lands. It has always been rendered
 into `render_texture` and blitted to the swapchain at the end — the editor
 skips the blit and lets egui sample that texture into the centre of the
 layout instead. `render(None, …)` is the call for that, and it is the same
 path an occluded window already takes: a full frame minus the blit and the
 present.
+
+### Both front doors run both kinds of example
+
+`python -m kalast` and `cargo run --bin kalast` are the same loop --
+`App::run_editor` in the engine -- and each runs a `.py` and a `.rs`:
+
+| | `.py` | `.rs` |
+|---|---|---|
+| `python -m kalast` | in this process, between frames | compile, then hand the window over |
+| `cargo run --bin kalast` | hand over to `python -m kalast <script>` | compile, then hand the window over |
+
+Only one of those four is hosted in the window you started; the rest hand over,
+because they need a process this one is not. The Rust binary does not link
+CPython on purpose -- that is what `pyo3` being an off-by-default feature buys
+-- so it spawns an interpreter rather than embedding one. `KALAST_PYTHON`
+names which, for a virtualenv that is not on `PATH`.
+
+A `.py` named on the Rust binary's command line hands over immediately: there
+is nothing it could show first.
 
 ### Rust examples
 

@@ -155,6 +155,69 @@ def test_one_step_is_one_frame() -> None:
     )
 
 
+def test_a_driven_script_keeps_its_own_loop_in_the_editor() -> None:
+    """`while app.step():` has to work inside the editor, not just in a terminal.
+
+    It briefly did not. The engine's editor loop was entered through
+    `inner.borrow_mut()` held for the whole session, so a script calling back
+    into the app met an already-borrowed `RefCell` -- and the proxy raised
+    instead, blaming the frame. The frame was never the obstacle: a script
+    runs *between* frames. The front door turns `editor_tick` one step at a
+    time now, holding nothing while the script runs.
+    """
+    script = ROOT / "tests" / "_driven_script.py"
+    probe = ROOT / "tests" / "_driven_probe.py"
+    script.write_text(textwrap.dedent("""
+        from kalast.app import App
+
+        app = App()
+        app.simulation.config.vsync = False
+        # A script named on the command line is shown and then *held* --
+        # `pause_at = 1`. A driven script that wants to run says so.
+        app.simulation.state.pause_at = None
+        app.simulation.state.is_paused = False
+
+        n = 0
+        while app.running and n < 25:
+            app.step()
+            n += 1
+        print("DRIVEN %d %d" % (n, app.simulation.state.iteration), flush=True)
+    """))
+    probe.write_text(textwrap.dedent(f"""
+        from kalast import editor
+        from kalast.app import App
+
+        app = App()
+        app.config.width, app.config.height = 480, 360
+        editor.capture_output(app)
+
+        def runner(a, source, path):
+            editor.run_toplevel(a, source, path)
+            # The real app, not the script's proxy: ends the editor loop so
+            # the test terminates.
+            a.close()
+
+        app.run_editor([r"{script}"], runner)
+    """))
+    try:
+        r = subprocess.run([sys.executable, str(probe)], capture_output=True,
+                           text=True, timeout=180, cwd=ROOT)
+    finally:
+        probe.unlink(missing_ok=True)
+        script.unlink(missing_ok=True)
+
+    assert "does not work inside the editor" not in r.stdout + r.stderr, (
+        "the driven loop was refused:\n" + r.stdout + r.stderr
+    )
+    line = next((l for l in r.stdout.splitlines() if l.startswith("DRIVEN")), None)
+    assert line, "the script never finished its loop:\n" + r.stdout + r.stderr
+    _, steps, iteration = line.split()
+    assert steps == "25", f"the script should have stepped 25 times, got {steps}"
+    assert int(iteration) >= 25, (
+        f"its steps should have advanced the simulation, got {iteration}"
+    )
+
+
 def main() -> int:
     failed = 0
     for name, fn in sorted(globals().items()):

@@ -324,6 +324,19 @@ impl Realised {
     }
 }
 
+/// One turn of the editor's loop.
+///
+/// `Run` is handed out between frames, never inside one, which is what lets a
+/// script own a `while app.step():` loop of its own.
+pub enum EditorTick {
+    /// The window closed. Stop.
+    Closed,
+    /// A frame was drawn and nothing else is wanted.
+    Frame,
+    /// Play or Restart asked for this script. Run it, then carry on ticking.
+    Run { path: String, source: String },
+}
+
 /// Fills one HUD's template in for this frame.
 ///
 /// Deliberately a scan-and-replace rather than a format library: an
@@ -1019,6 +1032,24 @@ impl App {
     where
         F: FnMut(&mut Self, &str, &str),
     {
+        self.editor_start(args);
+        loop {
+            match self.editor_tick() {
+                EditorTick::Closed => break,
+                EditorTick::Frame => {}
+                // Between frames, so a script that drives its own loop nests
+                // here rather than inside the frame, and runs to completion
+                // before this loop resumes.
+                EditorTick::Run { path, source } => run_script(self, &path, &source),
+            }
+        }
+    }
+
+    /// Open what the command line named, and decide what runs at startup.
+    ///
+    /// The first half of `run_editor`, separate for the same reason
+    /// `editor_tick` is: a caller driving the loop itself still needs it.
+    pub fn editor_start(&mut self, args: &[String]) {
         self.config.borrow_mut().editor = true;
         self.sim_config().borrow_mut().title = "kalast".to_string();
 
@@ -1057,29 +1088,44 @@ impl App {
         if opened_python {
             self.restart_script();
         }
+    }
 
-        while self.step() {
-            let Some((path, source, paused)) = self.take_script_request() else {
-                continue;
-            };
-            // `load_mesh` appends, so a run without this stacks the scene: two
-            // craters, and Restart looking like it did nothing.
-            self.simulation.borrow_mut().reset();
-            // Play rebuilds and runs. Restart rebuilds and runs *one*
-            // iteration, then stops -- not "does not run at all", which leaves
-            // a black viewport. One iteration means the callbacks fire once,
-            // so a script that places its bodies per iteration shows them
-            // where iteration 0 puts them rather than at the origin.
-            if paused {
-                self.simulation.borrow_mut().state.pause_at = Some(1);
-            }
-            self.simulation.borrow_mut().state.is_paused = false;
-            self.shared.borrow_mut().script_ran = true;
-            // Between frames, so a script that drives its own loop nests here
-            // rather than inside the frame, and runs to completion before this
-            // loop resumes.
-            run_script(self, &path, &source);
+    /// What one turn of the editor loop produced.
+    ///
+    /// Split out from `run_editor` so the loop can be driven from outside it,
+    /// which the Python front door has to do: it reaches the app through a
+    /// `RefCell`, and a `run_editor` holding that borrow for the whole session
+    /// means a script cannot call back into the app at all. That is what broke
+    /// `while app.step():` scripts inside the editor -- not the frame, the
+    /// borrow. Driving `editor_tick` takes it for one turn and drops it before
+    /// the script runs, so the script gets the app to itself. The policy stays
+    /// here, in one copy, whoever is turning the handle.
+    pub fn editor_tick(&mut self) -> EditorTick {
+        if !self.step() {
+            return EditorTick::Closed;
         }
+        let Some((path, source, paused)) = self.take_script_request() else {
+            return EditorTick::Frame;
+        };
+        self.begin_script(paused);
+        EditorTick::Run { path, source }
+    }
+
+    /// Clear the scene and set the clock for a script about to run.
+    pub fn begin_script(&mut self, paused: bool) {
+        // `load_mesh` appends, so a run without this stacks the scene: two
+        // craters, and Restart looking like it did nothing.
+        self.simulation.borrow_mut().reset();
+        // Play rebuilds and runs. Restart rebuilds and runs *one* iteration,
+        // then stops -- not "does not run at all", which leaves a black
+        // viewport. One iteration means the callbacks fire once, so a script
+        // that places its bodies per iteration shows them where iteration 0
+        // puts them rather than at the origin.
+        if paused {
+            self.simulation.borrow_mut().state.pause_at = Some(1);
+        }
+        self.simulation.borrow_mut().state.is_paused = false;
+        self.shared.borrow_mut().script_ran = true;
     }
 
     /// Take a script the UI has asked to run, if there is one.

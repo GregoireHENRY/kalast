@@ -10,6 +10,10 @@ that app, and `start()`/`start_editor()`/`close()` do nothing, because the
 editor owns the loop and a script asking to own it is asking for what it is
 already inside. Everything else -- config, meshes, camera, callbacks -- works
 as written. That is the point: one file runs from a terminal and from here.
+
+`step()` is the exception, and is left alone: a script that drives
+`while app.step():` keeps driving it. The script runs *between* the editor's
+frames, so its loop nests inside the editor's rather than fighting it.
 """
 
 import atexit
@@ -50,22 +54,15 @@ class _EditorApp:
     def close(self) -> None:
         pass
 
-    def step(self) -> bool:
-        # Returning False was worse than useless. A driven loop written
-        # `while app.running:` sees the *real* app still running, so it never
-        # breaks -- and since this all happens inside the editor's own frame,
-        # it spins forever and the window freezes on a black viewport.
-        #
-        # Raising stops the script at the first step with an explanation in
-        # the log panel, and everything above the loop -- the config, the
-        # meshes, the camera -- has already been applied, so the scene is
-        # there to look at.
-        raise RuntimeError(
-            "app.step() does not work inside the editor: the editor owns the "
-            "loop, and this call is already inside one of its frames.\n"
-            "Move the per-frame work into before_render/after_render, or run "
-            "this script from a terminal, where step() drives the loop itself."
-        )
+    # `step` is deliberately *not* overridden: a driven script keeps its own
+    # loop here, exactly as it has from a terminal.
+    #
+    # It briefly could not. The engine's loop used to be entered through
+    # `inner.borrow_mut()` held for the whole session, so a script calling
+    # back into the app hit an already-borrowed `RefCell`; this class raised
+    # instead, blaming the frame. The frame was never the problem -- a script
+    # runs between frames -- and the front door now turns `editor_tick` a
+    # step at a time so nothing is borrowed while it runs.
 
 
 def capture_output(app: Any) -> None:

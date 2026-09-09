@@ -176,23 +176,29 @@ impl App {
         // same `Rc<RefCell<App>>`, so a second wrapper would be a second name
         // for the thing the script is about to reconfigure.
         let this = self.clone();
-        let mut err: Option<PyErr> = None;
 
-        self.inner.borrow_mut().run_editor(&args, |_app, path, source| {
-            if err.is_some() {
-                return;
+        // Driven a turn at a time rather than handing the loop to
+        // `run_editor`, because that would hold `inner` borrowed for the whole
+        // session -- and a script is free to call back into the app, which is
+        // the same `RefCell`. A `while app.step():` script did exactly that
+        // and could not: the borrow was the obstacle, not the frame.
+        //
+        // The policy is still the engine's; only the handle is turned here.
+        self.inner.borrow_mut().editor_start(&args);
+        loop {
+            let tick = self.inner.borrow_mut().editor_tick();
+            match tick {
+                crate::app::EditorTick::Closed => break,
+                crate::app::EditorTick::Frame => {}
+                // Nothing of ours is borrowed here. The script may step the
+                // app, load meshes, reconfigure it -- all of which reach
+                // `inner` -- and it runs to completion before the next turn.
+                crate::app::EditorTick::Run { path, source } => {
+                    run_script.call1(py, (this.clone(), source, path))?;
+                }
             }
-            // `this` is cloned per call so the closure does not hold a borrow
-            // across the script, which is free to touch the app.
-            if let Err(e) = run_script.call1(py, (this.clone(), source, path)) {
-                err = Some(e);
-            }
-        });
-
-        match err {
-            Some(e) => Err(e),
-            None => Ok(()),
         }
+        Ok(())
     }
 
     /// Take a script the editor's Play button has asked to run, if any.
