@@ -1029,6 +1029,18 @@ impl App {
                 Ok(text) => {
                     messages.push(format!("opened {path}"));
                     opened = Some(text);
+                    // Opening a `.rs` means the same here as it does on the
+                    // command line: show it, which for a Rust example means
+                    // load it, compiling first if the library is out of date.
+                    // Without this the panel filled with source and the
+                    // viewport stayed black until Play was found.
+                    //
+                    // A `.py` is left alone: the scene already on screen is
+                    // its own, and replacing it the moment a file is opened
+                    // would throw away a run that is still being looked at.
+                    if path.trim_end().ends_with(".rs") {
+                        self.shared.borrow_mut().launch_requested = true;
+                    }
                 }
                 Err(e) => messages.push(format!("cannot open {path}: {e}")),
             }
