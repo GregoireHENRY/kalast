@@ -11,6 +11,7 @@ pub mod hosted;
 pub mod macos;
 pub mod hemicube;
 pub mod gpu;
+pub mod gpu_timing;
 pub mod pass;
 pub mod simulation;
 pub mod uniform;
@@ -490,6 +491,29 @@ pub(crate) fn expand_hud(
             "n_behind" => out.push_str(&diag.out_near.to_string()),
             "n_past_far" => out.push_str(&diag.out_far.to_string()),
             "n_offframe" => out.push_str(&diag.out_side.to_string()),
+
+            // GPU time, from timestamp queries. Zero unless
+            // `config.gpu_timing` is on, and one frame behind by
+            // construction -- see `app::gpu_timing`.
+            //
+            // Two decimals by default, not the one `{ms}` uses: a pass often
+            // runs in tenths of a millisecond, and rounding those to 0.1
+            // would make half the passes read the same.
+            "gpu" | "gpu_shadow" | "gpu_render" | "gpu_depth" | "gpu_text" | "gpu_gui" => {
+                let g = &diag.gpu;
+                let ms = match name.as_str() {
+                    // The frame's span, not the sum of the passes: they
+                    // overlap, and the sum reads higher than the frame.
+                    "gpu" => g.span,
+                    other => crate::app::gpu_timing::SCOPES
+                        .iter()
+                        .find(|s| other == format!("gpu_{}", s.name()))
+                        .map(|s| g.get(*s))
+                        .unwrap_or(0.0),
+                };
+                let prec = if raw.contains(":.") { prec } else { 2 };
+                out.push_str(&format!("{ms:.prec$}"));
+            }
 
             // Empty unless something is actually wrong, so a template can
             // carry it permanently without adding a line to every frame.
@@ -2073,6 +2097,11 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     let scene_size = win.render_size;
                     let scene_generation = win.render_generation;
                     let window = win.window.clone();
+                    // Read before the borrows below: the call already holds
+                    // the config borrowed mutably for the length of the
+                    // statement, and a shared borrow taken inside it would
+                    // still be alive when that one is taken.
+                    let gpu_timing = sim_cfg.borrow().gpu_timing;
                     let wanted = {
                         let mut sim = self.simulation.borrow_mut();
                         editor.draw(
@@ -2089,6 +2118,10 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                             &mut sim,
                             &mut self.shared.borrow_mut(),
                             self.fps_shown as f32,
+                            win.timer
+                                .as_ref()
+                                .filter(|_| gpu_timing)
+                                .and_then(|t| t.scope(gpu_timing::Scope::Gui)),
                         )
                     };
                     // Applied for the *next* frame: this one is already drawn
@@ -2401,6 +2434,33 @@ mod hud_tests {
             expand_hud("{it}/{nit} ({its} it/s)", &s, 60.4, &Default::default(), s.iteration),
             "42/500 (60 it/s)"
         );
+    }
+
+    /// `{gpu}` is the frame's span, not the sum of the passes -- they
+    /// overlap, and a sum reads higher than the frame it happened in.
+    #[test]
+    fn gpu_placeholders_report_the_span_and_the_passes() {
+        let s = state(9, false, None);
+        let mut d = crate::app::simulation::Diagnostics::default();
+        d.gpu.valid = true;
+        d.gpu.span = 3.25;
+        d.gpu.ms[crate::app::gpu_timing::Scope::Shadow.index()] = 1.5;
+        d.gpu.ms[crate::app::gpu_timing::Scope::Render.index()] = 2.0;
+        assert_eq!(
+            expand_hud("{gpu} [{gpu_shadow} {gpu_render} {gpu_gui}]", &s, 60.0, &d, 9),
+            "3.25 [1.50 2.00 0.00]"
+        );
+    }
+
+    /// Two decimals by default, where the other rates take zero or one: a
+    /// pass that runs in tenths of a millisecond is not served by "0.1".
+    #[test]
+    fn gpu_times_keep_two_decimals_unless_told_otherwise() {
+        let s = state(9, false, None);
+        let mut d = crate::app::simulation::Diagnostics::default();
+        d.gpu.span = 3.256;
+        assert_eq!(expand_hud("{gpu}", &s, 60.0, &d, 9), "3.26");
+        assert_eq!(expand_hud("{gpu:.1}", &s, 60.0, &d, 9), "3.3");
     }
 
     /// Rates are whole numbers unless asked otherwise: a tenth of a frame per

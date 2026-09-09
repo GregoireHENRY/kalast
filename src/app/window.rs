@@ -592,6 +592,16 @@ pub struct Window {
     // and a weight texture that most runs never need.
     pub hemicube: Option<super::hemicube::Hemicube>,
 
+    /// Iteration of the last `update`, so a readback can say which frame it
+    /// belongs to -- it lands a frame or two after the one it timed.
+    pub last_iteration: usize,
+
+    /// Per-pass GPU timings. `None` where the adapter has no timestamp
+    /// queries, which is a real possibility rather than an error.
+    pub timer: Option<super::gpu_timing::GpuTimer>,
+    /// What the last readback said. One frame behind, by construction.
+    pub timings: super::gpu_timing::Timings,
+
     // Body model matrices as of the last `update`. The facet shadow query
     // needs the same transform the shadow map was built with, and it is
     // called from outside the borrow of `Simulation`.
@@ -637,8 +647,19 @@ impl Window {
         let features_wgpu = wgpu::FeaturesWGPU::empty();
         // features_wgpu.insert(wgpu::FeaturesWGPU::POLYGON_MODE_LINE);
 
-        let features_webgpu = wgpu::FeaturesWebGPU::empty();
+        let mut features_webgpu = wgpu::FeaturesWebGPU::empty();
         // features_webgpu.insert(wgpu::FeaturesWebGPU::DEPTH32FLOAT_STENCIL8);
+
+        // Per-pass GPU timings, when the adapter offers them. Requested
+        // rather than required: asking for a feature the adapter lacks fails
+        // `request_device` outright, and a machine that cannot time its
+        // passes should still be able to draw them.
+        if adapter
+            .features()
+            .contains(wgpu::Features::from(wgpu::FeaturesWebGPU::TIMESTAMP_QUERY))
+        {
+            features_webgpu.insert(wgpu::FeaturesWebGPU::TIMESTAMP_QUERY);
+        }
 
         // Features::NON_FILL_POLYGON_MODE
         // Features::POLYGON_MODE_LINE
@@ -862,6 +883,8 @@ impl Window {
 
         let render_size = (surface_config.width, surface_config.height);
 
+        let timer = super::gpu_timing::GpuTimer::new(&device, &queue);
+
         Self {
             window,
             instance,
@@ -887,6 +910,10 @@ impl Window {
                 config.export_sync,
                 config.export_max_queued as usize,
             ),
+
+            timer,
+            timings: Default::default(),
+            last_iteration: 0,
 
             facet_shadow: None,
             facet_labels: Vec::new(),
@@ -1667,6 +1694,11 @@ impl Window {
             config,
             &self.uniforms.view.uniform.camera.view_proj,
         );
+        // Whatever the last readback landed with, which is a frame or two
+        // old; `Timings::frame` says which one, so a caption cannot claim
+        // the wrong iteration.
+        simulation.diagnostics.gpu = self.timings;
+        self.last_iteration = simulation.state.iteration;
 
         self.last_body_mats.clear();
         self.last_body_mats
@@ -1887,12 +1919,23 @@ impl Window {
         if brush.queue(&self.device, &self.queue, sections).is_err() {
             return;
         }
+        // Taken before the encoder, and from `self.timer` rather than a
+        // borrow held by the caller: this runs up to three times a frame --
+        // export, viewport, swapchain -- and each takes its own slot, which
+        // the readback sums back into one `text` figure.
+        let timestamps = self
+            .timer
+            .as_ref()
+            .filter(|_| config.gpu_timing)
+            .and_then(|t| t.scope(super::gpu_timing::Scope::Text));
+
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some(label),
+                timestamp_writes: timestamps,
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view,
                     depth_slice: None,
@@ -1903,7 +1946,6 @@ impl Window {
                     },
                 })],
                 depth_stencil_attachment: None,
-                timestamp_writes: None,
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
@@ -1918,6 +1960,19 @@ impl Window {
         config: &crate::app::config::Config,
         huds: &[crate::app::config::Hud],
     ) {
+        if let (true, Some(t)) = (config.gpu_timing, self.timer.as_ref()) {
+            // Close the previous frame first: resolve what it wrote, start
+            // the readback, and only then reset the slots for this one. See
+            // `GpuTimer::resolve` for why it cannot happen at the end.
+            let mut enc = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+            t.resolve(&mut enc);
+            self.queue.submit([enc.finish()]);
+            t.after_submit(self.last_iteration);
+            t.begin_frame();
+        }
+
         let surface_view = surface_texture
             .as_ref()
             .map(|t| t.texture.create_view(&wgpu::TextureViewDescriptor::default()));
@@ -1957,6 +2012,7 @@ impl Window {
                 &self.uniforms.shadow.layer_views[i],
                 &self.meshes,
                 &self.shadow_meshes,
+                self.timer.as_ref().filter(|_| config.gpu_timing),
             );
             self.queue.submit([enc.finish()]);
         }
@@ -1972,6 +2028,7 @@ impl Window {
             &self.meshes,
             &self.shadow_meshes,
             config,
+            self.timer.as_ref().filter(|_| config.gpu_timing),
         );
 
         if let Some(texture) = &surface_texture {
@@ -2129,6 +2186,10 @@ impl Window {
                 &facet_labels,
                 &bar_labels,
             );
+        }
+
+        if let Some(t) = self.timer.as_ref() {
+            self.timings = t.poll(&self.device);
         }
 
         if let Some(texture) = surface_texture {

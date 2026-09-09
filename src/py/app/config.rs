@@ -300,7 +300,7 @@ impl AppConfig {
     /// The same template as `simulation.config.huds`, so every placeholder
     /// works here too -- `{drawn}` for the iteration on screen, `{it}` for
     /// how many have been begun, `{its}`, `{fps}`, `{ms}`, `{bodies}`,
-    /// `{paused}`, `{warn}` -- and a precision may be attached, as
+    /// `{paused}`, `{warn}`, `{gpu}` -- and a precision may be attached, as
     /// `{fps:.1}`. Empty for a bare toolbar.
     #[getter]
     fn toolbar(&self) -> String {
@@ -733,6 +733,20 @@ impl Config {
     ///
     /// Applies to the *next* selection: facets already picked keep the colour
     /// they were given, because selecting writes it onto their vertices.
+    /// Time each GPU pass, into `sim.gpu_timings()`.
+    ///
+    /// Off by default: the queries are nearly free but the readback is not,
+    /// and nothing needs it unless someone is asking where a frame goes.
+    #[getter]
+    fn gpu_timing(&self) -> bool {
+        self.config.borrow().gpu_timing
+    }
+
+    #[setter]
+    fn set_gpu_timing(&mut self, v: bool) {
+        self.config.borrow_mut().gpu_timing = v;
+    }
+
     #[getter]
     fn selection_color(&self) -> [Float; 4] {
         let c = self.config.borrow().selection_color;

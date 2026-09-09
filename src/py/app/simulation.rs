@@ -252,6 +252,38 @@ impl Simulation {
         Some(numpy::PyArray1::from_slice(py, v))
     }
 
+    /// Milliseconds each GPU pass took, by name.
+    ///
+    /// `{"shadow": 0.42, "render": 3.10, "depth": 0.0, "text": 0.05,
+    /// "gui": 0.0}`, plus `"span"` -- first timestamp to last -- and
+    /// `"frame"`, the iteration they were measured on.
+    ///
+    /// Empty unless `config.gpu_timing` is on, and empty on an adapter
+    /// without timestamp queries. **The numbers lag the current iteration**
+    /// by a frame or two -- reading them back without blocking means reading
+    /// what has already finished -- which is why `"frame"` is in there: quote
+    /// that, not `sim.state.iteration`.
+    ///
+    /// **The per-pass figures overlap and must not be added.** Each is how
+    /// long that pass was resident on the GPU, queue wait included, so four
+    /// bodies report 4.6 ms of shadow passes inside a 3.9 ms frame. Compare
+    /// `"span"` with the frame time; use the per-pass numbers for what moves
+    /// when something changes, not as a budget.
+    fn gpu_timings(&self) -> std::collections::HashMap<String, Float> {
+        let sim = self.inner.borrow();
+        let g = &sim.diagnostics.gpu;
+        let mut out = std::collections::HashMap::new();
+        if !g.valid {
+            return out;
+        }
+        for scope in crate::app::gpu_timing::SCOPES {
+            out.insert(scope.name().to_string(), g.get(scope) as Float);
+        }
+        out.insert("span".to_string(), g.span as Float);
+        out.insert("frame".to_string(), g.frame as Float);
+        out
+    }
+
     /// The facets picked by clicking, as `(body, facet)` pairs.
     #[getter]
     fn selected_facets(&self) -> Vec<(usize, usize)> {

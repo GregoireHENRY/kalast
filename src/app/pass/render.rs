@@ -193,6 +193,7 @@ impl Pass {
         meshes: &[gpu::MeshBuffer],
         bindings: &super::Bindings,
         config: &crate::app::config::Config,
+        timestamps: Option<wgpu::RenderPassTimestampWrites<'_>>,
     ) {
         // With MSAA the pass draws into the multisample buffers and resolves
         // into `render_view` on store, so everything downstream -- the blit to
@@ -214,6 +215,7 @@ impl Pass {
         };
 
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            timestamp_writes: timestamps,
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: color_view,
                 depth_slice: None,

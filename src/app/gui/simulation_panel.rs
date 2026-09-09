@@ -461,7 +461,7 @@ fn huds_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
                             .font(egui::TextStyle::Monospace),
                     )
                     .on_hover_text(
-                        "Template. {it} {drawn} {nit} {its} {fps} {ms} {bodies} {paused} {warn}, \
+                        "Template. {it} {drawn} {nit} {its} {fps} {ms} {bodies} {paused} {warn} {gpu}, \
                          with an optional precision as {fps:.1}. Typing takes this HUD \
                          off the script.",
                     )

@@ -58,9 +58,16 @@ impl Passes {
         target: &wgpu::TextureView,
         meshes: &[super::gpu::MeshBuffer],
         shadow_meshes: &[Option<super::gpu::MeshBuffer>],
+        timer: Option<&super::gpu_timing::GpuTimer>,
     ) {
-        self.shadow
-            .render(encoder, target, meshes, shadow_meshes, &self.bindings);
+        self.shadow.render(
+            encoder,
+            target,
+            meshes,
+            shadow_meshes,
+            &self.bindings,
+            timer.and_then(|t| t.scope(super::gpu_timing::Scope::Shadow)),
+        );
     }
 
     pub fn render(
@@ -74,6 +81,7 @@ impl Passes {
         meshes: &[super::gpu::MeshBuffer],
         _shadow_meshes: &[Option<super::gpu::MeshBuffer>],
         config: &crate::app::config::Config,
+        timer: Option<&super::gpu_timing::GpuTimer>,
     ) {
         self.render.render(
             encoder,
@@ -84,10 +92,15 @@ impl Passes {
             meshes,
             &self.bindings,
             config,
+            timer.and_then(|t| t.scope(super::gpu_timing::Scope::Render)),
         );
 
         if config.debug_depth_show {
-            self.depth.render(view, encoder);
+            self.depth.render(
+                view,
+                encoder,
+                timer.and_then(|t| t.scope(super::gpu_timing::Scope::Depth)),
+            );
         }
     }
 }

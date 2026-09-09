@@ -185,6 +185,30 @@ Accepted: `True` / `False`.
 code reads it -- the only references are its declaration, its default, and its
 Python accessors. Left in place as a placeholder.
 
+### `gpu_timing: bool` — default `False` *(live)*
+Time each GPU pass with timestamp queries, readable from
+[`sim.gpu_timings()`](API.md) and from the `{gpu}` HUD placeholders.
+
+```python
+app.simulation.config.gpu_timing = True
+...
+t = app.simulation.gpu_timings()
+# {'shadow': 1.51, 'render': 1.74, 'depth': 0.0, 'text': 0.0, 'gui': 0.0,
+#  'span': 1.77, 'frame': 412.0}
+```
+
+Off by default: the queries themselves are nearly free, but reading them back
+costs a buffer map per frame, and nothing needs it unless someone is asking
+where a frame goes. Silently inert on an adapter without `TIMESTAMP_QUERY` --
+`gpu_timings()` returns `{}` there rather than zeros, so a script can tell the
+two apart.
+
+**Read `span`, not a sum.** The per-pass figures overlap: each is how long
+that pass was resident on the GPU, queue wait included, so four bodies report
+4.6 ms of shadow passes inside a frame that took 3.9 ms. `span` is first
+timestamp to last and is the figure to compare against a frame time. Full
+write-up in `2026-09-09_gpu_pass_timings.md`.
+
 ### `debug_depth_show: bool` — default `false` *(live)*
 Renders the shadow/depth map as an overlay instead of leaving it offscreen, by
 running an extra depth-visualisation pass. Read at `src/app/pass/mod.rs:58`,
@@ -498,6 +522,14 @@ is there.
 | `{fps}` | frames per second |
 | `{ms}` | **frame time in milliseconds**, i.e. `1000 / fps` |
 | `{paused}` | `PAUSED` when paused, empty otherwise |
+| `{gpu}` | GPU time for the frame, first timestamp to last |
+| `{gpu_shadow}` `{gpu_render}` `{gpu_depth}` `{gpu_text}` `{gpu_gui}` | one pass each |
+
+The `{gpu*}` set needs `gpu_timing = True` and reads `0.00` without it. They
+carry two decimals by default rather than one, since a pass often runs in
+tenths of a millisecond. **`{gpu}` is the frame's span, not the sum of the
+passes** -- the per-pass figures overlap, and adding them gives a number
+larger than the frame they happened in.
 
 `{ms}` is the same information as `{fps}` inverted, but it is the one you
 compare against a frame budget: 8.3 ms is the whole of a 120 Hz frame, and

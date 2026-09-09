@@ -368,10 +368,19 @@ pub struct Config {
     /// **Does nothing.** The field exists and is settable from Python, but no code
     /// reads it. Left as a placeholder.
     pub debug_simulation: bool,
+    /// Time each GPU pass with timestamp queries, into `sim.gpu_timings()`.
+    ///
+    /// Off by default: the queries themselves are nearly free, but reading them
+    /// back costs a buffer map per frame, and nothing needs it unless someone is
+    /// asking where a frame goes. Silently inert where the adapter has no
+    /// `TIMESTAMP_QUERY` -- `sim.gpu_timings()` returns an empty dict there.
+    ///
+    /// :group: Debug
     /// Draw the shadow/depth map as an overlay instead of leaving it offscreen.
     ///
     /// Only mirrors the main pass's depth at `msaa = 1`; above that the pass writes
     /// its own multisampled depth buffer and the debug view is not it.
+    pub gpu_timing: bool,
     pub debug_depth_show: bool,
     /// Draw a cube at the light's position, so the Sun is visible.
     ///
@@ -836,6 +845,7 @@ impl Default for Config {
             debug_window: false,
             debug_window_mesh: false,
             debug_simulation: false,
+            gpu_timing: false,
             debug_depth_show: false,
             debug_light_cube_show: false,
             debug_light_cube_fit: true,
@@ -979,8 +989,9 @@ pub struct AppConfig {
     ///
     /// The same template as `huds`, so every placeholder works here too --
     /// `{drawn}` for the iteration on screen, `{it}` for how many have been
-    /// begun, `{its}`, `{fps}`, `{ms}`, `{bodies}`, `{paused}`, `{warn}` --
-    /// and a precision may be attached, as `{fps:.1}`.
+    /// begun, `{its}`, `{fps}`, `{ms}`, `{bodies}`, `{paused}`, `{warn}`,
+    /// `{gpu}` and its per-pass forms -- and a precision may be attached, as
+    /// `{fps:.1}`.
     ///
     /// Empty for a bare toolbar.
     ///

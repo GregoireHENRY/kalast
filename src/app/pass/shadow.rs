@@ -50,8 +50,10 @@ impl Pass {
         meshes: &[gpu::MeshBuffer],
         shadow_meshes: &[Option<gpu::MeshBuffer>],
         bindings: &super::Bindings,
+        timestamps: Option<wgpu::RenderPassTimestampWrites<'_>>,
     ) {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            timestamp_writes: timestamps,
             color_attachments: &[],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                 view: target,

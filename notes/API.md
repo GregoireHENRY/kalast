@@ -950,6 +950,36 @@ rigid body the self view factors are fixed in the body frame, so compute once
 per shape model and reuse. Delta form factors close to unity as
 `1/resolution²`, reaching 3e-5 at 128.
 
+## `sim.gpu_timings()` — where a frame's GPU time went
+
+Milliseconds per pass, once `config.gpu_timing = True`:
+
+```python
+app.simulation.config.gpu_timing = True
+...
+t = app.simulation.gpu_timings()
+# {'shadow': 1.51, 'render': 1.74, 'depth': 0.0, 'text': 0.0, 'gui': 0.0,
+#  'span': 1.77, 'frame': 412.0}
+```
+
+`{}` when the option is off, and `{}` on an adapter without timestamp
+queries — so a script can tell "not measured" from "measured as zero".
+
+Two things to hold on to, both measured rather than assumed:
+
+- **The per-pass numbers overlap; do not add them.** Each is how long that
+  pass was resident on the GPU, queue wait included. Four bodies report 4.6 ms
+  of shadow passes inside a frame that took 3.9 ms. Use `span` — first
+  timestamp to last — against a frame time, and the per-pass numbers for what
+  *moves* when something changes.
+- **They lag by a few frames.** Reading them back without blocking means
+  reading what has already finished, so `frame` carries the iteration they
+  were measured on. Quote that, not `sim.state.iteration`.
+
+The same figures reach a HUD as `{gpu}` (the span) and `{gpu_shadow}`,
+`{gpu_render}`, `{gpu_depth}`, `{gpu_text}`, `{gpu_gui}`. Background in
+`2026-09-09_gpu_pass_timings.md`.
+
 ## `sim.update()`
 
 Advances `state.iteration`. The app calls it once per frame; a script does not

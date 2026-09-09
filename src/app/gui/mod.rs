@@ -299,6 +299,7 @@ impl Editor {
         sim: &mut crate::app::simulation::Simulation,
         shared: &mut crate::app::Shared,
         iteration_rate: f32,
+        timestamps: Option<wgpu::RenderPassTimestampWrites<'_>>,
     ) -> (u32, u32) {
         // Re-register only when the texture behind it is a different one. A
         // `TextureId` outlives a resize, but the view it points at does not.
@@ -554,7 +555,7 @@ impl Editor {
                             drawn,
                         ))
                         .on_hover_text(
-                            "app.config.toolbar -- {drawn} {it} {its} {fps} {ms} {bodies} {paused} {warn}",
+                            "app.config.toolbar -- {drawn} {it} {its} {fps} {ms} {bodies} {paused} {warn} {gpu}",
                         );
                     }
                 });
@@ -945,6 +946,7 @@ impl Editor {
         {
             let pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("egui"),
+                timestamp_writes: timestamps,
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: surface_view,
                     depth_slice: None,
@@ -955,7 +957,6 @@ impl Editor {
                     },
                 })],
                 depth_stencil_attachment: None,
-                timestamp_writes: None,
                 occlusion_query_set: None,
                 multiview_mask: None,
             });

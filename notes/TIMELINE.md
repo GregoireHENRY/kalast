@@ -1212,3 +1212,30 @@ and nothing in Python. Both bound now.
 That makes three generated-or-checked mirrors of `Config`: the panel, the
 stubs, and now the bindings. Adding a field touches one place and the three
 guards say so if it does not.
+
+### Per-pass GPU timings
+
+`config.gpu_timing` turns on timestamp queries; `sim.gpu_timings()` and the
+`{gpu}` HUD placeholders read them back. From the WebGPU samples'
+`timestampQuery`, and the first thing here to measure where a frame goes
+rather than infer it.
+
+Two traps, both found by checking rather than trusting the first plausible
+number. The per-pass figures **overlap and must not be summed** -- four
+bodies report 4.6 ms of shadow passes inside a 3.6 ms frame, since each
+figure includes waiting for the GPU to reach that pass -- so what is exposed
+is `span`, first timestamp to last, which stays under the wall clock. And
+they are a few frames old, because reading them back without blocking means
+reading what has already finished; `"frame"` says which iteration they belong
+to.
+
+First finding: at one body the GPU spans **1.8 ms of a 3.6 ms frame**. Half
+the frame is not the GPU. And `shadow` triples from one body to four while
+the geometry does not, which is per-pass cost -- each shadow layer is its own
+submit, because a uniform write is ordered against submits rather than
+against recording. Collapsing them behind a per-layer uniform offset is
+untried and is the obvious next thing.
+
+`notes/2026-09-09_gpu_pass_timings.md` has the mechanism, the measurements
+and the two bugs the editor path exposed.
+

@@ -103,6 +103,9 @@ pub struct Diagnostics {
     /// The debug light cube is enabled but sits beyond the camera's far
     /// plane, so it is being drawn and clipped away.
     pub light_cube_clipped: bool,
+    /// Per-pass GPU times, when `config.gpu_timing` is on. All zero and
+    /// `valid: false` otherwise, and on an adapter without timestamp queries.
+    pub gpu: crate::app::gpu_timing::Timings,
 }
 
 impl Simulation {
