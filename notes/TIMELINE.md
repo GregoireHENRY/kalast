@@ -1254,3 +1254,10 @@ a 2x on the whole frame.
 `notes/2026-09-09_gpu_pass_timings.md` has the mechanism, the measurements
 and the two bugs the editor path exposed.
 
+### Handed off
+
+`notes/2026-09-09_HANDOFF_gpu_timing.md` closes the day: what landed, what was
+tried and abandoned with the measurement that abandoned it, and the three
+WebGPU-sample items still open -- reversed-Z first, then primitive picking,
+then occlusion queries.
+
