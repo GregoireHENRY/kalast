@@ -21,7 +21,7 @@ fn main() {
         sim.camera.projection.fovy = 45.0 * kalast::util::RPD;
     }
 
-    app.set_tick(|sim| {
+    app.set_before_render(|sim| {
         if sim.state.iteration == 100 {
             sim.camera.projection.fovy = 20.0 * kalast::util::RPD;
 

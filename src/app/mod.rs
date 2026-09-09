@@ -1557,18 +1557,21 @@ impl App {
         self.controller.emulate_middle_button = c.emulate_middle_button;
     }
 
-    pub fn set_tick<F>(&mut self, f: F)
+    /// Runs before each frame is drawn. Named for when it runs, to pair with
+    /// `set_after_render` -- `set_tick` said neither which of the two it was
+    /// nor when it happened.
+    pub fn set_before_render<F>(&mut self, f: F)
     where
         F: Fn(&mut simulation::Simulation, Float) + 'static,
     {
         self.shared.borrow_mut().before_render = Some(Tick::Rust(Box::new(f)));
     }
 
-    pub fn with_tick<F>(mut self, f: F) -> Self
+    pub fn with_before_render<F>(mut self, f: F) -> Self
     where
         F: Fn(&mut simulation::Simulation, Float) + 'static,
     {
-        self.set_tick(f);
+        self.set_before_render(f);
         self
     }
 

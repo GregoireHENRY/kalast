@@ -48,7 +48,7 @@ fn main() {
     // separated functions like main.py could have been lambda function aswell.
 
     // Before the frame: where the Sun is for this iteration.
-    app.set_tick(|sim: &mut Simulation, _dt: Float| {
+    app.set_before_render(|sim: &mut Simulation, _dt: Float| {
         let a = sim.state.iteration as Float * 0.005;
         sim.sun.pos = Vec3::new(0.0, 20.0 * a.sin(), 20.0 * a.cos());
     });
