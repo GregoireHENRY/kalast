@@ -16,6 +16,7 @@ Handled in `src/app/mod.rs` (`window_event` / `device_event`) and
 | `P` | any | Toggle simulation pause — the editor's Play/Pause button |
 | `K` | any | Advance one iteration and hold — the editor's Step button |
 | `F` | any | Toggle fullscreen — the same thing the green button does |
+| `Shift`+`F` | any | Toggle focus mode — give the window to the renderer |
 | `T` | any | Toggle camera control, Arcball ⇄ WASD |
 | `W` `A` `S` `D` | WASD | Move forward / left / back / right |
 | `Space` | WASD | Move up |
@@ -34,6 +35,19 @@ thing the window's green button does; see `CONFIG.md`.
 
 Worth having as a key because simple fullscreen hides the title bar, and with
 it the button that got you there.
+
+### `Shift`+`F` — focus mode
+
+`AppConfig::focus`: the panels give the window to the renderer, each returning
+when the pointer reaches its edge. The editor's own checkbox sets the same
+field, so the key and the box cannot drift apart.
+
+Beside plain `F` because the two are the same wish at different scopes — one
+hides the panels, the other hides the desktop — and they compose: both on is
+the renderer alone on the screen.
+
+Independent of `simulation.config.fullscreen`, which is the OS window and
+nothing else.
 
 ### `K` — one iteration
 

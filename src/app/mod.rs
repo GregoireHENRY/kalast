@@ -2259,6 +2259,21 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         }
                     }
 
+                    // Shift-F gives the window to the renderer: the panels
+                    // go, each returning when the pointer reaches its edge.
+                    // Beside plain F because the two are the same wish at
+                    // different scopes -- one hides the panels, the other
+                    // hides the desktop -- and they compose.
+                    (winit::keyboard::KeyCode::KeyF, true)
+                        if self.controller.shift_pressed =>
+                    {
+                        let want = !self.config.borrow().focus;
+                        self.config.borrow_mut().focus = want;
+                        if self.sim_config().borrow().debug_app {
+                            println!("[APP] Focus mode={want}");
+                        }
+                    }
+
                     // A way out of fullscreen. Needed on macOS in particular:
                     // simple fullscreen hides the title bar, and with it the
                     // green button that got you there.
