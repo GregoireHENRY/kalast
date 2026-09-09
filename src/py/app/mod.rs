@@ -29,6 +29,32 @@ pub struct App {
     pub simulation: Rc<RefCell<crate::app::simulation::Simulation>>,
 }
 
+impl App {
+    /// A Python handle onto an app that already exists.
+    ///
+    /// For a front door written in Rust that wants to hand a script the app
+    /// it is already showing, rather than one the script makes for itself --
+    /// the same thing `python -m kalast` passes to `editor.run_toplevel`.
+    pub fn wrap(inner: Rc<RefCell<crate::app::App>>) -> Self {
+        let (config, simulation, shared, sim_config) = {
+            let app = inner.borrow();
+            (
+                app.config.clone(),
+                app.simulation.clone(),
+                app.shared.clone(),
+                app.simulation.borrow().config.clone(),
+            )
+        };
+        Self {
+            inner,
+            shared,
+            config,
+            sim_config,
+            simulation,
+        }
+    }
+}
+
 #[pymethods]
 impl App {
     #[new]

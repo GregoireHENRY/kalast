@@ -14,7 +14,12 @@ from kalast import (  # noqa
     # typing,
 )
 
-del _rs  # noqa
+# Tidied away rather than deleted outright, because whether it is bound here
+# depends on how the bindings arrived. Importing the installed extension binds
+# `_rs` on this package as a side effect of the submodule load; a Rust front
+# door that embeds an interpreter supplies the same bindings through
+# `sys.modules` instead, and no attribute is ever set.
+globals().pop("_rs", None)  # noqa
 
 __all__ = [
     "app",

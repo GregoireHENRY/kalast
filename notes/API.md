@@ -246,6 +246,28 @@ boundary. Sizes alone proved too coarse -- a `bool` added to `Shared` fit in
 existing padding, left every size unchanged, and a library from before that
 change loaded anyway.
 
+**A `.py` runs in the window you are looking at too**, from either door. The
+Rust binary embeds an interpreter, registers *its own* bindings with it
+through `append_to_inittab`, and calls `kalast.editor.run_toplevel` -- the
+same call `python -m kalast` makes, against the same app.
+
+Registering its own matters: letting the embedded interpreter import the
+installed `kalast/_rs` extension would put a **second copy of the engine** in
+the process, with the script's `App` in one and the window in the other, so
+the script would configure a simulation nothing draws.
+
+That interpreter is why `python` is a **default** feature rather than an
+optional one. The engine without it is a build away, and that is the shape
+`notes/2026-09-09_rust_core_audit.md` was written for:
+
+```sh
+cargo build --no-default-features        # engine alone, no pyo3, no libpython
+cargo test  --lib --no-default-features  # tests with no Python install
+```
+
+Built that way, the binary hands a `.py` to `python -m kalast` instead, and
+says so.
+
 **A file named on the command line opens by running**, whichever door and
 whichever kind:
 

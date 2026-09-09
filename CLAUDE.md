@@ -152,6 +152,11 @@ instead of hardcoding would remove this whole problem, and is not done.
   benchmark or real data run. Not just timing work: any run whose output you
   intend to keep or publish.
 
+**Python is a default feature.** `cargo build` links pyo3 and, for the binary,
+an interpreter -- which is what lets `cargo run --bin kalast` run a `.py` in
+its own window. For the engine alone, `--no-default-features`; that is also
+the build to use where no Python install is available.
+
 **The Python module and a Rust example are two separate builds.** `maturin
 develop` updates what `python -m kalast` and every `.py` run use; `cargo build
 --release --example <name>` updates the example binary. A change to shared

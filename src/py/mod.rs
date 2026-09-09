@@ -10,9 +10,16 @@ use pyo3::prelude::*;
 
 use crate::{pyadd_c, pyadd_f};
 
+/// The bindings, as a module.
+///
+/// `pub` so a Rust front door can register these same bindings with an
+/// interpreter it embeds -- `append_to_inittab!` needs the item the macro
+/// generated here. Without that, an embedded interpreter would import the
+/// installed `.so` instead and get a *second* copy of the engine, with the
+/// script's app in one and the window in the other.
 #[pymodule]
 #[pyo3(name = "_rs")]
-fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+pub fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     let util = PyModule::new(m.py(), "util")?;
     pyadd_c!(util, crate::util::EPSILON);
     pyadd_c!(util, crate::util::HOUR);

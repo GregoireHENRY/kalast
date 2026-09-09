@@ -44,8 +44,15 @@ matvec per bounce, and `scipy.sparse` has no drop-in equivalent.
 
 ## 2. The engine cannot be built without Python — FIXED
 
-Fixed in `0e77033`. `python` is a cargo feature now, off by default and turned
-on by maturin. `cargo run --bin kalast` opens the editor with Python removed
+Fixed in `0e77033`. `python` is a cargo feature now, turned on by maturin.
+
+**Later made a *default* feature**, so that `cargo run --bin kalast` can run a
+`.py` example in its own window -- which needs an interpreter in the process,
+and there is no way round that. The property this finding was about survives
+as an opt-out rather than a default: `--no-default-features` builds the engine
+and the binary with no pyo3 and no libpython, and `cargo test --lib
+--no-default-features` runs without a Python install. Being a default feature
+rather than a mandatory dependency is exactly what keeps that possible. `cargo run --bin kalast` opens the editor with Python removed
 from PATH entirely, and `cargo test --lib` runs without any PATH juggling.
 
 Two pyo3 details decided the shape, and are worth knowing before touching it

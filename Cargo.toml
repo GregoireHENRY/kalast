@@ -14,14 +14,27 @@ name = "kalast"
 crate-type = ["lib", "cdylib"]
 
 [features]
-default = []
+# Python is on by default so that `cargo run --bin kalast` can run a `.py`
+# example in its own window, which needs an interpreter in the process. The
+# engine without it is still a build away, and that is the shape the audit in
+# `notes/2026-09-09_rust_core_audit.md` was written for:
+#
+#     cargo build --no-default-features        engine alone, no pyo3
+#     cargo test --lib --no-default-features   tests without a Python install
+#
+# Being a *default* feature rather than a mandatory dependency is what keeps
+# that true: the dependency is opt-out, not unconditional.
+default = ["python"]
 use_f64 = ["tobj/use_f64"]
 
-# The Python bindings. Off by default so `cargo build` and `cargo test` build
-# the engine alone -- linking pyo3 unconditionally meant a Rust binary needed
-# a Python DLL to start, which is the dependency the wrong way round. maturin
-# turns it on through pyproject.toml.
-python = ["dep:pyo3", "dep:numpy"]
+# The Python bindings, and -- for a binary rather than an extension module --
+# an embedded interpreter. maturin turns this on explicitly through
+# pyproject.toml as well, so the extension does not depend on the default.
+# `auto-initialize` is what lets the binary start an interpreter: pyo3 0.28
+# keeps the explicit entry point private. It is inert in the extension module
+# maturin builds, where the interpreter always exists already and the
+# initialisation it guards is skipped.
+python = ["dep:pyo3", "dep:numpy", "pyo3/auto-initialize"]
 
 [dependencies]
 kalast_macros = { path = "macros", version = "0.1" }
