@@ -34,6 +34,19 @@ way round -- a callback Python registers, not a loop Python runs.
 When adding anything to `kalast/*.py`, ask what a Rust caller would do for the
 same thing. If the answer is "cannot", the design is wrong.
 
+## After a pull, read the new notes
+
+`git pull` first, then **read every note the pull brought in**, without being
+asked. `notes/` is where the reasoning lives -- what was measured, what was
+tried and rejected, what is still undecided -- and a session that skips it
+repeats work or contradicts a decision made yesterday on the other machine.
+
+    git log --diff-filter=AM --name-only OLD..NEW -- notes/ | grep '^notes/' | sort -u
+
+Read the handoff first if there is one, then the rest. `TIMELINE.md`,
+`API.md`, `CONFIG.md` and `CONTROLS.md` are living documents, so a diff is
+more useful there than a re-read.
+
 ## Destructive commands
 
 Only run `rm -rf` (or `git clean -f`, mass deletes, bulk overwrites) on
