@@ -1269,16 +1269,16 @@ pass, into the texture the exporter copies, so lettered balls with no letters
 on them would read as a bug. Everything else in `export_hud`'s remit is
 unaffected.
 
-### `gizmo_anchor: str` — default `"top-left"` *(live)*
+### `gizmo_anchor: str` — default `"top-right"` *(live)*
 Which corner it sits in. The nine HUD anchor names, so it can be moved clear
 of a colour bar or a HUD: `"top-left"`, `"top-center"`, `"top-right"`,
 `"middle-left"`, `"middle-center"`, `"middle-right"`, `"bottom-left"`,
 `"bottom-center"`, `"bottom-right"`. Hyphen, underscore and space all parse.
 
-### `gizmo_size: float` — default `54.0` *(live)*
+### `gizmo_size: float` — default `40.0` *(live)*
 Half the widget's width in pixels: a ball centre never sits further than this
 from the middle, so the whole thing is `2 * gizmo_size` across and a corner
-anchor never puts half a ball off the image. Balls are `0.26` of it.
+anchor never puts half a ball off the image. Balls are `0.22` of it.
 
 In pixels, not a fraction of the image, so it stays the same size on screen as
 the window is resized — like the HUD text and unlike anything in the scene.
@@ -1287,7 +1287,7 @@ the window is resized — like the HUD text and unlike anything in the scene.
 Gap between the widget and the edge of the image. Ignored on whichever axis a
 centre anchor centres.
 
-### `gizmo_label_size: float` — default `13.0` *(live)*
+### `gizmo_label_size: float` — default `9.0` *(live)*
 ### `gizmo_label_color: list[float]` — default `(0.08, 0.08, 0.10, 1.0)` *(live)*
 The `X`, `Y`, `Z` letters on the positive balls. Dark by default because they
 are read against their own ball rather than against the scene, and every ball

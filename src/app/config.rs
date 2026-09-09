@@ -1004,10 +1004,10 @@ impl Default for Config {
             axes_unit: String::new(),
             axes_label_size: 13.0,
             axes_label_color: [0.85, 0.85, 0.85, 1.0],
-            gizmo_anchor: HudAnchor::TopLeft,
-            gizmo_size: 54.0,
+            gizmo_anchor: HudAnchor::TopRight,
+            gizmo_size: 40.0,
             gizmo_margin: 18.0,
-            gizmo_label_size: 13.0,
+            gizmo_label_size: 9.0,
             // Dark, because it is read against the ball rather than against
             // the scene, and every ball colour is light enough to carry it.
             gizmo_label_color: [0.08, 0.08, 0.10, 1.0],

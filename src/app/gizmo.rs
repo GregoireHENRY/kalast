@@ -128,7 +128,7 @@ pub fn build(
     pointer: Option<(f32, f32)>,
 ) -> Gizmo {
     let radius = radius.max(8.0);
-    let ball_radius = radius * 0.26;
+    let ball_radius = radius * 0.22;
     let center = anchor_center(anchor, size, radius, margin);
 
     // The basis the scene is being seen through. `right` and `up` give the
