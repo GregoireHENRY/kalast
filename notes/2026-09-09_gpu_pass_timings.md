@@ -86,6 +86,36 @@ per-layer uniform offset would collapse them into one encoder. Untried;
 Didymos is a two-body scene and Hera scenes are three, so this is worth
 knowing before the shadow pass is touched again.
 
+## The first thing it measured, and the answer was no
+
+The finding above suggested collapsing the per-layer submits: one encoder,
+one submit, the layer index handed to the pass as a dynamic offset instead of
+being written into a uniform between submits. Done in `bb5e1cf`, and it
+bought nothing. Medians of five runs, first discarded:
+
+| bodies | wall before | wall after | span before | span after |
+|---|---|---|---|---|
+| 1 | 3.434 | 3.278 | 1.789 | 1.741 |
+| 2 | 3.207 | 3.256 | 1.789 | 1.936 |
+| 4 | 3.690 | 3.680 | 3.247 | 3.042 |
+
+Every difference is inside the run-to-run spread. So the ~1 ms per extra body
+is **per render pass, not per submit** -- the same thing the depth-pass probe
+above hinted at. Collapsing command buffers cannot touch it; collapsing the
+*passes* is what would, and there are two ways to do that on this machine:
+
+- **Multiview.** Supported here (checked). One pass writing every array layer,
+  with `@builtin(view_index)` selecting the matrix -- the shadow map is
+  already an array texture with a view per layer.
+- **A shadow atlas.** All layers side by side in one depth texture, one pass,
+  `set_viewport` per body. No feature needed, but the sampling side has to
+  learn the UV offsets.
+
+Neither is attempted. The value of the negative result is that it says which
+of the two candidate explanations was right, and the dynamic-offset change is
+kept because a layer index that is a pass parameter is the prerequisite for
+either.
+
 ## Not covered
 
 The compute passes -- view factors, per-facet occlusion, the GPU

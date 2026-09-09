@@ -1231,10 +1231,17 @@ to.
 
 First finding: at one body the GPU spans **1.8 ms of a 3.6 ms frame**. Half
 the frame is not the GPU. And `shadow` triples from one body to four while
-the geometry does not, which is per-pass cost -- each shadow layer is its own
-submit, because a uniform write is ordered against submits rather than
-against recording. Collapsing them behind a per-layer uniform offset is
-untried and is the obvious next thing.
+the geometry does not.
+
+That pointed at the per-layer submits, so they were collapsed into one
+encoder -- the layer index reaches the shadow pass as a dynamic offset now,
+which removes the uniform-write workaround that forced a submit each. **It
+bought nothing**: every difference across one, two and four bodies sits
+inside the run-to-run spread. The cost is per *render pass*, not per submit,
+which is a question the instrument answered in an afternoon and no amount of
+wall-clock timing could have. Collapsing the passes themselves -- multiview,
+which this adapter supports, or a shadow atlas with a viewport per body -- is
+what would remove it, and is not attempted.
 
 `notes/2026-09-09_gpu_pass_timings.md` has the mechanism, the measurements
 and the two bugs the editor path exposed.
