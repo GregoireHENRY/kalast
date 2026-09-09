@@ -221,6 +221,10 @@ pub struct App {
     /// Last cursor position in physical pixels, for turning a click into a
     /// ray. The editor knows the pointer in egui points; a plain window does
     /// not, and this is what both fall back on.
+    /// The example currently loaded into this process, held for as long as
+    /// the callbacks it installed can run. Dropping it unmaps the code those
+    /// callbacks point at.
+    loaded_example: Option<libloading::Library>,
     cursor: Option<(f64, f64)>,
     /// Where the left button went down, so a click can be told from a drag:
     /// only a press and release in the same place is a selection.
@@ -328,6 +332,32 @@ impl Realised {
             && self.hud_font == c.hud_font
             && self.export_dir == c.export_dir
     }
+}
+
+/// A number the host and a loaded example must agree on.
+///
+/// Passing an `&mut App` across a dynamic library boundary is sound only
+/// while both sides were built from the same crate with the same features:
+/// Rust has no stable ABI, and this crate's `python` feature genuinely
+/// changes layout -- it adds a field to `Shared` and a variant to `Tick`. A
+/// guest built without it, handed a host's `App` that has it, would read the
+/// wrong bytes and keep going.
+///
+/// So the guest exports this and the host checks it before calling anything.
+/// It is a coarse check, not a proof: it catches the mismatch that can
+/// actually happen here -- a dylib built with the wrong feature set, or
+/// against a different version of this crate -- and turns it into a message
+/// instead of corruption.
+pub fn abi_fingerprint() -> u64 {
+    use std::hash::{Hash as _, Hasher as _};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    env!("CARGO_PKG_VERSION").hash(&mut h);
+    std::mem::size_of::<App>().hash(&mut h);
+    std::mem::size_of::<Shared>().hash(&mut h);
+    std::mem::size_of::<simulation::Simulation>().hash(&mut h);
+    std::mem::size_of::<Tick>().hash(&mut h);
+    cfg!(feature = "python").hash(&mut h);
+    h.finish()
 }
 
 /// One turn of the editor's loop.
@@ -523,6 +553,7 @@ impl App {
             event_loop: None,
             frame_drawn: false,
             stepping: false,
+            loaded_example: None,
             cursor: None,
             left_press: None,
             realised: None,
@@ -850,7 +881,7 @@ impl App {
         // nothing to do with the Python path below, and a `.rs` in the panel
         // never reaches the script runner.
         let mut rust_messages: Vec<String> = Vec::new();
-        let mut handed_over = false;
+        let mut load: Option<(String, bool)> = None;
         {
             // Reading `Cargo.toml` and stat-ing a file, so not every frame:
             // only when the path or profile changes, or a compile just
@@ -863,7 +894,7 @@ impl App {
             if editor.rust_key != key || (editor.was_building && !busy) {
                 editor.rust_key = key.clone();
                 editor.rust_built = crate::app::cargo::example_for(&key.0)
-                    .is_some_and(|n| crate::app::cargo::binary(&n, key.1).is_file());
+                    .is_some_and(|n| crate::app::cargo::dylib_path(&n, key.1).is_file());
             }
             editor.was_building = busy;
         }
@@ -880,7 +911,7 @@ impl App {
                     Some(name) => {
                         if build {
                             busy.store(true, std::sync::atomic::Ordering::SeqCst);
-                            crate::app::cargo::build(&name, release, busy.clone());
+                            crate::app::cargo::build_dylib(&name, release, busy.clone());
                         }
                         if launch {
                             // The example writes to the terminal, not to this
@@ -891,14 +922,7 @@ impl App {
                                 Some(c) => (c.terminal(), c.terminal()),
                                 None => (None, None),
                             };
-                            match crate::app::cargo::launch(&name, &path, release, out, err) {
-                                // Handed over: one kalast window at a time.
-                                // The example carries the editor UI, so what
-                                // opens is the same thing that closes, with
-                                // a scene in it.
-                                Ok(()) => handed_over = true,
-                                Err(e) => rust_messages.push(e),
-                            }
+                            load = Some((name.clone(), release));
                         }
                     }
                     // Naming it is the only way to know what to build: cargo
@@ -915,12 +939,10 @@ impl App {
         for m in rust_messages.drain(..) {
             self.log(&m);
         }
-        if handed_over {
-            // Not `exit()`: the window has to come down and the buffered
-            // output has to reach the terminal, both of which happen on the
-            // way out of the loop.
-            self.shared.borrow_mut().running = false;
-            return;
+        // Loading happens with nothing of the editor borrowed: the example is
+        // handed this very app, and it will reconfigure it.
+        if let Some((name, release)) = load {
+            self.load_example(&name, release);
         }
         let Some(editor) = self.editor.as_mut() else { return };
 
@@ -1162,6 +1184,43 @@ impl App {
     }
 
     /// Ask the window to close. The next `step()` returns `false`.
+    /// Compile-free half of running a Rust example: load it and let it build
+    /// the scene in this window.
+    ///
+    /// The Python front door runs a `.py` in the process you are looking at;
+    /// this is the same for a `.rs`, and the reason the editor no longer
+    /// closes and reopens to show one.
+    fn load_example(&mut self, name: &str, release: bool) {
+        // Order matters, and the wrong order is a crash rather than a bug.
+        // The callbacks currently armed are function pointers into the
+        // library about to be unloaded, so they go first; the scene goes with
+        // them, because a second load would otherwise stack meshes.
+        {
+            let mut shared = self.shared.borrow_mut();
+            shared.before_render = None;
+            shared.after_render = None;
+        }
+        self.simulation.borrow_mut().reset();
+        drop(self.loaded_example.take());
+
+        match crate::app::cargo::load_example(name, release, self) {
+            Ok(library) => {
+                self.loaded_example = Some(library);
+                self.shared.borrow_mut().script_ran = true;
+                // Shown, then held, exactly as a `.py` named on the command
+                // line is: one iteration so the callbacks fire and the scene
+                // is where iteration 0 puts it, then stop.
+                let mut sim = self.simulation.borrow_mut();
+                sim.state.pause_at = Some(sim.state.iteration + 1);
+                sim.state.is_paused = false;
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                self.log(&e);
+            }
+        }
+    }
+
     /// Pick the facet under the pointer and toggle its selection.
     ///
     /// The ray is built from the same view-projection the frame was drawn

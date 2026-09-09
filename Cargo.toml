@@ -55,6 +55,10 @@ pyo3 = { version = "0.28", optional = true, features = [
 ] }
 numpy = { version = "0.28", optional = true }
 
+# Loading a compiled example into the running editor. See
+# `notes/API.md`, "Rust examples".
+libloading = "0.8"
+
 # Window/GPU
 bytemuck = { version = "1.25", features = ["derive"] }
 memoffset = "0.9"
@@ -103,6 +107,20 @@ objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponde
 [[example]]
 name = "crater_step"
 path = "examples/crater_self_shadow/step.rs"
+
+# Two targets over one file, on purpose. The bin is `cargo run --example
+# crater_main` from a terminal; the cdylib is what the editor loads into
+# itself, so that pressing Play on a `.rs` shows the scene in the window you
+# are already looking at. The editor derives the second name from the first by
+# appending `_lib`.
+[[example]]
+name = "crater_main"
+path = "examples/crater_self_shadow/main.rs"
+
+[[example]]
+name = "crater_main_lib"
+path = "examples/crater_self_shadow/main.rs"
+crate-type = ["cdylib"]
 
 # Only the editor's stdout capture uses it, and that is Unix-only: Windows has
 # no dup2 on descriptor 1, so the capture is compiled out there entirely.

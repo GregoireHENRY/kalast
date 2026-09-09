@@ -55,6 +55,109 @@ fn field(line: &str, key: &str) -> Option<String> {
     Some(rest.trim().trim_matches('"').to_string())
 }
 
+/// The cdylib target that goes with an example, by convention.
+///
+/// Two cargo targets point at one file: the bin for `cargo run --example`,
+/// and this for the editor to load into itself.
+pub fn dylib_target(name: &str) -> String {
+    format!("{name}_lib")
+}
+
+/// Where cargo puts that cdylib, with the platform's prefix and suffix.
+pub fn dylib_path(name: &str, release: bool) -> std::path::PathBuf {
+    let profile = if release { "release" } else { "debug" };
+    let file = format!(
+        "{}{}{}",
+        std::env::consts::DLL_PREFIX,
+        dylib_target(name),
+        std::env::consts::DLL_SUFFIX
+    );
+    std::path::Path::new("target")
+        .join(profile)
+        .join("examples")
+        .join(file)
+}
+
+/// Build that cdylib, **with this build's own feature set**.
+///
+/// Not optional. The `python` feature changes the layout of `Shared` and
+/// `Tick`, so a guest built without it and handed an `App` from a host with
+/// it reads the wrong bytes. The host is the only thing that knows which it
+/// is, so it says so on the command line.
+pub fn build_dylib(name: &str, release: bool, busy: Arc<AtomicBool>) {
+    let target = dylib_target(name);
+    std::thread::spawn(move || {
+        let mut cmd = std::process::Command::new("cargo");
+        cmd.args(["build", "--color=never", "--example", &target]);
+        if release {
+            cmd.arg("--release");
+        }
+        if cfg!(feature = "python") {
+            cmd.args(["--features", "python"]);
+        }
+        println!("$ {}", show(&cmd));
+        match cmd.status() {
+            Ok(s) if s.success() => println!("built {target}"),
+            Ok(s) => println!("build failed: cargo exited with {s}"),
+            Err(e) => println!("build failed: could not run cargo: {e}"),
+        }
+        busy.store(false, Ordering::SeqCst);
+    });
+}
+
+/// Load a built example into this process and run its `scene`.
+///
+/// The returned `Library` **must outlive every callback the example
+/// installed**: those are function pointers into its code, and unloading it
+/// while one is armed unmaps the instructions the next frame will call.
+///
+/// # Safety
+///
+/// Calls `dlopen` on a file cargo produced from this crate, and hands it a
+/// pointer to the live `App`. The fingerprint check below is what makes that
+/// defensible; see `kalast::app::abi_fingerprint`.
+pub fn load_example(
+    name: &str,
+    release: bool,
+    app: &mut crate::app::App,
+) -> Result<libloading::Library, String> {
+    let path = dylib_path(name, release);
+    if !path.is_file() {
+        return Err(format!(
+            "{} is not built yet -- press compile first",
+            path.display()
+        ));
+    }
+
+    unsafe {
+        let library = libloading::Library::new(&path)
+            .map_err(|e| format!("could not load {}: {e}", path.display()))?;
+
+        let abi: libloading::Symbol<extern "C" fn() -> u64> = library
+            .get(b"kalast_abi")
+            .map_err(|_| format!("{} exports no kalast_abi", path.display()))?;
+        let (theirs, ours) = (abi(), crate::app::abi_fingerprint());
+        if theirs != ours {
+            return Err(format!(
+                "{} was built against a different kalast ({theirs:x} against {ours:x}).\n                   rebuild it with the same features as this program -- press compile.",
+                path.display()
+            ));
+        }
+
+        let scene: libloading::Symbol<unsafe extern "C" fn(*mut crate::app::App)> = library
+            .get(b"kalast_example")
+            .map_err(|_| format!("{} exports no kalast_example", path.display()))?;
+        println!("loaded {}", path.display());
+        scene(app as *mut _);
+
+        // Dropped by the caller, not here: the symbols are gone from scope but
+        // the callbacks the example just installed are not.
+        drop(scene);
+        drop(abi);
+        Ok(library)
+    }
+}
+
 /// Where cargo puts the built example.
 pub fn binary(name: &str, release: bool) -> std::path::PathBuf {
     let profile = if release { "release" } else { "debug" };
@@ -72,7 +175,7 @@ pub fn binary(name: &str, release: bool) -> std::path::PathBuf {
 /// and the compile button is the next move.
 pub fn is_current(name: &str, release: bool, source: &str) -> bool {
     let modified = |p: &std::path::Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
-    let Some(built) = modified(&binary(name, release)) else {
+    let Some(built) = modified(&dylib_path(name, release)) else {
         return false;
     };
     match modified(std::path::Path::new(source)) {

@@ -165,24 +165,57 @@ CPython on purpose -- that is what `pyo3` being an off-by-default feature buys
 -- so it spawns an interpreter rather than embedding one. `KALAST_PYTHON`
 names which, for a virtualenv that is not on `PATH`.
 
+**A `.rs` runs in the window you are looking at.** It is compiled to a
+dynamic library and loaded into the editor's own process, so Play builds the
+scene in front of you -- no second window, no restart, the same as a `.py`.
+
+That needs two cargo targets over one file: the bin for `cargo run --example`,
+and a `crate-type = ["cdylib"]` target named `<name>_lib` that the editor
+loads. The example exposes `scene(&mut App)` and two `extern "C"` symbols:
+
+```rust
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kalast_example(app: *mut App) { scene(unsafe { &mut *app }) }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn kalast_abi() -> u64 { kalast::app::abi_fingerprint() }
+```
+
+**The fingerprint is not ceremony.** Rust has no stable ABI, and this crate's
+`python` feature genuinely changes layout -- it adds a field to `Shared` and a
+variant to `Tick`. A dylib built without it, handed an `App` from a
+Python-hosted editor that has it, reads the wrong bytes and keeps going. The
+host checks the number before calling anything and refuses on a mismatch, and
+`compile` passes its own feature set to cargo so the two agree. Switching
+between `python -m kalast` and `cargo run --bin kalast` therefore means one
+recompile; the message says so.
+
+Two consequences worth knowing:
+
+- **A hosted example must not own a loop.** It configures the app and installs
+  `set_tick`/`set_after_render`, then returns -- the editor owns the loop, as
+  it does for `main.py`. A driven `while app.step():` example is a standalone
+  program: `cargo run --example` runs it, the editor does not load it.
+- **The library outlives the call.** The callbacks it installed are function
+  pointers into its code, so the editor holds it until something replaces it,
+  and clears the callbacks *before* unloading. Reloading in the other order
+  unmaps the instructions the next frame calls.
+
 **A file named on the command line opens by running**, whichever door and
 whichever kind:
 
 | named on the command line | what happens |
 |---|---|
 | `.py`, either door | built and rendered at iteration 0, then held |
-| `.rs`, binary current | hands over at once — that *is* showing it |
-| `.rs`, binary stale or missing | the editor stays, with the source and `compile` |
+| `.rs`, dylib current | loaded and shown at iteration 0, then held |
+| `.rs`, dylib stale or missing | the editor stays, with the source and `compile` |
 
 "Current" means the binary exists **and is newer than the source**. Built is
 not enough on its own: launching a binary older than the file in the panel
 would run code the panel is not displaying, which is a worse lie than an empty
 viewport.
 
-A Rust example cannot be shown any other way. Its scene lives in a program
-this one is not — no bodies, no camera, nothing to draw — so an unlaunched
-`.rs` leaves the viewport genuinely empty, and "show it" can only mean
-"launch it".
+"Current" is checked against the **dylib**, which is what gets loaded.
 
 ### Rust examples
 
