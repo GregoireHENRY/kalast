@@ -1442,3 +1442,49 @@ outcome than shipping two `background`s across the two config objects the
 9 September handoff already lists as a standing source of mistakes.
 
 Unsupported on X11 and Wayland, where winit cannot ask for it.
+
+### The Blender axes: an infinite grid and a navigation gizmo
+
+Asked for directly, from the reference: "i like the pristine grid example from
+webgpu samples website, is it what blender is using" and then "can you move the
+gizmo 3d axe from the origin to a corner ... so you can even rotate view using
+it on specific axis and also toggle view plane".
+
+**The ground plane of `axes = "blender"` is shaded per pixel now**, not drawn
+as line segments. It has no edge, crossfades between three levels a factor of
+`grid_major` apart as you zoom -- one grid serves a unit cube and a body 1e4 km
+away -- and antialiases itself. Four things had to be right and only the first
+was obvious: the line width needs clamping at *both* ends or a grazing view
+fills in solid; `fwidth` has to be taken on the world position and divided per
+level, not on the divided coordinate; the depth has to be **clamped rather than
+clipped**, because near and far are fitted to the bodies and at 40 units out
+the frustum is a slab the grid was being cut to; and the fade has to be on
+obliquity, since an infinite plane is bounded on screen by the horizon and a
+distance fade never reaches its ramp.
+
+Hiding all of them: `RenderPipeline::new` hardcoded `BlendState::REPLACE`, so
+the alpha that *is* the antialiasing was thrown away. There is a `blended`
+constructor now.
+
+**The axis gizmo moved from the world origin to a corner and became a
+control.** Six balls -- `+X +Y +Z` filled and lettered, `-X -Y -Z` as rings --
+laid out from the camera basis and drawn back to front. Click one to look down
+that axis and switch to orthographic; click the axis already being looked along
+to toggle back to perspective, which is the only way back since no key is bound
+to the projection. Left-drag anywhere on the widget orbits, which it does
+nowhere else. `-Z` looks up at the scene from underneath, so `view_along` grew
+a `positive` argument in both languages.
+
+The arrows it replaces were only readable when the origin was in shot and not
+behind the body, changed size with the zoom, and could not be clicked.
+
+Verified by driving a running window from PowerShell: posted window messages
+for the clicks, and `SendInput` with the target granting
+`AllowSetForegroundWindow` for the drag, since raw mouse motion only reaches a
+focused window. The handoff records the technique -- it is the way to test a
+pointer gesture here.
+
+`notes/2026-09-09_HANDOFF_axes_grid_gizmo.md` has the failures in full, the
+traps, and what is left: the editor's letterboxed viewport is untested for
+clicks, and there is no way to keep the widget out of an exported frame while
+keeping the grid.
