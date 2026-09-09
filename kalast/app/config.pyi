@@ -312,6 +312,12 @@ class Config:
     because the pipeline blend state is REPLACE and a fractional alpha would be
     ignored.
     """
+    selection_color: list[float]
+    """Colour a picked facet takes, `(r, g, b, a)`.
+
+    Applies to the *next* selection: facets already picked keep the colour
+    they were given, because selecting writes it onto their vertices.
+    """
     shadow_pcf: int
     """Percentage-closer-filtering kernel *radius*: 0 is a single hardware 2x2
     comparison, N is a `(2N+1)^2` grid averaged.
@@ -399,6 +405,10 @@ class Config:
     """Tick and caption size in pixels."""
     colorbar_text_color: list[float]
     """Tick and caption colour, `(r, g, b, a)`."""
+    colorbar_border: bool
+    """Outline drawn around the strip, so it reads as a scale rather than as
+    part of the scene when it sits over a dark body.
+    """
     axes: str
     """Reference axes: `"off"`, `"box"` (MATLAB), `"panes"` (matplotlib),
     `"gizmo"` (three labelled arrows at the origin) or `"blender"`

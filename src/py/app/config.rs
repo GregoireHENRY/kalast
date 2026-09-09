@@ -729,6 +729,26 @@ impl Config {
         };
     }
 
+    /// Colour a picked facet takes, `(r, g, b, a)`.
+    ///
+    /// Applies to the *next* selection: facets already picked keep the colour
+    /// they were given, because selecting writes it onto their vertices.
+    #[getter]
+    fn selection_color(&self) -> [Float; 4] {
+        let c = self.config.borrow().selection_color;
+        [c.r as Float, c.g as Float, c.b as Float, c.a as Float]
+    }
+
+    #[setter]
+    fn set_selection_color(&mut self, v: [Float; 4]) {
+        self.config.borrow_mut().selection_color = wgpu::Color {
+            r: v[0] as f64,
+            g: v[1] as f64,
+            b: v[2] as f64,
+            a: v[3] as f64,
+        };
+    }
+
     #[getter]
     fn shadow_pcf(&self) -> u32 {
         self.config.borrow().shadow_pcf
@@ -915,6 +935,18 @@ impl Config {
     #[setter]
     fn set_colorbar_text_color(&mut self, v: [f32; 4]) {
         self.config.borrow_mut().colorbar.text_color = v;
+    }
+
+    /// Outline drawn around the strip, so it reads as a scale rather than as
+    /// part of the scene when it sits over a dark body.
+    #[getter]
+    fn colorbar_border(&self) -> bool {
+        self.config.borrow().colorbar.border
+    }
+
+    #[setter]
+    fn set_colorbar_border(&mut self, v: bool) {
+        self.config.borrow_mut().colorbar.border = v;
     }
 
     /// Reference axes: `"off"`, `"box"` (MATLAB), `"panes"` (matplotlib),

@@ -1155,6 +1155,10 @@ Long and short axis of the bar, in pixels.
 Roughly how many numbered ticks — rounded to a readable step as the axes are —
 plus label size and colour.
 
+### `colorbar_border: bool` — default `True` *(live)*
+Outline around the strip, so it reads as a scale rather than as part of the
+scene when it sits over a dark body.
+
 ---
 
 ## Wireframe
@@ -1168,7 +1172,7 @@ non-indexed geometry. Smooth meshes render shaded with a one-time warning
 rather than noise; the check is per mesh, via `INSTANCE_FLAG_FLAT` in
 `InstanceInput.flags`.
 
-### `selection_color: wgpu::Color` — default yellow `(1.0, 1.0, 0.0, 1.0)` *(live)*
+### `selection_color: list[float]` — default yellow `(1.0, 1.0, 0.0, 1.0)` *(live)*
 The colour a facet takes when selected — by clicking it in the viewport, or
 through `sim.toggle_facet`. Written onto the facet's own vertices together
 with colour-mode 1, which the shader honours for that facet alone, so the rest

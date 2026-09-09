@@ -1182,9 +1182,33 @@ is for.
   while the module does not, with the same adapter, the same surface and
   `Immediate` granted to both. Until that is understood, compare the loop
   *body* and nothing else.
-- **A Rust example cannot be hosted in the editor's window.** It owns its
-  `main`, its window and its event loop, so Play hands the window over
-  instead. Genuinely hosting one means either rendering it headless into a
-  shared surface with input forwarded over IPC, or loading it as a dynamic
-  library into the editor -- the second is how Rust hot-reload frameworks
-  do it, and the only one that is one process.
+
+### Facet index labels, and a fourth unbound option
+
+`facet_labels` draws each facet's index at its centre, so you can read off
+which facet a number in a data product refers to. Two limits, both deliberate:
+only facets turned towards the camera are labelled -- the text is a
+screen-space overlay with no depth test, so labelling the far side would print
+numbers over the surface hiding them -- and no more than `facet_labels_max`
+(2000) per body, since a label is a text draw and a shape model has millions
+of facets. `facet_label_size` and `facet_label_color` to taste.
+
+Adding it hit **the same trap as `debug_light_cube_fit` the day before**: the
+field existed in Rust, the editor had a widget for it, the `.pyi` had a line
+for it, and a script still got
+
+    AttributeError: 'builtins.Config' object has no attribute 'facet_labels'
+
+because the `#[getter]`/`#[setter]` pair is the one part of the chain written
+by hand, and the stubs are generated *from* the wrapper, so they agree with it
+that the field does not exist.
+
+`tests/test_config_bindings.py` closes that: `dir()` on a real `Config`
+against the Rust struct, plus a setter check. It found two more the moment it
+ran -- **`selection_color`**, documented in `CONFIG.md` as if it were usable
+and never bound at all, and **`colorbar_border`**, a checkbox in the editor
+and nothing in Python. Both bound now.
+
+That makes three generated-or-checked mirrors of `Config`: the panel, the
+stubs, and now the bindings. Adding a field touches one place and the three
+guards say so if it does not.

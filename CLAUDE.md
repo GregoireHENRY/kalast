@@ -278,6 +278,29 @@ Otherwise the widget follows the type, and the first sentence of the doc
 becomes the hover text -- so documenting a field in Rust documents it in the
 UI.
 
+## The Python getters, which are *not* generated
+
+The panel and the stubs are generated; the `#[getter]`/`#[setter]` pair in
+`src/py/app/config.rs` is written by hand. So a new field can be complete
+everywhere -- widget in the editor, line in the `.pyi` -- and still raise
+`AttributeError` from a script, and the stubs cannot catch it because they
+are generated *from* the wrapper and agree with it that the field does not
+exist.
+
+```sh
+python tests/test_config_bindings.py    # after adding a field to Config
+```
+
+It checks `dir()` on a real `Config` against the Rust struct, and that every
+bound field also has a setter. Written after this bit four times:
+`debug_light_cube_fit`, `facet_labels`, `selection_color` (documented in
+`CONFIG.md` as if usable, never bound) and `colorbar_border` (a widget in the
+editor, nothing in Python).
+
+`Colorbar` has no Python object of its own -- its fields are flattened onto
+`Config` as `colorbar_*`, with `enabled` as plain `colorbar` -- and the test
+knows that mapping.
+
 ## Notes
 
 `notes/` holds dated write-ups (`YYYY-MM-DD_topic`). Two are **undated on
