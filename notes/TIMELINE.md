@@ -1488,3 +1488,38 @@ pointer gesture here.
 traps, and what is left: the editor's letterboxed viewport is untested for
 clicks, and there is no way to keep the widget out of an exported frame while
 keeping the grid.
+
+---
+
+## 10 September — the grid's far plane, and a smaller gizmo (Windows)
+
+Short session on top of the previous day's axes work.
+`notes/2026-09-10_grid_far_plane_and_gizmo_size.md`.
+
+**The infinite grid was not infinite, and it was the far plane after all.**
+Spotted by eye. `grid.wgsl` clamped its depth to `0.0` past the far plane,
+meaning to pin it to the farthest value so bodies still occlude it — but
+depth here is reversed, so far *is* `0.0`, the buffer is **cleared** to `0.0`,
+and the test is `Greater`. `0.0 > 0.0` is false, so every fragment past the
+far plane was discarded by the depth test against empty background. The clamp
+now floors at `1e-7`, an epsilon inside the far value; real geometry sits
+order `near/far` ≈ 1e-3 above that, so bodies still win. The grid runs to the
+frame edge now.
+
+The obliquity fade was the wrong suspect and was ruled out the only way that
+works here: `grid_fade_near = 0.9` gave a **pixel-identical** frame. Both
+mechanisms bound the grid from the same direction, so only re-rendering
+separates them.
+
+**The gizmo shrank and moved.** `gizmo_size` 54 → 40, ball ratio 0.26 → 0.22,
+`gizmo_label_size` 13 → 9, and the default anchor `top-left` → `top-right`.
+Hit-testing is the part that could regress at 11.8 px of target, so it was
+driven rather than assumed: a posted click on the `+Z` ball takes the camera
+to `(0, 0, -1)`.
+
+**`maturin develop` stopped failing with `os error 32`.** The long-standing
+Windows lock on `kalast/_rs.pyd` — held by VS Code's language server, not by a
+kalast window, and therefore present most of the time. Windows refuses to
+*write* a mapped image but still allows *renaming* it, so `tools/develop.py`
+moves the old module aside to free the name and lets maturin write a fresh
+one. macOS never had this because unlinking a mapped file is allowed there.
