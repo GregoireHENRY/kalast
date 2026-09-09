@@ -165,8 +165,24 @@ CPython on purpose -- that is what `pyo3` being an off-by-default feature buys
 -- so it spawns an interpreter rather than embedding one. `KALAST_PYTHON`
 names which, for a virtualenv that is not on `PATH`.
 
-A `.py` named on the Rust binary's command line hands over immediately: there
-is nothing it could show first.
+**A file named on the command line opens by running**, whichever door and
+whichever kind:
+
+| named on the command line | what happens |
+|---|---|
+| `.py`, either door | built and rendered at iteration 0, then held |
+| `.rs`, binary current | hands over at once — that *is* showing it |
+| `.rs`, binary stale or missing | the editor stays, with the source and `compile` |
+
+"Current" means the binary exists **and is newer than the source**. Built is
+not enough on its own: launching a binary older than the file in the panel
+would run code the panel is not displaying, which is a worse lie than an empty
+viewport.
+
+A Rust example cannot be shown any other way. Its scene lives in a program
+this one is not — no bodies, no camera, nothing to draw — so an unlaunched
+`.rs` leaves the viewport genuinely empty, and "show it" can only mean
+"launch it".
 
 ### Rust examples
 

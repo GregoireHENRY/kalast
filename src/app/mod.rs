@@ -131,6 +131,11 @@ pub struct Shared {
     /// Read the file named in the script panel's path field, as its `open`
     /// button does.
     pub open_requested: bool,
+    /// Launch the compiled example without waiting for Play. Set when a `.rs`
+    /// is named on the command line and its binary is already current: there
+    /// is nothing this process can render for it, so showing an empty
+    /// viewport and waiting is showing nothing and asking for a click.
+    pub launch_requested: bool,
     /// A script the UI has asked to run, waiting for the caller to take it.
     ///
     /// The frame cannot run it: a driven script's own loop cannot nest inside
@@ -166,6 +171,7 @@ impl Shared {
             run_requested: false,
             restart_requested: false,
             open_requested: false,
+            launch_requested: false,
             script_pending: None,
             script_ran: false,
         }
@@ -828,6 +834,8 @@ impl App {
             self.shared.borrow_mut().script_ran = false;
         }
 
+        let asked_launch = std::mem::take(&mut self.shared.borrow_mut().launch_requested);
+
         let (asked, asked_restart, asked_open) = {
             let mut s = self.shared.borrow_mut();
             (
@@ -862,7 +870,7 @@ impl App {
         {
             let (build, launch, release) = (
                 std::mem::take(&mut editor.build_request),
-                std::mem::take(&mut editor.launch_request),
+                std::mem::take(&mut editor.launch_request) | asked_launch,
                 editor.rust_release,
             );
             if build || launch {
@@ -1054,6 +1062,7 @@ impl App {
         self.sim_config().borrow_mut().title = "kalast".to_string();
 
         let mut opened_python = false;
+        let mut opened_rust: Option<String> = None;
         for arg in args {
             if arg.starts_with('-') {
                 continue;
@@ -1064,6 +1073,9 @@ impl App {
                     Ok(source) => {
                         self.set_script(arg.clone(), source);
                         opened_python |= ext == "py";
+                        if ext == "rs" {
+                            opened_rust = Some(arg.clone());
+                        }
                     }
                     Err(e) => eprintln!("cannot read {arg}: {e}"),
                 },
@@ -1083,10 +1095,22 @@ impl App {
 
         // A script named on the command line is *shown*: built and rendered at
         // iteration 0, then held. Opening a file and getting a black viewport
-        // until you find Play is no way to open a file. Only Python, because a
-        // Rust example has to be compiled before there is anything to show.
+        // until you find Play is no way to open a file.
         if opened_python {
             self.restart_script();
+        }
+
+        // A Rust example cannot be shown that way -- its scene lives in a
+        // program this one is not -- so "show it" means launch it, and the
+        // window hands over as it does for Play. Only when the binary is
+        // already current: otherwise this stays open with the compile button,
+        // which is the next thing anyone would press.
+        if let Some(path) = opened_rust {
+            let current = crate::app::cargo::example_for(&path)
+                .is_some_and(|name| crate::app::cargo::is_current(&name, true, &path));
+            if current {
+                self.shared.borrow_mut().launch_requested = true;
+            }
         }
     }
 

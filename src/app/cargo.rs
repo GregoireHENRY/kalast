@@ -64,6 +64,25 @@ pub fn binary(name: &str, release: bool) -> std::path::PathBuf {
         .join(name)
 }
 
+/// Whether a built binary exists *and* is newer than the source it came from.
+///
+/// "Built" is not enough on its own: launching a binary older than the file
+/// shown in the panel would run code the panel is not displaying, which is a
+/// worse lie than an empty viewport. When this is false the editor stays put
+/// and the compile button is the next move.
+pub fn is_current(name: &str, release: bool, source: &str) -> bool {
+    let modified = |p: &std::path::Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
+    let Some(built) = modified(&binary(name, release)) else {
+        return false;
+    };
+    match modified(std::path::Path::new(source)) {
+        Some(edited) => built >= edited,
+        // No source to be older than -- a path that cannot be read is a
+        // problem for whoever opens it, not a reason to refuse to launch.
+        None => true,
+    }
+}
+
 /// Run `cargo build --example <name>` on a thread, so the frame keeps going.
 ///
 /// `busy` is held for the life of the build and cleared however it ends,
