@@ -142,6 +142,9 @@ pub struct Shared {
     /// one calls `step()`, and stepping from inside a frame re-enters the
     /// event loop.
     pub load_requested: Option<bool>,
+    /// A load failed on a library that is stale or built against a different
+    /// kalast. Build it and try again -- once.
+    pub rebuild_then_load: bool,
     /// A script the UI has asked to run, waiting for the caller to take it.
     ///
     /// The frame cannot run it: a driven script's own loop cannot nest inside
@@ -179,6 +182,7 @@ impl Shared {
             open_requested: false,
             launch_requested: false,
             load_requested: None,
+            rebuild_then_load: false,
             script_pending: None,
             script_ran: false,
         }
@@ -368,6 +372,19 @@ pub fn abi_fingerprint() -> u64 {
     std::mem::size_of::<simulation::Simulation>().hash(&mut h);
     std::mem::size_of::<Tick>().hash(&mut h);
     cfg!(feature = "python").hash(&mut h);
+
+    // Sizes alone are too coarse: a `bool` added to `Shared` fit in existing
+    // padding, left the size unchanged, and moved nothing this hash could
+    // see -- so a library from before that change loaded anyway. Offsets of
+    // the fields actually reached across the boundary catch a field added or
+    // reordered ahead of them, which is the realistic way these two drift.
+    std::mem::offset_of!(Shared, before_render).hash(&mut h);
+    std::mem::offset_of!(Shared, after_render).hash(&mut h);
+    std::mem::offset_of!(Shared, running).hash(&mut h);
+    std::mem::offset_of!(simulation::Simulation, state).hash(&mut h);
+    std::mem::offset_of!(simulation::Simulation, bodies).hash(&mut h);
+    std::mem::offset_of!(simulation::Simulation, huds).hash(&mut h);
+
     h.finish()
 }
 
@@ -905,13 +922,14 @@ impl App {
             return;
         }
 
-        let (asked, asked_restart, asked_open, asked_launch) = {
+        let (asked, asked_restart, asked_open, asked_launch, retry_build) = {
             let mut s = self.shared.borrow_mut();
             (
                 std::mem::take(&mut s.run_requested),
                 std::mem::take(&mut s.restart_requested),
                 std::mem::take(&mut s.open_requested),
                 std::mem::take(&mut s.launch_requested),
+                std::mem::take(&mut s.rebuild_then_load),
             )
         };
         let asked = asked | asked_restart;
@@ -930,11 +948,17 @@ impl App {
                 editor.rust_release,
             );
             let busy = editor.building.load(std::sync::atomic::Ordering::SeqCst);
-            if editor.rust_key != key || (editor.was_building && !busy) {
+            let finished = editor.was_building && !busy;
+            if editor.rust_key != key || finished {
                 editor.rust_key = key.clone();
                 editor.rust_built = crate::app::cargo::is_current(key.1, &key.0);
             }
             editor.was_building = busy;
+            // A build started because a load failed: take it up again now
+            // that there is something new to load.
+            if finished && std::mem::take(&mut editor.load_after_build) {
+                editor.launch_request = true;
+            }
         }
         {
             let (build, launch, release) = (
@@ -942,16 +966,21 @@ impl App {
                 std::mem::take(&mut editor.launch_request) | asked_launch,
                 editor.rust_release,
             );
-            if build || launch {
+            let mut retry_build = retry_build;
+            if build || launch || retry_build {
                 let path = editor.script_path.trim_end().to_string();
                 let busy = editor.building.clone();
-                if build {
+                // Either asked for, or asked for on our behalf by a load
+                // that found the library stale.
+                let retry = std::mem::take(&mut retry_build);
+                if build || retry {
                     busy.store(true, std::sync::atomic::Ordering::SeqCst);
                     crate::app::cargo::build_hosted(
                         std::path::Path::new(&path),
                         release,
                         busy.clone(),
                     );
+                    editor.load_after_build = retry;
                 }
                 if launch {
                     load = Some(release);
@@ -1244,6 +1273,19 @@ impl App {
         shared.before_render = before;
         shared.after_render = after;
         shared.script_ran = true;
+        drop(shared);
+
+        // Shown, then held, the same as a `.py` named on the command line:
+        // one iteration so the callbacks fire and the scene is where
+        // iteration 0 puts it, then stop.
+        //
+        // Here rather than after the call that loaded it, because a driven
+        // example -- one with its own `while` -- does not return until its
+        // loop ends. Anything set afterwards would be set when the run was
+        // already over, which is why it played straight through.
+        let mut sim = self.simulation.borrow_mut();
+        sim.state.pause_at = Some(sim.state.iteration + 1);
+        sim.state.is_paused = false;
     }
 
     /// Compile-free half of running a Rust example: load it and let it build
@@ -1266,19 +1308,16 @@ impl App {
         drop(self.loaded_example.take());
 
         match crate::app::cargo::load_example(release, self) {
-            Ok(library) => {
-                self.loaded_example = Some(library);
-                self.shared.borrow_mut().script_ran = true;
-                // Shown, then held, exactly as a `.py` named on the command
-                // line is: one iteration so the callbacks fire and the scene
-                // is where iteration 0 puts it, then stop.
-                let mut sim = self.simulation.borrow_mut();
-                sim.state.pause_at = Some(sim.state.iteration + 1);
-                sim.state.is_paused = false;
-            }
+            Ok(library) => self.loaded_example = Some(library),
             Err(e) => {
+                // `eprintln!` only: the editor tees stdout and stderr into
+                // its own log panel, so logging it again printed it twice.
                 eprintln!("{e}");
-                self.log(&e);
+                // A stale or mismatched library is not something to ask
+                // someone to fix by hand -- the editor knows how to build
+                // it. Once, so a library that is wrong for another reason
+                // does not compile in a loop.
+                self.shared.borrow_mut().rebuild_then_load = true;
             }
         }
     }

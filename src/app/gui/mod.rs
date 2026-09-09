@@ -195,6 +195,9 @@ pub struct Editor {
     pub rust_built: bool,
     pub rust_key: (String, bool),
     pub was_building: bool,
+    /// A build the editor started itself, after a load found the library
+    /// stale. Load again when it finishes.
+    pub load_after_build: bool,
     /// Held while a `cargo build` thread is running, so the buttons can go
     /// grey rather than starting a second one on top of the first.
     pub building: std::sync::Arc<std::sync::atomic::AtomicBool>,
@@ -255,6 +258,7 @@ impl Editor {
             rust_built: false,
             rust_key: (String::new(), false),
             was_building: false,
+            load_after_build: false,
             building: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
@@ -431,27 +435,27 @@ impl Editor {
                     // Native: this window *is* a compiled example, launched
                     // by an editor. There is no script to run -- the program
                     // is already running -- so Play is a pause toggle.
-                    let have_script = if native {
+                    // A Rust example that has been loaded behaves like a
+                    // native window: it is running here, so Play is its pause
+                    // button and Restart rebuilds its scene.
+                    let loaded = is_rust && script_ran;
+                    let have_script = if native || loaded {
                         true
                     } else if is_rust {
-                        // Nothing to launch until it has been compiled.
+                        // Nothing to load until it has been compiled.
                         rust_built
                     } else {
                         has_script
                     };
-                    let (label, hover): (&str, &str) = if native {
+                    let (label, hover): (&str, &str) = if native || loaded {
                         if state.is_paused {
                             ("\u{25b6} Play", "Resume  (P)")
                         } else {
                             ("\u{23f8} Pause", "Hold the simulation  (P)")
                         }
                     } else if is_rust {
-                        // Play is Play. For a Rust example that means
-                        // launching the compiled binary in its own window --
-                        // it is a separate program and cannot be hosted in
-                        // this one.
                         if rust_built {
-                            ("\u{25b6} Play", "Launch this example")
+                            ("\u{25b6} Play", "Load this example into this window")
                         } else {
                             ("\u{25b6} Play", "Compile it first")
                         }
@@ -469,7 +473,7 @@ impl Editor {
                         .on_hover_text(hover)
                         .clicked()
                     {
-                        if native {
+                        if native || loaded {
                             state.is_paused = !state.is_paused;
                         } else if is_rust {
                             launch_request = true;
@@ -481,27 +485,32 @@ impl Editor {
                         }
                     }
                     if ui
-                        .add_enabled(script_ran && !is_rust && !native, egui::Button::new("\u{27f2} Restart"))
+                        .add_enabled(script_ran && !native, egui::Button::new("\u{27f2} Restart"))
                         .on_hover_text(if native {
                             "This window is the example; close it and launch again"
-                        } else if is_rust {
-                            "A Rust example builds its own scene, in its own process"
+                        } else if loaded {
+                            "Load this example again and stop at the start"
                         } else {
                             "Rebuild the scene from the script and stop at the start"
                         })
                         .clicked()
                     {
-                        run_request = true;
-                        restart_request = true;
+                        // Reloading *is* the restart: it clears the scene and
+                        // runs the example again from the top.
+                        if loaded {
+                            launch_request = true;
+                        } else {
+                            run_request = true;
+                            restart_request = true;
+                        }
                     }
                     // One frame while paused: the same thing the render loop
                     // does, so the button cannot drift from the key.
                     if ui
                         .add_enabled(
-                            // A hosted script must have run; a native window
-                            // is itself the run. A `.rs` in the panel has
-                            // nothing to step here at all until it is
-                            // compiled and launched into its own window.
+                            // Anything that has actually run can be stepped:
+                            // a hosted script, a native window, or a Rust
+                            // example loaded into this one.
                             (script_ran || native) && state.is_paused,
                             egui::Button::new("\u{23ed} Step"),
                         )

@@ -185,6 +185,12 @@ Three things make the example *this* window rather than a second one:
   -- and the callbacks. Those are handed over on the first call that needs a
   frame, and the host renders them from then on. The `App` around them was
   scaffolding: a window it never opened, an event loop it will never pump.
+- **A loaded example is held at iteration 0**, like a `.py` named on the
+  command line: one iteration so the callbacks fire and the scene is where
+  iteration 0 puts it, then stop. That is applied when the host *adopts* the
+  scene, not after the call that loaded it -- a driven example does not return
+  until its loop ends, so anything set afterwards is set when the run is
+  already over. Play resumes it and Restart loads it again.
 - **Loading happens between frames.** An example's `main` may call `step()`,
   and stepping from inside a frame re-enters the event loop -- which killed
   the process the first time this ran. `editor_tick` picks the request up
@@ -203,10 +209,17 @@ crate's `python` feature genuinely changes layout -- it adds a field to
 `Shared` and a variant to `Tick`. A library built without it, handed an `App`
 from a Python-hosted editor that has it, reads the wrong bytes and keeps
 going. The host checks a number the guest exports before calling anything, and
-the build passes its own feature set to cargo so the two agree. Two
-consequences: switching between `python -m kalast` and `cargo run --bin
-kalast` costs one recompile, and **so does any change to the engine** -- the
-fingerprint moves with the size of those structs. The message says so.
+the build passes its own feature set to cargo so the two agree.
+
+**A mismatch rebuilds itself.** Switching between `python -m kalast` and
+`cargo run --bin kalast` needs a different library, and so does any change to
+the engine; the editor compiles it and loads it, once, rather than asking for
+a button to be pressed.
+
+The number covers sizes *and* the offsets of the fields reached across the
+boundary. Sizes alone proved too coarse -- a `bool` added to `Shared` fit in
+existing padding, left every size unchanged, and a library from before that
+change loaded anyway.
 
 **A file named on the command line opens by running**, whichever door and
 whichever kind:
@@ -214,8 +227,8 @@ whichever kind:
 | named on the command line | what happens |
 |---|---|
 | `.py`, either door | built and rendered at iteration 0, then held |
-| `.rs`, library current | loaded and run, in this window |
-| `.rs`, library stale or missing | the editor stays, with the source and `compile` |
+| `.rs`, library current | loaded and shown at iteration 0, then held |
+| `.rs`, library stale or missing | compiled, then the same |
 
 "Current" means the binary exists **and is newer than the source**. Built is
 not enough on its own: launching a binary older than the file in the panel
