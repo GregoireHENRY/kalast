@@ -108,19 +108,9 @@ objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponde
 name = "crater_step"
 path = "examples/crater_self_shadow/step.rs"
 
-# A loadable example is two targets: the cdylib the editor loads into itself,
-# so that Play shows the scene in the window you are already looking at, and a
-# bin for `cargo run --example`. Separate files, because one path in two
-# targets warns on every build. The editor derives the cdylib's name from the
-# bin's by appending `_lib`.
 [[example]]
 name = "crater_main"
-path = "examples/crater_self_shadow/run.rs"
-
-[[example]]
-name = "crater_main_lib"
 path = "examples/crater_self_shadow/main.rs"
-crate-type = ["cdylib"]
 
 # Only the editor's stdout capture uses it, and that is Unix-only: Windows has
 # no dup2 on descriptor 1, so the capture is compiled out there entirely.

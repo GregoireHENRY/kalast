@@ -6,6 +6,7 @@ pub mod facet_id;
 pub mod facet_shadow;
 pub mod frame;
 pub mod gui;
+pub mod hosted;
 #[cfg(target_os = "macos")]
 pub mod macos;
 pub mod hemicube;
@@ -136,6 +137,11 @@ pub struct Shared {
     /// is nothing this process can render for it, so showing an empty
     /// viewport and waiting is showing nothing and asking for a click.
     pub launch_requested: bool,
+    /// An example to load, and at which profile. Set inside a frame, acted on
+    /// between two -- loading runs the example's `main`, which for a driven
+    /// one calls `step()`, and stepping from inside a frame re-enters the
+    /// event loop.
+    pub load_requested: Option<bool>,
     /// A script the UI has asked to run, waiting for the caller to take it.
     ///
     /// The frame cannot run it: a driven script's own loop cannot nest inside
@@ -172,6 +178,7 @@ impl Shared {
             restart_requested: false,
             open_requested: false,
             launch_requested: false,
+            load_requested: None,
             script_pending: None,
             script_ran: false,
         }
@@ -218,6 +225,10 @@ pub struct App {
     /// pumps until it flips, which is what makes one call mean one frame
     /// rather than one batch of events.
     frame_drawn: bool,
+    /// Whether this app has already handed its scene to a host. Once only:
+    /// the second hand-over would replace the simulation the host is midway
+    /// through rendering with an identical one.
+    gave_scene: bool,
     /// Last cursor position in physical pixels, for turning a click into a
     /// ray. The editor knows the pointer in egui points; a plain window does
     /// not, and this is what both fall back on.
@@ -552,6 +563,7 @@ impl App {
 
             event_loop: None,
             frame_drawn: false,
+            gave_scene: false,
             stepping: false,
             loaded_example: None,
             cursor: None,
@@ -652,6 +664,15 @@ impl App {
 
     /// Run the loop to completion. **Blocks until the window closes.**
     pub fn start(&mut self) {
+        // Hosted: the loop is the editor's and is already running. An example
+        // ends its `main` here, so this is the last chance to hand over what
+        // it built -- and then it simply returns, the way `start()` does for
+        // a script the Python editor runs.
+        if hosted::hosted() {
+            self.give_scene_to_host();
+            return;
+        }
+
         // `start()` owns the loop and draws continuously; the one-frame
         // guard belongs only to the stepped path.
         self.stepping = false;
@@ -687,6 +708,15 @@ impl App {
     /// than the rest.
     pub fn step(&mut self) -> bool {
         use winit::platform::pump_events::EventLoopExtPumpEvents;
+
+        // Hosted: this app is an example the editor loaded, and the window
+        // belongs to the host. Hand over the scene the example has built so
+        // far, then let the host draw -- from its own copy of the crate, so
+        // there is one winit talking to the platform and not two.
+        if hosted::hosted() {
+            self.give_scene_to_host();
+            return hosted::step().unwrap_or(false);
+        }
 
         if !self.shared.borrow().running {
             return false;
@@ -890,7 +920,7 @@ impl App {
         // nothing to do with the Python path below, and a `.rs` in the panel
         // never reaches the script runner.
         let mut rust_messages: Vec<String> = Vec::new();
-        let mut load: Option<(String, bool)> = None;
+        let mut load: Option<bool> = None;
         {
             // Reading `Cargo.toml` and stat-ing a file, so not every frame:
             // only when the path or profile changes, or a compile just
@@ -902,8 +932,7 @@ impl App {
             let busy = editor.building.load(std::sync::atomic::Ordering::SeqCst);
             if editor.rust_key != key || (editor.was_building && !busy) {
                 editor.rust_key = key.clone();
-                editor.rust_built = crate::app::cargo::example_for(&key.0)
-                    .is_some_and(|n| crate::app::cargo::dylib_path(&n, key.1).is_file());
+                editor.rust_built = crate::app::cargo::is_current(key.1, &key.0);
             }
             editor.was_building = busy;
         }
@@ -916,40 +945,16 @@ impl App {
             if build || launch {
                 let path = editor.script_path.trim_end().to_string();
                 let busy = editor.building.clone();
-                match crate::app::cargo::dylib_for(&path) {
-                    Some(target) => {
-                        if build {
-                            busy.store(true, std::sync::atomic::Ordering::SeqCst);
-                            crate::app::cargo::build_dylib(&target, release, busy.clone());
-                        }
-                        if launch {
-                            load = Some((target, release));
-                        }
-                    }
-                    // Declared, but only as a program: it owns its loop, so
-                    // there is no scene to hand this window.
-                    None if crate::app::cargo::example_for(&path).is_some() => {
-                        if build || launch {
-                            let name =
-                                crate::app::cargo::example_for(&path).unwrap_or_default();
-                            rust_messages.push(format!(
-                                "{path} is a standalone example: it owns its loop, so there \
-                                 is nothing to load into this window.\n  \
-                                 run it with `cargo run --release --example {name}` -- or \
-                                 give it a `scene(&mut App)` and a second target \
-                                 `[[example]] {}` with crate-type = [\"cdylib\"], the way \
-                                 crater_main is arranged.",
-                                crate::app::cargo::dylib_target(&name)
-                            ));
-                        }
-                    }
-                    // Naming it is the only way to know what to build: cargo
-                    // does not look into these directories, so a file with no
-                    // entry is not an example as far as it is concerned.
-                    None => rust_messages.push(format!(
-                        "{path} is not listed in Cargo.toml -- add an [[example]] with \
-                         name and path = \"{path}\""
-                    )),
+                if build {
+                    busy.store(true, std::sync::atomic::Ordering::SeqCst);
+                    crate::app::cargo::build_hosted(
+                        std::path::Path::new(&path),
+                        release,
+                        busy.clone(),
+                    );
+                }
+                if launch {
+                    load = Some(release);
                 }
             }
         }
@@ -957,10 +962,10 @@ impl App {
         for m in rust_messages.drain(..) {
             self.log(&m);
         }
-        // Loading happens with nothing of the editor borrowed: the example is
-        // handed this very app, and it will reconfigure it.
-        if let Some((name, release)) = load {
-            self.load_example(&name, release);
+        // Recorded, not done: this is inside a frame, and an example's `main`
+        // may call `step()`. `editor_tick` picks it up between two.
+        if let Some(release) = load {
+            self.shared.borrow_mut().load_requested = Some(release);
         }
         let Some(editor) = self.editor.as_mut() else { return };
 
@@ -1150,8 +1155,7 @@ impl App {
         // bin on one file and the cdylib on the other. Asking about the bin
         // looks for a library that was never built and quietly does nothing.
         if let Some(path) = opened_rust {
-            let current = crate::app::cargo::dylib_for(&path)
-                .is_some_and(|target| crate::app::cargo::is_current(&target, true, &path));
+            let current = crate::app::cargo::is_current(true, &path);
             if current {
                 self.shared.borrow_mut().launch_requested = true;
             }
@@ -1171,6 +1175,14 @@ impl App {
     pub fn editor_tick(&mut self) -> EditorTick {
         if !self.step() {
             return EditorTick::Closed;
+        }
+        // Between frames, which is the only place an example may run: its
+        // `main` owns a loop of its own if it wants one, and that nests here
+        // rather than re-entering the frame that asked for it.
+        let load = self.shared.borrow_mut().load_requested.take();
+        if let Some(release) = load {
+            self.load_example(release);
+            return EditorTick::Frame;
         }
         let Some((path, source, paused)) = self.take_script_request() else {
             return EditorTick::Frame;
@@ -1206,13 +1218,41 @@ impl App {
     }
 
     /// Ask the window to close. The next `step()` returns `false`.
+    /// Take a guest example's scene as this window's own.
+    ///
+    /// Called from the guest, through `HostApi::adopt`. The simulation
+    /// replaces this one wholesale -- it carries the bodies, the camera and
+    /// the config the example just built -- and the callbacks move across
+    /// with it. Everything else about this app stays: the window, the editor,
+    /// the log.
+    pub(crate) fn adopt_scene(
+        &mut self,
+        simulation: Rc<RefCell<simulation::Simulation>>,
+        guest_shared: Rc<RefCell<Shared>>,
+    ) {
+        self.simulation = simulation;
+        // The GPU buffers were built from the bodies that are being replaced.
+        self.simulation.borrow_mut().meshes_dirty = true;
+
+        // Only the callbacks. The rest of `Shared` is this window's -- its
+        // log, its panel state, the request flags the editor sets -- and
+        // taking the guest's would replace a live editor with a blank one.
+        let mut guest = guest_shared.borrow_mut();
+        let (before, after) = (guest.before_render.take(), guest.after_render.take());
+        drop(guest);
+        let mut shared = self.shared.borrow_mut();
+        shared.before_render = before;
+        shared.after_render = after;
+        shared.script_ran = true;
+    }
+
     /// Compile-free half of running a Rust example: load it and let it build
     /// the scene in this window.
     ///
     /// The Python front door runs a `.py` in the process you are looking at;
     /// this is the same for a `.rs`, and the reason the editor no longer
     /// closes and reopens to show one.
-    fn load_example(&mut self, name: &str, release: bool) {
+    fn load_example(&mut self, release: bool) {
         // Order matters, and the wrong order is a crash rather than a bug.
         // The callbacks currently armed are function pointers into the
         // library about to be unloaded, so they go first; the scene goes with
@@ -1225,7 +1265,7 @@ impl App {
         self.simulation.borrow_mut().reset();
         drop(self.loaded_example.take());
 
-        match crate::app::cargo::load_example(name, release, self) {
+        match crate::app::cargo::load_example(release, self) {
             Ok(library) => {
                 self.loaded_example = Some(library);
                 self.shared.borrow_mut().script_ran = true;
@@ -1400,7 +1440,26 @@ impl App {
     }
 
     /// Whether the window is still open.
+    /// Give the host this app's simulation and callbacks, once.
+    ///
+    /// Everything an example builds lives in those two: bodies, camera,
+    /// config, and the `before_render`/`after_render` it installed. The App
+    /// around them is scaffolding -- a window it never opened, an event loop
+    /// it will never pump.
+    fn give_scene_to_host(&mut self) {
+        if self.gave_scene {
+            return;
+        }
+        self.gave_scene = hosted::adopt(&self.simulation, &self.shared);
+    }
+
     pub fn is_running(&self) -> bool {
+        // Hosted: the window is the host's, and so is the answer. Without
+        // this a driven example's `while app.is_running()` would spin on its
+        // own flag long after the editor's window had closed.
+        if let Some(running) = hosted::is_running() {
+            return running;
+        }
         self.shared.borrow().running
     }
 

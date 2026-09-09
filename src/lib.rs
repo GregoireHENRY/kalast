@@ -16,6 +16,11 @@ pub mod tpm;
 pub mod util;
 pub mod meshes;
 
+/// Re-exported for examples, which are compiled against kalast alone when
+/// the editor hosts one -- `wgpu::Color` in a config assignment has to be
+/// reachable without the example depending on wgpu itself.
+pub use wgpu;
+
 pub type UVec2 = glam::USizeVec2;
 
 #[cfg(feature = "use_f64")]

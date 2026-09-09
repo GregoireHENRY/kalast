@@ -13,100 +13,128 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// Which `[[example]]` a path belongs to, read from `Cargo.toml`.
+/// Where the generated wrapper crate lives.
 ///
-/// Examples in this repo are named explicitly rather than auto-discovered,
-/// because each lives beside a Python script of the same name in a directory
-/// cargo does not look into. That table is also the only thing that maps a
-/// file back to the `--example` argument that builds it.
-pub fn example_for(path: &str) -> Option<String> {
-    let manifest = std::fs::read_to_string("Cargo.toml").ok()?;
-    let wanted = std::path::Path::new(path);
-
-    let (mut name, mut found) = (None, None);
-    for line in manifest.lines() {
-        let line = line.trim();
-        if line == "[[example]]" {
-            (name, found) = (None, None);
-            continue;
-        }
-        // A new table ends the one being read.
-        if line.starts_with('[') && line != "[[example]]" {
-            (name, found) = (None, None);
-            continue;
-        }
-        if let Some(v) = field(line, "name") {
-            name = Some(v);
-        }
-        if let Some(v) = field(line, "path") {
-            found = Some(v);
-        }
-        if let (Some(n), Some(p)) = (&name, &found) {
-            if std::path::Path::new(p) == wanted {
-                return Some(n.clone());
-            }
-        }
-    }
-    None
+/// Under `target/`, so it is ignored, disposable, and shares the build
+/// directory with everything else -- which is what keeps a hosted build to
+/// seconds instead of recompiling kalast from scratch.
+pub fn wrapper_dir() -> std::path::PathBuf {
+    std::path::Path::new("target").join("kalast-hosted")
 }
 
-fn field(line: &str, key: &str) -> Option<String> {
-    let rest = line.strip_prefix(key)?.trim_start().strip_prefix('=')?;
-    Some(rest.trim().trim_matches('"').to_string())
-}
-
-/// The cdylib target that goes with an example, by convention.
-///
-/// Two cargo targets point at one file: the bin for `cargo run --example`,
-/// and this for the editor to load into itself.
-pub fn dylib_target(name: &str) -> String {
-    format!("{name}_lib")
-}
-
-/// Whether a target of this name is declared.
-pub fn has_target(name: &str) -> bool {
-    let Ok(manifest) = std::fs::read_to_string("Cargo.toml") else {
-        return false;
-    };
-    manifest
-        .lines()
-        .filter_map(|l| field(l.trim(), "name"))
-        .any(|n| n == name)
-}
-
-/// The cdylib target the editor can load for this file, if there is one.
-///
-/// Two ways to arrive: the file *is* the cdylib's path, in which case that
-/// target is the answer already, or it is the bin's and the cdylib is the
-/// same name with `_lib`. Both, because either file of a loadable example is
-/// a reasonable thing to open -- and appending `_lib` to a name that already
-/// ends in it asks cargo for `crater_main_lib_lib`.
-///
-/// `None` means the example is not loadable: one that owns its loop --
-/// `while app.is_running()` -- is a program, not a scene handed an app, and
-/// has only a bin target.
-pub fn dylib_for(path: &str) -> Option<String> {
-    let name = example_for(path)?;
-    if name.ends_with("_lib") && has_target(&name) {
-        return Some(name);
-    }
-    let candidate = dylib_target(&name);
-    has_target(&candidate).then_some(candidate)
-}
-
-/// Where cargo puts that cdylib, with the platform's prefix and suffix.
-pub fn dylib_path(target: &str, release: bool) -> std::path::PathBuf {
+/// Where its cdylib lands.
+pub fn dylib_path(release: bool) -> std::path::PathBuf {
     let profile = if release { "release" } else { "debug" };
-    let file = format!(
-        "{}{}{}",
-        std::env::consts::DLL_PREFIX,
-        target,
-        std::env::consts::DLL_SUFFIX
-    );
+    // The repo's own build directory, not the wrapper's: the build sets
+    // `CARGO_TARGET_DIR` there so kalast is not compiled a second time.
     std::path::Path::new("target")
         .join(profile)
-        .join("examples")
-        .join(file)
+        .join(format!(
+            "{}kalast_hosted{}",
+            std::env::consts::DLL_PREFIX,
+            std::env::consts::DLL_SUFFIX
+        ))
+}
+
+/// Write a crate that wraps `example` and exports what the host calls.
+///
+/// The example is included as a module, so its own `fn main` becomes
+/// `example::main` and nothing has to be written in the file itself. It is a
+/// generated crate rather than a target in this manifest because a declared
+/// target whose file is missing breaks every cargo command in the repo,
+/// including for someone who never opens the editor.
+pub fn write_wrapper(example: &std::path::Path, features: &str) -> Result<(), String> {
+    let dir = wrapper_dir();
+    let src = dir.join("src");
+    std::fs::create_dir_all(&src).map_err(|e| format!("cannot create {}: {e}", src.display()))?;
+
+    let root = std::env::current_dir()
+        .map_err(|e| format!("cannot read the working directory: {e}"))?;
+    let example_path = root.join(example);
+    let example = example_path.to_string_lossy().replace('\\', "/");
+    let kalast = root.to_string_lossy().replace('\\', "/");
+
+    std::fs::write(
+        dir.join("Cargo.toml"),
+        format!(
+            "# Generated by kalast's editor. Rewritten for each example hosted;\n\
+             # nothing here is meant to be edited or committed.\n\
+             [package]\n\
+             name = \"kalast-hosted\"\n\
+             version = \"0.0.0\"\n\
+             edition = \"2024\"\n\n\
+             [lib]\n\
+             crate-type = [\"cdylib\"]\n\n\
+             [dependencies]\n\
+             kalast = {{ path = \"{kalast}\"{features} }}\n\n\
+             [workspace]\n"
+        ),
+    )
+    .map_err(|e| format!("cannot write the wrapper manifest: {e}"))?;
+
+    // The example is *copied* into the wrapper rather than `include!`d or
+    // declared as a module, and both of those were tried first:
+    //
+    // - a module puts `fn main` out of reach, because an example's main is
+    //   private and privacy does not reach outwards;
+    // - `include!` cannot carry a file whose header is `//!`, since inner
+    //   attributes may not come from a macro expansion -- and every example
+    //   here starts with one.
+    //
+    // Copying costs a rewrite of those header lines to `//`, and buys a file
+    // where `main` is an ordinary private function of the same module as the
+    // exports below.
+    let source = std::fs::read_to_string(&example_path)
+        .map_err(|e| format!("cannot read {}: {e}", example_path.display()))?;
+    let source: String = source
+        .lines()
+        .map(|l| match l.strip_prefix("//!") {
+            Some(rest) => format!("//{rest}\n"),
+            None => format!("{l}\n"),
+        })
+        .collect();
+
+    // Only when it is not already there: a duplicate import is an error, and
+    // an example may well have written this one itself.
+    let wgpu_import = if source.contains("use kalast::wgpu") || source.contains("use wgpu") {
+        ""
+    } else {
+        "// So that an example naming `wgpu::Color`, as one setting a colour\n\
+         // does, compiles without depending on wgpu itself.\n\
+         use kalast::wgpu;\n\n"
+    };
+
+    std::fs::write(
+        src.join("lib.rs"),
+        format!(
+            "// Generated by kalast's editor from\n\
+             // {example}\n\
+             //\n\
+             // Rewritten every time an example is built for hosting. Nothing\n\
+             // here is meant to be edited: change the file above.\n\n\
+             {wgpu_import}\
+             {source}\n\
+             /// What this was built against, checked by the host first.\n\
+             #[unsafe(no_mangle)]\n\
+             pub extern \"C\" fn kalast_abi() -> u64 {{\n\
+             \x20   kalast::app::abi_fingerprint()\n\
+             }}\n\n\
+             /// Run the example's own `main`, with the host reachable from it.\n\
+             ///\n\
+             /// # Safety\n\
+             ///\n\
+             /// `host` must outlive the call.\n\
+             #[unsafe(no_mangle)]\n\
+             pub unsafe extern \"C\" fn kalast_example(host: *const kalast::app::hosted::HostApi) {{\n\
+             \x20   unsafe {{ kalast::app::hosted::set_host(host) }};\n\
+             \x20   main();\n\
+             \x20   kalast::app::hosted::clear_host();\n\
+             }}\n"
+        ),
+    )
+    .map_err(|e| format!("cannot write the wrapper: {e}"))?;
+
+    Ok(())
 }
 
 /// Build that cdylib, **with this build's own feature set**.
@@ -115,20 +143,37 @@ pub fn dylib_path(target: &str, release: bool) -> std::path::PathBuf {
 /// `Tick`, so a guest built without it and handed an `App` from a host with
 /// it reads the wrong bytes. The host is the only thing that knows which it
 /// is, so it says so on the command line.
-pub fn build_dylib(target: &str, release: bool, busy: Arc<AtomicBool>) {
-    let target = target.to_string();
+pub fn build_hosted(example: &std::path::Path, release: bool, busy: Arc<AtomicBool>) {
+    // Matching the host's features is not optional: `python` changes the
+    // layout of `Shared` and `Tick`, and a guest built without it would be
+    // handed an `App` whose fields are somewhere else.
+    let features = if cfg!(feature = "python") {
+        ", features = [\"python\"]"
+    } else {
+        ""
+    };
+    if let Err(e) = write_wrapper(example, features) {
+        println!("{e}");
+        busy.store(false, Ordering::SeqCst);
+        return;
+    }
+
+    let manifest = wrapper_dir().join("Cargo.toml");
+    let target_dir = std::env::current_dir().unwrap_or_default().join("target");
     std::thread::spawn(move || {
         let mut cmd = std::process::Command::new("cargo");
-        cmd.args(["build", "--color=never", "--example", &target]);
+        cmd.args(["build", "--color=never", "--manifest-path"])
+            .arg(&manifest)
+            // The repo's own build directory, so kalast is not compiled a
+            // second time: this is the difference between a hosted build
+            // taking seconds and taking a minute.
+            .env("CARGO_TARGET_DIR", &target_dir);
         if release {
             cmd.arg("--release");
         }
-        if cfg!(feature = "python") {
-            cmd.args(["--features", "python"]);
-        }
         println!("$ {}", show(&cmd));
         match cmd.status() {
-            Ok(s) if s.success() => println!("built {target}"),
+            Ok(s) if s.success() => println!("built {}", dylib_path(release).display()),
             Ok(s) => println!("build failed: cargo exited with {s}"),
             Err(e) => println!("build failed: could not run cargo: {e}"),
         }
@@ -148,11 +193,10 @@ pub fn build_dylib(target: &str, release: bool, busy: Arc<AtomicBool>) {
 /// pointer to the live `App`. The fingerprint check below is what makes that
 /// defensible; see `kalast::app::abi_fingerprint`.
 pub fn load_example(
-    target: &str,
     release: bool,
     app: &mut crate::app::App,
 ) -> Result<libloading::Library, String> {
-    let path = dylib_path(target, release);
+    let path = dylib_path(release);
     if !path.is_file() {
         return Err(format!(
             "{} is not built yet -- press compile first",
@@ -175,73 +219,25 @@ pub fn load_example(
             ));
         }
 
-        let scene: libloading::Symbol<unsafe extern "C" fn(*mut crate::app::App)> = library
+        let run: libloading::Symbol<
+            unsafe extern "C" fn(*const crate::app::hosted::HostApi),
+        > = library
             .get(b"kalast_example")
             .map_err(|_| format!("{} exports no kalast_example", path.display()))?;
         println!("loaded {}", path.display());
-        scene(app as *mut _);
+
+        // On this stack for the whole call, which is what `set_host` needs.
+        // The example's `main` runs inside it: it builds an `App` of its own,
+        // and every call that would own a loop crosses back through here.
+        let api = crate::app::hosted::host::api(app as *mut _);
+        run(&api as *const _);
 
         // Dropped by the caller, not here: the symbols are gone from scope but
         // the callbacks the example just installed are not.
-        drop(scene);
+        drop(run);
         drop(abi);
         Ok(library)
     }
-}
-
-/// Where cargo puts the built example.
-pub fn binary(name: &str, release: bool) -> std::path::PathBuf {
-    let profile = if release { "release" } else { "debug" };
-    std::path::Path::new("target")
-        .join(profile)
-        .join("examples")
-        .join(name)
-}
-
-/// Whether a built binary exists *and* is newer than the source it came from.
-///
-/// "Built" is not enough on its own: launching a binary older than the file
-/// shown in the panel would run code the panel is not displaying, which is a
-/// worse lie than an empty viewport. When this is false the editor stays put
-/// and the compile button is the next move.
-pub fn is_current(name: &str, release: bool, source: &str) -> bool {
-    let modified = |p: &std::path::Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
-    let Some(built) = modified(&dylib_path(name, release)) else {
-        return false;
-    };
-    match modified(std::path::Path::new(source)) {
-        Some(edited) => built >= edited,
-        // No source to be older than -- a path that cannot be read is a
-        // problem for whoever opens it, not a reason to refuse to launch.
-        None => true,
-    }
-}
-
-/// Run `cargo build --example <name>` on a thread, so the frame keeps going.
-///
-/// `busy` is held for the life of the build and cleared however it ends,
-/// including a cargo that could not be started at all -- a button that stays
-/// disabled forever is worse than a build that failed.
-///
-/// Colour is off because the Log renders text, not terminal escapes.
-pub fn build(name: &str, release: bool, busy: Arc<AtomicBool>) {
-    let name = name.to_string();
-    std::thread::spawn(move || {
-        let mut cmd = std::process::Command::new("cargo");
-        cmd.args(["build", "--color=never", "--example", &name]);
-        if release {
-            cmd.arg("--release");
-        }
-        // Echo it exactly as run, so the log says what happened and the
-        // line can be pasted into a terminal to see it happen again.
-        println!("$ {}", show(&cmd));
-        match cmd.status() {
-            Ok(s) if s.success() => println!("built {}", binary(&name, release).display()),
-            Ok(s) => println!("build failed: cargo exited with {s}"),
-            Err(e) => println!("build failed: could not run cargo: {e}"),
-        }
-        busy.store(false, Ordering::SeqCst);
-    });
 }
 
 /// A command as it would be typed.
@@ -254,109 +250,64 @@ fn show(cmd: &std::process::Command) -> String {
     out
 }
 
-/// Launch a built example as its own process.
+/// Whether the hosted library is built *and* newer than the example.
 ///
-/// Not waited on: it owns a window and a run loop, and this one has its own
-/// frame to get back to.
-pub fn launch(
-    name: &str,
-    source: &str,
-    release: bool,
-    out: Option<std::process::Stdio>,
-    err: Option<std::process::Stdio>,
-) -> Result<(), String> {
-    let bin = binary(name, release);
-    if !bin.is_file() {
-        return Err(format!(
-            "{} is not built yet -- press build first",
-            bin.display()
-        ));
+/// "Built" is not enough on its own: loading a library older than the file
+/// shown in the panel would run code the panel is not displaying, which is a
+/// worse lie than an empty viewport. The wrapper is generic, so one library
+/// stands for whichever example was built last -- hence comparing against
+/// the file that is open rather than against a target name.
+pub fn is_current(release: bool, source: &str) -> bool {
+    let modified = |p: &std::path::Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
+    let Some(built) = modified(&dylib_path(release)) else {
+        return false;
+    };
+    match modified(std::path::Path::new(source)) {
+        Some(edited) => built >= edited,
+        None => true,
     }
-    println!("$ {}", bin.display());
-    let mut cmd = std::process::Command::new(&bin);
-    if let (Some(out), Some(err)) = (out, err) {
-        cmd.stdout(out).stderr(err);
-    }
-    cmd
-        // A launched example draws the editor around its own scene, so
-        // pressing Play gives the same window as a Python script does rather
-        // than a bare renderer. It is still a separate process with a window
-        // of its own -- it links kalast as a library and cannot be hosted --
-        // but it is not a different kind of thing to look at.
-        //
-        // An environment variable rather than an argument, because the
-        // example owns its own `main` and may take arguments of its own.
-        // Running the same binary from a terminal is unaffected.
-        .env("KALAST_EDITOR", "1")
-        // ...and which file it was built from, so its Script panel shows the
-        // source of what is running rather than an empty box.
-        .env("KALAST_SCRIPT", source)
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| format!("could not launch {}: {e}", bin.display()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Not every example can be loaded into the editor, and the difference is
-    /// whether a cdylib target was declared for it. Asking cargo for one that
-    /// was not is "no example target named ...", which explains nothing.
-    /// Either file of a loadable example resolves to the same cdylib, and
-    /// one that owns its loop resolves to none.
+    /// The wrapper is what makes an example need nothing written in it, so
+    /// what it generates is worth pinning: the example included by path, its
+    /// own `main` called, and the host installed around that call.
     #[test]
-    fn only_examples_with_a_cdylib_target_are_loadable() {
-        // The bin's path, and the cdylib's own -- both are reasonable things
-        // to open, and appending `_lib` blindly to the second would ask cargo
-        // for `crater_main_lib_lib`.
-        assert_eq!(
-            dylib_for("examples/crater_self_shadow/run.rs").as_deref(),
-            Some("crater_main_lib")
-        );
-        assert_eq!(
-            dylib_for("examples/crater_self_shadow/main.rs").as_deref(),
-            Some("crater_main_lib")
-        );
-        assert_eq!(
-            dylib_for("examples/crater_self_shadow/step.rs"),
-            None,
-            "the one that owns its loop is a program, not a scene"
-        );
-        assert_eq!(dylib_for("examples/nothing/here.rs"), None);
-    }
+    fn the_wrapper_calls_the_example_s_own_main() {
+        let dir = std::env::temp_dir().join("kalast-wrapper-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let example = dir.join("plain.rs");
+        // With the `//!` header every example here has: it must survive the
+        // copy as a plain comment, because inner docs are only legal first.
+        std::fs::write(&example, "//! A plain example.\nfn main() {}\n").unwrap();
 
-    /// `is_current` compares against the file that was *opened*, which for a
-    /// loadable example may be either of its two.
-    #[test]
-    fn currency_is_judged_against_the_opened_file() {
-        let target = dylib_for("examples/crater_self_shadow/run.rs").unwrap();
-        let built = dylib_path(&target, true);
-        if !built.is_file() {
-            return; // nothing built here; the other tests still hold
-        }
-        for f in [
-            "examples/crater_self_shadow/run.rs",
-            "examples/crater_self_shadow/main.rs",
-        ] {
-            assert!(
-                is_current(&target, true, f),
-                "{f} is older than {}, so the built library is current for it",
-                built.display()
-            );
-        }
-    }
+        // `write_wrapper` writes under `target/`, relative to the working
+        // directory, which for a test is the crate root.
+        write_wrapper(&example, ", features = [\"python\"]").unwrap();
 
-    #[test]
-    fn an_example_is_found_by_the_path_it_was_declared_with() {
-        assert_eq!(
-            example_for("examples/crater_self_shadow/run.rs").as_deref(),
-            Some("crater_main")
+        let lib = std::fs::read_to_string(wrapper_dir().join("src/lib.rs")).unwrap();
+        assert!(lib.contains("plain.rs"), "it says where it came from");
+        assert!(
+            !lib.contains("//! A plain example."),
+            "the inner doc header is rewritten; it is only legal first in a file"
         );
-        assert_eq!(
-            example_for("examples/crater_self_shadow/main.rs").as_deref(),
-            Some("crater_main_lib")
+        assert!(lib.contains("// A plain example."));
+        assert!(lib.contains("fn main() {}"), "the example is copied in whole");
+        assert!(lib.contains("main();"), "its own main is called");
+        assert!(lib.contains("set_host"), "with the host reachable from it");
+        assert!(lib.contains("kalast_abi"), "and the ABI check exported");
+
+        let manifest = std::fs::read_to_string(wrapper_dir().join("Cargo.toml")).unwrap();
+        assert!(
+            manifest.contains("features = [\"python\"]"),
+            "the host's features are passed on, or the layouts disagree"
         );
-        assert_eq!(example_for("examples/nothing/here.rs"), None);
+        assert!(manifest.contains("crate-type = [\"cdylib\"]"));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

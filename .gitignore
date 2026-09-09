@@ -24,3 +24,4 @@ local_paths.toml
 # Windows debug symbols emitted next to the built extension module by
 # `maturin develop` (MSVC only -- macOS/Linux builds produce nothing here).
 kalast/*.pdb
+target/kalast-hosted/

@@ -165,46 +165,48 @@ CPython on purpose -- that is what `pyo3` being an off-by-default feature buys
 -- so it spawns an interpreter rather than embedding one. `KALAST_PYTHON`
 names which, for a virtualenv that is not on `PATH`.
 
-**A `.rs` runs in the window you are looking at.** It is compiled to a
-dynamic library and loaded into the editor's own process, so Play builds the
-scene in front of you -- no second window, no restart, the same as a `.py`.
+**A `.rs` runs in the window you are looking at**, and nothing has to be
+written in it to make that true. An example keeps its `fn main`, its own
+`App::new()`, and its own loop if it has one; `cargo run --example` runs it
+from a terminal exactly as before.
 
-That needs two cargo targets, in **two files**: `main.rs` holds the scene and
-is the `crate-type = ["cdylib"]` target `<name>_lib`, and `run.rs` is six
-lines -- make an app, call `scene`, `start()` -- and is the bin for
-`cargo run --example`. One path in two targets is a cargo warning on every
-build, and the two genuinely differ: one makes an app, the other is handed
-one. Opening *either* file in the editor finds the same library. The example exposes `scene(&mut App)` and two `extern "C"` symbols:
+The editor compiles it into a dynamic library through a wrapper it generates
+under `target/kalast-hosted/`, loads that, and calls the example's `main`.
+Three things make the example *this* window rather than a second one:
 
-```rust
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kalast_example(app: *mut App) { scene(unsafe { &mut *app }) }
+- **The host drives the loop.** The guest is its own copy of the crate, with
+  its own copy of winit's state. `step()`, `start()`, `close()` and
+  `is_running()` detect that they are hosted and cross back to the host
+  through function pointers, so the loop is always turned by the code that
+  owns the window. A guest pumping the event loop from its own copy would be
+  a second winit talking to the same platform.
+- **The host adopts the guest's scene.** `App::new()` in the example builds a
+  real `App`; what matters of it is the simulation -- bodies, camera, config
+  -- and the callbacks. Those are handed over on the first call that needs a
+  frame, and the host renders them from then on. The `App` around them was
+  scaffolding: a window it never opened, an event loop it will never pump.
+- **Loading happens between frames.** An example's `main` may call `step()`,
+  and stepping from inside a frame re-enters the event loop -- which killed
+  the process the first time this ran. `editor_tick` picks the request up
+  after a frame ends, the same place a Python script runs.
 
-#[unsafe(no_mangle)]
-pub extern "C" fn kalast_abi() -> u64 { kalast::app::abi_fingerprint() }
-```
+The wrapper *copies* the example rather than including or moduling it, and
+both of those were tried: a module puts `fn main` out of reach, because an
+example's main is private and privacy does not reach outwards; and `include!`
+cannot carry a file whose header is `//!`, since inner attributes may not come
+from a macro expansion, and every example here starts with one. Copying costs
+a rewrite of those header lines and buys a file where `main` is an ordinary
+private function beside the exports.
 
-**The fingerprint is not ceremony.** Rust has no stable ABI, and this crate's
-`python` feature genuinely changes layout -- it adds a field to `Shared` and a
-variant to `Tick`. A dylib built without it, handed an `App` from a
-Python-hosted editor that has it, reads the wrong bytes and keeps going. The
-host checks the number before calling anything and refuses on a mismatch, and
-`compile` passes its own feature set to cargo so the two agree. Switching
-between `python -m kalast` and `cargo run --bin kalast` therefore means one
-recompile; the message says so.
-
-Two consequences worth knowing:
-
-- **A hosted example must not own a loop.** It configures the app and installs
-  `set_tick`/`set_after_render`, then returns -- the editor owns the loop, as
-  it does for `main.py`. A driven `while app.step():` example is a standalone
-  program: it has only a bin target, `cargo run --example` runs it, and the
-  editor says so rather than asking cargo for a library that was never
-  declared.
-- **The library outlives the call.** The callbacks it installed are function
-  pointers into its code, so the editor holds it until something replaces it,
-  and clears the callbacks *before* unloading. Reloading in the other order
-  unmaps the instructions the next frame calls.
+**The ABI fingerprint is not ceremony.** Rust has no stable ABI, and this
+crate's `python` feature genuinely changes layout -- it adds a field to
+`Shared` and a variant to `Tick`. A library built without it, handed an `App`
+from a Python-hosted editor that has it, reads the wrong bytes and keeps
+going. The host checks a number the guest exports before calling anything, and
+the build passes its own feature set to cargo so the two agree. Two
+consequences: switching between `python -m kalast` and `cargo run --bin
+kalast` costs one recompile, and **so does any change to the engine** -- the
+fingerprint moves with the size of those structs. The message says so.
 
 **A file named on the command line opens by running**, whichever door and
 whichever kind:
@@ -212,8 +214,8 @@ whichever kind:
 | named on the command line | what happens |
 |---|---|
 | `.py`, either door | built and rendered at iteration 0, then held |
-| `.rs`, dylib current | loaded and shown at iteration 0, then held |
-| `.rs`, dylib stale or missing | the editor stays, with the source and `compile` |
+| `.rs`, library current | loaded and run, in this window |
+| `.rs`, library stale or missing | the editor stays, with the source and `compile` |
 
 "Current" means the binary exists **and is newer than the source**. Built is
 not enough on its own: launching a binary older than the file in the panel

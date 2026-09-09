@@ -4,24 +4,15 @@
 //! cargo run --release --example crater_main     # on its own
 //! ```
 //!
-//! That command runs `run.rs` beside this file, which is six lines and calls
-//! `scene`. Two files rather than one, because two cargo targets over one
-//! path is a warning on every build -- and the bin and the cdylib genuinely
-//! differ: one makes an app, the other is handed one.
+//! ...and the same file, unchanged, runs *inside* the editor: open it there
+//! and press Play. Nothing here is written for that -- no entry point, no
+//! attributes, no second target. The editor compiles this file into a library
+//! through a wrapper it generates, loads it, and calls this `main`.
 //!
-//! ...and the same file loads straight into a running editor. Open it there
-//! and press Play: it is compiled to a dynamic library, loaded into the
-//! editor's own process, and `scene` is handed the app already on screen.
-//! No second window, no restart — the Rust answer to what `main.py` gets for
-//! free.
-//!
-//! That is why the work is in `scene(&mut App)` rather than in `main`: a
-//! hosted example is handed an app, it does not make one. `main` exists for
-//! the terminal and is three lines.
-//!
-//! Callbacks rather than a `while` loop, for the same reason `main.py` uses
-//! them: the editor owns the loop, and an example that owns one too has
-//! nothing to nest inside when it is loaded rather than launched.
+//! Callbacks rather than a `while` loop is a choice, not a requirement:
+//! `step.rs` beside this owns its loop and hosts just as well. This shape is
+//! here because it is what `main.py` does, and the two are meant to read
+//! alike.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -92,25 +83,8 @@ pub fn scene(app: &mut App) {
     });
 }
 
-/// Entry point for a running editor.
-///
-/// `extern "C"` and a raw pointer because this is called across a dynamic
-/// library boundary. The two sides are the same crate built by the same
-/// compiler in the same invocation, which is what makes passing an `App`
-/// between them sound.
-///
-/// # Safety
-///
-/// `app` must be a valid, exclusively-borrowed `App` for the call.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kalast_example(app: *mut App) {
-    scene(unsafe { &mut *app });
+fn main() {
+    let mut app = App::new();
+    scene(&mut app);
+    app.start();
 }
-
-/// What this example was built against, for the host to check before calling
-/// anything. See `kalast::app::abi_fingerprint`.
-#[unsafe(no_mangle)]
-pub extern "C" fn kalast_abi() -> u64 {
-    kalast::app::abi_fingerprint()
-}
-
