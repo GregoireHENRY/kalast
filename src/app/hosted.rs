@@ -52,7 +52,20 @@ pub struct HostApi {
         *const RefCell<crate::app::simulation::Simulation>,
         *const RefCell<crate::app::Shared>,
     ),
+    /// Whether another example has been asked for while this one runs.
+    ///
+    /// A driven example owns the flow until its loop ends, so Restart cannot
+    /// take effect by setting a flag the editor reads -- the editor does not
+    /// get a turn until the example gives one back. So `step` and
+    /// `is_running` report that the run is over, and the example's own
+    /// `while` ends the way it ends when the window closes.
+    ///
+    /// Python raises through its script instead, because a `while True:`
+    /// there has nothing to consult. A Rust loop reads one of these two.
+    pub superseded: extern "C" fn(*mut crate::app::App) -> bool,
 }
+
+
 
 thread_local! {
     /// Set in the guest's copy of the crate for the length of its `main`.
@@ -103,17 +116,24 @@ pub fn adopt(
 }
 
 /// Draw one frame in the host's window.
+///
+/// `false` once another example has been asked for, so that a loop written
+/// `while app.step()` ends there.
 pub fn step() -> Option<bool> {
-    with_host(|host| (host.step)(host.app))
+    with_host(|host| (host.step)(host.app) && !(host.superseded)(host.app))
 }
 
+/// `false` when the window has closed **or** another example has been asked
+/// for -- the two ways a hosted run is over, and `while app.is_running()`
+/// has to end on both.
 pub fn is_running() -> Option<bool> {
-    with_host(|host| (host.is_running)(host.app))
+    with_host(|host| (host.is_running)(host.app) && !(host.superseded)(host.app))
 }
 
 pub fn close() -> bool {
     with_host(|host| (host.close)(host.app)).is_some()
 }
+
 
 /// The host's side of `HostApi`: four plain functions over an `App` pointer.
 ///
@@ -140,6 +160,10 @@ pub mod host {
         unsafe { &mut *app }.close();
     }
 
+    pub extern "C" fn superseded(app: *mut crate::app::App) -> bool {
+        unsafe { &*app }.shared.borrow().load_requested.is_some()
+    }
+
     pub extern "C" fn adopt(
         app: *mut crate::app::App,
         simulation: *const RefCell<crate::app::simulation::Simulation>,
@@ -159,6 +183,7 @@ pub mod host {
             is_running,
             close,
             adopt,
+            superseded,
         }
     }
 }

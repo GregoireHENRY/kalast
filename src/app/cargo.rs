@@ -121,6 +121,7 @@ pub fn write_wrapper(example: &std::path::Path, features: &str) -> Result<(), St
              }}\n\n\
              /// Run the example's own `main`, with the host reachable from it.\n\
              ///\n\
+
              /// # Safety\n\
              ///\n\
              /// `host` must outlive the call.\n\
@@ -262,15 +263,71 @@ pub fn is_current(release: bool, source: &str) -> bool {
     let Some(built) = modified(&dylib_path(release)) else {
         return false;
     };
-    match modified(std::path::Path::new(source)) {
-        Some(edited) => built >= edited,
-        None => true,
+
+    if let Some(edited) = modified(std::path::Path::new(source)) {
+        if built < edited {
+            return false;
+        }
     }
+
+    // And against the engine, which is the half the fingerprint cannot always
+    // see: a `bool` added to `Shared` fit in existing padding, changed no size
+    // and no offset, and a library built before it loaded anyway -- running
+    // the *old* `hosted::step` against the new host. A timestamp does not
+    // care whether the change was visible.
+    !newest_engine_source().is_some_and(|engine| built < engine)
+}
+
+/// When the engine was last edited, over `src/` and the manifest.
+///
+/// A few hundred `stat`s, and only when the editor is deciding whether to
+/// rebuild -- not per frame.
+fn newest_engine_source() -> Option<std::time::SystemTime> {
+    fn walk(dir: &std::path::Path, newest: &mut Option<std::time::SystemTime>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, newest);
+            } else if let Ok(t) = entry.metadata().and_then(|m| m.modified()) {
+                if newest.is_none_or(|n| t > n) {
+                    *newest = Some(t);
+                }
+            }
+        }
+    }
+
+    let mut newest = None;
+    walk(std::path::Path::new("src"), &mut newest);
+    walk(std::path::Path::new("shaders"), &mut newest);
+    if let Ok(t) = std::fs::metadata("Cargo.toml").and_then(|m| m.modified()) {
+        if newest.is_none_or(|n| t > n) {
+            newest = Some(t);
+        }
+    }
+    newest
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The engine half of the staleness check has to actually see the
+    /// engine, or a library built before a change to `Shared` loads against
+    /// the host that changed it.
+    #[test]
+    fn the_engine_s_own_sources_count_as_newer() {
+        let newest = newest_engine_source().expect("src/ is walked");
+        let manifest = std::fs::metadata("Cargo.toml")
+            .and_then(|m| m.modified())
+            .expect("the manifest is there");
+        assert!(
+            newest >= manifest,
+            "the walk covers at least the files it is asked about"
+        );
+    }
 
     /// The wrapper is what makes an example need nothing written in it, so
     /// what it generates is worth pinning: the example included by path, its

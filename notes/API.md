@@ -191,6 +191,13 @@ Three things make the example *this* window rather than a second one:
   scene, not after the call that loaded it -- a driven example does not return
   until its loop ends, so anything set afterwards is set when the run is
   already over. Play resumes it and Restart loads it again.
+- **Restart interrupts a driven example** by reporting the run over.
+  `step()` and `is_running()` both return `false` once another load is
+  pending, so the example's own `while` ends the way it ends when the window
+  closes, and the flow comes back. Unwinding it with a panic was tried first
+  and is wrong twice over: a panic crossing `extern "C"` aborts, and the
+  sentinel's `TypeId` differs between the two copies of the crate, so the
+  host cannot even recognise its own payload.
 - **Loading happens between frames.** An example's `main` may call `step()`,
   and stepping from inside a frame re-enters the event loop -- which killed
   the process the first time this ran. `editor_tick` picks the request up
@@ -211,10 +218,17 @@ from a Python-hosted editor that has it, reads the wrong bytes and keeps
 going. The host checks a number the guest exports before calling anything, and
 the build passes its own feature set to cargo so the two agree.
 
-**A mismatch rebuilds itself.** Switching between `python -m kalast` and
-`cargo run --bin kalast` needs a different library, and so does any change to
-the engine; the editor compiles it and loads it, once, rather than asking for
-a button to be pressed.
+**A stale library rebuilds itself.** Switching between `python -m kalast` and
+`cargo run --bin kalast` needs a different one, and so does any change to the
+engine; the editor compiles it and loads it rather than asking for a button to
+be pressed.
+
+Staleness is a timestamp against the example **and against `src/`,
+`shaders/` and the manifest** -- not the fingerprint alone. The fingerprint
+cannot see every change that matters: a `bool` added to `Shared` fit in
+existing padding, changed no size and no offset, and a library built before it
+loaded happily, running the old `hosted::step` against the new host. A
+timestamp does not care whether the change was visible.
 
 The number covers sizes *and* the offsets of the fields reached across the
 boundary. Sizes alone proved too coarse -- a `bool` added to `Shared` fit in

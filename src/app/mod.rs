@@ -371,6 +371,7 @@ pub fn abi_fingerprint() -> u64 {
     std::mem::size_of::<Shared>().hash(&mut h);
     std::mem::size_of::<simulation::Simulation>().hash(&mut h);
     std::mem::size_of::<Tick>().hash(&mut h);
+    std::mem::size_of::<hosted::HostApi>().hash(&mut h);
     cfg!(feature = "python").hash(&mut h);
 
     // Sizes alone are too coarse: a `bool` added to `Shared` fit in existing
@@ -732,6 +733,8 @@ impl App {
         // there is one winit talking to the platform and not two.
         if hosted::hosted() {
             self.give_scene_to_host();
+            // `false` once another example has been asked for, so a driven
+            // example's own loop ends and hands the flow back.
             return hosted::step().unwrap_or(false);
         }
 
@@ -970,9 +973,11 @@ impl App {
             if build || launch || retry_build {
                 let path = editor.script_path.trim_end().to_string();
                 let busy = editor.building.clone();
-                // Either asked for, or asked for on our behalf by a load
-                // that found the library stale.
-                let retry = std::mem::take(&mut retry_build);
+                // A load of a library that is out of date would run code
+                // the panel is not showing -- and, worse, an old `hosted`
+                // against a new host. Build first and load when it lands.
+                let stale = launch && !crate::app::cargo::is_current(release, &path);
+                let retry = std::mem::take(&mut retry_build) || stale;
                 if build || retry {
                     busy.store(true, std::sync::atomic::Ordering::SeqCst);
                     crate::app::cargo::build_hosted(
@@ -982,7 +987,7 @@ impl App {
                     );
                     editor.load_after_build = retry;
                 }
-                if launch {
+                if launch && !stale {
                     load = Some(release);
                 }
             }
@@ -1174,20 +1179,12 @@ impl App {
             self.restart_script();
         }
 
-        // A Rust example is shown by loading it, which is what Play does --
-        // there is nothing else to render for one. Only when its library is
-        // already current: otherwise this stays open with the compile button,
-        // which is the next thing anyone would press.
-        //
-        // `dylib_for`, not `example_for`: the second gives whichever target
-        // was declared with that path, which for a loadable example is the
-        // bin on one file and the cdylib on the other. Asking about the bin
-        // looks for a library that was never built and quietly does nothing.
-        if let Some(path) = opened_rust {
-            let current = crate::app::cargo::is_current(true, &path);
-            if current {
-                self.shared.borrow_mut().launch_requested = true;
-            }
+        // A Rust example is shown by loading it -- there is nothing else to
+        // render for one -- and if its library is out of date, by compiling
+        // it first. Both are the load path's business; opening the file only
+        // says that running it is what was meant.
+        if opened_rust.is_some() {
+            self.shared.borrow_mut().launch_requested = true;
         }
     }
 
