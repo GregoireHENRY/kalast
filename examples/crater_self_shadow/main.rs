@@ -4,6 +4,11 @@
 //! cargo run --release --example crater_main     # on its own
 //! ```
 //!
+//! That command runs `run.rs` beside this file, which is six lines and calls
+//! `scene`. Two files rather than one, because two cargo targets over one
+//! path is a warning on every build -- and the bin and the cdylib genuinely
+//! differ: one makes an app, the other is handed one.
+//!
 //! ...and the same file loads straight into a running editor. Open it there
 //! and press Play: it is compiled to a dynamic library, loaded into the
 //! editor's own process, and `scene` is handed the app already on screen.
@@ -109,8 +114,3 @@ pub extern "C" fn kalast_abi() -> u64 {
     kalast::app::abi_fingerprint()
 }
 
-fn main() {
-    let mut app = App::new();
-    scene(&mut app);
-    app.start();
-}

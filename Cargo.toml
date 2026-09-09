@@ -108,14 +108,14 @@ objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponde
 name = "crater_step"
 path = "examples/crater_self_shadow/step.rs"
 
-# Two targets over one file, on purpose. The bin is `cargo run --example
-# crater_main` from a terminal; the cdylib is what the editor loads into
-# itself, so that pressing Play on a `.rs` shows the scene in the window you
-# are already looking at. The editor derives the second name from the first by
-# appending `_lib`.
+# A loadable example is two targets: the cdylib the editor loads into itself,
+# so that Play shows the scene in the window you are already looking at, and a
+# bin for `cargo run --example`. Separate files, because one path in two
+# targets warns on every build. The editor derives the cdylib's name from the
+# bin's by appending `_lib`.
 [[example]]
 name = "crater_main"
-path = "examples/crater_self_shadow/main.rs"
+path = "examples/crater_self_shadow/run.rs"
 
 [[example]]
 name = "crater_main_lib"

@@ -63,13 +63,44 @@ pub fn dylib_target(name: &str) -> String {
     format!("{name}_lib")
 }
 
+/// Whether a target of this name is declared.
+pub fn has_target(name: &str) -> bool {
+    let Ok(manifest) = std::fs::read_to_string("Cargo.toml") else {
+        return false;
+    };
+    manifest
+        .lines()
+        .filter_map(|l| field(l.trim(), "name"))
+        .any(|n| n == name)
+}
+
+/// The cdylib target the editor can load for this file, if there is one.
+///
+/// Two ways to arrive: the file *is* the cdylib's path, in which case that
+/// target is the answer already, or it is the bin's and the cdylib is the
+/// same name with `_lib`. Both, because either file of a loadable example is
+/// a reasonable thing to open -- and appending `_lib` to a name that already
+/// ends in it asks cargo for `crater_main_lib_lib`.
+///
+/// `None` means the example is not loadable: one that owns its loop --
+/// `while app.is_running()` -- is a program, not a scene handed an app, and
+/// has only a bin target.
+pub fn dylib_for(path: &str) -> Option<String> {
+    let name = example_for(path)?;
+    if name.ends_with("_lib") && has_target(&name) {
+        return Some(name);
+    }
+    let candidate = dylib_target(&name);
+    has_target(&candidate).then_some(candidate)
+}
+
 /// Where cargo puts that cdylib, with the platform's prefix and suffix.
-pub fn dylib_path(name: &str, release: bool) -> std::path::PathBuf {
+pub fn dylib_path(target: &str, release: bool) -> std::path::PathBuf {
     let profile = if release { "release" } else { "debug" };
     let file = format!(
         "{}{}{}",
         std::env::consts::DLL_PREFIX,
-        dylib_target(name),
+        target,
         std::env::consts::DLL_SUFFIX
     );
     std::path::Path::new("target")
@@ -84,8 +115,8 @@ pub fn dylib_path(name: &str, release: bool) -> std::path::PathBuf {
 /// `Tick`, so a guest built without it and handed an `App` from a host with
 /// it reads the wrong bytes. The host is the only thing that knows which it
 /// is, so it says so on the command line.
-pub fn build_dylib(name: &str, release: bool, busy: Arc<AtomicBool>) {
-    let target = dylib_target(name);
+pub fn build_dylib(target: &str, release: bool, busy: Arc<AtomicBool>) {
+    let target = target.to_string();
     std::thread::spawn(move || {
         let mut cmd = std::process::Command::new("cargo");
         cmd.args(["build", "--color=never", "--example", &target]);
@@ -117,11 +148,11 @@ pub fn build_dylib(name: &str, release: bool, busy: Arc<AtomicBool>) {
 /// pointer to the live `App`. The fingerprint check below is what makes that
 /// defensible; see `kalast::app::abi_fingerprint`.
 pub fn load_example(
-    name: &str,
+    target: &str,
     release: bool,
     app: &mut crate::app::App,
 ) -> Result<libloading::Library, String> {
-    let path = dylib_path(name, release);
+    let path = dylib_path(target, release);
     if !path.is_file() {
         return Err(format!(
             "{} is not built yet -- press compile first",
@@ -263,4 +294,69 @@ pub fn launch(
         .spawn()
         .map(|_| ())
         .map_err(|e| format!("could not launch {}: {e}", bin.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Not every example can be loaded into the editor, and the difference is
+    /// whether a cdylib target was declared for it. Asking cargo for one that
+    /// was not is "no example target named ...", which explains nothing.
+    /// Either file of a loadable example resolves to the same cdylib, and
+    /// one that owns its loop resolves to none.
+    #[test]
+    fn only_examples_with_a_cdylib_target_are_loadable() {
+        // The bin's path, and the cdylib's own -- both are reasonable things
+        // to open, and appending `_lib` blindly to the second would ask cargo
+        // for `crater_main_lib_lib`.
+        assert_eq!(
+            dylib_for("examples/crater_self_shadow/run.rs").as_deref(),
+            Some("crater_main_lib")
+        );
+        assert_eq!(
+            dylib_for("examples/crater_self_shadow/main.rs").as_deref(),
+            Some("crater_main_lib")
+        );
+        assert_eq!(
+            dylib_for("examples/crater_self_shadow/step.rs"),
+            None,
+            "the one that owns its loop is a program, not a scene"
+        );
+        assert_eq!(dylib_for("examples/nothing/here.rs"), None);
+    }
+
+    /// `is_current` compares against the file that was *opened*, which for a
+    /// loadable example may be either of its two.
+    #[test]
+    fn currency_is_judged_against_the_opened_file() {
+        let target = dylib_for("examples/crater_self_shadow/run.rs").unwrap();
+        let built = dylib_path(&target, true);
+        if !built.is_file() {
+            return; // nothing built here; the other tests still hold
+        }
+        for f in [
+            "examples/crater_self_shadow/run.rs",
+            "examples/crater_self_shadow/main.rs",
+        ] {
+            assert!(
+                is_current(&target, true, f),
+                "{f} is older than {}, so the built library is current for it",
+                built.display()
+            );
+        }
+    }
+
+    #[test]
+    fn an_example_is_found_by_the_path_it_was_declared_with() {
+        assert_eq!(
+            example_for("examples/crater_self_shadow/run.rs").as_deref(),
+            Some("crater_main")
+        );
+        assert_eq!(
+            example_for("examples/crater_self_shadow/main.rs").as_deref(),
+            Some("crater_main_lib")
+        );
+        assert_eq!(example_for("examples/nothing/here.rs"), None);
+    }
 }

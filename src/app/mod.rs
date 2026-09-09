@@ -865,14 +865,23 @@ impl App {
             self.shared.borrow_mut().script_ran = false;
         }
 
-        let asked_launch = std::mem::take(&mut self.shared.borrow_mut().launch_requested);
+        // Nothing is taken until there is an editor to act on it. These are
+        // set before the first frame -- `editor_start` raises them from the
+        // command line -- and the editor is built when the window opens, one
+        // or more frames later. Taking them first threw them away on whatever
+        // frames came in between, silently: a `.rs` named on the command line
+        // loaded on one run and not the next, depending on that timing.
+        if self.editor.is_none() {
+            return;
+        }
 
-        let (asked, asked_restart, asked_open) = {
+        let (asked, asked_restart, asked_open, asked_launch) = {
             let mut s = self.shared.borrow_mut();
             (
                 std::mem::take(&mut s.run_requested),
                 std::mem::take(&mut s.restart_requested),
                 std::mem::take(&mut s.open_requested),
+                std::mem::take(&mut s.launch_requested),
             )
         };
         let asked = asked | asked_restart;
@@ -907,22 +916,31 @@ impl App {
             if build || launch {
                 let path = editor.script_path.trim_end().to_string();
                 let busy = editor.building.clone();
-                match crate::app::cargo::example_for(&path) {
-                    Some(name) => {
+                match crate::app::cargo::dylib_for(&path) {
+                    Some(target) => {
                         if build {
                             busy.store(true, std::sync::atomic::Ordering::SeqCst);
-                            crate::app::cargo::build_dylib(&name, release, busy.clone());
+                            crate::app::cargo::build_dylib(&target, release, busy.clone());
                         }
                         if launch {
-                            // The example writes to the terminal, not to this
-                            // process's log pipe: the editor is about to go,
-                            // and a child holding the write end of a pipe
-                            // nobody reads takes a SIGPIPE on its next line.
-                            let (out, err) = match self.stdio.as_ref() {
-                                Some(c) => (c.terminal(), c.terminal()),
-                                None => (None, None),
-                            };
-                            load = Some((name.clone(), release));
+                            load = Some((target, release));
+                        }
+                    }
+                    // Declared, but only as a program: it owns its loop, so
+                    // there is no scene to hand this window.
+                    None if crate::app::cargo::example_for(&path).is_some() => {
+                        if build || launch {
+                            let name =
+                                crate::app::cargo::example_for(&path).unwrap_or_default();
+                            rust_messages.push(format!(
+                                "{path} is a standalone example: it owns its loop, so there \
+                                 is nothing to load into this window.\n  \
+                                 run it with `cargo run --release --example {name}` -- or \
+                                 give it a `scene(&mut App)` and a second target \
+                                 `[[example]] {}` with crate-type = [\"cdylib\"], the way \
+                                 crater_main is arranged.",
+                                crate::app::cargo::dylib_target(&name)
+                            ));
                         }
                     }
                     // Naming it is the only way to know what to build: cargo
@@ -1122,14 +1140,18 @@ impl App {
             self.restart_script();
         }
 
-        // A Rust example cannot be shown that way -- its scene lives in a
-        // program this one is not -- so "show it" means launch it, and the
-        // window hands over as it does for Play. Only when the binary is
+        // A Rust example is shown by loading it, which is what Play does --
+        // there is nothing else to render for one. Only when its library is
         // already current: otherwise this stays open with the compile button,
         // which is the next thing anyone would press.
+        //
+        // `dylib_for`, not `example_for`: the second gives whichever target
+        // was declared with that path, which for a loadable example is the
+        // bin on one file and the cdylib on the other. Asking about the bin
+        // looks for a library that was never built and quietly does nothing.
         if let Some(path) = opened_rust {
-            let current = crate::app::cargo::example_for(&path)
-                .is_some_and(|name| crate::app::cargo::is_current(&name, true, &path));
+            let current = crate::app::cargo::dylib_for(&path)
+                .is_some_and(|target| crate::app::cargo::is_current(&target, true, &path));
             if current {
                 self.shared.borrow_mut().launch_requested = true;
             }

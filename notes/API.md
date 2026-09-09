@@ -169,9 +169,12 @@ names which, for a virtualenv that is not on `PATH`.
 dynamic library and loaded into the editor's own process, so Play builds the
 scene in front of you -- no second window, no restart, the same as a `.py`.
 
-That needs two cargo targets over one file: the bin for `cargo run --example`,
-and a `crate-type = ["cdylib"]` target named `<name>_lib` that the editor
-loads. The example exposes `scene(&mut App)` and two `extern "C"` symbols:
+That needs two cargo targets, in **two files**: `main.rs` holds the scene and
+is the `crate-type = ["cdylib"]` target `<name>_lib`, and `run.rs` is six
+lines -- make an app, call `scene`, `start()` -- and is the bin for
+`cargo run --example`. One path in two targets is a cargo warning on every
+build, and the two genuinely differ: one makes an app, the other is handed
+one. Opening *either* file in the editor finds the same library. The example exposes `scene(&mut App)` and two `extern "C"` symbols:
 
 ```rust
 #[unsafe(no_mangle)]
@@ -195,7 +198,9 @@ Two consequences worth knowing:
 - **A hosted example must not own a loop.** It configures the app and installs
   `set_tick`/`set_after_render`, then returns -- the editor owns the loop, as
   it does for `main.py`. A driven `while app.step():` example is a standalone
-  program: `cargo run --example` runs it, the editor does not load it.
+  program: it has only a bin target, `cargo run --example` runs it, and the
+  editor says so rather than asking cargo for a library that was never
+  declared.
 - **The library outlives the call.** The callbacks it installed are function
   pointers into its code, so the editor holds it until something replaces it,
   and clears the callbacks *before* unloading. Reloading in the other order
