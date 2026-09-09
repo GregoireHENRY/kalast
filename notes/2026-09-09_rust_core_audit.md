@@ -42,7 +42,23 @@ GPU path" differ in where they run and not in what they are written in.
 weekend: `heating.py` alone carries the view-factor radiosity with a sparse
 matvec per bounce, and `scipy.sparse` has no drop-in equivalent.
 
-## 2. The engine cannot be built without Python
+## 2. The engine cannot be built without Python — FIXED
+
+Fixed in `0e77033`. `python` is a cargo feature now, off by default and turned
+on by maturin. `cargo run --bin kalast` opens the editor with Python removed
+from PATH entirely, and `cargo test --lib` runs without any PATH juggling.
+
+Two pyo3 details decided the shape, and are worth knowing before touching it
+again: `#[pyfunction]` and `#[pymethods]` had to become `cfg_attr` rather than
+`cfg`, because the engine calls several of those functions itself and gating
+the *item* deleted them. Field attributes cannot be done that way at all --
+`#[pyclass]` expands before the `#[pyo3(get, set)]` on its own fields, so a
+`cfg_attr` there is still unexpanded when the class macro reads it. That is
+why `src/routines/` is gated as a whole module rather than field by field.
+
+The original finding follows.
+
+### Original finding
 
 `pyo3` is an unconditional dependency, and the bindings are not confined to
 `src/py/`. Eight core modules carry `#[pyclass]`/`#[pymethods]`:
@@ -85,6 +101,7 @@ lies.
 
 ## What was fixed
 
+Both of the entry-point problems. The bindings are a feature (2, above), and
 `App::run_editor` is now the engine's, and both `python -m kalast` and
 `cargo run --bin kalast` call it. `__main__.py` is 46 lines: create the app,
 wire capture, hand over the interpreter callback. The seam is `run_script`,
