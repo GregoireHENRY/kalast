@@ -87,6 +87,22 @@ class App:
         this leaves the simulation paused.
         """
         ...
+    def run_editor(self, args: list[str], run_script: object) -> None:
+        """Open the editor and run its loop until the window closes.
+
+        The loop is `App::run_editor` in the engine -- the same one the
+        `kalast` binary runs. This is a binding onto it, not a second
+        implementation.
+
+        `args` are taken as typed on the command line: `.py` and `.rs` open in
+        the script panel, `.obj` loads as a mesh.
+
+        `run_script(app, source, path)` is called whenever Play or Restart
+        asks for a script, and is the one piece Rust cannot do for itself --
+        executing Python needs CPython. Everything else about the loop is in
+        the engine.
+        """
+        ...
     def take_script_request(self) -> tuple[str, str, bool] | None:
         """Take a script the editor's Play button has asked to run, if any.
 

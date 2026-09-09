@@ -987,6 +987,98 @@ impl App {
         }
     }
 
+    /// Ask for the scene to be rebuilt from the script and stopped at the
+    /// start, as the Restart button does.
+    pub fn restart_script(&mut self) {
+        self.shared.borrow_mut().restart_requested = true;
+    }
+
+    /// The editor's run loop: open it, act on the arguments, and keep it
+    /// going until the window closes.
+    ///
+    /// This is the whole of what `python -m kalast` used to do in Python. It
+    /// lives here because the engine is Rust and Python is a binding -- an
+    /// editor that could only be opened from Python was a feature the core
+    /// did not have. See "Rust core, Python wrapper" in `CLAUDE.md`.
+    ///
+    /// `run_script` is the one part that cannot be: executing a `.py` file
+    /// needs CPython. So Rust owns the loop and calls out for the
+    /// interpreter, rather than an interpreter owning a loop Rust cannot
+    /// enter. Callers with no Python -- the `kalast` binary -- pass a closure
+    /// that says so; `.rs` and `.obj` arguments work either way, since a Rust
+    /// example is built and launched through cargo rather than run in-process.
+    ///
+    /// Arguments are taken as they are typed: `.py` and `.rs` open in the
+    /// script panel, `.obj` loads as a mesh, anything else is reported rather
+    /// than guessed at -- passing a `.rs` to the OBJ parser used to produce no
+    /// vertices and then take the process down inside wgpu.
+    pub fn run_editor<F>(&mut self, args: &[String], mut run_script: F)
+    where
+        F: FnMut(&mut Self, &str, &str),
+    {
+        self.config.borrow_mut().editor = true;
+        self.sim_config().borrow_mut().title = "kalast".to_string();
+
+        let mut opened_python = false;
+        for arg in args {
+            if arg.starts_with('-') {
+                continue;
+            }
+            let path = std::path::Path::new(arg);
+            match path.extension().and_then(|e| e.to_str()) {
+                Some(ext @ ("py" | "rs")) => match std::fs::read_to_string(path) {
+                    Ok(source) => {
+                        self.set_script(arg.clone(), source);
+                        opened_python |= ext == "py";
+                    }
+                    Err(e) => eprintln!("cannot read {arg}: {e}"),
+                },
+                Some("obj") => {
+                    self.simulation
+                        .borrow_mut()
+                        .load_mesh(path, crate::Mat4::IDENTITY, true);
+                }
+                _ => eprintln!("don't know what to do with {arg}: expected .py, .rs or .obj"),
+            }
+        }
+
+        // Held, always: nothing here owns a simulation worth advancing until a
+        // script has built one, and a counter climbing over an empty scene
+        // gives you nothing to press and no way back to the start.
+        self.simulation.borrow_mut().state.is_paused = true;
+
+        // A script named on the command line is *shown*: built and rendered at
+        // iteration 0, then held. Opening a file and getting a black viewport
+        // until you find Play is no way to open a file. Only Python, because a
+        // Rust example has to be compiled before there is anything to show.
+        if opened_python {
+            self.restart_script();
+        }
+
+        while self.step() {
+            let Some((path, source, paused)) = self.take_script_request() else {
+                continue;
+            };
+            // `load_mesh` appends, so a run without this stacks the scene: two
+            // craters, and Restart looking like it did nothing.
+            self.simulation.borrow_mut().reset();
+            // Play rebuilds and runs. Restart rebuilds and runs *one*
+            // iteration, then stops -- not "does not run at all", which leaves
+            // a black viewport. One iteration means the callbacks fire once,
+            // so a script that places its bodies per iteration shows them
+            // where iteration 0 puts them rather than at the origin.
+            if paused {
+                self.simulation.borrow_mut().state.pause_at = Some(1);
+            }
+            self.simulation.borrow_mut().state.is_paused = false;
+            self.shared.borrow_mut().script_ran = true;
+            // Between frames, so a script that drives its own loop nests here
+            // rather than inside the frame, and runs to completion before this
+            // loop resumes.
+            run_script(self, &path, &source);
+        }
+    }
+
     /// Take a script the UI has asked to run, if there is one.
     ///
     /// Call it between frames -- `while app.step(): ...` -- and execute what
