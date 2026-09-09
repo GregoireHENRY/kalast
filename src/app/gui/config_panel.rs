@@ -256,6 +256,27 @@ pub fn config_panel(ui: &mut egui::Ui, c: &mut Config, a: &mut AppConfig) {
         ui.checkbox(&mut c.fullscreen, "fullscreen").on_hover_text("Open the window in native fullscreen (borderless, current monitor).");
         ui.add(egui::Slider::new(&mut c.extra, 0..=10).text("extra")).on_hover_text("Free integer passed through to the shader, for one-off experiments.");
         ui.checkbox(&mut c.vsync, "vsync").on_hover_text("Cap the frame rate to the display refresh.");
+        ui.checkbox(&mut c.grid, "grid").on_hover_text("Shade the `\"blender\"` style's ground grid instead of drawing it as line segments. On by default; `False` restores the segments.");
+        ui.add(egui::Slider::new(&mut c.grid_width, 0.25..=8.0).text("grid_width")).on_hover_text("Width of a grid line, in pixels.");
+        ui.add(egui::Slider::new(&mut c.grid_major, 2..=100).text("grid_major")).on_hover_text("Cells between thick lines, and the factor between the levels the crossfade steps through -- the same number seen from two sides.");
+        ui.horizontal(|ui| {
+            ui.label("grid_color").on_hover_text("Colour of the ordinary lines, `(r, g, b, a)`.");
+            ui.color_edit_button_rgba_unmultiplied(&mut c.grid_color);
+        });
+        ui.horizontal(|ui| {
+            ui.label("grid_major_color").on_hover_text("Colour of every `grid_major`-th line.");
+            ui.color_edit_button_rgba_unmultiplied(&mut c.grid_major_color);
+        });
+        ui.horizontal(|ui| {
+            ui.label("grid_axis_x_color").on_hover_text("The X and Y axis lines, drawn over the grid so the origin reads without hunting for it.");
+            ui.color_edit_button_rgba_unmultiplied(&mut c.grid_axis_x_color);
+        });
+        ui.horizontal(|ui| {
+            ui.label("grid_axis_y_color").on_hover_text("");
+            ui.color_edit_button_rgba_unmultiplied(&mut c.grid_axis_y_color);
+        });
+        ui.add(egui::Slider::new(&mut c.grid_fade_near, 0.0..=1.0).text("grid_fade_near")).on_hover_text("Fade the grid out between these grazing factors: `0.0` is looking straight down at the ground plane and `1.0` is looking along it. Without it the horizon is a hard line of aliasing.");
+        ui.add(egui::Slider::new(&mut c.grid_fade_far, 0.0..=1.0).text("grid_fade_far"));
     });
     ui.collapsing("Debug", |ui| {
         ui.checkbox(&mut c.debug_app, "debug_app").on_hover_text("Print app lifecycle events: pause and camera-mode changes.");

@@ -190,6 +190,7 @@ impl Pass {
         depth_view: &wgpu::TextureView,
         light: &super::light_cube::Pass,
         axes: &super::axes::Pass,
+        grid: &super::grid::Pass,
         colorbar: &super::colorbar::Pass,
         meshes: &[gpu::MeshBuffer],
         bindings: &super::Bindings,
@@ -262,6 +263,13 @@ impl Pass {
         // makes the main pass agree.
         if config.debug_light_cube_show {
             light.render(&mut render_pass, &meshes[0], bindings);
+        }
+
+        // Ground first, then the annotation that stands on it. Both are
+        // tested against the bodies and neither writes depth, so the order
+        // between them is only about which is drawn over which.
+        if config.axes == crate::app::axes::AxesStyle::Blender && config.grid {
+            grid.render(&mut render_pass);
         }
 
         // After the bodies and, like the light cube, without writing depth:

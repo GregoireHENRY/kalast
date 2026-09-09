@@ -446,11 +446,29 @@ class Config:
     """Outline drawn around the strip, so it reads as a scale rather than as
     part of the scene when it sits over a dark body.
     """
-    axes: str
+    grid: bool
     """Reference axes: `"off"`, `"box"` (MATLAB), `"panes"` (matplotlib),
     `"gizmo"` (three labelled arrows at the origin) or `"blender"`
-    (ground grid, Z line and gizmo).
+    Shade the `"blender"` grid instead of drawing it as line segments.
     """
+    grid_width: float
+    """Width of a grid line, pixels."""
+    grid_major: int
+    """Cells between thick lines."""
+    grid_color: list[float]
+    """Ordinary grid line colour, `(r, g, b, a)`."""
+    grid_major_color: list[float]
+    """Thick line colour."""
+    grid_axis_x_color: list[float]
+    """The X axis line drawn over the grid."""
+    grid_axis_y_color: list[float]
+    """The Y axis line drawn over the grid."""
+    grid_fade_near: float
+    """Where the fade to nothing begins, as a fraction of the far plane."""
+    grid_fade_far: float
+    """Where it reaches nothing."""
+    axes: str
+    """(ground grid, Z line and gizmo)."""
     axes_color: list[float]
     """Colour of the axis lines and grid, `(r, g, b)`."""
     axes_ticks: int

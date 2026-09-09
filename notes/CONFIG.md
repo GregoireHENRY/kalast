@@ -1173,7 +1173,7 @@ Draw a measured frame around the scene, in one of four styles.
 | `box` | closed box, ticked on the near edges — MATLAB's `box on`; every edge is a ruler |
 | `panes` | the three far panes, gridded, ticks on their outer edges — matplotlib's `Axes3D`; reads as a room the body sits in, so the grid gives depth cues a bare box does not |
 | `gizmo` | three labelled arrows at the origin and nothing else — for fly-throughs, where a box would occlude the subject every time the camera swings |
-| `blender` | ground grid on XY with the Z axis picked out, as Blender's viewport |
+| `blender` | ground grid on XY with the Z axis picked out, as Blender's viewport. The grid is infinite and shaded per pixel unless `grid` is `False` |
 
 Accepted: those names; anything else raises `ValueError` listing them.
 
@@ -1194,6 +1194,57 @@ a wrong unit here mislabels a figure silently.
 ### `axes_label_color: list[float]` *(live)*
 Line and grid colour `(r, g, b)`, tick label size in pixels, and label colour
 `(r, g, b, a)`.
+
+### `grid: bool` — default `True` *(live)*
+Shade the `"blender"` style's ground plane per pixel instead of drawing it as
+line segments. Only that style has a ground plane, so this does nothing under
+the other four.
+
+`False` restores the segments, which are still what `axes_ticks` labels. The
+segments stop at the scene bounds, sit at one spacing whatever the zoom, and
+are one pixel wide because WebGPU has no line width. The shaded grid has no
+edge, crossfades between levels as you zoom — one grid serves a unit cube and
+a body 1e4 km away — and antialiases itself.
+
+Two things it does that a plane of geometry would not, both needed to make it
+behave:
+
+- **Its depth is clamped, not clipped.** The near and far planes are fitted
+  to the bodies, so at 40 units out the frustum is a slab a couple of units
+  deep; clipping the plane to it left a narrow band across the screen with
+  black above and below. Past the far plane the grid pins to the farthest
+  depth, so every body still occludes it; nearer than the near plane it pins
+  to the nearest, so it occludes them.
+- **It fades on obliquity, not distance.** What bounds an infinite plane on
+  screen is the horizon, not the far plane, so a distance fade never reaches
+  its ramp — measured in world units and again as a fraction of the far
+  plane, both did nothing at all.
+
+### `grid_width: float` — default `1.0` *(live)*
+Line width in pixels. Held constant on screen however far away, and however
+oblique, the ground is; a line that would come out under a pixel dims rather
+than flickering, and one that would come out wider than half a cell is capped
+so a grazing view greys out instead of filling in solid.
+
+### `grid_major: int` — default `10` *(live)*
+Cells per brighter line, and the factor between the levels the crossfade
+steps through — the same number seen from two sides. Three levels are drawn
+at once, weighted so the stack is continuous as it shifts: the finest fades
+out, the middle is always solid, the coarsest fades in.
+
+### `grid_color: list[float]` *(live)*
+### `grid_major_color: list[float]` *(live)*
+### `grid_axis_x_color: list[float]` *(live)*
+### `grid_axis_y_color: list[float]` *(live)*
+Ordinary line, every `grid_major`-th line, and the two axes through the
+origin, each `(r, g, b, a)`. The alpha is the line's own opacity, so it also
+sets how strongly a line reads against the background.
+
+### `grid_fade_near: float` — default `0.5` *(live)*
+### `grid_fade_far: float` — default `1.0` *(live)*
+Fade the grid out between these grazing factors: `0.0` is looking straight
+down at the ground plane and `1.0` is looking along it. Without the fade the
+horizon is a hard line of aliasing.
 
 ---
 

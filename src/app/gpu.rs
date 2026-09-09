@@ -33,6 +33,23 @@ pub const SHADER_COLORBAR: wgpu::ShaderModuleDescriptor =
 pub const SHADER_AXES: wgpu::ShaderModuleDescriptor =
     wgpu::include_wgsl!("../../shaders/axes.wgsl");
 
+/// A `Mat4` as the column-major `[[f32; 4]; 4]` a uniform wants.
+///
+/// `Float` may be `f64`, and a uniform never is.
+pub fn to_cols_f32(m: crate::Mat4) -> [[f32; 4]; 4] {
+    let c = m.to_cols_array_2d();
+    let mut out = [[0.0f32; 4]; 4];
+    for i in 0..4 {
+        for j in 0..4 {
+            out[i][j] = c[i][j] as f32;
+        }
+    }
+    out
+}
+
+pub const SHADER_GRID: wgpu::ShaderModuleDescriptor =
+    wgpu::include_wgsl!("../../shaders/grid.wgsl");
+
 pub const SHADER_LIGHT_RENDER: wgpu::ShaderModuleDescriptor =
     wgpu::include_wgsl!("../../shaders/light_render.wgsl");
 
@@ -92,7 +109,81 @@ pub struct RenderPipeline {
 }
 
 impl RenderPipeline {
+    /// Opaque: the fragment colour replaces what is there.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        cull_mode: Option<wgpu::Face>,
+        shader: wgpu::ShaderModuleDescriptor,
+        bind_group_layouts: &[Option<&wgpu::BindGroupLayout>],
+        depth_stencil: bool,
+        fragment: bool,
+        samples: u32,
+        depth_write: bool,
+        depth_compare: wgpu::CompareFunction,
+        topology: wgpu::PrimitiveTopology,
+        buffers: &[Option<wgpu::VertexBufferLayout>],
+    ) -> Self {
+        Self::build(
+            device,
+            format,
+            cull_mode,
+            shader,
+            bind_group_layouts,
+            depth_stencil,
+            fragment,
+            samples,
+            depth_write,
+            depth_compare,
+            topology,
+            buffers,
+            wgpu::BlendState::REPLACE,
+        )
+    }
+
+    /// Straight alpha over what is there.
+    ///
+    /// Only for a pass whose fragments are genuinely partly transparent --
+    /// the ground grid, whose antialiasing *is* its alpha. Everything else
+    /// here is opaque, and the shared constructor hardcoded `REPLACE` for
+    /// long enough that the grid's alpha was silently thrown away: its lines
+    /// came out flat, and where coverage saturated near the horizon the plane
+    /// filled in solid instead of fading.
+    #[allow(clippy::too_many_arguments)]
+    pub fn blended(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        cull_mode: Option<wgpu::Face>,
+        shader: wgpu::ShaderModuleDescriptor,
+        bind_group_layouts: &[Option<&wgpu::BindGroupLayout>],
+        depth_stencil: bool,
+        fragment: bool,
+        samples: u32,
+        depth_write: bool,
+        depth_compare: wgpu::CompareFunction,
+        topology: wgpu::PrimitiveTopology,
+        buffers: &[Option<wgpu::VertexBufferLayout>],
+    ) -> Self {
+        Self::build(
+            device,
+            format,
+            cull_mode,
+            shader,
+            bind_group_layouts,
+            depth_stencil,
+            fragment,
+            samples,
+            depth_write,
+            depth_compare,
+            topology,
+            buffers,
+            wgpu::BlendState::ALPHA_BLENDING,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn build(
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
         cull_mode: Option<wgpu::Face>,
@@ -117,6 +208,7 @@ impl RenderPipeline {
         // no normals or instancing -- so this cannot be the mesh layout for
         // every pipeline.
         buffers: &[Option<wgpu::VertexBufferLayout>],
+        blend: wgpu::BlendState,
     ) -> Self {
         // wireframe: bool,
 
@@ -151,7 +243,7 @@ impl RenderPipeline {
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
-                    blend: Some(wgpu::BlendState::REPLACE),
+                    blend: Some(blend),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
                 compilation_options: Default::default(),

@@ -1679,6 +1679,36 @@ impl Window {
                 .axes
                 .upload(&self.device, &self.queue, &built.lines);
             self.axes_labels = built.labels;
+
+            // The shaded grid needs the camera rather than the geometry: it
+            // reconstructs a ray per pixel, so it wants the inverse of the
+            // same matrix the bodies were drawn with, and the forward one to
+            // give its intersection a depth they can occlude.
+            if config.axes == super::axes::AxesStyle::Blender && config.grid {
+                let vp = self.uniforms.view.uniform.camera.view_proj;
+                self.passes.grid.upload(
+                    &self.queue,
+                    super::pass::grid::Uniform {
+                        inv_view_proj: super::gpu::to_cols_f32(vp.inverse()),
+                        view_proj: super::gpu::to_cols_f32(vp),
+                        thin: config.grid_color,
+                        thick: config.grid_major_color,
+                        axis_x: config.grid_axis_x_color,
+                        axis_y: config.grid_axis_y_color,
+                        // The finest level the crossfade starts from. Tied
+                        // to the tick step so the grid and the axis labels
+                        // agree about what a cell is.
+                        spacing: built.step.max(1e-12) as f32,
+                        width: config.grid_width,
+                        major: config.grid_major as f32,
+                        // Fractions of the way to the far plane, used as
+                        // such: the shader has no need of the scene's scale.
+                        fade_near: config.grid_fade_near,
+                        fade_far: config.grid_fade_far,
+                        _pad: [0.0; 3],
+                    },
+                );
+            }
         } else {
             self.axes_labels.clear();
         }

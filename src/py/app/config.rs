@@ -1009,6 +1009,105 @@ impl Config {
 
     /// Reference axes: `"off"`, `"box"` (MATLAB), `"panes"` (matplotlib),
     /// `"gizmo"` (three labelled arrows at the origin) or `"blender"`
+    /// Shade the `"blender"` grid instead of drawing it as line segments.
+    #[getter]
+    fn grid(&self) -> bool {
+        self.config.borrow().grid
+    }
+
+    #[setter]
+    fn set_grid(&mut self, v: bool) {
+        self.config.borrow_mut().grid = v;
+    }
+
+    /// Width of a grid line, pixels.
+    #[getter]
+    fn grid_width(&self) -> f32 {
+        self.config.borrow().grid_width
+    }
+
+    #[setter]
+    fn set_grid_width(&mut self, v: f32) {
+        self.config.borrow_mut().grid_width = v;
+    }
+
+    /// Cells between thick lines.
+    #[getter]
+    fn grid_major(&self) -> u32 {
+        self.config.borrow().grid_major
+    }
+
+    #[setter]
+    fn set_grid_major(&mut self, v: u32) {
+        self.config.borrow_mut().grid_major = v;
+    }
+
+    /// Ordinary grid line colour, `(r, g, b, a)`.
+    #[getter]
+    fn grid_color(&self) -> [f32; 4] {
+        self.config.borrow().grid_color
+    }
+
+    #[setter]
+    fn set_grid_color(&mut self, v: [f32; 4]) {
+        self.config.borrow_mut().grid_color = v;
+    }
+
+    /// Thick line colour.
+    #[getter]
+    fn grid_major_color(&self) -> [f32; 4] {
+        self.config.borrow().grid_major_color
+    }
+
+    #[setter]
+    fn set_grid_major_color(&mut self, v: [f32; 4]) {
+        self.config.borrow_mut().grid_major_color = v;
+    }
+
+    /// The X axis line drawn over the grid.
+    #[getter]
+    fn grid_axis_x_color(&self) -> [f32; 4] {
+        self.config.borrow().grid_axis_x_color
+    }
+
+    #[setter]
+    fn set_grid_axis_x_color(&mut self, v: [f32; 4]) {
+        self.config.borrow_mut().grid_axis_x_color = v;
+    }
+
+    /// The Y axis line drawn over the grid.
+    #[getter]
+    fn grid_axis_y_color(&self) -> [f32; 4] {
+        self.config.borrow().grid_axis_y_color
+    }
+
+    #[setter]
+    fn set_grid_axis_y_color(&mut self, v: [f32; 4]) {
+        self.config.borrow_mut().grid_axis_y_color = v;
+    }
+
+    /// Where the fade to nothing begins, as a fraction of the far plane.
+    #[getter]
+    fn grid_fade_near(&self) -> f32 {
+        self.config.borrow().grid_fade_near
+    }
+
+    #[setter]
+    fn set_grid_fade_near(&mut self, v: f32) {
+        self.config.borrow_mut().grid_fade_near = v;
+    }
+
+    /// Where it reaches nothing.
+    #[getter]
+    fn grid_fade_far(&self) -> f32 {
+        self.config.borrow().grid_fade_far
+    }
+
+    #[setter]
+    fn set_grid_fade_far(&mut self, v: f32) {
+        self.config.borrow_mut().grid_fade_far = v;
+    }
+
     /// (ground grid, Z line and gizmo).
     #[getter]
     fn axes(&self) -> String {

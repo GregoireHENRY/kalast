@@ -77,6 +77,9 @@ pub struct Label {
 pub struct Axes {
     pub lines: Vec<LineVertex>,
     pub labels: Vec<Label>,
+    /// The ground-plane tick step. Handed to the shaded grid so a cell there
+    /// means the same thing as a gap between two labelled ticks.
+    pub step: crate::Float,
 }
 
 /// Tick step: 1, 2 or 5 times a power of ten, whichever gives closest to
@@ -182,7 +185,7 @@ pub fn build(
     let mut labels = Vec::new();
 
     if style == AxesStyle::Off || bounds.is_empty() {
-        return Axes { lines, labels };
+        return Axes { lines, labels, step: 0.0 };
     }
 
     let (lo, hi) = (bounds.min, bounds.max);
@@ -377,5 +380,12 @@ pub fn build(
         }
     }
 
-    Axes { lines, labels }
+    // The ground plane's step, for the shaded grid. `sx` and `sy` are equal
+    // for a scene as wide as it is deep and differ otherwise; the smaller is
+    // the safer seed, since the crossfade only ever coarsens from here.
+    Axes {
+        lines,
+        labels,
+        step: sx.min(sy),
+    }
 }

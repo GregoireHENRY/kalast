@@ -824,6 +824,42 @@ pub struct Config {
     /// gizmo). A rendered body alone carries no scale or orientation; these
     /// supply both.
     pub axes: crate::app::axes::AxesStyle,
+
+    /// Shade the `"blender"` style's ground grid instead of drawing it as
+    /// line segments. On by default; `False` restores the segments.
+    ///
+    /// The segments end at the scene bounds, sit at one spacing, and are one
+    /// pixel wide because WebGPU has no line width. This computes the grid
+    /// per pixel instead: it has no edge, it crossfades between decades as
+    /// you zoom -- which is what lets one grid serve a unit cube and a body
+    /// 1e4 km away -- and its lines antialias themselves.
+    pub grid: bool,
+    /// Width of a grid line, in pixels.
+    /// :range: 0.25..=8.0
+    pub grid_width: f32,
+    /// Cells between thick lines, and the factor between the levels the
+    /// crossfade steps through -- the same number seen from two sides.
+    /// :range: 2..=100
+    pub grid_major: u32,
+    /// Colour of the ordinary lines, `(r, g, b, a)`.
+    pub grid_color: [f32; 4],
+    /// Colour of every `grid_major`-th line.
+    pub grid_major_color: [f32; 4],
+    /// The X and Y axis lines, drawn over the grid so the origin reads
+    /// without hunting for it.
+    pub grid_axis_x_color: [f32; 4],
+    pub grid_axis_y_color: [f32; 4],
+    /// Fade the grid out between these grazing factors: `0.0` is looking
+    /// straight down at the ground plane and `1.0` is looking along it.
+    /// Without it the horizon is a hard line of aliasing.
+    ///
+    /// On the angle rather than the distance because the plane is infinite:
+    /// what bounds it on screen is the horizon, not the far plane, so a
+    /// distance fade never reaches its ramp.
+    /// :range: 0.0..=1.0
+    pub grid_fade_near: f32,
+    /// :range: 0.0..=1.0
+    pub grid_fade_far: f32,
     /// Colour of the axis lines and grid.
     pub axes_color: [f32; 3],
     /// Roughly how many ticks per axis. The step is rounded to 1, 2 or 5
@@ -933,6 +969,16 @@ impl Default for Config {
             colorbar: Colorbar::default(),
 
             axes: crate::app::axes::AxesStyle::Off,
+
+            grid: true,
+            grid_width: 1.0,
+            grid_major: 10,
+            grid_color: [0.32, 0.32, 0.35, 0.5],
+            grid_major_color: [0.45, 0.45, 0.5, 0.75],
+            grid_axis_x_color: [0.78, 0.24, 0.30, 0.9],
+            grid_axis_y_color: [0.38, 0.66, 0.20, 0.9],
+            grid_fade_near: 0.5,
+            grid_fade_far: 1.0,
             axes_color: [0.45, 0.45, 0.45],
             axes_ticks: 5,
             axes_unit: String::new(),
