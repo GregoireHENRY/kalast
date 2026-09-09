@@ -273,6 +273,65 @@ fn axis_label_screen(
         .collect()
 }
 
+/// Each facet's index, at its centre, in screen pixels.
+///
+/// The same projection the axis labels use, with two filters that matter:
+/// facets behind the camera are dropped, and so are those turned away from
+/// it. The text is drawn over the finished frame with no depth test, so a
+/// label on the far side of a body would sit on top of the surface hiding
+/// it.
+fn facet_label_screen(
+    simulation: &crate::app::simulation::Simulation,
+    view_proj: &glam::Mat4,
+    eye: crate::Vec3,
+    width: f32,
+    height: f32,
+    limit: usize,
+) -> Vec<(String, (f32, f32))> {
+    let mut out = Vec::new();
+    if limit == 0 {
+        return out;
+    }
+
+    for body in &simulation.bodies {
+        let Some(mesh) = body.mesh.as_ref() else {
+            continue;
+        };
+        let mesh = mesh.borrow();
+        let rotation = crate::Mat3::from_mat4(body.mat);
+
+        for (i, facet) in mesh.facets.iter().enumerate() {
+            if out.len() >= limit {
+                return out;
+            }
+
+            let centre = body.mat.transform_point3(facet.pos);
+            let normal = (rotation * facet.normal).normalize_or_zero();
+            // Turned away: its label would print over whatever hides it.
+            if normal.dot(eye - centre) <= 0.0 {
+                continue;
+            }
+
+            let clip = *view_proj * glam::Vec4::new(
+                centre.x as f32,
+                centre.y as f32,
+                centre.z as f32,
+                1.0,
+            );
+            if clip.w <= 0.0 {
+                continue;
+            }
+            let ndc = clip.truncate() / clip.w;
+            let (x, y) = ((ndc.x * 0.5 + 0.5) * width, (0.5 - ndc.y * 0.5) * height);
+            if !x.is_finite() || !y.is_finite() {
+                continue;
+            }
+            out.push((i.to_string(), (x, y)));
+        }
+    }
+    out
+}
+
 fn hud_placement(
     hud: &crate::app::config::Hud,
     width: f32,
@@ -520,6 +579,10 @@ pub struct Window {
     // Built lazily: most runs never ask for a per-facet shadow query, and
     // compiling the compute pipeline is not free.
     pub facet_shadow: Option<super::facet_shadow::FacetShadowQuery>,
+    /// Facet indices already projected to screen pixels, built in `update`
+    /// where the simulation is in scope and drawn in `render` where it is
+    /// not -- the same split the axis labels use.
+    facet_labels: Vec<(String, (f32, f32))>,
 
     // Same lazy treatment: the ID pass allocates two full-resolution
     // textures, which is wasted on any run that never asks for one.
@@ -826,6 +889,7 @@ impl Window {
             ),
 
             facet_shadow: None,
+            facet_labels: Vec::new(),
             facet_id: None,
             hemicube: None,
             last_body_mats: vec![],
@@ -1527,6 +1591,19 @@ impl Window {
             self.axes_labels.clear();
         }
 
+        self.facet_labels = if config.facet_labels {
+            facet_label_screen(
+                simulation,
+                &self.uniforms.view.uniform.camera.view_proj,
+                simulation.camera.pos,
+                self.render_size.0 as f32,
+                self.render_size.1 as f32,
+                config.facet_labels_max as usize,
+            )
+        } else {
+            Vec::new()
+        };
+
         // `color_mode == 2` paints every body one flat colour, so there is
         // no scale to label.
         if config.colorbar.enabled && config.color_mode != 2 {
@@ -1721,6 +1798,7 @@ impl Window {
         config: &crate::app::config::Config,
         huds: &[crate::app::config::Hud],
         axis_labels: &[(String, (f32, f32))],
+        facet_labels: &[(String, (f32, f32))],
         bar_labels: &[(String, (f32, f32), wgpu_text::glyph_brush::HorizontalAlign)],
     ) {
         let Some(brush) = self.hud.as_mut() else {
@@ -1771,6 +1849,22 @@ impl Window {
                 .with_layout(
                     wgpu_text::glyph_brush::Layout::default_single_line()
                         .h_align(*align)
+                        .v_align(wgpu_text::glyph_brush::VerticalAlign::Center),
+                )
+        }));
+
+        // Centred on the facet, which is where the point being named is.
+        sections.extend(facet_labels.iter().map(|(text, pos)| {
+            wgpu_text::glyph_brush::Section::default()
+                .add_text(
+                    wgpu_text::glyph_brush::Text::new(text)
+                        .with_scale(config.facet_label_size)
+                        .with_color(config.facet_label_color),
+                )
+                .with_screen_position(*pos)
+                .with_layout(
+                    wgpu_text::glyph_brush::Layout::default_single_line()
+                        .h_align(wgpu_text::glyph_brush::HorizontalAlign::Center)
                         .v_align(wgpu_text::glyph_brush::VerticalAlign::Center),
                 )
         }));
@@ -1953,8 +2047,10 @@ impl Window {
             self.render_size.1 as f32,
         );
 
+        let facet_labels = std::mem::take(&mut self.facet_labels);
         let any_text = huds.iter().any(|h| !h.text.is_empty())
             || !axis_labels.is_empty()
+            || !facet_labels.is_empty()
             || !bar_labels.is_empty();
         let render_size = (self.render_size.0 as f32, self.render_size.1 as f32);
 
@@ -1971,6 +2067,7 @@ impl Window {
                 config,
                 huds,
                 &axis_labels,
+                &facet_labels,
                 &bar_labels,
             );
         }
@@ -2005,6 +2102,7 @@ impl Window {
                 config,
                 huds,
                 &axis_labels,
+                &facet_labels,
                 &bar_labels,
             );
         }
@@ -2021,7 +2119,16 @@ impl Window {
                 self.surface_config.width as f32,
                 self.surface_config.height as f32,
             );
-            self.draw_text_overlay(&view, size, "hud", config, huds, &axis_labels, &bar_labels);
+            self.draw_text_overlay(
+                &view,
+                size,
+                "hud",
+                config,
+                huds,
+                &axis_labels,
+                &facet_labels,
+                &bar_labels,
+            );
         }
 
         if let Some(texture) = surface_texture {

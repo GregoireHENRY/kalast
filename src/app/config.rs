@@ -614,6 +614,40 @@ pub struct Config {
     ///
     /// Barycentric edge detection in the main fragment shader, so the overlay
     /// cannot z-fight. Needs a flattened mesh -- indexed meshes share vertices, so
+    /// Draw each facet's index at its centre.
+    ///
+    /// For working out *which* facet a number in a data product refers to,
+    /// without counting round a mesh by hand. Off by default, and capped by
+    /// `facet_labels_max`: a label per facet is a text draw per facet, and a
+    /// shape model has millions of them.
+    ///
+    /// Only facets turned towards the camera are labelled. The text has no
+    /// depth test -- it is drawn over the frame -- so labelling the far side
+    /// of a body would print numbers on top of the surface hiding them. On a
+    /// concave shape, a facet behind another that faces the same way can
+    /// still show through.
+    ///
+    /// :group: Selection
+    pub facet_labels: bool,
+
+    /// Most facets to label before giving up, per body.
+    ///
+    /// A guard rather than a preference: turning labels on with a 3.1M-facet
+    /// body would queue three million text draws and stop the frame dead.
+    ///
+    /// :range: 0..=20000
+    /// :group: Selection
+    pub facet_labels_max: u32,
+
+    /// Size of a facet label, in pixels.
+    /// :range: 4.0..=48.0
+    /// :group: Selection
+    pub facet_label_size: f32,
+
+    /// Colour of a facet label, `(r, g, b, a)`.
+    /// :group: Selection
+    pub facet_label_color: [f32; 4],
+
     /// Colour a facet takes when it is selected, `(r, g, b, a)`.
     ///
     /// Selecting writes this onto the facet's own vertices and marks them
@@ -845,6 +879,10 @@ impl Default for Config {
             msaa: 4,
 
             wireframe_mode: 0,
+            facet_labels: false,
+            facet_labels_max: 2000,
+            facet_label_size: 12.0,
+            facet_label_color: [1.0, 1.0, 1.0, 0.9],
             selection_color: wgpu::Color {
                 r: 1.0,
                 g: 1.0,

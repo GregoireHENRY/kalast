@@ -201,8 +201,15 @@ pub fn config_panel(ui: &mut egui::Ui, c: &mut Config, a: &mut AppConfig) {
         });
     });
     ui.collapsing("Selection", |ui| {
+        ui.checkbox(&mut c.facet_labels, "facet_labels").on_hover_text("0 shaded only, 1 wireframe only, 2 wireframe over the shaded mesh.");
+        ui.add(egui::Slider::new(&mut c.facet_labels_max, 0..=20000).text("facet_labels_max")).on_hover_text("Most facets to label before giving up, per body.");
+        ui.add(egui::Slider::new(&mut c.facet_label_size, 4.0..=48.0).text("facet_label_size")).on_hover_text("Size of a facet label, in pixels.");
         ui.horizontal(|ui| {
-            ui.label("selection_color").on_hover_text("0 shaded only, 1 wireframe only, 2 wireframe over the shaded mesh.");
+            ui.label("facet_label_color").on_hover_text("Colour of a facet label, `(r, g, b, a)`.");
+            ui.color_edit_button_rgba_unmultiplied(&mut c.facet_label_color);
+        });
+        ui.horizontal(|ui| {
+            ui.label("selection_color").on_hover_text("Colour a facet takes when it is selected, `(r, g, b, a)`.");
             let mut rgba = [c.selection_color.r as f32, c.selection_color.g as f32,
                             c.selection_color.b as f32, c.selection_color.a as f32];
             if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {

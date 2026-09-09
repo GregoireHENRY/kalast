@@ -1177,6 +1177,28 @@ of the body keeps its shading. Deselecting restores what was there.
 Live in the sense that it applies to the *next* selection: facets already
 selected keep the colour they were given.
 
+### `facet_labels: bool` — default `False` *(live)*
+### `facet_labels_max: int` — default `2000` *(live)*
+### `facet_label_size: float` — default `12.0` *(live)*
+### `facet_label_color: list[float]` — default `(1, 1, 1, 0.9)` *(live)*
+Draw each facet's index at its centre, for reading off which facet a number
+in a data product refers to:
+
+```python
+app.simulation.config.facet_labels = True
+```
+
+Two limits, both deliberate. Only facets **turned towards the camera** are
+labelled — the text is a screen-space overlay with no depth test, so labelling
+the far side would print numbers over the surface hiding them. And no more
+than `facet_labels_max` per body, because a label is a text draw and a shape
+model has millions of facets; the count is per body and the rest are dropped
+silently rather than the frame rate being.
+
+Indices are the mesh's own facet indices, the same ones `sim.toggle_facet`
+takes and `mesh.values`/`mesh.colors` are indexed by. Useful on `res/cube.obj`
+(12 facets) to see which triangle is which before writing per-facet data.
+
 ### `wireframe_mode: u32` — default `0` *(live)*
 
 | Value | Meaning |

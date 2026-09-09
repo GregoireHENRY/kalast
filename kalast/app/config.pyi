@@ -421,6 +421,22 @@ class Config:
     """
     axes_label_size: float
     """Tick label size in pixels."""
+    facet_labels: bool
+    """Draw each facet's index at its centre.
+
+    For working out which facet a number in a data product refers to.
+    Capped by `facet_labels_max`, and only facets turned towards the
+    camera are labelled -- the text has no depth test, so labelling the
+    far side would print numbers over the surface hiding them.
+    """
+    facet_labels_max: int
+    """Most facets to label before giving up, per body. A guard: a label is a
+    text draw, and a shape model has millions of facets.
+    """
+    facet_label_size: float
+    """Facet label size, in pixels."""
+    facet_label_color: list[float]
+    """Facet label colour, `(r, g, b, a)`."""
     axes_label_color: list[float]
     """Tick label colour, `(r, g, b, a)`."""
     value_min: float | None

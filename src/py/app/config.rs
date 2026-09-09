@@ -987,6 +987,56 @@ impl Config {
         self.config.borrow_mut().axes_label_size = v;
     }
 
+    /// Draw each facet's index at its centre.
+    ///
+    /// For working out which facet a number in a data product refers to.
+    /// Capped by `facet_labels_max`, and only facets turned towards the
+    /// camera are labelled -- the text has no depth test, so labelling the
+    /// far side would print numbers over the surface hiding them.
+    #[getter]
+    fn facet_labels(&self) -> bool {
+        self.config.borrow().facet_labels
+    }
+
+    #[setter]
+    fn set_facet_labels(&mut self, v: bool) {
+        self.config.borrow_mut().facet_labels = v;
+    }
+
+    /// Most facets to label before giving up, per body. A guard: a label is a
+    /// text draw, and a shape model has millions of facets.
+    #[getter]
+    fn facet_labels_max(&self) -> u32 {
+        self.config.borrow().facet_labels_max
+    }
+
+    #[setter]
+    fn set_facet_labels_max(&mut self, v: u32) {
+        self.config.borrow_mut().facet_labels_max = v;
+    }
+
+    /// Facet label size, in pixels.
+    #[getter]
+    fn facet_label_size(&self) -> f32 {
+        self.config.borrow().facet_label_size
+    }
+
+    #[setter]
+    fn set_facet_label_size(&mut self, v: f32) {
+        self.config.borrow_mut().facet_label_size = v;
+    }
+
+    /// Facet label colour, `(r, g, b, a)`.
+    #[getter]
+    fn facet_label_color(&self) -> [f32; 4] {
+        self.config.borrow().facet_label_color
+    }
+
+    #[setter]
+    fn set_facet_label_color(&mut self, v: [f32; 4]) {
+        self.config.borrow_mut().facet_label_color = v;
+    }
+
     /// Tick label colour, `(r, g, b, a)`.
     #[getter]
     fn axes_label_color(&self) -> [f32; 4] {
