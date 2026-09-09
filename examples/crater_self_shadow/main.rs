@@ -1,19 +1,3 @@
-//! The Rust twin of `main.py`: the same scene, driven by callbacks.
-//!
-//! ```sh
-//! cargo run --release --example crater_main     # on its own
-//! ```
-//!
-//! ...and the same file, unchanged, runs *inside* the editor: open it there
-//! and press Play. Nothing here is written for that -- no entry point, no
-//! attributes, no second target. The editor compiles this file into a library
-//! through a wrapper it generates, loads it, and calls this `main`.
-//!
-//! Callbacks rather than a `while` loop is a choice, not a requirement:
-//! `step.rs` beside this owns its loop and hosts just as well. This shape is
-//! here because it is what `main.py` does, and the two are meant to read
-//! alike.
-
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -22,11 +6,9 @@ use kalast::app::config::Hud;
 use kalast::app::simulation::Simulation;
 use kalast::{Float, Mat4, Vec3};
 
-/// Build the scene and install the per-iteration work.
-///
-/// Everything this example is. Called with the editor's app when hosted, and
-/// with a fresh one from `main`.
-pub fn scene(app: &mut App) {
+fn main() {
+    let mut app = App::new();
+
     {
         let config = app.sim_config();
         let mut c = config.borrow_mut();
@@ -62,6 +44,9 @@ pub fn scene(app: &mut App) {
         );
     }
 
+    // Using closures for before_ and after_render but can be written in plain
+    // separated functions like main.py could have been lambda function aswell.
+
     // Before the frame: where the Sun is for this iteration.
     app.set_tick(|sim: &mut Simulation, _dt: Float| {
         let a = sim.state.iteration as Float * 0.005;
@@ -70,7 +55,7 @@ pub fn scene(app: &mut App) {
 
     // After it: read the shadow map back and say how much is lit. Insolation,
     // not occlusion -- a facet with nothing between it and the Sun is still
-    // dark if it faces away.
+    // dark if it faces away, which on this crater is most of the far wall.
     app.set_after_render(|sim: &mut Simulation, _dt: Float| {
         let lit = match sim.facet_illumination(0) {
             Some(illum) if !illum.is_empty() => {
@@ -81,10 +66,6 @@ pub fn scene(app: &mut App) {
         let it = sim.state.iteration;
         sim.huds[0].borrow_mut().text = format!("it={it}  lit {:.1} %", lit * 100.0);
     });
-}
 
-fn main() {
-    let mut app = App::new();
-    scene(&mut app);
     app.start();
 }
