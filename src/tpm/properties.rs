@@ -1,3 +1,4 @@
+#[cfg(feature = "python")]
 use pyo3::prelude::*;
 
 use crate::Float;
@@ -56,8 +57,8 @@ pub const DEIMOS: Properties = Properties {
     diffusivity: 0.0,
 };
 
-#[pyfunction]
-#[pyo3(signature = (k: "float", p: "float", c: "float") -> "float")]
+#[cfg_attr(feature = "python", pyfunction)]
+#[cfg_attr(feature = "python", pyo3(signature = (k: "float", p: "float", c: "float") -> "float"))]
 pub fn thermal_inertia(k: Float, p: Float, c: Float) -> Float {
     // k: conductivity (...)
     // p: density (...)
@@ -65,8 +66,8 @@ pub fn thermal_inertia(k: Float, p: Float, c: Float) -> Float {
     (k * p * c).sqrt()
 }
 
-#[pyfunction]
-#[pyo3(signature = (ti: "float", p: "float", c: "float") -> "float")]
+#[cfg_attr(feature = "python", pyfunction)]
+#[cfg_attr(feature = "python", pyo3(signature = (ti: "float", p: "float", c: "float") -> "float"))]
 pub fn conductivity(ti: Float, p: Float, c: Float) -> Float {
     // ti: thermal inertia (...)
     // p: density (...)
@@ -74,8 +75,8 @@ pub fn conductivity(ti: Float, p: Float, c: Float) -> Float {
     ti.powi(2) / (p * c)
 }
 
-#[pyfunction]
-#[pyo3(signature = (k: "float", p: "float", c: "float") -> "float")]
+#[cfg_attr(feature = "python", pyfunction)]
+#[cfg_attr(feature = "python", pyo3(signature = (k: "float", p: "float", c: "float") -> "float"))]
 pub const fn diffusivity(k: Float, p: Float, c: Float) -> Float {
     // k: conductivity (...)
     // p: density (...)
@@ -83,7 +84,7 @@ pub const fn diffusivity(k: Float, p: Float, c: Float) -> Float {
     k / (p * c)
 }
 
-#[pyfunction]
+#[cfg_attr(feature = "python", pyfunction)]
 pub fn skin_depth_1(d: Float, p: Float) -> Float {
     // skin depth @ e^-1
     //
@@ -92,7 +93,7 @@ pub fn skin_depth_1(d: Float, p: Float) -> Float {
     (d * p / crate::util::PI).sqrt()
 }
 
-#[pyfunction]
+#[cfg_attr(feature = "python", pyfunction)]
 pub fn skin_depth_2pi(d: Float, p: Float) -> Float {
     // skin depth @ e^-2pi
     //

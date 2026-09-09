@@ -58,12 +58,13 @@
 //     a = 1 - e
 
 use anyhow::{Result, anyhow};
-use numpy::ndarray::{Array1, ArrayView1, s};
+use ndarray::{Array1, ArrayView1, s};
+#[cfg(feature = "python")]
 use pyo3::prelude::*;
 
 use crate::Float;
 
-#[pyfunction]
+#[cfg_attr(feature = "python", pyfunction)]
 pub fn stability(d: Float, dt: Float, dx2: Float) -> Float {
     // Stability coefficient for conduction_1d, lower than 0.5 is converging.
     // Also called Fourier mesh number.
@@ -74,8 +75,8 @@ pub fn stability(d: Float, dt: Float, dx2: Float) -> Float {
     d * dt / dx2
 }
 
-#[pyfunction]
-#[pyo3(signature = (d, dx2, s=0.5))]
+#[cfg_attr(feature = "python", pyfunction)]
+#[cfg_attr(feature = "python", pyo3(signature = (d, dx2, s=0.5)))]
 pub fn stability_maxdt(d: Float, dx2: Float, s: Float) -> Float {
     // Find largest dt for conduction_1d to be stable considering depth step and diffusivity.
     // s is usually 0.5
@@ -86,7 +87,7 @@ pub fn stability_maxdt(d: Float, dx2: Float, s: Float) -> Float {
     s * dx2 / d
 }
 
-#[pyfunction]
+#[cfg_attr(feature = "python", pyfunction)]
 pub fn conduction(t: Float, f: Float, k: Float, dx: Float) -> Float {
     // Update temperature from a flux over a distance.
     // Adiabatic is f=0.
@@ -98,7 +99,7 @@ pub fn conduction(t: Float, f: Float, k: Float, dx: Float) -> Float {
     t + dx * f / k
 }
 
-#[pyfunction]
+#[cfg_attr(feature = "python", pyfunction)]
 pub fn effective_temperature(dau: Float, r: Float, a: Float, e: Float) -> Float {
     // dau: distance of Sun is AU
     // r: ratio between areas receiving and emitting
@@ -121,7 +122,7 @@ pub fn effective_temperature(dau: Float, r: Float, a: Float, e: Float) -> Float 
 /// safe; anything computing a dot product directly -- a vectorised inner loop,
 /// for instance -- was not. The invariant belongs here rather than in each
 /// caller.
-#[pyfunction]
+#[cfg_attr(feature = "python", pyfunction)]
 pub fn radiation_sun(dau: Float, cosi: Float, a: Float) -> Float {
     // dau: distance of Sun is AU
     // cosi: cosine of incidence angle of local surface
@@ -134,7 +135,7 @@ pub fn radiation_sun(dau: Float, cosi: Float, a: Float) -> Float {
 /// `cosi` is clamped for the same reason as `radiation_sun`: an element
 /// facing away from the Sun reflects nothing, and an unclamped negative would
 /// have a shadowed facet *removing* energy from whatever it illuminates.
-#[pyfunction]
+#[cfg_attr(feature = "python", pyfunction)]
 pub fn radiation_sun_reflected(viewf: Float, a: Float, cosi: Float, dau: Float) -> Float {
     // viewf: view-factor of local surface
     // a: albedo
@@ -144,7 +145,7 @@ pub fn radiation_sun_reflected(viewf: Float, a: Float, cosi: Float, dau: Float) 
 }
 
 /// care with albedos
-#[pyfunction]
+#[cfg_attr(feature = "python", pyfunction)]
 pub fn radiation_sun_reflected_reuse(viewf: Float, f: Float, a: Float) -> Float {
     // viewf: view-factor of local surface
     // f: radiation from sun from another surface
@@ -152,7 +153,7 @@ pub fn radiation_sun_reflected_reuse(viewf: Float, f: Float, a: Float) -> Float 
     viewf * f * a / (1.0 - a)
 }
 
-#[pyfunction]
+#[cfg_attr(feature = "python", pyfunction)]
 pub fn radiation_emitted(viewf: Float, t: Float, e: Float) -> Float {
     // viewf: view-factor of local surface
     // t: temperature (K)
@@ -160,7 +161,7 @@ pub fn radiation_emitted(viewf: Float, t: Float, e: Float) -> Float {
     viewf * crate::util::STEFAN_BOLTZMANN * e * t.powi(4)
 }
 
-#[pyfunction]
+#[cfg_attr(feature = "python", pyfunction)]
 pub fn newton_method_fn(
     t: Float,
     f: Float,
@@ -173,7 +174,7 @@ pub fn newton_method_fn(
     f - set3 * t + k * (-3.0 * t + 4.0 * subt1 - subt2) / twodx
 }
 
-#[pyfunction]
+#[cfg_attr(feature = "python", pyfunction)]
 pub fn newton_method_dfn(set3: Float, k: Float, twodx: Float) -> Float {
     -4.0 * set3 - 3.0 * k / twodx
 }
@@ -248,13 +249,15 @@ pub fn conduction_1d_nonuniform(
             * (&coef_lo * (&t_lo - &t_mid) + &coef_hi * (&t_hi - &t_mid))
 }
 
+#[cfg(feature = "python")]
 pub(crate) mod py {
     use numpy::{PyArray1, PyReadonlyArray1, ToPyArray};
-    use pyo3::prelude::*;
+    #[cfg(feature = "python")]
+use pyo3::prelude::*;
 
     use super::Float;
 
-    #[pyfunction]
+    #[cfg_attr(feature = "python", pyfunction)]
     pub fn newton_method(
         t: Float,
         f: Float,
@@ -267,7 +270,7 @@ pub(crate) mod py {
         Ok(super::newton_method(t, f, se, k, subt1, subt2, twodx).unwrap())
     }
 
-    #[pyfunction]
+    #[cfg_attr(feature = "python", pyfunction)]
     pub fn conduction_1d_nonuniform<'py>(
         py: Python<'py>,
         t: PyReadonlyArray1<'py, Float>,
@@ -284,7 +287,7 @@ pub(crate) mod py {
         .to_pyarray(py)
     }
 
-    #[pyfunction]
+    #[cfg_attr(feature = "python", pyfunction)]
     pub fn conduction_1d<'py>(
         py: Python<'py>,
         t: PyReadonlyArray1<'py, Float>,

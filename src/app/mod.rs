@@ -15,6 +15,7 @@ pub mod simulation;
 pub mod uniform;
 pub mod window;
 
+#[cfg(feature = "python")]
 use pyo3::prelude::*;
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 
@@ -75,6 +76,7 @@ pub struct Shared {
     /// for this one is already submitted.
     pub after_render: Option<Tick>,
     /// What the editor's `Run` button calls.
+    #[cfg(feature = "python")]
     pub script_runner: Option<ScriptRunner>,
     /// False once the window has closed. `step()` returns it, so
     /// `while app.step():` ends on its own.
@@ -150,6 +152,7 @@ impl Shared {
         Self {
             before_render: None,
             after_render: None,
+            #[cfg(feature = "python")]
             script_runner: None,
             running: true,
             exit_requested: false,
@@ -1321,6 +1324,7 @@ impl App {
             Some(Tick::Rust(f)) => {
                 f(&mut sim.borrow_mut(), dt);
             }
+            #[cfg(feature = "python")]
             Some(Tick::Python {
                 callback,
                 simulation,
@@ -2083,6 +2087,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
 }
 
 /// What the editor's `Run` button calls.
+#[cfg(feature = "python")]
 pub struct ScriptRunner {
     pub callback: Py<PyAny>,
     /// A handle of its own on the same app, exactly as `Tick::Python` carries
@@ -2094,6 +2099,9 @@ pub struct ScriptRunner {
 
 pub enum Tick {
     Rust(Box<dyn for<'a> Fn(&'a mut simulation::Simulation, Float)>),
+    // Only exists with the bindings: it holds a `Py<PyAny>`, and the engine
+    // built without them has no Python to call.
+    #[cfg(feature = "python")]
     Python {
         callback: Py<PyAny>,
         /// The simulation, which carries its own config. A handle of its own,

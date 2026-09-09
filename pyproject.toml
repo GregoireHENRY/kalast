@@ -36,6 +36,9 @@ dev = [
 
 [tool.maturin]
 module-name = "kalast._rs"
+# The bindings are a cargo feature, off by default, so that `cargo build`
+# produces an engine that does not link Python. Building the wheel turns it on.
+features = ["python"]
 
 [build-system]
 requires = ["maturin>=1.0,<2.0"]

@@ -17,6 +17,12 @@ crate-type = ["lib", "cdylib"]
 default = []
 use_f64 = ["tobj/use_f64"]
 
+# The Python bindings. Off by default so `cargo build` and `cargo test` build
+# the engine alone -- linking pyo3 unconditionally meant a Rust binary needed
+# a Python DLL to start, which is the dependency the wrong way round. maturin
+# turns it on through pyproject.toml.
+python = ["dep:pyo3", "dep:numpy"]
+
 [dependencies]
 kalast_macros = { path = "macros", version = "0.1" }
 
@@ -42,12 +48,12 @@ ndarray = "0.17.2"
 tobj = { version = "4.0" }
 
 # Python
-pyo3 = { version = "0.28", features = [
+pyo3 = { version = "0.28", optional = true, features = [
     "experimental-inspect",
     "abi3-py314",
     "multiple-pymethods"
 ] }
-numpy = { version = "0.28" }
+numpy = { version = "0.28", optional = true }
 
 # Window/GPU
 bytemuck = { version = "1.25", features = ["derive"] }

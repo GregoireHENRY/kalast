@@ -4,7 +4,12 @@ pub mod gpu;
 pub mod app;
 pub mod math;
 pub mod mesh;
+#[cfg(feature = "python")]
 pub mod py;
+// Python-facing setup types only -- nothing in the engine constructs them,
+// and their `#[pyclass]` fields cannot be feature-gated individually because
+// the class macro expands before the field attributes do.
+#[cfg(feature = "python")]
 pub mod routines;
 pub mod spice;
 pub mod tpm;

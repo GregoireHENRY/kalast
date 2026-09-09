@@ -1,9 +1,10 @@
-use numpy::ndarray::ArrayView1;
+use ndarray::ArrayView1;
+#[cfg(feature = "python")]
 use pyo3::prelude::*;
 
 use crate::Float;
 
-#[pyfunction]
+#[cfg_attr(feature = "python", pyfunction)]
 pub fn planck(t: Float, w: Float) -> Float {
     // t: temperature (K)
     // w: wavelength (m)
@@ -12,14 +13,14 @@ pub fn planck(t: Float, w: Float) -> Float {
     crate::util::TWO_HC2 / (w.powi(5) * ((crate::util::HC_PER_K / (t * w)).exp() - 1.0))
 }
 
-#[pyfunction]
+#[cfg_attr(feature = "python", pyfunction)]
 pub fn planck_photon_count(t: Float, w: Float) -> Float {
     // t: temperature (K)
     // w: wavelength (m)
     crate::util::TWO_C / (w.powi(4) * ((crate::util::HC_PER_K / (t * w)).exp() - 1.0))
 }
 
-#[pyfunction]
+#[cfg_attr(feature = "python", pyfunction)]
 pub fn spectral_radiance(f: Float, e: Float, cose: Float, r: Float) -> Float {
     // f: planck radiation (W/m3/sr)
     // e: spectral emissivity
@@ -28,14 +29,14 @@ pub fn spectral_radiance(f: Float, e: Float, cose: Float, r: Float) -> Float {
     f * e * cose * r
 }
 
-#[pyfunction]
+#[cfg_attr(feature = "python", pyfunction)]
 pub fn steradian(a: Float, d: Float) -> Float {
     // a: area (m2)
     // d: distance (m)
     a / d.powi(2)
 }
 
-#[pyfunction]
+#[cfg_attr(feature = "python", pyfunction)]
 pub fn irradiance(f: Float, sr: Float) -> Float {
     // f: radiance (W/m2/sr) or spectral radiance (W/m3/sr)
     // sr: steradian
@@ -50,7 +51,7 @@ pub fn radiance(f: Float, r: ArrayView1<Float>, w: ArrayView1<Float>) -> Float {
     crate::math::simpson_1_3(y.view(), w)
 }
 
-#[pyfunction]
+#[cfg_attr(feature = "python", pyfunction)]
 pub fn reflectance(w: Float, a: Float, area: Float, cose: Float, d: Float, r: Float) -> Float {
     // w: wavelength (m)
     // a: albedo
@@ -66,13 +67,15 @@ pub fn reflectance(w: Float, a: Float, area: Float, cose: Float, d: Float, r: Fl
 // print(S)
 // = solar constant
 
+#[cfg(feature = "python")]
 pub(crate) mod py {
     use numpy::PyReadonlyArray1;
-    use pyo3::prelude::*;
+    #[cfg(feature = "python")]
+use pyo3::prelude::*;
 
     use super::Float;
 
-    #[pyfunction]
+    #[cfg_attr(feature = "python", pyfunction)]
     pub fn radiance(
         f: Float,
         r: PyReadonlyArray1<'_, Float>,

@@ -1,5 +1,5 @@
 use crate::Float;
-use numpy::ndarray::Array1;
+use ndarray::Array1;
 
 #[derive(Clone, Debug, Default)]
 pub struct Column {

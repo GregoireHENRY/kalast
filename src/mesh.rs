@@ -1,4 +1,5 @@
 use glam::Vec4Swizzles;
+#[cfg(feature = "python")]
 use pyo3::prelude::*;
 
 use crate::{Float, Mat4, Vec2, Vec3};
@@ -25,7 +26,7 @@ pub const MESH_CUBE: &'static str = include_str!("../res/cube.obj");
 // pub const EPSILON_INTERSECT_TRIANGLE: Float = 1e-3;
 
 // getter glam::Vec3 to numpy
-// #[getter]
+// #[cfg_attr(feature = "python", getter)]
 // pub fn a<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f32>> {
 //     let mut v = Array1::zeros(3);
 //     for (i, v_) in v.iter_mut().enumerate() {
@@ -35,12 +36,12 @@ pub const MESH_CUBE: &'static str = include_str!("../res/cube.obj");
 // }
 
 // getter and setter from glam::Vec3 to [f32; 3]
-// #[getter]
+// #[cfg_attr(feature = "python", getter)]
 // pub fn get_camera_pos(&self) -> PyResult<[f32; 3]> {
 //     Ok(self.camera_pos.into())
 // }
 //
-// #[setter]
+// #[cfg_attr(feature = "python", setter)]
 // pub fn set_camera_pos(&mut self, pos: [f32; 3]) -> PyResult<()> {
 //     self.camera_pos.x = pos[0];
 //     self.camera_pos.y = pos[1];
@@ -1124,7 +1125,7 @@ pub fn intersect_mesh(mesh: &Mesh, p: &Vec3, u: &Vec3, exit_first: bool) -> Opti
 }
 
 /// Compute the view factor between a facet A and B with area of facet B.
-#[pyfunction]
+#[cfg_attr(feature = "python", pyfunction)]
 pub fn view_factor_scalar_with_area(
     area_b: Float,
     angle_at_a: Float,
@@ -1136,7 +1137,7 @@ pub fn view_factor_scalar_with_area(
 
 /// View factor between facet A and B but without area of facet B.
 /// You can actually multiply by the area of facet A instead of B if A is transmitting energy to B.
-#[pyfunction]
+#[cfg_attr(feature = "python", pyfunction)]
 pub fn view_factor_scalar(angle_at_a: Float, angle_at_b: Float, distance_a2b: Float) -> Float {
     view_factor_scalar_cos(angle_at_a.cos(), angle_at_b.cos(), distance_a2b)
 }
@@ -1314,7 +1315,7 @@ fn integrate_pair(tri_a: &Triangle, tri_b: &Triangle, ratio: Float, level: u32) 
 ///
 /// S: curvature diameter
 #[allow(non_snake_case)]
-#[pyfunction]
+#[cfg_attr(feature = "python", pyfunction)]
 pub fn largest_slope_angle_sphere(S: Float) -> Float {
     (1.0 - 2.0 * S).acos()
 }
@@ -1323,7 +1324,7 @@ pub fn largest_slope_angle_sphere(S: Float) -> Float {
 ///
 /// g: largest slope angle
 #[allow(non_snake_case)]
-#[pyfunction]
+#[cfg_attr(feature = "python", pyfunction)]
 pub fn curvature_diameter_sphere(S: Float) -> Float {
     (1.0 - S.cos()) / 2.0
 }
@@ -1332,7 +1333,7 @@ pub fn curvature_diameter_sphere(S: Float) -> Float {
 ///
 /// r: radius crater
 /// d: depth crater
-#[pyfunction]
+#[cfg_attr(feature = "python", pyfunction)]
 pub fn curvature_radius(r: Float, d: Float) -> Float {
     (r.powi(2) + d.powi(2)) / (2.0 * d)
 }
@@ -1342,7 +1343,7 @@ pub fn curvature_radius(r: Float, d: Float) -> Float {
 /// R: curvature radius
 /// d: depth crater
 #[allow(non_snake_case)]
-#[pyfunction]
+#[cfg_attr(feature = "python", pyfunction)]
 pub fn curvature_diameter_from_radius(d: Float, R: Float) -> Float {
     d / (2.0 * R)
 }
@@ -1353,7 +1354,7 @@ pub fn curvature_diameter_from_radius(d: Float, R: Float) -> Float {
 /// r: radius crater
 /// d: depth crater
 #[allow(non_snake_case)]
-#[pyfunction]
+#[cfg_attr(feature = "python", pyfunction)]
 pub fn z_in_crater(x: Float, y: Float, r: Float, d: Float) -> Float {
     let R = curvature_radius(r, d);
     R - d - (R.powi(2) - x.powi(2) - y.powi(2)).sqrt()
@@ -1363,7 +1364,7 @@ pub fn z_in_crater(x: Float, y: Float, r: Float, d: Float) -> Float {
 ///
 /// f: coverage
 /// g: largest slope angle
-#[pyfunction]
+#[cfg_attr(feature = "python", pyfunction)]
 pub fn rms_slope(f: Float, g: Float) -> Float {
     (f / 2.0 * (g.powi(2) - (g * g.cos() - g.sin()).powi(2) / g.sin().powi(2))).sqrt()
 }
@@ -1371,7 +1372,7 @@ pub fn rms_slope(f: Float, g: Float) -> Float {
 /// RMS slope in case of hemispherical crater, in radian
 ///
 /// f: coverage
-#[pyfunction]
+#[cfg_attr(feature = "python", pyfunction)]
 pub fn rms_slope_hemisphere(f: Float) -> Float {
     49.0 * f.sqrt()
 }
@@ -1381,8 +1382,8 @@ pub fn rms_slope_hemisphere(f: Float) -> Float {
 /// theta: angle between facet normal and average normal of terrain
 /// a: facet area
 pub fn rms_slope_terrain(
-    theta: numpy::ndarray::ArrayView1<Float>,
-    a: numpy::ndarray::ArrayView1<Float>,
+    theta: ndarray::ArrayView1<Float>,
+    a: ndarray::ArrayView1<Float>,
 ) -> Float {
     let mut s1 = 0.0;
     let mut s2 = 0.0;
@@ -1394,7 +1395,7 @@ pub fn rms_slope_terrain(
     (s1 / s2).sqrt()
 }
 
-#[pyfunction]
+#[cfg_attr(feature = "python", pyfunction)]
 pub fn distribution_slope_angles(theta: Float, a: Float, b: Float) -> Float {
     a * (-theta.tan().powi(2) / b).exp() * theta.sin() / theta.cos().powi(2)
 }

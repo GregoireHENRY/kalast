@@ -1,5 +1,5 @@
 use glam::Vec3Swizzles;
-use numpy::ndarray::ArrayView1;
+use ndarray::ArrayView1;
 
 use crate::{Float, Vec3};
 
@@ -78,15 +78,18 @@ pub fn boole(y: ArrayView1<Float>, x: ArrayView1<Float>) -> Float {
     r
 }
 
+#[cfg(feature = "python")]
 pub(crate) mod py {
     use numpy::{PyReadonlyArray1, ToPyArray};
-    use pyo3::prelude::*;
+    #[cfg(feature = "python")]
+use pyo3::prelude::*;
 
     use crate::{Float, Vec3};
 
     type Array<'py> = numpy::PyReadonlyArray1<'py, Float>;
 
-    #[pyfunction]
+    #[cfg(feature = "python")]
+    #[cfg_attr(feature = "python", pyfunction)]
     pub fn cosine_angle_vectors(u: Array<'_>, v: Array<'_>) -> PyResult<Float> {
         Ok(super::cosine_angle_vectors(
             &Vec3::from_slice(u.as_slice().unwrap()),
@@ -94,7 +97,8 @@ pub(crate) mod py {
         ))
     }
 
-    #[pyfunction]
+    #[cfg(feature = "python")]
+    #[cfg_attr(feature = "python", pyfunction)]
     pub fn cosine_incidence(sundir: Array<'_>, normal: Array<'_>) -> PyResult<Float> {
         Ok(super::cosine_incidence(
             &Vec3::from_slice(sundir.as_slice().unwrap()),
@@ -102,14 +106,15 @@ pub(crate) mod py {
         ))
     }
 
-    #[pyfunction]
+    #[cfg(feature = "python")]
+    #[cfg_attr(feature = "python", pyfunction)]
     pub fn flattening_radius(radii: Array<'_>) -> PyResult<Float> {
         Ok(super::flattening_radius(&Vec3::from_slice(
             radii.as_slice().unwrap(),
         )))
     }
 
-    #[pyfunction]
+    #[cfg_attr(feature = "python", pyfunction)]
     pub fn cart2sph<'py>(
         v: [Float; 3],
         py: Python<'py>,
@@ -117,7 +122,7 @@ pub(crate) mod py {
         super::cart2sph(&v.into()).to_array().to_pyarray(py)
     }
 
-    #[pyfunction]
+    #[cfg_attr(feature = "python", pyfunction)]
     pub fn sph2cart<'py>(
         v: [Float; 3],
         py: Python<'py>,
@@ -125,7 +130,7 @@ pub(crate) mod py {
         super::sph2cart(&v.into()).to_array().to_pyarray(py)
     }
 
-    #[pyfunction]
+    #[cfg_attr(feature = "python", pyfunction)]
     pub fn trapez(
         y: PyReadonlyArray1<'_, Float>,
         x: PyReadonlyArray1<'_, Float>,
@@ -133,7 +138,7 @@ pub(crate) mod py {
         Ok(super::trapez(y.as_array(), x.as_array()))
     }
 
-    #[pyfunction]
+    #[cfg_attr(feature = "python", pyfunction)]
     pub fn simpson_1_3(
         y: PyReadonlyArray1<'_, Float>,
         x: PyReadonlyArray1<'_, Float>,
@@ -141,7 +146,7 @@ pub(crate) mod py {
         Ok(super::simpson_1_3(y.as_array(), x.as_array()))
     }
 
-    #[pyfunction]
+    #[cfg_attr(feature = "python", pyfunction)]
     pub fn simpson_3_8(
         y: PyReadonlyArray1<'_, Float>,
         x: PyReadonlyArray1<'_, Float>,
@@ -149,7 +154,7 @@ pub(crate) mod py {
         Ok(super::simpson_3_8(y.as_array(), x.as_array()))
     }
 
-    #[pyfunction]
+    #[cfg_attr(feature = "python", pyfunction)]
     pub fn boole(
         y: PyReadonlyArray1<'_, Float>,
         x: PyReadonlyArray1<'_, Float>,

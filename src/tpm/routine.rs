@@ -1,4 +1,4 @@
-use numpy::ndarray::{Array1, ArrayView1, s};
+use ndarray::{Array1, ArrayView1, s};
 
 use crate::Float;
 
@@ -20,13 +20,15 @@ pub fn update_thermal_state(
     new_t
 }
 
+#[cfg(feature = "python")]
 pub(crate) mod py {
     use numpy::{PyArray1, PyReadonlyArray1, ToPyArray};
-    use pyo3::prelude::*;
+    #[cfg(feature = "python")]
+use pyo3::prelude::*;
 
     use crate::Float;
 
-    #[pyfunction]
+    #[cfg_attr(feature = "python", pyfunction)]
     pub fn update_thermal_state<'py>(
         py: Python<'py>,
         t: PyReadonlyArray1<'py, Float>,
