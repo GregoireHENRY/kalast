@@ -199,13 +199,15 @@ actually is. Read at `src/app/pass/render.rs:100`. Its size is controlled by
 `light_cube_scale`.
 Accepted: `True` / `False`.
 
-On its own it usually shows **nothing**: the camera's far plane is fitted to
-the bodies and the Sun is well outside them, so the cube is clipped away. Pair
-it with `debug_light_cube_fit`, or pin `camera.projection.far` past the Sun.
+`debug_light_cube_fit` below is on by default, which is what makes the cube
+*visible* rather than merely drawn: the camera's far plane is fitted to the
+bodies, and the Sun is usually well outside them.
 
-### `debug_light_cube_fit: bool` — default `false` *(live)*
+### `debug_light_cube_fit: bool` — default `true` *(live)*
 Fit the camera's frustum around the light cube as well as the bodies, which is
-what makes `debug_light_cube_show` show something.
+what makes `debug_light_cube_show` show something. On by default for that
+reason -- asking to see the light and being shown nothing is not a useful
+default -- and inert unless the cube is being drawn.
 
 The **camera** only. The light's own frustum stays fitted to the bodies,
 because that is what the shadow map covers: stretching it to the Sun would

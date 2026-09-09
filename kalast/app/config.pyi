@@ -111,18 +111,24 @@ class Config:
     debug_light_cube_show: bool
     """Draw a cube at the light's position, so the Sun is visible.
 
-    Size comes from `light_cube_scale`. On its own this usually shows
-    nothing: the camera's far plane is fitted to the bodies, and the Sun
-    is well outside them. Turn on `debug_light_cube_fit` as well, or pin
-    `camera.projection.far` past it.
+    Size comes from `light_cube_scale`. `debug_light_cube_fit` is on by
+    default, which is what makes it *visible* rather than merely drawn:
+    the camera's far plane is fitted to the bodies, and the Sun is well
+    outside them.
     """
     debug_light_cube_fit: bool
     """Fit the camera's frustum around the light cube too, not just the
     bodies.
 
-    What makes `debug_light_cube_show` show something. Without it the Sun
-    sits past the fitted far plane and is clipped away -- correctly, since
-    the fit is about the geometry being studied.
+    What makes `debug_light_cube_show` show something, so it defaults to
+    **on**: without it the Sun sits past the fitted far plane and is
+    clipped away, and asking to see the light and being shown nothing is
+    not a useful default. Nothing happens either way unless the cube is
+    being drawn.
+
+    Turn it off to keep the frustum fitted to the geometry being studied
+    while the cube is on -- for a figure where the cube is out of frame
+    but the framing must not change.
 
     The **camera** only. The light's own frustum stays fitted to the
     bodies, because it is what the shadow map covers: stretching it to the
