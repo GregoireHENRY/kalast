@@ -54,7 +54,7 @@ pub fn is_zoomed(window: &winit::window::Window) -> bool {
 pub fn unzoom(window: &winit::window::Window) {
     if let Some(ns) = ns_window(window) {
         if ns.isZoomed() {
-            unsafe { ns.zoom(None) };
+            ns.zoom(None);
         }
     }
 }

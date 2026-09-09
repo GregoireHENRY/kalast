@@ -8,7 +8,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use pyo3::prelude::*;
 
-#[pyclass(unsendable)]
+#[pyclass(from_py_object, unsendable)]
 #[derive(Clone)]
 pub struct App {
     pub inner: Rc<RefCell<crate::app::App>>,

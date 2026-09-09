@@ -7,7 +7,7 @@ use std::sync::Arc;
 /// Build one and hand it to both `GpuTpm` and `GpuRadiance` and the
 /// temperatures never leave the GPU. Build them separately and each gets its
 /// own device, which still works but pays a round trip through host memory.
-#[pyo3::pyclass(name = "GpuContext", module = "kalast._rs.tpm.gpu")]
+#[pyo3::pyclass(from_py_object, name = "GpuContext", module = "kalast._rs.tpm.gpu")]
 #[derive(Clone)]
 pub struct GpuContext {
     pub(crate) inner: Arc<crate::gpu::Context>,

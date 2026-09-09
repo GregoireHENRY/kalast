@@ -64,6 +64,9 @@ pub struct Hemicube {
     batch: u32,
 
     render_pipeline: wgpu::RenderPipeline,
+    /// Held, not read: the pipeline was built from it, and dropping it while
+    /// the pipeline lives is not something to rely on wgpu tolerating.
+    #[allow(dead_code)]
     render_layout: wgpu::BindGroupLayout,
     render_params: wgpu::Buffer,
     render_bind: wgpu::BindGroup,
@@ -72,6 +75,8 @@ pub struct Hemicube {
     accum_layout: wgpu::BindGroupLayout,
     accum_params: wgpu::Buffer,
 
+    /// Held for the view below, which is what the passes bind.
+    #[allow(dead_code)]
     ids: wgpu::Texture,
     ids_view: wgpu::TextureView,
     depth_view: wgpu::TextureView,

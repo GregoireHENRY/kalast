@@ -61,7 +61,7 @@ fn check_cols(n: usize) -> PyResult<()> {
 /// kalast.app.Hud("{fps} fps", anchor="bottom-right")
 /// kalast.app.Hud("{hud}", x=200, y=120, size=24.0)  # absolute, no anchor needed
 /// ```
-#[pyclass(unsendable)]
+#[pyclass(from_py_object, unsendable)]
 #[derive(Clone)]
 pub struct Hud {
     /// Shared with `Config::huds` and `Simulation::huds`, so the object a
@@ -232,7 +232,7 @@ impl Hud {
 /// Separate from `simulation.config` because they answer different
 /// questions -- this one about the program you are looking at, that one about
 /// the thing being simulated.
-#[pyclass(unsendable)]
+#[pyclass(from_py_object, unsendable)]
 #[derive(Clone)]
 pub struct AppConfig {
     pub config: Rc<RefCell<crate::app::config::AppConfig>>,

@@ -7,7 +7,7 @@ use pyo3::prelude::*;
 /// sends to the detector against a flat Lambertian one at the same insolation.
 /// Multiply smooth radiance by it directly: the crater density is already
 /// inside. See `kalast::tpm::roughness` for the lineage and the caveats.
-#[pyo3::pyclass(name = "Crater", module = "kalast._rs.tpm.roughness")]
+#[pyo3::pyclass(from_py_object, name = "Crater", module = "kalast._rs.tpm.roughness")]
 #[derive(Clone)]
 pub struct Crater {
     inner: crate::tpm::roughness::Crater,

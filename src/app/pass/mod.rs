@@ -67,9 +67,12 @@ impl Passes {
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
         view: &wgpu::TextureView,
-        shadow: &super::gpu::Texture,
+        // Kept in the signature so every pass reads the same, and because
+        // the shadow map and its proxy meshes are what a pass added here
+        // would want; this one draws neither.
+        _shadow: &super::gpu::Texture,
         meshes: &[super::gpu::MeshBuffer],
-        shadow_meshes: &[Option<super::gpu::MeshBuffer>],
+        _shadow_meshes: &[Option<super::gpu::MeshBuffer>],
         config: &crate::app::config::Config,
     ) {
         self.render.render(

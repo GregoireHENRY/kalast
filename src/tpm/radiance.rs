@@ -41,6 +41,8 @@ pub struct GpuRadiance {
     readback: wgpu::Buffer,
     /// Temperatures uploaded from the host, used when no TPM is bound.
     own_temps: wgpu::Buffer,
+    /// Held for `own_bind`, which was built from it.
+    #[allow(dead_code)]
     own_params: wgpu::Buffer,
     own_bind: wgpu::BindGroup,
     /// One bind group per TPM state buffer, or none if none is bound.
