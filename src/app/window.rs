@@ -552,6 +552,20 @@ pub struct Window {
     /// time rather than stored as pixels, since the camera moves.
     pub axes_labels: Vec<super::axes::Label>,
 
+    /// Where the pointer is inside the *image*, in its pixels, or `None` when
+    /// it is off it. Written by `App` before each update, because the cursor
+    /// arrives on window events and the editor letterboxes the scene inside a
+    /// panel -- neither of which the window knows about.
+    pub pointer: Option<(f32, f32)>,
+
+    /// The navigation gizmo as laid out this frame, kept so a click can be
+    /// tested against exactly what was drawn.
+    pub gizmo: Option<super::gizmo::Gizmo>,
+    /// Its `X`, `Y`, `Z` letters: text, centre in image pixels, colour. Their
+    /// own list rather than joining the axis labels, because each carries its
+    /// own alpha -- a letter is dimmed with the ball it sits on.
+    gizmo_labels: Vec<(String, (f32, f32), [f32; 4])>,
+
     /// Where the bar landed, in pixels `(left, top, width, height)`, so the
     /// tick labels can be placed against it. `None` when it is off.
     pub colorbar_px: Option<(f32, f32, f32, f32)>,
@@ -915,6 +929,9 @@ impl Window {
             surface_config,
             is_surface_configured: false,
             axes_labels: Vec::new(),
+            pointer: None,
+            gizmo: None,
+            gizmo_labels: Vec::new(),
             colorbar_px: None,
 
             meshes,
@@ -1714,6 +1731,30 @@ impl Window {
             self.axes_labels.clear();
         }
 
+        // Laid out from the camera basis and the image size alone -- no
+        // scene, no bounds, no projection. Kept afterwards so a click lands
+        // on the ball that was drawn rather than on one recomputed slightly
+        // differently.
+        self.gizmo = if config.axes.has_gizmo() {
+            let size = (width as f32, height as f32);
+            let gizmo = super::gizmo::build(
+                &simulation.camera,
+                size,
+                config.gizmo_anchor,
+                config.gizmo_size,
+                config.gizmo_margin,
+                self.pointer,
+            );
+            self.passes
+                .gizmo
+                .upload(&self.device, &self.queue, &gizmo.vertices(size));
+            self.gizmo_labels = gizmo.labels(config.gizmo_label_color);
+            Some(gizmo)
+        } else {
+            self.gizmo_labels.clear();
+            None
+        };
+
         self.facet_labels = if config.facet_labels {
             facet_label_screen(
                 simulation,
@@ -1951,6 +1992,7 @@ impl Window {
         axis_labels: &[(String, (f32, f32))],
         facet_labels: &[(String, (f32, f32))],
         bar_labels: &[(String, (f32, f32), wgpu_text::glyph_brush::HorizontalAlign)],
+        gizmo_labels: &[(String, (f32, f32), [f32; 4])],
     ) {
         let Some(brush) = self.hud.as_mut() else {
             return;
@@ -2026,6 +2068,24 @@ impl Window {
                     wgpu_text::glyph_brush::Text::new(text)
                         .with_scale(config.axes_label_size)
                         .with_color(config.axes_label_color),
+                )
+                .with_screen_position(*pos)
+                .with_layout(
+                    wgpu_text::glyph_brush::Layout::default_single_line()
+                        .h_align(wgpu_text::glyph_brush::HorizontalAlign::Center)
+                        .v_align(wgpu_text::glyph_brush::VerticalAlign::Center),
+                )
+        }));
+
+        // Centred on the ball, and each with its own colour: the alpha
+        // carries the same dimming the ball has, so a letter on an axis
+        // pointing away does not come out as the brightest thing on screen.
+        sections.extend(gizmo_labels.iter().map(|(text, pos, color)| {
+            wgpu_text::glyph_brush::Section::default()
+                .add_text(
+                    wgpu_text::glyph_brush::Text::new(text)
+                        .with_scale(config.gizmo_label_size)
+                        .with_color(*color),
                 )
                 .with_screen_position(*pos)
                 .with_layout(
@@ -2236,27 +2296,38 @@ impl Window {
         );
 
         let facet_labels = std::mem::take(&mut self.facet_labels);
+        let gizmo_labels = self.gizmo_labels.clone();
         let any_text = huds.iter().any(|h| !h.text.is_empty())
             || !axis_labels.is_empty()
             || !facet_labels.is_empty()
-            || !bar_labels.is_empty();
+            || !bar_labels.is_empty()
+            || !gizmo_labels.is_empty();
         let render_size = (self.render_size.0 as f32, self.render_size.1 as f32);
 
-        if self.export_frame && config.export_hud && any_text {
+        // The gizmo's letters go into an exported frame whether or not the
+        // HUD does, because the widget they sit on already did: it is drawn
+        // in the render pass, into the texture the exporter copies. Lettered
+        // balls with no letters on them read as a bug, and the letters are
+        // not run state -- they are part of the picture, the way the axis
+        // tick labels are part of the axes.
+        let export_text = self.export_frame && (config.export_hud || !gizmo_labels.is_empty());
+        if export_text && any_text {
             let view = self
                 .passes
                 .render
                 .render_texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
+            let none: &[crate::app::config::Hud] = &[];
             self.draw_text_overlay(
                 &view,
                 render_size,
                 "hud export",
                 config,
-                huds,
-                &axis_labels,
-                &facet_labels,
-                &bar_labels,
+                if config.export_hud { huds } else { none },
+                if config.export_hud { &axis_labels } else { &[] },
+                if config.export_hud { &facet_labels } else { &[] },
+                if config.export_hud { &bar_labels } else { &[] },
+                &gizmo_labels,
             );
         }
 
@@ -2292,6 +2363,7 @@ impl Window {
                 &axis_labels,
                 &facet_labels,
                 &bar_labels,
+                &gizmo_labels,
             );
         }
 
@@ -2316,6 +2388,7 @@ impl Window {
                 &axis_labels,
                 &facet_labels,
                 &bar_labels,
+                &gizmo_labels,
             );
         }
 

@@ -646,13 +646,18 @@ Both are an `Eye`.
 | `target()`, `right()`, `distance_anchor()` | derived quantities |
 | `set_control_arcball()` / `set_control_wasd()` / `set_control_none()` | input mode |
 | `control_toggle()`, `is_control_*()` | same, from a script |
-| `view_along(axis, orthographic=True)` | look down `+x`/`-x`/`+y`/`-y`/`+z`/`-z` |
+| `view_along(axis, orthographic=True, positive=True)` | look down `+x`/`-x`/`+y`/`-y`/`+z`/`-z` |
 
 `view_along` is for the plane views a figure wants. It switches to an
 **orthographic** projection by default, because a perspective view of a plane
 is not measurable — the near and far sides of a crater are at different
 scales, which is why published figures of this kind are orthographic. Pass
 `orthographic=False` to keep perspective and just take the viewpoint.
+
+`positive=False` puts the eye on the other end of the axis, so
+`view_along("z", positive=False)` looks *up* at the scene from underneath.
+Those are the other three of the six views the navigation gizmo's balls stand
+for; see `CONTROLS.md`.
 
 Framing is left to the automatic frustum fit, so the eye's distance is not
 something to tune. It clears `anchor_body` if set: a plane view is about the
@@ -688,7 +693,7 @@ at a time:
 |---|---|
 | `look_anchor()` | point `dir` at `anchor`, leaving `pos` alone. No effect on the Sun, whose layers aim themselves from `pos` |
 | `set_target(p)` | set `anchor` to a point *and* look at it |
-| `view_along(axis, orthographic=True)` | look straight down an axis at the whole scene, the way a plot does. `"z"` and `"xy"` are the same call. Orthographic by default, because a profile read off a perspective view is not measurable. Needs geometry loaded |
+| `view_along(axis, orthographic=True, positive=True)` | look straight down an axis at the whole scene, the way a plot does. `"z"` and `"xy"` are the same call. Orthographic by default, because a profile read off a perspective view is not measurable. `positive=False` views from the far side. Needs geometry loaded |
 | `fix_up()` | re-orthogonalise `up` against `dir`. An `up` parallel to `dir` normalises a zero vector, and the NaN freezes the camera for good |
 | `up_world` | the reference up an arcball keeps the camera aligned to |
 

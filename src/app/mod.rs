@@ -5,6 +5,7 @@ pub mod config;
 pub mod facet_id;
 pub mod facet_shadow;
 pub mod frame;
+pub mod gizmo;
 pub mod gui;
 pub mod hosted;
 #[cfg(target_os = "macos")]
@@ -243,6 +244,11 @@ pub struct App {
     /// callbacks point at.
     loaded_example: Option<libloading::Library>,
     cursor: Option<(f64, f64)>,
+    /// Which gizmo ball the left button went down on, if any. Held until the
+    /// release, so a press that slides off the ball still counts as a click on
+    /// it -- these are small targets.
+    gizmo_press: Option<crate::app::gizmo::Ball>,
+
     /// Where the left button went down, so a click can be told from a drag:
     /// only a press and release in the same place is a selection.
     left_press: Option<(f64, f64)>,
@@ -610,6 +616,7 @@ impl App {
             stepping: false,
             loaded_example: None,
             cursor: None,
+            gizmo_press: None,
             left_press: None,
             realised: None,
             editor: None,
@@ -1368,17 +1375,23 @@ impl App {
     /// The ray is built from the same view-projection the frame was drawn
     /// with, so what is picked is what is under the cursor rather than what
     /// would be under it next frame.
-    fn select_at_cursor(&mut self) {
-        let Some((cx, cy)) = self.cursor else { return };
-        let Some(win) = self.window.as_ref() else { return };
+    /// Where the pointer is inside the *image*, in its own pixels.
+    ///
+    /// `None` when there is no cursor, no window, or the pointer is off the
+    /// image. In the editor the scene is fitted into the viewport panel and
+    /// letterboxed, so the panel rectangle is not the image rectangle -- which
+    /// is the whole reason this is not just the window position.
+    ///
+    /// Shared by facet picking and the navigation gizmo, so the two cannot
+    /// disagree about where a click landed.
+    fn cursor_in_image(&self) -> Option<(f32, f32)> {
+        let (cx, cy) = self.cursor?;
+        let win = self.window.as_ref()?;
         let (rw, rh) = win.render_size;
         if rw == 0 || rh == 0 {
-            return;
+            return None;
         }
 
-        // Where the click landed inside the *image*, 0..1. In the editor the
-        // scene is fitted into the viewport panel and letterboxed, so the
-        // panel rectangle is not the image rectangle.
         let (u, v) = match self.editor.as_ref() {
             Some(editor) if editor.viewport_rect.width() > 0.0 => {
                 let ppp = editor.scale();
@@ -1403,8 +1416,69 @@ impl App {
             }
         };
         if !(0.0..=1.0).contains(&u) || !(0.0..=1.0).contains(&v) {
+            return None;
+        }
+        Some((u * rw as f32, v * rh as f32))
+    }
+
+    /// Which gizmo ball is under the pointer, if the widget is being drawn.
+    fn gizmo_ball_at_cursor(&self) -> Option<crate::app::gizmo::Ball> {
+        let p = self.cursor_in_image()?;
+        self.window.as_ref()?.gizmo.as_ref()?.ball_at(p)
+    }
+
+    /// Whether the pointer is anywhere on the widget.
+    fn cursor_on_gizmo(&self) -> bool {
+        let Some(p) = self.cursor_in_image() else {
+            return false;
+        };
+        self.window
+            .as_ref()
+            .and_then(|w| w.gizmo.as_ref())
+            .is_some_and(|g| g.contains(p))
+    }
+
+    /// Snap to the axis-aligned view a gizmo ball stands for.
+    ///
+    /// Blender's rule, and Blender's reason: a plane view read in perspective
+    /// is not measurable, so clicking an axis also switches to orthographic.
+    /// Clicking the axis already being looked along toggles back to
+    /// perspective, which is the only way back without a script -- there is no
+    /// key bound to the projection.
+    fn view_along_ball(&mut self, ball: crate::app::gizmo::Ball) {
+        let bounds = {
+            let sim = self.simulation.borrow();
+            sim.scene_bounds()
+        };
+        let Some(bounds) = bounds else { return };
+
+        let mut sim = self.simulation.borrow_mut();
+        let axis = match ball.axis {
+            frame::Axis::X => crate::Vec3::X,
+            frame::Axis::Y => crate::Vec3::Y,
+            frame::Axis::Z => crate::Vec3::Z,
+        };
+        // The direction the eye would look in for this ball: from the ball's
+        // end of the axis back toward the scene.
+        let want = if ball.positive { -axis } else { axis };
+        let aligned = sim.camera.dir.dot(want) > 0.9999;
+        let orthographic = !(aligned
+            && sim.camera.projection.mode == frame::ProjectionMode::Orthographic);
+
+        sim.camera
+            .view_along_from(ball.axis, ball.positive, &bounds, orthographic);
+    }
+
+    fn select_at_cursor(&mut self) {
+        let Some(win) = self.window.as_ref() else { return };
+        let (rw, rh) = win.render_size;
+        if rw == 0 || rh == 0 {
             return;
         }
+        let Some((ix, iy)) = self.cursor_in_image() else {
+            return;
+        };
+        let (u, v) = (ix / rw as f32, iy / rh as f32);
 
         let (origin, dir) = {
             let sim = self.simulation.borrow();
@@ -1998,12 +2072,18 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 }
 
                 {
+                    // Before the mutable borrow of the window: this reads
+                    // the window and the editor's viewport rectangle to map a
+                    // cursor onto the image.
+                    let pointer = self.cursor_in_image();
+
                     let mut sim = self.simulation.borrow_mut();
                     let win = self.window.as_mut().unwrap();
 
                     sim.camera
                         .update_with_controller(&mut self.controller, self.dt);
 
+                    win.pointer = pointer;
                     win.update(&mut sim, &sim_cfg.borrow());
 
                     // Which iteration this frame is *for*. Running, that is
@@ -2366,10 +2446,28 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     // something and moving the camera stay distinguishable.
                     if state.is_pressed() {
                         self.left_press = self.cursor;
-                    } else if let (Some(down), Some(up)) = (self.left_press.take(), self.cursor) {
-                        let moved = (down.0 - up.0).hypot(down.1 - up.1);
-                        if moved < 4.0 && !self.controller.alt_pressed {
-                            self.select_at_cursor();
+                        // The navigation gizmo takes the press before the
+                        // scene does. It is drawn over the scene, so a click
+                        // on it is a click on it and not on whatever facet
+                        // happens to lie underneath, and a drag started on it
+                        // orbits without needing the middle button -- the same
+                        // gesture Blender's gizmo answers to.
+                        self.gizmo_press = self.gizmo_ball_at_cursor();
+                        self.controller.gizmo_pressed = self.cursor_on_gizmo()
+                            && self.simulation.borrow().camera.control
+                                == frame::Control::Arcball;
+                    } else {
+                        let ball = self.gizmo_press.take();
+                        self.controller.gizmo_pressed = false;
+                        if let (Some(down), Some(up)) = (self.left_press.take(), self.cursor) {
+                            let moved = (down.0 - up.0).hypot(down.1 - up.1);
+                            if moved >= 4.0 {
+                                // A drag, whatever it started on.
+                            } else if let Some(ball) = ball {
+                                self.view_along_ball(ball);
+                            } else if !self.controller.alt_pressed && !self.cursor_on_gizmo() {
+                                self.select_at_cursor();
+                            }
                         }
                     }
                 }

@@ -148,6 +148,29 @@ pub fn config_panel(ui: &mut egui::Ui, c: &mut Config, a: &mut AppConfig) {
             ui.label("axes_label_color").on_hover_text("");
             ui.color_edit_button_rgba_unmultiplied(&mut c.axes_label_color);
         });
+        ui.horizontal(|ui| {
+            ui.label("gizmo_anchor").on_hover_text("Which corner the navigation gizmo sits in. Any of the nine HUD anchors, so it can be moved out of the way of a colour bar or a HUD.");
+            egui::ComboBox::from_id_salt("c.gizmo_anchor")
+                .selected_text(format!("{:?}", c.gizmo_anchor))
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut c.gizmo_anchor, crate::app::config::HudAnchor::TopLeft, "TopLeft");
+                    ui.selectable_value(&mut c.gizmo_anchor, crate::app::config::HudAnchor::TopCenter, "TopCenter");
+                    ui.selectable_value(&mut c.gizmo_anchor, crate::app::config::HudAnchor::TopRight, "TopRight");
+                    ui.selectable_value(&mut c.gizmo_anchor, crate::app::config::HudAnchor::MiddleLeft, "MiddleLeft");
+                    ui.selectable_value(&mut c.gizmo_anchor, crate::app::config::HudAnchor::MiddleCenter, "MiddleCenter");
+                    ui.selectable_value(&mut c.gizmo_anchor, crate::app::config::HudAnchor::MiddleRight, "MiddleRight");
+                    ui.selectable_value(&mut c.gizmo_anchor, crate::app::config::HudAnchor::BottomLeft, "BottomLeft");
+                    ui.selectable_value(&mut c.gizmo_anchor, crate::app::config::HudAnchor::BottomCenter, "BottomCenter");
+                    ui.selectable_value(&mut c.gizmo_anchor, crate::app::config::HudAnchor::BottomRight, "BottomRight");
+                });
+        });
+        ui.add(egui::Slider::new(&mut c.gizmo_size, 16.0..=200.0).text("gizmo_size")).on_hover_text("Half the widget's width, in pixels: a ball centre never sits further than this from the middle.");
+        ui.add(egui::Slider::new(&mut c.gizmo_margin, 0.0..=200.0).text("gizmo_margin")).on_hover_text("Gap between the widget and the edge of the image, in pixels. Ignored on the axis a centre anchor centres.");
+        ui.add(egui::Slider::new(&mut c.gizmo_label_size, 4.0..=64.0).text("gizmo_label_size")).on_hover_text("Size and colour of the `X`, `Y`, `Z` letters on the positive balls. The colour's alpha is scaled by how far the ball faces the viewer, so a letter never outshines the ball it is on.");
+        ui.horizontal(|ui| {
+            ui.label("gizmo_label_color").on_hover_text("");
+            ui.color_edit_button_rgba_unmultiplied(&mut c.gizmo_label_color);
+        });
     });
     ui.collapsing("Colour bar", |ui| {
         ui.label(egui::RichText::new("colorbar: set from a script").weak())

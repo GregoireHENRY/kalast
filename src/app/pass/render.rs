@@ -191,6 +191,7 @@ impl Pass {
         light: &super::light_cube::Pass,
         axes: &super::axes::Pass,
         grid: &super::grid::Pass,
+        gizmo: &super::gizmo::Pass,
         colorbar: &super::colorbar::Pass,
         meshes: &[gpu::MeshBuffer],
         bindings: &super::Bindings,
@@ -280,6 +281,13 @@ impl Pass {
 
         if config.colorbar.enabled {
             colorbar.render(&mut render_pass, bindings);
+        }
+
+        // On top of every other overlay. It is a control, not an annotation:
+        // something that can be clicked has to be the thing under the
+        // pointer, so nothing may be drawn over it.
+        if config.axes.has_gizmo() {
+            gizmo.render(&mut render_pass);
         }
 
         // Last, and after the overlays as much as after the bodies -- none of

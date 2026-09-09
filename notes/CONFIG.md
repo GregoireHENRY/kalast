@@ -1172,8 +1172,8 @@ Draw a measured frame around the scene, in one of four styles.
 | `off` | nothing |
 | `box` | closed box, ticked on the near edges — MATLAB's `box on`; every edge is a ruler |
 | `panes` | the three far panes, gridded, ticks on their outer edges — matplotlib's `Axes3D`; reads as a room the body sits in, so the grid gives depth cues a bare box does not |
-| `gizmo` | three labelled arrows at the origin and nothing else — for fly-throughs, where a box would occlude the subject every time the camera swings |
-| `blender` | ground grid on XY with the Z axis picked out, as Blender's viewport. The grid is infinite and shaded per pixel unless `grid` is `False` |
+| `gizmo` | the navigation gizmo in a corner and nothing in the scene — for fly-throughs, where a box would occlude the subject every time the camera swings |
+| `blender` | ground grid on XY with the Z axis picked out and the navigation gizmo in a corner, as Blender's viewport. The grid is infinite and shaded per pixel unless `grid` is `False` |
 
 Accepted: those names; anything else raises `ValueError` listing them.
 
@@ -1245,6 +1245,55 @@ sets how strongly a line reads against the background.
 Fade the grid out between these grazing factors: `0.0` is looking straight
 down at the ground plane and `1.0` is looking along it. Without the fade the
 horizon is a hard line of aliasing.
+
+---
+
+## The navigation gizmo
+
+Drawn by the `"gizmo"` and `"blender"` axes styles, and by no other. Six balls
+in a corner of the image — `+X +Y +Z` filled and lettered, `-X -Y -Z` as
+rings — laid out from the camera basis, drawn back to front, and darkened with
+depth so which end of an axis is nearer reads at a glance.
+
+It is a control as well as a readout; the gestures are in `CONTROLS.md`.
+
+**It used to be three arrows at the world origin.** Those were only readable
+when the origin was in shot and not behind the body, they grew and shrank with
+the zoom, and they could not be clicked. Nothing replaces them in the scene:
+under `"blender"` the ground grid already draws coloured X and Y lines through
+the origin and the Z axis is picked out as a vertical line.
+
+**The letters go into exported frames** whether or not `export_hud` does,
+because the balls they sit on already do — the widget is drawn in the render
+pass, into the texture the exporter copies, so lettered balls with no letters
+on them would read as a bug. Everything else in `export_hud`'s remit is
+unaffected.
+
+### `gizmo_anchor: str` — default `"top-left"` *(live)*
+Which corner it sits in. The nine HUD anchor names, so it can be moved clear
+of a colour bar or a HUD: `"top-left"`, `"top-center"`, `"top-right"`,
+`"middle-left"`, `"middle-center"`, `"middle-right"`, `"bottom-left"`,
+`"bottom-center"`, `"bottom-right"`. Hyphen, underscore and space all parse.
+
+### `gizmo_size: float` — default `54.0` *(live)*
+Half the widget's width in pixels: a ball centre never sits further than this
+from the middle, so the whole thing is `2 * gizmo_size` across and a corner
+anchor never puts half a ball off the image. Balls are `0.26` of it.
+
+In pixels, not a fraction of the image, so it stays the same size on screen as
+the window is resized — like the HUD text and unlike anything in the scene.
+
+### `gizmo_margin: float` — default `18.0` *(live)*
+Gap between the widget and the edge of the image. Ignored on whichever axis a
+centre anchor centres.
+
+### `gizmo_label_size: float` — default `13.0` *(live)*
+### `gizmo_label_color: list[float]` — default `(0.08, 0.08, 0.10, 1.0)` *(live)*
+The `X`, `Y`, `Z` letters on the positive balls. Dark by default because they
+are read against their own ball rather than against the scene, and every ball
+colour is light enough to carry them. One colour for all three: the ball is
+already shaded by depth, and shading the letter too would take the contrast
+away twice over.
 
 ---
 

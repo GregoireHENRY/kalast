@@ -1,6 +1,7 @@
 pub mod colorbar;
 pub mod axes;
 pub mod depth;
+pub mod gizmo;
 pub mod grid;
 pub mod light_cube;
 pub mod render;
@@ -13,6 +14,7 @@ pub struct Passes {
     pub light_cube: light_cube::Pass,
     pub axes: axes::Pass,
     pub grid: grid::Pass,
+    pub gizmo: gizmo::Pass,
     pub colorbar: colorbar::Pass,
 
     pub depth: depth::Pass,
@@ -46,6 +48,7 @@ impl Passes {
             light_cube: light_cube::Pass::new(device, format, &layouts_all, samples),
             axes: axes::Pass::new(device, format, &layouts_all, samples),
             grid: grid::Pass::new(device, format, samples),
+            gizmo: gizmo::Pass::new(device, format, samples),
             colorbar: colorbar::Pass::new(device, format, &layouts_all, samples),
 
             depth: depth::Pass::new(device, size.0, size.1, format),
@@ -102,6 +105,7 @@ impl Passes {
             &mut self.light_cube,
             &self.axes,
             &self.grid,
+            &self.gizmo,
             &self.colorbar,
             meshes,
             &self.bindings,

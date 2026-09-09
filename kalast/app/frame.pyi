@@ -90,7 +90,7 @@ class Eye:
     def set_target(self, target: list[float]) -> None:
         """Set `anchor` to a point *and* look at it, in one call."""
         ...
-    def view_along(self, axis: str, orthographic: bool) -> None:
+    def view_along(self, axis: str, orthographic: bool, positive: bool) -> None:
         """Look straight down an axis at the whole scene, the way a plot does.
 
         `axis` names either the axis looked along or the plane looked at, since
@@ -109,6 +109,11 @@ class Eye:
 
         Does nothing if there is no geometry loaded yet -- call it after the
         meshes.
+
+        `positive` picks which end of the axis the eye sits on. `False` is the
+        view from the far side -- `("z", positive=False)` looks *up* at the
+        scene from underneath -- which is the other three of the six views the
+        navigation gizmo's balls stand for.
         """
         ...
 

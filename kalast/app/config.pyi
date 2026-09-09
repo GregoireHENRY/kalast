@@ -469,6 +469,18 @@ class Config:
     """Where it reaches nothing."""
     axes: str
     """(ground grid, Z line and gizmo)."""
+    gizmo_anchor: str
+    """Which corner the navigation gizmo sits in: any of the nine HUD
+    anchor names.
+    """
+    gizmo_size: float
+    """Half the navigation gizmo's width, in pixels."""
+    gizmo_margin: float
+    """Gap between the gizmo and the edge of the image, in pixels."""
+    gizmo_label_size: float
+    """Size of the `X`, `Y`, `Z` letters on the gizmo, in pixels."""
+    gizmo_label_color: list[float]
+    """Colour of the gizmo's letters, `(r, g, b, a)`."""
     axes_color: list[float]
     """Colour of the axis lines and grid, `(r, g, b)`."""
     axes_ticks: int

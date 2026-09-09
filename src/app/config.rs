@@ -877,6 +877,26 @@ pub struct Config {
     pub axes_label_size: f32,
     pub axes_label_color: [f32; 4],
 
+    /// Which corner the navigation gizmo sits in. Any of the nine HUD
+    /// anchors, so it can be moved out of the way of a colour bar or a HUD.
+    ///
+    /// Drawn by the `"gizmo"` and `"blender"` axes styles and by no other.
+    pub gizmo_anchor: HudAnchor,
+    /// Half the widget's width, in pixels: a ball centre never sits further
+    /// than this from the middle.
+    /// :range: 16.0..=200.0
+    pub gizmo_size: f32,
+    /// Gap between the widget and the edge of the image, in pixels. Ignored
+    /// on the axis a centre anchor centres.
+    /// :range: 0.0..=200.0
+    pub gizmo_margin: f32,
+    /// Size and colour of the `X`, `Y`, `Z` letters on the positive balls.
+    /// The colour's alpha is scaled by how far the ball faces the viewer, so
+    /// a letter never outshines the ball it is on.
+    /// :range: 4.0..=64.0
+    pub gizmo_label_size: f32,
+    pub gizmo_label_color: [f32; 4],
+
     /// Treat alt + left-drag as a middle-drag, so the arcball can be orbited
     /// on hardware with no middle button. Blender calls the same setting
     /// "Emulate 3 Button Mouse". Defaults on for macOS, where a trackpad is
@@ -984,6 +1004,13 @@ impl Default for Config {
             axes_unit: String::new(),
             axes_label_size: 13.0,
             axes_label_color: [0.85, 0.85, 0.85, 1.0],
+            gizmo_anchor: HudAnchor::TopLeft,
+            gizmo_size: 54.0,
+            gizmo_margin: 18.0,
+            gizmo_label_size: 13.0,
+            // Dark, because it is read against the ball rather than against
+            // the scene, and every ball colour is light enough to carry it.
+            gizmo_label_color: [0.08, 0.08, 0.10, 1.0],
 
             value_min: None,
             value_max: None,

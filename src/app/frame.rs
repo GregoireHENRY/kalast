@@ -472,6 +472,21 @@ impl Eye {
     /// orthographic. It is not forced, because a perspective axis view is
     /// still useful for looking around.
     pub fn view_along(&mut self, axis: Axis, bounds: &crate::mesh::Aabb, orthographic: bool) {
+        self.view_along_from(axis, true, bounds, orthographic);
+    }
+
+    /// `view_along` from either end of the axis.
+    ///
+    /// The navigation gizmo needs both: its six balls are the six axis-aligned
+    /// views, and `-Z` -- looking up at the scene from underneath -- is not
+    /// reachable from `view_along` alone.
+    pub fn view_along_from(
+        &mut self,
+        axis: Axis,
+        positive: bool,
+        bounds: &crate::mesh::Aabb,
+        orthographic: bool,
+    ) {
         let centre = bounds.center();
         // Any offset works; the projection is fitted afterwards. Tie it to the
         // scene so it is never inside the geometry.
@@ -484,6 +499,10 @@ impl Eye {
             Axis::Y => (Vec3::NEG_Y, Vec3::Z),
             Axis::Z => (Vec3::NEG_Z, Vec3::Y),
         };
+        // Viewed from the far side the eye is on the other end of the axis
+        // looking the other way; `up` is left alone, so the two views of a
+        // plane are mirror images rather than one of them being upside down.
+        let eye_dir = if positive { eye_dir } else { -eye_dir };
 
         self.pos = centre - eye_dir * back;
         self.dir = eye_dir;
@@ -766,6 +785,12 @@ pub struct Controller {
     pub left_pressed: bool,
     pub alt_pressed: bool,
 
+    /// A left-drag that began on the navigation gizmo, which orbits wherever
+    /// the pointer then goes. Blender's gizmo behaves the same way, and the
+    /// alternative -- requiring the middle button over a widget whose whole
+    /// point is being clickable -- is not a gesture anyone would find.
+    pub gizmo_pressed: bool,
+
     /// Treat alt + left-drag as a middle-drag, for hardware with no middle
     /// button -- a trackpad. Blender calls this "Emulate 3 Button Mouse".
     pub emulate_middle_button: bool,
@@ -799,6 +824,7 @@ impl Controller {
             shift_pressed: false,
             left_pressed: false,
             alt_pressed: false,
+            gizmo_pressed: false,
             emulate_middle_button: cfg!(target_os = "macos"),
             sensitivity_move,
             sensitivity_look,
@@ -857,7 +883,9 @@ impl Controller {
     /// Whether the pointer is currently in an orbit/pan drag: the middle
     /// button, or alt + left when middle-button emulation is on.
     pub fn is_dragging(&self) -> bool {
-        self.middle_pressed || (self.emulate_middle_button && self.left_pressed && self.alt_pressed)
+        self.gizmo_pressed
+            || self.middle_pressed
+            || (self.emulate_middle_button && self.left_pressed && self.alt_pressed)
     }
 
     /// Routes a pointer drag to orbit or pan depending on the shift key.
@@ -1162,6 +1190,46 @@ mod tests {
     /// A trackpad has no middle button, so alt + left has to stand in for it
     /// -- otherwise the arcball cannot be orbited at all on that hardware,
     /// which is exactly what regressed when drag-to-orbit was introduced.
+    #[test]
+    fn a_left_drag_started_on_the_gizmo_orbits_without_a_modifier() {
+        let mut ctrl = controller();
+        // No middle button emulation, no alt: on a plain three-button mouse a
+        // left drag is not an orbit anywhere else on the image.
+        ctrl.emulate_middle_button = false;
+        ctrl.left_pressed = true;
+        assert!(!ctrl.is_dragging());
+
+        ctrl.gizmo_pressed = true;
+        assert!(
+            ctrl.is_dragging(),
+            "a drag begun on the navigation gizmo orbits, as Blender's does"
+        );
+
+        ctrl.gizmo_pressed = false;
+        assert!(!ctrl.is_dragging(), "and stops when the button is released");
+    }
+
+    #[test]
+    fn the_negative_end_of_an_axis_looks_back_the_other_way() {
+        let bounds = crate::mesh::Aabb {
+            min: Vec3::splat(-1.0),
+            max: Vec3::splat(1.0),
+        };
+
+        let mut from_above = Eye::new();
+        from_above.view_along_from(Axis::Z, true, &bounds, true);
+        let mut from_below = Eye::new();
+        from_below.view_along_from(Axis::Z, false, &bounds, true);
+
+        assert!((from_above.dir - Vec3::NEG_Z).length() < 1e-6);
+        assert!((from_below.dir - Vec3::Z).length() < 1e-6);
+        assert!(from_above.pos.z > 0.0, "looking down from the +Z side");
+        assert!(from_below.pos.z < 0.0, "and up from the -Z side");
+        // The plane view is orthographic when asked for, whichever end it is
+        // seen from: a profile read in perspective is not measurable.
+        assert_eq!(from_below.projection.mode, ProjectionMode::Orthographic);
+    }
+
     #[test]
     fn alt_left_drag_substitutes_for_the_middle_button() {
         let mut ctrl = controller();

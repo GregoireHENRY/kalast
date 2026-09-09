@@ -122,6 +122,46 @@ Both are modifiers rather than actions: they change what a pointer drag does in
 Arcball mode. `Left Shift` turns an orbit into a pan; `Option` makes a left
 drag act as a middle drag. See the next section.
 
+## The navigation gizmo
+
+Shown by `config.axes = "gizmo"` and `"blender"`, in the corner
+`config.gizmo_anchor` names. Six balls: `+X +Y +Z` filled and lettered,
+`-X -Y -Z` as rings.
+
+| Gesture | Does |
+|---|---|
+| Click a ball | Look straight down that axis, and switch to orthographic |
+| Click the ball already being looked along | Toggle back to perspective |
+| Left-drag anywhere on the widget | Orbit — no middle button, no `Option` |
+| Hover a ball | Lightens it; a ring fills in, to show it can be clicked |
+
+**Left-drag orbits here and nowhere else.** Everywhere else on the image a
+plain left-drag is not a camera gesture: orbiting needs the middle button, or
+`Option` where `emulate_middle_button` is on. Requiring a modifier over a
+widget whose whole point is being clickable is not a gesture anyone would
+find, and Blender's gizmo does not either.
+
+**The gizmo takes the click before the scene does.** A press anywhere on the
+widget starts a gizmo gesture rather than a facet pick, so the axis views stay
+reachable over a body. Clicks elsewhere are unaffected — the widget is a
+`gizmo_size`-radius disc in one corner and nothing outside it changes.
+
+**Clicking an axis also switches to orthographic**, which is Blender's
+behaviour and for the reason `Eye::view_along` was written: a plane view read
+in perspective is not measurable, near rim and far rim being at different
+scales. Since no key is bound to the projection, clicking the axis already
+being looked along is the way back — it toggles perspective and orthographic
+without moving the camera.
+
+The negative balls are not decoration: `-Z` looks *up* at the scene from
+underneath, which `sim.camera.view_along("z")` cannot reach on its own. In
+Rust that is `Eye::view_along_from(axis, positive, bounds, orthographic)`.
+
+Handled in `src/app/mod.rs` (`window_event`, `view_along_ball`) with the
+layout and hit-testing in `src/app/gizmo.rs`, which is pure arithmetic on the
+camera basis and is unit-tested — the same `Gizmo` is used to draw the widget
+and to test a click, so the picture and the click target cannot drift apart.
+
 ## Selecting facets
 
 | Gesture | Does |
@@ -131,6 +171,9 @@ drag act as a middle drag. See the next section.
 A *click*, not a drag: press and release within four pixels. Anything longer
 is a camera gesture, so `Option` + drag still orbits and a plain drag is still
 free for whatever the control mode does with it.
+
+Not on the navigation gizmo, which takes a press over itself first — see
+above.
 
 The facet turns `config.selection_color` (yellow by default) and is drawn
 unlit, while the rest of the body keeps its shading — the shader honours a
@@ -168,6 +211,7 @@ per-facet work wants anyway.
 | Middle-drag | Orbit around `camera.anchor` |
 | `Shift` + middle-drag | Pan; moves eye and anchor together |
 | Scroll wheel | Zoom |
+| Left-drag on the navigation gizmo | Orbit — see above |
 
 **With a trackpad**, or any pointer without a middle button:
 

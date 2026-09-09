@@ -251,8 +251,13 @@ impl Eye {
     ///
     /// Does nothing if there is no geometry loaded yet -- call it after the
     /// meshes.
-    #[pyo3(signature = (axis, orthographic = true))]
-    fn view_along(&self, axis: &str, orthographic: bool) -> PyResult<()> {
+    ///
+    /// `positive` picks which end of the axis the eye sits on. `False` is the
+    /// view from the far side -- `("z", positive=False)` looks *up* at the
+    /// scene from underneath -- which is the other three of the six views the
+    /// navigation gizmo's balls stand for.
+    #[pyo3(signature = (axis, orthographic = true, positive = true))]
+    fn view_along(&self, axis: &str, orthographic: bool, positive: bool) -> PyResult<()> {
         let parsed = crate::app::frame::Axis::parse(axis).ok_or_else(|| {
             pyo3::exceptions::PyValueError::new_err(format!(
                 "unknown axis {axis:?}: expected x, y, z, or a plane like xy, yz, zx"
@@ -264,7 +269,7 @@ impl Eye {
             return Ok(());
         };
 
-        self.with_mut(|e| e.view_along(parsed, &bounds, orthographic));
+        self.with_mut(|e| e.view_along_from(parsed, positive, &bounds, orthographic));
         Ok(())
     }
 

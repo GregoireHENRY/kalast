@@ -41,6 +41,7 @@ GROUPS = [
     ("debug_", "Debug"),
     ("shadow_", "Shadows"),
     ("axes", "Axes"),
+    ("gizmo", "Axes"),
     ("colorbar", "Colour bar"),
     ("wireframe_", "Wireframe"),
     ("export_", "Export"),

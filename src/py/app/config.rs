@@ -1125,6 +1125,68 @@ impl Config {
         Ok(())
     }
 
+    /// Which corner the navigation gizmo sits in: any of the nine HUD
+    /// anchor names.
+    #[getter]
+    fn gizmo_anchor(&self) -> String {
+        self.config.borrow().gizmo_anchor.name().to_string()
+    }
+
+    #[setter]
+    fn set_gizmo_anchor(&mut self, v: &str) -> PyResult<()> {
+        let anchor = crate::app::config::HudAnchor::parse(v).ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "unknown anchor {v:?}: expected one of top-left, top-center,                  top-right, middle-left, middle-center, middle-right,                  bottom-left, bottom-center, bottom-right"
+            ))
+        })?;
+        self.config.borrow_mut().gizmo_anchor = anchor;
+        Ok(())
+    }
+
+    /// Half the navigation gizmo's width, in pixels.
+    #[getter]
+    fn gizmo_size(&self) -> f32 {
+        self.config.borrow().gizmo_size
+    }
+
+    #[setter]
+    fn set_gizmo_size(&mut self, v: f32) {
+        self.config.borrow_mut().gizmo_size = v;
+    }
+
+    /// Gap between the gizmo and the edge of the image, in pixels.
+    #[getter]
+    fn gizmo_margin(&self) -> f32 {
+        self.config.borrow().gizmo_margin
+    }
+
+    #[setter]
+    fn set_gizmo_margin(&mut self, v: f32) {
+        self.config.borrow_mut().gizmo_margin = v;
+    }
+
+    /// Size of the `X`, `Y`, `Z` letters on the gizmo, in pixels.
+    #[getter]
+    fn gizmo_label_size(&self) -> f32 {
+        self.config.borrow().gizmo_label_size
+    }
+
+    #[setter]
+    fn set_gizmo_label_size(&mut self, v: f32) {
+        self.config.borrow_mut().gizmo_label_size = v;
+    }
+
+    /// Colour of the gizmo's letters, `(r, g, b, a)`.
+    #[getter]
+    fn gizmo_label_color(&self) -> [f32; 4] {
+        self.config.borrow().gizmo_label_color
+    }
+
+    #[setter]
+    fn set_gizmo_label_color(&mut self, v: [f32; 4]) {
+        self.config.borrow_mut().gizmo_label_color = v;
+    }
+
     /// Colour of the axis lines and grid, `(r, g, b)`.
     #[getter]
     fn axes_color(&self) -> [f32; 3] {

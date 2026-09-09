@@ -23,13 +23,13 @@ pub enum AxesStyle {
     /// matplotlib's `Axes3D`. Reads as a room the body sits in, so the grid
     /// gives depth cues a bare box does not.
     Panes,
-    /// Three labelled arrows at the origin and nothing else. For fly-throughs
-    /// and movies, where a box would occlude the subject every time the camera
-    /// swings.
+    /// The navigation gizmo in a corner and nothing in the scene. For
+    /// fly-throughs and movies, where a box would occlude the subject every
+    /// time the camera swings.
     Gizmo,
-    /// Blender's viewport: a ground grid on the XY plane, the Z axis picked
-    /// out as a vertical line, plus the corner gizmo. Best for judging
-    /// orientation while moving around a scene.
+    /// Blender's viewport: an infinite ground grid on the XY plane, the Z
+    /// axis picked out as a vertical line, plus the navigation gizmo in a
+    /// corner. Best for judging orientation while moving around a scene.
     Blender,
 }
 
@@ -43,6 +43,15 @@ impl AxesStyle {
             "blender" | "grid" => Some(Self::Blender),
             _ => None,
         }
+    }
+
+    /// Whether this style shows the corner navigation gizmo.
+    ///
+    /// Two styles do, and both draw it the same way -- it is a widget over
+    /// the image rather than part of the frame around the scene, so nothing
+    /// about it depends on which of the two asked for it.
+    pub fn has_gizmo(&self) -> bool {
+        matches!(self, Self::Gizmo | Self::Blender)
     }
 
     pub fn name(&self) -> &'static str {
@@ -167,9 +176,9 @@ fn seg(out: &mut Vec<LineVertex>, a: Vec3, b: Vec3, c: [f32; 3]) {
     });
 }
 
-const AXIS_X: [f32; 3] = [0.90, 0.25, 0.25];
-const AXIS_Y: [f32; 3] = [0.35, 0.80, 0.35];
-const AXIS_Z: [f32; 3] = [0.35, 0.50, 0.95];
+pub const AXIS_X: [f32; 3] = [0.90, 0.25, 0.25];
+pub const AXIS_Y: [f32; 3] = [0.35, 0.80, 0.35];
+pub const AXIS_Z: [f32; 3] = [0.35, 0.50, 0.95];
 
 /// Builds the geometry for `style` around `bounds`.
 ///
@@ -363,29 +372,13 @@ pub fn build(
                 );
             }
 
-            // The gizmo itself: three arrows from the origin, long enough to
-            // read against the body without swamping it.
-            let len = bounds.radius() * 0.35;
-            let o = Vec3::ZERO;
-            for (dir, color, name) in [
-                (Vec3::X, AXIS_X, "X"),
-                (Vec3::Y, AXIS_Y, "Y"),
-                (Vec3::Z, AXIS_Z, "Z"),
-            ] {
-                let tip = o + dir * len;
-                seg(&mut lines, o, tip, color);
-                // Two barbs, in the plane that faces the reader most of the
-                // time. A cone would need triangles.
-                let side = if dir == Vec3::Z { Vec3::X } else { Vec3::Z };
-                let barb = len * 0.15;
-                seg(&mut lines, tip, tip - dir * barb + side * barb * 0.5, color);
-                seg(&mut lines, tip, tip - dir * barb - side * barb * 0.5, color);
-                labels.push(Label {
-                    world: tip + dir * (len * 0.12),
-                    text: name.to_string(),
-                    unit: false,
-                });
-            }
+            // Nothing else in the scene: the gizmo itself is a corner
+            // widget now, drawn over the image rather than at the origin.
+            //
+            // It used to be three arrows standing at the world origin, which
+            // is only readable when the origin is in shot and not behind the
+            // body, changed size with the zoom, and could not be clicked.
+            // See `crate::app::gizmo`.
         }
     }
 

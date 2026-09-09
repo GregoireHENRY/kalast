@@ -50,6 +50,9 @@ pub fn to_cols_f32(m: crate::Mat4) -> [[f32; 4]; 4] {
 pub const SHADER_GRID: wgpu::ShaderModuleDescriptor =
     wgpu::include_wgsl!("../../shaders/grid.wgsl");
 
+pub const SHADER_GIZMO: wgpu::ShaderModuleDescriptor =
+    wgpu::include_wgsl!("../../shaders/gizmo.wgsl");
+
 pub const SHADER_LIGHT_RENDER: wgpu::ShaderModuleDescriptor =
     wgpu::include_wgsl!("../../shaders/light_render.wgsl");
 
