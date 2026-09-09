@@ -116,6 +116,47 @@ of the two candidate explanations was right, and the dynamic-offset change is
 kept because a layer index that is a pass parameter is the prerequisite for
 either.
 
+## The same passes on a real scene
+
+The numbers above are twelve-facet cubes, chosen so that per-pass overhead is
+the only thing left in them. That answers "how big is the overhead" and says
+nothing about what share of a real frame it is, so: Didymos and Dimorphos at
+full resolution, 3,145,728 facets each, mutual shadowing on, medians over 300
+frames.
+
+| scene | shadow | render | span | frame | rate |
+|---|---|---|---|---|---|
+| 12-facet cube, 1 body | 1.63 | 1.76 | 1.81 | 3.53 | 283 it/s |
+| 12-facet cube, 2 bodies | 2.39 | 1.49 | 1.94 | 3.07 | 325 it/s |
+| 3.1M, 1 body, 100k shadow proxy | 2.29 | 9.93 | 9.94 | 10.05 | 100 it/s |
+| 3.1M, 1 body, no proxy | 9.87 | 13.65 | 15.82 | 15.84 | 63 it/s |
+| 6.3M, 2 bodies, proxies | 6.53 | 15.58 | 17.32 | 17.39 | 58 it/s |
+| 6.3M, 2 bodies, no proxy | 28.53 | 20.27 | 34.17 | 34.54 | 29 it/s |
+
+Three things follow, and only the first was expected.
+
+**Per-pass overhead is a *smaller* share of a real frame, not a larger one.**
+The fixed cost is ~1.5 ms of residency per pass and does not grow with
+geometry, so at 6.3M facets it is at most a few percent of a 34.5 ms frame.
+Multiview or a shadow atlas removes one pass out of two here. It is worth
+single-digit percent on this scene, against roughly half the frame on the
+cube -- which is the opposite of the direction that made it look attractive.
+Neither is worth building for the Hera case on these numbers.
+
+**`shadow_path` proxies are worth 2x the whole frame.** 28.53 ms of shadow
+passes becomes 6.53 with a 100k stand-in, and the frame goes 34.54 -> 17.39
+ms. That is the lever, it already exists, and it dwarfs anything the pass
+structure can offer.
+
+**The shadow pass is quadratic in bodies.** Each layer draws every mesh --
+that is what keeps mutual shadowing -- so two bodies is four body-draws, and
+`shadow` goes 9.87 -> 28.53 accordingly. With two bodies both draws are
+genuinely needed. With more, per-layer occluder culling would matter far more
+than how the passes are packaged.
+
+View factors are untouched by any of this: the hemicube path is compute, runs
+on request rather than per frame, and is not instrumented here.
+
 ## Not covered
 
 The compute passes -- view factors, per-facet occlusion, the GPU

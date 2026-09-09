@@ -1243,6 +1243,14 @@ wall-clock timing could have. Collapsing the passes themselves -- multiview,
 which this adapter supports, or a shadow atlas with a viewport per body -- is
 what would remove it, and is not attempted.
 
+Measured afterwards on the real scene, which changes the recommendation:
+Didymos and Dimorphos at 3.1M facets each spend 28.5 ms of a 34.5 ms frame in
+shadow passes, of which the fixed per-pass cost is a few percent. So
+multiview would be worth single digits there, against roughly half the frame
+on the cube. What *is* worth having is already built: `shadow_path` proxies
+take the shadow passes from 28.5 ms to 6.5 and the frame from 34.5 to 17.4,
+a 2x on the whole frame.
+
 `notes/2026-09-09_gpu_pass_timings.md` has the mechanism, the measurements
 and the two bugs the editor path exposed.
 
