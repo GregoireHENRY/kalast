@@ -250,7 +250,20 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
     // it pins to the nearest, so it occludes them -- which is what ground
     // between you and the scene should do. The pass writes no depth, so
     // nothing downstream inherits the pinned value.
-    out.depth = clamp(clip.z / clip.w, 0.0, 1.0);
+    //
+    // The floor is an epsilon above the far value, not the far value itself,
+    // and that is the whole difference between an infinite plane and one that
+    // stops. Depth is reversed here: far is 0.0, the buffer is *cleared* to
+    // 0.0, and the test is `Greater`. So clamping to exactly 0.0 pinned every
+    // fragment past the far plane onto the clear value, where `0.0 > 0.0` is
+    // false and the depth test threw it away -- against empty background, not
+    // against any geometry. The grid looked like it was being clipped to the
+    // far plane because it effectively was, by the depth test rather than by
+    // the frustum, and no amount of widening the obliquity fade moved the
+    // edge. Real geometry sits far above this floor (reversed depth at the
+    // far plane is near/far, ~1e-3 for the ratios fitted here), so a body
+    // still wins everywhere it should.
+    out.depth = clamp(clip.z / clip.w, 1e-7, 1.0);
     out.color = vec4<f32>(col, a);
     return out;
 }
