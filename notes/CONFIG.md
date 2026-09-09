@@ -237,9 +237,21 @@ The **camera** only. The light's own frustum stays fitted to the bodies,
 because that is what the shadow map covers: stretching it to the Sun would
 spend the whole map on empty space and leave the bodies a few texels across.
 
-Costs depth precision — a far plane at the Sun rather than at the body's edge
-is a far longer near-to-far span. For looking at where the light is, not for a
-figure.
+It costs some depth precision: a far plane at the Sun rather than at the
+body's edge is a much longer near-to-far span. It used to cost far more than
+that. The cube's box was **merged into the scene bounds with a union**, and a
+box spanning the scene *and* the Sun has corners out in empty space — nearer
+the eye than any geometry, and in the crater example behind the eye entirely.
+The near plane was fitted to one of those and collapsed from 1.17 to 0.000028,
+which is no depth precision at all: the crater's flat plane and the bowl's
+back face, nearly tangent where they meet, z-fought into a dashed grey line.
+
+Each box is fitted from its own corners now, and the near plane's floor is a
+thousandth of the far plane rather than a hundred-thousandth. A marker beyond
+the scene extends `far` and leaves `near` where the scene put it; the cube
+stays visible when it is the nearest thing. Guarded by two tests in
+`src/app/frame.rs`.
+
 Accepted: `True` / `False`.
 
 ---

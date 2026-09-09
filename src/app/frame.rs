@@ -455,7 +455,12 @@ impl Eye {
     /// shadow-map texels. Without that the fitted box slides continuously as
     /// the light moves and the shadow edge crawls between texels from frame to
     /// frame -- the stabilisation step from the standard shadow-map recipe.
-    pub fn fit_projection(&mut self, bounds: &crate::mesh::Aabb, shadow_texels: Option<u32>) {
+    pub fn fit_projection(
+        &mut self,
+        bounds: &crate::mesh::Aabb,
+        extra: Option<&crate::mesh::Aabb>,
+        shadow_texels: Option<u32>,
+    ) {
         if bounds.is_empty() {
             self.projection.resolve_manual();
             return;
@@ -472,6 +477,24 @@ impl Eye {
         let mut half_h: Float = 0.0;
 
         for corner in bounds.corners() {
+            let p = view.transform_point3(corner);
+            let d = -p.z;
+
+            min_d = min_d.min(d);
+            max_d = max_d.max(d);
+            half_w = half_w.max(p.x.abs());
+            half_h = half_h.max(p.y.abs());
+        }
+
+        // A second box to fit as well -- the debug light cube, which sits at
+        // the Sun. Its own corners, deliberately, rather than a union with
+        // `bounds`: a box spanning the scene *and* the Sun has corners out in
+        // empty space, and fitting to those moved the near plane and the
+        // frustum width to a place no geometry occupies. On the crater that
+        // put `near` at 2.8e-5 against a far of 2.8, which is no depth
+        // precision at all, and the plane began z-fighting with the bowl
+        // beneath it.
+        for corner in extra.iter().flat_map(|b| b.corners()) {
             let p = view.transform_point3(corner);
             let d = -p.z;
 
@@ -545,7 +568,13 @@ impl Eye {
                 // precision collapses. Tie its floor to the scene scale
                 // rather than a fixed epsilon so this works at any units.
                 let far = (max_d * margin).max(Float::EPSILON);
-                let near = (min_d / margin).max(far * 1e-5);
+                // The floor matters more than it looks. `near / far` is what
+                // sets depth precision, and at 1e-5 there is effectively none
+                // -- surfaces that meet at a grazing angle z-fight. It is a
+                // floor, so it only applies where the scene itself gives
+                // nothing better: geometry surrounding the eye, which is what
+                // a negative `min_d` means.
+                let near = (min_d / margin).max(far * 1e-3);
 
                 Resolved {
                     near,
@@ -796,6 +825,70 @@ mod tests {
         eye.anchor = Vec3::ZERO;
         eye.look_anchor();
         eye
+    }
+
+    fn aabb(min: [Float; 3], max: [Float; 3]) -> crate::mesh::Aabb {
+        crate::mesh::Aabb {
+            min: Vec3::new(min[0], min[1], min[2]),
+            max: Vec3::new(max[0], max[1], max[2]),
+        }
+    }
+
+    /// The debug light cube must not move the near plane to somewhere no
+    /// geometry is.
+    ///
+    /// It used to be merged into the scene bounds with a union, and a box
+    /// spanning both the scene and the Sun has corners out in empty space --
+    /// nearer the eye than anything real, and off to the side of everything.
+    /// Fitting to those cost the crater example all its depth precision.
+    /// Fitted from each box's own corners, a marker further away than the
+    /// scene leaves `near` exactly where the scene put it.
+    #[test]
+    fn a_far_marker_extends_far_and_leaves_near_alone() {
+        let scene = aabb([-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]);
+        // Beyond the scene along the view axis: `eye_at_distance` looks
+        // from -Y towards the origin.
+        let marker = aabb([-1.0, 99.0, -1.0], [1.0, 101.0, 1.0]);
+
+        let mut alone = eye_at_distance(5.0);
+        alone.fit_projection(&scene, None, None);
+        let alone = alone.projection.resolved();
+
+        let mut with_marker = eye_at_distance(5.0);
+        with_marker.fit_projection(&scene, Some(&marker), None);
+        let with_marker = with_marker.projection.resolved();
+
+        assert!(
+            (with_marker.near - alone.near).abs() < 1e-6,
+            "near moved: {} -> {}",
+            alone.near,
+            with_marker.near
+        );
+        assert!(
+            with_marker.far > alone.far,
+            "far should reach the marker: {} -> {}",
+            alone.far,
+            with_marker.far
+        );
+    }
+
+    /// A near plane is only useful in proportion to the far plane: `near/far`
+    /// is what depth precision is made of, and at 1e-5 there is none. The
+    /// floor applies where the scene surrounds the eye and offers nothing
+    /// better -- which is exactly when z-fighting shows up.
+    #[test]
+    fn the_near_floor_keeps_depth_precision_when_the_eye_is_inside() {
+        let mut eye = eye_at_distance(1.0);
+        // Wide enough that the eye sits inside it, so the nearest corner is
+        // behind the eye and the fit has nothing positive to work with.
+        eye.fit_projection(&aabb([-10.0, -10.0, -10.0], [10.0, 10.0, 10.0]), None, None);
+        let r = eye.projection.resolved();
+        assert!(
+            r.near >= r.far * 1e-3,
+            "near {} is less than a thousandth of far {}",
+            r.near,
+            r.far
+        );
     }
 
     /// The bug this guards: arcball input used to be multiplied by frame

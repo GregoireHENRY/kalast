@@ -1427,22 +1427,29 @@ impl Window {
         let shadow_fit = if let Some(bounds) = simulation.scene_bounds() {
             // The camera may be asked to take in the light cube as well, so
             // that turning it on shows something rather than clipping it
-            // away. The light's own fit below keeps the plain bounds: its
-            // frustum is what the shadow map covers, and stretching it to the
-            // Sun would spend the map on empty space.
-            let camera_bounds = if config.debug_light_cube_show && config.debug_light_cube_fit {
-                let half = crate::Vec3::splat(config.light_cube_scale);
-                bounds.union(&crate::mesh::Aabb {
-                    min: simulation.sun.pos - half,
-                    max: simulation.sun.pos + half,
-                })
-            } else {
-                bounds
-            };
-            simulation.camera.fit_projection(&camera_bounds, None);
+            // away. It goes in as *far-only*: a union would put the whole
+            // box out at the Sun, and the near plane and frustum width would
+            // then be fitted to a debug marker instead of to the scene --
+            // which cost the crater example all its depth precision and set
+            // the plane z-fighting with the bowl beneath it.
+            //
+            // The light's own fit below keeps the plain bounds: its frustum
+            // is what the shadow map covers, and stretching it to the Sun
+            // would spend the map on empty space.
+            let cube_bounds = (config.debug_light_cube_show && config.debug_light_cube_fit)
+                .then(|| {
+                    let half = crate::Vec3::splat(config.light_cube_scale);
+                    crate::mesh::Aabb {
+                        min: simulation.sun.pos - half,
+                        max: simulation.sun.pos + half,
+                    }
+                });
+            simulation
+                .camera
+                .fit_projection(&bounds, cube_bounds.as_ref(), None);
             simulation
                 .sun
-                .fit_projection(&bounds, Some(config.shadow_resolution));
+                .fit_projection(&bounds, None, Some(config.shadow_resolution));
 
             Some(super::frame::fit_shadow(
                 &simulation.sun.projection.resolved(),
