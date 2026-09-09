@@ -263,6 +263,7 @@ pub fn config_panel(ui: &mut egui::Ui, c: &mut Config, a: &mut AppConfig) {
         ui.checkbox(&mut c.debug_window_mesh, "debug_window_mesh").on_hover_text("Print per-mesh detail as meshes are uploaded.");
         ui.checkbox(&mut c.debug_simulation, "debug_simulation").on_hover_text("**Does nothing.** The field exists and is settable from Python, but no code reads it. Left as a placeholder.");
         ui.checkbox(&mut c.gpu_timing, "gpu_timing").on_hover_text("Time each GPU pass with timestamp queries, into `sim.gpu_timings()`.");
+        ui.checkbox(&mut c.occlusion_queries, "occlusion_queries").on_hover_text("Count what each body actually drew, with occlusion queries.");
         ui.checkbox(&mut c.debug_depth_show, "debug_depth_show");
         ui.checkbox(&mut c.debug_light_cube_show, "debug_light_cube_show").on_hover_text("Draw a cube at the light's position, so the Sun is visible.");
         ui.checkbox(&mut c.debug_light_cube_fit, "debug_light_cube_fit").on_hover_text("Fit the camera's frustum around the light cube too, not just the bodies.");

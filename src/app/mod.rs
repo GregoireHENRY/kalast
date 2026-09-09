@@ -12,6 +12,7 @@ pub mod macos;
 pub mod hemicube;
 pub mod gpu;
 pub mod gpu_timing;
+pub mod occlusion;
 pub mod pass;
 pub mod simulation;
 pub mod uniform;
@@ -643,11 +644,8 @@ impl App {
         // `init` panics on a second call, and `step()` reaches here from a
         // process that may already have run one app.
         let _ = env_logger::try_init();
-        self.event_loop = Some(
-            winit::event_loop::EventLoop::with_user_event()
-                .build()
-                .unwrap(),
-        );
+        let mut builder = winit::event_loop::EventLoop::with_user_event();
+        self.event_loop = Some(builder.build().unwrap());
     }
 
     /// Run the editor shell to completion. **Blocks until the window
@@ -1401,22 +1399,48 @@ impl App {
         let (origin, dir) = {
             let sim = self.simulation.borrow();
             let aspect = rw as Float / rh as Float;
-            let Ok(view_proj) = sim.camera.view_proj(aspect) else {
+            // wgpu clip space: x and y in -1..1 with y up. The depth
+            // convention is `Eye::ray_through_ndc`'s business, not this
+            // function's -- it is reversed-Z, and it was not always.
+            let (x, y) = ((2.0 * u as Float) - 1.0, 1.0 - (2.0 * v as Float));
+            let Some(ray) = sim.camera.ray_through_ndc(x, y, aspect) else {
                 return;
             };
-            let inverse = view_proj.inverse();
-            // wgpu clip space: x and y in -1..1 with y up, depth in 0..1.
-            let (x, y) = ((2.0 * u as Float) - 1.0, 1.0 - (2.0 * v as Float));
-            let near = inverse.project_point3(crate::Vec3::new(x, y, 0.0));
-            let far = inverse.project_point3(crate::Vec3::new(x, y, 1.0));
-            let dir = (far - near).normalize_or_zero();
-            if dir == crate::Vec3::ZERO {
-                return;
-            }
-            (near, dir)
+            ray
         };
 
-        let picked = self.simulation.borrow().pick_facet(origin, dir);
+        // One texel from the id pass, rather than a ray against every facet.
+        // `None` when the pass cannot answer for this scene and the ray has
+        // to; `Some(None)` when it answers *nothing*, which is an answer and
+        // not a reason to sweep the mesh on the CPU to be told the same thing.
+        let gpu: Option<Option<(u32, Vec<u32>)>> =
+            if self.simulation.borrow().pickable_on_gpu() {
+                let px = ((u * rw as f32) as u32).min(rw - 1);
+                let py = ((v * rh as f32) as u32).min(rh - 1);
+                self.window.as_mut().map(|win| {
+                    let (id, offsets) = win.facet_id_at(px, py);
+                    id.map(|id| (id, offsets))
+                })
+            } else {
+                None
+            };
+
+        let by_ray = || self.simulation.borrow().pick_facet(origin, dir);
+
+        let picked = match gpu {
+            Some(None) => {
+                println!("nothing under the pointer");
+                return;
+            }
+            Some(Some((id, offsets))) => self
+                .simulation
+                .borrow()
+                .resolve_facet_id(id, &offsets, origin, dir)
+                // A miss is the fill-rule edge case, not a wrong facet; the
+                // ray settles those. See `resolve_facet_id`.
+                .or_else(|| self.simulation.borrow().pick_facet(origin, dir)),
+            None => by_ray(),
+        };
         let Some((body, facet, world, local)) = picked else {
             println!("nothing under the pointer");
             return;
@@ -2081,6 +2105,19 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         sim.facet_id_result = Some(win.facet_id_map());
                     } else {
                         sim.facet_id_result = None;
+                    }
+
+                    if let Some((x, y)) = sim.facet_pick_request.take() {
+                        let (id, offsets) = win.facet_id_at(x, y);
+                        sim.facet_pick_result =
+                            Some(crate::app::simulation::FacetPick {
+                                pixel: (x, y),
+                                id,
+                                offsets,
+                                size: win.render_size,
+                            });
+                    } else {
+                        sim.facet_pick_result = None;
                     }
 
                     sim.export_once = false;

@@ -146,6 +146,7 @@ impl Pass {
             true,
             samples,
             true,
+            gpu::DEPTH_COMPARE,
             wgpu::PrimitiveTopology::TriangleList,
             &[
                 Some(crate::mesh::Vertex::geometry_desc()),
@@ -194,6 +195,9 @@ impl Pass {
         bindings: &super::Bindings,
         config: &crate::app::config::Config,
         timestamps: Option<wgpu::RenderPassTimestampWrites<'_>>,
+        // Drawn last, inside this pass, so the boxes are tested against a
+        // depth buffer every body has finished writing.
+        occlusion: Option<&crate::app::occlusion::Occlusion>,
     ) {
         // With MSAA the pass draws into the multisample buffers and resolves
         // into `render_view` on store, so everything downstream -- the blit to
@@ -228,11 +232,12 @@ impl Pass {
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                 view: depth_view,
                 depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(1.0),
+                    load: wgpu::LoadOp::Clear(gpu::DEPTH_CLEAR),
                     store: wgpu::StoreOp::Store,
                 }),
                 stencil_ops: None,
             }),
+            occlusion_query_set: occlusion.map(|o| o.query_set()),
             ..Default::default()
         });
 
@@ -267,6 +272,14 @@ impl Pass {
 
         if config.colorbar.enabled {
             colorbar.render(&mut render_pass, bindings);
+        }
+
+        // Last, and after the overlays as much as after the bodies -- none of
+        // them write depth, so what the boxes are tested against is the
+        // geometry and nothing else.
+        if let Some(o) = occlusion {
+            bindings.for_occlusion(&mut render_pass);
+            o.draw(&mut render_pass);
         }
     }
 }

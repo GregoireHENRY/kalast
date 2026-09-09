@@ -142,6 +142,21 @@ class Simulation:
         when something changes, not as a budget.
         """
         ...
+    def visibility(self) -> object:
+        """What the last frame could see, and what it actually drew.
+
+        Always `{"bodies", "visible", "clipped_near", "clipped_far",
+        "outside_sides"}`; plus `"drawn"` and `"frame"` when
+        `config.occlusion_queries` is on.
+
+        `visible` is each body's **bounding box against the frustum**, so it
+        says a body could be seen, not that it was: one wholly behind another
+        still counts, and the four keys sum to `bodies`. `drawn` is the
+        occlusion query -- how many actually put samples on screen -- and
+        **lags the current iteration** by a frame or two, which is what
+        `"frame"` is for. Quote that, not `sim.state.iteration`.
+        """
+        ...
     selected_facets: list[tuple[int, int]]
     """The facets picked by clicking, as `(body, facet)` pairs."""
     def toggle_facet(self, body: int, facet: int) -> bool:
@@ -216,6 +231,34 @@ class Simulation:
         Rows sum to at most 1; the shortfall is the fraction radiated to
         space. Occlusion is included, by the other body as well as by the
         body's own terrain.
+        """
+        ...
+    def request_facet_pick(self, x: int, y: int) -> None:
+        """Ask for the facet under one pixel of the rendered image.
+
+        Request from `before_render`, read with `facet_pick` from
+        `after_render`. `(0, 0)` is the top-left, indexing the image the same
+        way `facet_id_map` does.
+
+        The same second geometry pass the ID map costs, but **one texel** comes
+        back rather than the whole framebuffer -- ~12 MB and 2.9M texels
+        unpadded on the CPU at a 2116x1376 target. That is what makes it a pick
+        rather than a data product.
+        """
+        ...
+    def facet_pick(self) -> tuple[int, int, list[float], list[float]] | None:
+        """`(body, facet, world_point, body_point)` for the last requested pixel,
+        or `None`.
+
+        The same answer and the same shape as `pick_facet`, except the facet
+        comes from the rasteriser rather than from a ray tested against every
+        facet, so the cost does not grow with the mesh. The point still comes
+        from a ray -- one triangle test against the facet the pixel named.
+
+        `None` where nothing was drawn under the pixel. **Only flattened meshes
+        are drawn**, since the facet index comes from the vertex index; use
+        `pick_facet` for an indexed mesh, or for a ray that does not start at
+        the camera, such as an instrument boresight.
         """
         ...
     def request_facet_id(self) -> None:

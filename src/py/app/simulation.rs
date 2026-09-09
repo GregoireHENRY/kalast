@@ -284,6 +284,34 @@ impl Simulation {
         out
     }
 
+    /// What the last frame could see, and what it actually drew.
+    ///
+    /// Always `{"bodies", "visible", "clipped_near", "clipped_far",
+    /// "outside_sides"}`; plus `"drawn"` and `"frame"` when
+    /// `config.occlusion_queries` is on.
+    ///
+    /// `visible` is each body's **bounding box against the frustum**, so it
+    /// says a body could be seen, not that it was: one wholly behind another
+    /// still counts, and the four keys sum to `bodies`. `drawn` is the
+    /// occlusion query -- how many actually put samples on screen -- and
+    /// **lags the current iteration** by a frame or two, which is what
+    /// `"frame"` is for. Quote that, not `sim.state.iteration`.
+    fn visibility(&self) -> std::collections::HashMap<String, i64> {
+        let sim = self.inner.borrow();
+        let d = &sim.diagnostics;
+        let mut out = std::collections::HashMap::new();
+        out.insert("bodies".to_string(), d.n_bodies as i64);
+        out.insert("visible".to_string(), d.n_visible as i64);
+        out.insert("clipped_near".to_string(), d.out_near as i64);
+        out.insert("clipped_far".to_string(), d.out_far as i64);
+        out.insert("outside_sides".to_string(), d.out_side as i64);
+        if d.occlusion.valid {
+            out.insert("drawn".to_string(), d.occlusion.n_drawn() as i64);
+            out.insert("frame".to_string(), d.occlusion.frame as i64);
+        }
+        out
+    }
+
     /// The facets picked by clicking, as `(body, facet)` pairs.
     #[getter]
     fn selected_facets(&self) -> Vec<(usize, usize)> {
@@ -430,6 +458,51 @@ impl Simulation {
         )
         .ok()?;
         Some((vf, numpy::PyArray1::from_slice(py, offsets)))
+    }
+
+    /// Ask for the facet under one pixel of the rendered image.
+    ///
+    /// Request from `before_render`, read with `facet_pick` from
+    /// `after_render`. `(0, 0)` is the top-left, indexing the image the same
+    /// way `facet_id_map` does.
+    ///
+    /// The same second geometry pass the ID map costs, but **one texel** comes
+    /// back rather than the whole framebuffer -- ~12 MB and 2.9M texels
+    /// unpadded on the CPU at a 2116x1376 target. That is what makes it a pick
+    /// rather than a data product.
+    fn request_facet_pick(&mut self, x: u32, y: u32) {
+        self.inner.borrow_mut().request_facet_pick(x, y);
+    }
+
+    /// `(body, facet, world_point, body_point)` for the last requested pixel,
+    /// or `None`.
+    ///
+    /// The same answer and the same shape as `pick_facet`, except the facet
+    /// comes from the rasteriser rather than from a ray tested against every
+    /// facet, so the cost does not grow with the mesh. The point still comes
+    /// from a ray -- one triangle test against the facet the pixel named.
+    ///
+    /// `None` where nothing was drawn under the pixel. **Only flattened meshes
+    /// are drawn**, since the facet index comes from the vertex index; use
+    /// `pick_facet` for an indexed mesh, or for a ray that does not start at
+    /// the camera, such as an instrument boresight.
+    fn facet_pick(&self) -> Option<(usize, usize, [Float; 3], [Float; 3])> {
+        let sim = self.inner.borrow();
+        let pick = sim.facet_pick()?;
+        let id = pick.id?;
+        let (w, h) = pick.size;
+        if w == 0 || h == 0 {
+            return None;
+        }
+        // The pixel *centre*, then wgpu clip space: x and y in -1..1, y up.
+        let (px, py) = pick.pixel;
+        let x = 2.0 * (px as Float + 0.5) / w as Float - 1.0;
+        let y = 1.0 - 2.0 * (py as Float + 0.5) / h as Float;
+        let (origin, dir) = sim
+            .camera
+            .ray_through_ndc(x, y, w as Float / h as Float)?;
+        let (body, facet, world, local) = sim.resolve_facet_id(id, &pick.offsets, origin, dir)?;
+        Some((body, facet, world.to_array(), local.to_array()))
     }
 
     /// Ask for a facet index map from the camera's point of view this frame.

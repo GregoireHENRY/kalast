@@ -64,6 +64,7 @@ impl Pass {
             true,
             1,
             true,
+            gpu::DEPTH_COMPARE,
             wgpu::PrimitiveTopology::TriangleList,
             &[
                 Some(crate::mesh::Vertex::geometry_desc()),

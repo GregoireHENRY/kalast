@@ -25,6 +25,7 @@ impl Pass {
             samples,
             // Never writes depth -- see below.
             false,
+            gpu::DEPTH_COMPARE,
             wgpu::PrimitiveTopology::TriangleList,
             &[
                 Some(crate::mesh::Vertex::geometry_desc()),

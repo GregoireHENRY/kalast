@@ -51,7 +51,37 @@ pub const SHADER_HEMICUBE: wgpu::ShaderModuleDescriptor =
 pub const SHADER_HEMICUBE_ACCUMULATE: wgpu::ShaderModuleDescriptor =
     wgpu::include_wgsl!("../../shaders/hemicube_accumulate.wgsl");
 
+pub const SHADER_OCCLUSION: wgpu::ShaderModuleDescriptor =
+    wgpu::include_wgsl!("../../shaders/occlusion.wgsl");
+
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+
+/// Reversed-Z: the camera's depth buffer holds 1.0 at the near plane and 0.0
+/// at the far one, so its passes clear to 0.0 and keep the *greater* value.
+///
+/// Float precision bunches up near zero, and the perspective divide bunches it
+/// near the near plane. Aiming the two at opposite ends makes them cancel, so
+/// precision stops being a function of `near / far` -- which is what lets
+/// `fit_projection` size the near plane from the scene instead of flooring it
+/// to keep the ratio respectable.
+///
+/// Worthless on a fixed-point depth buffer, where the values are evenly spaced
+/// and there is nothing to cancel. `DEPTH_FORMAT` is float, so it works here.
+pub const DEPTH_COMPARE: wgpu::CompareFunction = wgpu::CompareFunction::Greater;
+pub const DEPTH_CLEAR: f32 = 0.0;
+
+/// The shadow map is deliberately **not** reversed: it keeps 0.0 at its near
+/// plane and clears to 1.0.
+///
+/// Its projection is orthographic, so stored depth is linear in view-space z
+/// and precision is already uniform over the range -- reversing it would buy
+/// nothing. Against that, the biases in `mesh_shadow.wgsl` are calibrated
+/// against this sense (`notes/2026-09-08_shadow_bias.md`) and
+/// `facet_shadow.wgsl` re-derives the same comparison in compute, so flipping
+/// it would move the illumination the thermophysical model runs on in exchange
+/// for no precision at all.
+pub const SHADOW_COMPARE: wgpu::CompareFunction = wgpu::CompareFunction::Less;
+pub const SHADOW_CLEAR: f32 = 1.0;
 
 pub struct Pipelines {
     pub main: RenderPipeline,
@@ -74,6 +104,11 @@ impl RenderPipeline {
         // Whether this pipeline writes depth. Off for debug overlays: they
         // must be occluded *by* the scene without ever occluding it.
         depth_write: bool,
+        // `DEPTH_COMPARE` for anything drawn through the camera, which is
+        // reversed-Z, and `SHADOW_COMPARE` for the shadow map, which is not.
+        // Must agree with the clear value the pass loads with, or the first
+        // fragment tested against a cleared texel decides wrongly.
+        depth_compare: wgpu::CompareFunction,
         // Lines for the axes, triangles for everything else. Line width is
         // always 1 px: WebGPU has no line width, so a thicker axis would have
         // to be built from triangles.
@@ -99,7 +134,7 @@ impl RenderPipeline {
         let depth_stencil = (depth_stencil).then(|| wgpu::DepthStencilState {
             format: DEPTH_FORMAT,
             depth_write_enabled: Some(depth_write),
-            depth_compare: Some(wgpu::CompareFunction::Less),
+            depth_compare: Some(depth_compare),
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState {
                 // constant: 2, // bilinear filtering

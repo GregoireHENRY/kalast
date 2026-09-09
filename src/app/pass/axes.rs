@@ -32,6 +32,7 @@ impl Pass {
             samples,
             // Annotation: occluded by the scene, never occluding it.
             false,
+            gpu::DEPTH_COMPARE,
             wgpu::PrimitiveTopology::LineList,
             &[Some(wgpu::VertexBufferLayout {
                 array_stride: std::mem::size_of::<crate::app::axes::LineVertex>()

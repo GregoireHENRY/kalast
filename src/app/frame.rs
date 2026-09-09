@@ -17,6 +17,42 @@ pub const SENSITIVITY_ZOOM_WHEEL: Float = 0.12;
 // Fraction of the anchor distance per pixel of pan.
 pub const SENSITIVITY_PAN: Float = 0.0015;
 
+/// Reversed-Z perspective: the near plane maps to 1.0, the far plane to 0.0.
+///
+/// This is `Mat4::perspective_rh` with the two planes handed to it swapped,
+/// which is exactly `z' = 1 - z` and needs no separate matrix form:
+/// `perspective_rh` puts a point `d` in front of the eye at
+/// `f(n - d) / (d(n - f))`, and substituting `n` for `f` gives
+/// `n(f - d) / (d(f - n))`; the two sum to 1 for every `d`. The result still
+/// lands in the 0..1 clip range WebGPU wants.
+///
+/// Pairs with `gpu::DEPTH_COMPARE` and `gpu::DEPTH_CLEAR` -- see those for
+/// what it buys.
+pub fn perspective_rh_reversed(fovy: Float, aspect: Float, near: Float, far: Float) -> Mat4 {
+    Mat4::perspective_rh(fovy, aspect, far, near)
+}
+
+/// Reversed-Z orthographic, by the same swap.
+///
+/// Orthographic depth is linear, so this gains no precision the way the
+/// perspective form does. It is reversed anyway because it shares its
+/// pipelines and its clear value with the perspective camera, and a
+/// non-reversed matrix drawn through a `Greater` test would keep the furthest
+/// surface at every pixel.
+///
+/// The shadow map is orthographic too and is deliberately *not* reversed; it
+/// has its own pipeline and its own clear. See `gpu::SHADOW_COMPARE`.
+pub fn orthographic_rh_reversed(
+    left: Float,
+    right: Float,
+    bottom: Float,
+    top: Float,
+    near: Float,
+    far: Float,
+) -> Mat4 {
+    Mat4::orthographic_rh(left, right, bottom, top, far, near)
+}
+
 /// The plane distances actually handed to the projection matrix.
 ///
 /// Kept separate from the user-facing `Option` fields so `mat()` -- which is
@@ -110,7 +146,7 @@ impl Projection {
 
                 // Off-centre: the box is `side` wide but sits where the
                 // geometry is, which need not be on the view axis.
-                Mat4::orthographic_rh(
+                orthographic_rh_reversed(
                     offset[0] - half_width,
                     offset[0] + half_width,
                     offset[1] - half_height,
@@ -119,7 +155,7 @@ impl Projection {
                     far,
                 )
             }
-            ProjectionMode::Perspective => Mat4::perspective_rh(self.fovy, aspect, near, far),
+            ProjectionMode::Perspective => perspective_rh_reversed(self.fovy, aspect, near, far),
         }
     }
 }
@@ -337,6 +373,26 @@ impl Eye {
 
     pub fn view_proj(&self, aspect: Float) -> anyhow::Result<Mat4> {
         Ok(self.projection.mat(aspect) * self.lookto()?)
+    }
+
+    /// A world-space ray through a point in normalised device coordinates --
+    /// `x` and `y` in -1..1 with y up, as wgpu clip space has them.
+    ///
+    /// Returns the origin on the near plane and a unit direction pointing away
+    /// from the eye, or `None` when the basis is degenerate.
+    ///
+    /// The depth convention lives here rather than at the call site because it
+    /// is not guessable and it changed: the buffer is **reversed-Z**, so 1.0 is
+    /// the near plane and 0.0 the far one. Taking the two the other way round
+    /// does not miss -- it casts the ray backwards from beyond the geometry and
+    /// picks the far side of the body, which reads as a wrong answer rather
+    /// than no answer.
+    pub fn ray_through_ndc(&self, x: Float, y: Float, aspect: Float) -> Option<(Vec3, Vec3)> {
+        let inverse = self.view_proj(aspect).ok()?.inverse();
+        let near = inverse.project_point3(Vec3::new(x, y, 1.0));
+        let far = inverse.project_point3(Vec3::new(x, y, 0.0));
+        let dir = (far - near).normalize_or_zero();
+        (dir != Vec3::ZERO).then_some((near, dir))
     }
 
     pub fn mat(&self) -> Mat3 {
@@ -564,17 +620,20 @@ impl Eye {
                 }
             }
             ProjectionMode::Perspective => {
-                // Near must stay positive and not absurdly small, or depth
-                // precision collapses. Tie its floor to the scene scale
-                // rather than a fixed epsilon so this works at any units.
+                // Near must stay positive -- at zero the projection is
+                // singular. Tie the floor to the scene scale rather than a
+                // fixed epsilon so this works at any units.
                 let far = (max_d * margin).max(Float::EPSILON);
-                // The floor matters more than it looks. `near / far` is what
-                // sets depth precision, and at 1e-5 there is effectively none
-                // -- surfaces that meet at a grazing angle z-fight. It is a
-                // floor, so it only applies where the scene itself gives
-                // nothing better: geometry surrounding the eye, which is what
-                // a negative `min_d` means.
-                let near = (min_d / margin).max(far * 1e-3);
+                // Under reversed-Z that guard is all this is. It stood at
+                // `far * 1e-3` while `near / far` was what depth precision
+                // was made of: at 1e-5 there was none, and grazing surfaces
+                // z-fought. But a floor on the ratio is also a ceiling on how
+                // close the camera may see -- a Hera close approach with a
+                // 100 km far plane could resolve nothing within 100 m --
+                // which is a real scene the patch ruled out. Reversed-Z drops
+                // the dependence instead of tuning it, so the floor goes back
+                // to being slack.
+                let near = (min_d / margin).max(far * 1e-5);
 
                 Resolved {
                     near,
@@ -872,23 +931,107 @@ mod tests {
         );
     }
 
-    /// A near plane is only useful in proportion to the far plane: `near/far`
-    /// is what depth precision is made of, and at 1e-5 there is none. The
-    /// floor applies where the scene surrounds the eye and offers nothing
-    /// better -- which is exactly when z-fighting shows up.
+    /// The near plane has to stay positive where the scene surrounds the eye
+    /// and the fit has nothing positive to work with: at zero the projection
+    /// is singular.
+    ///
+    /// The floor stood at `far * 1e-3` while `near / far` set depth precision.
+    /// Reversed-Z removed that dependence, so it is slack again -- and this
+    /// asserts the slack value, since a floor on the ratio is also a ceiling
+    /// on how close the camera may see.
     #[test]
-    fn the_near_floor_keeps_depth_precision_when_the_eye_is_inside() {
+    fn the_near_floor_keeps_the_projection_non_singular_when_the_eye_is_inside() {
         let mut eye = eye_at_distance(1.0);
         // Wide enough that the eye sits inside it, so the nearest corner is
         // behind the eye and the fit has nothing positive to work with.
         eye.fit_projection(&aabb([-10.0, -10.0, -10.0], [10.0, 10.0, 10.0]), None, None);
         let r = eye.projection.resolved();
+        assert!(r.near > 0.0, "near {} is not positive", r.near);
         assert!(
-            r.near >= r.far * 1e-3,
-            "near {} is less than a thousandth of far {}",
+            r.near >= r.far * 1e-5,
+            "near {} is below the floor for far {}",
             r.near,
             r.far
         );
+    }
+
+    /// Reversed-Z, asserted at both ends: the near plane must land at 1.0 and
+    /// the far plane at 0.0, which is the sense `gpu::DEPTH_CLEAR` and
+    /// `gpu::DEPTH_COMPARE` are paired with.
+    ///
+    /// Worth a test because getting it backwards does not fail -- it renders,
+    /// with the furthest surface winning every pixel, which looks like a
+    /// culling or winding bug rather than a depth one.
+    #[test]
+    fn reversed_z_maps_near_to_one_and_far_to_zero() {
+        let (near, far) = (0.1, 100.0);
+
+        let p = perspective_rh_reversed(0.5236, 1.5, near, far);
+        let at_near = p.project_point3(Vec3::new(0.0, 0.0, -near));
+        let at_far = p.project_point3(Vec3::new(0.0, 0.0, -far));
+        assert!((at_near.z - 1.0).abs() < 1e-9, "perspective near: {}", at_near.z);
+        assert!(at_far.z.abs() < 1e-9, "perspective far: {}", at_far.z);
+
+        let o = orthographic_rh_reversed(-1.0, 1.0, -1.0, 1.0, near, far);
+        let at_near = o.project_point3(Vec3::new(0.0, 0.0, -near));
+        let at_far = o.project_point3(Vec3::new(0.0, 0.0, -far));
+        assert!((at_near.z - 1.0).abs() < 1e-9, "orthographic near: {}", at_near.z);
+        assert!(at_far.z.abs() < 1e-9, "orthographic far: {}", at_far.z);
+    }
+
+    /// Depth must decrease monotonically with distance, or a `Greater` test
+    /// keeps the wrong fragment. Checked across the range rather than at the
+    /// planes, since the planes alone are also satisfied by a matrix that
+    /// does something odd in between.
+    #[test]
+    fn reversed_z_depth_falls_off_monotonically() {
+        let p = perspective_rh_reversed(0.5236, 1.0, 0.1, 100.0);
+        let mut previous = Float::INFINITY;
+        for i in 0..64 {
+            let d = 0.1 * (1000.0 as Float).powf(i as Float / 63.0);
+            let z = p.project_point3(Vec3::new(0.0, 0.0, -d)).z;
+            assert!(z < previous, "depth rose at d = {}: {} then {}", d, previous, z);
+            assert!((0.0..=1.0).contains(&z), "depth {} out of range at d = {}", z, d);
+            previous = z;
+        }
+    }
+
+    /// The picking ray must leave the eye going *forwards*, from the near
+    /// plane.
+    ///
+    /// The unprojection has to know the depth buffer is reversed-Z -- 1.0 near,
+    /// 0.0 far -- and taking the two the wrong way round does not fail
+    /// visibly: the ray starts beyond the geometry pointing back at the camera,
+    /// so a click selects the far side of the body instead of the surface under
+    /// the cursor. Which is what it did between reversed-Z landing and this
+    /// test being written; `pick_facet`'s own tests pass an explicit ray and
+    /// never touch the unprojection.
+    #[test]
+    fn the_picking_ray_leaves_the_eye_going_forwards() {
+        let mut eye = eye_at_distance(5.0);
+        eye.fit_projection(&aabb([-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]), None, None);
+        let r = eye.projection.resolved();
+
+        for (x, y) in [(0.0, 0.0), (-0.8, 0.6), (0.9, -0.7)] {
+            let (origin, dir) = eye.ray_through_ndc(x, y, 1.5).expect("a ray");
+            assert!(
+                dir.dot(eye.dir) > 0.0,
+                "ray at ({x}, {y}) points behind the eye: {dir:?}"
+            );
+            // Measured along the view axis, so it holds anywhere on the
+            // near plane -- off-axis the plane is further from the eye by
+            // 1/cos, which a plain distance would have to allow for.
+            let d = (origin - eye.pos).dot(eye.dir);
+            assert!(
+                (d - r.near).abs() < 1e-9 * r.far,
+                "ray at ({x}, {y}) starts {d} along the axis, not at the near plane {}",
+                r.near
+            );
+        }
+
+        // Dead centre it is the view axis exactly, which pins the sign.
+        let (_, dir) = eye.ray_through_ndc(0.0, 0.0, 1.5).expect("a ray");
+        assert!(dir.dot(eye.dir) > 0.999, "centre ray off-axis: {dir:?}");
     }
 
     /// The bug this guards: arcball input used to be multiplied by frame

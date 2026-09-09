@@ -4,6 +4,15 @@ use glam::Mat4;
 
 use crate::{Float, Vec3};
 
+/// The light's projection, and deliberately **not** reversed-Z while the
+/// camera's is.
+///
+/// It is orthographic, so its depth is linear in view-space z and precision is
+/// already uniform across the range -- reversing gains it nothing. What it
+/// would cost is real: the biases in `mesh_shadow.wgsl` are calibrated against
+/// this sense (`notes/2026-09-08_shadow_bias.md`), and `facet_shadow.wgsl`
+/// re-derives the same comparison in compute to feed the thermophysical model.
+/// See `gpu::SHADOW_COMPARE`.
 pub fn light_view_proj(
     pos: Vec3,
     target: Vec3,
@@ -92,6 +101,7 @@ pub fn fit_light_view_proj(
     let (near, far) = (near - pad, far + pad);
 
     LightFit {
+        // Not reversed-Z; see `light_view_proj` above for why.
         view_proj: Mat4::orthographic_rh(-side, side, -side, side, near, far) * view,
         side,
         near,
@@ -142,9 +152,15 @@ fn diagnose(
             r &= p.x > p.w;
             b &= p.y < -p.w;
             t &= p.y > p.w;
-            // wgpu clip space is z in 0..w, not -w..w.
-            n &= p.z < 0.0;
-            f &= p.z > p.w;
+            // wgpu clip space is z in 0..w, not -w..w -- and reversed-Z, so
+            // the near plane is at z = w and the far one at z = 0. Taking
+            // these the other way round swaps the two counts the panel
+            // prints, which is what they did until reversed-Z landed.
+            //
+            // A point behind the eye has w < 0 and z > 0, so it satisfies the
+            // near test, which is where "behind you" belongs.
+            n &= p.z > p.w;
+            f &= p.z < 0.0;
         }
 
         // Near and far first: a body behind the camera also fails the side
@@ -169,8 +185,11 @@ fn diagnose(
                 1.0,
             );
         // Only the far plane: the cube being off to one side is the user
-        // looking elsewhere, which is not a fault worth warning about.
-        d.light_cube_clipped = p.z > p.w;
+        // looking elsewhere, which is not a fault worth warning about. Under
+        // reversed-Z that is z < 0; `p.z > p.w` is the near plane, and warned
+        // about the wrong thing -- silently, since the Sun is rarely close
+        // enough to trip it.
+        d.light_cube_clipped = p.z < 0.0;
     }
 
     d
@@ -601,6 +620,7 @@ pub struct Window {
     pub timer: Option<super::gpu_timing::GpuTimer>,
     /// What the last readback said. One frame behind, by construction.
     pub timings: super::gpu_timing::Timings,
+    pub occlusion: super::occlusion::Counts,
 
     // Body model matrices as of the last `update`. The facet shadow query
     // needs the same transform the shadow map was built with, and it is
@@ -914,6 +934,7 @@ impl Window {
 
             timer,
             timings: Default::default(),
+            occlusion: Default::default(),
             last_iteration: 0,
 
             facet_shadow: None,
@@ -993,6 +1014,37 @@ impl Window {
         (pixels, offsets, w, h)
     }
 
+    /// The facet under one pixel of the render target.
+    ///
+    /// The same second geometry pass `facet_id_map` costs, with a single texel
+    /// coming back instead of the whole framebuffer -- which is what makes the
+    /// pass usable for a click rather than only for a data product. Returns
+    /// the raw id (`1 + offsets[body] + facet`, `None` where nothing was
+    /// drawn) and the offsets to decode it with.
+    pub fn facet_id_at(&mut self, x: u32, y: u32) -> (Option<u32>, Vec<u32>) {
+        let (w, h) = self.render_size;
+        if self.facet_id.is_none() {
+            self.facet_id = Some(super::facet_id::FacetIdPass::new(
+                &self.device,
+                &self.uniforms.view.layout,
+                w,
+                h,
+            ));
+        }
+        let pass = self.facet_id.as_mut().unwrap();
+        pass.resize(&self.device, w, h);
+
+        let camera_bind_group = self.uniforms.view.bind_group(&self.device);
+        pass.read_at(
+            &self.device,
+            &self.queue,
+            &camera_bind_group,
+            &self.meshes[1..],
+            x,
+            y,
+        )
+    }
+
     /// View-factor rows for the given facets of `body`, by hemicube.
     ///
     /// Every loaded body is rendered into a shared index space, so one row
@@ -1067,7 +1119,12 @@ impl Window {
             })
             .unwrap_or(0.0)
             .max(radius * 4.0);
-        let proj = Mat4::perspective_rh(std::f64::consts::FRAC_PI_2 as Float, 1.0, near, far);
+        let proj = super::frame::perspective_rh_reversed(
+            std::f64::consts::FRAC_PI_2 as Float,
+            1.0,
+            near,
+            far,
+        );
 
         let mut views = Vec::with_capacity(facets.len() * super::hemicube::FACES as usize);
         for &i in facets {
@@ -1702,6 +1759,29 @@ impl Window {
             config,
             &self.uniforms.view.uniform.camera.view_proj,
         );
+
+        // Staged here rather than at draw time: a buffer write lands at the
+        // submit, not where it is issued, so every box has to be in place
+        // before the pass that reads them is recorded.
+        if config.occlusion_queries {
+            let boxes: Vec<crate::mesh::Aabb> = simulation
+                .bodies
+                .iter()
+                .map(|b| {
+                    b.mesh
+                        .as_ref()
+                        .map(|m| m.borrow().bounds.transform(&b.mat))
+                        .unwrap_or_else(crate::mesh::Aabb::empty)
+                })
+                .collect();
+            self.passes
+                .occlusion
+                .prepare(&self.queue, &boxes, simulation.camera.pos);
+        } else {
+            self.passes.occlusion.clear();
+            self.occlusion = Default::default();
+        }
+        simulation.diagnostics.occlusion = self.occlusion;
         // Whatever the last readback landed with, which is a frame or two
         // old; `Timings::frame` says which one, so a caption cannot claim
         // the wrong iteration.
@@ -1981,6 +2061,17 @@ impl Window {
             t.begin_frame();
         }
 
+        // Same shape and the same reason: the queries this reads belong to
+        // the frame before, and the readback must not be waited for.
+        if config.occlusion_queries {
+            let mut enc = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+            self.passes.occlusion.resolve(&mut enc);
+            self.queue.submit([enc.finish()]);
+            self.passes.occlusion.after_submit(self.last_iteration);
+        }
+
         let surface_view = surface_texture
             .as_ref()
             .map(|t| t.texture.create_view(&wgpu::TextureViewDescriptor::default()));
@@ -2201,6 +2292,10 @@ impl Window {
             self.timings = t.poll(&self.device);
         }
 
+        if config.occlusion_queries {
+            self.occlusion = self.passes.occlusion.poll(&self.device);
+        }
+
         if let Some(texture) = surface_texture {
             self.queue.present(texture);
         }
@@ -2311,6 +2406,53 @@ mod tests {
             min: center - Vec3::splat(half),
             max: center + Vec3::splat(half),
         }
+    }
+
+    fn body_at(centre: Vec3, half: Float) -> crate::app::body::Body {
+        let mut mesh = crate::mesh::Mesh::load("res/cube.obj", move |v| v * half + centre);
+        mesh.bounds = crate::mesh::Aabb::from_vertices(&mesh.vertices);
+        crate::app::body::Body {
+            mesh: Some(std::rc::Rc::new(std::cell::RefCell::new(mesh))),
+            ..Default::default()
+        }
+    }
+
+    /// The Visibility panel must name the plane a body fell off, not the
+    /// opposite one.
+    ///
+    /// `diagnose` tests clip-space depth directly, and reversed-Z moved the
+    /// near plane to `z = w` and the far one to `z = 0`. The two tests kept
+    /// their old senses through that, so every body clipped near was reported
+    /// as clipped far and the other way round -- invisibly, since the visible
+    /// count is right either way and only the labels swap.
+    #[test]
+    fn a_clipped_body_is_reported_against_the_plane_it_actually_left() {
+        let mut sim = crate::app::simulation::Simulation::new();
+        // One in view, *two* behind the eye and one far beyond it. The counts
+        // have to be unequal: with one body on each side a swap merely
+        // exchanges which is which, and both counts still read 1.
+        sim.bodies.push(body_at(Vec3::new(0.0, 0.0, 0.0), 1.0));
+        sim.bodies.push(body_at(Vec3::new(0.0, -60.0, 0.0), 1.0));
+        sim.bodies.push(body_at(Vec3::new(0.0, -90.0, 0.0), 1.0));
+        sim.bodies.push(body_at(Vec3::new(0.0, 1.0e6, 0.0), 1.0));
+
+        let mut eye = crate::app::frame::Eye::new();
+        eye.pos = Vec3::new(0.0, -30.0, 0.0);
+        eye.anchor = Vec3::ZERO;
+        eye.look_anchor();
+        // Pinned, so the fit cannot quietly stretch to take all three in.
+        eye.projection.near = Some(1.0);
+        eye.projection.far = Some(100.0);
+        eye.projection.resolve_manual();
+
+        let view_proj = eye.view_proj(1.0).expect("a basis");
+        let config = crate::app::config::Config::default();
+        let d = diagnose(&sim, &config, &view_proj);
+
+        assert_eq!(d.n_bodies, 4);
+        assert_eq!(d.n_visible, 1, "only the one in front is visible");
+        assert_eq!(d.out_near, 2, "both bodies behind the eye are clipped near");
+        assert_eq!(d.out_far, 1, "the body past the far plane is clipped far");
     }
 
     /// The fitted half-extent must describe the body, whatever direction the

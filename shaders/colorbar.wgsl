@@ -68,7 +68,11 @@ fn vs_main(@builtin(vertex_index) i: u32) -> VertexOutput {
     let c = corner[i];
 
     var out: VertexOutput;
-    out.clip_position = vec4<f32>(bar.rect.xy + c * bar.rect.zw, 0.0, 1.0);
+    // 1.0 is the near plane under reversed-Z, so the bar sits in front of
+    // everything and always passes the depth test -- which is what it did
+    // before at 0.0 under `Less`. It still writes no depth, so it cannot
+    // occlude the scene it annotates.
+    out.clip_position = vec4<f32>(bar.rect.xy + c * bar.rect.zw, 1.0, 1.0);
     // NDC y is up, so a vertical bar already runs low-to-high bottom-to-top.
     out.t = select(c.x, c.y, bar.vertical == 1u);
     return out;

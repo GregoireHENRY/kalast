@@ -317,6 +317,18 @@ class Config:
     Off by default: the queries are nearly free but the readback is not,
     and nothing needs it unless someone is asking where a frame goes.
     """
+    occlusion_queries: bool
+    """Count what each body actually drew, with occlusion queries.
+
+    The Visibility panel otherwise reports what the *frustum* can see, so a
+    body wholly behind another still counts. With this on it also reports
+    what put samples on screen. Off by default: it is a readback every
+    frame for a diagnostic.
+
+    A bounding box stands in for its body, so this can call a body visible
+    when only its box is -- conservative in the same direction the frustum
+    test already is.
+    """
     selection_color: list[float]
     """Colour a facet takes when it is selected, `(r, g, b, a)`.
 

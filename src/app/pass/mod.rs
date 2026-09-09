@@ -14,6 +14,7 @@ pub struct Passes {
     pub colorbar: colorbar::Pass,
 
     pub depth: depth::Pass,
+    pub occlusion: super::occlusion::Occlusion,
 
     pub bindings: Bindings,
 }
@@ -45,6 +46,13 @@ impl Passes {
             colorbar: colorbar::Pass::new(device, format, &layouts_all, samples),
 
             depth: depth::Pass::new(device, size.0, size.1, format),
+
+            occlusion: super::occlusion::Occlusion::new(
+                device,
+                format,
+                &uniforms.view.layout,
+                samples,
+            ),
 
             bindings,
         }
@@ -95,6 +103,7 @@ impl Passes {
             &self.bindings,
             config,
             timer.and_then(|t| t.scope(super::gpu_timing::Scope::Render)),
+            config.occlusion_queries.then_some(&self.occlusion),
         );
 
         if config.debug_depth_show {
@@ -126,6 +135,13 @@ impl Bindings {
         render_pass.set_bind_group(2, Some(&self.shadow), &[]);
         render_pass.set_bind_group(3, Some(&self.colormap), &[]);
         render_pass.set_bind_group(4, Some(&self.bar), &[]);
+    }
+
+    /// The occlusion pipeline binds only the camera, at group 0 -- its layout
+    /// is `[view, box]`, not the renderer's five. The box itself is set per
+    /// body by `Occlusion::draw`.
+    pub fn for_occlusion(&self, render_pass: &mut wgpu::RenderPass) {
+        render_pass.set_bind_group(0, Some(&self.view), &[]);
     }
 
     /// `layer` is the shadow map layer being drawn into, and reaches the

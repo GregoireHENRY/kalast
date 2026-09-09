@@ -932,6 +932,64 @@ There is deliberately no config flag to leave this on: it renders the scene a
 second time and blocks on a readback, so it is for the frames a data product
 comes from, not for every frame of a long run.
 
+### What the camera saw, and what actually appeared
+
+```python
+sim.visibility()
+# {'bodies': 2, 'visible': 2, 'clipped_near': 0, 'clipped_far': 0,
+#  'outside_sides': 0, 'drawn': 1, 'frame': 412}
+```
+
+The first five keys are always there and come from a CPU test of each body's
+bounding box against the frustum, so **`visible` means "could be seen"**, not
+"did appear": a body wholly behind another still counts. The four outcomes sum
+to `bodies`.
+
+`drawn` and `frame` appear only when [`config.occlusion_queries`](CONFIG.md) is
+on. `drawn` is how many bodies actually put samples on screen, from occlusion
+queries against the finished depth buffer. It **lags the current iteration** by
+a frame or two — quote `frame`, not `sim.state.iteration`.
+
+A bounding box stands in for its body, so `drawn` can overcount where only the
+box is visible. `visible - drawn` is the number hidden behind something else.
+
+### Picking one pixel — the same pass, one texel back
+
+```python
+sim.request_facet_pick(x, y)        # before_render, (0, 0) top-left
+hit = sim.facet_pick()              # after_render -> tuple or None
+body, facet, world_point, body_point = hit
+```
+
+The same answer and the same shape as `pick_facet`, and the same second
+geometry pass `facet_id_map` costs — but **one texel** comes back instead of
+the whole framebuffer, which is the difference between a data product and
+something a click can afford. The facet comes from the rasteriser; the point
+still comes from a ray, one triangle test against the facet the pixel named.
+
+`None` where nothing was drawn under the pixel. **Only flattened meshes are
+drawn** — the facet index comes from the vertex index — so use `pick_facet`
+for an indexed mesh, or for a ray that does not start at the camera, such as
+an instrument boresight.
+
+**Which one to use is a question of mesh size**, measured on one Didymos body
+at 800x600:
+
+| facets | frame + `facet_pick` | `pick_facet` |
+|---|---|---|
+| 81,708 | +1.09 ms | 0.83 ms |
+| 2,621,156 | +3.74 ms | 23.08 ms |
+
+The GPU cost is a geometry pass and a blocking sync, nearly flat in the mesh;
+the ray is O(facets). They cross around 100k. Below that both are well under a
+millisecond and it does not matter; above it the ray is what makes a click on a
+full-resolution shape model feel slow. Shrinking the readback from the whole
+target to one texel is worth 1.7–2.2 ms of that; the second geometry pass is
+the rest, and is why this is per *click* and not per frame.
+
+The render window's own click-to-select uses this automatically when every
+body is flattened, and falls back to `pick_facet` otherwise.
+
 ### View factors — a precompute, not a per-frame query
 
 ```python

@@ -156,7 +156,7 @@ impl Hemicube {
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: super::gpu::DEPTH_FORMAT,
                 depth_write_enabled: Some(true),
-                depth_compare: Some(wgpu::CompareFunction::Less),
+                depth_compare: Some(super::gpu::DEPTH_COMPARE),
                 stencil: Default::default(),
                 bias: Default::default(),
             }),
@@ -469,7 +469,7 @@ impl Hemicube {
                             wgpu::RenderPassDepthStencilAttachment {
                                 view: &self.depth_view,
                                 depth_ops: Some(wgpu::Operations {
-                                    load: wgpu::LoadOp::Clear(1.0),
+                                    load: wgpu::LoadOp::Clear(super::gpu::DEPTH_CLEAR),
                                     store: wgpu::StoreOp::Store,
                                 }),
                                 stencil_ops: None,

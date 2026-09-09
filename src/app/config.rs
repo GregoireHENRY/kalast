@@ -381,6 +381,21 @@ pub struct Config {
     /// Only mirrors the main pass's depth at `msaa = 1`; above that the pass writes
     /// its own multisampled depth buffer and the debug view is not it.
     pub gpu_timing: bool,
+
+    /// Count what each body actually drew, with occlusion queries.
+    ///
+    /// The Visibility panel otherwise tests bounding boxes against the
+    /// frustum, so "visible" means "could be seen", and a body wholly behind
+    /// another still counts. This draws each body's box after the scene, with
+    /// the depth test on and depth writes off, and asks the GPU how many
+    /// samples survived. Zero means it put nothing on screen.
+    ///
+    /// Off by default: it costs a readback every frame, for a diagnostic.
+    /// A box is a conservative stand-in for its body, so this can still call
+    /// a body visible when only its box is -- the same direction the frustum
+    /// test errs in.
+    /// :group: Debug
+    pub occlusion_queries: bool,
     pub debug_depth_show: bool,
     /// Draw a cube at the light's position, so the Sun is visible.
     ///
@@ -846,6 +861,7 @@ impl Default for Config {
             debug_window_mesh: false,
             debug_simulation: false,
             gpu_timing: false,
+            occlusion_queries: false,
             debug_depth_show: false,
             debug_light_cube_show: false,
             debug_light_cube_fit: true,

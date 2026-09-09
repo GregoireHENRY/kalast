@@ -41,6 +41,13 @@ pub struct Simulation {
     /// `1 + offset[body] + facet`, or 0 where no facet was drawn.
     pub facet_id_result: Option<(Vec<u32>, Vec<u32>, u32, u32)>,
 
+    /// Pending pick: the pixel to read the facet id at. The same second
+    /// geometry pass as `facet_id_request`, reading back one texel instead of
+    /// the whole target -- which is the difference between a data product and
+    /// something a click can afford.
+    pub facet_pick_request: Option<(u32, u32)>,
+    pub facet_pick_result: Option<FacetPick>,
+
     /// Pending hemicube request: `(body, facets, resolution, batch)`.
     /// A one-off like the ID map, and for the same reason -- it is a
     /// precompute, not something a frame loop should carry.
@@ -106,6 +113,9 @@ pub struct Diagnostics {
     /// Per-pass GPU times, when `config.gpu_timing` is on. All zero and
     /// `valid: false` otherwise, and on an adapter without timestamp queries.
     pub gpu: crate::app::gpu_timing::Timings,
+    /// What each body actually drew, when `config.occlusion_queries` is on.
+    /// `valid: false` otherwise, and until the first readback lands.
+    pub occlusion: crate::app::occlusion::Counts,
 }
 
 impl Simulation {
@@ -132,6 +142,9 @@ impl Simulation {
 
             facet_id_request: false,
             facet_id_result: None,
+
+            facet_pick_request: None,
+            facet_pick_result: None,
 
             hemicube_request: None,
             hemicube_result: None,
@@ -245,6 +258,8 @@ impl Simulation {
         self.facet_shadow_result.clear();
         self.facet_id_request = false;
         self.facet_id_result = None;
+        self.facet_pick_request = None;
+        self.facet_pick_result = None;
         self.hemicube_request = None;
         self.hemicube_result = None;
     }
@@ -294,6 +309,65 @@ impl Simulation {
 
     pub fn facet_id_map(&self) -> Option<&(Vec<u32>, Vec<u32>, u32, u32)> {
         self.facet_id_result.as_ref()
+    }
+
+    pub fn request_facet_pick(&mut self, x: u32, y: u32) {
+        self.facet_pick_request = Some((x, y));
+    }
+
+    pub fn facet_pick(&self) -> Option<&FacetPick> {
+        self.facet_pick_result.as_ref()
+    }
+
+    /// Whether the facet-id pass can answer for this scene at all.
+    ///
+    /// It draws only flattened meshes -- the facet index comes from the vertex
+    /// index -- so a single indexed body makes every answer suspect, not just
+    /// its own: it is missing from the target, and a body behind it would be
+    /// picked straight through it. The CPU ray handles both, so that is the
+    /// fallback.
+    pub fn pickable_on_gpu(&self) -> bool {
+        !self.bodies.is_empty()
+            && self
+                .bodies
+                .iter()
+                .all(|b| b.mesh.as_ref().is_some_and(|m| m.borrow().is_flat()))
+    }
+
+    /// Turn a facet-id texel into the answer `pick_facet` gives.
+    ///
+    /// The GPU says *which* facet in one texel; one triangle test says
+    /// *where*, which the ray had to sweep every facet to find.
+    ///
+    /// `None` when the id decodes to no body, or when the ray misses the facet
+    /// the rasteriser filled -- a pixel centre and the ray through it agree
+    /// only up to the fill rule, so a hit right on an edge can fall the other
+    /// side of it. Callers fall back to `pick_facet` there rather than
+    /// reporting nothing.
+    pub fn resolve_facet_id(
+        &self,
+        id: u32,
+        offsets: &[u32],
+        origin: crate::Vec3,
+        dir: crate::Vec3,
+    ) -> Option<(usize, usize, crate::Vec3, crate::Vec3)> {
+        // `id = 1 + offsets[body] + facet`, and the offsets are cumulative,
+        // so the body is the last one starting below it.
+        let body = offsets.iter().rposition(|o| *o < id)?;
+        let facet = (id - 1 - offsets[body]) as usize;
+
+        let b = self.bodies.get(body)?;
+        let mesh = b.mesh.as_ref()?;
+        let inverse = b.mat.inverse();
+        let local_origin = inverse.transform_point3(origin);
+        let local_dir = inverse.transform_vector3(dir).normalize_or_zero();
+        if local_dir == crate::Vec3::ZERO {
+            return None;
+        }
+        let local = mesh
+            .borrow()
+            .intersect_facet(&local_origin, &local_dir, facet)?;
+        Some((body, facet, b.mat.transform_point3(local), local))
     }
 
     pub fn request_facet_shadow(&mut self, body: usize) {
@@ -653,6 +727,23 @@ impl Simulation {
     }
 }
 
+/// What one pixel of the facet-id pass came back with.
+///
+/// Carries the pixel and the target size as well as the id, because turning
+/// the answer into a point needs the ray through that pixel, and only the
+/// window knows how big the target was.
+#[derive(Debug, Clone)]
+pub struct FacetPick {
+    /// The pixel asked for, top-left origin, as `facet_id_map` indexes.
+    pub pixel: (u32, u32),
+    /// `1 + offsets[body] + facet`, or `None` where nothing was drawn.
+    pub id: Option<u32>,
+    /// The index offset applied to each body, to decode `id` with.
+    pub offsets: Vec<u32>,
+    /// Render target size, for rebuilding the ray through `pixel`.
+    pub size: (u32, u32),
+}
+
 /// Latitude and longitude of a point in a body's own frame, in degrees.
 ///
 /// Planetocentric: latitude from the equator, longitude east from the prime
@@ -682,6 +773,65 @@ mod selection_tests {
             ..Default::default()
         });
         sim
+    }
+
+    /// The GPU pick and the ray have to agree, which is what lets a click use
+    /// whichever is cheaper. `resolve_facet_id` is handed the id the facet-id
+    /// pass would have written for the facet the ray found, and has to come
+    /// back with the same body, the same facet and the same point.
+    ///
+    /// No GPU needed: the id is `1 + offsets[body] + facet` by construction,
+    /// so both the decode and the single-triangle test are exercised.
+    #[test]
+    fn resolving_a_facet_id_agrees_with_the_ray_that_found_it() {
+        let sim = cube();
+        let origin = crate::Vec3::new(0.0, 0.0, 10.0);
+        let dir = -crate::Vec3::Z;
+
+        let (body, facet, world, local) = sim.pick_facet(origin, dir).expect("the ray hits");
+
+        // One body, so its offset is 0 -- the encoding the id pass writes.
+        let offsets = [0u32];
+        let id = 1 + offsets[body] + facet as u32;
+
+        let (b, f, w, l) = sim
+            .resolve_facet_id(id, &offsets, origin, dir)
+            .expect("the id resolves");
+        assert_eq!((b, f), (body, facet), "decoded a different facet");
+        assert!((w - world).length() < 1e-6, "world {w:?} != {world:?}");
+        assert!((l - local).length() < 1e-6, "local {l:?} != {local:?}");
+    }
+
+    /// An id past the end of the last body decodes to nothing, rather than
+    /// indexing off the end of its facets.
+    #[test]
+    fn an_out_of_range_facet_id_resolves_to_nothing() {
+        let sim = cube();
+        assert!(
+            sim.resolve_facet_id(9999, &[0], crate::Vec3::new(0.0, 0.0, 10.0), -crate::Vec3::Z)
+                .is_none()
+        );
+    }
+
+    /// The id pass draws only flattened meshes, so one indexed body makes
+    /// every answer suspect -- it is missing from the target, and a body
+    /// behind it would be picked straight through it. The whole scene falls
+    /// back to the ray, not just that body.
+    #[test]
+    fn one_indexed_body_takes_the_whole_scene_off_the_gpu_path() {
+        let mut sim = cube();
+        assert!(sim.pickable_on_gpu(), "a flattened cube should be pickable");
+
+        // Loaded and deliberately not flattened.
+        let mesh = crate::mesh::Mesh::load("res/cube.obj", |v| v);
+        sim.bodies.push(crate::app::body::Body {
+            mesh: Some(std::rc::Rc::new(std::cell::RefCell::new(mesh))),
+            ..Default::default()
+        });
+        assert!(
+            !sim.pickable_on_gpu(),
+            "one indexed body disqualifies the scene"
+        );
     }
 
     #[test]

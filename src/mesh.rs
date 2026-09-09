@@ -707,6 +707,30 @@ impl Mesh {
     pub fn intersect(&self, p: &Vec3, u: &Vec3, exit_first: bool) -> Option<(usize, Vec3)> {
         intersect_mesh(self, p, u, exit_first)
     }
+
+    /// Where a ray meets one *named* facet, in the mesh's own frame.
+    ///
+    /// The counterpart to `intersect` for when the facet is already known: a
+    /// GPU pick answers **which** facet in one texel, and this recovers
+    /// **where** with a single triangle test, instead of the O(facets) sweep
+    /// `intersect` needs to answer both at once.
+    ///
+    /// `None` when the ray misses -- which it can, marginally, even for the
+    /// facet a pixel was rasterised from: the pixel centre and the ray through
+    /// it are the same point only up to the rasteriser's fill rule, so a hit
+    /// right on an edge can fall the other side of it.
+    pub fn intersect_facet(&self, p: &Vec3, u: &Vec3, facet: usize) -> Option<Vec3> {
+        let n = if self.is_flat() {
+            self.vertices.len() / 3
+        } else {
+            self.indices.len() / 3
+        };
+        if facet >= n {
+            return None;
+        }
+        let [a, b, c] = self.get_facet_positions(facet);
+        intersect_triangle_moller_trumbore(p, u, a, b, c)
+    }
 }
 
 impl std::fmt::Debug for Mesh {

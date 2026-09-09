@@ -16,6 +16,7 @@ impl Pass {
             false,
             1,
             true,
+            gpu::SHADOW_COMPARE,
             wgpu::PrimitiveTopology::TriangleList,
             &[
                 Some(crate::mesh::Vertex::geometry_desc()),
@@ -59,7 +60,7 @@ impl Pass {
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                 view: target,
                 depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(1.0),
+                    load: wgpu::LoadOp::Clear(gpu::SHADOW_CLEAR),
                     store: wgpu::StoreOp::Store,
                 }),
                 stencil_ops: None,

@@ -747,6 +747,26 @@ impl Config {
         self.config.borrow_mut().gpu_timing = v;
     }
 
+    /// Count what each body actually drew, with occlusion queries.
+    ///
+    /// The Visibility panel otherwise reports what the *frustum* can see, so a
+    /// body wholly behind another still counts. With this on it also reports
+    /// what put samples on screen. Off by default: it is a readback every
+    /// frame for a diagnostic.
+    ///
+    /// A bounding box stands in for its body, so this can call a body visible
+    /// when only its box is -- conservative in the same direction the frustum
+    /// test already is.
+    #[getter]
+    fn occlusion_queries(&self) -> bool {
+        self.config.borrow().occlusion_queries
+    }
+
+    #[setter]
+    fn set_occlusion_queries(&mut self, v: bool) {
+        self.config.borrow_mut().occlusion_queries = v;
+    }
+
     #[getter]
     fn selection_color(&self) -> [Float; 4] {
         let c = self.config.borrow().selection_color;

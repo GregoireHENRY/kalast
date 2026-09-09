@@ -1261,3 +1261,152 @@ tried and abandoned with the measurement that abandoned it, and the three
 WebGPU-sample items still open -- reversed-Z first, then primitive picking,
 then occlusion queries.
 
+
+### Reversed-Z
+
+The camera's depth buffer holds 1.0 at the near plane and 0.0 at the far one
+now, cleared to 0.0 and tested with `Greater`. First of the three items the
+GPU-timing handoff left open, and the one it put first.
+
+`b0a1989` had just floored the near plane at `far * 1e-3` to stop the crater
+z-fighting. That works, and it is an assumption rather than a fix: it says no
+scene may want a near plane closer than a thousandth of its far one, which
+rules out a Hera close approach seeing anything within 100 m of the camera at
+a 100 km far plane. Reversed-Z removes the coupling instead of tuning it --
+float precision bunches near zero, the perspective divide bunches it near the
+near plane, and pointing them at opposite ends cancels the two. The floor is
+back to `far * 1e-5` and now only keeps the projection non-singular.
+
+The measurement that says it worked: with the planes pinned from Python so the
+floor is out of the picture, a punishing `near/far` of 1e-6 renders **286 px
+of z-fighting on the old build and 0 on the new one** -- bit-identical to the
+same scene with the near plane 5,000x further out. At a comfortable near plane
+the two builds are pixel-identical, so it is inert where precision was never
+the problem.
+
+**The shadow map is deliberately not reversed**, which reverses the handoff's
+own recommendation. Its projection is orthographic, so its depth is linear and
+its precision already uniform -- the cancellation only exists under a
+perspective divide, so there is nothing to gain. Against that, the biases in
+`mesh_shadow.wgsl` are calibrated against this sense and `facet_shadow.wgsl`
+re-derives the same comparison in compute, so flipping it would move the
+illumination the thermophysical model runs on for no precision at all. The two
+chains were already separate -- the light's matrix never passes through
+`Projection::mat()` -- and both sites now say why they stay put.
+
+One trap, of the kind worth remembering: **`colorbar.wgsl` emitted a hardcoded
+clip-space `z = 0.0`**. Under `Less` that meant "always draw"; under `Greater`
+against a background cleared to 0.0 it meant the bar vanished entirely.
+Geometry drawn through the camera matrix takes care of itself; a hardcoded clip
+position does not.
+
+Checked for movement four ways against `f3c1baf`, and it moved almost nowhere:
+the crater's illumination trace over a 200-iteration Sun sweep is identical
+byte for byte at 17 digits, `facet_id_map()` is bit-identical, and the
+analytical hemicube validation gives the same 0.07 % error. The one thing that
+does move is the view-factor *distribution*: 8 of 10240 pair entries shift by
+at most 3.1e-5, four of them across zero, where a facet sits exactly on a
+hemicube-pixel visibility boundary. The per-facet totals -- the quantity the
+physics uses -- are bit-identical, so the shift is a reassignment between
+neighbours two orders of magnitude below the hemicube's own discretisation
+error.
+
+Full write-up, including why swapping the two planes in `perspective_rh` *is*
+the reversed form, in `notes/2026-09-09_reversed_z.md`.
+
+### Primitive picking
+
+Second of the three items the GPU-timing handoff left open. Most of it already
+existed: `src/app/facet_id.rs` has rendered facet indices into an R32Uint
+target for a while. What it could not do was answer about **one pixel** --
+`render_and_read` copies the whole target, ~12 MB and 2.9M texels unpadded on
+the CPU, to answer a question about four bytes. So the work was the readback
+shape, not the pass: `read_at` beside `render_and_read`, sharing the render
+through a new `record`, and `sim.request_facet_pick` / `sim.facet_pick` in
+Python.
+
+The GPU answers *which* facet; one triangle test (`Mesh::intersect_facet`)
+answers *where*, so the click handler keeps the lat/lon it prints. `pick_facet`
+is unchanged and still public -- it answers what a screen pixel cannot, a ray
+from an arbitrary origin such as an instrument boresight.
+
+**The measurement changes the recommendation.** One Didymos body, medians of
+60 frames:
+
+| facets | plain frame | + 1x1 pick | + whole map | `pick_facet` |
+|---|---|---|---|---|
+| 81,708 | 2.98 ms | +1.09 ms | +3.27 ms | 0.83 ms |
+| 2,621,156 | 14.24 ms | +3.74 ms | +5.48 ms | 23.08 ms |
+
+At full resolution the GPU pick is **6.2x faster** and nearly flat in mesh
+size where the ray is linear; at 100k the ray still wins and both are under a
+millisecond. They cross around 100k. Shrinking the readback bought 1.7-2.2 ms
+of that -- the second geometry pass is the rest, and is why this is per *click*
+rather than something to leave on.
+
+**The first measurement was wrong in a way worth remembering.** Interleaving
+the modes round-robin in one run had a 1x1 copy costing *more* than a 12 MB one
+-- 33.81 ms against 20.69 -- which is impossible, and that is what made it
+obvious. A frame that blocks on a readback drains whatever the previous frame
+left in flight, so round-robin charges whichever mode follows a non-blocking
+frame for that frame's work. The plain frame reading 0.55 ms at 2.6M facets was
+the same artefact: it timed queueing the work, not doing it. One mode per
+process fixes it, and the plain frame then reads 14.24 ms. **Any benchmark that
+mixes blocking and non-blocking frames measures the ordering, not the work.**
+
+One trap: the id pass draws only flattened meshes, and an indexed body is not
+merely unpickable but **absent from the target**, so a body behind it would be
+picked straight through it. `pickable_on_gpu` is therefore all-or-nothing --
+one indexed body and the whole scene falls back to the ray.
+
+And one regression found by doing this: `select_at_cursor` unprojected
+hardcoded clip depths, 0.0 near and 1.0 far, which reversed-Z had just swapped.
+The picking ray started on the far plane pointing back at the camera, so a
+click would have selected the far side of the body. `pick_facet`'s tests pass
+an explicit ray and never touch the unprojection, so nothing caught it. The
+construction lives in `Eye::ray_through_ndc` now, beside the matrices that
+define the convention, and is tested.
+
+`notes/2026-09-09_primitive_picking.md` has the full write-up.
+
+### Occlusion queries
+
+Last of the three, and the smallest. `config.occlusion_queries` adds a row to
+the Visibility panel, and `sim.visibility()` to Python.
+
+The panel's existing counts come from `diagnose`, which tests each body's
+bounding box against the frustum -- so "visible" means *could be seen*, and a
+body wholly behind another still counts. The queries answer the other question.
+
+**Where they go is the whole design.** Wrapping each body's own draw does not
+work: a query counts samples that passed depth *when that body was drawn*, and
+bodies are drawn in order, so one drawn first and covered later still reports
+its full silhouette. Instead each body's bounding box is drawn at the **end of
+the main pass** -- depth test on, depth writes off, colour mask empty -- once
+every body has written depth. That makes the answer occlusion against the
+finished scene, order-independent, for 36 vertices a body rather than a second
+geometry pass. Unculled, `GreaterEqual` rather than `Greater`, and with a real
+fragment stage writing to a masked target; the note says why each.
+
+**Free on the GPU.** Span with the queries on and off is indistinguishable --
+2.9 ms at 100k facets, 14.2 ms at 2.6M, either way. Wall-clock frame time is
+not: the naive A/B gave off 8.84 ms against on 12.54, and repeats put *off*
+anywhere from 1.02 to 15.31 while *on* stayed at 13.7-14.6. Adding a readback
+forces a sync, so the A/B measured whether a sync happened. Same artefact the
+picking benchmark hit that morning, from the other side.
+
+**Two more reversed-Z bugs, both in `diagnose`.** `n &= p.z < 0.0` and
+`f &= p.z > p.w` were swapped once near moved to `z = w`, so every body clipped
+near was reported clipped far and vice versa -- invisible, since the visible
+count is right either way and only the labels exchange. And
+`light_cube_clipped`, commented "only the far plane", became the near test, so
+it warned on the wrong condition and in practice never fired. Both fixed.
+
+The guard for that needed a second attempt and is the lesson worth keeping:
+the first version had one body behind the eye and one past the far plane, and
+**passed with the bug reinstated** -- a swap just exchanges which body is
+which, and both counts still read 1. Two bodies behind and one beyond makes the
+counts unequal, so a swap shows. Always check a regression test fails without
+the fix.
+
+`notes/2026-09-09_occlusion_queries.md` has the rest.

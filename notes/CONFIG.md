@@ -209,11 +209,56 @@ that pass was resident on the GPU, queue wait included, so four bodies report
 timestamp to last and is the figure to compare against a frame time. Full
 write-up in `2026-09-09_gpu_pass_timings.md`.
 
+### `occlusion_queries: bool` — default `False` *(live)*
+Count what each body actually **drew**, with occlusion queries, readable from
+[`sim.visibility()`](API.md) and shown in the editor's Visibility panel.
+
+```python
+app.simulation.config.occlusion_queries = True
+...
+app.simulation.visibility()
+# {'bodies': 2, 'visible': 2, 'clipped_near': 0, 'clipped_far': 0,
+#  'outside_sides': 0, 'drawn': 1, 'frame': 412}
+```
+
+Without it the panel reports each body's **bounding box against the frustum**,
+so `visible` means "could be seen" — a body wholly behind another still counts.
+With it on, each body's box is drawn again after the scene with the depth test
+on and depth writes off, and the GPU reports how many samples survived. Zero
+means the body put nothing on screen.
+
+Drawn **last in the main pass**, once every body has written depth, so the
+answer is occlusion against the finished scene. Querying the bodies' own draws
+instead would count samples that passed at the moment each was drawn — which a
+body drawn early and covered later still does.
+
+A box is a conservative stand-in for its body: it can be visible where the body
+is not, so `drawn` can overcount. That is the direction the frustum test
+already errs in, and the safe one for a diagnostic. A camera *inside* a body's
+box is special-cased on the CPU — its front faces are behind the near plane and
+its back faces behind the body's own surface, so the query would report a body
+filling the screen as invisible.
+
+**It costs nothing measurable on the GPU.** The span with it on and off is
+indistinguishable — 2.9 ms at 100k facets, 14.2 ms at 2.6M, either way. Note
+that wall-clock frame time *does* change, by several milliseconds: the readback
+forces a sync, and without one `app.step()` returns as soon as the work is
+queued. That is the measurement changing, not the work. Off by default all the
+same, because it is a buffer map per frame for a diagnostic.
+
+**The counts lag** the current iteration by a frame or two, like `gpu_timing`;
+`frame` says which one they belong to.
+
 ### `debug_depth_show: bool` — default `false` *(live)*
 Renders the shadow/depth map as an overlay instead of leaving it offscreen, by
 running an extra depth-visualisation pass. Read at `src/app/pass/mod.rs:58`,
 which calls `self.depth.render(view, encoder)`.
 Accepted: `True` / `False`.
+
+The camera's buffer is reversed-Z — 1 at the near plane, 0 at the far one —
+and the shader undoes that before shading the ramp, so near still reads dark
+and far light. The near/far it linearises with are a fixed guess rather than
+the camera's own planes, so treat the ramp as indicative and not a distance.
 Useful for debugging shadow acne / peter-panning alongside the `shadow_bias_*`
 options.
 
@@ -237,19 +282,25 @@ The **camera** only. The light's own frustum stays fitted to the bodies,
 because that is what the shadow map covers: stretching it to the Sun would
 spend the whole map on empty space and leave the bodies a few texels across.
 
-It costs some depth precision: a far plane at the Sun rather than at the
-body's edge is a much longer near-to-far span. It used to cost far more than
-that. The cube's box was **merged into the scene bounds with a union**, and a
-box spanning the scene *and* the Sun has corners out in empty space — nearer
-the eye than any geometry, and in the crater example behind the eye entirely.
-The near plane was fitted to one of those and collapsed from 1.17 to 0.000028,
-which is no depth precision at all: the crater's flat plane and the bowl's
-back face, nearly tangent where they meet, z-fought into a dashed grey line.
+It stretches the near-to-far span a long way: `far` reaches the Sun rather
+than the body's edge. Under reversed-Z that costs essentially nothing, since
+depth precision no longer follows `near / far`; before reversed-Z it cost
+real precision, and at one point far more than that.
 
-Each box is fitted from its own corners now, and the near plane's floor is a
-thousandth of the far plane rather than a hundred-thousandth. A marker beyond
-the scene extends `far` and leaves `near` where the scene put it; the cube
-stays visible when it is the nearest thing. Guarded by two tests in
+The cube's box was **merged into the scene bounds with a union**, and a box
+spanning the scene *and* the Sun has corners out in empty space — nearer the
+eye than any geometry, and in the crater example behind the eye entirely. The
+near plane was fitted to one of those and collapsed from 1.17 to 0.000028,
+which under forward-Z was no depth precision at all: the crater's flat plane
+and the bowl's back face, nearly tangent where they meet, z-fought into a
+dashed grey line.
+
+Each box is fitted from its own corners now, so a marker beyond the scene
+extends `far` and leaves `near` where the scene put it, and the cube stays
+visible when it is the nearest thing. The near plane's floor went to a
+thousandth of `far` as a second guard against the same symptom; reversed-Z
+made that unnecessary and it is back to a hundred-thousandth, which is only
+there to keep the projection non-singular. Guarded by two tests in
 `src/app/frame.rs`.
 
 Accepted: `True` / `False`.

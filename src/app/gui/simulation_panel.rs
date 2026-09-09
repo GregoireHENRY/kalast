@@ -753,6 +753,28 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation, selection_color: crate::Vec3) 
         row(ui, "clipped near", d.out_near.to_string());
         row(ui, "clipped far", d.out_far.to_string());
         row(ui, "outside sides", d.out_side.to_string());
+
+        // The rows above answer "could the camera see it". This one answers
+        // "did it appear": a body inside the frustum but wholly behind
+        // another counts as visible up there and not here.
+        if d.occlusion.valid {
+            row(
+                ui,
+                "drew pixels",
+                format!("{} of {}", d.occlusion.n_drawn(), d.occlusion.n),
+            );
+            let occluded = d.n_visible.saturating_sub(d.occlusion.n_drawn());
+            if occluded > 0 {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{occluded} in frustum but hidden behind another body"
+                    ))
+                    .weak()
+                    .small(),
+                );
+            }
+        }
+
         if d.light_cube_clipped {
             ui.label(
                 egui::RichText::new("light cube is outside the camera's far plane")

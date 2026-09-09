@@ -26,6 +26,7 @@ impl Pass {
             samples,
             // Overlay: never occludes the scene it annotates.
             false,
+            gpu::DEPTH_COMPARE,
             wgpu::PrimitiveTopology::TriangleList,
             // The quad comes from the vertex index.
             &[],
