@@ -229,6 +229,7 @@ pub fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     pyadd_f!(emit, crate::tpm::emit::irradiance);
     pyadd_f!(emit, crate::tpm::emit::reflectance);
     pyadd_f!(emit, crate::tpm::emit::py::radiance);
+    pyadd_f!(emit, crate::tpm::emit::py::planck_array);
     tpm.add_submodule(&emit)?;
     py.import("sys")?
         .getattr("modules")?
