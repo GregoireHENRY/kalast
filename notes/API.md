@@ -1047,3 +1047,54 @@ The same figures reach a HUD as `{gpu}` (the span) and `{gpu_shadow}`,
 
 Advances `state.iteration`. The app calls it once per frame; a script does not
 normally need it.
+
+## `kalast.scattering` — reflected sunlight
+
+The optical half of the photometry. `kalast.tpm.emit` answers how bright a
+facet is from its *temperature*; this answers how bright it is from *reflected
+sunlight*, which is what a ground-based visible-band light curve measures and
+what the engine could not compute at all before.
+
+Every law returns the bidirectional reflectance `r(i, e, alpha)` in one shared
+convention:
+
+```text
+I = r * J * mu0          radiance leaving a facet
+F = sum_f  r_f * J * mu0_f * mu_f * A_f * lit_f * vis_f / d^2
+```
+
+with `mu0 = cos i`, `mu = cos e`, `alpha` the phase angle in radians. **Note
+this differs from Hapke's own `r`, which folds `mu0` in.** Factoring it out is
+what lets a caller swap laws without the answer changing by `cos i`; the
+reduction test in `tests/test_scattering.py` is what holds all four to it.
+
+| | |
+|---|---|
+| `lambert(albedo)` | isotropic, `A / pi` |
+| `lommel_seeliger(w, mu0, mu)` | single scattering off a dark regolith |
+| `lommel_seeliger_lambert(w, c, mu0, mu)` | the `c LS + (1-c) L` mix of the inversion literature |
+| `h_function(w, x)` | Chandrasekhar `H`, Hapke's 2002 approximation |
+| `henyey_greenstein(b, c, alpha)` | two-lobe particle phase function, `c` = backward fraction |
+| `opposition_surge(b0, h, alpha)` | shadow-hiding surge, `B0` at zero phase, half-width at `tan(a/2) = h` |
+| `Hapke(w, b, c, b0, h, theta_bar)` | the full IMSA model |
+
+```python
+from kalast.scattering import Hapke, lommel_seeliger
+
+h = Hapke(w=0.1, b=0.3, c=0.6, b0=1.0, h=0.05)
+r = h.reflectance(mu0=0.8, mu=0.6, alpha=0.1)   # radians
+a = h.bond_albedo()
+```
+
+**`theta_bar` must be zero.** Hapke's macroscopic roughness is not
+implemented, and `reflectance` raises `ValueError` rather than ignoring the
+parameter — `theta_bar = 0` is exact for a smooth surface, so what is here is
+a complete model of that case rather than an approximate one of a rough
+surface. The field exists so a published parameter set can be stored without
+silently losing a term. Do not confuse it with `kalast.tpm.roughness`, which
+is the Kuehrt crater correction on the *thermal* side.
+
+**The other half is the lit and visible fractions**, which are quantised to
+quarters today. `notes/2026-09-10_polygonal_shadowing_assessment.md` measures
+that at 0.7-40 mmag. Exact reflectance feeding a quantised area is still a
+half-answer.

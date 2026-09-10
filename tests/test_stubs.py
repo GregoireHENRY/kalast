@@ -111,6 +111,13 @@ def test_stubs_match_the_built_module():
         ("kalast/entity.pyi", "Body", kalast.entity.DEIMOS),
         ("kalast/entity.pyi", "Camera", kalast.entity.TIRI),
         ("kalast/tpm/properties.pyi", "Properties", kalast.tpm.properties.DEIMOS),
+        # Added after this list let a broken stub through. `Hapke` shipped
+        # advertising `py_reflectance` -- the Rust name, because the generator
+        # ignored `#[pyo3(name = ...)]` -- and every check here passed, since
+        # a class absent from this list is simply not looked at. The list is
+        # hand-maintained, which makes it the weakest thing in the file: a new
+        # `#[pyclass]` is covered only if somebody remembers to add it.
+        ("kalast/scattering.pyi", "Hapke", kalast.scattering.Hapke()),
     ]
     problems = []
     for pyi, cls, obj in cases:

@@ -124,16 +124,69 @@ def struct_field_docs(path: str, struct: str) -> dict:
     return out
 
 
+def struct_fields_of(src: str, struct: str):
+    """`pub` fields of a struct in this same source, as stub attributes.
+
+    For `#[pyclass(get_all, set_all)]`, where the fields *are* the Python
+    surface. Reads the same file rather than a path, since the pyclass and the
+    struct are the same declaration.
+    """
+    m = re.search(rf"pub struct {struct} \{{", src)
+    if not m:
+        return []
+    i = src.index("{", m.end() - 1)
+    depth, j = 0, i
+    while j < len(src):
+        depth += (src[j] == "{") - (src[j] == "}")
+        if depth == 0:
+            break
+        j += 1
+    out = []
+    for fm in re.finditer(
+        r"((?:[ \t]*///[^\n]*\n)*)[ \t]*(?:#\[[^\n]*\]\s*)*pub (\w+)\s*:\s*([^,\n]+)",
+        src[i:j],
+    ):
+        doc, name, ty = fm.groups()
+        override, doc = pytype_override(clean_doc(doc))
+        out.append(("attr", name, override or py_type(ty), doc))
+    return out
+
+
 def parse(src: str):
     """-> [(class, [(kind, name, type, doc)])] for one .rs file."""
     classes = []
     for m in re.finditer(
-        r"((?:^[ \t]*///[^\n]*\n)*)[ \t]*#\[pyclass[^\]]*\]\s*"
-        r"(?:#\[[^\]]*\]\s*)*pub struct (\w+)",
+        # The pyclass attribute is matched by *containing* "pyclass" rather
+        # than starting with it: a binding that lives beside the physics
+        # instead of under src/py/ has to write
+        # `#[cfg_attr(feature = "python", pyclass(...))]`, because the struct
+        # is used by the engine too and gating the item with `#[cfg]` would
+        # delete it. Anything between the doc comment and the struct -- a
+        # `#[derive]`, an ordinary `//` note -- is skipped, so the class doc
+        # survives being separated from its declaration.
+        #
+        # A stub file that generates *empty* is what this guards against. It
+        # looks like the surface is covered and completes nothing, which is
+        # exactly the trap the hand-written stubs set before they were
+        # replaced by this generator.
+        r"((?:^[ \t]*///[^\n]*\n)*)"
+        r"(?:[ \t]*(?:#\[[^\n]*\]|//[^\n]*)\n)*?"
+        r"[ \t]*#\[[^\n]*pyclass[^\n]*\]\s*"
+        r"(?:[ \t]*(?:#\[[^\n]*\]|//[^\n]*)\n)*"
+        r"pub struct (\w+)",
         src,
         re.M,
     ):
-        classes.append((m.group(2), [], clean_doc(m.group(1))))
+        members = []
+        # `get_all` / `set_all` expose the struct's `pub` fields directly,
+        # with no accessor to read. That is the better idiom for a small value
+        # struct -- it cannot drift from its own fields the way a hand-written
+        # `#[getter]`/`#[setter]` pair can, which CLAUDE.md records biting four
+        # times -- but it was invisible here, so such a class generated an
+        # empty stub that looked like coverage.
+        if "get_all" in m.group(0) or "set_all" in m.group(0):
+            members.extend(struct_fields_of(src, m.group(2)))
+        classes.append((m.group(2), members, clean_doc(m.group(1))))
     if not classes:
         return []
     by_name = {c: members for c, members, _ in classes}
@@ -172,6 +225,15 @@ def parse(src: str):
             attrs = "\n".join(
                 l for l in (prelude or "").splitlines() if l.strip().startswith("#[")
             )
+            # `#[pyo3(name = "x")]` renames the method pyo3 exports, so the
+            # Rust name is not the Python one. Ignoring it advertised
+            # `py_reflectance` on a class whose only method is `reflectance` --
+            # a stub that names something the module does not have, which is
+            # the exact failure `test_stubs_match_the_built_module` exists to
+            # catch and did not, because its case list is hand-maintained.
+            rn = re.search(r'#\[pyo3\([^\]]*name\s*=\s*"(\w+)"', attrs)
+            if rn:
+                name = rn.group(1)
             if "#[new]" in attrs:
                 name = "__init__"
                 ret = "()"          # a constructor returns None in Python
@@ -345,6 +407,11 @@ TARGETS = {
     "src/py/routines/setup.rs": "kalast/routines/setup.pyi",
     "src/py/tpm/properties.rs": "kalast/tpm/properties.pyi",
     "src/py/tpm/column.rs": "kalast/tpm/column.pyi",
+    # Not under src/py/: `scattering` keeps its `#[pyclass]` inline with the
+    # physics rather than in a separate binding file, since the struct is
+    # the same either way and splitting it would put the parameter docs a
+    # file away from the formula that uses them.
+    "src/scattering.rs": "kalast/scattering.pyi",
 }
 
 
