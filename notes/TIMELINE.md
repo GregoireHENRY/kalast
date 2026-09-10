@@ -1702,11 +1702,19 @@ The polygonal method is CPU pairwise clipping — good to ~1e4 facets, useless
 at the 3.1M the shadow map handles in one pass. Different regimes, not
 competitors.
 
-Two caveats recorded there. The slides that prompted this
-(`11_Broz.pdf`, houches 2024) are on the **Mac**, not here, so the assessment
-is from the paper (arXiv:2306.04768) and may be behind them. And the paper
-publishes **no timings at all**, so every performance statement is inference
-from the method rather than their measurement.
+The slides that prompted it (`11_Broz.pdf`, Les Houches 2024) turned out to
+be on the ROB cloud -- the same host `README.rst` uses for `res/` -- and are
+read now. They agree with the paper and add three things: the clippings are a
+sequence of **three** (Sun, observer, pixel), the scattering law is **Hapke**,
+and **Xitau's source is available** (F90, `xitau_20240124_POLYS`), so the
+reference implementation can be read rather than reconstructed. The lineage is
+Phoebe2, the eclipsing-binary code -- so the polygon-clipping half is mature,
+and self-shadowing is the part Brož added.
+
+One caveat survives: **neither the paper nor the 96-page deck gives a single
+timing.** The only CPU figure in the deck is "1 week on 100 CPUs", and that is
+mapping local minima in the dynamical fit, not the cost of the algorithm. So
+every performance statement is inference from the method.
 
 **The likely bigger gap is not shadowing.** Optical lightcurves need a
 bidirectional scattering law — Lambert, Lommel-Seeliger, Hapke — and `grep`

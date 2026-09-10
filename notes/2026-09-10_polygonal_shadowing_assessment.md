@@ -8,14 +8,22 @@ The question attached to it: Brož's "polygonal algorithm, partial
 shadowing/visibility" — is it good, and how does it compare with what kalast
 already does?
 
-## The slides are not on this machine
+## The slides, and where to get them
 
-Asked for `/Users/gregoireh/Documents/events-meeting/2024.02-houches/presentations/11_Broz.pdf`,
-slides 48-52. That is the macOS path; nothing resembling it exists on the
-Windows box, and a search for `*Broz*` and `*houches*` under the user tree
-found nothing. **This assessment is from the underlying paper, not the
-slides**, so if the slides present a variant or a later version, this may be
-behind.
+First asked for as `/Users/gregoireh/Documents/events-meeting/2024.02-houches/presentations/11_Broz.pdf`
+-- the macOS path, which does not exist on the Windows box. They are on the
+ROB cloud, the same host `README.rst` points at for `res/`:
+
+    https://cloud-as.oma.be/index.php/s/dG9oeb422NZcGtD
+
+That link serves a **532 MB zip of the whole `2024.02-houches/` folder**, not
+one file; `curl -sL -o houches.zip <url>/download` then
+`unzip -j houches.zip '2024.02-houches/presentations/11_Broz.pdf'` gets the
+36 MB deck (96 pages) without unpacking the videos beside it.
+
+Read, and it agrees with the paper -- slide 48 is the algorithm exactly as
+described below. What the slides add over the paper is at the end of this
+note.
 
 Primary reference: **Brož et al. (2023), A&A**, *"2021 occultations and
 transits of Linus orbiting (22) Kalliope. I. Polygonal and 'cliptracing'
@@ -182,6 +190,52 @@ made.
 
 That is the next thing to do before writing any Clipper2 code.
 
+## What the slides add over the paper
+
+Three things worth having.
+
+**The clippings are a sequence of three, not two.** The paper splits them
+across two sections and it reads as two separate algorithms; slide 48 and
+slide 52 make the structure plain:
+
+| | clip against | gives |
+|---|---|---|
+| 1st | the Sun projection | partial **shadowing** |
+| 2nd | the observer projection | partial **visibility** |
+| 3rd | the pixel, as a polygon | partial **flux contribution** (cliptracing) |
+
+Each with a back-projection onto the facet plane. Slide 48's own summary of
+the benefit is `'killed' d. errors` -- discretisation errors killed, which is
+the honest claim: the shape's own discretisation remains, everything the
+sampling used to add does not.
+
+**The scattering law is Hapke.** Slide 51, "exact light curve / scattered
+light / Hapke law". That settles what the exact areas are for: they feed a
+bidirectional reflectance, and getting the areas exact while the reflectance
+is missing or crude buys nothing. It also names the target for kalast, which
+has no scattering law at all -- Hapke rather than Lambert or Lommel-Seeliger.
+
+**The lineage is eclipsing-binary stars.** Slide 48 cites Prša et al. (2016),
+i.e. Phoebe2, and the paper says the approach is Phoebe2's "but complicated by
+the fact that we have to compute not only the visibility, but also non-convex
+shadowing, which is critical for asteroids". So this is a mature stellar
+technique carried into asteroids, with self-shadowing as the new part. Worth
+knowing: the polygon-clipping half has been exercised for years on binaries.
+
+**And `Xitau` is readable.** Slide 54: source at
+`http://sirrah.troja.mff.cuni.cz/~mira/xitau/`, Fortran 90 with older F77
+parts, all published models with input and output, and -- the useful bit --
+"always use the corresponding-date version", the polygonal one being
+`xitau_20240124_POLYS`. So the reference implementation can be read directly
+rather than reconstructed from the paper.
+
+**Still no timings.** Searched the whole 96-page deck for CPU, speed, cost and
+performance. The only CPU figure is "1 week on 100 CPUs" on slide 61, and that
+is about mapping local minima in the *dynamical* fit for Kleopatra's
+satellites -- nothing to do with the cost of the polygonal algorithm per light
+curve point. So the performance column of the comparison above remains
+inference from the method, in both sources.
+
 ## Sources
 
 - Brož et al. 2023, A&A, [arXiv:2306.04768](https://arxiv.org/abs/2306.04768) —
@@ -192,3 +246,6 @@ That is the next thing to do before writing any Clipper2 code.
 - Delbo et al., *Asteroid thermophysical modeling*,
   [arXiv:1508.05575](https://arxiv.org/abs/1508.05575) — review context for
   where partial shadowing sits in TPM practice.
+- Prša et al. 2016 — Phoebe2, where the polygon-clipping approach comes from.
+- The slides themselves: `11_Broz.pdf`, Les Houches, February 2024, on the ROB
+  cloud at the link above.
