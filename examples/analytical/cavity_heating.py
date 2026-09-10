@@ -28,6 +28,7 @@ Run:  python examples/analytical/cavity_heating.py [resolution] [subdivisions]
 """
 
 import sys
+import tempfile
 from pathlib import Path
 
 import numpy
@@ -39,7 +40,10 @@ from kalast.util import STEFAN_BOLTZMANN
 
 RES = int(sys.argv[1]) if len(sys.argv) > 1 else 128
 N = int(sys.argv[2]) if len(sys.argv) > 2 else 6
-BOX = Path("/tmp/kalast_cavity_box.obj")
+# The system temp directory, not a hardcoded /tmp: this repo is worked on
+# from Windows too, where a leading-slash path resolves against the current
+# drive and the open fails outright.
+BOX = Path(tempfile.gettempdir()) / "kalast_cavity_box.obj"
 
 
 def write_box(path, n):
