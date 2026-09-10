@@ -1557,3 +1557,41 @@ Sun angle moved false-lit 18 -> 24 out of 1540. Fifteen angles and an
 assertion on the *worst* one separates healthy from broken by 10x where the
 aggregate manages 2.3x. Budgets are set from that measured pair, and the test
 was confirmed to fail on the broken build before being kept.
+
+## 10 September, later still — the conduction solvers, pinned
+
+`tests/test_conduction.py`. Item 6 of the audit's test backlog, and the
+highest-value one: `explicit.py`, `implicit.py` and `nonuniform.py` are 838
+lines of numerics that nothing in the suite touched.
+
+**The validation already existed and was not a test.**
+`examples/analytical/sinusoidal.py` has checked the solvers against the
+analytical damped thermal wave from the start -- eight error figures and an
+order-of-accuracy table -- and *prints* them. A regression was only ever
+caught if somebody ran it and read the output. This is that example's numbers
+turned into assertions; the example keeps the plots and the commentary.
+
+Three layers, weakest to strongest: per-configuration error budgets against
+the closed form; amplitude decay and phase lag pulled out of the numerical
+solution by a least-squares fit, which consults no analytic formula and so
+survives an error in one; and observed order of accuracy against a
+time-converged reference on the same grid -- 1 for backward Euler, 2 for
+Crank-Nicolson and BDF2. That last is the one an error budget cannot replace:
+the 16-node grid's spatial error is 0.7 K, so a second-order scheme quietly
+dropping to first order still passes every budget.
+
+Confirmed to have teeth by changing the second difference in
+`src/tpm/core.rs` from 2.0 to 2.02 -- a 1 % error. Decay error goes
+0.0001 -> 0.1604, phase lag 0.0040 -> 1.4351 rad, and the analytic error to
+300 K. Restored and re-verified afterwards.
+
+Two things found while writing it. **A raw DFT sum was the wrong estimator**:
+the sample window spans one period only to within a timestep, and the leftover
+fraction leaks the constant mean into the oscillating component -- 0.21 rad of
+phase error on a solver whose amplitude was already right to 0.5 %. Least
+squares against `[1, cos, sin]` fixed it. And **`skin_depth_1` and
+`skin_depth_2pi` documented their period argument as "density"** -- formulas
+correct, comments wrong, which is how a wrong argument returns a plausible
+number. Both corrected and now pinned.
+
+Runs in 2.2 s, pure numpy, no GPU and no window.

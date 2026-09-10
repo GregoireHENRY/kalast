@@ -244,13 +244,26 @@ dataset:
    `planck` over all wavelengths and multiplying by pi gives `sigma T^4`. Both
    are exact and catch a constants error instantly. Add the f32 overflow
    boundary as an explicit case.
-4. **Shadowing**: the cross-check in finding 1.
+4. **Shadowing**: the cross-check in finding 1. **Done** —
+   `tests/test_facet_shadow.py`.
 5. **Radiance band integration**: a flat unit response over a narrow band must
    return the band-centre spectral radiance times the width.
 6. **Conduction** (`explicit.py` / `implicit.py`): a semi-infinite solid under
    a sinusoidal surface flux has an analytic thermal-wave solution — skin
-   depth and phase lag. This is the single highest-value test on the Python
-   side and it needs no data.
+   depth and phase lag. **Done** — `tests/test_conduction.py`.
+
+   Worth recording that the validation already existed.
+   `examples/analytical/sinusoidal.py` had been checking exactly this from the
+   start, with eight error figures and an order-of-accuracy table. It *prints*
+   them, so a regression was only ever caught if somebody ran the example and
+   read the output — which is the whole difference between a demonstration
+   and a test. Turning that into assertions needed no new physics and was the
+   cheapest coverage on this list.
+
+   So before writing items 2, 3 and 5 from scratch, look in
+   `examples/analytical/` first: `cavity_heating.py`, `view_factors.py`,
+   `roughness.py`, `slab_relaxation.py` and `tpm_gpu_vs_cpu.py` are all
+   sitting there in the same shape.
 
 ## 6. Smaller things
 
@@ -263,6 +276,11 @@ dataset:
   writing this audit: constructing a second `App()` in one process panics with
   `RecreationAttempt`. That is a legitimate restriction, but it should be a
   `RuntimeError` carrying a sentence that explains it.
+- **`skin_depth_1` and `skin_depth_2pi` documented their period argument as
+  "density".** The formulas were always the period's and are correct; only the
+  comments were wrong, which is the kind of mismatch that returns a plausible
+  number from a wrong argument. Fixed, and both are now pinned by
+  `tests/test_conduction.py`.
 - **`SOLAR_CONSTANT = 1369.0`**, commented "integrated solar flux at 1 AU".
   The modern accepted TSI is 1361; 1369 appears in older TPM literature.
   Probably deliberate, but the provenance is not written down, and it
