@@ -12,6 +12,7 @@ pub mod py;
 #[cfg(feature = "python")]
 pub mod routines;
 pub mod scattering;
+pub mod shadowing;
 pub mod spice;
 pub mod tpm;
 pub mod util;

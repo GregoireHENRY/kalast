@@ -1743,3 +1743,52 @@ correction** — this entry previously said partial visibility at the limb was a
 comparable second gap. On this test it is not; binary visibility costs little
 beside the shadow quantisation for a single body. That claim was about mutual
 events, which remain untested.
+
+## 10 September — the photometry, both halves
+
+Asked for after the Brož assessment: implement it. Two modules, and kalast can
+now compute a visible-band light curve, which it could not before.
+
+**`kalast.scattering`** — the reflected-sunlight half, which did not exist at
+all. Lambert, Lommel-Seeliger, the `c·LS + (1−c)·L` mix, and Hapke IMSA with a
+two-lobe phase function, opposition surge and Chandrasekhar `H`. Hapke's
+macroscopic roughness is refused rather than ignored: `theta_bar = 0` is
+exact, so this is a complete model of a smooth surface rather than an
+approximate one of a rough one.
+
+Two bugs, both caught by tests and both worth remembering. The **`mu0`
+convention was inconsistent** — Hapke's own `r` folds `cos i` in and the other
+laws do not, so swapping laws would have changed the answer by `cos i`, which
+surfaces as a wrong pole solution rather than as an error. And the
+**Henyey-Greenstein lobes were backwards**, the exact error the doc comment
+warned about: `alpha = 0` is backscatter while the textbook form is written in
+the scattering angle. Normalisation cannot see that — swapping the lobes
+leaves the sphere average at exactly 1 — so direction is tested separately.
+
+**`src/shadowing.rs`** — exact partial shadowing by polygon clipping, Brož's
+method. No Clipper2: our facets are *triangles*, so `A \ B` decomposes exactly
+into at most 3 convex pieces by half-plane clipping, which needs no dependency
+and no C++ toolchain in the `maturin develop` path.
+
+The bug that mattered: **deciding which facet is in front at the two triangles'
+own centroids is wrong**, and it is the obvious thing to write. It disagreed
+with a converged ray trace by up to 0.435 on facets near grazing incidence,
+where a facet is nearly edge-on and its centroid depth says nothing about the
+depth where it meets an occluder. Deciding at the *overlap* centroid, via
+Brož's own back-projection, took it to 0.09. **The area-weighted aggregate
+agreed to 2e-4 the whole time** — a disc-integrated check would have passed;
+only the per-facet comparison found it.
+
+Validated by convergence rather than by tolerance: refining the ray trace
+moves it steadily onto the clipper (0.2392 → 0.0452 max gap over 45 → 1225
+samples). Worth **5-10x** on a light curve — 0.68 → 0.07 mmag at 5120 facets,
+under Brož's 0.1 — and the residual is the reference's error, not the
+clipper's, since refining the reference drives it to zero while the q4 column
+rises to its true 3.99.
+
+Timings, which neither the paper nor the 96-page deck gives: 7, 34 and 156 ms
+at 320, 1280 and 5120 facets, roughly linear thanks to a projected
+bounding-box grid. **It does not replace the GPU shadow map** — that stays for
+the thermophysical model and for 3.1M facets.
+
+Suite: 77 Rust tests, 10 Python files.

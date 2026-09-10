@@ -1098,3 +1098,32 @@ is the Kuehrt crater correction on the *thermal* side.
 quarters today. `notes/2026-09-10_polygonal_shadowing_assessment.md` measures
 that at 0.7-40 mmag. Exact reflectance feeding a quantised area is still a
 half-answer.
+
+## `kalast._rs.shadowing` — exact partial shadowing
+
+The other half of the photometry, beside `kalast.scattering`. Each facet's lit
+fraction as an **area**, by polygon clipping, rather than as a 4-point sample.
+
+```python
+from kalast._rs import shadowing as sh
+lit = sh.lit_fractions(vertices, indices, sun_direction)   # (n_facets,) in [0, 1]
+vis = sh.lit_fractions(vertices, indices, observer_direction)
+```
+
+`vertices` is `(n, 3)` float32, `indices` is `(m, 3)` uint32, and the direction
+points from the body toward the Sun or the observer. Same call either way —
+shadowing and visibility are the same computation along different vectors.
+
+| | `sim.facet_shadow` | `shadowing.lit_fractions` |
+|---|---|---|
+| answer | one of `{0, ¼, ½, ¾, 1}` | a real number |
+| needs | a GPU, a shadow map, 3 bias constants | nothing |
+| cost | one render + one compute pass | 7 / 34 / 156 ms at 320 / 1280 / 5120 facets |
+| scales to | 3.1M facets | ~10⁴ |
+
+**Use the GPU one for the thermophysical model** — the quantisation averages
+out over a rotation and it is the only one that survives 3.1M facets. **Use
+this one for photometry**, where the quantisation is worth 0.7–40 mmag and
+this brings it to 0.07. Both measured in
+`examples/analytical/shadow_quantisation.py`; see
+`notes/2026-09-10_polygonal_shadowing_implemented.md`.

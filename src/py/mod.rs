@@ -235,6 +235,13 @@ pub fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
         .getattr("modules")?
         .set_item("kalast._rs.tpm.emit", emit)?;
 
+    let shadowing = PyModule::new(m.py(), "shadowing")?;
+    pyadd_f!(shadowing, crate::shadowing::py::py_lit_fractions);
+    m.add_submodule(&shadowing)?;
+    py.import("sys")?
+        .getattr("modules")?
+        .set_item("kalast._rs.shadowing", shadowing)?;
+
     let scattering = PyModule::new(m.py(), "scattering")?;
     pyadd_f!(scattering, crate::scattering::lambert);
     pyadd_f!(scattering, crate::scattering::lommel_seeliger);
