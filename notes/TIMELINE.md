@@ -1595,3 +1595,42 @@ correct, comments wrong, which is how a wrong argument returns a plausible
 number. Both corrected and now pinned.
 
 Runs in 2.2 s, pure numpy, no GPU and no window.
+
+## 10 September, last — view factors and self-heating, pinned
+
+`tests/test_view_factors.py` and `tests/test_self_heating.py`. Same
+conversion as the conduction test: `examples/analytical/view_factors.py` and
+`cavity_heating.py` computed all of it already and printed it.
+
+**View factors** against two closed forms — parallel coaxial unit squares, and
+perpendicular squares sharing an edge, which is the hard case because a shared
+edge puts sub-pairs at arbitrarily small separation. Plus convergence under
+subdivision, and reciprocity, which is an identity so any deviation is
+implementation error rather than truncation.
+
+The check worth keeping is the last: `view_factor_facets` guards the
+point-to-point form with a zero return below `sqrt(area)`, and adjacent facets
+sit exactly at that threshold — so on the neighbours that dominate
+self-heating inside a concavity it **deletes** them, 37.8 % low on the
+perpendicular pair. That number is now in the suite rather than in a note, so
+the cheaper form cannot come back as an optimisation.
+
+**Self-heating** on a sealed isothermal box, which is the configuration whose
+answer needs no reference: row sums must be 1, and a black cavity must be in
+equilibrium. At `eps < 1` the absorbed/emitted ratio is `eps` exactly.
+
+Both tests verified by breaking the code. Dropping the emissivity from
+`heating.emitted()` **passes at eps=1 and fails only at eps=0.9** — which is
+why both are tested, and a reminder that a conservation test at the
+convenient parameter value proves less than it looks. A 3 % error in the
+view-factor kernel fails three of seven checks but *not* reciprocity, since a
+uniform scale preserves it; the closed forms and the identity catch different
+things and both are needed.
+
+Also fixed: `cavity_heating.py` could not run on Windows at all, writing its
+box mesh to a hardcoded `/tmp`.
+
+Coverage now: 61 Rust tests and seven Python test files, four of them physics.
+The audit's backlog is down to radiance band integration, roughness and
+transient conduction — and `examples/analytical/` already holds the method for
+all three.

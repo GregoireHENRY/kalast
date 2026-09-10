@@ -236,9 +236,13 @@ dataset:
    tetrahedron summing to the analytic total; normals unit-length and
    outward-facing after `flatten`; `flip_facets` inverting exactly the facets
    named.
-2. **Energy conservation in `core.rs`**: absorbed + reflected + emitted
-   balancing for a facet in equilibrium; `equilibrium_temperature` inverted
-   through the emitted flux returning the input.
+2. **Energy conservation**: absorbed + reflected + emitted balancing for a
+   facet in equilibrium; `equilibrium_temperature` inverted through the
+   emitted flux returning the input. **Partly done** —
+   `tests/test_self_heating.py` covers the conservation law on a sealed
+   isothermal cavity, which is the strongest form of it and also the only
+   coverage `kalast.tpm.heating` has. `equilibrium_temperature` itself is
+   still unpinned.
 3. **Planck** (`emit.rs`): Wien's displacement law — the peak of
    `planck(T, ·)` sits at `2.898e-3 / T`; Stefan–Boltzmann — integrating
    `planck` over all wavelengths and multiplying by pi gives `sigma T^4`. Both
@@ -247,7 +251,17 @@ dataset:
 4. **Shadowing**: the cross-check in finding 1. **Done** —
    `tests/test_facet_shadow.py`.
 5. **Radiance band integration**: a flat unit response over a narrow band must
-   return the band-centre spectral radiance times the width.
+   return the band-centre spectral radiance times the width. Still open, and
+   now the last of the cheap ones — `src/tpm/radiance.rs` and
+   `kalast/tpm/radiance.py` are 567 lines between them with nothing on either.
+
+   Also still open, and worth doing at the same time since they share a
+   module: the view-factor *kernel* is pinned by `tests/test_view_factors.py`
+   but `src/tpm/roughness.rs` (350 lines) is not, and
+   `examples/analytical/roughness.py` already has the four checks for it —
+   exact limits, convergence, Kuehrt's published `F5 > F1 > F6`, and the
+   grazing-emission divergence. `slab_relaxation.py` likewise covers the
+   *transient* conduction response that `test_conduction.py` does not.
 6. **Conduction** (`explicit.py` / `implicit.py`): a semi-infinite solid under
    a sinusoidal surface flux has an analytic thermal-wave solution — skin
    depth and phase lag. **Done** — `tests/test_conduction.py`.
