@@ -1,9 +1,25 @@
 // Per-facet shadow query.
 //
 // Answers, for every facet of one body, what fraction of its sample points
-// are occluded from the light -- reading the same shadow map the render pass
-// samples, with the same projection and the same depth bias, so that what
-// this reports and what you see rendered cannot disagree.
+// are occluded from the light, reading the same shadow map the render pass
+// samples, with the same projection and the same per-layer depth bias.
+//
+// It is NOT the render's shadow term, and must not be described as one. This
+// takes a single tap and returns a binary occlusion; `mesh_shadow.wgsl` takes
+// a (2N+1)^2 PCF kernel at `shadow_pcf = N` and widens its normal offset by
+// `(1 + N)` to match that kernel's reach. At `shadow_pcf = 0` the two are the
+// same expression; above it they deliberately part company, and this path is
+// **invariant to `shadow_pcf`** -- a property `tests/test_facet_shadow.py`
+// asserts, because a good deal depends on it.
+//
+// That is deliberate, not an omission. The Sun here is a point source, so
+// occlusion is binary; PCF is image-space antialiasing with no physical
+// referent, and letting it soften the terminator would put blur into the
+// thermophysical boundary condition that nothing in the model asks for. The
+// bias constants below were tuned for the single tap, against ray-traced
+// ground truth over 15 Sun angles -- see `notes/2026-09-08_shadow_bias.md`,
+// which settled on slope 1, floor 1, offset sqrt2. Adding a kernel here would
+// invalidate that fit.
 //
 // Sampling is the facet's 3 vertices plus its centroid, giving a coverage
 // fraction in {0, 0.25, 0.5, 0.75, 1}. 0 is fully lit, 1 fully shadowed,
@@ -43,10 +59,11 @@ fn vertex_pos(i: u32) -> vec3<f32> {
     return vec3<f32>(geometry[b], geometry[b + 1u], geometry[b + 2u]);
 }
 
-/// Occlusion of one world-space point, mirroring the fragment shader's
-/// shadow lookup exactly (normal offset, y flip, bias) but with an explicit
-/// textureLoad rather than a comparison sampler, which compute cannot use.
-/// Returns 1.0 when occluded.
+/// Occlusion of one world-space point: the fragment shader's lookup at
+/// `shadow_pcf = 0` -- same normal offset, same y flip, same bias -- with an
+/// explicit textureLoad rather than a comparison sampler, which compute
+/// cannot use. Above `shadow_pcf = 0` the fragment shader filters and this
+/// does not; see the header. Returns 1.0 when occluded.
 fn occluded(world_pos: vec3<f32>, world_normal: vec3<f32>) -> f32 {
     let light_dir = normalize(params.light_pos - world_pos);
     let ndotl = max(dot(world_normal, light_dir), 0.0);

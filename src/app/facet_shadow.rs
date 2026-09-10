@@ -13,6 +13,17 @@
 //! approximation: see `notes/2026-08-26_facet_shadow_query/` for the resolution and
 //! bias analysis, and for why the point-source Sun assumption -- shared with
 //! the ray tracer -- currently dominates the error budget either way.
+//!
+//! **This is not the render's shadow term.** It is a single tap giving a
+//! binary occlusion per sample point; the fragment shader takes a PCF kernel
+//! at `shadow_pcf > 0` and widens its normal offset to match that kernel's
+//! reach. The two agree exactly at `shadow_pcf = 0` and diverge above it, and
+//! this path is invariant to `shadow_pcf` on purpose -- the Sun is a point
+//! source, so occlusion is binary, and PCF is antialiasing with no physical
+//! meaning to contribute to a boundary condition. The bias constants were fitted
+//! for the single tap against ray-traced ground truth in
+//! `notes/2026-09-08_shadow_bias.md`. `tests/test_facet_shadow.py` pins both
+//! the invariance and the agreement with ray tracing.
 
 use wgpu::util::DeviceExt;
 
