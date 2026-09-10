@@ -288,8 +288,13 @@ inference from the method, in both sources.
 
 ## Sources
 
-- Brož et al. 2023, A&A, [arXiv:2306.04768](https://arxiv.org/abs/2306.04768) —
-  the algorithms, §3 and §4.
+- **Brož, M., Ďurech, J., Ferrais, M., Lee, H.-J., Kim, M.-J., Roh, D.-G.,
+  Yim, H.-S., Jehin, E., Burdanov, A., de Wit, J., Fatka, P., Hanuš, J. &
+  Carry, B. (2023).** *2021 occultations and transits of Linus orbiting (22)
+  Kalliope. I. Polygonal and 'cliptracing' algorithms.* **A&A 676, A60.**
+  [doi:10.1051/0004-6361/202346326](https://doi.org/10.1051/0004-6361/202346326),
+  [arXiv:2306.04768](https://arxiv.org/abs/2306.04768). The algorithms are §3
+  (light curves) and §4 (cliptracing).
 - [Xitau](https://sirrah.troja.mff.cuni.cz/~mira/xitau/) — the tool.
 - Vatti 1992, Comm. ACM 35, 56 — the clipping algorithm.
 - [Clipper2](https://github.com/AngusJohnson/Clipper2) — the implementation.
