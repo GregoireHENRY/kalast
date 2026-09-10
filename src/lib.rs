@@ -11,6 +11,7 @@ pub mod py;
 // the class macro expands before the field attributes do.
 #[cfg(feature = "python")]
 pub mod routines;
+pub mod scattering;
 pub mod spice;
 pub mod tpm;
 pub mod util;

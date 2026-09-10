@@ -235,6 +235,19 @@ pub fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
         .getattr("modules")?
         .set_item("kalast._rs.tpm.emit", emit)?;
 
+    let scattering = PyModule::new(m.py(), "scattering")?;
+    pyadd_f!(scattering, crate::scattering::lambert);
+    pyadd_f!(scattering, crate::scattering::lommel_seeliger);
+    pyadd_f!(scattering, crate::scattering::lommel_seeliger_lambert);
+    pyadd_f!(scattering, crate::scattering::h_function);
+    pyadd_f!(scattering, crate::scattering::henyey_greenstein);
+    pyadd_f!(scattering, crate::scattering::opposition_surge);
+    scattering.add_class::<crate::scattering::Hapke>()?;
+    m.add_submodule(&scattering)?;
+    py.import("sys")?
+        .getattr("modules")?
+        .set_item("kalast._rs.scattering", scattering)?;
+
     let routine = PyModule::new(tpm.py(), "routine")?;
     pyadd_f!(routine, crate::tpm::routine::py::update_thermal_state);
     tpm.add_submodule(&routine)?;
