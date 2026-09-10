@@ -1671,3 +1671,52 @@ silently traded away a correctness property of the code being removed, in a
 regime nothing here exercises, had the limit not been tested. That is the
 case for testing a merge rather than eyeballing that two formulas look alike.
 They did look alike. One was better.
+
+## 10 September — a new project: ground-based lightcurves, for Eli
+
+**New, and not previously in these notes** — searched for it before writing
+this, since it had possibly been raised before: no mention of lightcurves,
+Eli, or ground-based photometry anywhere in `notes/`. Recording it here so the
+next session does not have to ask again.
+
+The goal is simulating asteroid lightcurves as seen from ground-based
+telescopes. Attached to it, a question about Brož's polygonal partial
+shadowing/visibility algorithm — worth adopting?
+
+Assessed in `notes/2026-09-10_polygonal_shadowing_assessment.md`. Short
+version: **yes, as an additional path for photometry; no, not as a replacement
+for the shadow map.** Each facet is projected twice — once along the Sun
+vector, once along the observer vector — and clipped analytically against the
+others by 2D polygon intersection, giving an *exact* real-valued lit-and-
+visible area per facet. Brož reports < 0.1 mmag light curves at 42 nodes per
+sphere.
+
+kalast's `facet_shadow` samples four points per facet, so a facet is 0, 25,
+50, 75 or 100 % shadowed and nothing between. That is right for the
+thermophysical model, where the quantisation averages out over a rotation, and
+wrong for a light curve, where the summed lit area *is* the observable. kalast
+also computes no partial visibility at the limb at all, which is the entire
+signal during a mutual event's ingress and egress.
+
+The polygonal method is CPU pairwise clipping — good to ~1e4 facets, useless
+at the 3.1M the shadow map handles in one pass. Different regimes, not
+competitors.
+
+Two caveats recorded there. The slides that prompted this
+(`11_Broz.pdf`, houches 2024) are on the **Mac**, not here, so the assessment
+is from the paper (arXiv:2306.04768) and may be behind them. And the paper
+publishes **no timings at all**, so every performance statement is inference
+from the method rather than their measurement.
+
+**The likely bigger gap is not shadowing.** Optical lightcurves need a
+bidirectional scattering law — Lambert, Lommel-Seeliger, Hapke — and `grep`
+finds none of that in `src/`; `roughness.rs` is the Kuehrt crater correction,
+a different thing, and `tiri_deimos_photometry.py` is thermal. Exact lit areas
+feeding a missing reflectance model buy nothing, so the order is probably
+scattering law first.
+
+**Open, and it decides the case**: nobody has measured how large the
+quantisation error actually is, in mmag, on a synthetic light curve. It is
+measurable today — disc-integrated flux with `facet_shadow`'s quarters against
+a heavily supersampled ray-traced lit fraction. At 0.1 mmag the case
+collapses; at several mmag it is made.
