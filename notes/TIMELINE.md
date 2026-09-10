@@ -1634,3 +1634,40 @@ Coverage now: 61 Rust tests and seven Python test files, four of them physics.
 The audit's backlog is down to radiance band integration, roughness and
 transient conduction — and `examples/analytical/` already holds the method for
 all three.
+
+## 10 September, closing — f32 confirmed, and one Planck
+
+`notes/2026-09-10_f32_decision_and_one_planck.md`. Findings 2 and 3 of the
+audit, both closed.
+
+**f32 stays, as a decision rather than a default** — geometry throughput, with
+3.1M-facet arrays halved and uploaded with no conversion since WGSL has no f64
+regardless. Its costs are written down: physics constants exposed to Python
+round to f32, `exp` overflows at 88 rather than 709 (measured to be outside
+the 6-16 um, 30-500 K working range — no sample zeroed), and the CPU/GPU TPM
+agreement of 1.5e-05 K is a bound at the resolution floor rather than a
+measurement. Drift over a seasonal run's ~1e6 conduction steps is the one case
+still unbounded.
+
+**Planck is one formula now.** `radiance.py` had a second numpy copy with its
+own `h`, `c` and `k_B`, while `kalast/util.py` already re-exported those from
+Rust. `radiance.planck` broadcasts and calls the new `emit.planck_array`;
+broadcasting stays in numpy, the Rust side loops over one expression, and the
+documented contract is unchanged. The f64→f32 change was measured *before*
+switching: worst 1.2e-5 pointwise, 3.8e-6 on the band table, against the
+5.1e-5 interpolation error the table already accepts.
+
+**And the test found a real defect in the surviving implementation.**
+`tests/test_planck.py` checks Wien and Stefan-Boltzmann — consequences
+involving constants the formula does not mention — plus both asymptotic
+limits. Rayleigh-Jeans failed twice, for different reasons. The first was my
+tolerance: `B/B_RJ = 1 - x/2 + O(x^2)`, so a 1.2e-2 deviation at 2 mm is
+physics, and only its *rate* is testable. The second was real:
+`exp() - 1.0` in f32 destroys nearly every digit when the exponent is small,
+missing the limit by 2 % at 50 mm. `exp_m1` fixes it.
+
+The deleted numpy copy had used `expm1` all along — so the merge would have
+silently traded away a correctness property of the code being removed, in a
+regime nothing here exercises, had the limit not been tested. That is the
+case for testing a merge rather than eyeballing that two formulas look alike.
+They did look alike. One was better.

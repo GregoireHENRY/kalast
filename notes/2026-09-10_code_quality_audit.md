@@ -150,10 +150,12 @@ Three consequences, in increasing order of concern:
    is at the edge of f32 resolution for a ~300 K quantity, so it may be
    measuring the precision floor rather than the agreement.
 
-This wants a decision recorded either way. f32 is defensible — the GPU path is
-f32 regardless, and the memory saving at 3.1M facets is real — but it should
-be a written choice with the conduction accumulation error bounded, not a
-default nobody revisited.
+**Decided: f32 stays**, for geometry throughput — 3.1M-facet vertex arrays
+halved, and uploaded to the GPU with no conversion pass, since WGSL has no f64
+anyway. Recorded with its costs in
+`notes/2026-09-10_f32_decision_and_one_planck.md`, which is what this finding
+was actually asking for. The one thing still unbounded is drift over a
+seasonal run's ~1e6 conduction steps.
 
 ## 3. Planck's law is implemented twice, with its own constants
 
@@ -170,6 +172,17 @@ Nothing enforces that.
 The numpy version exists for a real reason — it broadcasts over arrays for
 band integration, which the scalar Rust function cannot. That is an argument
 for **exposing an array-shaped Rust function**, not for a second formula.
+
+**Done**, that way: `emit.planck_array` is the new `#[pyfunction]`,
+`radiance.planck` broadcasts in numpy and calls it, and the local constants
+are gone. Measured first — the merge is a f64-to-f32 change, and it lands 13x
+under the interpolation error `BandRadiance` already carries.
+
+And testing it turned up a real defect **in the implementation that survived**:
+`exp() - 1.0` loses almost every digit in f32 when the exponent is small, so
+Planck missed the Rayleigh-Jeans limit by 2 % at 50 mm. The deleted numpy copy
+had used `expm1` all along. `exp_m1` now, in both `planck` and
+`planck_photon_count`. See `tests/test_planck.py`.
 
 Related naming wart: the constant is spelled `PLANK_CONSTANT`, and it is
 public and exposed to Python.
@@ -246,8 +259,9 @@ dataset:
 3. **Planck** (`emit.rs`): Wien's displacement law — the peak of
    `planck(T, ·)` sits at `2.898e-3 / T`; Stefan–Boltzmann — integrating
    `planck` over all wavelengths and multiplying by pi gives `sigma T^4`. Both
-   are exact and catch a constants error instantly. Add the f32 overflow
-   boundary as an explicit case.
+   are exact and catch a constants error instantly. **Done** —
+   `tests/test_planck.py`, which also pins both asymptotic limits and found
+   the `exp_m1` defect described in finding 3.
 4. **Shadowing**: the cross-check in finding 1. **Done** —
    `tests/test_facet_shadow.py`.
 5. **Radiance band integration**: a flat unit response over a narrow band must
