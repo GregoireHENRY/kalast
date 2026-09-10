@@ -175,20 +175,70 @@ nothing.
 - This belongs in Rust with a Python binding, per the project rule — a Rust
   example and a `.py` script should reach it identically.
 
-## What would settle it, and is not done
+## Measured: the quantisation costs 0.7 to 40 mmag
 
-The decisive number is missing: **how large is the quantisation error, in
-mmag, on a real synthetic light curve?** I have argued it is disqualifying
-from the mechanism, not measured it.
+The argument above was made from the mechanism. Here is the number, from
+`examples/analytical/shadow_quantisation.py`.
 
-It is measurable with what exists today — take a non-convex shape, rotate it,
-and compute the disc-integrated flux twice: once with `facet_shadow`'s
-quarters, once with a heavily supersampled ray-traced lit fraction as a stand
-in for exact. The difference, in magnitudes, is the size of the prize. If it
-comes out at 0.1 mmag the case collapses; if it is several mmag the case is
-made.
+A cratered icosphere, rotated through 24 phases at 30 deg phase angle, Lambert
+scattering, disc-integrated three ways off one ray tracer so that only the
+sampling differs: a converged barycentric reference, the 4 points
+`facet_shadow` actually uses, and that plus binary per-facet visibility. The
+crater depth and width set how much of the illuminated area is shadowed, which
+is the independent variable — a convex body self-shadows nowhere and would
+measure nothing.
 
-That is the next thing to do before writing any Clipper2 code.
+| shape | facets | shadowed | q4 rms | q4 peak | q4+bv rms |
+|---|---|---|---|---|---|
+| mild | 320 | 6.0 % | 4.55 ± 0.30 | 10.90 | 5.21 |
+| moderate | 320 | 10.1 % | 18.11 ± 1.05 | 28.62 | 17.96 |
+| strong | 320 | 23.2 % | 40.61 ± 2.40 | 74.78 | 39.73 |
+| mild | 1280 | 5.8 % | 1.33 ± 0.08 | 3.52 | 2.35 |
+| moderate | 1280 | 10.6 % | 3.92 ± 0.23 | 8.65 | 4.08 |
+| strong | 1280 | 24.4 % | 10.75 ± 0.55 | 21.47 | 10.87 |
+| **mild** | **5120** | **5.7 %** | **0.68 ± 0.03** | 1.92 | 0.91 |
+| moderate | 5120 | 10.5 % | 1.21 ± 0.06 | 3.32 | 1.75 |
+| strong | 5120 | 24.1 % | 3.88 ± 0.14 | 8.10 | 4.35 |
+
+mmag, against the converged reference. The ± is how far that reference still
+moves between 153 and 231 samples per facet — the residual error on the
+yardstick itself, which is well under the signal in every row.
+
+**The case is made.** Even the best row — 5120 facets, only 5.7 % of the
+illuminated area shadowed — costs **0.68 mmag rms**, seven times Brož's
+0.1 mmag. A moderately cratered 1280-facet shape, which is an ordinary
+lightcurve-inversion model, costs 3.9 mmag rms and 8.7 mmag peak. That is not
+a subtle effect; it is larger than the features people fit shapes to.
+
+### Refining the mesh does not rescue it
+
+The error falls with facet count as roughly `N^-0.5` to `N^-0.85` — the
+exponents over the last 4x step are 0.48 (mild), 0.85 (moderate), 0.73
+(strong). Extrapolating the *best* case, 0.68 mmag at 5120 facets, down to
+0.1 mmag needs a factor 6.8, which is **50,000 to 240,000 facets** depending
+on the exponent. For a shape model that is one to two orders of magnitude
+beyond the 10³–10⁴ these methods produce, and it buys a lit-area estimate that
+polygon clipping gets exactly at 320.
+
+### A correction to what this note said earlier
+
+I claimed partial visibility at the limb was a second, comparable gap. **On
+this test it is not**: `q4+bv` sits within a factor of two of `q4` everywhere
+and is sometimes *better*, so for a single body at 30 deg phase, binary
+visibility costs little next to the shadow quantisation. The claim was about
+mutual events — ingress and egress of one body across another — and that case
+is **not tested here**. It remains plausible and unmeasured; treat the
+single-body result as the only one with evidence behind it.
+
+### What this measurement is not
+
+- It isolates the *sampling*. The shadow map's own bias and resolution error
+  sit on top, and are bounded separately by `tests/test_facet_shadow.py`.
+- Lambert, not Hapke. The absolute mmag would shift with a real scattering
+  law; the ratio between the two curves is what matters and both use the same.
+- Gaussian dimples on an icosphere, not a real shape. The independent variable
+  is "fraction of illuminated area shadowed", which is measurable on any
+  shape, so a real target can be placed on this table rather than guessed at.
 
 ## What the slides add over the paper
 

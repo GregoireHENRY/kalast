@@ -1723,8 +1723,23 @@ a different thing, and `tiri_deimos_photometry.py` is thermal. Exact lit areas
 feeding a missing reflectance model buy nothing, so the order is probably
 scattering law first.
 
-**Open, and it decides the case**: nobody has measured how large the
-quantisation error actually is, in mmag, on a synthetic light curve. It is
-measurable today — disc-integrated flux with `facet_shadow`'s quarters against
-a heavily supersampled ray-traced lit fraction. At 0.1 mmag the case
-collapses; at several mmag it is made.
+**Measured, and the case is made.**
+`examples/analytical/shadow_quantisation.py`: a cratered icosphere over 24
+rotation phases, disc-integrated three ways off one ray tracer so only the
+sampling differs. The quarter-facet quantisation costs **0.68 mmag rms at
+best** — 5120 facets with only 5.7 % of the illuminated area shadowed —
+rising to 3.9 mmag for an ordinary 1280-facet moderately cratered shape, and
+40 mmag for a coarse rough one. Brož's target is 0.1 mmag.
+
+Refining the mesh does not rescue it: the error falls as `N^-0.5` to
+`N^-0.85`, so reaching 0.1 mmag from the *best* case needs 50,000-240,000
+facets — one to two orders beyond what shape inversion produces, to buy what
+polygon clipping gets exactly at 320.
+
+Two things worth keeping from doing it. The reference had to be checked for
+convergence: a first pass at 91 samples per facet reported ~10 % low, because
+`q4 rms` keeps climbing until the reference stops moving. And **a
+correction** — this entry previously said partial visibility at the limb was a
+comparable second gap. On this test it is not; binary visibility costs little
+beside the shadow quantisation for a single body. That claim was about mutual
+events, which remain untested.
