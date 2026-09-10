@@ -1523,3 +1523,37 @@ kalast window, and therefore present most of the time. Windows refuses to
 *write* a mapped image but still allows *renaming* it, so `tools/develop.py`
 moves the old module aside to free the name and lets maturin write a fresh
 one. macOS never had this because unlinking a mapped file is allowed there.
+
+## 10 September, later — a code quality audit, and pinning the shadow path
+
+`notes/2026-09-10_code_quality_audit.md` and
+`notes/2026-09-10_pinning_the_shadow_path.md`.
+
+Asked whether 280 commits and +46k lines in 17 days had left poor code behind.
+Measured rather than judged. The verdict: **the practices are good and the
+physics is under-defended** -- 61 Rust tests of which 51 are app plumbing and
+**2** are physics, zero tests in `mesh.rs` (1,425 lines of geometry),
+`radiance.rs`, `roughness.rs` or `facet_shadow.rs`, and all four Python test
+files testing generated code rather than any formula.
+
+Also found: the whole physics core runs **f32** (`use_f64` exists, is not
+default, and maturin does not enable it), so the CPU/GPU TPM agreement of
+1.5e-05 K may be measuring the precision floor; Planck's law implemented twice
+with the numpy copy redefining its own `_H`/`_C`/`_KB`; 12 dead shaders; and
+134 `.unwrap()`s, 28 at the Python boundary.
+
+**The audit's headline finding was wrong and is corrected in place.** It
+called the compute/render shadow divergence a physics bug. Reading the Rust
+caller first showed two of the three claimed divergences do not exist, and the
+third -- the compute path not filtering with PCF -- is correct: the Sun is a
+point source, occlusion is binary, and the bias was fitted at single-tap
+against ray-traced ground truth. The real defect was two docstrings claiming
+the paths "cannot disagree", plus no test anywhere.
+
+Both fixed. `tests/test_facet_shadow.py` asserts the `shadow_pcf` invariance
+and re-runs the ray-traced sweep as a regression bound. **Its first version
+passed against a shader with the bias multiplied by 100** -- one favourable
+Sun angle moved false-lit 18 -> 24 out of 1540. Fifteen angles and an
+assertion on the *worst* one separates healthy from broken by 10x where the
+aggregate manages 2.3x. Budgets are set from that measured pair, and the test
+was confirmed to fail on the broken build before being kept.
