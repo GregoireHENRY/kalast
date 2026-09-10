@@ -86,19 +86,26 @@ pub const fn diffusivity(k: Float, p: Float, c: Float) -> Float {
 
 #[cfg_attr(feature = "python", pyfunction)]
 pub fn skin_depth_1(d: Float, p: Float) -> Float {
-    // skin depth @ e^-1
+    // Depth at which the thermal wave has decayed to e^-1 of its surface
+    // amplitude, and lagged it by one radian.
     //
-    // d: diffusivity (...)
-    // p: density (...)
+    // d: diffusivity (m2/s)
+    // p: **period** (s) -- the rotation period for a diurnal wave, the orbital
+    //    one for a seasonal wave. Not the density: the comment here said
+    //    "density" from the start while the formula was always the period's,
+    //    which is the kind of mismatch that gets a plausible number out of a
+    //    wrong argument. Pinned by `tests/test_conduction.py`.
     (d * p / crate::util::PI).sqrt()
 }
 
 #[cfg_attr(feature = "python", pyfunction)]
 pub fn skin_depth_2pi(d: Float, p: Float) -> Float {
-    // skin depth @ e^-2pi
+    // Depth at which the wave has decayed to e^-2pi: 2*pi skin depths, i.e. a
+    // full cycle of phase lag, which is the usual choice for how deep a
+    // thermophysical grid has to reach.
     //
-    // d: diffusivity (...)
-    // p: density (...)
+    // d: diffusivity (m2/s)
+    // p: period (s). See `skin_depth_1` -- not the density.
     (4.0 * crate::util::PI * d * p).sqrt()
 }
 
