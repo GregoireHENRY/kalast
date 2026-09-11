@@ -1829,3 +1829,21 @@ than reasoning about it.
 
 49 ms a phase at 1600 facets. The ray reference needed the bucketed tracer to
 finish at all — brute force did not complete in ten minutes.
+
+---
+
+## 11 September — handoff
+
+`notes/2026-09-11_HANDOFF_audit_and_photometry.md` covers 10-11 September:
+21 commits, the audit and its own correction, the test backlog from 4 Python
+files to 11, and both halves of the photometry.
+
+The open items, in order: **`theta_bar`** (Hapke's macroscopic roughness,
+refused rather than implemented — the last known gap in the photometry); the
+audit's remaining backlog of radiance band integration, roughness and
+transient conduction, all three of which have their method already sitting in
+`examples/analytical/`; the smaller audit items (dead shaders, unwraps at the
+Python boundary, `SOLAR_CONSTANT` provenance); and `test_stubs`'s
+hand-maintained case list.
+
+The lightcurve project for Eli has its pieces now and no driver.
