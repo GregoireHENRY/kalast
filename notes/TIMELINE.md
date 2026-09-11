@@ -1792,3 +1792,40 @@ bounding-box grid. **It does not replace the GPU shadow map** — that stays for
 the thermophysical model and for 3.1M facets.
 
 Suite: 77 Rust tests, 10 Python files.
+
+## 11 September — mutual events, and a claim finally checked
+
+`examples/analytical/mutual_event.py`,
+`notes/2026-09-11_mutual_events_measured.md`. The last open item from the
+Brož assessment: it claimed partial visibility was a gap comparable to the
+shadow quantisation, the single-body measurement contradicted that, and the
+correction noted the claim was really about **mutual events** and untested.
+
+Two spheres edge-on, secondary at 0.3 primary radii, Sun 20 degrees off the
+observer so transit and eclipse separate. Event depth 299 mmag.
+
+| | rms in event |
+|---|---|
+| shadowing quantised to quarters | 3.01 mmag |
+| visibility binarised per facet | 2.10 mmag |
+| both, which is what kalast does | 2.40 mmag |
+| neither, polygon clipping | 0.59 mmag |
+
+**The original claim holds in this regime and only this one.** Binarised
+visibility is comparable to the shadow quantisation during a mutual event,
+where on a single body it was negligible beside it — so the instinct was right
+about mutual events and wrong about the case it had been measured against,
+which is what the correction said.
+
+**The two approximations partially cancel**: together they cost less than the
+shadowing term alone. Not what I would have predicted, and it means fixing one
+in isolation buys less than measuring it in isolation suggests.
+
+**And the error is confined to the events** — baseline 0.00 mmag for every
+method, since two smooth convex spheres have no partial facet anywhere until
+one crosses the other. The same code has a completely different error
+structure depending on the scene, which is the argument for measuring rather
+than reasoning about it.
+
+49 ms a phase at 1600 facets. The ray reference needed the bucketed tracer to
+finish at all — brute force did not complete in ten minutes.
