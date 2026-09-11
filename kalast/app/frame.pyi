@@ -5,16 +5,16 @@
 import numpy  # noqa: F401
 
 class Eye:
-    pos: numpy.object
+    pos: numpy.ndarray
     """Eye position, world units."""
-    dir: numpy.object
+    dir: numpy.ndarray
     """Unit vector the eye looks along.
 
     Ignored for the Sun, whose shadow layers aim themselves from `pos`.
     """
-    up: numpy.object
+    up: numpy.ndarray
     """Unit vector defining which way is up in the image."""
-    anchor: numpy.object
+    anchor: numpy.ndarray
     """The point the arcball orbits, and what `look_anchor` aims at.
 
     Not consulted for the Sun.
@@ -26,7 +26,7 @@ class Eye:
     Assigning `anchor` from a body matrix instead only captures where it
     was at that moment.
     """
-    up_world: numpy.object
+    up_world: numpy.ndarray
     """Reference 'up' the arcball keeps the camera aligned to."""
     projection: Projection
     """Frustum: field of view and the near/far/side planes."""
@@ -56,22 +56,22 @@ class Eye:
     def control_toggle(self) -> None:
         """Cycle the control mode, as pressing `T` does."""
         ...
-    def target(self) -> numpy.object:
+    def target(self) -> numpy.ndarray:
         """The point the eye is looking at: `pos + dir`."""
         ...
-    def right(self) -> numpy.object:
+    def right(self) -> numpy.ndarray:
         """Unit vector pointing right in the image plane."""
         ...
     def distance_anchor(self) -> float:
         """Distance from the eye to its anchor."""
         ...
-    def lookto(self) -> numpy.object:
+    def lookto(self) -> numpy.ndarray:
         """The view matrix for this eye."""
         ...
-    def view_proj(self, aspect: float) -> numpy.object:
+    def view_proj(self, aspect: float) -> numpy.ndarray:
         """View-projection matrix, for a given aspect ratio."""
         ...
-    def mat(self) -> numpy.object:
+    def mat(self) -> numpy.ndarray:
         """This eye's transform as a 4x4 matrix."""
         ...
     def fix_up(self) -> None:
@@ -156,7 +156,7 @@ class Projection:
     """What the fit actually chose for `far` this frame."""
     resolved_side: float
     """What the fit actually chose for `side` this frame."""
-    def mat(self, aspect: float) -> numpy.object:
+    def mat(self, aspect: float) -> numpy.ndarray:
         """The projection matrix for a given aspect ratio."""
         ...
 

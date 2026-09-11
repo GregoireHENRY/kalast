@@ -6,4 +6,5 @@ from kalast._rs.scattering import (  # noqa
     henyey_greenstein,
     opposition_surge,
     Hapke,
+    LommelSeeligerLambert,
 )

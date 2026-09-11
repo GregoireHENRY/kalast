@@ -593,40 +593,47 @@ pub fn lit_fractions(tris: &[[Vec3; 3]], dir: Vec3) -> Vec<LitArea> {
 
 #[cfg(feature = "python")]
 pub(crate) mod py {
-    use numpy::{PyArray1, PyReadonlyArray2};
+    use numpy::{AllowTypeChange, PyArray1, PyArrayLike2, PyReadonlyArrayDyn};
     use pyo3::prelude::*;
 
     use super::{Float, Vec3};
 
-    /// Exact lit fraction per facet, `(n_facets,)` in `[0, 1]`.
+    /// `(vertices, indices)` -> triangles, with the index range checked.
     ///
-    /// `vertices` is `(n_vertices, 3)`, `indices` is `(n_facets, 3)`, and
-    /// `direction` points from the body toward the Sun (for shadowing) or the
-    /// observer (for visibility).
+    /// Shared with `lightcurve`, which needs exactly the same conversion:
+    /// a second copy is how two entry points end up disagreeing about what
+    /// an out-of-range index does.
     ///
-    /// Unlike `sim.facet_shadow`, this is a real number rather than a multiple
-    /// of 1/4, and it needs no GPU, no shadow map and no bias constants.
-    #[pyfunction]
-    #[pyo3(name = "lit_fractions")]
-    pub fn py_lit_fractions<'py>(
-        py: Python<'py>,
-        vertices: PyReadonlyArray2<'py, Float>,
-        indices: PyReadonlyArray2<'py, u32>,
-        direction: [Float; 3],
-    ) -> PyResult<Bound<'py, PyArray1<Float>>> {
+    /// `indices` may be `(m, 3)` or flat `(3m,)`. Flat because that is what
+    /// `kalast.mesh.Mesh.indices` hands back, and requiring a `.reshape(-1, 3)`
+    /// at every call site is the kind of papercut that gets worked around with
+    /// a hand-rolled `.obj` loader instead -- which three scripts here already
+    /// carry.
+    pub fn triangles<'py>(
+        vertices: PyArrayLike2<'py, Float, AllowTypeChange>,
+        indices: PyReadonlyArrayDyn<'py, u32>,
+    ) -> PyResult<Vec<[Vec3; 3]>> {
         let v = vertices.as_array();
         let f = indices.as_array();
-        if v.shape()[1] != 3 || f.shape()[1] != 3 {
+        let flat = f.as_slice().ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err("indices must be contiguous")
+        })?;
+        let ok_shape = match f.shape() {
+            [_, 3] => true,
+            [n] => n % 3 == 0,
+            _ => false,
+        };
+        if v.shape()[1] != 3 || !ok_shape {
             return Err(pyo3::exceptions::PyValueError::new_err(
-                "vertices must be (n, 3) and indices (m, 3)",
+                "vertices must be (n, 3) and indices (m, 3) or (3m,)",
             ));
         }
         let nv = v.shape()[0];
-        let mut tris = Vec::with_capacity(f.shape()[0]);
-        for t in 0..f.shape()[0] {
+        let mut tris = Vec::with_capacity(flat.len() / 3);
+        for t in flat.chunks_exact(3) {
             let mut tri = [Vec3::ZERO; 3];
-            for k in 0..3 {
-                let i = f[[t, k]] as usize;
+            for (k, &idx) in t.iter().enumerate() {
+                let i = idx as usize;
                 if i >= nv {
                     return Err(pyo3::exceptions::PyValueError::new_err(format!(
                         "index {i} out of range for {nv} vertices"
@@ -636,6 +643,27 @@ pub(crate) mod py {
             }
             tris.push(tri);
         }
+        Ok(tris)
+    }
+
+    /// Exact lit fraction per facet, `(n_facets,)` in `[0, 1]`.
+    ///
+    /// `vertices` is `(n_vertices, 3)` in any float dtype, `indices` is
+    /// `(n_facets, 3)` or flat `(3 n_facets,)`, and
+    /// `direction` points from the body toward the Sun (for shadowing) or the
+    /// observer (for visibility).
+    ///
+    /// Unlike `sim.facet_shadow`, this is a real number rather than a multiple
+    /// of 1/4, and it needs no GPU, no shadow map and no bias constants.
+    #[pyfunction]
+    #[pyo3(name = "lit_fractions")]
+    pub fn py_lit_fractions<'py>(
+        py: Python<'py>,
+        vertices: PyArrayLike2<'py, Float, AllowTypeChange>,
+        indices: PyReadonlyArrayDyn<'py, u32>,
+        direction: [Float; 3],
+    ) -> PyResult<Bound<'py, PyArray1<Float>>> {
+        let tris = triangles(vertices, indices)?;
         let d = Vec3::new(direction[0], direction[1], direction[2]);
         let out: Vec<Float> = super::lit_fractions(&tris, d)
             .iter()

@@ -17,7 +17,7 @@ class Body:
     id: int
     name: str
     frame: str
-    radii: numpy.object
+    radii: numpy.ndarray
     orbit_period: float
     spin_period: float
     def radius(self) -> float:
@@ -34,7 +34,7 @@ class Camera:
     name: str
     frame: str
     label: str
-    px: numpy.object
+    px: numpy.ndarray
     fovy: float
     def npx(self) -> int:
         ...

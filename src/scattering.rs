@@ -102,6 +102,74 @@ pub fn lommel_seeliger_lambert(w: Float, c: Float, mu0: Float, mu: Float) -> Flo
     c * lommel_seeliger(w, mu0, mu) + (1.0 - c) * lambert(w)
 }
 
+/// The same mix as a *parameter set*, so a light curve can be handed "a law".
+///
+/// [`lommel_seeliger_lambert`] is the formula; this is the pair of numbers it
+/// is fitted with. Convex inversion quotes exactly these two, and the
+/// endpoints are the other two laws exactly -- `c = 1` is pure
+/// Lommel-Seeliger, `c = 0` is pure Lambert -- so this one struct covers three
+/// of the four laws in this module and [`Hapke`] covers the fourth. That is
+/// why [`crate::lightcurve::Law`] has two variants rather than four.
+///
+/// **It has no phase dependence of its own.** `r` here is a function of `mu0`
+/// and `mu` only, so the phase curve it produces comes entirely from the
+/// changing geometry: no opposition surge, no phase reddening. That is the
+/// known shape of the model rather than an omission -- inversion work
+/// multiplies it by a separate empirical phase function -- but it does mean a
+/// fit to data spanning a range of `alpha` wants [`Hapke`], or a phase
+/// function applied outside this module.
+#[derive(Debug, Clone, Copy, PartialEq)]
+// `from_py_object` for the same reason as `Hapke` below: pyo3 is changing the
+// default for a `#[pyclass]` that derives Clone, and this is the argument of
+// a function, so it has to stay extractable.
+#[cfg_attr(feature = "python", pyclass(get_all, set_all, from_py_object))]
+pub struct LommelSeeligerLambert {
+    /// Single-scattering albedo, `0..1`. Not the geometric albedo.
+    pub w: Float,
+    /// Lommel-Seeliger fraction: `1` is pure LS, `0` pure Lambert.
+    pub c: Float,
+}
+
+impl Default for LommelSeeligerLambert {
+    /// Pure Lommel-Seeliger off a dark regolith.
+    ///
+    /// `c = 1` rather than a mix, because adding Lambert is a choice a fit
+    /// makes; starting from it would put an unrequested multiple-scattering
+    /// term in every default answer.
+    fn default() -> Self {
+        Self { w: 0.1, c: 1.0 }
+    }
+}
+
+impl LommelSeeligerLambert {
+    /// `r(i, e)`, in the `I = r J mu0` convention of this module.
+    pub fn reflectance(&self, mu0: Float, mu: Float) -> Float {
+        if mu0 <= 0.0 || mu <= 0.0 {
+            return 0.0;
+        }
+        lommel_seeliger_lambert(self.w, self.c, mu0, mu)
+    }
+}
+
+#[cfg(feature = "python")]
+#[pymethods]
+impl LommelSeeligerLambert {
+    #[new]
+    #[pyo3(signature = (w=0.1, c=1.0))]
+    fn py_new(w: Float, c: Float) -> Self {
+        Self { w, c }
+    }
+
+    #[pyo3(name = "reflectance")]
+    fn py_reflectance(&self, mu0: Float, mu: Float) -> Float {
+        self.reflectance(mu0, mu)
+    }
+
+    fn __repr__(&self) -> String {
+        format!("LommelSeeligerLambert(w={}, c={})", self.w, self.c)
+    }
+}
+
 /// Chandrasekhar's `H` function, Hapke's 2002 rational approximation.
 ///
 /// `H` carries the multiple scattering, and it is defined implicitly by

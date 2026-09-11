@@ -4,6 +4,33 @@
 
 import numpy  # noqa: F401
 
+class LommelSeeligerLambert:
+    """The same mix as a *parameter set*, so a light curve can be handed "a law".
+
+    [`lommel_seeliger_lambert`] is the formula; this is the pair of numbers it
+    is fitted with. Convex inversion quotes exactly these two, and the
+    endpoints are the other two laws exactly -- `c = 1` is pure
+    Lommel-Seeliger, `c = 0` is pure Lambert -- so this one struct covers three
+    of the four laws in this module and [`Hapke`] covers the fourth. That is
+    why [`crate::lightcurve::Law`] has two variants rather than four.
+
+    **It has no phase dependence of its own.** `r` here is a function of `mu0`
+    and `mu` only, so the phase curve it produces comes entirely from the
+    changing geometry: no opposition surge, no phase reddening. That is the
+    known shape of the model rather than an omission -- inversion work
+    multiplies it by a separate empirical phase function -- but it does mean a
+    fit to data spanning a range of `alpha` wants [`Hapke`], or a phase
+    function applied outside this module.
+    """
+    w: float
+    """Single-scattering albedo, `0..1`. Not the geometric albedo."""
+    c: float
+    """Lommel-Seeliger fraction: `1` is pure LS, `0` pure Lambert."""
+    def __init__(self, w: float, c: float) -> None:
+        ...
+    def reflectance(self, mu0: float, mu: float) -> float:
+        ...
+
 class Hapke:
     """Hapke's bidirectional reflectance, IMSA form, for a smooth surface."""
     w: float

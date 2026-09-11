@@ -322,12 +322,18 @@ def resolve(annotation: str, defined: set, index: dict) -> str:
     error, which is worse than a vague-but-valid `object`.
     """
     def sub(m):
+        # A dotted name is resolved by its *root*: `numpy.ndarray` is valid
+        # because `numpy` is imported, and rewriting it identifier by
+        # identifier produced `numpy.object` -- an attribute numpy removed in
+        # 1.24, so every array annotation in every stub was an error of
+        # exactly the kind this function exists to prevent.
         name = m.group(0)
-        if name in KNOWN_BUILTINS or name in defined or name in index:
+        root = name.split(".", 1)[0]
+        if root in KNOWN_BUILTINS or root in defined or root in index:
             return name
         return "object"
 
-    return re.sub(r"[A-Za-z_][A-Za-z0-9_]*", sub, annotation)
+    return re.sub(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*", sub, annotation)
 
 
 def render(classes, index=None) -> str:
@@ -412,6 +418,7 @@ TARGETS = {
     # the same either way and splitting it would put the parameter docs a
     # file away from the formula that uses them.
     "src/scattering.rs": "kalast/scattering.pyi",
+    "src/lightcurve.rs": "kalast/lightcurve.pyi",
 }
 
 

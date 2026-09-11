@@ -110,7 +110,7 @@ class Simulation:
         result.
         """
         ...
-    def facet_shadow(self, body: int) -> numpy.object | None:
+    def facet_shadow(self, body: int) -> numpy.ndarray | None:
         """Per-facet occluded fractions for `body`, or `None` if they were not
         computed this frame.
 
@@ -183,7 +183,7 @@ class Simulation:
         have to come from.
         """
         ...
-    def facet_illumination(self, body: int) -> numpy.object | None:
+    def facet_illumination(self, body: int) -> numpy.ndarray | None:
         """Per-facet direct insolation, normalised: `max(0, cos i) * (1 - occluded)`.
 
         **This, not `facet_shadow`, is what "lit" means.** The shadow map
@@ -206,7 +206,7 @@ class Simulation:
         or `request_facet_shadow` arranges.
         """
         ...
-    def request_hemicube(self, body: int, facets: numpy.object, resolution: int, batch: int) -> None:
+    def request_hemicube(self, body: int, facets: numpy.ndarray, resolution: int, batch: int) -> None:
         """Ask for hemicube view factors for `facets` of `body`, this frame.
 
         Request from `before_render`, read with `hemicube` from
@@ -220,7 +220,7 @@ class Simulation:
         accumulated on the GPU before a readback.
         """
         ...
-    def hemicube(self) -> numpy.object:
+    def hemicube(self) -> numpy.ndarray:
         """`(view_factors, offsets)` from the last `request_hemicube`, or `None`.
 
         `view_factors` has shape `(len(facets), n_total)` over a facet index
@@ -271,7 +271,7 @@ class Simulation:
         from.
         """
         ...
-    def facet_id_map(self) -> numpy.object:
+    def facet_id_map(self) -> numpy.ndarray:
         """`(ids, offsets)` for the last requested frame, or `None`.
 
         `ids` is `(height, width)` of `uint32`: 0 where nothing was drawn,

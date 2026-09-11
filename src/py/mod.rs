@@ -242,6 +242,17 @@ pub fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
         .getattr("modules")?
         .set_item("kalast._rs.shadowing", shadowing)?;
 
+    let lightcurve = PyModule::new(m.py(), "lightcurve")?;
+    pyadd_f!(lightcurve, crate::lightcurve::py::py_flux);
+    pyadd_f!(lightcurve, crate::lightcurve::py::py_lightcurve);
+    lightcurve.add_class::<crate::lightcurve::Spin>()?;
+    lightcurve.add_class::<crate::lightcurve::Point>()?;
+    lightcurve.add_class::<crate::lightcurve::py::Curve>()?;
+    m.add_submodule(&lightcurve)?;
+    py.import("sys")?
+        .getattr("modules")?
+        .set_item("kalast._rs.lightcurve", lightcurve)?;
+
     let scattering = PyModule::new(m.py(), "scattering")?;
     pyadd_f!(scattering, crate::scattering::lambert);
     pyadd_f!(scattering, crate::scattering::lommel_seeliger);
@@ -250,6 +261,7 @@ pub fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     pyadd_f!(scattering, crate::scattering::henyey_greenstein);
     pyadd_f!(scattering, crate::scattering::opposition_surge);
     scattering.add_class::<crate::scattering::Hapke>()?;
+    scattering.add_class::<crate::scattering::LommelSeeligerLambert>()?;
     m.add_submodule(&scattering)?;
     py.import("sys")?
         .getattr("modules")?

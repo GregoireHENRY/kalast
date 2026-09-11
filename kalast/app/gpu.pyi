@@ -5,9 +5,9 @@
 import numpy  # noqa: F401
 
 class InstanceInput:
-    def __init__(self, mat: object, numpy: numpy.object) -> None:
+    def __init__(self, mat: object, numpy: numpy.ndarray) -> None:
         ...
-    mat: numpy.object
+    mat: numpy.ndarray
     def set_mat(self, arr: list[list[float]]) -> None:
         ...
     def compute_normal(self) -> None:

@@ -23,23 +23,23 @@ class Body:
     def new(self) -> object:
         ...
     mesh: Mesh
-    state: numpy.object
+    state: numpy.ndarray
     spin_period: float
-    spin_axis: numpy.object
+    spin_axis: numpy.ndarray
     orbit_period: float
-    orbit_axis: numpy.object
+    orbit_axis: numpy.ndarray
 
 class BodyDataMap:
-    def __init__(self, temperatures: list[numpy.object], thermal_properties_all: int, thermal_properties_map: object) -> None:
+    def __init__(self, temperatures: list[numpy.ndarray], thermal_properties_all: int, thermal_properties_map: object) -> None:
         ...
-    temperatures: list[numpy.object]
+    temperatures: list[numpy.ndarray]
     thermal_properties_all: int
     thermal_properties_map: list[tuple[int, int]]
 
 class Setup:
     def __init__(self) -> None:
         ...
-    sun_position: numpy.object
+    sun_position: numpy.ndarray
     progress_debug: ProgressDebug
     time: Time
 

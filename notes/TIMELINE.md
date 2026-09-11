@@ -1847,3 +1847,67 @@ Python boundary, `SOLAR_CONSTANT` provenance); and `test_stubs`'s
 hand-maintained case list.
 
 The lightcurve project for Eli has its pieces now and no driver.
+
+## 11 September, later — the light curve driver
+
+`src/lightcurve.rs`, `notes/2026-09-11_lightcurve_driver.md`. The handoff's
+closing line was "the lightcurve project for Eli has its pieces now and no
+driver." It has one.
+
+`scattering` gave a facet's reflectance, `shadowing` its lit and visible area,
+and nothing summed them — the disc integral existed only inside two analytical
+example scripts, hand rolled in numpy twice. Now `flux()` for one epoch of
+placed geometry (which is how a **binary** goes through it) and `lightcurve()`
+for a rotating body, with the Sun and observer carried into the body frame
+rather than the mesh rotated. Spin state in convex inversion's convention, so a
+published pole solution needs no translation. `examples/lightcurve/main.py`
+runs on `res/` alone.
+
+**The convex shortcut is exact, not an approximation**, and it is worth
+11.6 ms → 0.021 ms an epoch at 1280 facets: a convex shape has no facet
+occluding another, so both clipping passes return 1. A 90-point curve costs
+1.9 ms instead of 1.0 s, which is what a fitting loop cares about.
+
+Tested against closed forms, one per thing that could be wrong: a
+Lommel-Seeliger body at zero phase **is** its projected area exactly, so a 2:1
+ellipsoid's amplitude is `2.5 log10(a/b)` — 752.575 against 752.575 mmag; a
+Lambert sphere follows the analytic phase function; occlusion is a no-op on a
+convex shape and each pass separately is not on a concave one; and Helmholtz
+reciprocity.
+
+Four things came out of it.
+
+**The first version of the concave test had a dead Sun pass and passed.** It
+asserted only that occlusion *changed* the flux. It did, by 6 mmag — all of it
+from the observer pass, because at that Sun direction the shape self-shadowed
+nothing at all, to six figures. Each pass is now tested alone. A test that
+something "has an effect" does not say which something.
+
+**The ellipsoid gives an exact identity and a discretisation error at once,
+and they behave oppositely.** The amplitude is right at 80 facets and *worst*
+at 5120, where it is f32 rounding; the curve shape converges as `N^-0.94` and
+is exact nowhere. A fixed tolerance on the second measures the mesh — the same
+lesson as the conduction reference and the polygon clipper, from a third
+direction.
+
+**Five deliberate breaks, two of which exactly one test caught.** A mirrored
+rotation is invisible to every curve check, because the ellipsoid curve is
+symmetric in time — only the Rust `rotation_is_prograde` test sees it, and
+without it a real target's light curve would come out time-reversed with
+everything green. Running both clippings along the Sun is caught only by
+reciprocity, since "occlusion has an effect" still holds.
+
+**Two pre-existing defects, both found by writing the example rather than by
+looking for them.** Every generated stub's numpy annotations were
+`numpy.object` — an attribute numpy removed in 1.24 — because `resolve()`
+rewrote dotted names identifier by identifier: **53 of them across 9 committed
+stub files**, each one an error of exactly the kind that function exists to
+prevent. And `test_stubs`' hand-maintained case list (open item 4 of the
+handoff) is now loud rather than silent:
+`test_every_generated_stub_class_is_covered` fails when a stub class is in
+neither the case list nor an explicit `UNCOVERED` set. It immediately found
+two classes a manual count had missed, and documents 16 that nothing checks.
+
+Suite: 82 Rust tests, 12 Python files. `theta_bar` is now the only known gap
+in the photometry — and it is one that can finally be *measured*, since there
+is a curve to measure it on.

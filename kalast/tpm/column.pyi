@@ -8,9 +8,9 @@ from kalast.tpm.properties import Properties
 class Column:
     def __init__(self, z: object, prop: Properties, t_init: float) -> None:
         ...
-    z: numpy.object
-    t: numpy.object
-    d: numpy.object
+    z: numpy.ndarray
+    t: numpy.ndarray
+    d: numpy.ndarray
     def clone(self) -> object:
         ...
 

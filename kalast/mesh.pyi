@@ -7,19 +7,19 @@ import numpy  # noqa: F401
 class Vertex:
     def __init__(self, pos: list[float] | None, tex: list[float] | None, normal: list[float] | None, tangent: list[float] | None, bitangent: list[float] | None, color: list[float] | None, color_mode: int | None) -> None:
         ...
-    pos: numpy.object
-    tex: numpy.object
-    normal: numpy.object
-    tangent: numpy.object
-    bitangent: numpy.object
-    color: numpy.object
+    pos: numpy.ndarray
+    tex: numpy.ndarray
+    normal: numpy.ndarray
+    tangent: numpy.ndarray
+    bitangent: numpy.ndarray
+    color: numpy.ndarray
     color_mode: int
 
 class Facet:
     def __init__(self, pos: list[float] | None, normal: list[float] | None, area: float | None) -> None:
         ...
-    pos: numpy.object
-    normal: numpy.object
+    pos: numpy.ndarray
+    normal: numpy.ndarray
     area: float
 
 class Material:
@@ -33,7 +33,7 @@ class Material:
         ...
 
 class Mesh:
-    def inward_facing_facets(self) -> numpy.object:
+    def inward_facing_facets(self) -> numpy.ndarray:
         """Indices of facets whose normal points into the body.
 
         A quick shape-model sanity check. Reversed winding on a few triangles
@@ -43,7 +43,7 @@ class Mesh:
         body, so inspect the result rather than trusting it blindly.
         """
         ...
-    def flip_facets(self, facets: numpy.object) -> int:
+    def flip_facets(self, facets: numpy.ndarray) -> int:
         """Reverse the winding of the given facets. Returns how many were flipped.
 
         Call before `app.start()`: the GPU buffers are built once when the
@@ -56,24 +56,24 @@ class Mesh:
     def load(self, _cls: object, pyo3: object, path: str, update_pos: object) -> object:
         ...
     vertices: object
-    indices: numpy.object
+    indices: numpy.ndarray
     facets: object
     material_id: int | None
     _vertices_before_flatten: object
-    positions: numpy.object
-    textures: numpy.object
-    normals: numpy.object
-    tangents: numpy.object
-    bitangents: numpy.object
-    colors: numpy.object
-    color_modes: numpy.object
+    positions: numpy.ndarray
+    textures: numpy.ndarray
+    normals: numpy.ndarray
+    tangents: numpy.ndarray
+    bitangents: numpy.ndarray
+    colors: numpy.ndarray
+    color_modes: numpy.ndarray
     def flatten(self) -> None:
         ...
     def smoothen(self) -> None:
         ...
     def recompute_facets(self) -> None:
         ...
-    values: numpy.object
+    values: numpy.ndarray
     """Call after mutating vertex color/color_mode/extra in place (e.g. a
     per-facet colormap) to request a GPU re-upload on the next frame.
     The renderer only re-uploads a mesh's color data when this has been
@@ -98,11 +98,11 @@ class Mesh:
         ...
     def get_facet_indices(self, facet: int) -> list[int]:
         ...
-    def get_facet_positions(self, facet: int) -> list[numpy.object]:
+    def get_facet_positions(self, facet: int) -> list[numpy.ndarray]:
         ...
-    def get_facet_normals(self, facet: int) -> list[numpy.object]:
+    def get_facet_normals(self, facet: int) -> list[numpy.ndarray]:
         ...
-    def get_facet_colors(self, facet: int) -> list[numpy.object]:
+    def get_facet_colors(self, facet: int) -> list[numpy.ndarray]:
         ...
     def update_all_vertices_colors(self, mode: int, color: list[float]) -> None:
         ...

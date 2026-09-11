@@ -2,6 +2,7 @@ pub mod astro;
 pub mod entity;
 pub mod gpu;
 pub mod app;
+pub mod lightcurve;
 pub mod math;
 pub mod mesh;
 #[cfg(feature = "python")]

@@ -525,7 +525,7 @@ class Config:
     """
     value_max: float | None
     """Top of the colour scale, or `None` to fit the data. See `value_min`."""
-    colormap: numpy.object
+    colormap: numpy.ndarray
     """Colour lookup table: a built-in name or an Nx3 array of RGB in 0..1.
 
     `"viridis"`, `"inferno"`, `"turbo"`, `"grey"`, or any matplotlib

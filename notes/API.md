@@ -1127,3 +1127,62 @@ this one for photometry**, where the quantisation is worth 0.7–40 mmag and
 this brings it to 0.07. Both measured in
 `examples/analytical/shadow_quantisation.py`; see
 `notes/2026-09-10_polygonal_shadowing_implemented.md`.
+
+## `kalast.lightcurve` — the disc integral
+
+The driver the other two halves were missing. `kalast.scattering` gives a
+facet's reflectance and `kalast._rs.shadowing` its lit and visible areas; this
+sums them over the body, once per epoch, into the single number a photometer
+measures:
+
+```text
+F = sum_f  r_f(mu0, mu, alpha) * mu0_f * mu_f * A_f * lit_f * vis_f
+```
+
+`F` is in **mesh area units, per steradian, per unit incident irradiance**.
+Scaling to a real flux is the caller's, because it needs the mesh's length
+unit and two distances the module is not given:
+`F * SOLAR_CONSTANT / r_au**2 / delta**2`. A light curve needs none of it —
+`magnitude()` takes the ratio that removes every constant factor.
+
+```python
+import numpy, kalast.mesh
+from kalast.lightcurve import Spin, lightcurve
+from kalast.scattering import Hapke
+
+mesh = kalast.mesh.Mesh(path="res/ico3.obj")
+curve = lightcurve(
+    mesh.positions * [1.6, 1.1, 1.0], mesh.indices,
+    Spin(pole_lon=numpy.radians(85.0), pole_lat=numpy.radians(-40.0), period=7.63),
+    sun=[1.0, 0.0, 0.0], observer=[0.94, 0.34, 0.0],
+    epochs=numpy.linspace(0.0, 7.63, 90),
+    law=Hapke(w=0.10),
+)
+curve.magnitude()                 # relative magnitudes, median-referenced
+```
+
+`vertices` is `(n, 3)` in any float dtype; `indices` is `(m, 3)` **or** flat
+`(3m,)`, which is what `Mesh.indices` hands back. `law` is a `Hapke` or a
+`LommelSeeligerLambert`.
+
+| | |
+|---|---|
+| `flux(vertices, indices, sun, observer, law, ...)` | one epoch, geometry already placed — the general case, and the one a **binary** uses |
+| `lightcurve(vertices, indices, spin, sun, observer, epochs, law, ...)` | one rotating body over a series |
+| `Spin(pole_lon, pole_lat, period, phase0, epoch0)` | convex inversion's convention, **radians**; `phase_at()`, `pole()` |
+| `Point` | one epoch: `flux`, `alpha`, `lit_fraction`, `overflowed` |
+| `Curve` | arrays: `flux`, `alpha`, `phase`, `epoch`, `lit_fraction`, `overflowed`, `magnitude(reference=None)` |
+
+**`shadowing=False, visibility=False` is exact for a convex shape**, not an
+approximation: no facet occludes another there, so both clipping passes return
+1 and cost the run. Most shape-inversion models are convex, and it is the
+difference between 11.6 ms and 0.021 ms an epoch at 1280 facets.
+
+The mesh is **not** rotated by `lightcurve` — the Sun and observer directions
+are carried into the body frame instead, two vectors per epoch rather than
+every vertex. Directions may be one pair for the whole series, or one per
+epoch.
+
+**Hapke's `theta_bar` is refused here too.** A non-zero macroscopic roughness
+raises rather than being silently dropped, so the pair is exact area ×
+smooth-surface Hapke. See `notes/2026-09-11_lightcurve_driver.md`.

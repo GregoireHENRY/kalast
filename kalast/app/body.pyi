@@ -6,6 +6,6 @@ import numpy  # noqa: F401
 from kalast.mesh import Mesh
 
 class Body:
-    mat: numpy.object
+    mat: numpy.ndarray
     mesh: Mesh | None
 
