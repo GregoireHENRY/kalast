@@ -129,10 +129,14 @@ averages out over a rotation. Photometry gets this.
 
 - **`theta_bar` in the scattering law is still unimplemented**, so the two
   halves of the photometry are now exact area × smooth-surface Hapke.
-- **Mutual events between two bodies are untested.** The clipper handles them
-  in principle — it does not care which body a triangle belongs to — but the
-  assessment's claim that partial visibility dominates during ingress and
-  egress is still unmeasured, and this is the tool that could measure it.
+- ~~**Mutual events between two bodies are untested.**~~ **Measured** —
+  `notes/2026-09-11_mutual_events_measured.md`. The clipper handles them,
+  and the assessment's claim about partial visibility holds in this regime
+  and only this one: binarised visibility costs 2.10 mmag rms in event
+  against 3.01 for the shadow quantisation, where on a single body it was
+  negligible. The two also **partially cancel** — 2.40 together against
+  3.01 for shadowing alone — so fixing one in isolation buys less than
+  measuring it in isolation suggests.
 - The overlap-centroid depth test is exact for non-interpenetrating meshes.
   Interpenetrating geometry (two bodies actually touching) would need the
   overlap split where the planes cross.
