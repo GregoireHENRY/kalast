@@ -151,12 +151,73 @@ check(
     f"residual/w = {worst_red:.2f} (must be O(1): the leftover is O(w))",
 )
 
-# --- 5. roughness is refused, not ignored --------------------------------
-try:
-    sc.Hapke(w=0.2, theta_bar=0.3).reflectance(0.5, 0.5, 0.2)
-    check("test_unimplemented_roughness_raises", False, "no exception raised")
-except ValueError as exc:
-    check("test_unimplemented_roughness_raises", "theta_bar" in str(exc), str(exc)[:60])
+# --- 5. macroscopic roughness ---------------------------------------------
+# Hapke's 1984 correction is a page of case analysis with two branches, and
+# the way to get case analysis wrong is to take the wrong branch. It is tested
+# by the identities the construction guarantees rather than against a table:
+# reciprocity (which the branches exist to preserve), the theta_bar -> 0
+# reduction, and S = 1 at zero azimuth.
+
+
+def rough(tb, w=0.2):
+    return sc.Hapke(w=w, b=0.3, c=0.6, b0=1.0, h=0.05, theta_bar=tb)
+
+
+for bad in (-0.1, numpy.pi / 2, 1.6):
+    try:
+        rough(bad).reflectance(0.5, 0.5, 0.2)
+        check(f"test_impossible_roughness_{bad}_raises", False, "no exception raised")
+    except ValueError as exc:
+        check(f"test_impossible_roughness_{bad}_raises", "theta_bar" in str(exc))
+check(
+    "test_usable_roughness_is_accepted",
+    rough(numpy.radians(30.0)).reflectance(0.5, 0.5, 0.2) > 0.0,
+)
+
+# Reciprocity. `r` here has mu0 factored out, so it is plain symmetry in
+# mu0 <-> mu -- and the pairs straddling mu0 = mu are the ones that cross the
+# branch boundary, which is the whole point of checking it.
+worst_recip = 0.0
+for tb in numpy.radians([5.0, 20.0, 30.0, 45.0, 60.0]):
+    h_r = rough(tb)
+    for mu0, mu in [(0.95, 0.15), (0.15, 0.95), (0.6, 0.59), (0.59, 0.6), (0.4, 0.4)]:
+        for al in (0.0, 0.2, 0.7, 1.4, 2.2):
+            a = h_r.reflectance(mu0, mu, al)
+            b = h_r.reflectance(mu, mu0, al)
+            if max(a, b) > 0:
+                worst_recip = max(worst_recip, abs(a - b) / max(a, b))
+check(
+    "test_roughness_is_reciprocal_across_the_branch",
+    worst_recip < 1e-4,
+    f"worst asymmetry {worst_recip:.2e} over 125 geometries",
+)
+
+# S = 1 at psi = 0, so at opposition roughness acts only through the multiple
+# scattering -- which vanishes with w. Nothing else in the model behaves that
+# way, so this pins the azimuth recovery as well as the shadowing function.
+op = []
+for w in (0.4, 0.1, 0.02):
+    smooth = sc.Hapke(w=w, b=0.3, c=0.6, b0=1.0, h=0.05).reflectance(0.7, 0.7, 0.0)
+    r30 = rough(numpy.radians(30.0), w).reflectance(0.7, 0.7, 0.0)
+    op.append(abs(r30 - smooth) / smooth)
+check(
+    "test_roughness_vanishes_at_opposition_as_multiple_scattering_does",
+    op[0] > op[1] > op[2] and op[2] < 2e-3,
+    "  ".join(f"w={w}: {d:.2e}" for w, d in zip((0.4, 0.1, 0.02), op)),
+)
+
+# And away from opposition it darkens, monotonically in theta_bar. This is the
+# physical signature -- relief hiding relief -- and it is what makes the
+# reduction test above non-vacuous.
+dark = [
+    rough(numpy.radians(t)).reflectance(0.45, 0.8, 1.2)
+    for t in (0.0, 10.0, 20.0, 30.0, 40.0)
+]
+check(
+    "test_roughness_darkens_monotonically_away_from_opposition",
+    all(x > y for x, y in zip(dark, dark[1:])) and dark[-1] < 0.75 * dark[0],
+    "  ".join(f"{d:.5f}" for d in dark),
+)
 
 # --- 6. brightness behaves ------------------------------------------------
 h = sc.Hapke()

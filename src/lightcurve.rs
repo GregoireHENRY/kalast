@@ -79,19 +79,19 @@ impl Law {
     pub fn reflectance(&self, mu0: Float, mu: Float, alpha: Float) -> Float {
         match self {
             Law::Mix(m) => m.reflectance(mu0, mu),
-            Law::Hapke(h) => h.reflectance_smooth(mu0, mu, alpha),
+            Law::Hapke(h) => h.reflectance_unchecked(mu0, mu, alpha),
         }
     }
 
     /// Whether this law can be evaluated at all.
     ///
-    /// Only Hapke can fail, and only on `theta_bar`. The check is separated
-    /// from the loop rather than dropped, because dropping it is exactly the
-    /// silent loss of a term that [`Hapke::reflectance`] refuses.
+    /// Only Hapke can fail, and only on a `theta_bar` outside `[0, pi/2)`.
+    /// Checked once here rather than per facet per epoch, which is what
+    /// [`Law::reflectance`] is free to skip.
     pub fn check(&self) -> Result<(), String> {
         match self {
             Law::Mix(_) => Ok(()),
-            Law::Hapke(h) => h.reflectance(1.0, 1.0, 0.0).map(|_| ()),
+            Law::Hapke(h) => h.check(),
         }
     }
 }
@@ -548,13 +548,22 @@ mod tests {
     }
 
     #[test]
-    fn hapke_roughness_is_refused_by_the_integral_too() {
+    fn an_impossible_roughness_is_refused_by_the_integral_too() {
         let tris = sphere(6, 12);
-        let law = Law::Hapke(Hapke {
+        // Past pi/2 the slope distribution's normalisation divides by zero,
+        // and a "mean slope" of 90 degrees is not a surface anyway. A usable
+        // 0.3 rad must of course go straight through, which is the half of
+        // this that would have kept passing after roughness was implemented.
+        let bad = Law::Hapke(Hapke {
+            theta_bar: 1.6,
+            ..Default::default()
+        });
+        assert!(flux_at(&tris, Vec3::X, Vec3::X, &bad, Options::default()).is_err());
+        let good = Law::Hapke(Hapke {
             theta_bar: 0.3,
             ..Default::default()
         });
-        assert!(flux_at(&tris, Vec3::X, Vec3::X, &law, Options::default()).is_err());
+        assert!(flux_at(&tris, Vec3::X, Vec3::X, &good, Options::default()).is_ok());
     }
 }
 

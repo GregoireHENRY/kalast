@@ -47,17 +47,30 @@
 //!   two-lobe particle phase function, an opposition surge and multiple
 //!   scattering through the Chandrasekhar `H` function. What Brož uses.
 //!
-//! # What is deliberately not here
+//! # Macroscopic roughness
 //!
-//! **Hapke's macroscopic roughness `theta_bar` is not implemented**, and this
-//! is the one omission worth knowing about. The 1984 roughness correction
-//! replaces `mu0` and `mu` with effective values and multiplies by a shadowing
-//! function `S(i, e, alpha, theta_bar)`; it is a page of case analysis, easy
-//! to get subtly wrong, and untestable against a closed form. Setting
-//! `theta_bar = 0` is exact, not approximate, so what is here is a complete
-//! Hapke model *for a smooth surface* rather than an approximate one for a
-//! rough surface. [`Hapke::theta_bar`] exists and is rejected if non-zero,
-//! rather than being silently ignored.
+//! [`Hapke::theta_bar`] is the mean slope angle of roughness the shape model
+//! does not resolve, and it **is** implemented -- Hapke (1984), the version in
+//! chapter 12 of *Theory of Reflectance and Emittance Spectroscopy*. `mu0` and
+//! `mu` are replaced by effective cosines and the result multiplied by a
+//! shadowing function `S(i, e, psi, theta_bar)`, with separate expressions for
+//! `i <= e` and `i > e`.
+//!
+//! It was left out at first because it is a page of case analysis with no
+//! closed form to test against. Half of that objection was wrong: **Hapke
+//! constructed it to preserve Helmholtz reciprocity**, and the two branches
+//! exist for exactly that reason -- so `r(i, e) == r(e, i)` is a sharp test of
+//! the case analysis, and it is the one that matters, because the way to get a
+//! page of cases wrong is to take the wrong branch. `tests/test_scattering.py`
+//! checks it across the `i = e` boundary, along with the `theta_bar -> 0`
+//! reduction and continuity at that boundary.
+//!
+//! The correction is **not** a function of the phase angle alone: it needs the
+//! azimuth `psi` between the planes of incidence and emergence, which this
+//! module recovers from `(mu0, mu, alpha)` through
+//! `cos alpha = mu0 mu + sin i sin e cos psi`. That is why roughness does
+//! almost nothing at opposition -- where `psi = 0`, `i = e` and `S = 1` --
+//! while darkening the surface increasingly toward large phase angles.
 //!
 //! Note that kalast already has a roughness treatment for the *thermal* side
 //! in `tpm::roughness` (Kuehrt spherical craters). The two are not
@@ -262,9 +275,9 @@ pub struct Hapke {
     pub b0: Float,
     /// Opposition surge angular width, radians.
     pub h: Float,
-    /// Macroscopic roughness, radians. **Must be zero**; see the module docs.
-    /// It is carried so that a parameter set from the literature can be
-    /// stored without silently losing a term, and rejected on use.
+    /// Macroscopic roughness: the mean slope angle of sub-facet relief, in
+    /// radians. `0` is a smooth surface; the literature quotes 20-30 deg for
+    /// most asteroids. Must be in `[0, pi/2)`.
     pub theta_bar: Float,
 }
 
@@ -294,25 +307,44 @@ impl Hapke {
     ///
     /// # Errors
     ///
-    /// Returns `Err` if `theta_bar` is non-zero: the roughness correction is
-    /// not implemented and silently dropping it would change a fitted albedo
-    /// without saying so.
+    /// Returns `Err` if `theta_bar` is outside `[0, pi/2)`. A mean slope of
+    /// 90 degrees is not a rough surface, it is a division by zero.
     pub fn reflectance(&self, mu0: Float, mu: Float, alpha: Float) -> Result<Float, String> {
-        if self.theta_bar != 0.0 {
+        self.check()?;
+        Ok(self.reflectance_unchecked(mu0, mu, alpha))
+    }
+
+    /// Whether the parameters can be evaluated at all.
+    ///
+    /// Separated from the reflectance so the hot loop of a disc integration
+    /// can test once, outside, rather than per facet per epoch.
+    pub fn check(&self) -> Result<(), String> {
+        if !(0.0..crate::consts::FRAC_PI_2).contains(&self.theta_bar) {
             return Err(format!(
-                "Hapke macroscopic roughness is not implemented (theta_bar = {}). \
-                 Set theta_bar = 0 for the smooth case, which is exact, or add \
-                 the 1984 correction. See src/scattering.rs.",
+                "Hapke theta_bar must be in [0, pi/2) radians, got {}. It is a \
+                 mean slope angle -- the literature quotes 20-30 degrees, i.e. \
+                 0.35 to 0.52 -- and is in radians here, not degrees.",
                 self.theta_bar
             ));
         }
-        Ok(self.reflectance_smooth(mu0, mu, alpha))
+        Ok(())
     }
 
-    /// The smooth-surface reflectance, without the `theta_bar` check.
+    /// The reflectance without the parameter check: smooth or rough as
+    /// `theta_bar` says.
+    pub fn reflectance_unchecked(&self, mu0: Float, mu: Float, alpha: Float) -> Float {
+        if self.theta_bar == 0.0 {
+            self.reflectance_smooth(mu0, mu, alpha)
+        } else {
+            self.reflectance_rough(mu0, mu, alpha)
+        }
+    }
+
+    /// The smooth-surface reflectance: the `theta_bar = 0` formula.
     ///
-    /// Separate so the hot loop of a disc integration does not re-test a
-    /// parameter that cannot change inside it.
+    /// Exact rather than approximate at that value, and the branch
+    /// [`Hapke::reflectance_unchecked`] takes when roughness is off -- which
+    /// is most of the time, and is much the cheaper of the two.
     pub fn reflectance_smooth(&self, mu0: Float, mu: Float, alpha: Float) -> Float {
         if mu0 <= 0.0 || mu <= 0.0 {
             return 0.0;
@@ -339,6 +371,143 @@ impl Hapke {
         // `test_hapke_reduces_to_lommel_seeliger` is what holds all four laws
         // to it.
         self.w / (4.0 * crate::util::PI * (mu0 + mu)) * ((1.0 + bg) * p + h0 * he - 1.0)
+    }
+
+    /// The rough-surface reflectance: Hapke's 1984 macroscopic roughness.
+    ///
+    /// `theta_bar` is the mean slope angle of relief the shape model does not
+    /// resolve. The correction has two parts, and neither is a fudge factor:
+    ///
+    /// 1. **Effective cosines.** A tilted facet within the rough surface is
+    ///    not illuminated or viewed at the angles the *mean* surface implies,
+    ///    so `mu0` and `mu` are replaced by `mu0e` and `mue`, averages over the
+    ///    visible and illuminated parts of the slope distribution.
+    /// 2. **A shadowing function `S`**, for the parts of the relief that hide
+    ///    each other.
+    ///
+    /// Both need the **azimuth** `psi` between the planes of incidence and
+    /// emergence, not just the phase angle, so it is recovered from
+    /// `cos alpha = mu0 mu + sin i sin e cos psi`. Two consequences worth
+    /// knowing: `S = 1` at `psi = 0`, so roughness does almost nothing at
+    /// opposition; and the effect grows toward large phase angles, where it
+    /// darkens.
+    ///
+    /// # The branches, and why reciprocity tests them
+    ///
+    /// `mu0e`, `mue` and `S` are written differently for `i <= e` and `i > e`.
+    /// That asymmetry is not a special case to be tidied away -- it is what
+    /// makes the pair **reciprocal**. Swapping `i` and `e` maps one branch onto
+    /// the other and carries `(mu0e, mue)` to `(mue, mu0e)`, and the two
+    /// shadowing denominators coincide, so `r(i, e) == r(e, i)` exactly. Take
+    /// the wrong branch and that identity breaks, which is why
+    /// `tests/test_scattering.py` checks it either side of `i = e` rather than
+    /// checking the formula against a table.
+    ///
+    /// Reference: Hapke (1984), Icarus 59, 41; the same as chapter 12 of
+    /// *Theory of Reflectance and Emittance Spectroscopy*, eqs. 12.45-12.55.
+    pub fn reflectance_rough(&self, mu0: Float, mu: Float, alpha: Float) -> Float {
+        if mu0 <= 0.0 || mu <= 0.0 {
+            return 0.0;
+        }
+        if self.theta_bar == 0.0 {
+            return self.reflectance_smooth(mu0, mu, alpha);
+        }
+        let (mu0e, mue, shadow) = self.roughness_terms(mu0, mu, alpha);
+        if mu0e <= 0.0 || mue <= 0.0 {
+            return 0.0;
+        }
+        let p = henyey_greenstein(self.b, self.c, alpha);
+        let bg = opposition_surge(self.b0, self.h, alpha);
+        // Same bracket as the smooth case, on the *effective* cosines -- and
+        // divided by the *true* `mu0`, because this module's convention keeps
+        // the incidence cosine outside `r` while Hapke's own folds it in.
+        self.w / (4.0 * crate::util::PI) * mu0e / (mu0 * (mu0e + mue))
+            * ((1.0 + bg) * p + h_function(self.w, mu0e) * h_function(self.w, mue) - 1.0)
+            * shadow
+    }
+
+    /// The three roughness quantities: `(mu0e, mue, S)`.
+    ///
+    /// Exposed because they are what another Hapke implementation can be
+    /// compared against term by term, and because **`S` is the only thing that
+    /// distinguishes the two branches from each other**. Swapping the `i <= e`
+    /// and `i > e` cases wholesale leaves the reflectance *reciprocal* -- the
+    /// branches are each other's mirror image, so exchanging them preserves
+    /// the very symmetry they exist to provide -- and it is caught instead by
+    /// `S = 1` at zero azimuth, which holds on the `i <= e` branch only.
+    ///
+    /// At `theta_bar = 0` this is `(mu0, mu, 1)`.
+    pub fn roughness_terms(&self, mu0: Float, mu: Float, alpha: Float) -> (Float, Float, Float) {
+        if self.theta_bar == 0.0 || mu0 <= 0.0 || mu <= 0.0 {
+            return (mu0, mu, 1.0);
+        }
+        let pi = crate::util::PI;
+
+        let sin_i = (1.0 - mu0 * mu0).max(0.0).sqrt();
+        let sin_e = (1.0 - mu * mu).max(0.0).sqrt();
+
+        // At normal incidence or normal emergence there is no plane to measure
+        // an azimuth from, and `cos psi` comes out 0/0. The formulas do not
+        // actually need it there -- every term it multiplies carries a `sin i`
+        // or a `sin e` that has already gone to zero -- so anything finite
+        // serves, and 0 is the value that keeps `cos psi` and `tan(psi/2)`
+        // well behaved.
+        let psi = if sin_i * sin_e < 1e-9 {
+            0.0
+        } else {
+            ((alpha.cos() - mu0 * mu) / (sin_i * sin_e))
+                .clamp(-1.0, 1.0)
+                .acos()
+        };
+
+        let tan_tb = self.theta_bar.tan();
+        let cot_tb = 1.0 / tan_tb;
+        // chi(theta_bar): the normalisation of the slope distribution.
+        let chi = 1.0 / (1.0 + pi * tan_tb * tan_tb).sqrt();
+
+        // cot(x) from the cosine and sine we already have. Both are finite
+        // here: `mu > 0` keeps the angle strictly under pi/2, so `sin` is
+        // never zero and `cot` never infinite.
+        let e1 = |c: Float, sn: Float| (-(2.0 / pi) * cot_tb * (c / sn)).exp();
+        let e2 = |c: Float, sn: Float| {
+            let q = cot_tb * (c / sn);
+            (-(1.0 / pi) * q * q).exp()
+        };
+        let eta = |c: Float, sn: Float| chi * (c + sn * tan_tb * e2(c, sn) / (2.0 - e1(c, sn)));
+
+        let (e1i, e2i) = (e1(mu0, sin_i), e2(mu0, sin_i));
+        let (e1e, e2e) = (e1(mu, sin_e), e2(mu, sin_e));
+        let eta_i = eta(mu0, sin_i);
+        let eta_e = eta(mu, sin_e);
+
+        let cos_psi = psi.cos();
+        let half = 0.5 * psi;
+        let sin2_half = half.sin() * half.sin();
+        let f = (-2.0 * half.tan()).exp();
+
+        // The two branches. `ratio` is the term inside S's denominator, and it
+        // is the *same quantity* on both sides once i and e are swapped --
+        // which is the algebraic reason reciprocity survives the split.
+        let (mu0e, mue, ratio) = if mu0 >= mu {
+            // i <= e
+            let d = 2.0 - e1e - (psi / pi) * e1i;
+            (
+                chi * (mu0 + sin_i * tan_tb * (cos_psi * e2e + sin2_half * e2i) / d),
+                chi * (mu + sin_e * tan_tb * (e2e - sin2_half * e2i) / d),
+                mu0 / eta_i,
+            )
+        } else {
+            // i > e
+            let d = 2.0 - e1i - (psi / pi) * e1e;
+            (
+                chi * (mu0 + sin_i * tan_tb * (e2i - sin2_half * e2e) / d),
+                chi * (mu + sin_e * tan_tb * (cos_psi * e2i + sin2_half * e2e) / d),
+                mu / eta_e,
+            )
+        };
+
+        let shadow = (mue / eta_e) * (mu0 / eta_i) * chi / (1.0 - f + f * chi * ratio);
+        (mu0e, mue, shadow)
     }
 
     /// Bond albedo of a semi-infinite surface with these particle properties.
@@ -378,6 +547,15 @@ impl Hapke {
     #[pyo3(name = "bond_albedo")]
     fn py_bond_albedo(&self) -> Float {
         self.bond_albedo()
+    }
+
+    /// The roughness terms `(mu0e, mue, S)` at this geometry.
+    ///
+    /// `(mu0, mu, 1)` when `theta_bar` is zero. `S = 1` at zero azimuth when
+    /// `i <= e`, which is the identity that pins which branch is which.
+    #[pyo3(name = "roughness_terms")]
+    fn py_roughness_terms(&self, mu0: Float, mu: Float, alpha: Float) -> (Float, Float, Float) {
+        self.roughness_terms(mu0, mu, alpha)
     }
 
     fn __repr__(&self) -> String {
@@ -439,12 +617,136 @@ mod tests {
     }
 
     #[test]
-    fn roughness_is_refused_rather_than_ignored() {
+    fn only_an_impossible_roughness_is_refused() {
         let mut h = Hapke::default();
-        h.theta_bar = 0.3;
-        assert!(h.reflectance(0.5, 0.5, 0.1).is_err());
-        h.theta_bar = 0.0;
-        assert!(h.reflectance(0.5, 0.5, 0.1).is_ok());
+        for good in [0.0, 0.3, 1.5] {
+            h.theta_bar = good;
+            assert!(h.reflectance(0.5, 0.5, 0.1).is_ok(), "refused {good}");
+        }
+        for bad in [-0.1, crate::consts::FRAC_PI_2, 1.6] {
+            h.theta_bar = bad;
+            assert!(h.reflectance(0.5, 0.5, 0.1).is_err(), "accepted {bad}");
+        }
+    }
+
+    #[test]
+    fn roughness_reduces_to_the_smooth_case() {
+        // Not just at zero -- approaching it. A correction that is right at
+        // exactly 0 because of an early return, and wrong just above it, is
+        // the shape of bug an equality test at 0 cannot see.
+        let h = Hapke::default();
+        for (mu0, mu, alpha) in [(0.8, 0.6, 0.4), (0.3, 0.9, 1.1), (0.55, 0.55, 0.2)] {
+            let smooth = h.reflectance_smooth(mu0, mu, alpha);
+            let mut last = Float::INFINITY;
+            for tb in [1e-1, 1e-2, 1e-3, 1e-4] {
+                let r = Hapke { theta_bar: tb, ..h }.reflectance_rough(mu0, mu, alpha);
+                let d = (r - smooth).abs() / smooth;
+                // Non-increasing, and only down to the f32 floor: by 1e-3 the
+                // gap is ~6e-8 relative, which is rounding and not the limit,
+                // and one geometry reaches *exactly* zero. Demanding strict
+                // improvement past that fails on a correct result -- the same
+                // trap as testing an exact method against a sampled one.
+                assert!(
+                    d <= last.max(2e-7),
+                    "not converging at theta_bar = {tb}: {d} vs {last}"
+                );
+                last = d;
+            }
+            assert!(last < 1e-6, "limit not reached: {last}");
+        }
+    }
+
+    #[test]
+    fn roughness_is_reciprocal_across_the_branch() {
+        // The i <= e and i > e branches are what make this hold, so a pair
+        // straddling i = e is the case that matters. `r` in this module has
+        // `mu0` factored out, so reciprocity is plain symmetry.
+        let h = Hapke {
+            theta_bar: 0.45,
+            ..Default::default()
+        };
+        for (mu0, mu) in [(0.9, 0.2), (0.2, 0.9), (0.5001, 0.5), (0.5, 0.5001), (0.7, 0.7)] {
+            for alpha in [0.0, 0.3, 1.0, 2.0] {
+                let a = h.reflectance_rough(mu0, mu, alpha);
+                let b = h.reflectance_rough(mu, mu0, alpha);
+                if a == 0.0 && b == 0.0 {
+                    continue;
+                }
+                assert!(
+                    (a - b).abs() / a.abs().max(b.abs()) < 1e-4,
+                    "not reciprocal at mu0={mu0} mu={mu} alpha={alpha}: {a} vs {b}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_shadowing_function_is_one_at_zero_azimuth() {
+        // psi = 0 means the Sun and the observer share an azimuth, i.e.
+        // alpha = |i - e|. There, and only on the `i <= e` branch, Hapke's S
+        // is exactly 1 -- the `i > e` branch gives `mue mu0 / (mu0e mu)`
+        // instead, which is what reciprocity needs it to be.
+        //
+        // That asymmetry is what makes this the test an inverted `i <= e`
+        // condition cannot survive, and **reciprocity cannot**: the two
+        // branches are each other's mirror image, so exchanging them wholesale
+        // preserves the very symmetry they exist to provide. Verified by doing
+        // exactly that -- inverting the condition leaves every reciprocity
+        // check green and fails this one.
+        let h = Hapke {
+            theta_bar: 0.45,
+            ..Default::default()
+        };
+        // Both angles have to be far enough from normal for `E2` to matter.
+        // Near normal incidence `E2(i)` underflows, the correction terms drop
+        // out of *both* branches, and S comes out 1 either way -- so a test
+        // built only on small `i` sits in a blind spot and catches nothing.
+        // The first version of this test did exactly that.
+        for (i, e) in [
+            (0.8, 1.1),
+            (0.9, 1.2),
+            (1.0, 1.4),
+            (1.1, 1.3),
+            (0.7, 0.7),
+            (0.3, 0.9),
+        ] {
+            let (mu0, mu) = (Float::cos(i), Float::cos(e));
+            let alpha = (i - e).abs();
+            let (_, _, s) = h.roughness_terms(mu0, mu, alpha);
+            assert!(
+                (s - 1.0).abs() < 1e-4,
+                "S = {s} at i={i}, e={e}, psi=0 -- should be exactly 1"
+            );
+        }
+    }
+
+    #[test]
+    fn roughness_terms_are_the_identity_when_smooth() {
+        let h = Hapke::default();
+        let (a, b, s) = h.roughness_terms(0.8, 0.4, 0.5);
+        assert_eq!((a, b, s), (0.8, 0.4, 1.0));
+    }
+
+    #[test]
+    fn roughness_is_continuous_across_i_equals_e() {
+        // The branch boundary itself: approaching mu0 = mu from either side
+        // must not step. A swapped term in one branch shows up here as a jump
+        // even when both sides are individually smooth.
+        let h = Hapke {
+            theta_bar: 0.45,
+            ..Default::default()
+        };
+        for alpha in [0.2, 0.8, 1.5] {
+            let m = 0.6;
+            for d in [1e-3, 1e-4, 1e-5] {
+                let below = h.reflectance_rough(m - d, m, alpha);
+                let above = h.reflectance_rough(m + d, m, alpha);
+                assert!(
+                    (below - above).abs() / below < 40.0 * d,
+                    "jump at i = e, alpha={alpha}, d={d}: {below} vs {above}"
+                );
+            }
+        }
     }
 
     /// The limit that proves all four laws share one convention.

@@ -243,6 +243,16 @@ ordinary ground-based relative photometry.
 
 ## Open
 
+- ~~**`theta_bar`**~~ **Implemented** the same day --
+  `notes/2026-09-11_hapke_roughness.md`. And the placement below turned out to
+  be **wrong by an order of magnitude**: reasoning by analogy with `w` and `b0`
+  said a few mmag, and measuring it says 23 mmag rms and a **15 % change in the
+  light curve amplitude** at 20 deg phase. The analogy failed because roughness
+  acts where the limb and terminator are, and how much of the disc that is
+  changes as an elongated body turns -- so it moves the curve's *shape*, where
+  `w` and `b0` mostly move its level. The original text is kept below because
+  the reasoning is the instructive part.
+
 - **`theta_bar`, and what the table above does and does not say about it.**
   It is the only known gap left in the photometry. The integral refuses a
   non-zero one rather than dropping it, and `tests/test_lightcurve.py` pins

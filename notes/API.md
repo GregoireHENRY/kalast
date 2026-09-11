@@ -1086,13 +1086,21 @@ r = h.reflectance(mu0=0.8, mu=0.6, alpha=0.1)   # radians
 a = h.bond_albedo()
 ```
 
-**`theta_bar` must be zero.** Hapke's macroscopic roughness is not
-implemented, and `reflectance` raises `ValueError` rather than ignoring the
-parameter — `theta_bar = 0` is exact for a smooth surface, so what is here is
-a complete model of that case rather than an approximate one of a rough
-surface. The field exists so a published parameter set can be stored without
-silently losing a term. Do not confuse it with `kalast.tpm.roughness`, which
-is the Kuehrt crater correction on the *thermal* side.
+**`theta_bar` is Hapke's macroscopic roughness**, the mean slope angle of
+relief the shape model does not resolve, in **radians** (the literature quotes
+20–30° for most asteroids). It is implemented — Hapke (1984) — and must lie in
+`[0, pi/2)`; anything else raises. `roughness_terms(mu0, mu, alpha)` returns
+the `(mu0e, mue, S)` it works through, for comparing against another
+implementation term by term.
+
+What it is worth, measured: on a **disc-integrated sphere** it is 0.6 mmag at
+opposition and 224 mmag at 60° phase for `theta_bar = 30°` — roughness is a
+phase-curve effect. On a **normalised rotation curve** it is negligible at
+opposition and 23 mmag rms at 20° phase, where it changes the *amplitude* by
+15%, so it does not divide out and it maps straight onto a fitted axis ratio.
+
+Do not confuse it with `kalast.tpm.roughness`, which is the Kuehrt crater
+correction on the *thermal* side.
 
 **The other half is the lit and visible fractions**, which are quantised to
 quarters today. `notes/2026-09-10_polygonal_shadowing_assessment.md` measures
@@ -1183,6 +1191,7 @@ are carried into the body frame instead, two vectors per epoch rather than
 every vertex. Directions may be one pair for the whole series, or one per
 epoch.
 
-**Hapke's `theta_bar` is refused here too.** A non-zero macroscopic roughness
-raises rather than being silently dropped, so the pair is exact area ×
-smooth-surface Hapke. See `notes/2026-09-11_lightcurve_driver.md`.
+**Hapke's `theta_bar` works here too**, so the pair is exact area × full
+Hapke. It is checked once per call rather than per facet, and a value outside
+`[0, pi/2)` raises. See `notes/2026-09-11_hapke_roughness.md` for what it
+costs — it is not negligible away from opposition.

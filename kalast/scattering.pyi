@@ -44,14 +44,21 @@ class Hapke:
     h: float
     """Opposition surge angular width, radians."""
     theta_bar: float
-    """Macroscopic roughness, radians. **Must be zero**; see the module docs.
-    It is carried so that a parameter set from the literature can be
-    stored without silently losing a term, and rejected on use.
+    """Macroscopic roughness: the mean slope angle of sub-facet relief, in
+    radians. `0` is a smooth surface; the literature quotes 20-30 deg for
+    most asteroids. Must be in `[0, pi/2)`.
     """
     def __init__(self, w: float, b: float, c: float, b0: float, h: float, theta_bar: float) -> None:
         ...
     def reflectance(self, mu0: float, mu: float, alpha: float) -> float:
         ...
     def bond_albedo(self) -> float:
+        ...
+    def roughness_terms(self, mu0: float, mu: float, alpha: float) -> tuple[float, float, float]:
+        """The roughness terms `(mu0e, mue, S)` at this geometry.
+
+        `(mu0, mu, 1)` when `theta_bar` is zero. `S = 1` at zero azimuth when
+        `i <= e`, which is the identity that pins which branch is which.
+        """
         ...
 

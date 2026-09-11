@@ -254,7 +254,13 @@ check(
 )
 
 # --- 4. Helmholtz reciprocity --------------------------------------------
-for name, law in (("mix", LS), ("hapke", Hapke(w=0.1))):
+# `hapke_rough` is the end-to-end one: reciprocity through a concave shape,
+# both clipping passes, *and* the two branches of the roughness correction.
+for name, law in (
+    ("mix", LS),
+    ("hapke", Hapke(w=0.1)),
+    ("hapke_rough", Hapke(w=0.1, theta_bar=numpy.radians(30.0))),
+):
     f_so = flux(CRAT, FCRAT, SUN, OBS, law).flux
     f_os = flux(CRAT, FCRAT, OBS, SUN, law).flux
     check(
@@ -263,16 +269,73 @@ for name, law in (("mix", LS), ("hapke", Hapke(w=0.1))):
         f"{f_so:.6e} vs {f_os:.6e}",
     )
 
-# --- 5. the roughness refusal survives the integral ----------------------
+# --- 5. macroscopic roughness, through the disc integral -----------------
 try:
-    flux(SPH, FSPH, SUN, OBS, Hapke(w=0.1, theta_bar=0.3))
-    check("test_unimplemented_roughness_raises_from_the_disc_integral", False, "no exception")
+    flux(SPH, FSPH, SUN, OBS, Hapke(w=0.1, theta_bar=1.6))
+    check("test_impossible_roughness_raises_from_the_disc_integral", False, "no exception")
 except ValueError as exc:
     check(
-        "test_unimplemented_roughness_raises_from_the_disc_integral",
+        "test_impossible_roughness_raises_from_the_disc_integral",
         "theta_bar" in str(exc),
         str(exc)[:48],
     )
+
+# Hapke's roughness is a *bidirectional* correction, so what it does to a
+# disc-integrated body is not obvious from the per-facet formula. Two
+# properties are, and they are opposite ends of the same mechanism: S = 1 at
+# zero azimuth, so at opposition the whole sphere is essentially unaffected;
+# and away from it the darkening grows with both theta_bar and phase angle.
+SPHERE = numpy.ascontiguousarray(
+    numpy.asarray(SPH, float) / numpy.linalg.norm(numpy.asarray(SPH, float), axis=1)[:, None],
+    numpy.float32,
+)
+
+
+def sphere_flux(tb_deg, alpha_deg):
+    a = numpy.radians(alpha_deg)
+    return flux(
+        SPHERE, FSPH,
+        [float(numpy.sin(a)), 0.0, float(numpy.cos(a))], [0.0, 0.0, 1.0],
+        Hapke(w=0.10, b=0.30, c=0.60, b0=1.0, h=0.05, theta_bar=numpy.radians(tb_deg)),
+        shadowing=False, visibility=False,
+    ).flux
+
+
+at_opposition = mmag(sphere_flux(30.0, 0.0), sphere_flux(0.0, 0.0))
+check(
+    "test_roughness_barely_touches_a_sphere_at_opposition",
+    abs(at_opposition) < 2.0,
+    f"{at_opposition:.2f} mmag at theta_bar = 30 deg",
+)
+
+rows = [(a, mmag(sphere_flux(30.0, a), sphere_flux(0.0, a))) for a in (0, 20, 60, 100)]
+check(
+    "test_roughness_darkens_a_sphere_more_at_larger_phase_angle",
+    all(x[1] < y[1] for x, y in zip(rows, rows[1:])) and rows[-1][1] > 300.0,
+    "  ".join(f"{a:d} deg: {d:.0f}" for a, d in rows) + " mmag",
+)
+
+# And the consequence that matters for shape inversion: at an ordinary
+# observing geometry, roughness changes the *amplitude* of the rotation curve,
+# not just its level -- so it is not divided out by normalising, and it maps
+# straight onto a fitted axis ratio. Measured at 15 % for theta_bar = 30 deg,
+# which is far above the noise of ground-based relative photometry.
+amp = {}
+for tb in (0.0, 30.0):
+    m = lightcurve(
+        numpy.ascontiguousarray(V3 * numpy.array(AXES), numpy.float32), F3, SPIN,
+        [float(numpy.cos(numpy.radians(20.0))), float(numpy.sin(numpy.radians(20.0))), 0.0],
+        [1.0, 0.0, 0.0], T,
+        Hapke(w=0.10, b=0.30, c=0.60, b0=1.0, h=0.05, theta_bar=numpy.radians(tb)),
+        shadowing=False, visibility=False,
+    ).magnitude()
+    amp[tb] = float(m.max() - m.min()) * 1000.0
+check(
+    "test_roughness_changes_the_rotation_curve_amplitude",
+    (amp[30.0] - amp[0.0]) / amp[0.0] > 0.08,
+    f"{amp[0.0]:.1f} -> {amp[30.0]:.1f} mmag, "
+    f"{(amp[30.0] - amp[0.0]) / amp[0.0] * 100:.0f} % at theta_bar = 30 deg",
+)
 
 # --- 6. the spin state ----------------------------------------------------
 for lon, lat in ((0.0, 1.2), (2.5, -0.7), (-1.0, 0.0)):

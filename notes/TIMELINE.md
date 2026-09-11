@@ -1911,3 +1911,41 @@ two classes a manual count had missed, and documents 16 that nothing checks.
 Suite: 82 Rust tests, 12 Python files. `theta_bar` is now the only known gap
 in the photometry — and it is one that can finally be *measured*, since there
 is a curve to measure it on.
+
+## 11 September, last — Hapke's roughness, and a wrong estimate corrected
+
+`notes/2026-09-11_hapke_roughness.md`. `theta_bar` was the last known gap in
+the photometry and is now implemented: Hapke (1984), effective cosines plus a
+shadowing function, with the azimuth recovered from `(mu0, mu, alpha)`.
+
+**The estimate it replaces was wrong by an order of magnitude, and that is the
+part worth keeping.** Before implementing it I placed it by analogy against the
+other Hapke parameters, which *could* be measured — tripling `w` moves a
+normalised rotation curve 3-5 mmag, deleting the opposition surge 1.4 — and
+concluded a few mmag, under the photometric noise. Measured: **23 mmag rms at
+20 deg phase, and a 15 % change in the curve's amplitude**, which is the
+quantity an axis ratio is fitted to. The analogy failed because `w` and `b0`
+move the curve's *level* while roughness acts near the limb and terminator,
+whose share of the disc changes as an elongated body turns. Every other term
+here was settled by measuring it; this one had been settled by argument.
+
+On a disc-integrated sphere it is a phase-curve effect and much larger: 0.6
+mmag at opposition, 224 at 60 deg, 600 at 100 deg for `theta_bar = 30 deg`.
+
+**Two blind tests, each blind differently, and only breaking the code showed
+it.** Reciprocity is the natural test — the `i <= e` and `i > e` branches exist
+to preserve it — and it catches a wrong term inside a branch at once. But
+swapping the branches *wholesale* leaves it completely green, because they are
+each other's mirror image: exchanging them preserves the symmetry they were
+built to provide. `S = 1` at zero azimuth catches that, holding on one branch
+only.
+
+And that test was blind in turn: its first geometries were all near-normal
+incidence, where `E2` underflows, the correction drops out of *both* branches
+and `S` is 1 either way. It discriminates only where both angles are far from
+normal. A new way for a test to be unable to fail — not a loose tolerance, not
+a conservation law at a convenient value, but a test sitting where the term it
+probes has underflowed.
+
+87 Rust tests, 12 Python files. The photometry's forward model is complete;
+what it lacks now is a fit — observed curves, a chi-squared and a minimiser.
