@@ -201,10 +201,12 @@ impl GpuTpm {
 /// Independent of where the temperatures came from, which is the point: the
 /// model's two stages each run on the CPU or the GPU as the caller likes.
 ///
-///     CPU TPM -> GPU radiance :  set_temperatures(t)
-///     GPU TPM -> GPU radiance :  bind_tpm(tpm)      # nothing moves
-///     GPU TPM -> CPU radiance :  bands[f](tpm.surface())
-///     CPU TPM -> CPU radiance :  bands[f](t)
+/// ```text
+/// CPU TPM -> GPU radiance :  set_temperatures(t)
+/// GPU TPM -> GPU radiance :  bind_tpm(tpm)      # nothing moves
+/// GPU TPM -> CPU radiance :  bands[f](tpm.surface())
+/// CPU TPM -> CPU radiance :  bands[f](t)
+/// ```
 #[pyo3::pyclass(name = "GpuRadiance", module = "kalast._rs.tpm.gpu")]
 pub struct GpuRadiance {
     inner: crate::tpm::radiance::GpuRadiance,
