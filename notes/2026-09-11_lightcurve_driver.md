@@ -207,14 +207,71 @@ here against that note's 7 / 34 / 156 -- a flat ~5x, and this driver is two of
 those calls plus a sum that does not register. Anything quoted from either note
 should say which machine it came from.
 
+## What the law is worth, which bears on `theta_bar`
+
+Measured with the new driver, since it is the first time it could be: a
+1.6 : 1.1 : 1.0 body, pole (85, -40), full rotation at 72 epochs, every curve
+normalised to its own median so only the *shape* is compared. `rms` and `peak`
+are against pure Lommel-Seeliger, in mmag.
+
+| law | amplitude, alpha=0 | rms | peak | amplitude, alpha=60 | rms | peak |
+|---|---|---|---|---|---|---|
+| Lambert | 656.6 | 90.20 | 139.68 | 614.7 | 46.64 | 66.52 |
+| Lommel-Seeliger | 402.9 | -- | -- | 487.3 | -- | -- |
+| LS+L mix, c=0.9 | 492.9 | 31.98 | 47.88 | 533.1 | 16.91 | 24.58 |
+| Hapke w=0.10 | 404.9 | 0.87 | 2.95 | 490.7 | 1.29 | 1.81 |
+| Hapke w=0.35 | 412.0 | 3.30 | 6.78 | 501.4 | 5.28 | 7.47 |
+| Hapke, no opposition surge | 406.8 | 1.40 | 2.24 | 491.0 | 1.38 | 1.95 |
+
+Two things, and the second is the surprise.
+
+**The limb-darkening family dominates, and it is not a detail.** Lambert makes
+the *same body* look 63 % more elongated than Lommel-Seeliger does -- 656.6
+against 402.9 mmag. A shape fitted with the wrong family gets the wrong axis
+ratio, not a slightly noisier one. Even the weight inside the standard mix
+matters: `c = 0.9` instead of 1.0 moves the amplitude 22 %.
+
+**Within a family, everything else is a few mmag.** Hapke at an asteroid
+albedo is Lommel-Seeliger to **0.87 mmag rms** -- which is the physics, since
+Hapke's single-scattering term *is* Lommel-Seeliger-like and multiple
+scattering is negligible at `w = 0.1`. Tripling the albedo to `w = 0.35` costs
+3 to 5 mmag. Deleting the opposition surge entirely costs 1.4.
+
+So the parameters of the model, as opposed to the choice of model, move a
+normalised rotational curve at the mmag level -- at or under the noise of
+ordinary ground-based relative photometry.
+
 ## Open
 
-- **`theta_bar` is still the gap**, and now it is the *only* one between here
-  and a complete smooth-surface photometry. The integral refuses a non-zero one
-  rather than dropping it, and `tests/test_lightcurve.py` pins that it still
-  refuses from inside the disc integral. The decision the handoff asked for is
-  still unmade -- but it is now a decision that can be *measured*, because
-  there is a curve to measure it on.
+- **`theta_bar`, and what the table above does and does not say about it.**
+  It is the only known gap left in the photometry. The integral refuses a
+  non-zero one rather than dropping it, and `tests/test_lightcurve.py` pins
+  that it still refuses from inside the disc integral.
+
+  The table places it by analogy, not by measurement: `theta_bar` is one
+  parameter of Hapke's model, like `w` and `b0`, and at fixed phase angle its
+  effect on a *relative* rotational curve is a change in effective limb
+  darkening -- the same kind of perturbation those two make, which is 1 to 7
+  mmag. **That is an argument, not a number, and the honest reading is that
+  the last un-measured term in the photometry is the one still missing.**
+  Everything else here was settled by measuring it.
+
+  Where it would stop being second-order: an **absolute phase curve** over a
+  wide range of `alpha`, where roughness is the dominant term at large angles
+  and is not divided out by normalisation; **disc-resolved** data, where
+  per-facet radiance near the limb is the observable; and simply **loading a
+  published parameter set**, since the field quotes `theta_bar` of 20-30 deg
+  routinely and kalast cannot accept one today.
+
+  The objection recorded for skipping it was that it is "a page of case
+  analysis with no closed form to test against". Half of that has since
+  dissolved: Hapke's 1984 formulation is *constructed* to preserve Helmholtz
+  reciprocity, the `i <= e` and `i > e` branches existing for that reason --
+  and reciprocity is already a check in `tests/test_lightcurve.py`, where it
+  caught two bugs it was not aimed at. A wrong branch in a case analysis is
+  exactly what it detects. With `theta_bar -> 0` reducing to the smooth case,
+  continuity across the `i = e` boundary, and `S <= 1`, there is a real test
+  battery here without a closed form.
 - **The mix has no phase function**, so a fit spanning a range of `alpha` wants
   Hapke, or an empirical phase function applied outside. Stated in the docs,
   not implemented.
