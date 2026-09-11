@@ -1949,3 +1949,21 @@ probes has underflowed.
 
 87 Rust tests, 12 Python files. The photometry's forward model is complete;
 what it lacks now is a fit — observed curves, a chi-squared and a minimiser.
+
+---
+
+## 11 September — handoff, macOS
+
+`notes/2026-09-11_HANDOFF_lightcurve_driver_and_roughness.md` covers this
+machine's half of the day: the disc-integral driver, Hapke's `theta_bar`, and
+the two pre-existing stub defects found while writing the example. 4 commits,
+29 files, +2,658 lines. 87 Rust tests, 12 Python files, `cargo test --release`
+green end to end.
+
+**The photometry's forward model is complete.** The largest gap is now that
+nothing reads *observed* photometry: a fit needs real curves, a chi-squared
+and a minimiser. After that, a two-body convenience so a mutual event does not
+need its geometry placed by hand.
+
+The thermal line is untouched and still queued behind it: the GPU TPM port,
+then the GIS3D TIRI re-run with heating on.
