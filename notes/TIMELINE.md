@@ -1967,3 +1967,51 @@ need its geometry placed by hand.
 
 The thermal line is untouched and still queued behind it: the GPU TPM port,
 then the GIS3D TIRI re-run with heating on.
+
+## 15 September — a locale bug in `decimate.py`, and why `qualitythr` is 0.6
+
+Found while cleaning the examples, from the question "the default is 0.3 and
+we set 0.6, why not 1.0?"
+
+**`examples/mesh/decimate.py` was silently producing garbage on the macOS
+machine.** `LANG=fr_BE.UTF-8` means a comma decimal separator, and MeshLab
+parses OBJ floats through the C locale, so every coordinate truncated at the
+dot: the 3.1M Dimorphos loaded as a bbox of ±9 with volume **exactly 0**, and
+decimation wrote that out with no error at all. The first sweep reported a
+99.99 % area loss, which is what gave it away.
+
+The obvious fix does not work. `locale.setlocale(LC_NUMERIC, "C")` before the
+import is undone by pymeshlab initialising Qt, which calls
+`setlocale(LC_ALL, "")`; setting it *after* the MeshSet exists works but a new
+MeshSet undoes it again, and `decimate()` builds one per call. Only
+`os.environ["LC_ALL"] = "C"` before `import pymeshlab` survives, and that is
+now in the file with the reasoning beside it, because its *position* is
+load-bearing and a tidy-up would break it silently.
+
+**No data was harmed.** The shipped 10k Dimorphos has the right bbox and an
+area of 0.074736 against the source's 0.0746914 — +0.06 %, exactly the figure
+`2026-08-31_view_factors/` reports, so the 1 September re-cut ran under a C
+locale. Nothing else in the repo uses pymeshlab.
+
+**And the actual question, measured.** Same recipe and target, only
+`qualitythr` varied:
+
+| qualitythr | faces | area err | min triangle quality | quality < 0.3 |
+|---|---|---|---|---|
+| 0.0 | 2,690,976 | -0.013 % | 0.0512 | 7409 |
+| 0.3 (default) | 10,000 | +0.067 % | 0.0609 | 110 |
+| **0.6** | 10,000 | +0.060 % | **0.1216** | 100 |
+| 0.8 | 10,000 | +0.056 % | 0.0838 | 103 |
+| 1.0 | 10,000 | +0.056 % | 0.0838 | 103 |
+
+**0.8 and 1.0 are a byte-identical mesh** — max vertex delta exactly 0 — so the
+penalty saturates between 0.6 and 0.8 and 1.0 is not a stronger setting, only a
+rounder number for the same one. 0.6 has the best *worst* triangle of the five,
+so raising it makes the sliver that matters slightly worse. 0.6 turns out to be
+the peak rather than the compromise it was presented as, which nothing had
+shown before.
+
+My first explanation of the parameter was also wrong: I said raising it trades
+geometric fidelity for triangle shape, and it does not — area error *improves*
+slightly across the range. The note's table stopped at 0.6, so neither claim
+had ever been checked.

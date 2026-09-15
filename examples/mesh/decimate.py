@@ -24,6 +24,29 @@ surface area against the 3.1M original as the fidelity check:
 it is deliberately not used. `qualitythr` at 0.6 (against a 0.3 default) gets
 there by keeping triangles well shaped instead.
 
+**Why 0.6 and not higher.** Same recipe and target, only `qualitythr` varied:
+
+| qualitythr | faces | area err | min triangle quality | quality < 0.3 |
+|---|---|---|---|---|
+| 0.0 | 2,690,976 | -0.013 % | 0.0512 | 7409 |
+| 0.3 (default) | 10,000 | +0.067 % | 0.0609 | 110 |
+| **0.6** | **10,000** | **+0.060 %** | **0.1216** | **100** |
+| 0.8 | 10,000 | +0.056 % | 0.0838 | 103 |
+| 1.0 | 10,000 | +0.056 % | 0.0838 | 103 |
+
+Quality is `2 r_in / r_circ`: 1 equilateral, 0 a sliver. **0.8 and 1.0 produce
+a byte-identical mesh** -- the penalty saturates between 0.6 and 0.8, so 1.0 is
+not a stronger setting, only a rounder number for the same one. And 0.6 has the
+best *worst* triangle of the five, so raising it makes the sliver that matters
+slightly worse. `qualitythr = 0` does not decimate at all, stopping at 2.69M
+faces, which is why its area error is not comparable.
+
+The fidelity one might expect to lose by favouring shape over the quadric error
+does not appear: area error *improves* slightly across the range and every
+value is under 0.07 %. Note this sweep measures triangle shape and area, not
+the self view factor that motivated the recipe -- 0.6 already reaches zero
+pathological facets, so there is no headroom above it to recover.
+
 For reference the genuine concavities on these bodies top out around 0.35, so
 a maximum of 0.319 means nothing pathological is left.
 
@@ -34,9 +57,21 @@ Usage:
     python examples/mesh/decimate.py IN.obj OUT.obj 10000
 """
 
+import os
 import sys
 
+# Before `import pymeshlab`, and it has to stay there. MeshLab parses OBJ
+# floats through the C locale, so under a comma-decimal locale (fr_BE here)
+# every coordinate truncates at the dot: the 3.1M Dimorphos loads as a bbox of
+# +/-9 with volume exactly 0, and decimation then writes that out with no
+# error at all. pymeshlab initialises Qt, which calls setlocale(LC_ALL, "")
+# and so undoes a `locale.setlocale` made beforehand -- setting it after the
+# MeshSet exists works, but a new MeshSet undoes it again, so the environment
+# is the only place the setting survives.
+os.environ["LC_ALL"] = "C"
+
 import pymeshlab
+
 
 RECIPE = dict(
     preservenormal=True,     # the one that matters: no face flipping
