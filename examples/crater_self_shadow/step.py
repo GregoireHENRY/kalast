@@ -12,8 +12,6 @@ app.simulation.config.access_shadow_map = True
 app.simulation.config.wireframe_mode = 2
 app.simulation.config.wireframe_color = [0.05, 0.05, 0.05, 1.0]
 # app.simulation.config.shadow_pcf = 8
-# app.simulation.config.axes = "blender"
-# app.simulation.config.colorbar = True
 app.simulation.huds = [Hud("", size=16)]
 app.simulation.sun.pos = [0.0, 20.0, 5.0]
 app.simulation.camera.pos = [1.5778934, 1.9384689, 1.5082116]
@@ -23,21 +21,19 @@ app.simulation.load_mesh(
     path="res/plane_crater_1024-5000_h=0.437.obj", mat=numpy.eye(4), flatten=True
 )
 
-sim = app.simulation
-
 while app.running:
-    it = sim.state.iteration
+    it = app.simulation.state.iteration
 
     a = it * 0.005
-    sim.sun.pos = [0.0, 20.0 * numpy.sin(a), 20.0 * numpy.cos(a)]
+    app.simulation.sun.pos = [0.0, 20.0 * numpy.sin(a), 20.0 * numpy.cos(a)]
 
     # Everything before app.step() is app.before_render()
     # Everything after is app.after_render()
     app.step()
 
-    illum = sim.facet_illumination(0)
+    illum = app.simulation.facet_illumination(0)
     lit = float((illum > 0).mean()) if illum is not None else 0.0
-    sim.huds[0].text = f"lit {lit * 100:.1f} %"
+    app.simulation.huds[0].text = f"lit {lit * 100:.1f} %"
 
     if it >= 10000:
         app.close()

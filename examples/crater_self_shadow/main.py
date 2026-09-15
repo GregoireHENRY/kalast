@@ -24,7 +24,7 @@ def after_render(sim: Simulation, dt: float) -> None:
     # wall. `facet_shadow` alone answered the wrong question.
     illum = sim.facet_illumination(0)
     lit = float((illum > 0).mean()) if illum is not None else 0.0
-    sim.huds[0].text = f"it={it}  lit {lit * 100:.1f} %"
+    sim.huds[0].text = f"lit {lit * 100:.1f} %"
 
 
 app = App()
@@ -36,9 +36,7 @@ app.simulation.config.wireframe_color = [0.05, 0.05, 0.05, 1.0]
 # app.simulation.config.shadow_pcf = 8
 # app.simulation.config.axes = "blender"
 # app.simulation.config.colorbar = True
-app.simulation.huds = [
-    Hud("it={it}/{nit} fps={fps} {paused}", size=14),
-]
+app.simulation.huds = [Hud("", size=16)]
 app.simulation.sun.pos = [0.0, 20.0, 5.0]
 app.simulation.camera.pos = [1.5778934, 1.9384689, 1.5082116]
 app.simulation.camera.up = [-0.3261482, -0.40068075, 0.85620236]

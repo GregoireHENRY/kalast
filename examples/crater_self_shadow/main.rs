@@ -63,7 +63,7 @@ fn main() {
             _ => 0.0,
         };
         let it = sim.state.iteration;
-        sim.huds[0].borrow_mut().text = format!("it={it}  lit {:.1} %", lit * 100.0);
+        sim.huds[0].borrow_mut().text = format!("lit {:.1} %", lit * 100.0);
     });
 
     app.start();
