@@ -2064,3 +2064,45 @@ list/array mix raising `ValueError` aborted the whole file mid-run, which hides
 every test after it — the file-scale version of the same problem.
 
 `examples/mesh/` is down to `decimate.py`. 14 Python test files.
+
+## 15 September, last — `flatten` renumbers its indices, and `recompute_facets` stops returning NaN
+
+Chased from the defect the mesh-test conversion pinned an hour earlier, and it
+was worse than the accessors it was found through.
+
+`flatten()` rebuilds `vertices` to three rows per facet and left `indices`
+holding the shared pre-flatten values, so facet 1 still pointed at rows 1, 3
+and 4 where its corners had moved to 3, 4 and 5. **The engine is mostly
+`is_flat()`-aware and that is why nobody noticed**: `gpu.rs` draws a flat mesh
+with `pass.draw(0..n_vertices)` and ignores the index buffer entirely,
+`intersect_mesh` chunks the vertices by three, and so does `Mesh::
+get_facet_vertices`. Rendering, picking and ray casting were all correct.
+
+**`compute_facets` is not `is_flat()`-aware**, and that is the one that
+mattered. `recompute_facets()` on a flattened cube gave **NaN normals** off a
+degenerate triangle -- 10 of 12 facets wrong, NaN total area -- from a method
+`notes/API.md` documents as the thing to call after moving vertices, on meshes
+every render example loads with `flatten=True`. Nothing in the repo did call
+it on a flattened mesh, so no result was ever poisoned, but nothing stopped it
+either.
+
+Fixed at the source rather than by teaching each reader to branch: `flatten`
+now takes the shared indices into `_indices_before_flatten` and sets
+`indices = 0..3f`, and `smoothen` puts them back. Which is what `API.md` has
+claimed all along -- "after `flatten` these are `0..3f`, one per row" -- so the
+documentation was right and the code was not.
+
+`flip_facets` needed one change to keep the invariant: it swapped the vertex
+pair *and* the index pair, which with meaningful indices is a double swap that
+cancels. It now does one or the other.
+
+Everything downstream improves or is untouched: the GPU ignores them, `n_facets`
+is unchanged (the length never varied), and the `is_flat()` branches in
+`intersect_mesh` and `get_facet_vertices` now agree with the un-branched path
+instead of diverging from it. Verified by the whole suite, `test_facet_shadow`
+included -- it loads with `flatten=True` and drives the GPU shadow map, so the
+render path is checked rather than assumed.
+
+90 Rust tests (3 new, 2 of which fail without the renumbering) and 14 Python
+files. The pinned defect test is now a correctness test, which is what pinning
+it was for.

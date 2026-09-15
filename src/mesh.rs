@@ -272,6 +272,15 @@ pub struct Mesh {
     // temporary until better solution is found
     pub(crate) _vertices_before_flatten: Vec<Vertex>,
 
+    /// The shared topology `flatten` replaced, so `smoothen` can put it back.
+    ///
+    /// A flat mesh's `indices` are the identity `0..3f`, because its vertices
+    /// are already triangle-major. Keeping that true rather than leaving the
+    /// pre-flatten values in place is what lets every consumer read `indices`
+    /// without first asking `is_flat()` -- and forgetting to ask is what made
+    /// `recompute_facets` return NaN normals on a flattened mesh.
+    pub(crate) _indices_before_flatten: Vec<u32>,
+
     // Set by mutating vertex color/color_mode/extra in place (e.g.
     // per-facet colormaps) to request a GPU re-upload on the next frame.
     // Starts false: the initial upload happens unconditionally when the
@@ -311,6 +320,7 @@ impl Mesh {
             facets: vec![],
             material_id: None,
             _vertices_before_flatten: vec![],
+            _indices_before_flatten: vec![],
             colors_dirty: false,
             bounds: Aabb {
                 min: Vec3::ZERO,
@@ -469,6 +479,7 @@ impl Mesh {
 
             // temporary until better solution is found
             _vertices_before_flatten: vec![],
+            _indices_before_flatten: vec![],
             colors_dirty: false,
         };
 
@@ -502,6 +513,15 @@ impl Mesh {
         }
 
         self.vertices = new;
+
+        // The rebuilt vertices are triangle-major, so the shared indices no
+        // longer address them: facet 1 kept pointing at rows 1, 3 and 4 where
+        // its corners had moved to 3, 4 and 5. The renderer never noticed --
+        // it draws a flat mesh sequentially and ignores the index buffer --
+        // but `compute_facets` reads them, so `recompute_facets()` on a
+        // flattened mesh produced NaN normals off a degenerate triangle.
+        self._indices_before_flatten = std::mem::take(&mut self.indices);
+        self.indices = (0..self.vertices.len() as u32).collect();
     }
 
     // Re-create vertices by removing duplicates (if it had been flatten before).
@@ -512,6 +532,12 @@ impl Mesh {
         // temporary until better solution is found
         if !self._vertices_before_flatten.is_empty() {
             self.vertices = self._vertices_before_flatten.drain(..).collect();
+            // And the topology with them: the loop below walks `indices` to
+            // average facet normals onto shared corners, which the identity
+            // indices of a flat mesh cannot express.
+            if !self._indices_before_flatten.is_empty() {
+                self.indices = std::mem::take(&mut self._indices_before_flatten);
+            }
         }
 
         // this could be the better solution is removing dups works, but im not sure, need tests
@@ -623,10 +649,13 @@ impl Mesh {
             if f >= self.facets.len() {
                 continue;
             }
+            // One or the other, never both: a flat mesh carries its winding
+            // in the vertex order and its indices are the identity, so
+            // swapping those too would undo the swap for everything that
+            // reads through them.
             if flat && f * 3 + 2 < self.vertices.len() {
                 self.vertices.swap(f * 3 + 1, f * 3 + 2);
-            }
-            if f * 3 + 2 < self.indices.len() {
+            } else if f * 3 + 2 < self.indices.len() {
                 self.indices.swap(f * 3 + 1, f * 3 + 2);
             }
             flipped += 1;
@@ -914,6 +943,7 @@ impl Model {
 
                     // temporary until better solution is found
                     _vertices_before_flatten: vec![],
+                    _indices_before_flatten: vec![],
                     colors_dirty: false,
                     bounds,
                     path: Some(path.to_path_buf()),
@@ -1422,4 +1452,82 @@ pub fn rms_slope_terrain(
 #[cfg_attr(feature = "python", pyfunction)]
 pub fn distribution_slope_angles(theta: Float, a: Float, b: Float) -> Float {
     a * (-theta.tan().powi(2) / b).exp() * theta.sin() / theta.cos().powi(2)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A unit square split along its diagonal: four shared corners, two
+    /// facets. Small enough that "which row is which" is checkable by eye,
+    /// and it has a shared edge, which is the whole point of flattening.
+    fn square() -> Mesh {
+        let mut m = Mesh::new();
+        m.vertices = [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ]
+        .iter()
+        .map(|p| Vertex {
+            pos: (*p).into(),
+            ..Vertex::default()
+        })
+        .collect();
+        m.indices = vec![0, 1, 2, 0, 2, 3];
+        m.facets = compute_facets(&m.vertices, &m.indices);
+        m
+    }
+
+    #[test]
+    fn flatten_renumbers_the_indices_to_address_the_rebuilt_vertices() {
+        let mut m = square();
+        let before: Vec<[Vec3; 3]> = (0..2).map(|f| m.get_facet_positions(f).map(|p| *p)).collect();
+
+        m.flatten();
+
+        assert!(m.is_flat());
+        assert_eq!(m.vertices.len(), 6);
+        assert_eq!(m.indices, vec![0, 1, 2, 3, 4, 5]);
+        // The corners must still be where they were, read back through the
+        // indices -- which is what left the shared ones in place broke.
+        for f in 0..2 {
+            assert_eq!(m.get_facet_positions(f).map(|p| *p), before[f], "facet {f}");
+        }
+    }
+
+    #[test]
+    fn recompute_facets_survives_a_flatten() {
+        // The regression this renumbering exists for: `compute_facets` reads
+        // `indices`, so stale ones sent a flattened mesh's normals to NaN off
+        // a degenerate triangle.
+        let mut m = square();
+        let want: Vec<(Vec3, Float)> = m.facets.iter().map(|f| (f.normal, f.area)).collect();
+
+        m.flatten();
+        m.recompute_facets();
+
+        for (f, (n, a)) in want.iter().enumerate() {
+            assert!(
+                (m.facets[f].normal - *n).length() < 1e-6,
+                "facet {f} normal {:?} vs {n:?}",
+                m.facets[f].normal
+            );
+            assert!((m.facets[f].area - a).abs() < 1e-6, "facet {f} area");
+        }
+        let total: Float = m.facets.iter().map(|f| f.area).sum();
+        assert!((total - 1.0).abs() < 1e-6, "unit square, got {total}");
+    }
+
+    #[test]
+    fn smoothen_puts_the_shared_topology_back() {
+        let mut m = square();
+        let want = m.indices.clone();
+        m.flatten();
+        m.smoothen();
+        assert!(!m.is_flat());
+        assert_eq!(m.indices, want);
+        assert_eq!(m.vertices.len(), 4);
+    }
 }

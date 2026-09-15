@@ -89,10 +89,9 @@ def test_flatten_gives_every_facet_its_own_corners():
 def test_flatten_moves_no_geometry():
     """Unsharing corners must not move one of them.
 
-    Checked on `positions[3f:3f+3]`, the rows flatten actually rebuilds, and
-    deliberately not through `get_facet_positions` -- see
-    `test_facet_accessors_read_stale_indices_after_flatten` for why that
-    accessor cannot be trusted here.
+    Checked on `positions[3f:3f+3]`, the rows flatten actually rebuilds, so
+    it holds independently of how the facet accessors index into them -- see
+    `test_flatten_renumbers_the_indices_to_the_identity` for that half.
     """
     m = kalast.mesh.Mesh(CUBE)
     before = {f: numpy.array(m.get_facet_positions(f)) for f in range(12)}
@@ -116,39 +115,56 @@ def test_flatten_gives_every_corner_its_own_facet_normal():
         assert (got == want).all(), (f, got, want)
 
 
-def test_facet_accessors_read_stale_indices_after_flatten():
-    """**A pinned defect, not a specification.**
+def test_flatten_renumbers_the_indices_to_the_identity():
+    """A flat mesh's vertices are triangle-major, so its indices are `0..3f`.
 
-    `flatten()` rebuilds `vertices` to three rows per facet and leaves
-    `indices` untouched -- they stay the shared pre-flatten values. Every
-    Python accessor reading through them (`get_facet_indices`,
-    `get_facet_positions`, `get_facet_normals`, `get_facet_colors`,
-    `get_facet_vertices`) therefore returns the wrong three rows for every
-    facet but facet 0, where the stale indices happen to be `[0, 1, 2]`
-    regardless.
+    They used not to be: `flatten` rebuilt the vertices and left the shared
+    pre-flatten indices in place, so facet 1 still pointed at rows 1, 3 and 4
+    where its corners had moved to 3, 4 and 5. Everything that read `indices`
+    without first asking `is_flat()` was then wrong for every facet but facet
+    0, whose stale indices happened to be `[0, 1, 2]` anyway.
 
-    `src/mesh.rs`'s own `get_facet_vertices` has an `is_flat()` branch that
-    chunks the vertices by three and is right; the Python path does not use it
-    and indexes through `facets_matrix_array` instead. Two implementations of
-    one question, one correct.
-
-    `notes/API.md` states "after `flatten` these are `0..3f`, one per row" --
-    which is what the code should do and does not.
-
-    Nothing outside this file calls those accessors after a flatten, so no
-    result depends on it today. `examples/mesh/test.py` asserted the wrong
-    values as expected, which is how it passed and how this survived being
-    noticed. Asserting the wrongness on purpose means a fix to `flatten` fails
-    here, loudly, instead of passing unnoticed.
+    The renderer never noticed -- `gpu.rs` draws a flat mesh sequentially and
+    ignores the index buffer -- and neither did ray casting or
+    `Mesh::get_facet_vertices`, both of which branch on `is_flat()`. What did
+    notice was `recompute_facets`; see below.
     """
     m = kalast.mesh.Mesh(CUBE)
     m.flatten()
-    # Unchanged by flatten, where they should have become 3, 4, 5.
-    assert m.get_facet_indices(1) == [1, 3, 4], m.get_facet_indices(1)
-    assert not (numpy.array(m.get_facet_positions(1)) == m.positions[3:6]).all(), (
-        "get_facet_positions agrees with the rebuilt rows -- flatten was fixed, "
-        "so update this test and notes/API.md"
-    )
+    assert list(m.indices) == list(range(36)), list(m.indices)[:9]
+    for f in range(12):
+        assert m.get_facet_indices(f) == [3 * f, 3 * f + 1, 3 * f + 2], (f, m.get_facet_indices(f))
+        got = numpy.array(m.get_facet_positions(f))
+        assert (got == m.positions[3 * f:3 * f + 3]).all(), (f, got)
+
+
+def test_recompute_facets_survives_a_flatten():
+    """The regression that made the renumbering worth doing.
+
+    `compute_facets` reads `indices`, so with the stale ones a flattened cube
+    recomputed to **NaN** normals off a degenerate triangle -- 10 of 12 facets
+    wrong and a NaN total area -- from a method documented as the thing to
+    call after moving vertices, on meshes every render example loads with
+    `flatten=True`.
+    """
+    m = kalast.mesh.Mesh(CUBE)
+    want_n = [numpy.array(f.normal).copy() for f in m.facets]
+    m.flatten()
+    m.recompute_facets()
+    for f in range(12):
+        assert numpy.allclose(numpy.array(m.facets[f].normal), want_n[f]), (
+            f, m.facets[f].normal, want_n[f],
+        )
+    total = sum(float(f.area) for f in m.facets)
+    assert abs(total - 24.0) < 1e-4, total   # a cube of side 2
+
+
+def test_smoothen_restores_the_shared_topology():
+    m = kalast.mesh.Mesh(CUBE)
+    want = list(m.indices)
+    m.flatten()
+    m.smoothen()
+    assert list(m.indices) == want, list(m.indices)[:9]
 
 
 def test_smoothen_is_the_exact_inverse_of_flatten():
