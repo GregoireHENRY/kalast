@@ -118,11 +118,13 @@ Ask when a target is ambiguous instead of picking one.
 
 After editing, **run the script**. A wrong path fails immediately and clearly;
 a path that exists but points at the wrong file, or at kernels that do not
-cover the epoch, fails much later and confusingly. `examples/mesh/simple.py`
+cover the epoch, fails much later and confusingly. `python tests/test_stubs.py`
 needs no external data, so it is the right first check that the build itself
-works, before anything data-dependent.
+works, before anything data-dependent: it builds a mesh from scratch and
+compares the compiled module against its stubs. It does want a GPU adapter,
+since it constructs an `App`.
 
-Start the user on an example that needs the least: `examples/cube/main.py` and
+Start the user on an example that needs the least: `examples/cube/light.py` and
 `examples/two_spheres/main.py` use only `res/`, so they run on a fresh clone
 with no data paths at all. Use those to confirm the renderer works before
 touching a Hera script.

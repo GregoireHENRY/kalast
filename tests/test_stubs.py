@@ -16,6 +16,7 @@ import sys
 
 import kalast
 import kalast.lightcurve
+import kalast.mesh
 import kalast.scattering
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -77,13 +78,25 @@ def test_every_annotation_resolves():
 
 
 def _stub_members(pyi: str, cls: str) -> set[str]:
+    """Public members a stub declares, by the same rule `dir()` is filtered by.
+
+    Underscore names are dropped on *both* sides. `Mesh._vertices_before_flatten`
+    is real and correctly stubbed, but the comparison used to keep it from the
+    stub while filtering it out of `dir()`, so a correct stub read as inventing
+    an attribute. A visibility rule applied to one side of an equality is a bug
+    in the equality.
+    """
     tree = ast.parse((ROOT / pyi).read_text())
     for n in tree.body:
         if isinstance(n, ast.ClassDef) and n.name == cls:
-            return {b.target.id for b in n.body if isinstance(b, ast.AnnAssign)} | {
+            return {
+                b.target.id
+                for b in n.body
+                if isinstance(b, ast.AnnAssign) and not b.target.id.startswith("_")
+            } | {
                 b.name
                 for b in n.body
-                if isinstance(b, ast.FunctionDef) and not b.name.startswith("__")
+                if isinstance(b, ast.FunctionDef) and not b.name.startswith("_")
             }
     raise AssertionError(f"{cls} not found in {pyi}")
 
@@ -99,11 +112,9 @@ UNCOVERED = {
     ("kalast/app/gpu.pyi", "InstanceInput"),
     ("kalast/entity.pyi", "Entity"),
     ("kalast/entity.pyi", "Spacecraft"),
-    ("kalast/mesh.pyi", "Vertex"),
-    ("kalast/mesh.pyi", "Facet"),
+    # `Material` alone of the mesh classes: it needs a loaded model that has
+    # one, where the other four build from nothing -- see `_a_mesh`.
     ("kalast/mesh.pyi", "Material"),
-    ("kalast/mesh.pyi", "Mesh"),
-    ("kalast/mesh.pyi", "FacetVerticesView"),
     ("kalast/routines/setup.pyi", "Body"),
     ("kalast/routines/setup.pyi", "ProgressDebug"),
     ("kalast/routines/setup.pyi", "Time"),
@@ -126,6 +137,7 @@ def _cases():
     if _CASES is not None:
         return _CASES
     app = kalast.app.App()
+    _mesh = _a_mesh()
     _CASES = [
         # App first: `app.simulation.config.<tab>` is the whole point, and it
         # was the one class this test did not cover when the stubs first
@@ -154,8 +166,59 @@ def _cases():
         ("kalast/lightcurve.pyi", "Spin", kalast.lightcurve.Spin()),
         ("kalast/lightcurve.pyi", "Point", _a_point()),
         ("kalast/lightcurve.pyi", "Curve", _a_curve()),
+        # The four the deleted `examples/mesh/simple.py` was the only exercise
+        # of. `FacetVerticesView` has no public members on either side, so it
+        # checks only that the class still exists and still exports nothing.
+        ("kalast/mesh.pyi", "Vertex",
+         kalast.mesh.Vertex(pos=[0.0, 0.0, 0.0], normal=[0.0, 0.0, 1.0])),
+        ("kalast/mesh.pyi", "Facet",
+         kalast.mesh.Facet(pos=[0.0, 0.0, 0.0], normal=[0.0, 0.0, 1.0], area=0.05)),
+        ("kalast/mesh.pyi", "Mesh", _mesh),
+        ("kalast/mesh.pyi", "FacetVerticesView", _mesh.get_facet_vertices(0)),
     ]
     return _CASES
+
+
+def _a_mesh():
+    """A triangle built from scratch, as `examples/mesh/simple.py` used to show.
+
+    That example existed to demonstrate `kalast.mesh`'s constructors. `notes/
+    API.md` and the generated `kalast/mesh.pyi` document the surface far better
+    -- but neither *runs*, and these classes sat in `UNCOVERED` precisely
+    because nothing in the repo built one. So the example's content lives here
+    now, where it is checked instead of merely read.
+    """
+    corners = ([0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0])
+    return kalast.mesh.Mesh(
+        vertices=[
+            kalast.mesh.Vertex(pos=list(p), normal=[0.0, 0.0, 1.0]) for p in corners
+        ],
+        indices=[0, 1, 2],
+    )
+
+
+def test_a_mesh_can_be_built_without_data_or_a_window():
+    """The cheapest check that the build works at all.
+
+    `CLAUDE.md` points first-time setup at this: no data paths, no GPU, no
+    window, so it separates "the extension module is broken" from "the data
+    paths are wrong" before anything data-dependent is tried. It asserts, which
+    the example it replaces did not -- that one only proved nothing raised.
+    """
+    m = _a_mesh()
+    m.recompute_facets()
+    assert m.positions.shape == (3, 3), m.positions.shape
+    assert list(m.indices) == [0, 1, 2], list(m.indices)
+    f = m.facets[0]
+    # Unit right triangle in the z = 0 plane.
+    assert abs(f.area - 0.5) < 1e-6, f.area
+    assert abs(abs(f.normal[2]) - 1.0) < 1e-6, list(f.normal)
+
+    # And moving a vertex has to reach the facets, which is the one thing a
+    # caller must remember to ask for.
+    m.vertices[0].pos[:] = [-1.0, 0.0, 0.0]
+    m.recompute_facets()
+    assert abs(m.facets[0].area - 1.0) < 1e-6, m.facets[0].area
 
 
 def _tetrahedron():
