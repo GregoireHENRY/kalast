@@ -15,7 +15,7 @@ struct Globals {
     wireframe_mode: u32,
     wireframe_width: f32,
     wireframe_color: vec3<f32>,
-    _value_mode_removed: u32,
+    wireframe_fade: u32,
     value_min: f32,
     value_max: f32,
 };
@@ -182,6 +182,47 @@ fn vs_main(
     return out;
 }
 
+/// A facet smaller than this many pixels shows no wireframe at all; one at
+/// least this large shows it in full, with a smoothstep between.
+///
+/// Deliberately close to the pixel. The wash this exists to stop only happens
+/// when a facet's own edges cover its interior, which is a facet of one or two
+/// pixels; anything wider than about four draws a line that is genuinely a
+/// line. A 3-12 px window looked reasonable and was not: a 5120-facet sphere
+/// six units away has ~5 px facets, so the whole body sat inside the ramp and
+/// the wireframe was being faded at conversational distances.
+const WIRE_FADE_MIN_PX: f32 = 1.0;
+const WIRE_FADE_FULL_PX: f32 = 4.0;
+
+/// How much wireframe to draw here, by how well the facet is resolved.
+///
+/// A facet only a few pixels across has all three of its edges within a line
+/// width of every interior pixel, so the "wireframe" covers the whole triangle
+/// and the body reads as a sheet of wireframe colour -- a shadowed sphere at
+/// distance comes out grey rather than black, which is a lie about the
+/// shading and not a drawing of the mesh.
+///
+/// Same problem the ground grid has, and nearly the same answer: there, a
+/// level fades out before its cells stop being resolvable and a coarser one
+/// takes over. A mesh has no coarser wireframe to cross-fade to, so this
+/// fades to nothing instead.
+///
+/// `1 / fwidth(bary.i)` is the triangle's **height from vertex i**, in pixels,
+/// so the three of them are its three heights and the question is which to
+/// measure it by.
+///
+/// The **largest**, which is `min` over the derivatives. Foreshortening
+/// squashes a facet along one screen direction and leaves the perpendicular
+/// one alone, so the smallest height collapses as soon as a surface tilts
+/// away -- measuring by that faded the wireframe around a sphere's limb at any
+/// distance, which is angle doing the work that distance should. The largest
+/// height is what survives tilt and shrinks only as the body recedes.
+fn wireframe_resolution_fade(bary: vec3<f32>) -> f32 {
+    let d = fwidth(bary);
+    let size_px = 1.0 / max(min(d.x, min(d.y, d.z)), 1e-8);
+    return smoothstep(WIRE_FADE_MIN_PX, WIRE_FADE_FULL_PX, size_px);
+}
+
 /// Coverage of the wireframe at this fragment, 0 (interior) to 1 (on an edge).
 ///
 /// Dividing the barycentric by its screen-space derivative converts it to an
@@ -284,7 +325,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Overlay: composite the line over the shaded surface in the same pass,
     // so there is no second draw and therefore no depth fighting.
     if globals.wireframe_mode == 2u && can_wireframe {
-        let edge = wireframe_edge(in.bary);
+        // Faded by resolution, so a body far enough away to be a smear of
+        // facets shows its shading rather than its wireframe. Only here:
+        // `wireframe_mode == 1` has nothing behind the lines to fade into,
+        // and fading them would make a distant mesh disappear altogether.
+        var edge = wireframe_edge(in.bary);
+        if globals.wireframe_fade != 0u {
+            edge = edge * wireframe_resolution_fade(in.bary);
+        }
         return vec4<f32>(mix(shaded.rgb, globals.wireframe_color, edge), shaded.a);
     }
 

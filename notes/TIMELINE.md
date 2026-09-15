@@ -2141,3 +2141,41 @@ does not state. Examples are the opposite case: they are read as a model of
 what a script needs, and a line that does nothing teaches that it is needed.
 
 `examples/old/` had none to begin with.
+
+## 15 September — the viewport, tuned against Blender
+
+`notes/2026-09-15_viewport_tuning_and_two_wrong_spaces.md`. A long round of
+visual tuning, settled in the end by rendering frames and measuring pixels
+rather than by adjusting what was complained about. **Two of the four real
+bugs were not what the complaint described.**
+
+**Dimming the grid did nothing for three rounds because the arithmetic was in
+the wrong colour space.** The surface is sRGB, so the shader writes linear and
+the display encodes: linear 0.048 is 0.245 on screen, and a 2x linear cut is a
+15 % perceived change. Caught by differencing `axes = "blender"` against
+`axes = "off"` — grey grid pixels peaked at 0.412 where the model capped at
+0.140, and sRGB(0.140) = 0.416. Values are now chosen in perceived terms and
+converted back; `CONFIG.md` carries the conversion. The **ratio** turned out to
+matter more than the levels: 1.5x between thin and major is not a difference
+the eye separates, so every tenth line looked like every other.
+
+**The wireframe fade faded on angle because a facet was measured by its
+smallest height.** `1/fwidth(bary.i)` is a triangle's height from vertex `i`;
+taking `max` of the derivatives takes the smallest height, which is what
+foreshortening collapses. Largest instead, and coverage across a sphere's disc
+went from halving past r/R 0.6 to flat. The window was also far too wide —
+3-12 px put a whole 5120-facet sphere inside the ramp at six units. Now 1-4 px,
+and **off by default**, as a toggle.
+
+Also: the grid's plane now follows the view (XY, YZ or XZ), so a side view has
+a grid at all; scrolling works in orthographic, which it never did, since zoom
+moved the eye along a direction a parallel projection ignores; orthographic is
+**borrowed** for a plane view and restored on the way out; the grid stopped
+being re-ruled by the orbiting body; `ambient_strength` is 0.
+
+Three gizmo settings removed, one grid colour added. 92 Rust tests.
+
+**And a process fix.** Five window-opening tests never set
+`open_in_background`, so every suite run stole the keyboard from whoever was
+working — recorded in the project's memory as a preference, and ignored all
+session. Fixed in all five.

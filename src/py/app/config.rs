@@ -728,6 +728,18 @@ impl Config {
         self.config.borrow().wireframe_width
     }
 
+    /// Fade the wireframe out when facets stop being resolvable. Off by
+    /// default; `wireframe_mode = 2` only.
+    #[getter]
+    fn wireframe_fade(&self) -> bool {
+        self.config.borrow().wireframe_fade
+    }
+
+    #[setter]
+    fn set_wireframe_fade(&mut self, v: bool) {
+        self.config.borrow_mut().wireframe_fade = v;
+    }
+
     #[setter]
     fn set_wireframe_width(&mut self, v: f32) {
         self.config.borrow_mut().wireframe_width = v;
@@ -1086,6 +1098,17 @@ impl Config {
         self.config.borrow_mut().grid_axis_y_color = v;
     }
 
+    /// The Z axis line drawn over the grid, in the plane views that have one.
+    #[getter]
+    fn grid_axis_z_color(&self) -> [f32; 4] {
+        self.config.borrow().grid_axis_z_color
+    }
+
+    #[setter]
+    fn set_grid_axis_z_color(&mut self, v: [f32; 4]) {
+        self.config.borrow_mut().grid_axis_z_color = v;
+    }
+
     /// Where the fade to nothing begins, as a fraction of the far plane.
     #[getter]
     fn grid_fade_near(&self) -> f32 {
@@ -1152,39 +1175,6 @@ impl Config {
     #[setter]
     fn set_gizmo_size(&mut self, v: f32) {
         self.config.borrow_mut().gizmo_size = v;
-    }
-
-    /// Gap between the gizmo and the edge of the image, in pixels.
-    #[getter]
-    fn gizmo_margin(&self) -> f32 {
-        self.config.borrow().gizmo_margin
-    }
-
-    #[setter]
-    fn set_gizmo_margin(&mut self, v: f32) {
-        self.config.borrow_mut().gizmo_margin = v;
-    }
-
-    /// Size of the `X`, `Y`, `Z` letters on the gizmo, in pixels.
-    #[getter]
-    fn gizmo_label_size(&self) -> f32 {
-        self.config.borrow().gizmo_label_size
-    }
-
-    #[setter]
-    fn set_gizmo_label_size(&mut self, v: f32) {
-        self.config.borrow_mut().gizmo_label_size = v;
-    }
-
-    /// Colour of the gizmo's letters, `(r, g, b, a)`.
-    #[getter]
-    fn gizmo_label_color(&self) -> [f32; 4] {
-        self.config.borrow().gizmo_label_color
-    }
-
-    #[setter]
-    fn set_gizmo_label_color(&mut self, v: [f32; 4]) {
-        self.config.borrow_mut().gizmo_label_color = v;
     }
 
     /// Colour of the axis lines and grid, `(r, g, b)`.

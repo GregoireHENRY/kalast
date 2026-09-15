@@ -41,11 +41,13 @@ pub struct Globals {
     // u32/f32 rows above land on exactly. Keep new scalars ahead of it.
     pub wireframe_color: Vec3,
 
-    /// Colour facets from `Mesh::values` through the colormap instead of from
-    /// their vertex colour. Orthogonal to `color_mode`, which still decides
-    /// Was `value_mode`; the data map now follows `color_mode == 1`.
-    /// Kept as padding so the uniform layout is unchanged.
-    pub _value_mode_removed: u32,
+    /// Fade the wireframe out as facets stop being resolvable. `0` off.
+    ///
+    /// Sitting in what was `value_mode`'s slot, which had been kept as
+    /// padding since that field was removed -- so the uniform layout is
+    /// unchanged and no shader's copy of this struct shifts under it. That is
+    /// the failure this struct's own comments record twice.
+    pub wireframe_fade: u32,
     /// Range the colormap spans. Values outside are clamped, not wrapped, so
     /// an outlier saturates rather than aliasing to the far end of the scale.
     pub value_min: f32,

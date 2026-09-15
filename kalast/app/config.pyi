@@ -252,9 +252,14 @@ class Config:
     ambient_strength: float
     """Light added to every fragment regardless of shadowing.
 
-    Deliberately tiny by default: a shadowed facet on an airless body receives
-    almost nothing, and a visible ambient term would be inventing light that is
-    not there.
+    **Zero by default.** A shadowed facet on an airless body receives
+    essentially nothing, so any ambient term is light the scene does not
+    have -- and a shadow that is not black is a shadow whose depth cannot
+    be read off the image. It was 0.002, small enough to look like nothing
+    and large enough to be a floor under every dark pixel.
+
+    Raise it to see into shadows while navigating; it is the wrong thing
+    to have on for anything quantitative.
     :range: 0.0..=1.0
     """
     light_color: list[float]
@@ -315,6 +320,10 @@ class Config:
     wireframe_width: float
     """Wireframe half-width in screen pixels.
     :range: 0.1..=10.0
+    """
+    wireframe_fade: bool
+    """Fade the wireframe out when facets stop being resolvable. Off by
+    default; `wireframe_mode = 2` only.
     """
     wireframe_color: list[float]
     """Wireframe colour, `(r, g, b, a)`; alpha is dropped.
@@ -469,6 +478,8 @@ class Config:
     """The X axis line drawn over the grid."""
     grid_axis_y_color: list[float]
     """The Y axis line drawn over the grid."""
+    grid_axis_z_color: list[float]
+    """The Z axis line drawn over the grid, in the plane views that have one."""
     grid_fade_near: float
     """Where the fade to nothing begins, as a fraction of the far plane."""
     grid_fade_far: float
@@ -481,12 +492,6 @@ class Config:
     """
     gizmo_size: float
     """Half the navigation gizmo's width, in pixels."""
-    gizmo_margin: float
-    """Gap between the gizmo and the edge of the image, in pixels."""
-    gizmo_label_size: float
-    """Size of the `X`, `Y`, `Z` letters on the gizmo, in pixels."""
-    gizmo_label_color: list[float]
-    """Colour of the gizmo's letters, `(r, g, b, a)`."""
     axes_color: list[float]
     """Colour of the axis lines and grid, `(r, g, b)`."""
     axes_ticks: int

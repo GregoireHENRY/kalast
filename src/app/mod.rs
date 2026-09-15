@@ -215,6 +215,16 @@ pub struct App {
 
     pub controller: frame::Controller,
 
+    /// The plane view the gizmo last snapped to, and the projection that was
+    /// in force before it did.
+    ///
+    /// Clicking a gizmo ball turns orthographic on, because a plane read in
+    /// perspective is not measurable. Turning away from that view puts the
+    /// projection back to whatever it was, so the orthographic is borrowed for
+    /// as long as the plane view lasts rather than left behind as a mode the
+    /// user has to notice and undo.
+    snap: Option<(frame::Axis, bool, frame::ProjectionMode)>,
+
     /// Frames per second for the HUDs, averaged over a fixed window rather
     /// than smoothed per frame. An exponential average still moves every
     /// frame, so the digits churn faster than they can be read; this holds a
@@ -606,6 +616,7 @@ impl App {
             })),
 
             controller,
+            snap: None,
             fps_shown: 0.0,
             fps_window_secs: 0.0,
             fps_window_frames: 0,
@@ -1438,13 +1449,17 @@ impl App {
             .is_some_and(|g| g.contains(p))
     }
 
-    /// Snap to the axis-aligned view a gizmo ball stands for.
+    /// Snap to the axis-aligned view a gizmo ball stands for, orthographically.
     ///
-    /// Blender's rule, and Blender's reason: a plane view read in perspective
-    /// is not measurable, so clicking an axis also switches to orthographic.
-    /// Clicking the axis already being looked along toggles back to
-    /// perspective, which is the only way back without a script -- there is no
-    /// key bound to the projection.
+    /// Blender's rule and Blender's reason: a plane read in perspective is not
+    /// measurable. Where this parts company with Blender is on the way out --
+    /// the orthographic is **borrowed for the duration of the plane view**, and
+    /// turning away from that view puts the projection back to whatever it was
+    /// (see the `snap` field and its restore beside the camera update).
+    ///
+    /// So a glance down an axis costs nothing: it does not leave the camera in
+    /// a mode the user then has to notice and undo, and it does not need a
+    /// second click on the same ball to get out of.
     fn view_along_ball(&mut self, ball: crate::app::gizmo::Ball) {
         let bounds = {
             let sim = self.simulation.borrow();
@@ -1453,20 +1468,18 @@ impl App {
         let Some(bounds) = bounds else { return };
 
         let mut sim = self.simulation.borrow_mut();
-        let axis = match ball.axis {
-            frame::Axis::X => crate::Vec3::X,
-            frame::Axis::Y => crate::Vec3::Y,
-            frame::Axis::Z => crate::Vec3::Z,
-        };
-        // The direction the eye would look in for this ball: from the ball's
-        // end of the axis back toward the scene.
-        let want = if ball.positive { -axis } else { axis };
-        let aligned = sim.camera.dir.dot(want) > 0.9999;
-        let orthographic = !(aligned
-            && sim.camera.projection.mode == frame::ProjectionMode::Orthographic);
+        // Remembered once per excursion: clicking from one plane view straight
+        // to another must not overwrite the memory with the orthographic it
+        // just set, or there is nothing left to go back to.
+        if self.snap.is_none() {
+            self.snap = Some((ball.axis, ball.positive, sim.camera.projection.mode));
+        } else if let Some(sn) = self.snap.as_mut() {
+            sn.0 = ball.axis;
+            sn.1 = ball.positive;
+        }
 
         sim.camera
-            .view_along_from(ball.axis, ball.positive, &bounds, orthographic);
+            .view_along_from(ball.axis, ball.positive, &bounds, true);
     }
 
     fn select_at_cursor(&mut self) {
@@ -2082,6 +2095,21 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
 
                     sim.camera
                         .update_with_controller(&mut self.controller, self.dt);
+
+                    // Out of the plane view the gizmo put us in? Then the
+                    // orthographic it turned on has served its purpose. Keyed
+                    // on the same `plane_view` the Z reference line uses, so
+                    // the two flip together and leaving reads as one action.
+                    if let Some((axis, positive, restore)) = self.snap {
+                        if sim.camera.plane_view() != Some((axis, positive)) {
+                            sim.camera.projection.mode = restore;
+                            // And release the extent the wheel may have pinned
+                            // while we were in there, so the next fit is free
+                            // to size itself to the scene again.
+                            sim.camera.projection.side = None;
+                            self.snap = None;
+                        }
+                    }
 
                     win.pointer = pointer;
                     win.update(&mut sim, &sim_cfg.borrow());

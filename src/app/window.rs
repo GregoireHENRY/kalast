@@ -1703,6 +1703,19 @@ impl Window {
             // same matrix the bodies were drawn with, and the forward one to
             // give its intersection a depth they can occlude.
             if config.axes == super::axes::AxesStyle::Blender && config.grid {
+                // The grid faces the camera in a plane view: looking along X
+                // it is the YZ plane, along Y the XZ plane, otherwise the XY
+                // ground. Edge-on ground shows nothing, which is the whole
+                // complaint a side view has about a fixed plane.
+                let in_plane = match simulation.camera.plane_view() {
+                    Some((super::frame::Axis::X, _)) => {
+                        (1.0, config.grid_axis_y_color, config.grid_axis_z_color)
+                    }
+                    Some((super::frame::Axis::Y, _)) => {
+                        (2.0, config.grid_axis_x_color, config.grid_axis_z_color)
+                    }
+                    _ => (0.0, config.grid_axis_x_color, config.grid_axis_y_color),
+                };
                 let vp = self.uniforms.view.uniform.camera.view_proj;
                 self.passes.grid.upload(
                     &self.queue,
@@ -1711,19 +1724,33 @@ impl Window {
                         view_proj: super::gpu::to_cols_f32(vp),
                         thin: config.grid_color,
                         thick: config.grid_major_color,
-                        axis_x: config.grid_axis_x_color,
-                        axis_y: config.grid_axis_y_color,
-                        // The finest level the crossfade starts from. Tied
-                        // to the tick step so the grid and the axis labels
-                        // agree about what a cell is.
-                        spacing: built.step.max(1e-12) as f32,
+                        // Which two of the three axes lie in the plane,
+                        // in the order the shader expects: `axis_x` is the
+                        // line where the second in-plane coordinate is zero.
+                        axis_x: in_plane.1,
+                        axis_y: in_plane.2,
+                        // One world unit, fixed, and deliberately *not*
+                        // the tick step. The shader's level search runs
+                        // both ways now, so this is a unit rather than a
+                        // size: it sets where the decades land (1, 10,
+                        // 0.1 ...), and the level picks which of them to
+                        // draw. Feeding it the scene-derived tick step made
+                        // the ground re-rule itself whenever a body moved,
+                        // because the step follows the scene bounds.
+                        //
+                        // The cost is that a grid cell and the gap between
+                        // two axis labels are no longer the same number.
+                        // They are both round numbers, and the grid being
+                        // stable is worth more than them agreeing.
+                        spacing: 1.0,
                         width: config.grid_width,
                         major: config.grid_major as f32,
                         // Fractions of the way to the far plane, used as
                         // such: the shader has no need of the scene's scale.
                         fade_near: config.grid_fade_near,
                         fade_far: config.grid_fade_far,
-                        _pad: [0.0; 3],
+                        plane: in_plane.0,
+                        _pad: [0.0; 2],
                     },
                 );
             }
@@ -1742,13 +1769,13 @@ impl Window {
                 size,
                 config.gizmo_anchor,
                 config.gizmo_size,
-                config.gizmo_margin,
+                super::gizmo::MARGIN,
                 self.pointer,
             );
             self.passes
                 .gizmo
                 .upload(&self.device, &self.queue, &gizmo.vertices(size));
-            self.gizmo_labels = gizmo.labels(config.gizmo_label_color);
+            self.gizmo_labels = gizmo.labels(super::gizmo::LABEL_COLOR);
             Some(gizmo)
         } else {
             self.gizmo_labels.clear();
@@ -2080,19 +2107,23 @@ impl Window {
         // Centred on the ball, and each with its own colour: the alpha
         // carries the same dimming the ball has, so a letter on an axis
         // pointing away does not come out as the brightest thing on screen.
-        sections.extend(gizmo_labels.iter().map(|(text, pos, color)| {
-            wgpu_text::glyph_brush::Section::default()
-                .add_text(
-                    wgpu_text::glyph_brush::Text::new(text)
-                        .with_scale(config.gizmo_label_size)
-                        .with_color(*color),
-                )
-                .with_screen_position(*pos)
-                .with_layout(
-                    wgpu_text::glyph_brush::Layout::default_single_line()
-                        .h_align(wgpu_text::glyph_brush::HorizontalAlign::Center)
-                        .v_align(wgpu_text::glyph_brush::VerticalAlign::Center),
-                )
+        // Once per bold offset, so the letter comes out with some weight to
+        // it; see `gizmo::BOLD_OFFSETS`.
+        sections.extend(gizmo_labels.iter().flat_map(|(text, pos, color)| {
+            super::gizmo::BOLD_OFFSETS.iter().map(move |(dx, dy)| {
+                wgpu_text::glyph_brush::Section::default()
+                    .add_text(
+                        wgpu_text::glyph_brush::Text::new(text)
+                            .with_scale(super::gizmo::label_size(config.gizmo_size))
+                            .with_color(*color),
+                    )
+                    .with_screen_position((pos.0 + dx, pos.1 + dy))
+                    .with_layout(
+                        wgpu_text::glyph_brush::Layout::default_single_line()
+                            .h_align(wgpu_text::glyph_brush::HorizontalAlign::Center)
+                            .v_align(wgpu_text::glyph_brush::VerticalAlign::Center),
+                    )
+            })
         }));
 
         if brush.queue(&self.device, &self.queue, sections).is_err() {
@@ -2418,7 +2449,7 @@ fn build_globals(
     value_range: (f32, f32),
 ) -> super::uniform::Globals {
     super::uniform::Globals {
-        _value_mode_removed: 0,
+        wireframe_fade: config.wireframe_fade as u32,
         value_min: value_range.0,
         value_max: value_range.1,
 

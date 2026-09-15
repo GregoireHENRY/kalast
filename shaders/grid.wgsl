@@ -31,9 +31,37 @@ struct Grid {
     // plane and 1 along it.
     fade_near: f32,
     fade_far: f32,
+    // Which plane the grid lies in: 0 = XY, 1 = YZ, 2 = XZ. Set from the
+    // camera, so a plane view gets the grid that faces it rather than the
+    // ground seen edge-on.
+    plane: f32,
 };
 @group(0) @binding(0)
 var<uniform> grid: Grid;
+
+// Screen pixels the finest visible cell must span. Blender's grid steps to
+// the next decade at roughly twice this density; at 8 the lines came out
+// about twice as close together as Blender's for the same view.
+const CELL_PX: f32 = 16.0;
+
+// Axis lines are drawn thicker than grid lines. Blender draws them the same
+// width and relies on colour alone, which reads as less definite than it
+// should when the grid is this dim.
+const AXIS_WIDTH: f32 = 2.0;
+
+// How sharply the finest level gives up as it is zoomed away from.
+//
+// Its weight is `(1 - blend)^SUB_FADE`, so 1 is the straight linear fade and
+// anything above it front-loads the disappearance: at 6, a level a quarter of
+// the way to being replaced is already down to 18 % and one half way is at
+// 1.6 %, against 50 % for linear. Linear kept the sub-grid legible almost
+// until the moment it was swapped out, which reads as a denser grid than the
+// one actually being drawn; 3 was still too generous.
+//
+// Only the finest level is shaped this way. The stack stays continuous across
+// a step whatever the curve, as long as it runs from 1 to 0 -- the level
+// handing over is the middle one, and that is left alone.
+const SUB_FADE: f32 = 6.0;
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
@@ -132,12 +160,38 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
     let far = unproject(in.ndc, 0.0);
     let dir = far - near;
 
-    // Where it meets z = 0. A ray parallel to the plane never does.
-    if abs(dir.z) < 1e-12 {
+    // Where it meets the grid's plane. A ray parallel to it never does.
+    //
+    // The plane is one of the three through the origin, chosen by the camera:
+    // looking down Z the grid is the XY ground, but looking along X it is the
+    // YZ plane and along Y the XZ plane -- otherwise a side view shows the
+    // ground edge-on and there is nothing behind the body at all, which is
+    // what Blender avoids by doing the same.
+    var n_dir: f32;
+    var n_near: f32;
+    if grid.plane < 0.5 {
+        n_dir = dir.z; n_near = near.z;
+    } else if grid.plane < 1.5 {
+        n_dir = dir.x; n_near = near.x;
+    } else {
+        n_dir = dir.y; n_near = near.y;
+    }
+    if abs(n_dir) < 1e-12 {
         discard;
     }
-    let t = -near.z / dir.z;
+    let t = -n_near / n_dir;
     let p = near + dir * t;
+
+    // The two in-plane coordinates, in the order that makes `axis_x` the line
+    // where the second is zero -- the same convention the XY case always had.
+    var q: vec2<f32>;
+    if grid.plane < 0.5 {
+        q = p.xy;
+    } else if grid.plane < 1.5 {
+        q = p.yz;
+    } else {
+        q = p.xz;
+    }
 
     // The one test that matters is whether the ground is in front of the
     // camera; the near and far planes are not a statement about the plane.
@@ -165,15 +219,23 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
     // `fwidth` of the already-divided coordinate instead reads the derivative
     // across a level boundary, where the divisor itself jumps, and speckles
     // the plane with bright dots.
-    let deriv = fwidth(p.xy);
+    let deriv = fwidth(q);
     let world_px = max(max(deriv.x, deriv.y), 1e-12);
 
-    // Coarsen until the finest level spans at least eight pixels. `major` is
-    // both the ratio between levels and the count of cells per brighter line,
-    // which is the same statement seen from two sides.
+    // Coarsen *or refine* until the finest level spans at least `CELL_PX`
+    // pixels. `major` is both the ratio between levels and the count of cells
+    // per brighter line, which is the same statement seen from two sides.
+    //
+    // No `max(0.0)` here any more, and that is what makes the grid Blender's
+    // rather than the scene's. Clamped at zero, the finest cell could never be
+    // smaller than `spacing`, so `spacing` had to be fitted to the scene --
+    // which meant it moved whenever the scene did, and a body orbiting the
+    // origin visibly re-ruled the ground. Letting the level go negative makes
+    // `spacing` a *unit*, not a size: any fixed value gives the same grid,
+    // since the level absorbs the difference.
     let base = max(grid.spacing, 1e-12);
     let r = max(grid.major, 2.0);
-    let lod = max(0.0, log(8.0 * world_px / base) / log(r));
+    let lod = log(CELL_PX * world_px / base) / log(r);
     let lo = floor(lod);
     let blend = lod - lo;
 
@@ -181,9 +243,9 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
     let s1 = s0 * r;
     let s2 = s1 * r;
 
-    let c0 = line_union(line_coverage(p.xy / s0, deriv / s0, grid.width)) * (1.0 - blend);
-    let c1 = line_union(line_coverage(p.xy / s1, deriv / s1, grid.width));
-    let c2 = line_union(line_coverage(p.xy / s2, deriv / s2, grid.width)) * blend;
+    let c0 = line_union(line_coverage(q / s0, deriv / s0, grid.width)) * pow(1.0 - blend, SUB_FADE);
+    let c1 = line_union(line_coverage(q / s1, deriv / s1, grid.width));
+    let c2 = line_union(line_coverage(q / s2, deriv / s2, grid.width)) * blend;
 
     // Three levels rather than two, weighted so the stack is continuous as it
     // shifts: the finest fades out, the middle is always solid, the coarsest
@@ -209,8 +271,8 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
     }
 
     // The two axes on top, so the origin reads without hunting for it.
-    let on_x = axis_coverage(p.y, deriv.y, grid.width);
-    let on_y = axis_coverage(p.x, deriv.x, grid.width);
+    let on_x = axis_coverage(q.y, deriv.y, grid.width * AXIS_WIDTH);
+    let on_y = axis_coverage(q.x, deriv.x, grid.width * AXIS_WIDTH);
     if on_x * grid.axis_x.a > a {
         a = on_x * grid.axis_x.a;
         col = grid.axis_x.rgb;
@@ -231,7 +293,15 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
     // ramp and the band stayed at full brightness right up to the cut. The
     // angle between the ray and the plane normal does not care how big the
     // scene is, which is the property wanted.
-    let graze = 1.0 - abs(normalize(dir).z);
+    let nd = normalize(dir);
+    var graze: f32;
+    if grid.plane < 0.5 {
+        graze = 1.0 - abs(nd.z);
+    } else if grid.plane < 1.5 {
+        graze = 1.0 - abs(nd.x);
+    } else {
+        graze = 1.0 - abs(nd.y);
+    }
     let f1 = max(grid.fade_far, grid.fade_near + 1e-4);
     a = a * (1.0 - smoothstep(grid.fade_near, f1, graze));
 

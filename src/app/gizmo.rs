@@ -17,6 +17,46 @@
 //! The same `Gizmo` is used to draw the widget and to hit-test a click, which
 //! is what stops the picture and the click target from drifting apart.
 
+/// Gap between the widget and the edge of the image, in pixels.
+///
+/// Fixed rather than settable: it is the one value that keeps the widget
+/// clear of the edge at every anchor, and a viewer who wants it elsewhere
+/// moves the anchor rather than the gap.
+pub const MARGIN: f32 = 20.0;
+
+/// Colour of the `X`, `Y`, `Z` letters on the positive balls.
+///
+/// Black, and not settable. A letter is read against its own ball rather than
+/// against the scene, and every ball colour is light enough to carry black --
+/// so the only thing another value could do is make it harder to read. The
+/// alpha is still scaled per ball by how far the axis faces the viewer, which
+/// is what keeps a letter from outshining the ball it sits on.
+pub const LABEL_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
+
+/// Letter height for a gizmo of this size.
+///
+/// A letter is sized to the ball it sits on, so this follows `gizmo_size`
+/// instead of being set beside it -- two settings for one proportion can
+/// only ever agree or disagree, and disagreeing is not useful. The ratio is
+/// the one the old pair of defaults expressed, 9 px of letter on a 40 px
+/// gizmo.
+///
+/// Raised from that ratio since: a letter at 0.225 sat small inside a ball of
+/// `0.22 * gizmo_size` radius and read as a marking rather than as a label.
+pub fn label_size(gizmo_size: f32) -> f32 {
+    gizmo_size * 0.30
+}
+
+/// Offsets, in pixels, at which a gizmo letter is drawn to fake a bold face.
+///
+/// `wgpu_text` is given one font and there is no bold cut of it, so weight has
+/// to come from overdrawing: the same glyph at four half-pixel offsets thickens
+/// every stroke by about a pixel without smearing the shape, which is what a
+/// larger scale alone would not do. Four rather than eight because the
+/// diagonals of a half-pixel square land inside the antialiasing of the axial
+/// ones and only cost fill.
+pub const BOLD_OFFSETS: [(f32, f32); 4] = [(-0.5, 0.0), (0.5, 0.0), (0.0, -0.5), (0.0, 0.5)];
+
 use crate::Vec3;
 use crate::app::config::HudAnchor;
 use crate::app::frame::{Axis, Eye};
@@ -259,7 +299,11 @@ impl Gizmo {
             ];
             // A negative ball is a ring until it is pointed at, which is the
             // cheapest way to show that it can be clicked.
-            let inner = if b.positive || hovered { 0.0 } else { 0.62 };
+            // 0.78, where it was 0.62: the ring reads as an outline
+            // around a tinted disc rather than as a thick annulus, which is
+            // what makes a negative ball look like the hollow twin of its
+            // positive one instead of a second, heavier shape.
+            let inner = if b.positive || hovered { 0.0 } else { 0.78 };
             disc(&mut out, size, b.center, self.ball_radius, color, inner);
         }
 

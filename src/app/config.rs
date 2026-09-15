@@ -564,9 +564,14 @@ pub struct Config {
 
     /// Light added to every fragment regardless of shadowing.
     ///
-    /// Deliberately tiny by default: a shadowed facet on an airless body receives
-    /// almost nothing, and a visible ambient term would be inventing light that is
-    /// not there.
+    /// **Zero by default.** A shadowed facet on an airless body receives
+    /// essentially nothing, so any ambient term is light the scene does not
+    /// have -- and a shadow that is not black is a shadow whose depth cannot
+    /// be read off the image. It was 0.002, small enough to look like nothing
+    /// and large enough to be a floor under every dark pixel.
+    ///
+    /// Raise it to see into shadows while navigating; it is the wrong thing
+    /// to have on for anything quantitative.
     /// :range: 0.0..=1.0
     pub ambient_strength: f32,
     /// Colour of the Sun, `(r, g, b, a)`.
@@ -696,6 +701,22 @@ pub struct Config {
     /// Wireframe half-width in screen pixels.
     /// :range: 0.1..=10.0
     pub wireframe_width: f32,
+    /// Fade the wireframe out as a body recedes far enough that its facets
+    /// stop being resolvable. **Off by default.**
+    ///
+    /// Past about a pixel per facet the three edges cover the whole triangle,
+    /// so the mesh reads as a sheet of wireframe colour -- a shadowed body at
+    /// distance comes out grey rather than black, which is the wireframe
+    /// overwriting the shading rather than drawing the mesh. This fades it out
+    /// between 4 px and 1 px facets instead.
+    ///
+    /// Distance only: the measure is the facet's *largest* screen height, so
+    /// tilt does not trigger it and the limb of a sphere keeps its wireframe.
+    ///
+    /// Only applies to `wireframe_mode = 2`, where there is a shaded surface
+    /// underneath to fade into. Mode 1 is wireframe alone and would simply
+    /// vanish.
+    pub wireframe_fade: bool,
 
     // Present with vsync (wgpu Fifo) instead of uncapped (Immediate).
     // Defaults off, so a measurement is never silently capped. Falls back to
@@ -849,10 +870,12 @@ pub struct Config {
     pub grid_color: [f32; 4],
     /// Colour of every `grid_major`-th line.
     pub grid_major_color: [f32; 4],
-    /// The X and Y axis lines, drawn over the grid so the origin reads
-    /// without hunting for it.
+    /// The axis lines, drawn over the grid so the origin reads without
+    /// hunting for it. Two of the three are in the grid's plane and get
+    /// drawn; which two depends on which plane that is.
     pub grid_axis_x_color: [f32; 4],
     pub grid_axis_y_color: [f32; 4],
+    pub grid_axis_z_color: [f32; 4],
     /// Fade the grid out between these grazing factors: `0.0` is looking
     /// straight down at the ground plane and `1.0` is looking along it.
     /// Without it the horizon is a hard line of aliasing.
@@ -888,18 +911,15 @@ pub struct Config {
     pub gizmo_anchor: HudAnchor,
     /// Half the widget's width, in pixels: a ball centre never sits further
     /// than this from the middle.
+    ///
+    /// The gizmo's only size knob. Letter height follows it
+    /// ([`crate::app::gizmo::label_size`]), the margin to the image edge is
+    /// fixed at 20 px, and the letters are black -- each of those was settable
+    /// once and none of them was worth setting: a letter is sized and coloured
+    /// by the ball it sits on, so the pair could only ever agree or disagree.
     /// :range: 16.0..=200.0
     pub gizmo_size: f32,
-    /// Gap between the widget and the edge of the image, in pixels. Ignored
-    /// on the axis a centre anchor centres.
-    /// :range: 0.0..=200.0
-    pub gizmo_margin: f32,
-    /// Size and colour of the `X`, `Y`, `Z` letters on the positive balls.
-    /// The colour's alpha is scaled by how far the ball faces the viewer, so
-    /// a letter never outshines the ball it is on.
-    /// :range: 4.0..=64.0
-    pub gizmo_label_size: f32,
-    pub gizmo_label_color: [f32; 4],
+
 
     /// Treat alt + left-drag as a middle-drag, so the arcball can be orbited
     /// on hardware with no middle button. Blender calls the same setting
@@ -947,7 +967,7 @@ impl Default for Config {
             srgb_mode: 0,
             gamma: 2.2,
 
-            ambient_strength: 0.002,
+            ambient_strength: 0.0,
             light_color: wgpu::Color::WHITE,
             // light_target: Vec3::new(0.0, 0.0, 0.0),
             // light_up: Vec3::new(0.0, 0.0, 1.0),
@@ -978,6 +998,7 @@ impl Default for Config {
             wireframe_color: wgpu::Color::BLACK,
             wireframe_width: 1.0,
 
+            wireframe_fade: false,
             vsync: false,
             export_sync: false,
             export_max_queued: 64,
@@ -997,11 +1018,41 @@ impl Default for Config {
             grid: true,
             grid_width: 1.0,
             grid_major: 10,
-            grid_color: [0.32, 0.32, 0.35, 0.5],
-            grid_major_color: [0.45, 0.45, 0.5, 0.75],
-            grid_axis_x_color: [0.78, 0.24, 0.30, 0.9],
-            grid_axis_y_color: [0.38, 0.66, 0.20, 0.9],
-            grid_fade_near: 0.5,
+            // **These are linear, and the surface is sRGB.** What reaches
+            // the eye is the sRGB encoding of `rgb * alpha`, which is far
+            // brighter than the product looks: 0.16 at alpha 0.30 is 0.048
+            // linear and **0.24 on screen**. Three rounds of halving these
+            // numbers barely changed the picture for exactly that reason --
+            // sRGB compresses a 2x linear cut into about 15 % perceived.
+            //
+            // So they are chosen the other way round now: pick what the line
+            // should look like, convert, and divide by the alpha. Blender
+            // sits its grid about 0.10 sRGB above its own background, which
+            // on black is the entire budget -- 0.055 for a subdivision and
+            // 0.19 for a major line.
+            //
+            // The **ratio** matters as much as the levels. 0.10 against 0.15
+            // is 1.5x, and at these brightnesses that is not a difference the
+            // eye separates: every tenth line looked like every other line.
+            // 3.5x reads as two kinds of line.
+            //
+            // Measured, not asserted: `abs(axes_on - axes_off)` over a
+            // rendered frame, gizmo masked and the coloured axis lines
+            // separated out by saturation.
+            grid_color: [0.0147, 0.0147, 0.0166, 0.30],
+            grid_major_color: [0.0578, 0.0578, 0.0642, 0.52],
+            // The same hues, scaled so the dominant channel lands at 0.45
+            // on screen rather than 0.86. At full strength they were about
+            // ten times the grid they sit in and read as the subject of the
+            // picture; they are a reference, not the content.
+            grid_axis_x_color: [0.1896, 0.0583, 0.0729, 0.9],
+            grid_axis_y_color: [0.1092, 0.1896, 0.0575, 0.9],
+            grid_axis_z_color: [0.0699, 0.0998, 0.1896, 0.9],
+            // 0.5 starts fading 60 degrees off the normal, which is
+            // barely past a three-quarter view and took the ground away
+            // while there was still plenty of it to see. The horizon is at
+            // 1.0, so this holds the grid to within ~25 degrees of edge-on.
+            grid_fade_near: 0.9,
             grid_fade_far: 1.0,
             axes_color: [0.45, 0.45, 0.45],
             axes_ticks: 5,
@@ -1009,12 +1060,9 @@ impl Default for Config {
             axes_label_size: 13.0,
             axes_label_color: [0.85, 0.85, 0.85, 1.0],
             gizmo_anchor: HudAnchor::TopRight,
-            gizmo_size: 40.0,
-            gizmo_margin: 18.0,
-            gizmo_label_size: 9.0,
+            gizmo_size: 60.0,
             // Dark, because it is read against the ball rather than against
             // the scene, and every ball colour is light enough to carry it.
-            gizmo_label_color: [0.08, 0.08, 0.10, 1.0],
 
             value_min: None,
             value_max: None,

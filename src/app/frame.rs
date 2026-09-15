@@ -480,6 +480,28 @@ impl Eye {
     /// The navigation gizmo needs both: its six balls are the six axis-aligned
     /// views, and `-Z` -- looking up at the scene from underneath -- is not
     /// reachable from `view_along` alone.
+    /// The axis this eye is looking along, if it is looking along one.
+    ///
+    /// `true` means the eye is on the axis's positive end looking back toward
+    /// the origin, matching the gizmo ball that puts it there. The threshold
+    /// is tight on purpose: a snapped view is exact, so anything that is not
+    /// exact is a view the user has since turned, and two things key off that
+    /// -- the Z reference line, and whether an auto-orthographic view is still
+    /// wanted. Both flipping at the same instant is what makes leaving a plane
+    /// view feel like one action rather than two.
+    pub fn plane_view(&self) -> Option<(Axis, bool)> {
+        for (axis, v) in [(Axis::X, Vec3::X), (Axis::Y, Vec3::Y), (Axis::Z, Vec3::Z)] {
+            let d = self.dir.dot(v);
+            if d < -0.9999 {
+                return Some((axis, true));
+            }
+            if d > 0.9999 {
+                return Some((axis, false));
+            }
+        }
+        None
+    }
+
     pub fn view_along_from(
         &mut self,
         axis: Axis,
@@ -684,8 +706,26 @@ impl Eye {
         if ctrl.zoom != 0.0 {
             let factor =
                 (-ctrl.zoom * ctrl.sensitivity_zoom * SENSITIVITY_ZOOM_WHEEL).exp() as Float;
-            let distance = (self.distance_anchor() * factor).max(Float::EPSILON);
-            self.pos = self.anchor - self.dir * distance;
+            match self.projection.mode {
+                // Distance is meaningless to an orthographic projection -- it
+                // is a parallel projection, so moving the eye along its own
+                // view direction changes nothing on screen. Scrolling in a
+                // plane view therefore did nothing at all. What sets the image
+                // scale there is the extent, so that is what the wheel drives.
+                //
+                // `side` is `None` while the extent is fitted to the scene, so
+                // the first notch pins it at whatever the fit had arrived at
+                // and scales from there; leaving the plane view releases it
+                // again (see the gizmo's projection restore).
+                ProjectionMode::Orthographic => {
+                    let side = self.projection.side.unwrap_or(self.projection.resolved().side);
+                    self.projection.side = Some((side * factor).max(Float::EPSILON));
+                }
+                ProjectionMode::Perspective => {
+                    let distance = (self.distance_anchor() * factor).max(Float::EPSILON);
+                    self.pos = self.anchor - self.dir * distance;
+                }
+            }
         }
 
         // Pan moves the anchor with the eye, so the thing being orbited stays
@@ -1132,6 +1172,47 @@ mod tests {
 
     /// Geometric zoom cannot step through the anchor however hard it is
     /// pushed, unlike the old linear `pos += dir * k * distance`.
+    #[test]
+    /// The wheel drives the *extent* in an orthographic view, not the distance.
+    ///
+    /// A parallel projection does not care where along its own view direction
+    /// the eye sits, so the geometric-distance zoom that serves perspective
+    /// did visibly nothing in a plane view -- scrolling was simply dead.
+    fn orthographic_zoom_scales_the_extent_and_leaves_the_eye_alone() {
+        let mut eye = eye_at_distance(10.0);
+        eye.projection.mode = ProjectionMode::Orthographic;
+        let before = eye.projection.resolved().side;
+
+        let mut ctrl = controller();
+        ctrl.zoom(1.0);
+        eye.update_with_controller(&mut ctrl, 1.0 / 60.0);
+
+        assert!(
+            (eye.distance_anchor() - 10.0).abs() < 1e-6,
+            "the eye moved, and in a parallel projection that shows nothing"
+        );
+        let after = eye.projection.side.expect("the extent should be pinned by a scroll");
+        assert!(after < before, "zooming in did not shrink the extent: {after} vs {before}");
+
+        // And out again, past where it started.
+        let mut ctrl = controller();
+        ctrl.zoom(-2.0);
+        eye.update_with_controller(&mut ctrl, 1.0 / 60.0);
+        assert!(eye.projection.side.unwrap() > before, "zooming out did not grow it");
+    }
+
+    #[test]
+    /// Perspective is untouched: there the distance *is* the zoom.
+    fn perspective_zoom_still_moves_the_eye() {
+        let mut eye = eye_at_distance(10.0);
+        assert_eq!(eye.projection.mode, ProjectionMode::Perspective);
+        let mut ctrl = controller();
+        ctrl.zoom(1.0);
+        eye.update_with_controller(&mut ctrl, 1.0 / 60.0);
+        assert!(eye.distance_anchor() < 10.0, "perspective zoom stopped working");
+        assert!(eye.projection.side.is_none(), "perspective zoom pinned the extent");
+    }
+
     #[test]
     fn arcball_zoom_is_geometric_and_never_crosses_the_anchor() {
         let mut eye = eye_at_distance(10.0);

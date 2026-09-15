@@ -361,9 +361,12 @@ pub fn build(
                 }
             }
 
-            // Z picked out either way, since a flat grid alone gives no sense
-            // of up and the shaded grid has no third axis to give one.
-            if style == AxesStyle::Blender {
+            // Only when the shaded grid is off. With it on, the grid turns
+            // to face the camera in a plane view and draws Z itself as one of
+            // its two in-plane axes -- and in a 3/4 view there should be no Z
+            // line at all, since the ground already says which way is up and
+            // a vertical stripe over the body is clutter.
+            if style == AxesStyle::Blender && !shaded_ground {
                 seg(
                     &mut lines,
                     Vec3::new(0.0, 0.0, lo.z),

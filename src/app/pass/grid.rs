@@ -30,10 +30,12 @@ pub struct Uniform {
     pub major: f32,
     pub fade_near: f32,
     pub fade_far: f32,
-    /// The five scalars above land on a 16-byte boundary only with this;
+    /// Which plane the grid lies in: 0 = XY, 1 = YZ, 2 = XZ.
+    pub plane: f32,
+    /// The six scalars above land on a 16-byte boundary only with this;
     /// WGSL rounds the struct up either way, and a `Pod` that does not agree
     /// with it reads whatever follows.
-    pub _pad: [f32; 3],
+    pub _pad: [f32; 2],
 }
 
 impl Default for Uniform {
@@ -52,7 +54,8 @@ impl Default for Uniform {
             major: 10.0,
             fade_near: 1.0,
             fade_far: 1.0,
-            _pad: [0.0; 3],
+            plane: 0.0,
+            _pad: [0.0; 2],
         }
     }
 }

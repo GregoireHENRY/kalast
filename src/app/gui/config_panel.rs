@@ -85,6 +85,7 @@ pub fn config_panel(ui: &mut egui::Ui, c: &mut Config, a: &mut AppConfig) {
             }
         });
         ui.add(egui::Slider::new(&mut c.wireframe_width, 0.1..=10.0).text("wireframe_width")).on_hover_text("Wireframe half-width in screen pixels.");
+        ui.checkbox(&mut c.wireframe_fade, "wireframe_fade").on_hover_text("Fade the wireframe out as a body recedes far enough that its facets stop being resolvable. **Off by default.**");
     });
     ui.collapsing("Lighting", |ui| {
         ui.add(egui::Slider::new(&mut c.ambient_strength, 0.0..=1.0).text("ambient_strength")).on_hover_text("Light added to every fragment regardless of shadowing.");
@@ -165,12 +166,6 @@ pub fn config_panel(ui: &mut egui::Ui, c: &mut Config, a: &mut AppConfig) {
                 });
         });
         ui.add(egui::Slider::new(&mut c.gizmo_size, 16.0..=200.0).text("gizmo_size")).on_hover_text("Half the widget's width, in pixels: a ball centre never sits further than this from the middle.");
-        ui.add(egui::Slider::new(&mut c.gizmo_margin, 0.0..=200.0).text("gizmo_margin")).on_hover_text("Gap between the widget and the edge of the image, in pixels. Ignored on the axis a centre anchor centres.");
-        ui.add(egui::Slider::new(&mut c.gizmo_label_size, 4.0..=64.0).text("gizmo_label_size")).on_hover_text("Size and colour of the `X`, `Y`, `Z` letters on the positive balls. The colour's alpha is scaled by how far the ball faces the viewer, so a letter never outshines the ball it is on.");
-        ui.horizontal(|ui| {
-            ui.label("gizmo_label_color").on_hover_text("");
-            ui.color_edit_button_rgba_unmultiplied(&mut c.gizmo_label_color);
-        });
     });
     ui.collapsing("Colour bar", |ui| {
         ui.label(egui::RichText::new("colorbar: set from a script").weak())
@@ -291,12 +286,16 @@ pub fn config_panel(ui: &mut egui::Ui, c: &mut Config, a: &mut AppConfig) {
             ui.color_edit_button_rgba_unmultiplied(&mut c.grid_major_color);
         });
         ui.horizontal(|ui| {
-            ui.label("grid_axis_x_color").on_hover_text("The X and Y axis lines, drawn over the grid so the origin reads without hunting for it.");
+            ui.label("grid_axis_x_color").on_hover_text("The axis lines, drawn over the grid so the origin reads without hunting for it. Two of the three are in the grid's plane and get drawn; which two depends on which plane that is.");
             ui.color_edit_button_rgba_unmultiplied(&mut c.grid_axis_x_color);
         });
         ui.horizontal(|ui| {
             ui.label("grid_axis_y_color").on_hover_text("");
             ui.color_edit_button_rgba_unmultiplied(&mut c.grid_axis_y_color);
+        });
+        ui.horizontal(|ui| {
+            ui.label("grid_axis_z_color").on_hover_text("");
+            ui.color_edit_button_rgba_unmultiplied(&mut c.grid_axis_z_color);
         });
         ui.add(egui::Slider::new(&mut c.grid_fade_near, 0.0..=1.0).text("grid_fade_near")).on_hover_text("Fade the grid out between these grazing factors: `0.0` is looking straight down at the ground plane and `1.0` is looking along it. Without it the horizon is a hard line of aliasing.");
         ui.add(egui::Slider::new(&mut c.grid_fade_far, 0.0..=1.0).text("grid_fade_far"));

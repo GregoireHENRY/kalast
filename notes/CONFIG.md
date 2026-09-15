@@ -457,6 +457,30 @@ closed meshes.
 
 ## Presentation
 
+### `wireframe_fade: bool` — default `false` *(live)*
+Fade the wireframe out as a body recedes far enough that its facets stop being
+resolvable — between 4 px and 1 px facets, off entirely below one.
+
+Past about a pixel per facet the three edges cover the whole triangle, so the
+mesh reads as a sheet of wireframe colour: a shadowed body at distance comes
+out grey rather than black, which is the wireframe overwriting the shading
+rather than drawing the mesh. Measured on a 1280-facet sphere, switching it on
+takes a 150-unit view from a 0.30 mean difference against `wireframe_mode = 0`
+to **0.0000** — byte-identical to having no wireframe at all.
+
+**Distance only.** The measure is `1 / fwidth(bary)`, a triangle's height in
+pixels, taken over its *largest* height. Foreshortening squashes one screen
+direction and leaves the perpendicular one alone, so measuring by the smallest
+height faded the wireframe around a sphere's limb at any distance — angle doing
+the work distance should. With the largest, coverage across a sphere's disc is
+flat from centre to limb (0.770 to 0.782).
+
+Only applies to `wireframe_mode = 2`, where there is a shaded surface
+underneath to fade into; mode 1 is wireframe alone and would simply vanish.
+Thresholds are `WIRE_FADE_MIN_PX` / `WIRE_FADE_FULL_PX` in
+`shaders/mesh_shadow.wgsl`. It lives in the `Globals` slot `value_mode` left
+behind when it was removed, so the uniform layout is unchanged.
+
 ### `vsync: bool` — default `false` *(live, reconfigures the surface)*
 `true` requests `wgpu::PresentMode::Fifo` (vsync, frame rate pinned to the
 display refresh rate). `false` requests `PresentMode::Immediate` (uncapped).
@@ -968,13 +992,18 @@ makes the conversion a no-op.
 
 ## Lighting
 
-### `ambient_strength: f32` — default `0.002` *(live)*
+### `ambient_strength: f32` — default `0.0` *(live)*
 Scales the light color into an ambient term added to every fragment
 regardless of shadowing: `ambient_color = light.color * ambient_strength`.
 `src/app/window.rs:199`.
-Accepted: any float `>= 0.0`. The default is deliberately tiny -- airless
-bodies have essentially no ambient fill, and raising it washes out the
-terminator.
+Accepted: any float `>= 0.0`. **Zero since 15 September**, where it was
+`0.002` — airless bodies have essentially no ambient fill, so any value here
+is light the scene does not have, and it puts a floor under every dark pixel
+that the shadow's real depth then cannot be read through.
+
+Raise it to see into shadows while navigating. It is the wrong thing to have
+on for anything quantitative, including the `0..1` diffuse map, which carries
+this term.
 
 ### `light_color: wgpu::Color` — default `WHITE` *(live)*
 The light's colour, feeding both the ambient and diffuse terms, and the colour
@@ -1247,15 +1276,51 @@ out, the middle is always solid, the coarsest fades in.
 ### `grid_major_color: list[float]` *(live)*
 ### `grid_axis_x_color: list[float]` *(live)*
 ### `grid_axis_y_color: list[float]` *(live)*
-Ordinary line, every `grid_major`-th line, and the two axes through the
-origin, each `(r, g, b, a)`. The alpha is the line's own opacity, so it also
+### `grid_axis_z_color: list[float]` *(live)*
+Ordinary line, every `grid_major`-th line, and the three axes through the
+origin, each `(r, g, b, a)`. **Two of the three are drawn**, whichever lie in
+the grid's plane — so a Z colour is needed for the side views, where the grid
+is YZ or XZ rather than the XY ground. Defaults sit at 0.45 on screen; at full
+strength they were ten times the grid they sit in and read as the subject of
+the picture rather than as a reference. The alpha is the line's own opacity, so it also
 sets how strongly a line reads against the background.
 
-### `grid_fade_near: float` — default `0.5` *(live)*
+**These are linear values and the surface is sRGB.** What reaches the eye is
+the sRGB encoding of `rgb * alpha`, which is much brighter than the product
+looks — `(0.16, 0.16, 0.18, 0.30)` is 0.048 linear and **0.24 on screen**. A
+2x cut in these numbers is about a 15 % perceived change, so dimming by eye
+converges very slowly; three rounds of halving barely moved the picture before
+this was noticed.
+
+Choose the other way round: decide what the line should look like, convert to
+linear (`((s + 0.055) / 1.055) ** 2.4`), and divide by the alpha. Defaults
+`(0.0199, 0.0199, 0.0224, 0.30)` and `(0.0241, 0.0241, 0.0268, 0.52)` put a
+subdivision at **0.07** and a major line at **0.115** on screen. Blender sits
+its grid about 0.10 sRGB above its own background, which on black is the whole
+budget.
+
+Measured rather than asserted, by differencing a rendered frame with
+`axes = "blender"` against the same frame with `axes = "off"`, masking the
+gizmo and separating the coloured axis lines by saturation.
+
+The axis lines are drawn at **twice** `grid_width`, which Blender does not do;
+it separates them by colour alone, and that reads as indefinite when the grid
+is this dim.
+
+**The grid's plane follows the view.** It is the XY ground normally, the YZ
+plane when the camera looks along X, and XZ when it looks along Y — chosen
+from `Eye::plane_view()` in `src/app/window.rs`. Fixed to XY, an axis view
+showed the ground edge-on with nothing behind the body.
+
+### `grid_fade_near: float` — default `0.9` *(live)*
 ### `grid_fade_far: float` — default `1.0` *(live)*
 Fade the grid out between these grazing factors: `0.0` is looking straight
 down at the ground plane and `1.0` is looking along it. Without the fade the
 horizon is a hard line of aliasing.
+
+`0.9` holds the grid to within about 25 degrees of edge-on. It was `0.5`,
+which begins fading 60 degrees off the normal — barely past a three-quarter
+view, and it took the ground away while there was still plenty of it to see.
 
 ---
 
@@ -1286,7 +1351,7 @@ of a colour bar or a HUD: `"top-left"`, `"top-center"`, `"top-right"`,
 `"middle-left"`, `"middle-center"`, `"middle-right"`, `"bottom-left"`,
 `"bottom-center"`, `"bottom-right"`. Hyphen, underscore and space all parse.
 
-### `gizmo_size: float` — default `40.0` *(live)*
+### `gizmo_size: float` — default `60.0` *(live)*
 Half the widget's width in pixels: a ball centre never sits further than this
 from the middle, so the whole thing is `2 * gizmo_size` across and a corner
 anchor never puts half a ball off the image. Balls are `0.22` of it.
@@ -1294,17 +1359,18 @@ anchor never puts half a ball off the image. Balls are `0.22` of it.
 In pixels, not a fraction of the image, so it stays the same size on screen as
 the window is resized — like the HUD text and unlike anything in the scene.
 
-### `gizmo_margin: float` — default `18.0` *(live)*
-Gap between the widget and the edge of the image. Ignored on whichever axis a
-centre anchor centres.
+**It is the only size setting the gizmo has.** The letter height follows it at
+`0.225` (`gizmo::label_size`) and the gap to the image edge is fixed at 20 px
+(`gizmo::MARGIN`). Both used to be settable — `gizmo_label_size` and
+`gizmo_margin`, removed on 15 September, along with `gizmo_label_color`. A
+letter is sized and coloured by the ball it sits on, so two settings for one
+proportion can only ever agree or disagree, and disagreeing is not useful.
 
-### `gizmo_label_size: float` — default `9.0` *(live)*
-### `gizmo_label_color: list[float]` — default `(0.08, 0.08, 0.10, 1.0)` *(live)*
-The `X`, `Y`, `Z` letters on the positive balls. Dark by default because they
-are read against their own ball rather than against the scene, and every ball
-colour is light enough to carry them. One colour for all three: the ball is
-already shaded by depth, and shading the letter too would take the contrast
-away twice over.
+The letters are black (`gizmo::LABEL_COLOR`) and not settable: they are read
+against their own ball rather than against the scene, every ball colour is
+light enough to carry black, and the only thing another value could do is make
+them harder to read. Their alpha is still scaled per ball by how far the axis
+faces the viewer, so a letter never outshines the ball it is on.
 
 ---
 

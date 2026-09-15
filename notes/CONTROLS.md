@@ -130,8 +130,9 @@ Shown by `config.axes = "gizmo"` and `"blender"`, in the corner
 
 | Gesture | Does |
 |---|---|
-| Click a ball | Look straight down that axis, and switch to orthographic |
-| Click the ball already being looked along | Toggle back to perspective |
+| Click a ball | Look straight down that axis, orthographically |
+| Turn away from that view | Puts the projection back to what it was |
+| Scroll in an axis view | Zooms — by the *extent*, since distance means nothing to a parallel projection |
 | Left-drag anywhere on the widget | Orbit — no middle button, no `Option` |
 | Hover a ball | Lightens it; a ring fills in, to show it can be clicked |
 
@@ -149,9 +150,25 @@ reachable over a body. Clicks elsewhere are unaffected — the widget is a
 **Clicking an axis also switches to orthographic**, which is Blender's
 behaviour and for the reason `Eye::view_along` was written: a plane view read
 in perspective is not measurable, near rim and far rim being at different
-scales. Since no key is bound to the projection, clicking the axis already
-being looked along is the way back — it toggles perspective and orthographic
-without moving the camera.
+scales.
+
+**The orthographic is borrowed, not kept.** The projection in force beforehand
+is remembered, and the first rotation away from the axis puts it back — so a
+glance down an axis costs nothing and there is no mode left behind to notice
+and undo. Clicking straight from one plane view to another does not overwrite
+that memory, so the way back is still the projection you started from. Kept in
+`App::snap` and restored beside the camera update in `src/app/mod.rs`.
+
+**The wheel works there too**, which it did not before. Zoom moved the eye
+along its own view direction, and a parallel projection does not care where
+along that line the eye sits — so scrolling in a plane view was simply dead.
+It now scales the projection *extent*, pinning it on the first notch (it is
+fitted to the scene until then) and releasing it again on the way out.
+
+**And the ground grid turns to face you.** The shaded grid is on whichever of
+the three planes the view is down: XY looking along Z, YZ along X, XZ along Y.
+Fixed to XY, a side view showed the ground edge-on with nothing behind the
+body at all.
 
 The negative balls are not decoration: `-Z` looks *up* at the scene from
 underneath, which `sim.camera.view_along("z")` cannot reach on its own. In

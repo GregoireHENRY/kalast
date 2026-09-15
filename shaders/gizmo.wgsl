@@ -8,6 +8,11 @@
 // laid out on the CPU in `src/app/gizmo.rs`, so everything it needs is
 // already in the vertices.
 
+// Alpha of the tint inside a negative axis's ring, as a fraction of whatever
+// alpha the ball already has -- so a ball dimmed for pointing away keeps its
+// fill in proportion rather than washing out separately.
+const FILL_ALPHA: f32 = 0.30;
+
 struct VertexInput {
     @location(0) pos: vec2<f32>,
     @location(1) uv: vec2<f32>,
@@ -57,11 +62,19 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let w = max(fwidth(d) * 0.5, 1e-6);
     var a = 1.0 - smoothstep(-w, w, d);
 
-    // The hole, for the negative axes.
+    // The negative axes: a ring with its own colour washed faintly across the
+    // inside, rather than a hole.
+    //
+    // Empty, the negative balls read as absences -- six shapes of which three
+    // are missing, and nothing says which axis a bare outline belongs to until
+    // you trace it back. A tint at `FILL_ALPHA` is enough to carry the colour
+    // and stays clearly lighter than the filled positive end, which is the
+    // distinction the ring is there to draw.
     if in.inner > 0.0 {
         let r = length(in.uv);
         let wi = max(fwidth(r) * 0.5, 1e-6);
-        a = a * smoothstep(in.inner - wi, in.inner + wi, r);
+        let ring = smoothstep(in.inner - wi, in.inner + wi, r);
+        a = a * mix(FILL_ALPHA, 1.0, ring);
     }
 
     return vec4<f32>(in.color.rgb, in.color.a * a);
