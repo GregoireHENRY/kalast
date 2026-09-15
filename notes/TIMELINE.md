@@ -2106,3 +2106,24 @@ render path is checked rather than assumed.
 90 Rust tests (3 new, 2 of which fail without the renumbering) and 14 Python
 files. The pinned defect test is now a correctness test, which is what pinning
 it was for.
+
+## 15 September — `vsync` defaults to off
+
+`app.simulation.config.vsync` was `true`; it is `false` now. With it on, a GPU
+faster than the display reports the refresh rate and nothing about the scene —
+on a 239 Hz panel the loop measured exactly 239.46 it/s whatever the
+complexity, and on a 120 Hz one it produced a "3.1M facets costs 2x"
+conclusion that was entirely the panel. **Nine scripts in the tree already set
+`False` by hand**, which is the sign of a wrong default rather than of nine
+careful authors, and CLAUDE.md carried it as a standing instruction to
+remember.
+
+The price, stated in the field's own doc so nobody has to rediscover it: an
+uncapped viewer redraws as fast as the GPU allows, so a still image spins the
+fan and can tear. `True` is now the thing you set when looking at a scene
+rather than timing one.
+
+`config_panel.rs` and the stubs regenerated, `CONFIG.md` and the benchmarking
+section of `CLAUDE.md` updated — the latter now says "must stay `False`"
+rather than "set it to `False`". Scripts that still set it explicitly are
+harmless and were left alone.

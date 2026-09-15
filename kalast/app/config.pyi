@@ -371,10 +371,16 @@ class Config:
     vsync: bool
     """Cap the frame rate to the display refresh.
 
-    **Set this to `False` for any performance measurement.** With it on, a GPU
-    faster than the display simply reports the refresh rate: a 239 Hz panel
-    measured exactly 239.46 it/s regardless of scene complexity, which made a
-    3.1M-facet scene look identical to a 100k one.
+    **Off by default**, because a capped loop reports the monitor rather
+    than the scene: on a 239 Hz panel the render loop measured exactly
+    239.46 it/s regardless of complexity, which made a 3.1M-facet scene
+    look identical to a 100k one. That trap cost a wrong conclusion once
+    and was worked around by hand in nine scripts, so it is the default
+    that is wrong rather than those scripts.
+
+    The price is that an idle viewer redraws as fast as it can instead of
+    60 times a second. Set `True` when you are looking at a scene rather
+    than timing one.
     """
     export_sync: bool
     """Encode and write each exported frame on the render thread instead of a

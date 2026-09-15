@@ -2,20 +2,10 @@
 
 import numpy
 
-import kalast
-from kalast.app import Simulation
+from kalast.app import App, Hud
 
 
-def before_render(sim: Simulation, dt: float) -> None:
-    if sim.state.is_paused:
-        return
-
-    sim.bodies[1].mat = mat @ sim.bodies[1].mat
-
-    # print(f"#{sim.state.iteration} {p1}")
-
-
-app = kalast.app.App()
+app = App()
 app.simulation.config.color_mode = 0
 app.simulation.config.debug_light_cube_show = True
 app.simulation.config.wireframe_mode = 2
@@ -38,3 +28,11 @@ mat[:3, :3] = kalast.util.mat_axis_angle(numpy.array([0.0, 0.0, 1.0]), 0.01)
 
 app.before_render = before_render
 app.start()
+
+
+# if sim.state.is_paused:
+    # return
+
+# sim.bodies[1].mat = mat @ sim.bodies[1].mat
+
+# print(f"#{sim.state.iteration} {p1}")

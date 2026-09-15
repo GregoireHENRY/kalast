@@ -221,10 +221,12 @@ rate prints are not changes anyone wants committed.
 Beyond building `--release` (above), one trap has silently corrupted results
 here more than once:
 
-- **Set `app.config.vsync = False`.** Otherwise the loop reports the display
-  refresh rate rather than anything about the code — this produced a "3.1M
-  facets costs 2x" conclusion that was entirely an artifact of a 120 Hz
-  panel.
+- **`app.config.vsync` must stay `False`.** Otherwise the loop reports the
+  display refresh rate rather than anything about the code — this produced a
+  "3.1M facets costs 2x" conclusion that was entirely an artifact of a 120 Hz
+  panel. It is the **default** since 15 September, so this is now a matter of
+  not switching it on rather than remembering to switch it off; scripts that
+  still set it explicitly are harmless.
 
 Take medians over repeats and discard the first run after a rebuild.
 

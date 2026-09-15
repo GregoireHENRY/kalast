@@ -457,19 +457,27 @@ closed meshes.
 
 ## Presentation
 
-### `vsync: bool` — default `true` *(live, reconfigures the surface)*
+### `vsync: bool` — default `false` *(live, reconfigures the surface)*
 `true` requests `wgpu::PresentMode::Fifo` (vsync, frame rate pinned to the
 display refresh rate). `false` requests `PresentMode::Immediate` (uncapped).
 Resolved by `pick_present_mode` at the bottom of `src/app/window.rs`, used at
 `src/app/window.rs:127`. If the requested mode is not supported it falls back
-to `caps.present_modes[0]`, which is always available.
+to `caps.present_modes[0]`, which is always available — and `false` that
+silently lands on `Fifo` prints a warning, since a capped run that looks
+uncapped is the whole problem.
 Accepted: `True` / `False`.
 
-**Set this to `False` for any performance measurement.** With vsync on, a GPU
-faster than the display simply reports the refresh rate: on a 239 Hz panel the
-render loop measured exactly 239.46 it/s regardless of scene complexity, which
-made a 3.1M-facet scene look identical to a 100k-facet one. Details in
-`2026-08-25_BENCH_mesh_resolution_results.md`.
+**Default `false` since 15 September**, so a measurement is never silently
+capped. With vsync on, a GPU faster than the display simply reports the refresh
+rate: on a 239 Hz panel the render loop measured exactly 239.46 it/s regardless
+of scene complexity, which made a 3.1M-facet scene look identical to a
+100k-facet one. Details in `2026-08-25_BENCH_mesh_resolution_results.md`. Nine
+scripts in the tree already set `False` by hand, which is the sign of a wrong
+default rather than of nine careful authors.
+
+**Set it to `True` when you are looking at a scene rather than timing one** —
+an uncapped viewer redraws as fast as the GPU allows, which spins the fan for
+a still image and can tear.
 
 Before this option existed, `present_modes[0]` (typically `Fifo`) was the
 unconditional choice, so every run was vsync-capped.

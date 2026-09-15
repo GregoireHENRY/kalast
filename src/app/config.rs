@@ -698,16 +698,20 @@ pub struct Config {
     pub wireframe_width: f32,
 
     // Present with vsync (wgpu Fifo) instead of uncapped (Immediate).
-    // On a fast GPU vsync silently caps the render loop at the display
-    // refresh rate, which makes render benchmarks measure the monitor
-    // rather than the scene -- set false when timing. Falls back to the
-    // surface's preferred mode if the requested one isn't supported.
+    // Defaults off, so a measurement is never silently capped. Falls back to
+    // the surface's preferred mode if the requested one isn't supported.
     /// Cap the frame rate to the display refresh.
     ///
-    /// **Set this to `False` for any performance measurement.** With it on, a GPU
-    /// faster than the display simply reports the refresh rate: a 239 Hz panel
-    /// measured exactly 239.46 it/s regardless of scene complexity, which made a
-    /// 3.1M-facet scene look identical to a 100k one.
+    /// **Off by default**, because a capped loop reports the monitor rather
+    /// than the scene: on a 239 Hz panel the render loop measured exactly
+    /// 239.46 it/s regardless of complexity, which made a 3.1M-facet scene
+    /// look identical to a 100k one. That trap cost a wrong conclusion once
+    /// and was worked around by hand in nine scripts, so it is the default
+    /// that is wrong rather than those scripts.
+    ///
+    /// The price is that an idle viewer redraws as fast as it can instead of
+    /// 60 times a second. Set `True` when you are looking at a scene rather
+    /// than timing one.
     pub vsync: bool,
 
     // Export frames synchronously: block the render loop on each frame's
@@ -974,7 +978,7 @@ impl Default for Config {
             wireframe_color: wgpu::Color::BLACK,
             wireframe_width: 1.0,
 
-            vsync: true,
+            vsync: false,
             export_sync: false,
             export_max_queued: 64,
 
