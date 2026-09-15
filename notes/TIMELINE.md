@@ -2015,3 +2015,52 @@ My first explanation of the parameter was also wrong: I said raising it trades
 geometric fidelity for triangle shape, and it does not — area error *improves*
 slightly across the range. The note's table stopped at 0.6, so neither claim
 had ever been checked.
+
+## 15 September, later — two example "tests" become real ones, and find two bugs
+
+`examples/mesh/test.py` and `examples/mesh/test_intercept.py` were never
+examples: 126 assertions between them, no window, no output, nothing to read.
+Living in `examples/` meant nothing ran them, so the only coverage of the
+flatten/smoothen round-trip and of the four ray helpers
+(`is_point_in_or_on_triangle`, `intersect_plane`, `is_facing_plane`,
+`intersect_triangle`) was invisible to the suite. They are now
+`tests/test_mesh.py` and `tests/test_mesh_intersect.py`, grouped into named
+functions so one failure no longer hides every check after it.
+
+Converting them turned up two defects, both of which had survived precisely
+because the assertions could not fail.
+
+**`flatten()` leaves `indices` stale, and the old test asserted the wrong
+values as expected.** It rebuilds `vertices` to three rows per facet and never
+renumbers `indices`, so every Python accessor reading through them —
+`get_facet_indices`, `get_facet_positions`, `get_facet_normals`,
+`get_facet_colors`, `get_facet_vertices` — returns the wrong three rows for
+every facet but facet 0, whose stale indices are `[0, 1, 2]` regardless.
+`src/mesh.rs`'s own `get_facet_vertices` has an `is_flat()` branch that chunks
+by three and is correct; the Python path does not use it and indexes through
+`facets_matrix_array` instead. Two implementations of one question, one right.
+`notes/API.md` claims "after `flatten` these are `0..3f`, one per row", which
+is what it should do and does not. **Nothing outside the test calls those
+accessors after a flatten**, so no result depends on it. Pinned as a defect in
+`test_facet_accessors_read_stale_indices_after_flatten`, so a fix fails loudly
+rather than passing unnoticed; the real invariants are asserted on
+`positions[3f:3f+3]` instead, over all twelve facets rather than three.
+
+**Fourteen one-sided comparisons, and four wrong expected values behind
+them.** Every numeric check in the intercept file was
+`numpy.all(got - want < tol)` with no `abs()`, so a result of `-99` against an
+expected `1` gives `-100 < tol` and passes. Made two-sided, four expectations
+failed: the 45-degree ray from the origin was written as hitting `-0.30834377`
+where it hits `-0.30872506`, off by **3.8e-4**, and the one from `z = 0.4` by
+6.6e-5; two more were literals rounded to four decimals. Each replacement was
+verified against the crossing computed independently in numpy from the facet's
+own corners — the engine agrees with that to 1.7e-7 everywhere, so the code was
+right all along and only the expectations were wrong. The original's closing
+remark that a 1.2e-7 difference was "f32 float precision" was reasoning about
+numbers nothing had checked.
+
+Also: the runner now catches `Exception`, not just `AssertionError`. A
+list/array mix raising `ValueError` aborted the whole file mid-run, which hides
+every test after it — the file-scale version of the same problem.
+
+`examples/mesh/` is down to `decimate.py`. 14 Python test files.
