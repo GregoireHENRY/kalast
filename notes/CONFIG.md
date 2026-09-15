@@ -471,9 +471,12 @@ Accepted: `True` / `False`.
 capped. With vsync on, a GPU faster than the display simply reports the refresh
 rate: on a 239 Hz panel the render loop measured exactly 239.46 it/s regardless
 of scene complexity, which made a 3.1M-facet scene look identical to a
-100k-facet one. Details in `2026-08-25_BENCH_mesh_resolution_results.md`. Nine
-scripts in the tree already set `False` by hand, which is the sign of a wrong
-default rather than of nine careful authors.
+100k-facet one. Details in `2026-08-25_BENCH_mesh_resolution_results.md`.
+**Fifteen** lines across the examples already set `False` by hand — the sign of
+a wrong default rather than of fifteen careful authors — and all fifteen were
+removed once it became the default. The four in `tests/` were kept
+deliberately: a test that needs a setting should pin it rather than inherit it,
+or it starts passing for a reason it does not state.
 
 **Set it to `True` when you are looking at a scene rather than timing one** —
 an uncapped viewer redraws as fast as the GPU allows, which spins the fan for

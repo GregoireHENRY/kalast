@@ -70,7 +70,6 @@ for name in BODIES:
 app = kalast.app.App()
 app.config.width = 256
 app.config.height = 256
-app.simulation.config.vsync = False
 for i, name in enumerate(BODIES):
     app.simulation.load_mesh(path=MESH[name], mat=numpy.eye(4), flatten=True)
     mesh = app.simulation.bodies[i].mesh

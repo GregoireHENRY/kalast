@@ -6,7 +6,6 @@ from kalast.app import App, Hud
 
 
 app = App()
-app.simulation.config.vsync = False
 app.simulation.config.render_back_face = True
 app.simulation.config.debug_light_cube_show = True
 app.simulation.config.access_shadow_map = True

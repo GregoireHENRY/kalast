@@ -2113,10 +2113,11 @@ it was for.
 faster than the display reports the refresh rate and nothing about the scene —
 on a 239 Hz panel the loop measured exactly 239.46 it/s whatever the
 complexity, and on a 120 Hz one it produced a "3.1M facets costs 2x"
-conclusion that was entirely the panel. **Nine scripts in the tree already set
-`False` by hand**, which is the sign of a wrong default rather than of nine
-careful authors, and CLAUDE.md carried it as a standing instruction to
-remember.
+conclusion that was entirely the panel. **Fifteen lines across the examples
+already set `False` by hand** — the sign of a wrong default rather than of
+fifteen careful authors — and CLAUDE.md carried it as a standing instruction to
+remember. (First written here as "nine scripts", off a `grep` truncated by
+`head -20`; the real count came out when they were removed.)
 
 The price, stated in the field's own doc so nobody has to rediscover it: an
 uncapped viewer redraws as fast as the GPU allows, so a still image spins the
@@ -2127,3 +2128,16 @@ rather than timing one.
 section of `CLAUDE.md` updated — the latter now says "must stay `False`"
 rather than "set it to `False`". Scripts that still set it explicitly are
 harmless and were left alone.
+
+## 15 September — the redundant `vsync = False` lines are gone
+
+Fifteen of them across the live examples: 13 Python and the two Rust twins in
+`crater_self_shadow`, which had to go together or the pair stops matching
+line for line. Nothing else changed — 15 deletions, 0 insertions.
+
+**The four in `tests/` stay.** A test that needs vsync off should say so rather
+than inherit it, or the day the default moves again it passes for a reason it
+does not state. Examples are the opposite case: they are read as a model of
+what a script needs, and a line that does nothing teaches that it is needed.
+
+`examples/old/` had none to begin with.

@@ -118,7 +118,6 @@ for b in BODIES:
 app = kalast.app.App()
 app.config.width = NPX
 app.config.height = NPY
-app.simulation.config.vsync = False
 # The ID pass reads geometry, not the shadow map, so nothing here needs it.
 app.simulation.config.access_shadow_map = False
 

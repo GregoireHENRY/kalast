@@ -90,7 +90,6 @@ OUT.mkdir(parents=True, exist_ok=True)
 app = kalast.app.App()
 app.config.width = NPX
 app.config.height = NPY
-app.simulation.config.vsync = False
 app.simulation.config.access_shadow_map = True
 app.simulation.config.huds = [kalast.app.Hud("")]   # filled in before_render
 app.simulation.camera.projection.fovy = numpy.radians(tiri.fovy)

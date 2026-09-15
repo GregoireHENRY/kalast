@@ -11,7 +11,6 @@ fn main() {
     {
         let config = app.sim_config();
         let mut c = config.borrow_mut();
-        c.vsync = false;
         c.render_back_face = true;
         c.debug_light_cube_show = true;
         c.access_shadow_map = true;
