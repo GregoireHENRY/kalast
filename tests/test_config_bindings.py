@@ -63,6 +63,7 @@ def bound_as(struct: str, name: str) -> str:
 def test_every_config_field_is_bound() -> None:
     """`app.config.<field>` exists for every field of the Rust struct."""
     app = App()
+    app.config.open_in_background = True
     missing = []
     for struct, obj in targets(app):
         have = set(dir(obj))
@@ -80,6 +81,7 @@ def test_every_bound_field_is_writable() -> None:
     script tries to set it, which is the only thing anyone does with it.
     """
     app = App()
+    app.config.open_in_background = True
     problems = []
     for struct, obj in targets(app):
         for name in fields(struct):

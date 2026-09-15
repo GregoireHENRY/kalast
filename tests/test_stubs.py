@@ -137,6 +137,7 @@ def _cases():
     if _CASES is not None:
         return _CASES
     app = kalast.app.App()
+    app.config.open_in_background = True
     _mesh = _a_mesh()
     _CASES = [
         # App first: `app.simulation.config.<tab>` is the whole point, and it

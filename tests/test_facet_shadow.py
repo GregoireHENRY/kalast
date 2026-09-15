@@ -154,6 +154,7 @@ def ray_traced_occlusion(mesh, sun) -> tuple[numpy.ndarray, numpy.ndarray]:
 
 def main() -> int:
     app = App()
+    app.config.open_in_background = True
     c = app.simulation.config
     c.vsync = False
     c.render_back_face = True

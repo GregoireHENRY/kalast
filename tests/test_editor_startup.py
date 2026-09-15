@@ -31,6 +31,7 @@ PROBE = textwrap.dedent("""
     steps = int(sys.argv[2]) if len(sys.argv) > 2 else 0
 
     app = App()
+    app.config.open_in_background = True
     app.config.editor = True
     app.config.width, app.config.height = 640, 480
     editor.capture_output(app)
@@ -133,6 +134,7 @@ def test_one_step_is_one_frame() -> None:
         from kalast.app import App
 
         app = App()
+        app.config.open_in_background = True
         app.config.width, app.config.height = 320, 240
         app.simulation.config.vsync = False
 
@@ -171,6 +173,7 @@ def test_a_driven_script_keeps_its_own_loop_in_the_editor() -> None:
         from kalast.app import App
 
         app = App()
+        app.config.open_in_background = True
         app.simulation.config.vsync = False
         # A script named on the command line is shown and then *held* --
         # `pause_at = 1`. A driven script that wants to run says so.
@@ -188,6 +191,7 @@ def test_a_driven_script_keeps_its_own_loop_in_the_editor() -> None:
         from kalast.app import App
 
         app = App()
+        app.config.open_in_background = True
         app.config.width, app.config.height = 480, 360
         editor.capture_output(app)
 

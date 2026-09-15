@@ -110,6 +110,7 @@ def main() -> int:
     write_box(box, N)
 
     app = kalast.app.App()
+    app.config.open_in_background = True
     app.config.width = 256
     app.config.height = 256
     sim = app.simulation
