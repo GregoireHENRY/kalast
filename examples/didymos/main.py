@@ -34,12 +34,12 @@ def before_render(sim: Simulation, dt: float) -> None:
 
 app = kalast.app.App()
 
-app.simulation.config.color_mode = 0
-# app.simulation.config.debug_light_cube_show = True
+app.simulation.config.shading.color_mode = 0
+# app.simulation.config.light.cube_show = True
 
-app.simulation.config.shadow_normal_offset_scale = 2e-4
-app.simulation.config.shadow_bias_scale = 1e-3
-app.simulation.config.shadow_bias_minimum = 5e-4
+app.simulation.config.shadows.normal_offset_scale = 2e-4
+app.simulation.config.shadows.bias_scale = 1e-3
+app.simulation.config.shadows.bias_minimum = 5e-4
 
 app.simulation.sun.pos = [0.0, 50.0, 0.0]
 app.simulation.sun.look_anchor()

@@ -1,6 +1,7 @@
 pub mod body;
 pub mod frame;
 pub mod config;
+pub mod config_gen;
 pub mod gpu;
 pub mod simulation;
 

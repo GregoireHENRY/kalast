@@ -57,69 +57,218 @@ class AppConfig:
     editor: bool
     """Draw in the editor layout: viewport panel, script, config, log.
 
-    A mode, not a different loop. Turn it on and `start()` or
-    `while app.step():` draws the UI around the scene, unchanged
-    otherwise -- which is what `step()` being non-blocking was for.
+    A *mode*, not a different loop. `start()` and `step()` behave exactly
+    as they always did -- the frame simply also draws the UI, and the
+    scene lands in the viewport panel instead of filling the window. So a
+    script that drives its own `while app.step():` gets the editor around
+    it without changing a line, which is the whole reason `step()` was
+    made non-blocking.
+
+    `start_editor()` is this plus `start()`.
+
+    No widget: a checkbox that switches the UI off from inside the UI
+    leaves nothing to switch it back on with.
     """
     focus: bool
     """Give the whole window to the renderer: panels out of the way, each
     coming back when the pointer reaches its edge.
 
-    About what is *inside* the window, not the window itself -- that is
-    still yours to size. Independent of `simulation.config.fullscreen`.
+    Focus on the scene, in other words. Not on the window -- that is yours
+    to size, by double clicking its title bar or dragging a corner -- but
+    on what is inside it. A focused renderer looks like a plain render
+    window, with the panels a pointer-flick away: top for the toolbar,
+    left for the script, right for the config, bottom for the log.
+
+    Independent of `simulation.config.fullscreen`, which is the OS window
+    and nothing else. Set both to be rid of everything at once; set this
+    alone and the window stays where it is.
     """
     open_in_background: bool
-    """Open the window without taking focus, so a run can go on beside other
-    work.
+    """Open the window without taking focus, so a run can go on beside
+    other work.
 
-    A render window normally comes up key and pulls the keyboard away from
-    whatever was in front of it. With this set it is ordered in behind the
-    active application instead: still drawn, still interactive, but it has
-    to be clicked before it takes the keyboard.
+    A render window normally comes up *key* and pulls the keyboard away
+    from whatever was in front of it, which is fine for one run and not
+    fine for a script that opens a window per case. With this set the
+    window is ordered in behind the active application instead, and
+    nothing is typed into it by accident.
 
-    **Startup only.** It decides how the window is first shown and how the
-    application announces itself, so set it before `start()` or the first
-    `step()`. Unrelated to `focus`, which is about the panels *inside* the
-    window.
+    **Startup only** -- it decides how the window is first shown, and how
+    the application announces itself, neither of which can be taken back
+    afterwards. Set it before `start()` or the first `step()`.
 
-    Unsupported on X11 and Wayland; the window comes up focused there.
+    The window is still drawn and still interactive; it simply has to be
+    clicked before it takes the keyboard.
+
+    Named at length because two shorter names were taken and both mean
+    something else: `focus` here is the panels *inside* the window, and
+    `simulation.config.background` is the colour the frame is cleared to.
+
+    Unsupported on X11 and Wayland, where winit cannot ask for it, and the
+    window comes up focused as before.
+
+    No widget: it is read once, while the window is being created. By the
+    time there is a panel to tick it in, the window it would have governed
+    is already open, and a checkbox that does nothing is worse than none.
     """
     width: int
-    """Window width in physical pixels.
+    """Window size in physical pixels.
 
-    The *window*. `simulation.config.width` is the image inside it, and
-    follows this unless it is set.
+    The *window*, not the render. `simulation.config.width` is the image
+    inside it, and follows this unless it is set.
     """
     height: int
-    """Window height in physical pixels."""
     toolbar: str
     """What the editor's toolbar says beside the transport buttons.
 
-    The same template as `simulation.config.huds`, so every placeholder
-    works here too -- `{drawn}` for the iteration on screen, `{it}` for
-    how many have been begun, `{its}`, `{fps}`, `{ms}`, `{bodies}`,
-    `{paused}`, `{warn}`, `{gpu}` -- and a precision may be attached, as
-    `{fps:.1}`. Empty for a bare toolbar.
+    The same template as `huds`, so every placeholder works here too --
+    `{drawn}` for the iteration on screen, `{it}` for how many have been
+    begun, `{its}`, `{fps}`, `{ms}`, `{bodies}`, `{paused}`, `{warn}`,
+    `{gpu}` and its per-pass forms -- and a precision may be attached, as
+    `{fps:.1}`.
+
+    Empty for a bare toolbar.
+    """
+    title: str
+    """The OS window title."""
+    fullscreen: bool
+    """Open the window in native fullscreen (borderless, current monitor).
+
+    On macOS this is the same mode the green button gives -- its own
+    Space -- which is worth knowing because it is not equivalent to a
+    maximised window: the compositor hands out drawables differently
+    there, and a stall that only appears fullscreen will not reproduce
+    maximised.
+
+    Startup only: applied when the window is created.
+    """
+    vsync: bool
+    """Cap the frame rate to the display refresh.
+
+    **Off by default**, because a capped loop reports the monitor rather
+    than the scene: on a 239 Hz panel the render loop measured exactly
+    239.46 it/s regardless of complexity, which made a 3.1M-facet scene
+    look identical to a 100k one. That trap cost a wrong conclusion once
+    and was worked around by hand in nine scripts, so it is the default
+    that is wrong rather than those scripts.
+
+    The price is that an idle viewer redraws as fast as it can instead of
+    60 times a second. Set `True` when you are looking at a scene rather
+    than timing one.
     """
 
 class Config:
-    debug_app: bool
-    """Print app lifecycle events: pause and camera-mode changes."""
-    debug_window: bool
-    """Print window and GPU setup: chosen surface format, adapter and device
-    features, and **the present modes the surface supports**.
+    huds: list[Hud]
+    """The on-screen HUDs. Empty (the default) draws none.
 
-    Worth enabling once on any new machine -- it is how the vsync cap that
-    invalidated a whole benchmark was identified.
+    An alias for `app.simulation.huds`, not a second list: they are the
+    same storage, so declaring them here and editing them there in
+    `before_render` cannot drift apart. The objects handed back are the
+    live ones -- setting `.text` on one takes effect on the next frame
+    with no list to reassign.
     """
-    debug_window_mesh: bool
-    """Print per-mesh detail as meshes are uploaded."""
-    debug_simulation: bool
-    """**Does nothing.** The field exists and is settable from Python, but no code
-    reads it. Left as a placeholder.
+    shading: ShadingConfig
+    """How the surface is coloured and the image encoded."""
+    light: LightConfig
+    """The Sun as a light: its colour, the ambient floor, the debug cube."""
+    shadows: ShadowsConfig
+    """The shadow map and its readback."""
+    wireframe: WireframeConfig
+    """Facet edges drawn over or instead of the surface."""
+    selection: SelectionConfig
+    """The picked facet and the facet labels."""
+    data: DataConfig
+    """Colouring facets from per-facet values."""
+    colorbar: ColorbarConfig
+    """The colour scale drawn for `data`."""
+    axes: AxesConfig
+    """Reference axes, tick labels and the navigation gizmo."""
+    grid: GridConfig
+    """The shaded ground grid of the `blender` axes style."""
+    hud: HudConfig
+    """The text overlays."""
+    export: ExportConfig
+    """Frame export."""
+    controls: ControlsConfig
+    """Mouse and keyboard sensitivities."""
+    image: ImageConfig
+    """The size of the image being rendered, as distinct from the window."""
+    debug: DebugConfig
+    """Diagnostics and console output."""
+
+class ShadingConfig:
+    """How the surface is coloured and the image encoded.
+
+    `app.simulation.config.shading`. Reads and writes the live config
+    through the same handle as every other view of it.
     """
-    debug_depth_show: bool
-    debug_light_cube_show: bool
+    background: list[float]
+    """Colour the frame is cleared to, `(r, g, b, a)`.
+
+    Accepts any 4-element sequence: tuple, list or `numpy.array`.
+    """
+    render_back_face: bool
+    """Draw triangles facing away from the camera.
+
+    Leave it off for closed shape models -- back faces are invisible there, so
+    culling them is free performance. Measured on the full-resolution
+    Didymos/Dimorphos meshes: culled against unculled differs in 5 pixels of
+    1,040,400, all on silhouette edges.
+
+    Turn it on for geometry that is *not* closed -- open craters, clipped
+    sections, single-sided surfaces -- where the inside of the shell must be
+    visible from outside. Note the shading is single-sided regardless: normals
+    are not flipped for back faces, so an underside is lit as though it were the
+    top.
+
+    The shadow pass stays unculled either way, so open geometry still casts
+    correctly from whichever side faces the light.
+    """
+    msaa: int
+    """Multisample anti-aliasing for the main render pass: 1 (off), 2, 4 or 8.
+
+    Geometry edges are the whole point here. Every silhouette in this
+    renderer is a science measurement -- a limb, a terminator, a body's
+    apparent diameter -- and at one sample per pixel each of those is
+    quantised to whole pixels, which both looks wrong beside other tools
+    and biases any centroid or radius fitted from an exported frame.
+
+    Only the main pass is multisampled. The shadow map, the facet-id and
+    hemicube passes stay single-sampled on purpose: they carry ids and
+    depths, not colour, and averaging those across samples would be
+    meaningless. Exports are unaffected in shape or size -- the pass
+    resolves into the same single-sample target that was always exported.
+
+    Counts the adapter does not support fall back to 4, then to 1. Note
+    that `debug_depth_show` only mirrors the main pass's depth at 1: above
+    that the pass writes its own multisampled depth buffer instead.
+    """
+    color: list[float]
+    """Flat colour used when `color_mode` is 2, `(r, g, b, a)`."""
+    color_mode: int
+    """What the fragment shader outputs.
+
+    | | |
+    |---|---|
+    | 0 | vertex/instance colour, lit, with shadows (the default) |
+    | 1 | raw vertex/instance colour, no lighting |
+    | 2 | the flat `color` |
+    | 3 | as 0 but with shadows disabled |
+    """
+    srgb_mode: int
+    """0 converts sRGB to linear before shading; 1 treats colours as already
+    linear.
+    """
+    gamma: float
+    """Exponent used by the sRGB conversion when `srgb_mode` is 0."""
+
+class LightConfig:
+    """The Sun as a light: its colour, the ambient floor, the debug cube.
+
+    `app.simulation.config.light`. Reads and writes the live config
+    through the same handle as every other view of it.
+    """
+    cube_show: bool
     """Draw a cube at the light's position, so the Sun is visible.
 
     Size comes from `light_cube_scale`. `debug_light_cube_fit` is on by
@@ -127,7 +276,7 @@ class Config:
     the camera's far plane is fitted to the bodies, and the Sun is well
     outside them.
     """
-    debug_light_cube_fit: bool
+    cube_fit: bool
     """Fit the camera's frustum around the light cube too, not just the
     bodies.
 
@@ -150,106 +299,7 @@ class Config:
     body's edge is a much longer near-to-far span, so depth precision
     drops. For looking at where the light is, not for a figure.
     """
-    title: str
-    """The OS window title."""
-    width: int
-    """Render size in physical pixels -- the *image*, not the window.
-
-    `0` means "follow the window", which is what a terminal run wants and
-    what every script got when there was only one pair of these. Set it to
-    pin the render independently: a 4K export from a small window, or a
-    fixed frame size while the editor's viewport panel is dragged about.
-
-    Everything about the image follows this -- the camera's aspect ratio,
-    where axis ticks project, where the colour bar sits, and what an
-    exported frame measures.
-    :label: image width
-    :range: 0..=7680
-    """
-    height: int
-    """:label: image height
-    :range: 0..=4320
-    """
-    background: list[float]
-    """Colour the frame is cleared to, `(r, g, b, a)`.
-
-    Accepts any 4-element sequence: tuple, list or `numpy.array`.
-    """
-    hud_font: str
-    """Font for every HUD: a name (`"Arial"`) or a path, or empty for the
-    built-in. One that will not resolve warns and falls back. Startup only.
-    """
-    huds: list[Hud]
-    """The on-screen HUDs. Empty (the default) draws none.
-
-    An alias for `app.simulation.huds`, not a second list: they are the
-    same storage, so declaring them here and editing them there in
-    `before_render` cannot drift apart. The objects handed back are the
-    live ones -- setting `.text` on one takes effect on the next frame
-    with no list to reassign.
-    """
-    fullscreen: bool
-    """Native fullscreen at startup. See `Config::fullscreen`."""
-    render_back_face: bool
-    """Draw triangles facing away from the camera.
-
-    Leave it off for closed shape models -- back faces are invisible there, so
-    culling them is free performance. Measured on the full-resolution
-    Didymos/Dimorphos meshes: culled against unculled differs in 5 pixels of
-    1,040,400, all on silhouette edges.
-
-    Turn it on for geometry that is *not* closed -- open craters, clipped
-    sections, single-sided surfaces -- where the inside of the shell must be
-    visible from outside. Note the shading is single-sided regardless: normals
-    are not flipped for back faces, so an underside is lit as though it were the
-    top.
-
-    The shadow pass stays unculled either way, so open geometry still casts
-    correctly from whichever side faces the light.
-    """
-    sensitivity_move: float
-    """Multiplier for WASD movement speed.
-    :range: 0.1..=5.0
-    """
-    sensitivity_look: float
-    """Multiplier for mouse-look speed in WASD mode.
-    :range: 0.1..=5.0
-    """
-    sensitivity_rotate: float
-    """Multiplier for arcball orbit speed.
-    :range: 0.1..=5.0
-    """
-    sensitivity_zoom: float
-    """Multiplier for scroll and pinch zoom speed.
-    :range: 0.1..=5.0
-    """
-    color: list[float]
-    """Flat colour used when `color_mode` is 2, `(r, g, b, a)`."""
-    color_mode: int
-    """What the fragment shader outputs.
-
-    | | |
-    |---|---|
-    | 0 | vertex/instance colour, lit, with shadows (the default) |
-    | 1 | raw vertex/instance colour, no lighting |
-    | 2 | the flat `color` |
-    | 3 | as 0 but with shadows disabled |
-    :range: 0..=3
-    """
-    extra: int
-    """Free integer passed through to the shader, for one-off experiments.
-    :range: 0..=10
-    """
-    srgb_mode: int
-    """0 converts sRGB to linear before shading; 1 treats colours as already
-    linear.
-    :range: 0..=2
-    """
-    gamma: float
-    """Exponent used by the sRGB conversion when `srgb_mode` is 0.
-    :range: 0.1..=4.0
-    """
-    ambient_strength: float
+    ambient: float
     """Light added to every fragment regardless of shadowing.
 
     **Zero by default.** A shadowed facet on an airless body receives
@@ -260,21 +310,22 @@ class Config:
 
     Raise it to see into shadows while navigating; it is the wrong thing
     to have on for anything quantitative.
-    :range: 0.0..=1.0
     """
-    light_color: list[float]
+    color: list[float]
     """Colour of the Sun, `(r, g, b, a)`."""
-    light_cube_scale: float
+    cube_scale: float
     """Size of the debug light cube, in world units.
 
     Only drawn when `debug_light_cube_show` is on.
-    :range: 0.0..=5.0
     """
-    msaa: int
-    """Multisample anti-aliasing on the main pass: 1 (off), 2, 4 or 8.
-    Takes effect when the window is created, so set it before `App.start`.
+
+class ShadowsConfig:
+    """The shadow map and its readback.
+
+    `app.simulation.config.shadows`. Reads and writes the live config
+    through the same handle as every other view of it.
     """
-    shadow_resolution: int
+    resolution: int
     """Side length of each square shadow map, in texels.
 
     The array is always allocated at all 8 layers, so the cost is
@@ -284,24 +335,20 @@ class Config:
 
     It also feeds the automatic bias, which is expressed relative to one texel,
     so changing it changes the shadow bias with it.
-    :range: 512..=16384
     """
-    shadow_bias_scale: float | None
-    """Slope-dependent term of the depth-comparison bias. `None` fits it per
-    frame. Combined in the shader as
-    `max(shadow_bias_scale * k, shadow_bias_minimum)`.
+    pcf: int
+    """Percentage-closer-filtering kernel *radius*: 0 is a single hardware 2x2
+    comparison, N is a `(2N+1)^2` grid averaged.
 
-    See `shadow_normal_offset_scale` for why pinning is discouraged.
-    """
-    shadow_bias_minimum: float | None
-    """Floor on the depth-comparison bias, for surfaces facing the light
-    head-on. `None` fits it per frame.
+    Cost grows quadratically and is per-fragment, so it scales with pixel count:
+    `shadow_pcf = 4` costs +2.5 ms at 800x600 and +7.8 ms at 3024x1964. Benchmark
+    it at the resolution you actually run.
 
-    Measured to be the *ineffective* knob for the crater-floor PCF leak --
-    auto, 1e-4 and 1e-3 all gave identical results, while the normal offset
-    moved it 9x. Reach for that one first.
+    The normal offset scales with this, since an N-radius kernel reaches N texels
+    away and a one-texel offset would let those taps flip. `shadow_pcf = 0` is
+    bit-identical to the pre-scaling behaviour.
     """
-    shadow_normal_offset_scale: float | None
+    normal_offset_scale: float | None
     """Push the sample along the surface normal before the shadow lookup, in
     world units. `None` fits it per frame from the layer's own texel size.
 
@@ -313,109 +360,20 @@ class Config:
     those differ by the ratio of the bodies' sizes -- 403x between Mars and
     Deimos in the same scene.
     """
-    wireframe_mode: int
-    """the barycentrics are meaningless and the CPU side warns once.
-    :range: 0..=2
+    bias_scale: float | None
+    """Slope-dependent term of the depth-comparison bias. `None` fits it per
+    frame. Combined in the shader as
+    `max(shadow_bias_scale * k, shadow_bias_minimum)`.
+
+    See `shadow_normal_offset_scale` for why pinning is discouraged.
     """
-    wireframe_width: float
-    """Wireframe half-width in screen pixels.
-    :range: 0.1..=10.0
-    """
-    wireframe_fade: bool
-    """Fade the wireframe out when facets stop being resolvable. Off by
-    default; `wireframe_mode = 2` only.
-    """
-    wireframe_color: list[float]
-    """Wireframe colour, `(r, g, b, a)`; alpha is dropped.
+    bias_minimum: float | None
+    """Floor on the depth-comparison bias, for surfaces facing the light
+    head-on. `None` fits it per frame.
 
-    Mode 2 blends by edge coverage and is antialiased; mode 1 thresholds instead,
-    because the pipeline blend state is REPLACE and a fractional alpha would be
-    ignored.
-    """
-    gpu_timing: bool
-    """Colour a picked facet takes, `(r, g, b, a)`.
-
-    Applies to the *next* selection: facets already picked keep the colour
-    they were given, because selecting writes it onto their vertices.
-    Time each GPU pass, into `sim.gpu_timings()`.
-
-    Off by default: the queries are nearly free but the readback is not,
-    and nothing needs it unless someone is asking where a frame goes.
-    """
-    occlusion_queries: bool
-    """Count what each body actually drew, with occlusion queries.
-
-    The Visibility panel otherwise reports what the *frustum* can see, so a
-    body wholly behind another still counts. With this on it also reports
-    what put samples on screen. Off by default: it is a readback every
-    frame for a diagnostic.
-
-    A bounding box stands in for its body, so this can call a body visible
-    when only its box is -- conservative in the same direction the frustum
-    test already is.
-    """
-    selection_color: list[float]
-    """Colour a facet takes when it is selected, `(r, g, b, a)`.
-
-    Selecting writes this onto the facet's own vertices and marks them
-    colour-mode 1, which the shader honours for that facet alone -- so a
-    picked facet is unlit and this colour while the rest of the body keeps
-    its shading. Deselecting puts back what was there.
-
-    :group: Selection
-    """
-    shadow_pcf: int
-    """Percentage-closer-filtering kernel *radius*: 0 is a single hardware 2x2
-    comparison, N is a `(2N+1)^2` grid averaged.
-
-    Cost grows quadratically and is per-fragment, so it scales with pixel count:
-    `shadow_pcf = 4` costs +2.5 ms at 800x600 and +7.8 ms at 3024x1964. Benchmark
-    it at the resolution you actually run.
-
-    The normal offset scales with this, since an N-radius kernel reaches N texels
-    away and a one-texel offset would let those taps flip. `shadow_pcf = 0` is
-    bit-identical to the pre-scaling behaviour.
-    :range: 0..=16
-    """
-    vsync: bool
-    """Cap the frame rate to the display refresh.
-
-    **Off by default**, because a capped loop reports the monitor rather
-    than the scene: on a 239 Hz panel the render loop measured exactly
-    239.46 it/s regardless of complexity, which made a 3.1M-facet scene
-    look identical to a 100k one. That trap cost a wrong conclusion once
-    and was worked around by hand in nine scripts, so it is the default
-    that is wrong rather than those scripts.
-
-    The price is that an idle viewer redraws as fast as it can instead of
-    60 times a second. Set `True` when you are looking at a scene rather
-    than timing one.
-    """
-    export_sync: bool
-    """Encode and write each exported frame on the render thread instead of a
-    worker pool.
-
-    Slower, but the file is on disk before the frame returns -- which is what a
-    script needs if it exports and then reads the file immediately.
-    """
-    export_max_queued: int
-    """How many frames may be waiting to be encoded before the render loop blocks.
-
-    Unbounded, this reached 30 GB RSS growing at ~2 GB/s while only ~5.6 frames
-    per second actually reached disk, and the loop still claimed 626 it/s --
-    measuring queue growth rather than work done.
-    :range: 1..=512
-    """
-    emulate_middle_button: bool
-    """Treat alt + left-drag as a middle-drag, so the arcball can be orbited
-    on hardware with no middle button. Blender calls the same setting
-    "Emulate 3 Button Mouse". Defaults on for macOS, where a trackpad is
-    the common case, and off elsewhere.
-    Let `Option`/`Alt` + left-drag stand in for a middle-drag.
-
-    Defaults on for macOS, matching Blender's "Emulate 3 Button Mouse". It exists
-    because a trackpad has no middle button, which once made the arcball
-    completely unusable there.
+    Measured to be the *ineffective* knob for the crater-floor PCF leak --
+    auto, 1e-4 and 1e-3 all gave identical results, while the normal offset
+    moved it 9x. Reach for that one first.
     """
     access_shadow_map: bool
     """Read the shadow map back per facet: computes solar occlusion for every
@@ -431,139 +389,7 @@ class Config:
     Read it back with `sim.facet_shadow(body)` from `after_render`. Leave it off
     unless something consumes it: it is a compute pass and a readback per frame.
     """
-    colorbar: bool
-    """Draw the colour scale. Off by default."""
-    colorbar_anchor: str
-    """Which of the nine anchors the bar sits at.
-
-    Orientation follows: `middle-left`/`middle-right` give a vertical bar,
-    anything else horizontal. Override with `colorbar_vertical`.
-    """
-    colorbar_vertical: bool | None
-    """Force the orientation, or `None` to follow the anchor."""
-    colorbar_label: str
-    """Caption above the bar, e.g. `"Surface temperature (K)"`."""
-    colorbar_length: float
-    """Long axis of the bar, pixels."""
-    colorbar_thickness: float
-    """Short axis of the bar, pixels."""
-    colorbar_x: float
-    """Inset from the anchor, pixels."""
-    colorbar_y: float
-    """Inset from the anchor, pixels."""
-    colorbar_ticks: int
-    """Roughly how many numbered ticks, rounded to a readable step."""
-    colorbar_text_size: float
-    """Tick and caption size in pixels."""
-    colorbar_text_color: list[float]
-    """Tick and caption colour, `(r, g, b, a)`."""
-    colorbar_border: bool
-    """Outline drawn around the strip, so it reads as a scale rather than as
-    part of the scene when it sits over a dark body.
-    """
-    grid: bool
-    """Reference axes: `"off"`, `"box"` (MATLAB), `"panes"` (matplotlib),
-    `"gizmo"` (three labelled arrows at the origin) or `"blender"`
-    Shade the `"blender"` grid instead of drawing it as line segments.
-    """
-    grid_width: float
-    """Width of a grid line, pixels."""
-    grid_major: int
-    """Cells between thick lines."""
-    grid_color: list[float]
-    """Ordinary grid line colour, `(r, g, b, a)`."""
-    grid_major_color: list[float]
-    """Thick line colour."""
-    grid_axis_x_color: list[float]
-    """The X axis line drawn over the grid."""
-    grid_axis_y_color: list[float]
-    """The Y axis line drawn over the grid."""
-    grid_axis_z_color: list[float]
-    """The Z axis line drawn over the grid, in the plane views that have one."""
-    grid_fade_near: float
-    """Where the fade to nothing begins, as a fraction of the far plane."""
-    grid_fade_far: float
-    """Where it reaches nothing."""
-    axes: str
-    """(ground grid, Z line and gizmo)."""
-    gizmo_anchor: str
-    """Which corner the navigation gizmo sits in: any of the nine HUD
-    anchor names.
-    """
-    gizmo_size: float
-    """Half the navigation gizmo's width, in pixels."""
-    axes_color: list[float]
-    """Colour of the axis lines and grid, `(r, g, b)`."""
-    axes_ticks: int
-    """Roughly how many ticks per axis.
-
-    Approximate on purpose: the step is rounded to 1, 2 or 5 times a power
-    of ten, so the count lands near this rather than on it. Ticks at
-    0.0347 would hit the number exactly and be unreadable.
-    """
-    axes_unit: str
-    """Appended to every tick label, e.g. `" km"`.
-
-    The renderer knows the mesh is 0.437 across but not whether that is
-    metres or kilometres, so the unit has to come from here.
-    """
-    axes_label_size: float
-    """Tick label size in pixels."""
-    facet_labels: bool
-    """Draw each facet's index at its centre.
-
-    For working out which facet a number in a data product refers to.
-    Capped by `facet_labels_max`, and only facets turned towards the
-    camera are labelled -- the text has no depth test, so labelling the
-    far side would print numbers over the surface hiding them.
-    """
-    facet_labels_max: int
-    """Most facets to label before giving up, per body. A guard: a label is a
-    text draw, and a shape model has millions of facets.
-    """
-    facet_label_size: float
-    """Facet label size, in pixels."""
-    facet_label_color: list[float]
-    """Facet label colour, `(r, g, b, a)`."""
-    axes_label_color: list[float]
-    """Tick label colour, `(r, g, b, a)`."""
-    value_min: float | None
-    """Bottom of the colour scale, or `None` to fit the data each frame.
-
-    **Pin it for anything comparative.** An automatic range rescales
-    between frames, so two images of the same scene are not on the same
-    scale and the difference reads as physics rather than bookkeeping.
-    """
-    value_max: float | None
-    """Top of the colour scale, or `None` to fit the data. See `value_min`."""
-    colormap: numpy.ndarray
-    """Colour lookup table: a built-in name or an Nx3 array of RGB in 0..1.
-
-    `"viridis"`, `"inferno"`, `"turbo"`, `"grey"`, or any matplotlib
-    colormap passed straight through:
-
-    ```python
-    app.config.colormap = matplotlib.colormaps["magma"](numpy.linspace(0, 1, 256))[:, :3]
-    ```
-
-    Resampled to 256 entries, so any length works.
-    The colour table in use, as a 256x3 array.
-    """
-    export_hud: bool
-    """Burn the HUD text into exported frames as well as drawing it on screen.
-
-    Off by default, and that is the right default for a data product: the
-    HUD is drawn onto the swapchain after the scene has been copied out, so
-    exports carry the render alone. Turn it on for a screen-capture-style
-    movie where the run state should be visible in the frames themselves --
-    it costs one extra text pass, on exported frames only.
-    Burn the HUD text into exported frames as well as the window.
-
-    Off by default: the HUD is drawn straight onto the swapchain after the blit,
-    so it stays out of `render_texture` and therefore out of exports. Turning it
-    on adds a separate pass that draws it into the exported image too.
-    """
-    shadow_per_body: bool
+    per_body: bool
     """Fit a shadow map per body instead of one fitted to the whole scene.
 
     On by default, because one shared map is fitted to the scene's extent
@@ -577,7 +403,288 @@ class Config:
     scene-fitted map back, which is only worth doing to reproduce older
     output or when every body is a similar size.
     """
-    export_dir: str
+
+class WireframeConfig:
+    """Facet edges drawn over or instead of the surface.
+
+    `app.simulation.config.wireframe`. Reads and writes the live config
+    through the same handle as every other view of it.
+    """
+    mode: int
+    """the barycentrics are meaningless and the CPU side warns once."""
+    color: list[float]
+    """Wireframe colour, `(r, g, b, a)`; alpha is dropped.
+
+    Mode 2 blends by edge coverage and is antialiased; mode 1 thresholds instead,
+    because the pipeline blend state is REPLACE and a fractional alpha would be
+    ignored.
+    """
+    width: float
+    """Wireframe half-width in screen pixels."""
+    fade: bool
+    """Fade the wireframe out as a body recedes far enough that its facets
+    stop being resolvable. **Off by default.**
+
+    Past about a pixel per facet the three edges cover the whole triangle,
+    so the mesh reads as a sheet of wireframe colour -- a shadowed body at
+    distance comes out grey rather than black, which is the wireframe
+    overwriting the shading rather than drawing the mesh. This fades it out
+    between 4 px and 1 px facets instead.
+
+    Distance only: the measure is the facet's *largest* screen height, so
+    tilt does not trigger it and the limb of a sphere keeps its wireframe.
+
+    Only applies to `wireframe_mode = 2`, where there is a shaded surface
+    underneath to fade into. Mode 1 is wireframe alone and would simply
+    vanish.
+    """
+
+class SelectionConfig:
+    """The picked facet and the facet labels.
+
+    `app.simulation.config.selection`. Reads and writes the live config
+    through the same handle as every other view of it.
+    """
+    labels: bool
+    """0 shaded only, 1 wireframe only, 2 wireframe over the shaded mesh.
+
+    Barycentric edge detection in the main fragment shader, so the overlay
+    cannot z-fight. Needs a flattened mesh -- indexed meshes share vertices, so
+    Draw each facet's index at its centre.
+
+    For working out *which* facet a number in a data product refers to,
+    without counting round a mesh by hand. Off by default, and capped by
+    `facet_labels_max`: a label per facet is a text draw per facet, and a
+    shape model has millions of them.
+
+    Only facets turned towards the camera are labelled. The text has no
+    depth test -- it is drawn over the frame -- so labelling the far side
+    of a body would print numbers on top of the surface hiding them. On a
+    concave shape, a facet behind another that faces the same way can
+    still show through.
+    """
+    labels_max: int
+    """Most facets to label before giving up, per body.
+
+    A guard rather than a preference: turning labels on with a 3.1M-facet
+    body would queue three million text draws and stop the frame dead.
+    """
+    label_size: float
+    """Size of a facet label, in pixels."""
+    label_color: list[float]
+    """Colour of a facet label, `(r, g, b, a)`."""
+    color: list[float]
+    """Colour a facet takes when it is selected, `(r, g, b, a)`.
+
+    Selecting writes this onto the facet's own vertices and marks them
+    colour-mode 1, which the shader honours for that facet alone -- so a
+    picked facet is unlit and this colour while the rest of the body keeps
+    its shading. Deselecting puts back what was there.
+    """
+
+class DataConfig:
+    """Colouring facets from per-facet values.
+
+    `app.simulation.config.data`. Reads and writes the live config
+    through the same handle as every other view of it.
+    """
+    colormap: numpy.ndarray
+    """Colour lookup table: a built-in name or an Nx3 array of RGB in 0..1.
+
+    `"viridis"`, `"inferno"`, `"turbo"`, `"grey"`, or any matplotlib
+    colormap passed straight through:
+
+    ```python
+    app.config.colormap = matplotlib.colormaps["magma"](numpy.linspace(0, 1, 256))[:, :3]
+    ```
+
+    Resampled to 256 entries, so any length works.
+    The colour table in use, as a 256x3 array.
+    """
+    value_min: float | None
+    """Range the colormap spans, or `None` to fit the loaded values each
+    frame.
+
+    Automatic is the sane default for exploring, but pin it for anything
+    comparative: an auto range silently rescales between frames, so two
+    images of the same scene are not on the same colour scale and the
+    difference between them reads as physics rather than as bookkeeping.
+    """
+    value_max: float | None
+
+class ColorbarConfig:
+    """The colour scale drawn for `data`.
+
+    `app.simulation.config.colorbar`. Reads and writes the live config
+    through the same handle as every other view of it.
+    """
+    enabled: bool
+    anchor: str
+    x: float
+    """Inset from the anchor, pixels."""
+    y: float
+    length: float
+    """Long and short axis of the bar, pixels."""
+    thickness: float
+    vertical: bool | None
+    """`None` infers from the anchor."""
+    label: str
+    """Caption, e.g. `"Surface temperature (K)"`."""
+    ticks: int
+    """Roughly how many numbered ticks; rounded to a readable step as the axes
+    are.
+    """
+    text_size: float
+    text_color: list[float]
+    border: bool
+    """Outline drawn around the strip, so it reads as a scale rather than as
+    part of the scene when it sits over a dark body.
+    """
+
+class AxesConfig:
+    """Reference axes, tick labels and the navigation gizmo.
+
+    `app.simulation.config.axes`. Reads and writes the live config
+    through the same handle as every other view of it.
+    """
+    style: str
+    """Reference axes drawn around the scene.
+
+    `"off"`, `"box"` (MATLAB), `"panes"` (matplotlib), `"gizmo"` (three
+    labelled arrows at the origin), `"blender"` (ground grid, Z line and
+    gizmo). A rendered body alone carries no scale or orientation; these
+    supply both.
+    """
+    color: list[float]
+    """Colour of the axis lines and grid."""
+    ticks: int
+    """Roughly how many ticks per axis. The step is rounded to 1, 2 or 5
+    times a power of ten first, so the count lands near this rather than
+    on it -- a figure with ticks at 0.0347 is unreadable.
+    """
+    unit: str
+    """Appended to every tick label, e.g. `" km"`.
+
+    The renderer knows the mesh is 0.437 across but not whether that is
+    metres or kilometres, so the unit has to come from the script.
+    """
+    label_size: float
+    """Tick label size in pixels, and their colour."""
+    label_color: list[float]
+    gizmo_anchor: str
+    """Which corner the navigation gizmo sits in. Any of the nine HUD
+    anchors, so it can be moved out of the way of a colour bar or a HUD.
+
+    Drawn by the `"gizmo"` and `"blender"` axes styles and by no other.
+    """
+    gizmo_size: float
+    """Half the widget's width, in pixels: a ball centre never sits further
+    than this from the middle.
+
+    The gizmo's only size knob. Letter height follows it
+    ([`crate::app::gizmo::label_size`]), the margin to the image edge is
+    fixed at 20 px, and the letters are black -- each of those was settable
+    once and none of them was worth setting: a letter is sized and coloured
+    by the ball it sits on, so the pair could only ever agree or disagree.
+    """
+
+class GridConfig:
+    """The shaded ground grid of the `blender` axes style.
+
+    `app.simulation.config.grid`. Reads and writes the live config
+    through the same handle as every other view of it.
+    """
+    enabled: bool
+    """Shade the `"blender"` style's ground grid instead of drawing it as
+    line segments. On by default; `False` restores the segments.
+
+    The segments end at the scene bounds, sit at one spacing, and are one
+    pixel wide because WebGPU has no line width. This computes the grid
+    per pixel instead: it has no edge, it crossfades between decades as
+    you zoom -- which is what lets one grid serve a unit cube and a body
+    1e4 km away -- and its lines antialias themselves.
+    """
+    width: float
+    """Width of a grid line, in pixels."""
+    major: int
+    """Cells between thick lines, and the factor between the levels the
+    crossfade steps through -- the same number seen from two sides.
+    """
+    color: list[float]
+    """Colour of the ordinary lines, `(r, g, b, a)`."""
+    major_color: list[float]
+    """Colour of every `grid_major`-th line."""
+    axis_x_color: list[float]
+    """The axis lines, drawn over the grid so the origin reads without
+    hunting for it. Two of the three are in the grid's plane and get
+    drawn; which two depends on which plane that is.
+    """
+    axis_y_color: list[float]
+    axis_z_color: list[float]
+    fade_near: float
+    """Fade the grid out between these grazing factors: `0.0` is looking
+    straight down at the ground plane and `1.0` is looking along it.
+    Without it the horizon is a hard line of aliasing.
+
+    On the angle rather than the distance because the plane is infinite:
+    what bounds it on screen is the horizon, not the far plane, so a
+    distance fade never reaches its ramp.
+    """
+    fade_far: float
+
+class HudConfig:
+    """The text overlays.
+
+    `app.simulation.config.hud`. Reads and writes the live config
+    through the same handle as every other view of it.
+    """
+    font: str
+    """Font for the HUD: a **name** or a **path**, or empty for the built-in
+    DejaVu Sans.
+
+    `"Arial"`, `"arial"`, `"Times New Roman"` and
+    `"/Library/Fonts/Arial.ttf"` all work. Anything that exists on disk is
+    treated as a path; anything else is looked up by name in the
+    platform's font directories.
+
+    **Matching is on the filename, not the family name inside the font.**
+    Reading real family names needs a font-database dependency, which an
+    overlay does not justify; filenames cover the names people type. A
+    family whose file is named differently -- "Helvetica Neue" living in
+    `HelveticaNeue.ttc` -- resolves, since punctuation and case are
+    ignored, but one named nothing like its family will not.
+
+    One font for all HUDs: each additional font needs its own glyph cache
+    and draw, and per-HUD fonts are not worth that for an overlay. Per-HUD
+    *size* is free by comparison and lives on `Hud::size`.
+
+    A path that cannot be read or parsed warns once and falls back to the
+    built-in font, rather than leaving the run with no HUD at all.
+
+    Startup only: the glyph cache is built with the window.
+    """
+
+class ExportConfig:
+    """Frame export.
+
+    `app.simulation.config.export`. Reads and writes the live config
+    through the same handle as every other view of it.
+    """
+    sync: bool
+    """Encode and write each exported frame on the render thread instead of a
+    worker pool.
+
+    Slower, but the file is on disk before the frame returns -- which is what a
+    script needs if it exports and then reads the file immediately.
+    """
+    max_queued: int
+    """How many frames may be waiting to be encoded before the render loop blocks.
+
+    Unbounded, this reached 30 GB RSS growing at ~2 GB/s while only ~5.6 frames
+    per second actually reached disk, and the loop still claimed 626 it/s --
+    measuring queue growth rather than work done.
+    """
+    dir: str
     """Directory exported frames are written to, as `{export_dir}/{N:06}.png`.
 
     **Redirect this for any test or benchmark run.** The default is shared, so a
@@ -585,4 +692,116 @@ class Config:
     exporters pointed at one directory race on the startup index scan as well as
     on cleanup.
     """
+    hud: bool
+    """Burn the HUD text into exported frames as well as drawing it on screen.
+
+    Off by default, and that is the right default for a data product: the
+    HUD is drawn onto the swapchain after the scene has been copied out, so
+    exports carry the render alone. Turn it on for a screen-capture-style
+    movie where the run state should be visible in the frames themselves --
+    it costs one extra text pass, on exported frames only.
+    Burn the HUD text into exported frames as well as the window.
+
+    Off by default: the HUD is drawn straight onto the swapchain after the blit,
+    so it stays out of `render_texture` and therefore out of exports. Turning it
+    on adds a separate pass that draws it into the exported image too.
+    """
+
+class ControlsConfig:
+    """Mouse and keyboard sensitivities.
+
+    `app.simulation.config.controls`. Reads and writes the live config
+    through the same handle as every other view of it.
+    """
+    sensitivity_move: float
+    """Multiplier for WASD movement speed."""
+    sensitivity_look: float
+    """Multiplier for mouse-look speed in WASD mode."""
+    sensitivity_rotate: float
+    """Multiplier for arcball orbit speed."""
+    sensitivity_zoom: float
+    """Multiplier for scroll and pinch zoom speed."""
+    emulate_middle_button: bool
+    """Treat alt + left-drag as a middle-drag, so the arcball can be orbited
+    on hardware with no middle button. Blender calls the same setting
+    "Emulate 3 Button Mouse". Defaults on for macOS, where a trackpad is
+    the common case, and off elsewhere.
+    Let `Option`/`Alt` + left-drag stand in for a middle-drag.
+
+    Defaults on for macOS, matching Blender's "Emulate 3 Button Mouse". It exists
+    because a trackpad has no middle button, which once made the arcball
+    completely unusable there.
+    """
+
+class ImageConfig:
+    """The size of the image being rendered, as distinct from the window.
+
+    `app.simulation.config.image`. Reads and writes the live config
+    through the same handle as every other view of it.
+    """
+    width: int
+    """Render size in physical pixels -- the *image*, not the window.
+
+    `0` means "follow the window", which is what a terminal run wants and
+    what every script got when there was only one pair of these. Set it to
+    pin the render independently: a 4K export from a small window, or a
+    fixed frame size while the editor's viewport panel is dragged about.
+
+    Everything about the image follows this -- the camera's aspect ratio,
+    where axis ticks project, where the colour bar sits, and what an
+    exported frame measures.
+    """
+    height: int
+
+class DebugConfig:
+    """Diagnostics and console output.
+
+    `app.simulation.config.debug`. Reads and writes the live config
+    through the same handle as every other view of it.
+    """
+    app: bool
+    """Print app lifecycle events: pause and camera-mode changes."""
+    window: bool
+    """Print window and GPU setup: chosen surface format, adapter and device
+    features, and **the present modes the surface supports**.
+
+    Worth enabling once on any new machine -- it is how the vsync cap that
+    invalidated a whole benchmark was identified.
+    """
+    window_mesh: bool
+    """Print per-mesh detail as meshes are uploaded."""
+    simulation: bool
+    """**Does nothing.** The field exists and is settable from Python, but no code
+    reads it. Left as a placeholder.
+    """
+    gpu_timing: bool
+    """Time each GPU pass with timestamp queries, into `sim.gpu_timings()`.
+
+    Off by default: the queries themselves are nearly free, but reading them
+    back costs a buffer map per frame, and nothing needs it unless someone is
+    asking where a frame goes. Silently inert where the adapter has no
+    `TIMESTAMP_QUERY` -- `sim.gpu_timings()` returns an empty dict there.
+
+    Draw the shadow/depth map as an overlay instead of leaving it offscreen.
+
+    Only mirrors the main pass's depth at `msaa = 1`; above that the pass writes
+    its own multisampled depth buffer and the debug view is not it.
+    """
+    occlusion_queries: bool
+    """Count what each body actually drew, with occlusion queries.
+
+    The Visibility panel otherwise tests bounding boxes against the
+    frustum, so "visible" means "could be seen", and a body wholly behind
+    another still counts. This draws each body's box after the scene, with
+    the depth test on and depth writes off, and asks the GPU how many
+    samples survived. Zero means it put nothing on screen.
+
+    Off by default: it costs a readback every frame, for a diagnostic.
+    A box is a conservative stand-in for its body, so this can still call
+    a body visible when only its box is -- the same direction the frustum
+    test errs in.
+    """
+    depth_show: bool
+    extra: int
+    """Free integer passed through to the shader, for one-off experiments."""
 

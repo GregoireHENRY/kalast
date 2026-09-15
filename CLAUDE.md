@@ -258,7 +258,7 @@ window was covered.
 
 ## Python type stubs
 
-Editors cannot complete a compiled extension: `app.config.<tab>` offers
+Editors cannot complete a compiled extension: `app.simulation.config.grid.<tab>` offers
 nothing unless a `.pyi` says what is there. The stubs under `kalast/**.pyi`
 are **generated from the Rust source**, not hand-written:
 
@@ -291,6 +291,15 @@ produces, *and* every field must appear in it. The second catches the case
 that matters -- a new option with no widget is invisible, because the panel
 still looks complete.
 
+**The struct's nesting is the grouping.** `Config` is a struct of sub-structs
+-- `shading`, `light`, `shadows`, `grid`, ... -- and the generator emits one
+function per group. There is no prefix table and no `:group:` marker: to move
+a field between headers, move it between structs, and the panel, the Python
+surface and the docs all follow. `src/app/gui/simulation_panel.rs` composes
+those functions under topic headers by hand, each beside the entity it
+describes -- the Sun's position and the Sun's colour under one header. Which
+groups share a header is decided there and nowhere else.
+
 The Rust doc comments carry what the type cannot:
 
 | marker | effect |
@@ -298,34 +307,44 @@ The Rust doc comments carry what the type cannot:
 | `/// :range: 0..=16` | a slider with those bounds instead of a drag field |
 | `/// :step: 0.01` | drag speed |
 | `/// :skip:` | no widget; for things edited from a script, like `colormap` |
-| `/// :group: Shadows` | override which collapsing header it lands in |
+| `/// :py_custom:` | no generated Python accessor; see the next section |
 
 Otherwise the widget follows the type, and the first sentence of the doc
 becomes the hover text -- so documenting a field in Rust documents it in the
 UI.
 
-## The Python getters, which are *not* generated
+## The Python getters, generated too -- and the trap that made them so
 
-The panel and the stubs are generated; the `#[getter]`/`#[setter]` pair in
-`src/py/app/config.rs` is written by hand. So a new field can be complete
-everywhere -- widget in the editor, line in the `.pyi` -- and still raise
-`AttributeError` from a script, and the stubs cannot catch it because they
-are generated *from* the wrapper and agree with it that the field does not
-exist.
+The `#[getter]`/`#[setter]` pairs were the one mirror of the config still
+written by hand, and it showed: a field could be complete everywhere -- widget
+in the editor, line in the `.pyi` -- and still raise `AttributeError` from a
+script, which the stubs cannot catch because they are generated *from* the
+wrapper. That bit four times (`debug_light_cube_fit`, `facet_labels`,
+`selection_color`, `colorbar_border`). Since 15 September:
 
 ```sh
-python tests/test_config_bindings.py    # after adding a field to Config
+python tools/gen_bindings.py            # after adding a field to Config
+python tests/test_config_bindings.py    # every field reachable and writable
 ```
 
-It checks `dir()` on a real `Config` against the Rust struct, and that every
-bound field also has a setter. Written after this bit four times:
-`debug_light_cube_fit`, `facet_labels`, `selection_color` (documented in
-`CONFIG.md` as if usable, never bound) and `colorbar_border` (a widget in the
-editor, nothing in Python).
+`src/py/app/config_gen.rs` holds one view class per group, each carrying the
+same `Rc<RefCell<Config>>` as the root and reading its own group through it.
+**That indirection is why these are generated rather than being
+`#[pyclass(get_all)]` on the sub-structs**: a `get_all` getter hands Python a
+*copy*, so `config.grid.color = ...` on a copy sets nothing, silently. Every
+accessor has to go through the shared handle, which is a page of identical
+code per group -- exactly the thing to generate.
 
-`Colorbar` has no Python object of its own -- its fields are flattened onto
-`Config` as `colorbar_*`, with `enabled` as plain `colorbar` -- and the test
-knows that mapping.
+A field with real logic opts out with `/// :py_custom:` and is written by hand
+in `src/py/app/config.rs` -- today only `data.colormap`, which parses names
+and arrays. `tests/test_config_bindings.py` still checks those, since a
+forgotten hand-written accessor is the old bug back.
+
+Old flat names -- `config.grid_color`, `config.vsync` -- keep working for one
+release through a `__getattr__`/`__setattr__` shim on the root, generated from
+`tools/config_renames.py`, with a `DeprecationWarning` naming the new path.
+Three that moved to `app.config` (`title`, `fullscreen`, `vsync`) raise an
+error saying so instead.
 
 ## Notes
 

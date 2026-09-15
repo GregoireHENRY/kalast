@@ -325,22 +325,22 @@ struct Realised {
 impl Realised {
     fn of(c: &crate::app::config::Config, a: &crate::app::config::AppConfig) -> Self {
         Self {
-            title: c.title.clone(),
+            title: a.title.clone(),
             // The window from the app config, the image from the
             // simulation's -- two different questions since the editor made
             // them two different sizes.
             width: a.width,
             height: a.height,
-            render: (c.width, c.height),
-            fullscreen: c.fullscreen,
-            vsync: c.vsync,
-            msaa: c.msaa,
-            render_back_face: c.render_back_face,
-            shadow_resolution: c.shadow_resolution,
-            hud_font: c.hud_font.clone(),
-            export_dir: c.export_dir.clone(),
-            export_sync: c.export_sync,
-            export_max_queued: c.export_max_queued,
+            render: (c.image.width, c.image.height),
+            fullscreen: a.fullscreen,
+            vsync: a.vsync,
+            msaa: c.shading.msaa,
+            render_back_face: c.shading.render_back_face,
+            shadow_resolution: c.shadows.resolution,
+            hud_font: c.hud.font.clone(),
+            export_dir: c.export.dir.clone(),
+            export_sync: c.export.sync,
+            export_max_queued: c.export.max_queued,
         }
     }
 
@@ -353,17 +353,17 @@ impl Realised {
     fn matches(&self, c: &crate::app::config::Config, a: &crate::app::config::AppConfig) -> bool {
         self.width == a.width
             && self.height == a.height
-            && self.render == (c.width, c.height)
-            && self.fullscreen == c.fullscreen
-            && self.vsync == c.vsync
-            && self.msaa == c.msaa
-            && self.render_back_face == c.render_back_face
-            && self.shadow_resolution == c.shadow_resolution
-            && self.export_sync == c.export_sync
-            && self.export_max_queued == c.export_max_queued
-            && self.title == c.title
-            && self.hud_font == c.hud_font
-            && self.export_dir == c.export_dir
+            && self.render == (c.image.width, c.image.height)
+            && self.fullscreen == a.fullscreen
+            && self.vsync == a.vsync
+            && self.msaa == c.shading.msaa
+            && self.render_back_face == c.shading.render_back_face
+            && self.shadow_resolution == c.shadows.resolution
+            && self.export_sync == c.export.sync
+            && self.export_max_queued == c.export.max_queued
+            && self.title == a.title
+            && self.hud_font == c.hud.font
+            && self.export_dir == c.export.dir
     }
 }
 
@@ -510,7 +510,7 @@ pub(crate) fn expand_hud(
             "n_offframe" => out.push_str(&diag.out_side.to_string()),
 
             // GPU time, from timestamp queries. Zero unless
-            // `config.gpu_timing` is on, and one frame behind by
+            // `config.debug.gpu_timing` is on, and one frame behind by
             // construction -- see `app::gpu_timing`.
             //
             // Two decimals by default, not the one `{ms}` uses: a pass often
@@ -570,10 +570,10 @@ impl App {
         let controller = {
             let c = config_rc.borrow();
             frame::Controller::new(
-                c.sensitivity_move,
-                c.sensitivity_look,
-                c.sensitivity_rotate,
-                c.sensitivity_zoom,
+                c.controls.sensitivity_move,
+                c.controls.sensitivity_look,
+                c.controls.sensitivity_rotate,
+                c.controls.sensitivity_zoom,
             )
         };
 
@@ -841,7 +841,7 @@ impl App {
             let zoomed = crate::app::macos::is_zoomed(&win.window);
             if zoomed && !self.zoomed {
                 crate::app::macos::unzoom(&win.window);
-                let cfg = self.sim_config();
+                let cfg = self.config.clone();
                 let want = !cfg.borrow().fullscreen;
                 cfg.borrow_mut().fullscreen = want;
             }
@@ -853,11 +853,11 @@ impl App {
         {
             let c = self.sim_config();
             let c = c.borrow();
-            self.controller.sensitivity_move = c.sensitivity_move;
-            self.controller.sensitivity_look = c.sensitivity_look;
-            self.controller.sensitivity_rotate = c.sensitivity_rotate;
-            self.controller.sensitivity_zoom = c.sensitivity_zoom;
-            self.controller.emulate_middle_button = c.emulate_middle_button;
+            self.controller.sensitivity_move = c.controls.sensitivity_move;
+            self.controller.sensitivity_look = c.controls.sensitivity_look;
+            self.controller.sensitivity_rotate = c.controls.sensitivity_rotate;
+            self.controller.sensitivity_zoom = c.controls.sensitivity_zoom;
+            self.controller.emulate_middle_button = c.controls.emulate_middle_button;
         }
 
         // Cloned so the config is not borrowed while `self.window` is held
@@ -1200,7 +1200,7 @@ impl App {
     /// `editor_tick` is: a caller driving the loop itself still needs it.
     pub fn editor_start(&mut self, args: &[String]) {
         self.config.borrow_mut().editor = true;
-        self.sim_config().borrow_mut().title = "kalast".to_string();
+        self.config.borrow_mut().title = "kalast".to_string();
 
         let mut opened_python = false;
         let mut opened_rust: Option<String> = None;
@@ -1545,7 +1545,7 @@ impl App {
 
         let color = {
             let c = self.sim_config();
-            let c = c.borrow().selection_color;
+            let c = c.borrow().selection.color;
             crate::Vec3::new(c.r as Float, c.g as Float, c.b as Float)
         };
         let now_selected = self
@@ -1671,11 +1671,11 @@ impl App {
     pub fn apply_config_at_start(&mut self) {
         let c = self.sim_config();
         let c = c.borrow();
-        self.controller.sensitivity_move = c.sensitivity_move;
-        self.controller.sensitivity_look = c.sensitivity_look;
-        self.controller.sensitivity_rotate = c.sensitivity_rotate;
-        self.controller.sensitivity_zoom = c.sensitivity_zoom;
-        self.controller.emulate_middle_button = c.emulate_middle_button;
+        self.controller.sensitivity_move = c.controls.sensitivity_move;
+        self.controller.sensitivity_look = c.controls.sensitivity_look;
+        self.controller.sensitivity_rotate = c.controls.sensitivity_rotate;
+        self.controller.sensitivity_zoom = c.controls.sensitivity_zoom;
+        self.controller.emulate_middle_button = c.controls.emulate_middle_button;
     }
 
     /// Runs before each frame is drawn. Named for when it runs, to pair with
@@ -1862,7 +1862,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
         let mut attrs = winit::window::Window::default_attributes()
             .with_inner_size(size)
             .with_active(!background)
-            .with_title(&self.sim_config().borrow().title);
+            .with_title(&self.config.borrow().title);
 
         // Centre on *one* monitor, not on the desktop. Left to the window
         // manager, a window on a multi-monitor desktop is centred on the
@@ -1889,7 +1889,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
         #[cfg(target_os = "macos")]
         crate::app::macos::disable_native_fullscreen(&win);
 
-        if self.sim_config().borrow().fullscreen {
+        if self.config.borrow().fullscreen {
             set_window_fullscreen(&win, true);
         }
 
@@ -1898,6 +1898,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
             ev.owned_display_handle(),
             win.clone(),
             &sim_cfg.borrow(),
+            &self.config.borrow(),
             &self.simulation.borrow(),
         )));
 
@@ -2037,7 +2038,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     win.window.request_redraw();
 
                     if !win.is_surface_configured {
-                        if self.sim_config().borrow().debug_window {
+                        if self.sim_config().borrow().debug.window {
                             println!("[WINDOW] surface is not configured yet")
                         }
                         return;
@@ -2183,13 +2184,13 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     // geometry, so a query here answers for the scene
                     // before_render just set up.
                     let one_off = sim.facet_shadow_request.take();
-                    if sim_cfg.borrow().access_shadow_map || one_off.is_some() {
+                    if sim_cfg.borrow().shadows.access_shadow_map || one_off.is_some() {
                         let n = sim.bodies.len();
                         sim.facet_shadow_result.resize(n, vec![]);
 
                         for body in 0..n {
                             let wanted =
-                                sim_cfg.borrow().access_shadow_map || one_off == Some(body);
+                                sim_cfg.borrow().shadows.access_shadow_map || one_off == Some(body);
                             if wanted {
                                 sim.facet_shadow_result[body] =
                                     win.facet_shadow_fractions(body);
@@ -2266,7 +2267,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     // the config borrowed mutably for the length of the
                     // statement, and a shared borrow taken inside it would
                     // still be alive when that one is taken.
-                    let gpu_timing = sim_cfg.borrow().gpu_timing;
+                    let gpu_timing = sim_cfg.borrow().debug.gpu_timing;
                     let wanted = {
                         let mut sim = self.simulation.borrow_mut();
                         editor.draw(
@@ -2362,7 +2363,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     }
                     (winit::keyboard::KeyCode::KeyP, true) => {
                         let pause = self.simulation.borrow_mut().state.toggle_pause();
-                        if self.sim_config().borrow().debug_app {
+                        if self.sim_config().borrow().debug.app {
                             println!("[APP] Simulation paused={}", pause);
                         }
                     }
@@ -2377,7 +2378,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     {
                         let want = !self.config.borrow().focus;
                         self.config.borrow_mut().focus = want;
-                        if self.sim_config().borrow().debug_app {
+                        if self.sim_config().borrow().debug.app {
                             println!("[APP] Focus mode={want}");
                         }
                     }
@@ -2386,7 +2387,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     // simple fullscreen hides the title bar, and with it the
                     // green button that got you there.
                     (winit::keyboard::KeyCode::KeyF, true) => {
-                        let cfg = self.sim_config();
+                        let cfg = self.config.clone();
                         let want = !cfg.borrow().fullscreen;
                         cfg.borrow_mut().fullscreen = want;
                     }
@@ -2407,7 +2408,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         // switch camera type
                         self.simulation.borrow_mut().camera.control.toggle();
                         let control = self.simulation.borrow().camera.control;
-                        if self.sim_config().borrow().debug_app {
+                        if self.sim_config().borrow().debug.app {
                             println!("[APP] Camera control changed, now is {:?}", control);
                         }
                         match control {

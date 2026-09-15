@@ -65,7 +65,7 @@ app.start()                   # blocks until the window closes
 | `app.running` | whether the window is still open |
 
 Two configs, and `width`/`height` exist on both without meaning the same
-thing: `app.config.width` is the OS window, `app.simulation.config.width` is
+thing: `app.config.width` is the OS window, `app.simulation.config.image.width` is
 the image inside it and defaults to following the window. See the top of
 `CONFIG.md`.
 
@@ -82,7 +82,7 @@ instead.
 ```python
 def before_render(sim: Simulation, dt: float) -> None:
     sim = app.simulation          # the scene
-    app.simulation.config.colorbar = True    # settings, changeable per frame
+    app.simulation.config.colorbar.enabled = True    # settings, changeable per frame
 ```
 
 They receive the **simulation**, which carries its own config, so a frame can
@@ -516,7 +516,7 @@ nothing existing changes. Pick one per script; there is no reason to mix.
 
 A little more than `start()`, consistently, and not by much.
 
-400 frames a run, release, `vsync = False`, on the 2048-facet crater, the two
+400 frames a run, release, `app.config.vsync = False`, on the 2048-facet crater, the two
 modes run back to back so each pair meets the same machine conditions. Medians
 of per-frame time, the quiet pairs:
 
@@ -580,7 +580,7 @@ Each `Hud` carries:
 | `anchor` | which corner `x`/`y` are measured from |
 | `x`, `y` | inset from the anchor, in pixels |
 | `size` | font size in pixels |
-| `color` | `(r, g, b, a)`, each 0–1 |
+| `shading.color` | `(r, g, b, a)`, each 0–1 |
 
 All of them are editable in the editor's HUDs section, which can also add and
 remove HUDs.
@@ -796,20 +796,20 @@ One float per facet, in `Mesh.facets` order:
 
 ```python
 sim.bodies[0].mesh.values = temperatures      # numpy array, one per facet
-app.simulation.config.color_mode = 1                     # unlit: this *is* the data map
-app.simulation.config.colormap = "inferno"
-app.simulation.config.value_min, app.simulation.config.value_max = 90.0, 290.0
+app.simulation.config.shading.color_mode = 1                     # unlit: this *is* the data map
+app.simulation.config.data.colormap = "inferno"
+app.simulation.config.data.value_min, app.simulation.config.data.value_max = 90.0, 290.0
 ```
 
 Assigning marks the mesh dirty, so the change reaches the GPU on the next
 frame with no separate call.
 
-**Pin `value_min`/`value_max` for anything comparative.** Left automatic the
+**Pin `data.value_min`/`data.value_max` for anything comparative.** Left automatic the
 range refits every frame, so two images of the same scene sit on different
 colour scales and the difference between them reads as physics rather than as
 bookkeeping.
 
-`color_mode = 1` is what shows them: the unlit mode *is* the data map for any
+`shading.color_mode = 1` is what shows them: the unlit mode *is* the data map for any
 mesh carrying values, and a mesh without values falls back to its vertex
 colours. There is no separate switch, because unlit is what a quantitative
 figure wants anyway — shading a data map makes one value read as two colours.
@@ -823,8 +823,8 @@ The colour bar follows the same setting; see `CONFIG.md`.
 | `sim.export_once()` | export the next frame only |
 | `sim.toggle_export()` | flip continuous export |
 
-Destination and behaviour are config: `export_dir`, `export_sync`,
-`export_max_queued`, `export_hud`. **Redirect `export_dir` for any test run** —
+Destination and behaviour are config: `export.dir`, `export.sync`,
+`export.max_queued`, `export.hud`. **Redirect `export.dir` for any test run** —
 the default `out/frames` is shared, and two exporters pointed at one directory
 race. See CLAUDE.md.
 
@@ -843,7 +843,7 @@ frac = sim.facet_shadow(body)       # after_render -> array or None
 One entry per facet in `Mesh.facets` order: `0.0` nothing in the way, `1.0`
 fully blocked, quarter steps between (4 samples per facet).
 
-Set `config.access_shadow_map = True` to have every body computed every frame
+Set `config.shadows.access_shadow_map = True` to have every body computed every frame
 instead of requesting per body.
 
 **`1.0 - frac` is not the lit fraction**, which is what it looks like and what
@@ -865,7 +865,7 @@ mean = float(illum.mean())               # and how much, on average
 
 `max(0, cos i) * (1 - occluded)`, one entry per facet: **0 is dark, 1 is facing
 the Sun with nothing in the way.** The same quantity the shader shades with,
-without the `ambient_strength` floor — the `Lighting` colour bar is this plus
+without the `light.ambient` floor — the `Lighting` colour bar is this plus
 ambient. The cosine is clamped at zero for the reason `tpm::core::radiation_sun`
 gives: a facet tilted away receives nothing, it does not radiate into the Sun.
 
@@ -899,7 +899,7 @@ sim.pick_facet(origin, direction)  # (body, facet, world_point, body_point) or N
 What a click in the viewport does, so the pointer and a script cannot get out
 of step. `toggle_facet` returns whether the facet is selected afterwards.
 
-Selecting writes `config.selection_color` onto the facet's own vertices and
+Selecting writes `config.selection.color` onto the facet's own vertices and
 marks them colour-mode 1, which the shader honours **for that facet alone** —
 the rest of the body keeps its shading. Deselecting restores what was there,
 so a script that repaints the mesh while a facet is selected will have that
@@ -950,7 +950,7 @@ bounding box against the frustum, so **`visible` means "could be seen"**, not
 "did appear": a body wholly behind another still counts. The four outcomes sum
 to `bodies`.
 
-`drawn` and `frame` appear only when [`config.occlusion_queries`](CONFIG.md) is
+`drawn` and `frame` appear only when [`config.debug.occlusion_queries`](CONFIG.md) is
 on. `drawn` is how many bodies actually put samples on screen, from occlusion
 queries against the finished depth buffer. It **lags the current iteration** by
 a frame or two — quote `frame`, not `sim.state.iteration`.
@@ -1015,10 +1015,10 @@ per shape model and reuse. Delta form factors close to unity as
 
 ## `sim.gpu_timings()` — where a frame's GPU time went
 
-Milliseconds per pass, once `config.gpu_timing = True`:
+Milliseconds per pass, once `config.debug.gpu_timing = True`:
 
 ```python
-app.simulation.config.gpu_timing = True
+app.simulation.config.debug.gpu_timing = True
 ...
 t = app.simulation.gpu_timings()
 # {'shadow': 1.51, 'render': 1.74, 'depth': 0.0, 'text': 0.0, 'gui': 0.0,

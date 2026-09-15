@@ -97,8 +97,8 @@ for d in ("diffuse", "temperature", "radiance"):
 app = kalast.app.App()
 app.config.width = NPX
 app.config.height = NPY
-app.simulation.config.export_dir = str(OUT / "diffuse")
-app.simulation.config.access_shadow_map = False
+app.simulation.config.export.dir = str(OUT / "diffuse")
+app.simulation.config.shadows.access_shadow_map = False
 
 app.simulation.camera.projection.fovy = numpy.radians(tiri.fovy)
 for b in BODIES:

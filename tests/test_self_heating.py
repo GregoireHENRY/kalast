@@ -114,7 +114,7 @@ def main() -> int:
     app.config.width = 256
     app.config.height = 256
     sim = app.simulation
-    sim.config.vsync = False
+    app.config.vsync = False
     sim.load_mesh(path=str(box), mat=numpy.eye(4), flatten=True)
 
     mesh = sim.bodies[0].mesh

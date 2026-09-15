@@ -60,8 +60,8 @@ def after_render(sim: Simulation, dt: float) -> None:
 app = kalast.app.App()
 app.config.width = 1020
 app.config.height = 1020
-app.simulation.config.color_mode = 0
-app.simulation.config.access_shadow_map = True
+app.simulation.config.shading.color_mode = 0
+app.simulation.config.shadows.access_shadow_map = True
 app.simulation.camera.projection.fovy = 5.5 * RPD
 
 spice.kclear()

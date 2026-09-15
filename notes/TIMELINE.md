@@ -2179,3 +2179,33 @@ Three gizmo settings removed, one grid colour added. 92 Rust tests.
 `open_in_background`, so every suite run stole the keyboard from whoever was
 working — recorded in the project's memory as a preference, and ignored all
 session. Fixed in all five.
+
+## 15 September — the config nested, the bindings generated, one panel
+
+`notes/2026-09-15_nested_config.md`. Asked for as a panel reorganisation --
+"same topics should be gathered" -- and done at the struct instead, so the
+panel, the Python surface and the docs all follow from one shape.
+
+`app.simulation.config` is a struct of fourteen groups now --
+`config.grid.color`, `config.light.ambient`, `config.shadows.per_body` -- with
+one rule: the group prefix is stripped and nothing else is renamed. `title`,
+`fullscreen` and `vsync` moved to `app.config`, where a window property
+belonged; the two configs themselves stay two, for the reason `9781ca9` gave.
+
+**The bindings are generated now**, the last mirror of the config that was
+still written by hand. The reason is a trap rather than tidiness: nesting with
+`#[pyclass(get_all)]` hands Python a *copy* of a group, so
+`config.grid.color = ...` would set nothing, silently. Each group has to be a
+view through the shared `Rc`, which is a page of identical code fourteen times
+-- so `tools/gen_bindings.py` writes it, and `src/py/app/config.rs` went from
+1,426 lines to 375 of actual logic. Old flat names keep working for a release
+through a generated shim with a `DeprecationWarning`.
+
+**The right-hand panel is one panel**: topic headers, each holding the entity
+beside its own settings -- the Sun's position and the Sun's colour together,
+the HUD list and its font together, one Selection and one Export where there
+were two of each. The panel generator emits one function per group and the
+`:group:` marker is gone, because the struct's nesting is the grouping.
+
+Three generators, three guard tests, all current. 92 Rust tests, 14 Python
+files.

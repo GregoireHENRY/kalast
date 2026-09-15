@@ -108,7 +108,6 @@ def _stub_members(pyi: str, cls: str) -> set[str]:
 # it can shrink but not grow silently.
 UNCOVERED = {
     ("kalast/app/body.pyi", "Body"),
-    ("kalast/app/config.pyi", "AppConfig"),
     ("kalast/app/gpu.pyi", "InstanceInput"),
     ("kalast/entity.pyi", "Entity"),
     ("kalast/entity.pyi", "Spacecraft"),
@@ -148,6 +147,23 @@ def _cases():
         ("kalast/app/_core.pyi", "App", app),
         ("kalast/app/config.pyi", "Config", app.simulation.config),
         ("kalast/app/config.pyi", "Hud", kalast.app.Hud("x")),
+        ("kalast/app/config.pyi", "AppConfig", app.config),
+        # One live view per config group. Generated bindings, generated stubs:
+        # this is the check that the two generators agree with each other.
+        ("kalast/app/config.pyi", "ShadingConfig", app.simulation.config.shading),
+        ("kalast/app/config.pyi", "LightConfig", app.simulation.config.light),
+        ("kalast/app/config.pyi", "ShadowsConfig", app.simulation.config.shadows),
+        ("kalast/app/config.pyi", "WireframeConfig", app.simulation.config.wireframe),
+        ("kalast/app/config.pyi", "SelectionConfig", app.simulation.config.selection),
+        ("kalast/app/config.pyi", "DataConfig", app.simulation.config.data),
+        ("kalast/app/config.pyi", "ColorbarConfig", app.simulation.config.colorbar),
+        ("kalast/app/config.pyi", "AxesConfig", app.simulation.config.axes),
+        ("kalast/app/config.pyi", "GridConfig", app.simulation.config.grid),
+        ("kalast/app/config.pyi", "HudConfig", app.simulation.config.hud),
+        ("kalast/app/config.pyi", "ExportConfig", app.simulation.config.export),
+        ("kalast/app/config.pyi", "ControlsConfig", app.simulation.config.controls),
+        ("kalast/app/config.pyi", "ImageConfig", app.simulation.config.image),
+        ("kalast/app/config.pyi", "DebugConfig", app.simulation.config.debug),
         ("kalast/app/simulation.pyi", "Simulation", app.simulation),
         ("kalast/app/simulation.pyi", "State", app.simulation.state),
         ("kalast/app/frame.pyi", "Eye", app.simulation.camera),

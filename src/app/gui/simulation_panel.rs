@@ -7,7 +7,9 @@
 //! transform's sixteen numbers.
 
 use crate::app::simulation::Simulation;
+use crate::app::config::{AppConfig, Config};
 use crate::Float;
+use super::config_panel::*;
 
 /// A labelled row, so every readout lines up the same way. Returns the
 /// value's response, for the rows that want a hover on it.
@@ -679,17 +681,35 @@ fn group(ui: &mut egui::Ui, title: &str, open: bool, add: impl FnOnce(&mut egui:
         .show(ui, add);
 }
 
-/// The simulation's live state: what is loaded, where it is, what it can see.
-pub fn simulation_panel(ui: &mut egui::Ui, sim: &mut Simulation, selection_color: crate::Vec3) {
-    // The config panel below has its own "Export" header, and egui derives a
-    // widget's id from its label -- so without a namespace the two collide
-    // and egui paints a red "first/second use of widget ID" warning over
-    // both.
-    ui.push_id("simulation", |ui| panel(ui, sim, selection_color));
+/// The right-hand panel: everything about the scene, by topic.
+///
+/// One panel where there were two. It used to be the simulation's *entities*
+/// (state, bodies, camera, Sun) stacked above a "Config" section generated
+/// from the settings struct -- a split by where the data lived, not by what
+/// it was about, so the Sun's position and the Sun's colour were nine headers
+/// apart, "Selection" and "Export" each appeared twice, and the HUD list sat
+/// above one section while its font sat in the other.
+///
+/// Now `Config` is a struct of sub-structs and each topic header shows the
+/// entity beside its own group: `sim.sun` with `config.light`, the picked
+/// facet with `config.selection`, the HUD list with `config.hud`. The group
+/// widgets come from `config_panel.rs`, generated one function per group, so
+/// a field added to the struct lands under the right header without anyone
+/// remembering.
+pub fn simulation_panel(
+    ui: &mut egui::Ui,
+    sim: &mut Simulation,
+    config: &mut Config,
+    app: &mut AppConfig,
+) {
+    ui.push_id("simulation", |ui| panel(ui, sim, config, app));
 }
 
-fn panel(ui: &mut egui::Ui, sim: &mut Simulation, selection_color: crate::Vec3) {
-    group(ui, "State", true, |ui| {
+fn panel(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config, a: &mut AppConfig) {
+    let sel = c.selection.color;
+    let selection_color = crate::Vec3::new(sel.r as Float, sel.g as Float, sel.b as Float);
+
+    group(ui, "Run", true, |ui| {
         // Named as the field is, because that is what a script writes --
         // and it is one ahead of the toolbar's counter on purpose: the
         // toolbar says which frame you are looking at, this says how many
@@ -716,16 +736,55 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation, selection_color: crate::Vec3) 
     // Named for the anchor-body picker below, and collected first because
     // that reads `bodies` while the picker holds `camera` mutably.
     let names: Vec<String> = sim.bodies.iter().map(body_name).collect();
+
     group(ui, "Selection", true, |ui| {
-        selection_ui(ui, sim, selection_color)
+        selection_ui(ui, sim, selection_color);
+        sub(ui, "settings");
+        group_selection(ui, c);
     });
 
-    group(ui, "Camera", false, |ui| {
-        eye_ui(ui, &mut sim.camera, &names, false)
-    });
-    group(ui, "Sun", false, |ui| eye_ui(ui, &mut sim.sun, &names, true));
+    group(ui, "Camera", false, |ui| eye_ui(ui, &mut sim.camera, &names, false));
 
-    group(ui, "HUDs", true, |ui| huds_ui(ui, sim));
+    // Where it is, then what it does as a light. One header, because that is
+    // one thing.
+    group(ui, "Sun", false, |ui| {
+        eye_ui(ui, &mut sim.sun, &names, true);
+        sub(ui, "light");
+        group_light(ui, c);
+    });
+
+    group(ui, "Shading", false, |ui| group_shading(ui, c));
+    group(ui, "Shadows", false, |ui| group_shadows(ui, c));
+    group(ui, "Wireframe", false, |ui| group_wireframe(ui, c));
+
+    group(ui, "Data colouring", false, |ui| {
+        group_data(ui, c);
+        sub(ui, "colour bar");
+        group_colorbar(ui, c);
+    });
+
+    group(ui, "Axes & grid", false, |ui| {
+        group_axes(ui, c);
+        sub(ui, "grid");
+        group_grid(ui, c);
+    });
+
+    group(ui, "HUD", true, |ui| {
+        huds_ui(ui, sim);
+        sub(ui, "settings");
+        group_hud(ui, c);
+    });
+
+    // The OS window, then the image drawn into it: two sizes since the editor
+    // made them two different things, so the second is namespaced -- its
+    // `width` and `height` widgets would otherwise share ids with the first.
+    group(ui, "Window", false, |ui| {
+        group_app(ui, a);
+        sub(ui, "image  (0 = follow the window)");
+        ui.push_id("image", |ui| group_image(ui, c));
+    });
+
+    group(ui, "Controls", false, |ui| group_controls(ui, c));
 
     group(ui, "Export", false, |ui| {
         ui.checkbox(&mut sim.export, "export")
@@ -737,17 +796,14 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation, selection_color: crate::Vec3) 
         {
             sim.export_once = true;
         }
-        ui.label(
-            egui::RichText::new("Where they land is under Config > Export")
-                .weak()
-                .small(),
-        );
+        sub(ui, "settings");
+        group_export(ui, c);
     });
 
-    // What the last frame could actually see. The renderer writes this after
-    // fitting the frustums, and it is the quickest answer to "why is my body
-    // not on screen".
-    group(ui, "Visibility", false, |ui| {
+    // What the last frame could actually see, then the switches. The renderer
+    // writes the diagnostics after fitting the frustums, and they are the
+    // quickest answer to "why is my body not on screen".
+    group(ui, "Debug", false, |ui| {
         let d = &sim.diagnostics;
         row(ui, "bodies", format!("{} of {} visible", d.n_visible, d.n_bodies));
         row(ui, "clipped near", d.out_near.to_string());
@@ -774,7 +830,6 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation, selection_color: crate::Vec3) 
                 );
             }
         }
-
         if d.light_cube_clipped {
             ui.label(
                 egui::RichText::new("light cube is outside the camera's far plane")
@@ -782,7 +837,15 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation, selection_color: crate::Vec3) 
                     .small(),
             );
         }
+        sub(ui, "switches");
+        group_debug(ui, c);
     });
+}
+
+/// A quiet divider inside a header, between an entity and its settings.
+fn sub(ui: &mut egui::Ui, label: &str) {
+    ui.add_space(4.0);
+    ui.label(egui::RichText::new(label).weak().small());
 }
 
 #[cfg(test)]

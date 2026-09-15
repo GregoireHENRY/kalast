@@ -30,7 +30,7 @@ having to aim for the button.
 
 ### `F` — fullscreen
 
-The same simple fullscreen `simulation.config.fullscreen` gives, and the same
+The same simple fullscreen `app.config.fullscreen` gives, and the same
 thing the window's green button does; see `CONFIG.md`.
 
 Worth having as a key because simple fullscreen hides the title bar, and with
@@ -46,7 +46,7 @@ Beside plain `F` because the two are the same wish at different scopes — one
 hides the panels, the other hides the desktop — and they compose: both on is
 the renderer alone on the screen.
 
-Independent of `simulation.config.fullscreen`, which is the OS window and
+Independent of `app.config.fullscreen`, which is the OS window and
 nothing else.
 
 ### `K` — one iteration
@@ -79,7 +79,7 @@ camera: pos=[..] up=[..] dir=[..] anchor=[..] projection=Projection { .. }
 ```
 
 `src/app/mod.rs:379`. Prints unconditionally — unlike `P` and `T`, it does not
-require `config.debug_app`.
+require `config.debug.app`.
 
 This is the supported way to recover a viewpoint reached by navigating: orbit
 to the view, press `H`, and copy `pos` and `dir` into the script. A view found
@@ -124,8 +124,8 @@ drag act as a middle drag. See the next section.
 
 ## The navigation gizmo
 
-Shown by `config.axes = "gizmo"` and `"blender"`, in the corner
-`config.gizmo_anchor` names. Six balls: `+X +Y +Z` filled and lettered,
+Shown by `config.axes.style = "gizmo"` and `"blender"`, in the corner
+`config.axes.style.gizmo_anchor` names. Six balls: `+X +Y +Z` filled and lettered,
 `-X -Y -Z` as rings.
 
 | Gesture | Does |
@@ -138,14 +138,14 @@ Shown by `config.axes = "gizmo"` and `"blender"`, in the corner
 
 **Left-drag orbits here and nowhere else.** Everywhere else on the image a
 plain left-drag is not a camera gesture: orbiting needs the middle button, or
-`Option` where `emulate_middle_button` is on. Requiring a modifier over a
+`Option` where `controls.emulate_middle_button` is on. Requiring a modifier over a
 widget whose whole point is being clickable is not a gesture anyone would
 find, and Blender's gizmo does not either.
 
 **The gizmo takes the click before the scene does.** A press anywhere on the
 widget starts a gizmo gesture rather than a facet pick, so the axis views stay
 reachable over a body. Clicks elsewhere are unaffected — the widget is a
-`gizmo_size`-radius disc in one corner and nothing outside it changes.
+`axes.gizmo_size`-radius disc in one corner and nothing outside it changes.
 
 **Clicking an axis also switches to orthographic**, which is Blender's
 behaviour and for the reason `Eye::view_along` was written: a plane view read
@@ -192,7 +192,7 @@ free for whatever the control mode does with it.
 Not on the navigation gizmo, which takes a press over itself first — see
 above.
 
-The facet turns `config.selection_color` (yellow by default) and is drawn
+The facet turns `config.selection.color` (yellow by default) and is drawn
 unlit, while the rest of the body keeps its shading — the shader honours a
 per-facet colour mode, so one facet can be marked without flattening the whole
 render. Deselecting restores whatever the facet's vertices had.
@@ -239,7 +239,7 @@ per-facet work wants anyway.
 | Two-finger scroll | Zoom |
 | Pinch | Zoom |
 
-The `Option` substitution is gated on `config.emulate_middle_button`, which
+The `Option` substitution is gated on `config.controls.emulate_middle_button`, which
 defaults to `true` on macOS and `false` elsewhere, and matches Blender's
 "Emulate 3 Button Mouse". Set it to `True` to get the same substitution on
 Linux or Windows. It exists because a trackpad has no middle button, which had
@@ -272,8 +272,8 @@ Use `set_control_none()` for a scripted render whose camera is placed from
 SPICE, so a stray drag cannot move a camera that represents an instrument
 pointing. See the `T` entry for its one limitation.
 
-Sensitivities are config rather than bindings — `sensitivity_move`,
-`sensitivity_look`, `sensitivity_rotate`, `sensitivity_zoom`, all default `1.0`
+Sensitivities are config rather than bindings — `config.controls.sensitivity_move`,
+`controls.sensitivity_look`, `controls.sensitivity_rotate`, `controls.sensitivity_zoom`, all default `1.0`
 and all startup-only. See `CONFIG.md`.
 
 ## Details

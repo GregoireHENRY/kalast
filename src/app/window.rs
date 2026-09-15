@@ -176,7 +176,7 @@ fn diagnose(
         }
     }
 
-    if config.debug_light_cube_show {
+    if config.light.cube_show {
         let p = *view_proj
             * glam::Vec4::new(
                 simulation.sun.pos.x,
@@ -478,7 +478,7 @@ fn find_font_file(name: &str) -> Option<std::path::PathBuf> {
     None
 }
 
-/// The HUD font: `config.hud_font` if it resolves, otherwise the built-in one.
+/// The HUD font: `config.hud.font` if it resolves, otherwise the built-in one.
 ///
 /// Accepts either a path or a font name -- `"Arial"` and
 /// `"/Library/Fonts/Arial.ttf"` both work. A path is anything that exists on
@@ -647,6 +647,9 @@ impl Window {
         display: winit::event_loop::OwnedDisplayHandle,
         window: Arc<winit::window::Window>,
         config: &crate::app::config::Config,
+        // The window's own settings -- `vsync` is a property of the surface,
+        // not of the scene drawn into it.
+        app: &crate::app::config::AppConfig,
         simulation: &crate::app::simulation::Simulation,
     ) -> Self {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_with_display_handle(
@@ -729,7 +732,7 @@ impl Window {
             .find(|f| f.is_srgb())
             .unwrap_or(caps.formats[0]);
 
-        if config.debug_window {
+        if config.debug.window {
             println!("{:?}", format);
         }
 
@@ -742,7 +745,7 @@ impl Window {
             format: format,
             width: size.width,
             height: size.height,
-            present_mode: pick_present_mode(&caps, config.vsync),
+            present_mode: pick_present_mode(&caps, app.vsync),
             color_space: wgpu::SurfaceColorSpace::Auto,
             desired_maximum_frame_latency: 2,
             alpha_mode: caps.alpha_modes[0],
@@ -750,7 +753,7 @@ impl Window {
         };
 
         // List of supported configurations by the adapter, device, surface.
-        if config.debug_window {
+        if config.debug.window {
             let info = adapter.get_info();
             println!(
                 "[WINDOW] adapter {:?} {:?} backend {:?} driver {:?}",
@@ -791,7 +794,7 @@ impl Window {
                 // The wireframe recovers barycentrics from vertex_index,
                 // which only holds for flat (non-indexed) meshes. Say so
                 // once rather than silently dropping the overlay.
-                if config.wireframe_mode != 0 && !mesh.is_flat() && !warned_wireframe {
+                if config.wireframe.mode != 0 && !mesh.is_flat() && !warned_wireframe {
                     warned_wireframe = true;
                     println!(
                         "[WINDOW] wireframe needs flat meshes (load with flatten=True); \
@@ -799,7 +802,7 @@ impl Window {
                     );
                 }
 
-                if config.debug_window_mesh {
+                if config.debug.window_mesh {
                     for v in &mesh.vertices {
                         println!("v: {}", v.pos);
                     }
@@ -863,7 +866,7 @@ impl Window {
                 .unwrap(),
 
             pos: simulation.sun.pos,
-            color: super::gpu::color_vec3(&config.light_color),
+            color: super::gpu::color_vec3(&config.light.color),
             ..Default::default()
         };
 
@@ -874,8 +877,8 @@ impl Window {
         // bodies can be loaded after the window exists.
         let shadow = super::gpu::Texture::create_depth_texture_shadow_pass(
             &device,
-            config.shadow_resolution,
-            config.shadow_resolution,
+            config.shadows.resolution,
+            config.shadows.resolution,
             super::uniform::MAX_SHADOW_LAYERS as u32,
         );
 
@@ -906,7 +909,7 @@ impl Window {
         // The font is embedded rather than read from `res/`, so the overlay
         // works from any working directory. A font that will not load leaves
         // the overlay off rather than failing the run.
-        let hud = hud_font(&config.hud_font).map(|font| {
+        let hud = hud_font(&config.hud.font).map(|font| {
             wgpu_text::BrushBuilder::using_font(font)
             .build(
                 &device,
@@ -944,9 +947,9 @@ impl Window {
 
             export_frame: false,
             frame_exporter: super::gpu::FrameExporter::new(
-                config.export_dir.clone(),
-                config.export_sync,
-                config.export_max_queued as usize,
+                config.export.dir.clone(),
+                config.export.sync,
+                config.export.max_queued as usize,
             ),
 
             timer,
@@ -1266,7 +1269,7 @@ impl Window {
         if width == 0 || height == 0 {
             self.is_surface_configured = false;
 
-            if config.debug_window {
+            if config.debug.window {
                 println!("[WINDOW] zero-area resize ({width}x{height}), likely minimised -- skipping reconfigure");
             }
 
@@ -1280,7 +1283,7 @@ impl Window {
         // default. A pinned `simulation.config.width` survives a resize --
         // that is the point of pinning it. The editor overrides this straight
         // afterwards with the viewport panel's size.
-        if (config.width, config.height) == (0, 0) {
+        if (config.image.width, config.image.height) == (0, 0) {
             self.render_size = (width, height);
         }
         self.render_generation += 1;
@@ -1293,7 +1296,7 @@ impl Window {
         let is_surface_configured = self.is_surface_configured;
         self.is_surface_configured = true;
         if !is_surface_configured && self.is_surface_configured {
-            if config.debug_window {
+            if config.debug.window {
                 println!(
                     "[WINDOW] surface configured {}x{} physical, scale {:.2}, render {}x{}",
                     self.surface_config.width,
@@ -1348,7 +1351,7 @@ impl Window {
             &self.uniforms,
             self.render_size,
         );
-        // `Passes::new` sizes the offscreen targets from `config.width`, which
+        // `Passes::new` sizes the offscreen targets from `config.image.width`, which
         // is the *requested* size and need not be the window's current one.
         let (w, h) = self.render_size;
         self.passes
@@ -1366,8 +1369,8 @@ impl Window {
     pub fn set_shadow_resolution(&mut self, config: &crate::app::config::Config) {
         self.uniforms.shadow = super::gpu::Texture::create_depth_texture_shadow_pass(
             &self.device,
-            config.shadow_resolution,
-            config.shadow_resolution,
+            config.shadows.resolution,
+            config.shadows.resolution,
             super::uniform::MAX_SHADOW_LAYERS as u32,
         );
         self.rebuild_passes(config);
@@ -1378,7 +1381,7 @@ impl Window {
     /// A brush owns its glyph atlas, so the font cannot be swapped inside it;
     /// this builds a new brush at the current surface size.
     pub fn set_hud_font(&mut self, config: &crate::app::config::Config) {
-        self.hud = hud_font(&config.hud_font).map(|font| {
+        self.hud = hud_font(&config.hud.font).map(|font| {
             wgpu_text::BrushBuilder::using_font(font).build(
                 &self.device,
                 self.surface_config.width,
@@ -1397,9 +1400,9 @@ impl Window {
         let device = self.device.clone();
         self.frame_exporter.finish(&device);
         self.frame_exporter = super::gpu::FrameExporter::new(
-            config.export_dir.clone(),
-            config.export_sync,
-            config.export_max_queued as usize,
+            config.export.dir.clone(),
+            config.export.sync,
+            config.export.max_queued as usize,
         );
     }
 
@@ -1510,9 +1513,9 @@ impl Window {
             // The light's own fit below keeps the plain bounds: its frustum
             // is what the shadow map covers, and stretching it to the Sun
             // would spend the map on empty space.
-            let cube_bounds = (config.debug_light_cube_show && config.debug_light_cube_fit)
+            let cube_bounds = (config.light.cube_show && config.light.cube_fit)
                 .then(|| {
-                    let half = crate::Vec3::splat(config.light_cube_scale);
+                    let half = crate::Vec3::splat(config.light.cube_scale);
                     crate::mesh::Aabb {
                         min: simulation.sun.pos - half,
                         max: simulation.sun.pos + half,
@@ -1523,11 +1526,11 @@ impl Window {
                 .fit_projection(&bounds, cube_bounds.as_ref(), None);
             simulation
                 .sun
-                .fit_projection(&bounds, None, Some(config.shadow_resolution));
+                .fit_projection(&bounds, None, Some(config.shadows.resolution));
 
             Some(super::frame::fit_shadow(
                 &simulation.sun.projection.resolved(),
-                config.shadow_resolution,
+                config.shadows.resolution,
             ))
         } else {
             simulation.camera.projection.resolve_manual();
@@ -1543,7 +1546,7 @@ impl Window {
         // independently, so half the scale can be fixed and the other fitted.
         let mut lo = f32::INFINITY;
         let mut hi = f32::NEG_INFINITY;
-        if config.color_mode == 1 && (config.value_min.is_none() || config.value_max.is_none()) {
+        if config.shading.color_mode == 1 && (config.data.value_min.is_none() || config.data.value_max.is_none()) {
             for body in &simulation.bodies {
                 let Some(mesh) = body.mesh.as_ref() else { continue };
                 for v in &mesh.borrow().values {
@@ -1560,17 +1563,17 @@ impl Window {
             hi = 1.0;
         }
         let value_range = (
-            config.value_min.unwrap_or(lo),
-            config.value_max.unwrap_or(hi),
+            config.data.value_min.unwrap_or(lo),
+            config.data.value_max.unwrap_or(hi),
         );
 
         self.uniforms.globals.uniform = build_globals(config, shadow_fit, value_range);
 
         // Resampled to the uniform's fixed 256 entries, so any length of table
         // works -- matplotlib's 256 passes through untouched.
-        if !config.colormap.is_empty() {
+        if !config.data.colormap.is_empty() {
             let lut = crate::app::config::resample_colormap(
-                &config.colormap,
+                &config.data.colormap,
                 super::uniform::COLORMAP_SIZE,
             );
             for (i, c) in lut.iter().enumerate() {
@@ -1597,7 +1600,7 @@ impl Window {
         // the scene so occluders still cast. `light.view_proj` is only the
         // scratch the shadow pass draws with, rewritten per layer at render
         // time; what the main pass samples is `view_proj_layers`.
-        let n_layers = if config.shadow_per_body {
+        let n_layers = if config.shadows.per_body {
             simulation
                 .bodies
                 .len()
@@ -1611,7 +1614,7 @@ impl Window {
             for i in 0..n_layers {
                 // With per-body off, the single layer is fitted to the scene,
                 // which is the pre-layer behaviour.
-                let body = if config.shadow_per_body {
+                let body = if config.shadows.per_body {
                     match simulation.body_bounds(i) {
                         Some(b) => b,
                         None => continue,
@@ -1638,14 +1641,14 @@ impl Window {
                         side: layer.side,
                         offset: [0.0, 0.0],
                     },
-                    config.shadow_resolution,
+                    config.shadows.resolution,
                 );
                 self.uniforms.view.uniform.light.layer_bias[i] = crate::Vec4::new(
                     config
-                        .shadow_normal_offset_scale
+                        .shadows.normal_offset_scale
                         .unwrap_or(fit.normal_offset_scale) as Float,
-                    config.shadow_bias_scale.unwrap_or(fit.bias_scale) as Float,
-                    config.shadow_bias_minimum.unwrap_or(fit.bias_minimum) as Float,
+                    config.shadows.bias_scale.unwrap_or(fit.bias_scale) as Float,
+                    config.shadows.bias_minimum.unwrap_or(fit.bias_minimum) as Float,
                     0.0,
                 );
             }
@@ -1671,7 +1674,7 @@ impl Window {
         // and was not: setting it from the config panel, or from a callback,
         // did nothing, and only a value set before `start()` ever reached the
         // shader.
-        self.uniforms.view.uniform.light.color = super::gpu::color_vec3(&config.light_color);
+        self.uniforms.view.uniform.light.color = super::gpu::color_vec3(&config.light.color);
 
         self.queue.write_buffer(
             &self.uniforms.view.buffer,
@@ -1682,16 +1685,16 @@ impl Window {
         // Rebuilt every frame: the bounds move with the bodies, and the tick
         // step has to follow or the labels stop matching the grid. Cheap --
         // a few hundred line vertices.
-        if config.axes != super::axes::AxesStyle::Off {
+        if config.axes.style != super::axes::AxesStyle::Off {
             let bounds = simulation
                 .scene_bounds()
                 .unwrap_or(crate::mesh::Aabb { min: crate::Vec3::ZERO, max: crate::Vec3::ZERO });
             let built = super::axes::build(
-                config.axes,
+                config.axes.style,
                 &bounds,
-                config.axes_color,
-                config.axes_ticks,
-                config.grid,
+                config.axes.color,
+                config.axes.ticks,
+                config.grid.enabled,
             );
             self.passes
                 .axes
@@ -1702,19 +1705,19 @@ impl Window {
             // reconstructs a ray per pixel, so it wants the inverse of the
             // same matrix the bodies were drawn with, and the forward one to
             // give its intersection a depth they can occlude.
-            if config.axes == super::axes::AxesStyle::Blender && config.grid {
+            if config.axes.style == super::axes::AxesStyle::Blender && config.grid.enabled {
                 // The grid faces the camera in a plane view: looking along X
                 // it is the YZ plane, along Y the XZ plane, otherwise the XY
                 // ground. Edge-on ground shows nothing, which is the whole
                 // complaint a side view has about a fixed plane.
                 let in_plane = match simulation.camera.plane_view() {
                     Some((super::frame::Axis::X, _)) => {
-                        (1.0, config.grid_axis_y_color, config.grid_axis_z_color)
+                        (1.0, config.grid.axis_y_color, config.grid.axis_z_color)
                     }
                     Some((super::frame::Axis::Y, _)) => {
-                        (2.0, config.grid_axis_x_color, config.grid_axis_z_color)
+                        (2.0, config.grid.axis_x_color, config.grid.axis_z_color)
                     }
-                    _ => (0.0, config.grid_axis_x_color, config.grid_axis_y_color),
+                    _ => (0.0, config.grid.axis_x_color, config.grid.axis_y_color),
                 };
                 let vp = self.uniforms.view.uniform.camera.view_proj;
                 self.passes.grid.upload(
@@ -1722,8 +1725,8 @@ impl Window {
                     super::pass::grid::Uniform {
                         inv_view_proj: super::gpu::to_cols_f32(vp.inverse()),
                         view_proj: super::gpu::to_cols_f32(vp),
-                        thin: config.grid_color,
-                        thick: config.grid_major_color,
+                        thin: config.grid.color,
+                        thick: config.grid.major_color,
                         // Which two of the three axes lie in the plane,
                         // in the order the shader expects: `axis_x` is the
                         // line where the second in-plane coordinate is zero.
@@ -1743,12 +1746,12 @@ impl Window {
                         // They are both round numbers, and the grid being
                         // stable is worth more than them agreeing.
                         spacing: 1.0,
-                        width: config.grid_width,
-                        major: config.grid_major as f32,
+                        width: config.grid.width,
+                        major: config.grid.major as f32,
                         // Fractions of the way to the far plane, used as
                         // such: the shader has no need of the scene's scale.
-                        fade_near: config.grid_fade_near,
-                        fade_far: config.grid_fade_far,
+                        fade_near: config.grid.fade_near,
+                        fade_far: config.grid.fade_far,
                         plane: in_plane.0,
                         _pad: [0.0; 2],
                     },
@@ -1762,13 +1765,13 @@ impl Window {
         // scene, no bounds, no projection. Kept afterwards so a click lands
         // on the ball that was drawn rather than on one recomputed slightly
         // differently.
-        self.gizmo = if config.axes.has_gizmo() {
+        self.gizmo = if config.axes.style.has_gizmo() {
             let size = (width as f32, height as f32);
             let gizmo = super::gizmo::build(
                 &simulation.camera,
                 size,
-                config.gizmo_anchor,
-                config.gizmo_size,
+                config.axes.gizmo_anchor,
+                config.axes.gizmo_size,
                 super::gizmo::MARGIN,
                 self.pointer,
             );
@@ -1782,14 +1785,14 @@ impl Window {
             None
         };
 
-        self.facet_labels = if config.facet_labels {
+        self.facet_labels = if config.selection.labels {
             facet_label_screen(
                 simulation,
                 &self.uniforms.view.uniform.camera.view_proj,
                 simulation.camera.pos,
                 self.render_size.0 as f32,
                 self.render_size.1 as f32,
-                config.facet_labels_max as usize,
+                config.selection.labels_max as usize,
             )
         } else {
             Vec::new()
@@ -1797,7 +1800,7 @@ impl Window {
 
         // `color_mode == 2` paints every body one flat colour, so there is
         // no scale to label.
-        if config.colorbar.enabled && config.color_mode != 2 {
+        if config.colorbar.enabled && config.shading.color_mode != 2 {
             let (w, h) = (
                 self.render_size.0.max(1) as f32,
                 self.render_size.1.max(1) as f32,
@@ -1840,7 +1843,7 @@ impl Window {
                 // 0 = the colormap, 1 = the lighting ramp. Follows
                 // `color_mode` rather than a setting of its own, so the
                 // legend cannot describe something the surface is not.
-                source: if config.color_mode == 1 { 0 } else { 1 },
+                source: if config.shading.color_mode == 1 { 0 } else { 1 },
                 _pad: [0; 2],
             };
             self.queue.write_buffer(
@@ -1862,7 +1865,7 @@ impl Window {
         // Staged here rather than at draw time: a buffer write lands at the
         // submit, not where it is issued, so every box has to be in place
         // before the pass that reads them is recorded.
-        if config.occlusion_queries {
+        if config.debug.occlusion_queries {
             let boxes: Vec<crate::mesh::Aabb> = simulation
                 .bodies
                 .iter()
@@ -1909,7 +1912,7 @@ impl Window {
 
             // Body ii shades from shadow layer ii. Bodies past the layer cap
             // share the last one: degraded, not wrong.
-            let layer = if config.shadow_per_body {
+            let layer = if config.shadows.per_body {
                 ii.min(super::uniform::MAX_SHADOW_LAYERS - 1) as u32
             } else {
                 0
@@ -1964,7 +1967,7 @@ impl Window {
             wgpu::CurrentSurfaceTexture::Success(texture) => Some(texture),
             wgpu::CurrentSurfaceTexture::Occluded | wgpu::CurrentSurfaceTexture::Timeout => None,
             wgpu::CurrentSurfaceTexture::Suboptimal(_) | wgpu::CurrentSurfaceTexture::Outdated => {
-                if config.debug_window {
+                if config.debug.window {
                     println!(
                         "[WINDOW] surface texture is suboptimal or outdated, need to reconfigure"
                     )
@@ -1976,7 +1979,7 @@ impl Window {
                 unreachable!("No error scope registered, so validation errors will panic")
             }
             wgpu::CurrentSurfaceTexture::Lost => {
-                if config.debug_window {
+                if config.debug.window {
                     println!("[WINDOW] surface texture has been lost, need to recreate")
                 }
                 self.surface = self.instance.create_surface(self.window.clone()).unwrap();
@@ -2078,8 +2081,8 @@ impl Window {
             wgpu_text::glyph_brush::Section::default()
                 .add_text(
                     wgpu_text::glyph_brush::Text::new(text)
-                        .with_scale(config.facet_label_size)
-                        .with_color(config.facet_label_color),
+                        .with_scale(config.selection.label_size)
+                        .with_color(config.selection.label_color),
                 )
                 .with_screen_position(*pos)
                 .with_layout(
@@ -2093,8 +2096,8 @@ impl Window {
             wgpu_text::glyph_brush::Section::default()
                 .add_text(
                     wgpu_text::glyph_brush::Text::new(text)
-                        .with_scale(config.axes_label_size)
-                        .with_color(config.axes_label_color),
+                        .with_scale(config.axes.label_size)
+                        .with_color(config.axes.label_color),
                 )
                 .with_screen_position(*pos)
                 .with_layout(
@@ -2114,7 +2117,7 @@ impl Window {
                 wgpu_text::glyph_brush::Section::default()
                     .add_text(
                         wgpu_text::glyph_brush::Text::new(text)
-                            .with_scale(super::gizmo::label_size(config.gizmo_size))
+                            .with_scale(super::gizmo::label_size(config.axes.gizmo_size))
                             .with_color(*color),
                     )
                     .with_screen_position((pos.0 + dx, pos.1 + dy))
@@ -2136,7 +2139,7 @@ impl Window {
         let timestamps = self
             .timer
             .as_ref()
-            .filter(|_| config.gpu_timing)
+            .filter(|_| config.debug.gpu_timing)
             .and_then(|t| t.scope(super::gpu_timing::Scope::Text));
 
         let mut encoder = self
@@ -2170,7 +2173,7 @@ impl Window {
         config: &crate::app::config::Config,
         huds: &[crate::app::config::Hud],
     ) {
-        if let (true, Some(t)) = (config.gpu_timing, self.timer.as_ref()) {
+        if let (true, Some(t)) = (config.debug.gpu_timing, self.timer.as_ref()) {
             // Close the previous frame first: resolve what it wrote, start
             // the readback, and only then reset the slots for this one. See
             // `GpuTimer::resolve` for why it cannot happen at the end.
@@ -2185,7 +2188,7 @@ impl Window {
 
         // Same shape and the same reason: the queries this reads belong to
         // the frame before, and the readback must not be waited for.
-        if config.occlusion_queries {
+        if config.debug.occlusion_queries {
             let mut enc = self
                 .device
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
@@ -2233,7 +2236,7 @@ impl Window {
                     &self.meshes,
                     &self.shadow_meshes,
                     i as u32,
-                    self.timer.as_ref().filter(|_| config.gpu_timing),
+                    self.timer.as_ref().filter(|_| config.debug.gpu_timing),
                 );
             }
             self.queue.submit([enc.finish()]);
@@ -2250,7 +2253,7 @@ impl Window {
             &self.meshes,
             &self.shadow_meshes,
             config,
-            self.timer.as_ref().filter(|_| config.gpu_timing),
+            self.timer.as_ref().filter(|_| config.debug.gpu_timing),
         );
 
         if let Some(texture) = &surface_texture {
@@ -2305,12 +2308,12 @@ impl Window {
         // twice is deliberate -- the window keeps its HUD either way, and the
         // cost is one text pass on exported frames only.
         let bar_labels: Vec<_> = match (
-            config.colorbar.enabled && config.color_mode != 2,
+            config.colorbar.enabled && config.shading.color_mode != 2,
             self.colorbar_px,
         ) {
             (true, Some(rect)) => colorbar_labels(
                 &config.colorbar,
-                config.color_mode,
+                config.shading.color_mode,
                 rect,
                 self.uniforms.globals.uniform.value_min,
                 self.uniforms.globals.uniform.value_max,
@@ -2321,7 +2324,7 @@ impl Window {
         let axis_labels = axis_label_screen(
             &self.axes_labels,
             &self.uniforms.view.uniform.camera.view_proj,
-            &config.axes_unit,
+            &config.axes.unit,
             self.render_size.0 as f32,
             self.render_size.1 as f32,
         );
@@ -2341,7 +2344,7 @@ impl Window {
         // balls with no letters on them read as a bug, and the letters are
         // not run state -- they are part of the picture, the way the axis
         // tick labels are part of the axes.
-        let export_text = self.export_frame && (config.export_hud || !gizmo_labels.is_empty());
+        let export_text = self.export_frame && (config.export.hud || !gizmo_labels.is_empty());
         if export_text && any_text {
             let view = self
                 .passes
@@ -2354,10 +2357,10 @@ impl Window {
                 render_size,
                 "hud export",
                 config,
-                if config.export_hud { huds } else { none },
-                if config.export_hud { &axis_labels } else { &[] },
-                if config.export_hud { &facet_labels } else { &[] },
-                if config.export_hud { &bar_labels } else { &[] },
+                if config.export.hud { huds } else { none },
+                if config.export.hud { &axis_labels } else { &[] },
+                if config.export.hud { &facet_labels } else { &[] },
+                if config.export.hud { &bar_labels } else { &[] },
                 &gizmo_labels,
             );
         }
@@ -2427,7 +2430,7 @@ impl Window {
             self.timings = t.poll(&self.device);
         }
 
-        if config.occlusion_queries {
+        if config.debug.occlusion_queries {
             self.occlusion = self.passes.occlusion.poll(&self.device);
         }
 
@@ -2449,39 +2452,39 @@ fn build_globals(
     value_range: (f32, f32),
 ) -> super::uniform::Globals {
     super::uniform::Globals {
-        wireframe_fade: config.wireframe_fade as u32,
+        wireframe_fade: config.wireframe.fade as u32,
         value_min: value_range.0,
         value_max: value_range.1,
 
-        color: super::gpu::color_vec3(&config.color),
-        color_mode: config.color_mode,
+        color: super::gpu::color_vec3(&config.shading.color),
+        color_mode: config.shading.color_mode,
 
-        srgb_mode: config.srgb_mode,
-        gamma: config.gamma,
+        srgb_mode: config.shading.srgb_mode,
+        gamma: config.shading.gamma,
 
-        ambient_strength: config.ambient_strength,
-        light_cube_scale: config.light_cube_scale,
+        ambient_strength: config.light.ambient,
+        light_cube_scale: config.light.cube_scale,
 
-        shadow_resolution: config.shadow_resolution,
+        shadow_resolution: config.shadows.resolution,
         shadow_bias_scale: config
-            .shadow_bias_scale
+            .shadows.bias_scale
             .or(shadow.map(|s| s.bias_scale))
             .unwrap_or(0.0),
         shadow_bias_minimum: config
-            .shadow_bias_minimum
+            .shadows.bias_minimum
             .or(shadow.map(|s| s.bias_minimum))
             .unwrap_or(0.0),
         shadow_normal_offset_scale: config
-            .shadow_normal_offset_scale
+            .shadows.normal_offset_scale
             .or(shadow.map(|s| s.normal_offset_scale))
             .unwrap_or(0.0),
-        shadow_pcf: config.shadow_pcf,
+        shadow_pcf: config.shadows.pcf,
 
-        extra: config.extra,
+        extra: config.debug.extra,
 
-        wireframe_mode: config.wireframe_mode,
-        wireframe_width: config.wireframe_width,
-        wireframe_color: super::gpu::color_vec3(&config.wireframe_color),
+        wireframe_mode: config.wireframe.mode,
+        wireframe_width: config.wireframe.width,
+        wireframe_color: super::gpu::color_vec3(&config.wireframe.color),
 
         ..Default::default()
     }

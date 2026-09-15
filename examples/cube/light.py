@@ -6,9 +6,9 @@ import kalast
 
 
 app = kalast.app.App()
-app.simulation.config.debug_light_cube_show = True
-app.simulation.config.wireframe_mode = 2
-app.simulation.config.wireframe_color = [0.05, 0.05, 0.05, 1.0]
+app.simulation.config.light.cube_show = True
+app.simulation.config.wireframe.mode = 2
+app.simulation.config.wireframe.color = [0.05, 0.05, 0.05, 1.0]
 app.simulation.camera.pos = [18.0, 5.0, 10.0]
 app.simulation.camera.look_anchor()
 app.simulation.load_mesh(path="res/cube.obj", mat=numpy.eye(4), flatten=True)

@@ -136,7 +136,7 @@ def test_one_step_is_one_frame() -> None:
         app = App()
         app.config.open_in_background = True
         app.config.width, app.config.height = 320, 240
-        app.simulation.config.vsync = False
+        app.config.vsync = False
 
         steps = 0
         while steps < 40 and app.step():
@@ -174,7 +174,7 @@ def test_a_driven_script_keeps_its_own_loop_in_the_editor() -> None:
 
         app = App()
         app.config.open_in_background = True
-        app.simulation.config.vsync = False
+        app.config.vsync = False
         # A script named on the command line is shown and then *held* --
         # `pause_at = 1`. A driven script that wants to run says so.
         app.simulation.state.pause_at = None

@@ -5,8 +5,10 @@ The third guard of the same shape as `test_stubs.py` and
 `test_config_panel.py`, and the one the other two cannot stand in for. A
 field added to `Config` in Rust gets a widget in the editor's panel and a
 line in the `.pyi` automatically, because both are *generated* -- but the
-`#[getter]`/`#[setter]` pair in `src/py/app/config.rs` is written by hand.
-Forget it and the option is complete everywhere except from a script:
+`#[getter]`/`#[setter]` pair was written by hand -- it is generated now, by
+`tools/gen_bindings.py`, but a field marked `:py_custom:` still relies on
+someone writing it. Forget it and the option is complete everywhere except
+from a script:
 
     AttributeError: 'builtins.Config' object has no attribute 'facet_labels'
 
@@ -25,11 +27,7 @@ CONFIG = ROOT / "src/app/config.rs"
 
 # Fields that are deliberately not Python-visible, with why. Kept short: an
 # entry here is a decision, not a way to silence the test.
-EXEMPT = {
-    "Config": set(),
-    "Colorbar": set(),
-    "AppConfig": set(),
-}
+EXEMPT: dict[str, set[str]] = {}
 
 
 def fields(struct: str) -> list[str]:
@@ -39,25 +37,29 @@ def fields(struct: str) -> list[str]:
     return re.findall(r"^\s*pub (\w+): ", m.group(1), re.M)
 
 
+def groups() -> list[tuple[str, str]]:
+    """`(field, RustType)` for every sub-struct of `Config`, in order."""
+    src = CONFIG.read_text()
+    m = re.search(r"pub struct Config \{(.*?)\n\}", src, re.S)
+    assert m
+    return re.findall(r"^\s*pub (\w+): ([A-Za-z_]+),", m.group(1), re.M)
+
+
 def targets(app):
     """The structs to check, each with the Python object that carries them.
 
-    `Colorbar` has no object of its own: its fields are flattened onto
-    `Config` as `colorbar_*`, which is a nicer surface than a sub-object and
-    is why the mapping below exists.
+    `Config` is a struct of sub-structs, and the Python surface follows it:
+    `app.simulation.config.<group>` is a live view onto one sub-struct, so
+    each group is checked on its own view. `AppConfig` is flat.
     """
-    return [
-        ("Config", app.simulation.config),
-        ("Colorbar", app.simulation.config),
-        ("AppConfig", app.config),
-    ]
+    out = [(gtype, getattr(app.simulation.config, g)) for g, gtype in groups()]
+    out.append(("AppConfig", app.config))
+    return out
 
 
 def bound_as(struct: str, name: str) -> str:
-    """Python name for a Rust field, where the two differ."""
-    if struct != "Colorbar":
-        return name
-    return "colorbar" if name == "enabled" else f"colorbar_{name}"
+    """Python name for a Rust field. The same, now that nothing is flattened."""
+    return name
 
 
 def test_every_config_field_is_bound() -> None:
@@ -68,7 +70,7 @@ def test_every_config_field_is_bound() -> None:
     for struct, obj in targets(app):
         have = set(dir(obj))
         for name in fields(struct):
-            if bound_as(struct, name) in have or name in EXEMPT[struct]:
+            if bound_as(struct, name) in have or name in EXEMPT.get(struct, ()):
                 continue
             missing.append(f"{struct}.{name}")
     assert not missing, "no Python getter for: " + ", ".join(missing)
@@ -86,7 +88,7 @@ def test_every_bound_field_is_writable() -> None:
     for struct, obj in targets(app):
         for name in fields(struct):
             name = bound_as(struct, name)
-            if name in EXEMPT[struct] or not hasattr(obj, name):
+            if name in EXEMPT.get(struct, ()) or not hasattr(obj, name):
                 continue
             try:
                 setattr(obj, name, getattr(obj, name))

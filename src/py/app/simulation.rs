@@ -328,7 +328,7 @@ impl Simulation {
     /// Returns whether it is selected afterwards. The same call a click
     /// makes, so a script and the pointer cannot get out of step.
     ///
-    /// The facet takes `config.selection_color` and colour-mode 1, which the
+    /// The facet takes `config.selection.color` and colour-mode 1, which the
     /// shader honours for that facet alone; deselecting puts back whatever
     /// its vertices had. On an *indexed* mesh those vertices are shared with
     /// its neighbours and the colour bleeds -- load with `flatten=True`,
@@ -336,7 +336,7 @@ impl Simulation {
     fn toggle_facet(&mut self, body: usize, facet: usize) -> bool {
         let color = {
             let sim = self.inner.borrow();
-            let c = sim.config.borrow().selection_color;
+            let c = sim.config.borrow().selection.color;
             crate::Vec3::new(c.r as Float, c.g as Float, c.b as Float)
         };
         self.inner.borrow_mut().toggle_facet(body, facet, color)

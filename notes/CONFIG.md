@@ -6,15 +6,28 @@ and where in the code it takes effect.
 There are two configs, and they answer different questions.
 `app.simulation.config` -- this document -- is about the thing being simulated
 and the image made of it. `app.config` is about the application you are
-looking at: its window now, its panel layout and colours as the editor grows.
-It holds `editor`, `focus`, `width`, `height` and `toolbar`.
+looking at: the OS window and the editor around the scene. It holds `editor`,
+`focus`, `open_in_background`, `width`, `height`, `toolbar`, `title`,
+`fullscreen` and `vsync` -- the last three moved there on 15 September, having
+sat on the simulation's config by accident.
 
-**Every option in this document has a widget in the editor's Config section**,
+**The simulation's config is a struct of groups**, and the Python surface
+follows it: `app.simulation.config.<group>.<field>`. The groups are `shading`,
+`light`, `shadows`, `wireframe`, `selection`, `data`, `colorbar`, `axes`,
+`grid`, `hud`, `export`, `controls`, `image` and `debug`, and every entry below
+is headed by its full path. Each `config.<group>` is a *live view* -- it reads
+and writes the same config as every other view, so
+`app.simulation.config.grid.color = ...` takes effect exactly as the flat name
+did. The old flat names still work for one release, with a `DeprecationWarning`
+naming the new path; `tools/config_renames.py` is the table.
+
+**Every option in this document has a widget in the editor's right-hand
+panel, under its topic**,
 and that is guaranteed rather than kept up by hand: `src/app/gui/config_panel.rs`
 is generated from `src/app/config.rs`, and `tests/test_config_panel.py` fails
 if a field has no widget. Add an option and it appears in the panel. The two
 exceptions are marked `:skip:` in the Rust and say why in their entry here --
-`colormap`, which is an array a script passes, and `app.config.editor`, a
+`data.colormap`, which is an array a script passes, and `app.config.editor`, a
 checkbox that would switch the UI off from inside the UI.
 
 The reverse is not true of the rest of the API: see **What the panel reaches**
@@ -42,7 +55,7 @@ pointer. In focus mode the scene is drawn at the full window size behind
 everything and the panels are laid on top, so the viewport is the same size
 whether a panel is showing or not.
 
-Independent of `simulation.config.fullscreen`, which is the OS window and
+Independent of `simulation.app.config.fullscreen`, which is the OS window and
 nothing else. Set both for an immersive fullscreen.
 
 ### `app.config.open_in_background: bool` — default `False` *(startup only)*
@@ -85,7 +98,7 @@ would have governed is already open.
 Unsupported on X11 and Wayland, where winit cannot ask for it; the window comes
 up focused there as before.
 
-**Not `simulation.config.background`**, which is the colour the frame is
+**Not `simulation.config.shading.background`**, which is the colour the frame is
 cleared to, and not `app.config.focus`, which is about the panels *inside* the
 window. Three unrelated things, which is why this one has the long name.
 
@@ -106,7 +119,7 @@ default because once the frame for iteration 0 is drawn the counter is already
 1, and "iteration 1" under a picture of iteration 0 is a lie of one frame.
 
 **Both have `width`/`height`, and they are not the same number.**
-`app.config.width` is the OS window. `app.simulation.config.width` is the
+`app.config.width` is the OS window. `app.simulation.config.image.width` is the
 *image*: the camera's aspect ratio, where axis ticks project, where the colour
 bar sits, and what an exported frame measures. It defaults to `0`, meaning
 "follow the window" -- what a terminal run wants, and what every script got
@@ -119,15 +132,19 @@ The export still gets the full pinned frame, which is the point of pinning it.
 The editor has no such limit -- egui samples the render texture into a panel
 of any size.
 
-Defined in `src/app/config.rs` (`Config` struct + its `Default` impl).
-Exposed to Python in `src/py/app/config.rs` -- every field has a getter and a
-setter, so all of them are readable and writable as `app.simulation.config.<name>`.
+Defined in `src/app/config.rs` (`Config`, one sub-struct per group, each with
+its `Default`). Exposed to Python by `src/py/app/config_gen.rs`, **generated**
+from that struct by `tools/gen_bindings.py` -- one view class per group, a
+getter and a setter per field -- so a field added in Rust is reachable from a
+script without anyone writing an accessor. The one exception is marked
+`:py_custom:` in the Rust and written by hand in `src/py/app/config.rs`: the
+colormap, which parses names and arrays.
 
 ```python
 app = kalast.app.App()
-app.simulation.config.width = 1020
-app.simulation.config.vsync = False
-print(app.simulation.config)   # __repr__ dumps the whole struct
+app.simulation.config.image.width = 1020
+app.config.vsync = False
+print(app.simulation.config.grid)   # __repr__ dumps one group
 ```
 
 **Timing matters -- most options are read once.** The config is consumed when
@@ -136,14 +153,14 @@ the window is created, inside `app.start()`. Set everything before calling it.
 - *(live)* -- re-read by the renderer every frame. `Globals` is rebuilt and
   re-uploaded each frame (it has to be, since the automatic shadow constants
   change as the scene moves), so all the shading and shadow settings are read
-  fresh; `background` and the debug-draw flags are read straight from the
+  fresh; `shading.background` and the debug-draw flags are read straight from the
   config during the pass.
 
   **Change them per frame from a callback**, which receives the app:
 
   ```python
   def before_render(sim: Simulation, dt: float) -> None:
-      sim.config.colorbar = sim.state.iteration > 100
+      sim.config.colorbar.enabled = sim.state.iteration > 100
   ```
 
   This works because `py::App` holds the config beside the app rather than
@@ -154,18 +171,18 @@ the window is created, inside `app.start()`. Set everything before calling it.
   the note says what. Each frame compares the config against what the window
   was actually built with and acts only on a difference; a frame where nothing
   changed does nothing. The costs are:
-  - *reconfigures the surface* (`vsync`) -- no GPU resource recreated, only
+  - *reconfigures the surface* (`app.config.vsync`) -- no GPU resource recreated, only
     the swapchain's pacing.
-  - *rebuilds pipelines* (`msaa`, `render_back_face`) -- sample count and cull
+  - *rebuilds pipelines* (`shading.msaa`, `shading.render_back_face`) -- sample count and cull
     mode are fixed when a pipeline is created, so changing either recompiles
     the shaders. Fine on a settings change; not something to drive per frame.
-  - *reallocates the shadow map* (`shadow_resolution`) -- a new depth texture
+  - *reallocates the shadow map* (`shadows.resolution`) -- a new depth texture
     plus the pipeline rebuild, since the texture is bound through the pass
     bind groups.
-  - *rebuilds the glyph atlas* (`hud_font`) -- a brush owns its atlas, so the
+  - *rebuilds the glyph atlas* (`hud.font`) -- a brush owns its atlas, so the
     font cannot be swapped inside one.
-  - *flushes the queue first* (`export_dir`, `export_sync`,
-    `export_max_queued`) -- frames already queued belong to the directory they
+  - *flushes the queue first* (`export.dir`, `export.sync`,
+    `export.max_queued`) -- frames already queued belong to the directory they
     were queued for, so the old exporter is finished before the new one
     replaces it, and a change made mid-export blocks until the backlog is on
     disk.
@@ -204,12 +221,12 @@ floats `(r, g, b, a)`.
 
 ## Debug / diagnostics
 
-### `debug_app: bool` — default `false` *(live)*
+### `debug.app: bool` — default `false` *(live)*
 Prints app-level lifecycle events. Read at `src/app/mod.rs:214` and
 `src/app/mod.rs:223`.
 Accepted: `True` / `False`.
 
-### `debug_window: bool` — default `false` *(startup only)*
+### `debug.window: bool` — default `false` *(startup only)*
 Prints window and GPU setup detail during surface configuration: chosen
 surface format (`src/app/window.rs:114`), adapter features, device features,
 and **the list of present modes the surface supports**
@@ -219,22 +236,22 @@ Accepted: `True` / `False`.
 Worth enabling once on any new machine -- it is how the vsync cap described in
 `2026-08-25_BENCH_mesh_resolution_results.md` was identified.
 
-### `debug_window_mesh: bool` — default `false` *(startup only)*
+### `debug.window_mesh: bool` — default `false` *(startup only)*
 Prints per-mesh detail as meshes are uploaded. Read at
 `src/app/window.rs:161`.
 Accepted: `True` / `False`.
 
-### `debug_simulation: bool` — default `false`
+### `debug.simulation: bool` — default `false`
 **Currently does nothing.** The field exists and is exposed to Python, but no
 code reads it -- the only references are its declaration, its default, and its
 Python accessors. Left in place as a placeholder.
 
-### `gpu_timing: bool` — default `False` *(live)*
+### `debug.gpu_timing: bool` — default `False` *(live)*
 Time each GPU pass with timestamp queries, readable from
 [`sim.gpu_timings()`](API.md) and from the `{gpu}` HUD placeholders.
 
 ```python
-app.simulation.config.gpu_timing = True
+app.simulation.config.debug.gpu_timing = True
 ...
 t = app.simulation.gpu_timings()
 # {'shadow': 1.51, 'render': 1.74, 'depth': 0.0, 'text': 0.0, 'gui': 0.0,
@@ -253,12 +270,12 @@ that pass was resident on the GPU, queue wait included, so four bodies report
 timestamp to last and is the figure to compare against a frame time. Full
 write-up in `2026-09-09_gpu_pass_timings.md`.
 
-### `occlusion_queries: bool` — default `False` *(live)*
+### `debug.occlusion_queries: bool` — default `False` *(live)*
 Count what each body actually **drew**, with occlusion queries, readable from
 [`sim.visibility()`](API.md) and shown in the editor's Visibility panel.
 
 ```python
-app.simulation.config.occlusion_queries = True
+app.simulation.config.debug.occlusion_queries = True
 ...
 app.simulation.visibility()
 # {'bodies': 2, 'visible': 2, 'clipped_near': 0, 'clipped_far': 0,
@@ -290,10 +307,10 @@ forces a sync, and without one `app.step()` returns as soon as the work is
 queued. That is the measurement changing, not the work. Off by default all the
 same, because it is a buffer map per frame for a diagnostic.
 
-**The counts lag** the current iteration by a frame or two, like `gpu_timing`;
+**The counts lag** the current iteration by a frame or two, like `debug.gpu_timing`;
 `frame` says which one they belong to.
 
-### `debug_depth_show: bool` — default `false` *(live)*
+### `debug.depth_show: bool` — default `false` *(live)*
 Renders the shadow/depth map as an overlay instead of leaving it offscreen, by
 running an extra depth-visualisation pass. Read at `src/app/pass/mod.rs:58`,
 which calls `self.depth.render(view, encoder)`.
@@ -306,19 +323,19 @@ the camera's own planes, so treat the ramp as indicative and not a distance.
 Useful for debugging shadow acne / peter-panning alongside the `shadow_bias_*`
 options.
 
-### `debug_light_cube_show: bool` — default `false` *(live)*
+### `light.cube_show: bool` — default `false` *(live)*
 Draws a small cube at the light's position, so you can see where the sun
 actually is. Read at `src/app/pass/render.rs:100`. Its size is controlled by
-`light_cube_scale`.
+`light.cube_scale`.
 Accepted: `True` / `False`.
 
-`debug_light_cube_fit` below is on by default, which is what makes the cube
+`light.cube_fit` below is on by default, which is what makes the cube
 *visible* rather than merely drawn: the camera's far plane is fitted to the
 bodies, and the Sun is usually well outside them.
 
-### `debug_light_cube_fit: bool` — default `true` *(live)*
+### `light.cube_fit: bool` — default `true` *(live)*
 Fit the camera's frustum around the light cube as well as the bodies, which is
-what makes `debug_light_cube_show` show something. On by default for that
+what makes `light.cube_show` show something. On by default for that
 reason -- asking to see the light and being shown nothing is not a useful
 default -- and inert unless the cube is being drawn.
 
@@ -353,24 +370,30 @@ Accepted: `True` / `False`.
 
 ## Window
 
-### `title: String` — default `"kalast"` *(live)*
+### `app.config.title: String` — default `"kalast"` *(live)*
 The OS window title. Applied at `src/app/mod.rs:117` via winit's
 `.with_title()`.
 Accepted: any string.
 
-### `width: u32` — default `800` *(live)*
-### `height: u32` — default `600` *(live)*
-Initial window size in pixels, and therefore the render-target size and the
-resolution of exported PNGs. The exporter reads the surface dimensions, not
-these fields directly -- see `src/app/window.rs:450`, which passes
-`self.surface_config.width/height` into `export_frame`.
-Accepted: any positive integer within what the GPU allows.
-Note exported frame size follows the *live* surface size, so resizing the
-window mid-run changes the size of subsequent exports. Export buffers are
-pooled by byte size, and stale-sized pooled buffers are discarded on resize
+### `app.config.width: int` — default `800` *(live)*
+### `app.config.height: int` — default `600` *(live)*
+The OS window, in physical pixels. A request rather than a command: a tiling
+window manager or a small screen may hand back something else, and the image
+follows whatever was actually granted unless it is pinned below.
+
+### `image.width: int` — default `0` *(live)*
+### `image.height: int` — default `0` *(live)*
+The image being rendered -- what the camera's aspect ratio, the axis ticks,
+the colour bar and an exported frame all follow. `0` means "follow the window",
+which is what a terminal run wants and what every script got when there was one
+pair of these. Set both to pin the render independently of the window: a 4K
+export out of a small window, say. While the two differ the window shows the
+top-left of the image rather than a scaled copy, since the blit is a straight
+texel copy; the export still gets the full pinned frame. Export buffers are
+pooled by byte size, and stale-sized ones are discarded when this changes
 (`src/app/gpu.rs`, the `pool_rx.try_recv()` loop in `export_frame`).
 
-### `fullscreen: bool` — default `false` *(live)*
+### `app.config.fullscreen: bool` — default `false` *(live)*
 Fill the screen. Accepted: `True` / `False`.
 
 On macOS this is the **simple** fullscreen — the pre-Lion kind, the one
@@ -423,7 +446,7 @@ larger size costs, and it is the whole of it.
 It also took the scale-factor change with it, which is what used to crash a
 green-button fullscreen before `ScaleFactorChanged` was handled at all.
 
-### `render_back_face: bool` — default `false` *(live, rebuilds pipelines)*
+### `shading.render_back_face: bool` — default `false` *(live, rebuilds pipelines)*
 Whether triangles facing away from the camera are drawn.
 
 - `false` (default): back faces are culled -- `Some(wgpu::Face::Back)` on the
@@ -457,7 +480,7 @@ closed meshes.
 
 ## Presentation
 
-### `wireframe_fade: bool` — default `false` *(live)*
+### `wireframe.fade: bool` — default `false` *(live)*
 Fade the wireframe out as a body recedes far enough that its facets stop being
 resolvable — between 4 px and 1 px facets, off entirely below one.
 
@@ -481,7 +504,7 @@ Thresholds are `WIRE_FADE_MIN_PX` / `WIRE_FADE_FULL_PX` in
 `shaders/mesh_shadow.wgsl`. It lives in the `Globals` slot `value_mode` left
 behind when it was removed, so the uniform layout is unchanged.
 
-### `vsync: bool` — default `false` *(live, reconfigures the surface)*
+### `app.config.vsync: bool` — default `false` *(live, reconfigures the surface)*
 `true` requests `wgpu::PresentMode::Fifo` (vsync, frame rate pinned to the
 display refresh rate). `false` requests `PresentMode::Immediate` (uncapped).
 Resolved by `pick_present_mode` at the bottom of `src/app/window.rs`, used at
@@ -509,7 +532,7 @@ a still image and can tear.
 Before this option existed, `present_modes[0]` (typically `Fifo`) was the
 unconditional choice, so every run was vsync-capped.
 
-### `msaa: u32` — default `4` *(live, rebuilds pipelines)*
+### `shading.msaa: u32` — default `4` *(live, rebuilds pipelines)*
 Multisample anti-aliasing on the main render pass. `1` turns it off; `2`, `4`
 and `8` are the useful values.
 Accepted: any `int`, but a count the adapter does not support falls back to
@@ -534,7 +557,7 @@ multisampled buffer and resolves into `render_texture`, the same
 single-sample target that has always been blitted and exported, so nothing
 downstream changed.
 
-**Caveat:** `debug_depth_show` mirrors the main pass's depth only at
+**Caveat:** `debug.depth_show` mirrors the main pass's depth only at
 `msaa = 1`. Above that the pass writes its own multisampled depth buffer, and
 the debug view is not it.
 
@@ -551,7 +574,7 @@ Exporting is triggered per-frame from the simulation, not from the config:
 `sim.export_once()` for a single frame, `sim.toggle_export()` for continuous
 export. See `src/app/simulation.rs:70` and `src/app/window.rs:359`.
 
-### `access_shadow_map: bool` — default `false` *(live)*
+### `shadows.access_shadow_map: bool` — default `false` *(live)*
 Read the shadow map back per facet: computes solar occlusion for **every**
 body each frame, read from
 `after_render` with `sim.facet_shadow(body)` -- an array of occluded
@@ -571,7 +594,7 @@ Full write-up, validation against ray tracing and accuracy budget in
 `2026-08-26_facet_shadow_query/`.
 Accepted: `True` / `False`.
 
-### `export_dir: String` — default `"out/frames"` *(live, flushes the queue first)*
+### `export.dir: String` — default `"out/frames"` *(live, flushes the queue first)*
 Destination directory, created if absent (`src/app/gpu.rs`,
 `FrameExporter::new`). Numbering **resumes after any files already present**,
 so an existing run's frames are never overwritten -- the directory is scanned
@@ -582,7 +605,7 @@ Give dev/test runs their own directory. Two `FrameExporter`s pointed at the
 same directory race on both the startup index scan and any cleanup, so an
 `rm -rf` of one process's directory can delete files another just wrote.
 
-### `export_sync: bool` — default `false` *(live, flushes the queue first)*
+### `export.sync: bool` — default `false` *(live, flushes the queue first)*
 Chooses how exported frames reach disk.
 
 - `False` (async, default): the GPU->CPU copy is spread across frames and
@@ -621,9 +644,9 @@ abandons whatever is outstanding and leaves as many truncated trailing files
 as there are save workers.
 
 ### `huds: list[Hud]` — default `[]` *(live)*
-### `hud_font: String` — default `""` *(live, rebuilds the glyph atlas)*
+### `hud.font: String` — default `""` *(live, rebuilds the glyph atlas)*
 On-screen overlay text, drawn over the swapchain after the blit — so by
-default it stays out of exported frames (`export_hud` adds it to those too).
+default it stays out of exported frames (`export.hud` adds it to those too).
 Empty draws nothing.
 
 `app.simulation.config.huds` and `app.simulation.huds` are **the same list**, not two.
@@ -637,7 +660,7 @@ app.simulation.config.huds = [
     kalast.app.Hud("{fps} fps  {ms} ms", anchor="bottom-right"),
     kalast.app.Hud("", x=200, y=120, size=24.0),               # filled in below
 ]
-app.simulation.config.hud_font = "Arial"                 # or a path; built-in otherwise
+app.simulation.config.hud.font = "Arial"                 # or a path; built-in otherwise
 
 
 def before_render(sim: Simulation, dt: float) -> None:
@@ -722,7 +745,7 @@ the digits change faster than they can be read. The window is
 color=None)`.
 
 `size` is the font size in pixels and is **per HUD**, so a large counter and a
-small frame-rate readout cost nothing extra. `color` is `(r, g, b, a)`.
+small frame-rate readout cost nothing extra. `shading.color` is `(r, g, b, a)`.
 
 `anchor` is one of nine: `top-left`, `top-center`, `top-right`,
 `middle-left`, `middle-center`, `middle-right`, `bottom-left`,
@@ -749,13 +772,13 @@ position to `top-left` and was removed as a second name for the default.
 
 #### Font
 
-`hud_font` takes either a **font name** or a **path**, and applies to *every*
+`hud.font` takes either a **font name** or a **path**, and applies to *every*
 HUD; empty uses the built-in DejaVu Sans:
 
 ```python
-app.simulation.config.hud_font = "Arial"                      # name
-app.simulation.config.hud_font = "Times New Roman"            # spaces and case ignored
-app.simulation.config.hud_font = "/Library/Fonts/Arial.ttf"   # path
+app.simulation.config.hud.font = "Arial"                      # name
+app.simulation.config.hud.font = "Times New Roman"            # spaces and case ignored
+app.simulation.config.hud.font = "/Library/Fonts/Arial.ttf"   # path
 ```
 
 Anything that exists on disk is treated as a path; anything else is looked up
@@ -800,7 +823,7 @@ width.
 
 ---
 
-### `export_hud: bool` — default `false` *(live)*
+### `export.hud: bool` — default `false` *(live)*
 Whether the HUD text (`sim.huds`) is burned into exported frames as well as
 drawn on screen.
 
@@ -818,10 +841,10 @@ should be the render and nothing else. Turn it on for a screen-capture-style
 movie where the run state should be legible in the frames themselves. Costs
 one text pass, and only on frames that are actually exported.
 
-### `export_max_queued: u32` — default `64` *(live, flushes the queue first)*
+### `export.max_queued: u32` — default `64` *(live, flushes the queue first)*
 Upper bound on frames that have been exported but not yet written, before
 `export_frame` blocks the render loop to let the encoders catch up. Enforced
-by `apply_backpressure` in `src/app/gpu.rs`; ignored when `export_sync` is on.
+by `apply_backpressure` in `src/app/gpu.rs`; ignored when `export.sync` is on.
 Accepted: any `int >= 0`. **`0` disables the bound**, restoring the original
 unbounded behaviour.
 
@@ -854,9 +877,9 @@ Bindings in the default Arcball mode:
 | Input | Action |
 |---|---|
 | Middle-drag | orbit |
-| Alt + left-drag | orbit (when `emulate_middle_button`) |
+| Alt + left-drag | orbit (when `controls.emulate_middle_button`) |
 | Shift + middle-drag | pan |
-| Shift + alt + left-drag | pan (when `emulate_middle_button`) |
+| Shift + alt + left-drag | pan (when `controls.emulate_middle_button`) |
 | Wheel / two-finger scroll | zoom |
 | Pinch gesture | zoom (trackpad) |
 | `T` | toggle Arcball / WASD |
@@ -871,10 +894,10 @@ is then applied each frame via `sim.camera.update_with_controller`
 them after `start()` does nothing.
 
 Pointer-driven terms are deliberately **not** scaled by frame time -- a mouse
-delta is a displacement, not a rate. `sensitivity_move` doubles as the pan
-scale; `sensitivity_look` applies to WASD only.
+delta is a displacement, not a rate. `controls.sensitivity_move` doubles as the pan
+scale; `controls.sensitivity_look` applies to WASD only.
 
-### `emulate_middle_button: bool` — default `true` on macOS, `false` elsewhere *(live)*
+### `controls.emulate_middle_button: bool` — default `true` on macOS, `false` elsewhere *(live)*
 Treat **alt + left-drag** as a middle-drag, so the arcball can be orbited on
 hardware with no middle button -- a trackpad. Blender calls the same setting
 "Emulate 3 Button Mouse", and the binding matches, so the muscle memory
@@ -884,16 +907,16 @@ Accepted: `True` / `False`.
 Copied onto the controller once by `apply_config_at_start`, like the
 `sensitivity_*` values, so set it before `app.start()`.
 
-### `sensitivity_move: Float` — default `1.0` *(live)*
+### `controls.sensitivity_move: Float` — default `1.0` *(live)*
 Translation speed. `src/app/frame.rs:197`.
 
-### `sensitivity_look: Float` — default `1.0` *(live)*
+### `controls.sensitivity_look: Float` — default `1.0` *(live)*
 Look/pan speed, scaling `SENSITIVITY_LOOK`. `src/app/frame.rs:205,209`.
 
-### `sensitivity_rotate: Float` — default `1.0` *(live)*
+### `controls.sensitivity_rotate: Float` — default `1.0` *(live)*
 Orbit speed, scaling `SENSITIVITY_ROTATE`. `src/app/frame.rs:178,182`.
 
-### `sensitivity_zoom: Float` — default `1.0` *(live)*
+### `controls.sensitivity_zoom: Float` — default `1.0` *(live)*
 Zoom speed. `src/app/frame.rs:170`.
 
 Accepted: any float. `0.0` disables that input; negatives invert it.
@@ -932,21 +955,21 @@ That buffer is rebuilt and re-uploaded **every frame** -- it has to be, since
 the automatic shadow constants change as the scene moves -- so everything in
 this section is read fresh each frame. It used to be written once at startup.
 Note this still does not let a script change them mid-run: see the *(live)*
-caveat at the top. `background` never went through `Globals` at all; it is
+caveat at the top. `shading.background` never went through `Globals` at all; it is
 read from the config directly in the render pass.
 
-### `background: wgpu::Color` — default `BLACK` *(live)*
-Clear color for the render pass. Used as `LoadOp::Clear(config.background)` at
+### `shading.background: wgpu::Color` — default `BLACK` *(live)*
+Clear color for the render pass. Used as `LoadOp::Clear(config.shading.background)` at
 `src/app/pass/render.rs:85`.
 Accepted: `(r, g, b, a)` floats, normally 0.0-1.0.
 
-### `color: wgpu::Color` — default `WHITE` *(live)*
+### `shading.color: wgpu::Color` — default `WHITE` *(live)*
 A single global color. **Only used when `color_mode == 2`.** Passed as
-`color_vec3(&config.color)` at `src/app/window.rs:193`; read in the shader's
+`color_vec3(&config.shading.color)` at `src/app/window.rs:193`; read in the shader's
 `color_mode == 2` branch.
 Accepted: `(r, g, b, a)`; alpha is dropped (converted to `Vec3`).
 
-### `color_mode: u32` — default `0` *(live)*
+### `shading.color_mode: u32` — default `0` *(live)*
 Selects the fragment color path. Documented on the `Globals` struct in
 `src/app/uniform.rs` and branched in `shaders/mesh_shadow.wgsl:117-128` (and `:175` for mode 3).
 
@@ -954,7 +977,7 @@ Selects the fragment color path. Documented on the `Globals` struct in
 |---|---|
 | `0` | vertex/instance color + lighting + shadow (the normal path) |
 | `1` | vertex/instance color, raw -- no lighting, no shadow |
-| `2` | the global `color` field, raw -- no lighting, no shadow |
+| `2` | the global `shading.color` field, raw -- no lighting, no shadow |
 | `3` | same as `0` but with shadowing forced off (`shadow = 1.0`) |
 | other | falls through to `0` |
 
@@ -964,7 +987,7 @@ Mode `3` is the cheap way to answer "how much is the shadow pass costing me?"
 without touching code -- though note it only disables the shadow *lookup* in
 the fragment shader, it does not skip rendering the shadow map.
 
-### `extra: u32` — default `0` *(live)*
+### `debug.extra: u32` — default `0` *(live)*
 A spare uniform slot. Plumbed all the way through -- config ->
 `src/app/window.rs:208` -> `Globals` -> declared in `shaders/mesh.wgsl:7` and
 `shaders/mesh_shadow.wgsl:13` -- but **no shader currently reads it**. It
@@ -972,7 +995,7 @@ exists so a scratch value can be pushed to the GPU without changing the
 uniform layout.
 Accepted: any `int`.
 
-### `srgb_mode: u32` — default `0` *(live)*
+### `shading.srgb_mode: u32` — default `0` *(live)*
 Controls where the sRGB/linear conversion happens. `src/app/window.rs:196`.
 
 | Value | Meaning |
@@ -983,7 +1006,7 @@ Controls where the sRGB/linear conversion happens. `src/app/window.rs:196`.
 Accepted: `0` or `1`. Both branches call `srgb_to_linear(color, gamma)`, so
 this picks which color gets converted, not whether conversion happens.
 
-### `gamma: Float` — default `2.2` *(live)*
+### `shading.gamma: Float` — default `2.2` *(live)*
 Exponent used by `srgb_to_linear` in the shader. `src/app/window.rs:197`.
 Accepted: any positive float. `2.2` is the standard sRGB approximation; `1.0`
 makes the conversion a no-op.
@@ -992,7 +1015,7 @@ makes the conversion a no-op.
 
 ## Lighting
 
-### `ambient_strength: f32` — default `0.0` *(live)*
+### `light.ambient: f32` — default `0.0` *(live)*
 Scales the light color into an ambient term added to every fragment
 regardless of shadowing: `ambient_color = light.color * ambient_strength`.
 `src/app/window.rs:199`.
@@ -1005,7 +1028,7 @@ Raise it to see into shadows while navigating. It is the wrong thing to have
 on for anything quantitative, including the `0..1` diffuse map, which carries
 this term.
 
-### `light_color: wgpu::Color` — default `WHITE` *(live)*
+### `light.color: wgpu::Color` — default `WHITE` *(live)*
 The light's colour, feeding both the ambient and diffuse terms, and the colour
 the debug light cube is drawn in. Part of the `Light` uniform, refreshed each
 frame beside the Sun's position.
@@ -1016,9 +1039,9 @@ reached the shader, and one set from a callback or from the config panel did
 nothing at all.
 Accepted: `(r, g, b, a)`; alpha dropped.
 
-### `light_cube_scale: Float` — default `0.25` *(live)*
+### `light.cube_scale: Float` — default `0.25` *(live)*
 Size of the debug light cube, in world units. Only visible when
-`debug_light_cube_show` is on. Applied in the vertex shader at
+`light.cube_show` is on. Applied in the vertex shader at
 `shaders/light_render.wgsl:47`:
 `vertex.pos * light_cube_scale + light.pos`.
 Accepted: any float.
@@ -1030,7 +1053,7 @@ Accepted: any float.
 The shadow map is a depth texture **array** rendered from the light's point of
 view, then compared against during the main pass. Sizing happens at
 `src/app/window.rs:330-331`; the array is always allocated at
-`MAX_SHADOW_LAYERS` layers, and `shadow_per_body` decides how many are used.
+`MAX_SHADOW_LAYERS` layers, and `shadows.per_body` decides how many are used.
 Each body carries the layer it samples as an instance attribute
 (`shadow_layer`), read in `shaders/mesh_shadow.wgsl:229-230`.
 
@@ -1042,7 +1065,7 @@ determines the lighting. Setting them still works and is simply not read.
 pointing at whatever `anchor` held — usually the origin, which is the
 spacecraft in most of these scripts.
 
-### `shadow_per_body: bool` — default `true` *(live)*
+### `shadows.per_body: bool` — default `true` *(live)*
 One shadow map per body — aimed at it and sized to it — instead of a single
 map fitted to the whole scene. Layer count is chosen in
 `src/app/window.rs:741`, the per-layer matrices at `:752-769`, and the layer a
@@ -1076,7 +1099,7 @@ not wrong. Setting it to `False` restores the old single scene-fitted map,
 which is worth doing only to reproduce older output, or when every body is a
 similar size.
 
-### `shadow_resolution: u32` — default `8192` *(live, reallocates the shadow map)*
+### `shadows.resolution: u32` — default `8192` *(live, reallocates the shadow map)*
 Side length of the square shadow map, in texels. Used **twice** at
 `src/app/window.rs:239,240` (width and height) and also passed into `Globals`
 at `src/app/window.rs:202`, where the shader uses it to compute
@@ -1086,7 +1109,7 @@ powers of two are the sane choice. `8192` is a 256 MB-class depth target --
 lowering it to `4096` or `2048` is the first thing to try if you are tight on
 VRAM.
 
-### `shadow_pcf: u32` — default `0` *(live)*
+### `shadows.pcf: u32` — default `0` *(live)*
 Percentage-closer-filtering kernel *radius*.
 
 **The normal offset scales with this**, `lb.x * (1 + shadow_pcf)`. One texel
@@ -1107,7 +1130,7 @@ So `1` = 9 taps, `2` = 25 taps, `3` = 49 taps. Cost grows quadratically.
 Accepted: any `int >= 0`.
 
 The blur you actually see scales with kernel radius *in shadow-map texels*,
-which at the Hera geometry is only ~0.1 image pixels per unit of `shadow_pcf`
+which at the Hera geometry is only ~0.1 image pixels per unit of `shadows.pcf`
 -- so small values look like no change at all. Softening becomes visible
 around `8` and obvious by `24`. Worked example, measurements and side-by-side
 renders in `2026-08-25_pcf_shadow_comparison/`.
@@ -1118,7 +1141,7 @@ unshadowed light to every filtered fragment -- the umbra measured 93/255
 instead of 7/255 at `shadow_pcf = 1`, a 13x over-brightening. If you have
 older rendered output with `shadow_pcf > 0`, its shadows are too light.
 
-### `shadow_normal_offset_scale: Optional[float]` — default `None` (automatic) *(live)*
+### `shadows.normal_offset_scale: Optional[float]` — default `None` (automatic) *(live)*
 Pushes the sample position along the surface normal before projecting into
 light space, scaled by `k = 1 - N·L` so the offset grows at grazing angles:
 `offset_pos = world_pos + world_normal * shadow_normal_offset_scale * k`.
@@ -1126,12 +1149,12 @@ light space, scaled by `k = 1 - N·L` so the offset grows at grazing angles:
 Accepted: any float. Too small leaves shadow acne; too large detaches shadows
 from their casters (peter-panning).
 
-### `shadow_bias_scale: Optional[float]` — default `None` (automatic) *(live)*
-### `shadow_bias_minimum: Optional[float]` — default `None` (automatic) *(live)*
+### `shadows.bias_scale: Optional[float]` — default `None` (automatic) *(live)*
+### `shadows.bias_minimum: Optional[float]` — default `None` (automatic) *(live)*
 Depth-comparison bias, combined in the shader as
 `bias = max(shadow_bias_scale * k2, shadow_bias_minimum)` where `k2 = (1 - N·L)^2`.
-So `shadow_bias_scale` sets the angle-dependent term and
-`shadow_bias_minimum` the floor applied to head-on surfaces.
+So `shadows.bias_scale` sets the angle-dependent term and
+`shadows.bias_minimum` the floor applied to head-on surfaces.
 `src/app/window.rs:203,204`.
 Accepted: any float `>= 0.0`.
 
@@ -1159,12 +1182,12 @@ receiver's slope says nothing, and unclamped it pushed those taps out of
 shadow, 215 -> 3,892 px.
 
 **All three default to `None`, meaning automatic.** They are derived every
-frame from the fitted light frustum and `shadow_resolution`, expressed
+frame from the fitted light frustum and `shadows.resolution`, expressed
 relative to one shadow texel so they stay correct at any scene scale. Setting
 one pins it and leaves the others automatic; assigning `None` again restores
 automatic. Derivation and measurements in `2026-08-25_renderer_auto_fit_wireframe/`.
 
-**With `shadow_per_body` on, there is one set of these per layer**, derived
+**With `shadows.per_body` on, there is one set of these per layer**, derived
 from that layer's own half-extent and the scene depth range
 (`light.layer_bias[8]` in the uniform, read at `mesh_shadow.wgsl:231`). The
 spread is large — on the Mars swing-by quick-look:
@@ -1181,7 +1204,7 @@ self and mutual shadowing share a layer rather than getting separate
 parameters.
 
 **So pinning any of the three is now worse than leaving it automatic.** The
-per-layer loop reads `config.shadow_normal_offset_scale.unwrap_or(fit.…)`, so
+per-layer loop reads `config.shadows.normal_offset_scale.unwrap_or(fit.…)`, so
 a pinned value replaces the fitted one on *every* layer — one number across
 that 403x spread. Hand-tuning these to match the single Sun frustum was
 correct before per-body layers existed; it is not any more.
@@ -1204,7 +1227,7 @@ reverse-engineered from the matrix.
 
 ## Reference axes
 
-### `axes: str` — default `"off"` *(live)*
+### `axes.style: str` — default `"off"` *(live)*
 Draw a measured frame around the scene, in one of four styles.
 
 | | |
@@ -1213,34 +1236,34 @@ Draw a measured frame around the scene, in one of four styles.
 | `box` | closed box, ticked on the near edges — MATLAB's `box on`; every edge is a ruler |
 | `panes` | the three far panes, gridded, ticks on their outer edges — matplotlib's `Axes3D`; reads as a room the body sits in, so the grid gives depth cues a bare box does not |
 | `gizmo` | the navigation gizmo in a corner and nothing in the scene — for fly-throughs, where a box would occlude the subject every time the camera swings |
-| `blender` | ground grid on XY with the Z axis picked out and the navigation gizmo in a corner, as Blender's viewport. The grid is infinite and shaded per pixel unless `grid` is `False` |
+| `blender` | ground grid on XY with the Z axis picked out and the navigation gizmo in a corner, as Blender's viewport. The grid is infinite and shaded per pixel unless `grid.enabled` is `False` |
 
 Accepted: those names; anything else raises `ValueError` listing them.
 
-### `axes_ticks: int` *(live)*
+### `axes.ticks: int` *(live)*
 Roughly how many ticks per axis. The step is rounded to 1, 2 or 5 times a
 power of ten first, so the count lands *near* this rather than on it — ticks
 at 0.0347 are unreadable.
 
-### `axes_unit: str` *(live)*
+### `axes.unit: str` *(live)*
 Appended to every tick label, e.g. `" km"`.
 
 The renderer knows a mesh is 0.437 across but not whether that is metres or
 kilometres, so the unit has to come from the script. **Nothing checks it**, so
 a wrong unit here mislabels a figure silently.
 
-### `axes_color: list[float]` *(live)*
-### `axes_label_size: float` *(live)*
-### `axes_label_color: list[float]` *(live)*
+### `axes.color: list[float]` *(live)*
+### `axes.label_size: float` *(live)*
+### `axes.label_color: list[float]` *(live)*
 Line and grid colour `(r, g, b)`, tick label size in pixels, and label colour
 `(r, g, b, a)`.
 
-### `grid: bool` — default `True` *(live)*
+### `grid.enabled: bool` — default `True` *(live)*
 Shade the `"blender"` style's ground plane per pixel instead of drawing it as
 line segments. Only that style has a ground plane, so this does nothing under
 the other four.
 
-`False` restores the segments, which are still what `axes_ticks` labels. The
+`False` restores the segments, which are still what `axes.ticks` labels. The
 segments stop at the scene bounds, sit at one spacing whatever the zoom, and
 are one pixel wide because WebGPU has no line width. The shaded grid has no
 edge, crossfades between levels as you zoom — one grid serves a unit cube and
@@ -1260,24 +1283,24 @@ behave:
   its ramp — measured in world units and again as a fraction of the far
   plane, both did nothing at all.
 
-### `grid_width: float` — default `1.0` *(live)*
+### `grid.width: float` — default `1.0` *(live)*
 Line width in pixels. Held constant on screen however far away, and however
 oblique, the ground is; a line that would come out under a pixel dims rather
 than flickering, and one that would come out wider than half a cell is capped
 so a grazing view greys out instead of filling in solid.
 
-### `grid_major: int` — default `10` *(live)*
+### `grid.major: int` — default `10` *(live)*
 Cells per brighter line, and the factor between the levels the crossfade
 steps through — the same number seen from two sides. Three levels are drawn
 at once, weighted so the stack is continuous as it shifts: the finest fades
 out, the middle is always solid, the coarsest fades in.
 
-### `grid_color: list[float]` *(live)*
-### `grid_major_color: list[float]` *(live)*
-### `grid_axis_x_color: list[float]` *(live)*
-### `grid_axis_y_color: list[float]` *(live)*
-### `grid_axis_z_color: list[float]` *(live)*
-Ordinary line, every `grid_major`-th line, and the three axes through the
+### `grid.color: list[float]` *(live)*
+### `grid.major_color: list[float]` *(live)*
+### `grid.axis_x_color: list[float]` *(live)*
+### `grid.axis_y_color: list[float]` *(live)*
+### `grid.axis_z_color: list[float]` *(live)*
+Ordinary line, every `grid.major`-th line, and the three axes through the
 origin, each `(r, g, b, a)`. **Two of the three are drawn**, whichever lie in
 the grid's plane — so a Z colour is needed for the side views, where the grid
 is YZ or XZ rather than the XY ground. Defaults sit at 0.45 on screen; at full
@@ -1303,7 +1326,7 @@ Measured rather than asserted, by differencing a rendered frame with
 `axes = "blender"` against the same frame with `axes = "off"`, masking the
 gizmo and separating the coloured axis lines by saturation.
 
-The axis lines are drawn at **twice** `grid_width`, which Blender does not do;
+The axis lines are drawn at **twice** `grid.width`, which Blender does not do;
 it separates them by colour alone, and that reads as indefinite when the grid
 is this dim.
 
@@ -1312,8 +1335,8 @@ plane when the camera looks along X, and XZ when it looks along Y — chosen
 from `Eye::plane_view()` in `src/app/window.rs`. Fixed to XY, an axis view
 showed the ground edge-on with nothing behind the body.
 
-### `grid_fade_near: float` — default `0.9` *(live)*
-### `grid_fade_far: float` — default `1.0` *(live)*
+### `grid.fade_near: float` — default `0.9` *(live)*
+### `grid.fade_far: float` — default `1.0` *(live)*
 Fade the grid out between these grazing factors: `0.0` is looking straight
 down at the ground plane and `1.0` is looking along it. Without the fade the
 horizon is a hard line of aliasing.
@@ -1339,19 +1362,19 @@ the zoom, and they could not be clicked. Nothing replaces them in the scene:
 under `"blender"` the ground grid already draws coloured X and Y lines through
 the origin and the Z axis is picked out as a vertical line.
 
-**The letters go into exported frames** whether or not `export_hud` does,
+**The letters go into exported frames** whether or not `export.hud` does,
 because the balls they sit on already do — the widget is drawn in the render
 pass, into the texture the exporter copies, so lettered balls with no letters
-on them would read as a bug. Everything else in `export_hud`'s remit is
+on them would read as a bug. Everything else in `export.hud`'s remit is
 unaffected.
 
-### `gizmo_anchor: str` — default `"top-right"` *(live)*
+### `axes.gizmo_anchor: str` — default `"top-right"` *(live)*
 Which corner it sits in. The nine HUD anchor names, so it can be moved clear
 of a colour bar or a HUD: `"top-left"`, `"top-center"`, `"top-right"`,
 `"middle-left"`, `"middle-center"`, `"middle-right"`, `"bottom-left"`,
 `"bottom-center"`, `"bottom-right"`. Hyphen, underscore and space all parse.
 
-### `gizmo_size: float` — default `60.0` *(live)*
+### `axes.gizmo_size: float` — default `60.0` *(live)*
 Half the widget's width in pixels: a ball centre never sits further than this
 from the middle, so the whole thing is `2 * gizmo_size` across and a corner
 anchor never puts half a ball off the image. Balls are `0.22` of it.
@@ -1376,14 +1399,14 @@ faces the viewer, so a letter never outshines the ball it is on.
 
 ## Facet colouring from data
 
-### `colormap` *(live)*
+### `data.colormap` *(live)*
 The colour table. Accepts a built-in name, any N×3 or N×4 array (alpha
 ignored) in float32 or float64, or a sequence of `[r, g, b]` triples:
 
 ```python
-app.simulation.config.colormap = "inferno"
-app.simulation.config.colormap = matplotlib.colormaps["magma"](numpy.linspace(0, 1, 256))[:, :3]
-app.simulation.config.colormap = kalast.app.colormap("inferno")[::-1]      # reversed
+app.simulation.config.data.colormap = "inferno"
+app.simulation.config.data.colormap = matplotlib.colormaps["magma"](numpy.linspace(0, 1, 256))[:, :3]
+app.simulation.config.data.colormap = kalast.app.colormap("inferno")[::-1]      # reversed
 ```
 
 Any length works — it is resampled to 256 entries on upload, interpolated
@@ -1416,14 +1439,14 @@ shading a data map makes one value read as two colours, so a separate
 `value_mode` only created combinations that were either redundant or wrong.
 One setting decides what you are looking at:
 
-| `color_mode` | the surface shows | the colour bar shows |
+| `shading.color_mode` | the surface shows | the colour bar shows |
 |---|---|---|
 | 0, 3 | diffuse lighting | lighting, 0..1 |
-| 1 | the data | the data, `value_min`..`value_max` |
+| 1 | the data | the data, `data.value_min`..`data.value_max` |
 | 2 | one flat colour | nothing — the bar is not drawn |
 
-### `value_min: float | None` — default `None` *(live)*
-### `value_max: float | None` — default `None` *(live)*
+### `data.value_min: float | None` — default `None` *(live)*
+### `data.value_max: float | None` — default `None` *(live)*
 Ends of the colour scale, or `None` to fit the data each frame.
 
 **Pin both for anything comparative.** An automatic range silently rescales
@@ -1435,43 +1458,43 @@ bookkeeping.
 
 ## Colour bar
 
-### `colorbar: bool` — default `False` *(live)*
+### `colorbar.enabled: bool` — default `False` *(live)*
 Draw the colour scale over the render.
 
-**What the bar describes follows `color_mode`**, and is not a setting of its
+**What the bar describes follows `shading.color_mode`**, and is not a setting of its
 own: the legend cannot be made to describe something the surface is not. In
 the lit modes it is the diffuse shading, `ambient + cos(i) * visibility` —
 normalised direct insolation including shadowing, **not** radiance and **not**
-temperature, and it carries the `ambient_strength` floor, so label it for what
-it is. In the unlit mode it is the data map, over `value_min`..`value_max`,
+temperature, and it carries the `light.ambient` floor, so label it for what
+it is. In the unlit mode it is the data map, over `data.value_min`..`data.value_max`,
 read from the same lookup table the surface uses so the two cannot disagree.
 
 With `color_mode = 2` the bar is not drawn at all: every body is one flat
 colour, so there is no scale to label.
 
-### `colorbar_label: str` *(live)*
-Caption, e.g. `"Surface temperature (K)"`. Same warning as `axes_unit`:
+### `colorbar.label: str` *(live)*
+Caption, e.g. `"Surface temperature (K)"`. Same warning as `axes.unit`:
 nothing checks it against what is actually mapped.
 
-### `colorbar_anchor: str` *(live)*
-### `colorbar_x: float` *(live)*
-### `colorbar_y: float` *(live)*
+### `colorbar.anchor: str` *(live)*
+### `colorbar.x: float` *(live)*
+### `colorbar.y: float` *(live)*
 Placement, using the same nine anchors and inset convention as `Hud`.
 
-### `colorbar_vertical: bool | None` — default `None` *(live)*
+### `colorbar.vertical: bool | None` — default `None` *(live)*
 Orientation. `None` infers it from the anchor, which is right for the corners.
 
-### `colorbar_length: float` *(live)*
-### `colorbar_thickness: float` *(live)*
+### `colorbar.length: float` *(live)*
+### `colorbar.thickness: float` *(live)*
 Long and short axis of the bar, in pixels.
 
-### `colorbar_ticks: int` *(live)*
-### `colorbar_text_size: float` *(live)*
-### `colorbar_text_color: list[float]` *(live)*
+### `colorbar.ticks: int` *(live)*
+### `colorbar.text_size: float` *(live)*
+### `colorbar.text_color: list[float]` *(live)*
 Roughly how many numbered ticks — rounded to a readable step as the axes are —
 plus label size and colour.
 
-### `colorbar_border: bool` — default `True` *(live)*
+### `colorbar.border: bool` — default `True` *(live)*
 Outline around the strip, so it reads as a scale rather than as part of the
 scene when it sits over a dark body.
 
@@ -1488,7 +1511,7 @@ non-indexed geometry. Smooth meshes render shaded with a one-time warning
 rather than noise; the check is per mesh, via `INSTANCE_FLAG_FLAT` in
 `InstanceInput.flags`.
 
-### `selection_color: list[float]` — default yellow `(1.0, 1.0, 0.0, 1.0)` *(live)*
+### `selection.color: list[float]` — default yellow `(1.0, 1.0, 0.0, 1.0)` *(live)*
 The colour a facet takes when selected — by clicking it in the viewport, or
 through `sim.toggle_facet`. Written onto the facet's own vertices together
 with colour-mode 1, which the shader honours for that facet alone, so the rest
@@ -1497,21 +1520,21 @@ of the body keeps its shading. Deselecting restores what was there.
 Live in the sense that it applies to the *next* selection: facets already
 selected keep the colour they were given.
 
-### `facet_labels: bool` — default `False` *(live)*
-### `facet_labels_max: int` — default `2000` *(live)*
-### `facet_label_size: float` — default `12.0` *(live)*
-### `facet_label_color: list[float]` — default `(1, 1, 1, 0.9)` *(live)*
+### `selection.labels: bool` — default `False` *(live)*
+### `selection.labels_max: int` — default `2000` *(live)*
+### `selection.label_size: float` — default `12.0` *(live)*
+### `selection.label_color: list[float]` — default `(1, 1, 1, 0.9)` *(live)*
 Draw each facet's index at its centre, for reading off which facet a number
 in a data product refers to:
 
 ```python
-app.simulation.config.facet_labels = True
+app.simulation.config.selection.labels = True
 ```
 
 Two limits, both deliberate. Only facets **turned towards the camera** are
 labelled — the text is a screen-space overlay with no depth test, so labelling
 the far side would print numbers over the surface hiding them. And no more
-than `facet_labels_max` per body, because a label is a text draw and a shape
+than `selection.labels_max` per body, because a label is a text draw and a shape
 model has millions of facets; the count is per body and the rest are dropped
 silently rather than the frame rate being.
 
@@ -1519,7 +1542,7 @@ Indices are the mesh's own facet indices, the same ones `sim.toggle_facet`
 takes and `mesh.values`/`mesh.colors` are indexed by. Useful on `res/cube.obj`
 (12 facets) to see which triangle is which before writing per-facet data.
 
-### `wireframe_mode: u32` — default `0` *(live)*
+### `wireframe.mode: u32` — default `0` *(live)*
 
 | Value | Meaning |
 |---|---|
@@ -1529,20 +1552,20 @@ takes and `mesh.values`/`mesh.colors` are indexed by. Useful on `res/cube.obj`
 
 Accepted: `0`, `1` or `2`; anything else behaves as `0`.
 
-### `wireframe_width: f32` — default `1.0` *(live)*
+### `wireframe.width: f32` — default `1.0` *(live)*
 Line half-width in **pixels**. Screen-space, so thickness is constant
 regardless of distance or zoom.
 Accepted: any float `> 0`.
 
 Note the visible blur depends on triangle size on screen: on a mesh finer than
 the framebuffer (100k+ facets seen from far away) every fragment is within
-`wireframe_width` of an edge and the body renders solid. Zoom in or use a
+`wireframe.width` of an edge and the body renders solid. Zoom in or use a
 decimated mesh.
 
-### `wireframe_color: wgpu::Color` — default `BLACK` *(live)*
+### `wireframe.color: wgpu::Color` — default `BLACK` *(live)*
 Accepted: any 4-element sequence of floats — tuple, list or `numpy.array` —
-as `(r, g, b, a)`; alpha is dropped. Same as `background`, `color` and
-`light_color`.
+as `(r, g, b, a)`; alpha is dropped. Same as `shading.background`, `shading.color` and
+`light.color`.
 
 It took a Python tuple *only* until 4 September, because it was typed as a
 Rust tuple while the other three used `[Float; 4]`; an array extracts from any
@@ -1576,10 +1599,10 @@ instrument properties, not scene-derived.
 
 The orthographic (light) fit sizes itself from the bounding *sphere*, which is
 rotation-invariant, and quantises to whole shadow texels so the shadow edge
-does not crawl as the sun moves. `shadow_resolution` therefore feeds both the
+does not crawl as the sun moves. `shadows.resolution` therefore feeds both the
 fit and the derived bias.
 
-**With `shadow_per_body` on (the default), the light fit runs per body**, not
+**With `shadows.per_body` on (the default), the light fit runs per body**, not
 once for the scene: each layer is sized to its own body while its depth range
 still spans the scene. A pinned `sun.projection.side` therefore applies to
 every layer, which is rarely what you want — pinning it is a way to defeat
@@ -1606,6 +1629,6 @@ the light's framing is instead controlled through
 through the config.
 
 **`sim.sun.look_anchor()` no longer belongs in that list.** Since
-`shadow_per_body`, each layer aims itself from `sun.pos` at the body it
+`shadows.per_body`, each layer aims itself from `sun.pos` at the body it
 covers, so `sun.dir` and `sun.anchor` are ignored for shadowing. Older scripts
 that call it still run; the call simply has no effect on the lighting.

@@ -165,7 +165,7 @@ class Simulation:
         Returns whether it is selected afterwards. The same call a click
         makes, so a script and the pointer cannot get out of step.
 
-        The facet takes `config.selection_color` and colour-mode 1, which the
+        The facet takes `config.selection.color` and colour-mode 1, which the
         shader honours for that facet alone; deselecting puts back whatever
         its vertices had. On an *indexed* mesh those vertices are shared with
         its neighbours and the colour bleeds -- load with `flatten=True`,

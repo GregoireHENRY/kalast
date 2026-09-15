@@ -353,58 +353,94 @@ pub fn builtin_colormap(name: &str) -> Option<Vec<[f32; 3]>> {
     Some(anchors.to_vec())
 }
 
+/// How the surface is coloured and the image encoded.
 #[derive(Clone, Debug)]
-pub struct Config {
-    /// Print app lifecycle events: pause and camera-mode changes.
-    pub debug_app: bool,
-    /// Print window and GPU setup: chosen surface format, adapter and device
-    /// features, and **the present modes the surface supports**.
+pub struct Shading {
+    /// Colour the frame is cleared to, `(r, g, b, a)`.
     ///
-    /// Worth enabling once on any new machine -- it is how the vsync cap that
-    /// invalidated a whole benchmark was identified.
-    pub debug_window: bool,
-    /// Print per-mesh detail as meshes are uploaded.
-    pub debug_window_mesh: bool,
-    /// **Does nothing.** The field exists and is settable from Python, but no code
-    /// reads it. Left as a placeholder.
-    pub debug_simulation: bool,
-    /// Time each GPU pass with timestamp queries, into `sim.gpu_timings()`.
+    /// Accepts any 4-element sequence: tuple, list or `numpy.array`.
+    pub background: wgpu::Color,
+    /// Draw triangles facing away from the camera.
     ///
-    /// Off by default: the queries themselves are nearly free, but reading them
-    /// back costs a buffer map per frame, and nothing needs it unless someone is
-    /// asking where a frame goes. Silently inert where the adapter has no
-    /// `TIMESTAMP_QUERY` -- `sim.gpu_timings()` returns an empty dict there.
+    /// Leave it off for closed shape models -- back faces are invisible there, so
+    /// culling them is free performance. Measured on the full-resolution
+    /// Didymos/Dimorphos meshes: culled against unculled differs in 5 pixels of
+    /// 1,040,400, all on silhouette edges.
     ///
-    /// :group: Debug
-    /// Draw the shadow/depth map as an overlay instead of leaving it offscreen.
+    /// Turn it on for geometry that is *not* closed -- open craters, clipped
+    /// sections, single-sided surfaces -- where the inside of the shell must be
+    /// visible from outside. Note the shading is single-sided regardless: normals
+    /// are not flipped for back faces, so an underside is lit as though it were the
+    /// top.
     ///
-    /// Only mirrors the main pass's depth at `msaa = 1`; above that the pass writes
-    /// its own multisampled depth buffer and the debug view is not it.
-    pub gpu_timing: bool,
+    /// The shadow pass stays unculled either way, so open geometry still casts
+    /// correctly from whichever side faces the light.
+    pub render_back_face: bool,
+    /// Multisample anti-aliasing for the main render pass: 1 (off), 2, 4 or 8.
+    ///
+    /// Geometry edges are the whole point here. Every silhouette in this
+    /// renderer is a science measurement -- a limb, a terminator, a body's
+    /// apparent diameter -- and at one sample per pixel each of those is
+    /// quantised to whole pixels, which both looks wrong beside other tools
+    /// and biases any centroid or radius fitted from an exported frame.
+    ///
+    /// Only the main pass is multisampled. The shadow map, the facet-id and
+    /// hemicube passes stay single-sampled on purpose: they carry ids and
+    /// depths, not colour, and averaging those across samples would be
+    /// meaningless. Exports are unaffected in shape or size -- the pass
+    /// resolves into the same single-sample target that was always exported.
+    ///
+    /// Counts the adapter does not support fall back to 4, then to 1. Note
+    /// that `debug_depth_show` only mirrors the main pass's depth at 1: above
+    /// that the pass writes its own multisampled depth buffer instead.
+    /// :range: 1..=8
+    pub msaa: u32,
+    // See app/uniform.rs Globals struct for shader
+    /// Flat colour used when `color_mode` is 2, `(r, g, b, a)`.
+    pub color: wgpu::Color,
+    /// What the fragment shader outputs.
+    ///
+    /// | | |
+    /// |---|---|
+    /// | 0 | vertex/instance colour, lit, with shadows (the default) |
+    /// | 1 | raw vertex/instance colour, no lighting |
+    /// | 2 | the flat `color` |
+    /// | 3 | as 0 but with shadows disabled |
+    /// :range: 0..=3
+    pub color_mode: u32,
+    /// 0 converts sRGB to linear before shading; 1 treats colours as already
+    /// linear.
+    /// :range: 0..=2
+    pub srgb_mode: u32,
+    /// Exponent used by the sRGB conversion when `srgb_mode` is 0.
+    /// :range: 0.1..=4.0
+    pub gamma: Float,
+}
 
-    /// Count what each body actually drew, with occlusion queries.
-    ///
-    /// The Visibility panel otherwise tests bounding boxes against the
-    /// frustum, so "visible" means "could be seen", and a body wholly behind
-    /// another still counts. This draws each body's box after the scene, with
-    /// the depth test on and depth writes off, and asks the GPU how many
-    /// samples survived. Zero means it put nothing on screen.
-    ///
-    /// Off by default: it costs a readback every frame, for a diagnostic.
-    /// A box is a conservative stand-in for its body, so this can still call
-    /// a body visible when only its box is -- the same direction the frustum
-    /// test errs in.
-    /// :group: Debug
-    pub occlusion_queries: bool,
-    pub debug_depth_show: bool,
+impl Default for Shading {
+    fn default() -> Self {
+        Self {
+            background: wgpu::Color::BLACK,
+            render_back_face: false,
+            msaa: 4,
+            color: wgpu::Color::WHITE,
+            color_mode: 0,
+            srgb_mode: 0,
+            gamma: 2.2,
+        }
+    }
+}
+
+/// The Sun as a light: its colour, the ambient floor, the debug cube.
+#[derive(Clone, Debug)]
+pub struct Light {
     /// Draw a cube at the light's position, so the Sun is visible.
     ///
     /// Size comes from `light_cube_scale`. `debug_light_cube_fit` is on by
     /// default, which is what makes it *visible* rather than merely drawn:
     /// the camera's far plane is fitted to the bodies, and the Sun is well
     /// outside them.
-    pub debug_light_cube_show: bool,
-
+    pub cube_show: bool,
     /// Fit the camera's frustum around the light cube too, not just the
     /// bodies.
     ///
@@ -426,27 +462,431 @@ pub struct Config {
     /// Costs the depth range: a far plane at the Sun rather than at the
     /// body's edge is a much longer near-to-far span, so depth precision
     /// drops. For looking at where the light is, not for a figure.
-    pub debug_light_cube_fit: bool,
-
-    /// The OS window title.
-    pub title: String,
-    /// Render size in physical pixels -- the *image*, not the window.
+    pub cube_fit: bool,
+    /// Light added to every fragment regardless of shadowing.
     ///
-    /// `0` means "follow the window", which is what a terminal run wants and
-    /// what every script got when there was only one pair of these. Set it to
-    /// pin the render independently: a 4K export from a small window, or a
-    /// fixed frame size while the editor's viewport panel is dragged about.
+    /// **Zero by default.** A shadowed facet on an airless body receives
+    /// essentially nothing, so any ambient term is light the scene does not
+    /// have -- and a shadow that is not black is a shadow whose depth cannot
+    /// be read off the image. It was 0.002, small enough to look like nothing
+    /// and large enough to be a floor under every dark pixel.
     ///
-    /// Everything about the image follows this -- the camera's aspect ratio,
-    /// where axis ticks project, where the colour bar sits, and what an
-    /// exported frame measures.
-    /// :label: image width
-    /// :range: 0..=7680
-    pub width: u32,
-    /// :label: image height
-    /// :range: 0..=4320
-    pub height: u32,
+    /// Raise it to see into shadows while navigating; it is the wrong thing
+    /// to have on for anything quantitative.
+    /// :range: 0.0..=1.0
+    pub ambient: f32,
+    /// Colour of the Sun, `(r, g, b, a)`.
+    pub color: wgpu::Color,
+    /// Size of the debug light cube, in world units.
+    ///
+    /// Only drawn when `debug_light_cube_show` is on.
+    /// :range: 0.0..=5.0
+    pub cube_scale: Float,
+}
 
+impl Default for Light {
+    fn default() -> Self {
+        Self {
+            cube_show: false,
+            cube_fit: true,
+            ambient: 0.0,
+            color: wgpu::Color::WHITE,
+            // light_target: Vec3::new(0.0, 0.0, 0.0),
+            // light_up: Vec3::new(0.0, 0.0, 1.0),
+            // light_side: 10.0,
+            // light_znear: 0.1,
+            // light_zfar: 100.0,
+            cube_scale: 0.25,
+        }
+    }
+}
+
+/// The shadow map and its readback.
+#[derive(Clone, Debug)]
+pub struct Shadows {
+    /// Side length of each square shadow map, in texels.
+    ///
+    /// The array is always allocated at all 8 layers, so the cost is
+    /// `resolution^2 x 4 bytes x 8` -- 2.1 GB at the default 8192, 8.6 GB at 16384.
+    /// Dropping to 2048 is the first thing to try when VRAM is tight or interactive
+    /// frame times matter.
+    ///
+    /// It also feeds the automatic bias, which is expressed relative to one texel,
+    /// so changing it changes the shadow bias with it.
+    /// :range: 512..=16384
+    pub resolution: u32,
+    /// Percentage-closer-filtering kernel *radius*: 0 is a single hardware 2x2
+    /// comparison, N is a `(2N+1)^2` grid averaged.
+    ///
+    /// Cost grows quadratically and is per-fragment, so it scales with pixel count:
+    /// `shadow_pcf = 4` costs +2.5 ms at 800x600 and +7.8 ms at 3024x1964. Benchmark
+    /// it at the resolution you actually run.
+    ///
+    /// The normal offset scales with this, since an N-radius kernel reaches N texels
+    /// away and a one-texel offset would let those taps flip. `shadow_pcf = 0` is
+    /// bit-identical to the pre-scaling behaviour.
+    /// :range: 0..=16
+    pub pcf: u32,
+    // None means "derive from the fitted light frustum and shadow_resolution"
+    // (the default). These are scale-dependent -- values tuned for a 780 m
+    // body seen from 25 km are wrong for any other scene -- so deriving them
+    // per frame is both more correct and less work than hand-tuning. Set one
+    // to pin it and leave the rest automatic; see app/frame.rs::fit_shadow.
+    /// Push the sample along the surface normal before the shadow lookup, in
+    /// world units. `None` fits it per frame from the layer's own texel size.
+    ///
+    /// Scaled by the PCF kernel radius, since an N-radius kernel reaches N
+    /// texels away and a one-texel offset would let those taps flip.
+    ///
+    /// Pinning it is now worse than leaving it automatic: with per-body shadow
+    /// layers a pinned value replaces the fitted one on *every* layer, and
+    /// those differ by the ratio of the bodies' sizes -- 403x between Mars and
+    /// Deimos in the same scene.
+    pub normal_offset_scale: Option<f32>,
+    /// Slope-dependent term of the depth-comparison bias. `None` fits it per
+    /// frame. Combined in the shader as
+    /// `max(shadow_bias_scale * k, shadow_bias_minimum)`.
+    ///
+    /// See `shadow_normal_offset_scale` for why pinning is discouraged.
+    pub bias_scale: Option<f32>,
+    /// Floor on the depth-comparison bias, for surfaces facing the light
+    /// head-on. `None` fits it per frame.
+    ///
+    /// Measured to be the *ineffective* knob for the crater-floor PCF leak --
+    /// auto, 1e-4 and 1e-3 all gave identical results, while the normal offset
+    /// moved it 9x. Reach for that one first.
+    pub bias_minimum: Option<f32>,
+    /// Read the shadow map back per facet: computes solar occlusion for every
+    /// body each frame, readable from `after_render` via
+    /// `Simulation::facet_shadow`.
+    ///
+    /// Off by default because it is not free: the query costs ~1.6 ms per
+    /// body at 100k facets and ~7.3 ms at 3.1M, dominated by the blocking
+    /// readback. Turn it on for thermophysical or radiance work; leave it off
+    /// when you only want images.
+    /// Compute per-facet solar occlusion for every body, every frame.
+    ///
+    /// Read it back with `sim.facet_shadow(body)` from `after_render`. Leave it off
+    /// unless something consumes it: it is a compute pass and a readback per frame.
+    pub access_shadow_map: bool,
+    /// Fit a shadow map per body instead of one fitted to the whole scene.
+    ///
+    /// On by default, because one shared map is fitted to the scene's extent
+    /// and a small body beside a large one then gets almost no texels -- 6 km
+    /// Deimos next to 3,396 km Mars is the case that forced this. Each layer
+    /// is aimed at its own body and sized to it, while its depth range still
+    /// spans the scene, so mutual shadowing is unaffected: anything between
+    /// the Sun and a body still casts into that body's layer.
+    ///
+    /// Costs one shadow pass per body. Turn it off to get the old single
+    /// scene-fitted map back, which is only worth doing to reproduce older
+    /// output or when every body is a similar size.
+    pub per_body: bool,
+}
+
+impl Default for Shadows {
+    fn default() -> Self {
+        Self {
+            resolution: 8192,
+            pcf: 0,
+            normal_offset_scale: None,
+            bias_scale: None,
+            bias_minimum: None,
+            access_shadow_map: false,
+            per_body: true,
+        }
+    }
+}
+
+/// Facet edges drawn over or instead of the surface.
+#[derive(Clone, Debug)]
+pub struct Wireframe {
+    /// the barycentrics are meaningless and the CPU side warns once.
+    /// :range: 0..=2
+    pub mode: u32,
+    /// Wireframe colour, `(r, g, b, a)`; alpha is dropped.
+    ///
+    /// Mode 2 blends by edge coverage and is antialiased; mode 1 thresholds instead,
+    /// because the pipeline blend state is REPLACE and a fractional alpha would be
+    /// ignored.
+    pub color: wgpu::Color,
+    // Line half-width in pixels. Screen-space, so thickness stays constant
+    // regardless of distance or zoom.
+    /// Wireframe half-width in screen pixels.
+    /// :range: 0.1..=10.0
+    pub width: f32,
+    /// Fade the wireframe out as a body recedes far enough that its facets
+    /// stop being resolvable. **Off by default.**
+    ///
+    /// Past about a pixel per facet the three edges cover the whole triangle,
+    /// so the mesh reads as a sheet of wireframe colour -- a shadowed body at
+    /// distance comes out grey rather than black, which is the wireframe
+    /// overwriting the shading rather than drawing the mesh. This fades it out
+    /// between 4 px and 1 px facets instead.
+    ///
+    /// Distance only: the measure is the facet's *largest* screen height, so
+    /// tilt does not trigger it and the limb of a sphere keeps its wireframe.
+    ///
+    /// Only applies to `wireframe_mode = 2`, where there is a shaded surface
+    /// underneath to fade into. Mode 1 is wireframe alone and would simply
+    /// vanish.
+    pub fade: bool,
+}
+
+impl Default for Wireframe {
+    fn default() -> Self {
+        Self {
+            mode: 0,
+            color: wgpu::Color::BLACK,
+            width: 1.0,
+            fade: false,
+        }
+    }
+}
+
+/// The picked facet and the facet labels.
+#[derive(Clone, Debug)]
+pub struct Selection {
+    // Wireframe overlay. 0 = shaded mesh only, 1 = wireframe only,
+    // 2 = wireframe drawn over the shaded mesh.
+    /// 0 shaded only, 1 wireframe only, 2 wireframe over the shaded mesh.
+    ///
+    /// Barycentric edge detection in the main fragment shader, so the overlay
+    /// cannot z-fight. Needs a flattened mesh -- indexed meshes share vertices, so
+    /// Draw each facet's index at its centre.
+    ///
+    /// For working out *which* facet a number in a data product refers to,
+    /// without counting round a mesh by hand. Off by default, and capped by
+    /// `facet_labels_max`: a label per facet is a text draw per facet, and a
+    /// shape model has millions of them.
+    ///
+    /// Only facets turned towards the camera are labelled. The text has no
+    /// depth test -- it is drawn over the frame -- so labelling the far side
+    /// of a body would print numbers on top of the surface hiding them. On a
+    /// concave shape, a facet behind another that faces the same way can
+    /// still show through.
+    ///
+    pub labels: bool,
+    /// Most facets to label before giving up, per body.
+    ///
+    /// A guard rather than a preference: turning labels on with a 3.1M-facet
+    /// body would queue three million text draws and stop the frame dead.
+    ///
+    /// :range: 0..=20000
+    pub labels_max: u32,
+    /// Size of a facet label, in pixels.
+    /// :range: 4.0..=48.0
+    pub label_size: f32,
+    /// Colour of a facet label, `(r, g, b, a)`.
+    pub label_color: [f32; 4],
+    /// Colour a facet takes when it is selected, `(r, g, b, a)`.
+    ///
+    /// Selecting writes this onto the facet's own vertices and marks them
+    /// colour-mode 1, which the shader honours for that facet alone -- so a
+    /// picked facet is unlit and this colour while the rest of the body keeps
+    /// its shading. Deselecting puts back what was there.
+    ///
+    pub color: wgpu::Color,
+}
+
+impl Default for Selection {
+    fn default() -> Self {
+        Self {
+            labels: false,
+            labels_max: 2000,
+            label_size: 12.0,
+            label_color: [1.0, 1.0, 1.0, 0.9],
+            color: wgpu::Color {
+                r: 1.0,
+                g: 1.0,
+                b: 0.0,
+                a: 1.0,
+            },
+        }
+    }
+}
+
+/// Colouring facets from per-facet values.
+#[derive(Clone, Debug)]
+pub struct Data {
+    /// Range the colormap spans, or `None` to fit the loaded values each
+    /// frame.
+    ///
+    /// Automatic is the sane default for exploring, but pin it for anything
+    /// comparative: an auto range silently rescales between frames, so two
+    /// images of the same scene are not on the same colour scale and the
+    /// difference between them reads as physics rather than as bookkeeping.
+    pub value_min: Option<f32>,
+    pub value_max: Option<f32>,
+    /// Colour lookup table, 256 RGB entries in 0..1.
+    ///
+    /// Set by name (`"viridis"`, `"inferno"`, `"turbo"`, `"grey"`) or from any
+    /// 256x3 array, so a matplotlib colormap can be handed over unchanged.
+    /// Defaults to greyscale.
+    /// :skip:
+    /// :py_custom:
+    pub colormap: Vec<[f32; 3]>,
+}
+
+impl Default for Data {
+    fn default() -> Self {
+        Self {
+            value_min: None,
+            value_max: None,
+            colormap: Vec::new(),
+        }
+    }
+}
+
+/// Reference axes, tick labels and the navigation gizmo.
+#[derive(Clone, Debug)]
+pub struct AxesConfig {
+    /// Reference axes drawn around the scene.
+    ///
+    /// `"off"`, `"box"` (MATLAB), `"panes"` (matplotlib), `"gizmo"` (three
+    /// labelled arrows at the origin), `"blender"` (ground grid, Z line and
+    /// gizmo). A rendered body alone carries no scale or orientation; these
+    /// supply both.
+    pub style: crate::app::axes::AxesStyle,
+    /// Colour of the axis lines and grid.
+    pub color: [f32; 3],
+    /// Roughly how many ticks per axis. The step is rounded to 1, 2 or 5
+    /// times a power of ten first, so the count lands near this rather than
+    /// on it -- a figure with ticks at 0.0347 is unreadable.
+    /// :range: 1..=20
+    pub ticks: usize,
+    /// Appended to every tick label, e.g. `" km"`.
+    ///
+    /// The renderer knows the mesh is 0.437 across but not whether that is
+    /// metres or kilometres, so the unit has to come from the script.
+    pub unit: String,
+    /// Tick label size in pixels, and their colour.
+    /// :range: 4.0..=64.0
+    pub label_size: f32,
+    pub label_color: [f32; 4],
+    /// Which corner the navigation gizmo sits in. Any of the nine HUD
+    /// anchors, so it can be moved out of the way of a colour bar or a HUD.
+    ///
+    /// Drawn by the `"gizmo"` and `"blender"` axes styles and by no other.
+    pub gizmo_anchor: HudAnchor,
+    /// Half the widget's width, in pixels: a ball centre never sits further
+    /// than this from the middle.
+    ///
+    /// The gizmo's only size knob. Letter height follows it
+    /// ([`crate::app::gizmo::label_size`]), the margin to the image edge is
+    /// fixed at 20 px, and the letters are black -- each of those was settable
+    /// once and none of them was worth setting: a letter is sized and coloured
+    /// by the ball it sits on, so the pair could only ever agree or disagree.
+    /// :range: 16.0..=200.0
+    pub gizmo_size: f32,
+}
+
+impl Default for AxesConfig {
+    fn default() -> Self {
+        Self {
+            style: crate::app::axes::AxesStyle::Off,
+            color: [0.45, 0.45, 0.45],
+            ticks: 5,
+            unit: String::new(),
+            label_size: 13.0,
+            label_color: [0.85, 0.85, 0.85, 1.0],
+            gizmo_anchor: HudAnchor::TopRight,
+            gizmo_size: 60.0,
+        }
+    }
+}
+
+/// The shaded ground grid of the `blender` axes style.
+#[derive(Clone, Debug)]
+pub struct Grid {
+    /// Shade the `"blender"` style's ground grid instead of drawing it as
+    /// line segments. On by default; `False` restores the segments.
+    ///
+    /// The segments end at the scene bounds, sit at one spacing, and are one
+    /// pixel wide because WebGPU has no line width. This computes the grid
+    /// per pixel instead: it has no edge, it crossfades between decades as
+    /// you zoom -- which is what lets one grid serve a unit cube and a body
+    /// 1e4 km away -- and its lines antialias themselves.
+    pub enabled: bool,
+    /// Width of a grid line, in pixels.
+    /// :range: 0.25..=8.0
+    pub width: f32,
+    /// Cells between thick lines, and the factor between the levels the
+    /// crossfade steps through -- the same number seen from two sides.
+    /// :range: 2..=100
+    pub major: u32,
+    /// Colour of the ordinary lines, `(r, g, b, a)`.
+    pub color: [f32; 4],
+    /// Colour of every `grid_major`-th line.
+    pub major_color: [f32; 4],
+    /// The axis lines, drawn over the grid so the origin reads without
+    /// hunting for it. Two of the three are in the grid's plane and get
+    /// drawn; which two depends on which plane that is.
+    pub axis_x_color: [f32; 4],
+    pub axis_y_color: [f32; 4],
+    pub axis_z_color: [f32; 4],
+    /// Fade the grid out between these grazing factors: `0.0` is looking
+    /// straight down at the ground plane and `1.0` is looking along it.
+    /// Without it the horizon is a hard line of aliasing.
+    ///
+    /// On the angle rather than the distance because the plane is infinite:
+    /// what bounds it on screen is the horizon, not the far plane, so a
+    /// distance fade never reaches its ramp.
+    /// :range: 0.0..=1.0
+    pub fade_near: f32,
+    /// :range: 0.0..=1.0
+    pub fade_far: f32,
+}
+
+impl Default for Grid {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            width: 1.0,
+            major: 10,
+            // **These are linear, and the surface is sRGB.** What reaches
+            // the eye is the sRGB encoding of `rgb * alpha`, which is far
+            // brighter than the product looks: 0.16 at alpha 0.30 is 0.048
+            // linear and **0.24 on screen**. Three rounds of halving these
+            // numbers barely changed the picture for exactly that reason --
+            // sRGB compresses a 2x linear cut into about 15 % perceived.
+            //
+            // So they are chosen the other way round now: pick what the line
+            // should look like, convert, and divide by the alpha. Blender
+            // sits its grid about 0.10 sRGB above its own background, which
+            // on black is the entire budget -- 0.055 for a subdivision and
+            // 0.19 for a major line.
+            //
+            // The **ratio** matters as much as the levels. 0.10 against 0.15
+            // is 1.5x, and at these brightnesses that is not a difference the
+            // eye separates: every tenth line looked like every other line.
+            // 3.5x reads as two kinds of line.
+            //
+            // Measured, not asserted: `abs(axes_on - axes_off)` over a
+            // rendered frame, gizmo masked and the coloured axis lines
+            // separated out by saturation.
+            color: [0.0147, 0.0147, 0.0166, 0.30],
+            major_color: [0.0578, 0.0578, 0.0642, 0.52],
+            // The same hues, scaled so the dominant channel lands at 0.45
+            // on screen rather than 0.86. At full strength they were about
+            // ten times the grid they sit in and read as the subject of the
+            // picture; they are a reference, not the content.
+            axis_x_color: [0.1896, 0.0583, 0.0729, 0.9],
+            axis_y_color: [0.1092, 0.1896, 0.0575, 0.9],
+            axis_z_color: [0.0699, 0.0998, 0.1896, 0.9],
+            // 0.5 starts fading 60 degrees off the normal, which is
+            // barely past a three-quarter view and took the ground away
+            // while there was still plenty of it to see. The horizon is at
+            // 1.0, so this holds the grid to within ~25 degrees of edge-on.
+            fade_near: 0.9,
+            fade_far: 1.0,
+        }
+    }
+}
+
+/// The text overlays.
+#[derive(Clone, Debug)]
+pub struct HudConfig {
     /// Font for the HUD: a **name** or a **path**, or empty for the built-in
     /// DejaVu Sans.
     ///
@@ -470,271 +910,20 @@ pub struct Config {
     /// built-in font, rather than leaving the run with no HUD at all.
     ///
     /// Startup only: the glyph cache is built with the window.
-    pub hud_font: String,
+    pub font: String,
+}
 
-    /// Open the window in native fullscreen (borderless, current monitor).
-    ///
-    /// On macOS this is the same mode the green button gives -- its own
-    /// Space -- which is worth knowing because it is not equivalent to a
-    /// maximised window: the compositor hands out drawables differently
-    /// there, and a stall that only appears fullscreen will not reproduce
-    /// maximised.
-    ///
-    /// Startup only: applied when the window is created.
-    pub fullscreen: bool,
+impl Default for HudConfig {
+    fn default() -> Self {
+        Self {
+            font: String::new(),
+        }
+    }
+}
 
-    /// Colour the frame is cleared to, `(r, g, b, a)`.
-    ///
-    /// Accepts any 4-element sequence: tuple, list or `numpy.array`.
-    pub background: wgpu::Color,
-    /// Draw triangles facing away from the camera.
-    ///
-    /// Leave it off for closed shape models -- back faces are invisible there, so
-    /// culling them is free performance. Measured on the full-resolution
-    /// Didymos/Dimorphos meshes: culled against unculled differs in 5 pixels of
-    /// 1,040,400, all on silhouette edges.
-    ///
-    /// Turn it on for geometry that is *not* closed -- open craters, clipped
-    /// sections, single-sided surfaces -- where the inside of the shell must be
-    /// visible from outside. Note the shading is single-sided regardless: normals
-    /// are not flipped for back faces, so an underside is lit as though it were the
-    /// top.
-    ///
-    /// The shadow pass stays unculled either way, so open geometry still casts
-    /// correctly from whichever side faces the light.
-    pub render_back_face: bool,
-
-    /// Multisample anti-aliasing for the main render pass: 1 (off), 2, 4 or 8.
-    ///
-    /// Geometry edges are the whole point here. Every silhouette in this
-    /// renderer is a science measurement -- a limb, a terminator, a body's
-    /// apparent diameter -- and at one sample per pixel each of those is
-    /// quantised to whole pixels, which both looks wrong beside other tools
-    /// and biases any centroid or radius fitted from an exported frame.
-    ///
-    /// Only the main pass is multisampled. The shadow map, the facet-id and
-    /// hemicube passes stay single-sampled on purpose: they carry ids and
-    /// depths, not colour, and averaging those across samples would be
-    /// meaningless. Exports are unaffected in shape or size -- the pass
-    /// resolves into the same single-sample target that was always exported.
-    ///
-    /// Counts the adapter does not support fall back to 4, then to 1. Note
-    /// that `debug_depth_show` only mirrors the main pass's depth at 1: above
-    /// that the pass writes its own multisampled depth buffer instead.
-    /// :range: 1..=8
-    pub msaa: u32,
-
-    /// Multiplier for WASD movement speed.
-    /// :range: 0.1..=5.0
-    pub sensitivity_move: Float,
-    /// Multiplier for mouse-look speed in WASD mode.
-    /// :range: 0.1..=5.0
-    pub sensitivity_look: Float,
-    /// Multiplier for arcball orbit speed.
-    /// :range: 0.1..=5.0
-    pub sensitivity_rotate: Float,
-    /// Multiplier for scroll and pinch zoom speed.
-    /// :range: 0.1..=5.0
-    pub sensitivity_zoom: Float,
-
-    // See app/uniform.rs Globals struct for shader
-    /// Flat colour used when `color_mode` is 2, `(r, g, b, a)`.
-    pub color: wgpu::Color,
-    /// What the fragment shader outputs.
-    ///
-    /// | | |
-    /// |---|---|
-    /// | 0 | vertex/instance colour, lit, with shadows (the default) |
-    /// | 1 | raw vertex/instance colour, no lighting |
-    /// | 2 | the flat `color` |
-    /// | 3 | as 0 but with shadows disabled |
-    /// :range: 0..=3
-    pub color_mode: u32,
-    /// Free integer passed through to the shader, for one-off experiments.
-    /// :range: 0..=10
-    pub extra: u32,
-
-    /// 0 converts sRGB to linear before shading; 1 treats colours as already
-    /// linear.
-    /// :range: 0..=2
-    pub srgb_mode: u32,
-    /// Exponent used by the sRGB conversion when `srgb_mode` is 0.
-    /// :range: 0.1..=4.0
-    pub gamma: Float,
-
-    /// Light added to every fragment regardless of shadowing.
-    ///
-    /// **Zero by default.** A shadowed facet on an airless body receives
-    /// essentially nothing, so any ambient term is light the scene does not
-    /// have -- and a shadow that is not black is a shadow whose depth cannot
-    /// be read off the image. It was 0.002, small enough to look like nothing
-    /// and large enough to be a floor under every dark pixel.
-    ///
-    /// Raise it to see into shadows while navigating; it is the wrong thing
-    /// to have on for anything quantitative.
-    /// :range: 0.0..=1.0
-    pub ambient_strength: f32,
-    /// Colour of the Sun, `(r, g, b, a)`.
-    pub light_color: wgpu::Color,
-    /// Size of the debug light cube, in world units.
-    ///
-    /// Only drawn when `debug_light_cube_show` is on.
-    /// :range: 0.0..=5.0
-    pub light_cube_scale: Float,
-
-    /// Side length of each square shadow map, in texels.
-    ///
-    /// The array is always allocated at all 8 layers, so the cost is
-    /// `resolution^2 x 4 bytes x 8` -- 2.1 GB at the default 8192, 8.6 GB at 16384.
-    /// Dropping to 2048 is the first thing to try when VRAM is tight or interactive
-    /// frame times matter.
-    ///
-    /// It also feeds the automatic bias, which is expressed relative to one texel,
-    /// so changing it changes the shadow bias with it.
-    /// :range: 512..=16384
-    pub shadow_resolution: u32,
-    /// Percentage-closer-filtering kernel *radius*: 0 is a single hardware 2x2
-    /// comparison, N is a `(2N+1)^2` grid averaged.
-    ///
-    /// Cost grows quadratically and is per-fragment, so it scales with pixel count:
-    /// `shadow_pcf = 4` costs +2.5 ms at 800x600 and +7.8 ms at 3024x1964. Benchmark
-    /// it at the resolution you actually run.
-    ///
-    /// The normal offset scales with this, since an N-radius kernel reaches N texels
-    /// away and a one-texel offset would let those taps flip. `shadow_pcf = 0` is
-    /// bit-identical to the pre-scaling behaviour.
-    /// :range: 0..=16
-    pub shadow_pcf: u32,
-
-    // None means "derive from the fitted light frustum and shadow_resolution"
-    // (the default). These are scale-dependent -- values tuned for a 780 m
-    // body seen from 25 km are wrong for any other scene -- so deriving them
-    // per frame is both more correct and less work than hand-tuning. Set one
-    // to pin it and leave the rest automatic; see app/frame.rs::fit_shadow.
-    /// Push the sample along the surface normal before the shadow lookup, in
-    /// world units. `None` fits it per frame from the layer's own texel size.
-    ///
-    /// Scaled by the PCF kernel radius, since an N-radius kernel reaches N
-    /// texels away and a one-texel offset would let those taps flip.
-    ///
-    /// Pinning it is now worse than leaving it automatic: with per-body shadow
-    /// layers a pinned value replaces the fitted one on *every* layer, and
-    /// those differ by the ratio of the bodies' sizes -- 403x between Mars and
-    /// Deimos in the same scene.
-    pub shadow_normal_offset_scale: Option<f32>,
-
-    /// Slope-dependent term of the depth-comparison bias. `None` fits it per
-    /// frame. Combined in the shader as
-    /// `max(shadow_bias_scale * k, shadow_bias_minimum)`.
-    ///
-    /// See `shadow_normal_offset_scale` for why pinning is discouraged.
-    pub shadow_bias_scale: Option<f32>,
-    /// Floor on the depth-comparison bias, for surfaces facing the light
-    /// head-on. `None` fits it per frame.
-    ///
-    /// Measured to be the *ineffective* knob for the crater-floor PCF leak --
-    /// auto, 1e-4 and 1e-3 all gave identical results, while the normal offset
-    /// moved it 9x. Reach for that one first.
-    pub shadow_bias_minimum: Option<f32>,
-
-    // Wireframe overlay. 0 = shaded mesh only, 1 = wireframe only,
-    // 2 = wireframe drawn over the shaded mesh.
-    /// 0 shaded only, 1 wireframe only, 2 wireframe over the shaded mesh.
-    ///
-    /// Barycentric edge detection in the main fragment shader, so the overlay
-    /// cannot z-fight. Needs a flattened mesh -- indexed meshes share vertices, so
-    /// Draw each facet's index at its centre.
-    ///
-    /// For working out *which* facet a number in a data product refers to,
-    /// without counting round a mesh by hand. Off by default, and capped by
-    /// `facet_labels_max`: a label per facet is a text draw per facet, and a
-    /// shape model has millions of them.
-    ///
-    /// Only facets turned towards the camera are labelled. The text has no
-    /// depth test -- it is drawn over the frame -- so labelling the far side
-    /// of a body would print numbers on top of the surface hiding them. On a
-    /// concave shape, a facet behind another that faces the same way can
-    /// still show through.
-    ///
-    /// :group: Selection
-    pub facet_labels: bool,
-
-    /// Most facets to label before giving up, per body.
-    ///
-    /// A guard rather than a preference: turning labels on with a 3.1M-facet
-    /// body would queue three million text draws and stop the frame dead.
-    ///
-    /// :range: 0..=20000
-    /// :group: Selection
-    pub facet_labels_max: u32,
-
-    /// Size of a facet label, in pixels.
-    /// :range: 4.0..=48.0
-    /// :group: Selection
-    pub facet_label_size: f32,
-
-    /// Colour of a facet label, `(r, g, b, a)`.
-    /// :group: Selection
-    pub facet_label_color: [f32; 4],
-
-    /// Colour a facet takes when it is selected, `(r, g, b, a)`.
-    ///
-    /// Selecting writes this onto the facet's own vertices and marks them
-    /// colour-mode 1, which the shader honours for that facet alone -- so a
-    /// picked facet is unlit and this colour while the rest of the body keeps
-    /// its shading. Deselecting puts back what was there.
-    ///
-    /// :group: Selection
-    pub selection_color: wgpu::Color,
-
-    /// the barycentrics are meaningless and the CPU side warns once.
-    /// :range: 0..=2
-    pub wireframe_mode: u32,
-    /// Wireframe colour, `(r, g, b, a)`; alpha is dropped.
-    ///
-    /// Mode 2 blends by edge coverage and is antialiased; mode 1 thresholds instead,
-    /// because the pipeline blend state is REPLACE and a fractional alpha would be
-    /// ignored.
-    pub wireframe_color: wgpu::Color,
-    // Line half-width in pixels. Screen-space, so thickness stays constant
-    // regardless of distance or zoom.
-    /// Wireframe half-width in screen pixels.
-    /// :range: 0.1..=10.0
-    pub wireframe_width: f32,
-    /// Fade the wireframe out as a body recedes far enough that its facets
-    /// stop being resolvable. **Off by default.**
-    ///
-    /// Past about a pixel per facet the three edges cover the whole triangle,
-    /// so the mesh reads as a sheet of wireframe colour -- a shadowed body at
-    /// distance comes out grey rather than black, which is the wireframe
-    /// overwriting the shading rather than drawing the mesh. This fades it out
-    /// between 4 px and 1 px facets instead.
-    ///
-    /// Distance only: the measure is the facet's *largest* screen height, so
-    /// tilt does not trigger it and the limb of a sphere keeps its wireframe.
-    ///
-    /// Only applies to `wireframe_mode = 2`, where there is a shaded surface
-    /// underneath to fade into. Mode 1 is wireframe alone and would simply
-    /// vanish.
-    pub wireframe_fade: bool,
-
-    // Present with vsync (wgpu Fifo) instead of uncapped (Immediate).
-    // Defaults off, so a measurement is never silently capped. Falls back to
-    // the surface's preferred mode if the requested one isn't supported.
-    /// Cap the frame rate to the display refresh.
-    ///
-    /// **Off by default**, because a capped loop reports the monitor rather
-    /// than the scene: on a 239 Hz panel the render loop measured exactly
-    /// 239.46 it/s regardless of complexity, which made a 3.1M-facet scene
-    /// look identical to a 100k one. That trap cost a wrong conclusion once
-    /// and was worked around by hand in nine scripts, so it is the default
-    /// that is wrong rather than those scripts.
-    ///
-    /// The price is that an idle viewer redraws as fast as it can instead of
-    /// 60 times a second. Set `True` when you are looking at a scene rather
-    /// than timing one.
-    pub vsync: bool,
-
+/// Frame export.
+#[derive(Clone, Debug)]
+pub struct Export {
     // Export frames synchronously: block the render loop on each frame's
     // GPU->CPU copy, PNG encode and disk write instead of handing them to
     // the background worker pool. Much slower, but bounds memory to a
@@ -747,8 +936,7 @@ pub struct Config {
     ///
     /// Slower, but the file is on disk before the frame returns -- which is what a
     /// script needs if it exports and then reads the file immediately.
-    pub export_sync: bool,
-
+    pub sync: bool,
     // Upper bound on frames queued for export but not yet written, before
     // export_frame blocks the render loop waiting for the encoders to catch
     // up. Each outstanding frame pins a mapped GPU buffer of one frame, so
@@ -764,8 +952,7 @@ pub struct Config {
     /// per second actually reached disk, and the loop still claimed 626 it/s --
     /// measuring queue growth rather than work done.
     /// :range: 1..=512
-    pub export_max_queued: u32,
-
+    pub max_queued: u32,
     // Directory frame exports (export/export_once) are written to, as
     // "{export_dir}/{N:06}.png", zero-padded so lexicographic and numeric
     // order agree. Override per-app (e.g. to a scratch
@@ -777,22 +964,7 @@ pub struct Config {
     /// benchmark left at it writes into whatever a real run is using, and two
     /// exporters pointed at one directory race on the startup index scan as well as
     /// on cleanup.
-    pub export_dir: String,
-
-    /// Read the shadow map back per facet: computes solar occlusion for every
-    /// body each frame, readable from `after_render` via
-    /// `Simulation::facet_shadow`.
-    ///
-    /// Off by default because it is not free: the query costs ~1.6 ms per
-    /// body at 100k facets and ~7.3 ms at 3.1M, dominated by the blocking
-    /// readback. Turn it on for thermophysical or radiance work; leave it off
-    /// when you only want images.
-    /// Compute per-facet solar occlusion for every body, every frame.
-    ///
-    /// Read it back with `sim.facet_shadow(body)` from `after_render`. Leave it off
-    /// unless something consumes it: it is a compute pass and a readback per frame.
-    pub access_shadow_map: bool,
-
+    pub dir: String,
     /// Burn the HUD text into exported frames as well as drawing it on screen.
     ///
     /// Off by default, and that is the right default for a data product: the
@@ -805,122 +977,35 @@ pub struct Config {
     /// Off by default: the HUD is drawn straight onto the swapchain after the blit,
     /// so it stays out of `render_texture` and therefore out of exports. Turning it
     /// on adds a separate pass that draws it into the exported image too.
-    pub export_hud: bool,
+    pub hud: bool,
+}
 
-    /// Fit a shadow map per body instead of one fitted to the whole scene.
-    ///
-    /// On by default, because one shared map is fitted to the scene's extent
-    /// and a small body beside a large one then gets almost no texels -- 6 km
-    /// Deimos next to 3,396 km Mars is the case that forced this. Each layer
-    /// is aimed at its own body and sized to it, while its depth range still
-    /// spans the scene, so mutual shadowing is unaffected: anything between
-    /// the Sun and a body still casts into that body's layer.
-    ///
-    /// Costs one shadow pass per body. Turn it off to get the old single
-    /// scene-fitted map back, which is only worth doing to reproduce older
-    /// output or when every body is a similar size.
-    pub shadow_per_body: bool,
+impl Default for Export {
+    fn default() -> Self {
+        Self {
+            sync: false,
+            max_queued: 64,
+            dir: "out/frames".to_string(),
+            hud: false,
+        }
+    }
+}
 
-    /// Range the colormap spans, or `None` to fit the loaded values each
-    /// frame.
-    ///
-    /// Automatic is the sane default for exploring, but pin it for anything
-    /// comparative: an auto range silently rescales between frames, so two
-    /// images of the same scene are not on the same colour scale and the
-    /// difference between them reads as physics rather than as bookkeeping.
-    pub value_min: Option<f32>,
-    pub value_max: Option<f32>,
-
-    /// Colour lookup table, 256 RGB entries in 0..1.
-    ///
-    /// Set by name (`"viridis"`, `"inferno"`, `"turbo"`, `"grey"`) or from any
-    /// 256x3 array, so a matplotlib colormap can be handed over unchanged.
-    /// Defaults to greyscale.
-    /// :skip:
-    pub colormap: Vec<[f32; 3]>,
-
-    /// Colour scale drawn over the render. Off by default.
-    pub colorbar: Colorbar,
-
-    /// Reference axes drawn around the scene.
-    ///
-    /// `"off"`, `"box"` (MATLAB), `"panes"` (matplotlib), `"gizmo"` (three
-    /// labelled arrows at the origin), `"blender"` (ground grid, Z line and
-    /// gizmo). A rendered body alone carries no scale or orientation; these
-    /// supply both.
-    pub axes: crate::app::axes::AxesStyle,
-
-    /// Shade the `"blender"` style's ground grid instead of drawing it as
-    /// line segments. On by default; `False` restores the segments.
-    ///
-    /// The segments end at the scene bounds, sit at one spacing, and are one
-    /// pixel wide because WebGPU has no line width. This computes the grid
-    /// per pixel instead: it has no edge, it crossfades between decades as
-    /// you zoom -- which is what lets one grid serve a unit cube and a body
-    /// 1e4 km away -- and its lines antialias themselves.
-    pub grid: bool,
-    /// Width of a grid line, in pixels.
-    /// :range: 0.25..=8.0
-    pub grid_width: f32,
-    /// Cells between thick lines, and the factor between the levels the
-    /// crossfade steps through -- the same number seen from two sides.
-    /// :range: 2..=100
-    pub grid_major: u32,
-    /// Colour of the ordinary lines, `(r, g, b, a)`.
-    pub grid_color: [f32; 4],
-    /// Colour of every `grid_major`-th line.
-    pub grid_major_color: [f32; 4],
-    /// The axis lines, drawn over the grid so the origin reads without
-    /// hunting for it. Two of the three are in the grid's plane and get
-    /// drawn; which two depends on which plane that is.
-    pub grid_axis_x_color: [f32; 4],
-    pub grid_axis_y_color: [f32; 4],
-    pub grid_axis_z_color: [f32; 4],
-    /// Fade the grid out between these grazing factors: `0.0` is looking
-    /// straight down at the ground plane and `1.0` is looking along it.
-    /// Without it the horizon is a hard line of aliasing.
-    ///
-    /// On the angle rather than the distance because the plane is infinite:
-    /// what bounds it on screen is the horizon, not the far plane, so a
-    /// distance fade never reaches its ramp.
-    /// :range: 0.0..=1.0
-    pub grid_fade_near: f32,
-    /// :range: 0.0..=1.0
-    pub grid_fade_far: f32,
-    /// Colour of the axis lines and grid.
-    pub axes_color: [f32; 3],
-    /// Roughly how many ticks per axis. The step is rounded to 1, 2 or 5
-    /// times a power of ten first, so the count lands near this rather than
-    /// on it -- a figure with ticks at 0.0347 is unreadable.
-    /// :range: 1..=20
-    pub axes_ticks: usize,
-    /// Appended to every tick label, e.g. `" km"`.
-    ///
-    /// The renderer knows the mesh is 0.437 across but not whether that is
-    /// metres or kilometres, so the unit has to come from the script.
-    pub axes_unit: String,
-    /// Tick label size in pixels, and their colour.
-    /// :range: 4.0..=64.0
-    pub axes_label_size: f32,
-    pub axes_label_color: [f32; 4],
-
-    /// Which corner the navigation gizmo sits in. Any of the nine HUD
-    /// anchors, so it can be moved out of the way of a colour bar or a HUD.
-    ///
-    /// Drawn by the `"gizmo"` and `"blender"` axes styles and by no other.
-    pub gizmo_anchor: HudAnchor,
-    /// Half the widget's width, in pixels: a ball centre never sits further
-    /// than this from the middle.
-    ///
-    /// The gizmo's only size knob. Letter height follows it
-    /// ([`crate::app::gizmo::label_size`]), the margin to the image edge is
-    /// fixed at 20 px, and the letters are black -- each of those was settable
-    /// once and none of them was worth setting: a letter is sized and coloured
-    /// by the ball it sits on, so the pair could only ever agree or disagree.
-    /// :range: 16.0..=200.0
-    pub gizmo_size: f32,
-
-
+/// Mouse and keyboard sensitivities.
+#[derive(Clone, Debug)]
+pub struct Controls {
+    /// Multiplier for WASD movement speed.
+    /// :range: 0.1..=5.0
+    pub sensitivity_move: Float,
+    /// Multiplier for mouse-look speed in WASD mode.
+    /// :range: 0.1..=5.0
+    pub sensitivity_look: Float,
+    /// Multiplier for arcball orbit speed.
+    /// :range: 0.1..=5.0
+    pub sensitivity_rotate: Float,
+    /// Multiplier for scroll and pinch zoom speed.
+    /// :range: 0.1..=5.0
+    pub sensitivity_zoom: Float,
     /// Treat alt + left-drag as a middle-drag, so the arcball can be orbited
     /// on hardware with no middle button. Blender calls the same setting
     /// "Emulate 3 Button Mouse". Defaults on for macOS, where a trackpad is
@@ -933,142 +1018,159 @@ pub struct Config {
     pub emulate_middle_button: bool,
 }
 
-impl Default for Config {
+impl Default for Controls {
     fn default() -> Self {
         Self {
-            debug_app: false,
-            debug_window: false,
-            debug_window_mesh: false,
-            debug_simulation: false,
-            gpu_timing: false,
-            occlusion_queries: false,
-            debug_depth_show: false,
-            debug_light_cube_show: false,
-            debug_light_cube_fit: true,
-
-            title: "kalast".to_string(),
-            width: 0,
-            height: 0,
-
-            background: wgpu::Color::BLACK,
-            hud_font: String::new(),
-            fullscreen: false,
-            render_back_face: false,
-
             sensitivity_move: 1.0,
             sensitivity_look: 1.0,
             sensitivity_rotate: 1.0,
             sensitivity_zoom: 1.0,
-
-            color: wgpu::Color::WHITE,
-            color_mode: 0,
-            extra: 0,
-
-            srgb_mode: 0,
-            gamma: 2.2,
-
-            ambient_strength: 0.0,
-            light_color: wgpu::Color::WHITE,
-            // light_target: Vec3::new(0.0, 0.0, 0.0),
-            // light_up: Vec3::new(0.0, 0.0, 1.0),
-            // light_side: 10.0,
-            // light_znear: 0.1,
-            // light_zfar: 100.0,
-            light_cube_scale: 0.25,
-
-            shadow_resolution: 8192,
-            shadow_pcf: 0,
-            shadow_normal_offset_scale: None,
-            shadow_bias_scale: None,
-            shadow_bias_minimum: None,
-
-            msaa: 4,
-
-            wireframe_mode: 0,
-            facet_labels: false,
-            facet_labels_max: 2000,
-            facet_label_size: 12.0,
-            facet_label_color: [1.0, 1.0, 1.0, 0.9],
-            selection_color: wgpu::Color {
-                r: 1.0,
-                g: 1.0,
-                b: 0.0,
-                a: 1.0,
-            },
-            wireframe_color: wgpu::Color::BLACK,
-            wireframe_width: 1.0,
-
-            wireframe_fade: false,
-            vsync: false,
-            export_sync: false,
-            export_max_queued: 64,
-
-            export_dir: "out/frames".to_string(),
-
-            access_shadow_map: false,
-
-            export_hud: false,
-
-            shadow_per_body: true,
-
-            colorbar: Colorbar::default(),
-
-            axes: crate::app::axes::AxesStyle::Off,
-
-            grid: true,
-            grid_width: 1.0,
-            grid_major: 10,
-            // **These are linear, and the surface is sRGB.** What reaches
-            // the eye is the sRGB encoding of `rgb * alpha`, which is far
-            // brighter than the product looks: 0.16 at alpha 0.30 is 0.048
-            // linear and **0.24 on screen**. Three rounds of halving these
-            // numbers barely changed the picture for exactly that reason --
-            // sRGB compresses a 2x linear cut into about 15 % perceived.
-            //
-            // So they are chosen the other way round now: pick what the line
-            // should look like, convert, and divide by the alpha. Blender
-            // sits its grid about 0.10 sRGB above its own background, which
-            // on black is the entire budget -- 0.055 for a subdivision and
-            // 0.19 for a major line.
-            //
-            // The **ratio** matters as much as the levels. 0.10 against 0.15
-            // is 1.5x, and at these brightnesses that is not a difference the
-            // eye separates: every tenth line looked like every other line.
-            // 3.5x reads as two kinds of line.
-            //
-            // Measured, not asserted: `abs(axes_on - axes_off)` over a
-            // rendered frame, gizmo masked and the coloured axis lines
-            // separated out by saturation.
-            grid_color: [0.0147, 0.0147, 0.0166, 0.30],
-            grid_major_color: [0.0578, 0.0578, 0.0642, 0.52],
-            // The same hues, scaled so the dominant channel lands at 0.45
-            // on screen rather than 0.86. At full strength they were about
-            // ten times the grid they sit in and read as the subject of the
-            // picture; they are a reference, not the content.
-            grid_axis_x_color: [0.1896, 0.0583, 0.0729, 0.9],
-            grid_axis_y_color: [0.1092, 0.1896, 0.0575, 0.9],
-            grid_axis_z_color: [0.0699, 0.0998, 0.1896, 0.9],
-            // 0.5 starts fading 60 degrees off the normal, which is
-            // barely past a three-quarter view and took the ground away
-            // while there was still plenty of it to see. The horizon is at
-            // 1.0, so this holds the grid to within ~25 degrees of edge-on.
-            grid_fade_near: 0.9,
-            grid_fade_far: 1.0,
-            axes_color: [0.45, 0.45, 0.45],
-            axes_ticks: 5,
-            axes_unit: String::new(),
-            axes_label_size: 13.0,
-            axes_label_color: [0.85, 0.85, 0.85, 1.0],
-            gizmo_anchor: HudAnchor::TopRight,
-            gizmo_size: 60.0,
-            // Dark, because it is read against the ball rather than against
-            // the scene, and every ball colour is light enough to carry it.
-
-            value_min: None,
-            value_max: None,
-            colormap: Vec::new(),
-
             emulate_middle_button: cfg!(target_os = "macos"),
+        }
+    }
+}
+
+/// The size of the image being rendered, as distinct from the window.
+#[derive(Clone, Debug)]
+pub struct Image {
+    /// Render size in physical pixels -- the *image*, not the window.
+    ///
+    /// `0` means "follow the window", which is what a terminal run wants and
+    /// what every script got when there was only one pair of these. Set it to
+    /// pin the render independently: a 4K export from a small window, or a
+    /// fixed frame size while the editor's viewport panel is dragged about.
+    ///
+    /// Everything about the image follows this -- the camera's aspect ratio,
+    /// where axis ticks project, where the colour bar sits, and what an
+    /// exported frame measures.
+    /// :label: image width
+    /// :range: 0..=7680
+    pub width: u32,
+    /// :label: image height
+    /// :range: 0..=4320
+    pub height: u32,
+}
+
+impl Default for Image {
+    fn default() -> Self {
+        Self {
+            width: 0,
+            height: 0,
+        }
+    }
+}
+
+/// Diagnostics and console output.
+#[derive(Clone, Debug)]
+pub struct Diagnostics {
+    /// Print app lifecycle events: pause and camera-mode changes.
+    pub app: bool,
+    /// Print window and GPU setup: chosen surface format, adapter and device
+    /// features, and **the present modes the surface supports**.
+    ///
+    /// Worth enabling once on any new machine -- it is how the vsync cap that
+    /// invalidated a whole benchmark was identified.
+    pub window: bool,
+    /// Print per-mesh detail as meshes are uploaded.
+    pub window_mesh: bool,
+    /// **Does nothing.** The field exists and is settable from Python, but no code
+    /// reads it. Left as a placeholder.
+    pub simulation: bool,
+    /// Time each GPU pass with timestamp queries, into `sim.gpu_timings()`.
+    ///
+    /// Off by default: the queries themselves are nearly free, but reading them
+    /// back costs a buffer map per frame, and nothing needs it unless someone is
+    /// asking where a frame goes. Silently inert where the adapter has no
+    /// `TIMESTAMP_QUERY` -- `sim.gpu_timings()` returns an empty dict there.
+    ///
+    /// Draw the shadow/depth map as an overlay instead of leaving it offscreen.
+    ///
+    /// Only mirrors the main pass's depth at `msaa = 1`; above that the pass writes
+    /// its own multisampled depth buffer and the debug view is not it.
+    pub gpu_timing: bool,
+    /// Count what each body actually drew, with occlusion queries.
+    ///
+    /// The Visibility panel otherwise tests bounding boxes against the
+    /// frustum, so "visible" means "could be seen", and a body wholly behind
+    /// another still counts. This draws each body's box after the scene, with
+    /// the depth test on and depth writes off, and asks the GPU how many
+    /// samples survived. Zero means it put nothing on screen.
+    ///
+    /// Off by default: it costs a readback every frame, for a diagnostic.
+    /// A box is a conservative stand-in for its body, so this can still call
+    /// a body visible when only its box is -- the same direction the frustum
+    /// test errs in.
+    pub occlusion_queries: bool,
+    pub depth_show: bool,
+    /// Free integer passed through to the shader, for one-off experiments.
+    /// :range: 0..=10
+    pub extra: u32,
+}
+
+impl Default for Diagnostics {
+    fn default() -> Self {
+        Self {
+            app: false,
+            window: false,
+            window_mesh: false,
+            simulation: false,
+            gpu_timing: false,
+            occlusion_queries: false,
+            depth_show: false,
+            extra: 0,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Config {
+    /// How the surface is coloured and the image encoded.
+    pub shading: Shading,
+    /// The Sun as a light: its colour, the ambient floor, the debug cube.
+    pub light: Light,
+    /// The shadow map and its readback.
+    pub shadows: Shadows,
+    /// Facet edges drawn over or instead of the surface.
+    pub wireframe: Wireframe,
+    /// The picked facet and the facet labels.
+    pub selection: Selection,
+    /// Colouring facets from per-facet values.
+    pub data: Data,
+    /// The colour scale drawn for `data`.
+    pub colorbar: Colorbar,
+    /// Reference axes, tick labels and the navigation gizmo.
+    pub axes: AxesConfig,
+    /// The shaded ground grid of the `blender` axes style.
+    pub grid: Grid,
+    /// The text overlays.
+    pub hud: HudConfig,
+    /// Frame export.
+    pub export: Export,
+    /// Mouse and keyboard sensitivities.
+    pub controls: Controls,
+    /// The size of the image being rendered, as distinct from the window.
+    pub image: Image,
+    /// Diagnostics and console output.
+    pub debug: Diagnostics,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            shading: Shading::default(),
+            light: Light::default(),
+            shadows: Shadows::default(),
+            wireframe: Wireframe::default(),
+            selection: Selection::default(),
+            data: Data::default(),
+            colorbar: Colorbar::default(),
+            axes: AxesConfig::default(),
+            grid: Grid::default(),
+            hud: HudConfig::default(),
+            export: Export::default(),
+            controls: Controls::default(),
+            image: Image::default(),
+            debug: Diagnostics::default(),
         }
     }
 }
@@ -1167,6 +1269,34 @@ pub struct AppConfig {
     ///
     /// :label: toolbar text
     pub toolbar: String,
+    /// The OS window title.
+    pub title: String,
+    /// Open the window in native fullscreen (borderless, current monitor).
+    ///
+    /// On macOS this is the same mode the green button gives -- its own
+    /// Space -- which is worth knowing because it is not equivalent to a
+    /// maximised window: the compositor hands out drawables differently
+    /// there, and a stall that only appears fullscreen will not reproduce
+    /// maximised.
+    ///
+    /// Startup only: applied when the window is created.
+    pub fullscreen: bool,
+    // Present with vsync (wgpu Fifo) instead of uncapped (Immediate).
+    // Defaults off, so a measurement is never silently capped. Falls back to
+    // the surface's preferred mode if the requested one isn't supported.
+    /// Cap the frame rate to the display refresh.
+    ///
+    /// **Off by default**, because a capped loop reports the monitor rather
+    /// than the scene: on a 239 Hz panel the render loop measured exactly
+    /// 239.46 it/s regardless of complexity, which made a 3.1M-facet scene
+    /// look identical to a 100k one. That trap cost a wrong conclusion once
+    /// and was worked around by hand in nine scripts, so it is the default
+    /// that is wrong rather than those scripts.
+    ///
+    /// The price is that an idle viewer redraws as fast as it can instead of
+    /// 60 times a second. Set `True` when you are looking at a scene rather
+    /// than timing one.
+    pub vsync: bool,
 }
 
 impl Default for AppConfig {
@@ -1178,6 +1308,9 @@ impl Default for AppConfig {
             width: 0,
             height: 0,
             toolbar: "iteration {drawn}    {its} it/s    {fps} fps".to_string(),
+            title: "kalast".to_string(),
+            fullscreen: false,
+            vsync: false,
         }
     }
 }

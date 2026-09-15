@@ -665,32 +665,14 @@ impl Editor {
                     ui.label(egui::RichText::new("Simulation").strong());
                     ui.separator();
                     egui::ScrollArea::vertical().show(ui, |ui| {
-                        // One section per field of the simulation -- state,
-                        // bodies, camera, and so on -- and the config is one
-                        // of those fields, so it is one of those sections
-                        // with its own groups inside it.
-                        //
-                        // What the run *is* comes first -- bodies loaded,
-                        // where the camera and Sun are, what the last frame
-                        // could see -- then what it was asked to be.
+                        // By topic, each header holding the entity beside
+                        // its own settings -- the Sun beside its light, the
+                        // HUD list beside its font. See `simulation_panel`.
                         let mut sim = sim.borrow_mut();
-                        // Passed in rather than read from `sim.config`: that
-                        // is the same RefCell this panel is being drawn with
-                        // open, and reading it here panics.
-                        let c = config.selection_color;
-                        simulation_panel::simulation_panel(
-                            ui,
-                            &mut sim,
-                            crate::Vec3::new(c.r as crate::Float, c.g as crate::Float, c.b as crate::Float),
-                        );
-                        drop(sim);
-
-                        ui.collapsing("Config", |ui| {
-                            // Generated from `src/app/config.rs`, so a field
-                            // added there gets a widget without anyone
-                            // remembering to add one here.
-                            config_panel::config_panel(ui, config, app_config);
-                        });
+                        // The config is passed in rather than read from
+                        // `sim.config`: that is the same RefCell this panel
+                        // is being drawn with open, and reading it here panics.
+                        simulation_panel::simulation_panel(ui, &mut sim, config, app_config);
                     });
                 };
 

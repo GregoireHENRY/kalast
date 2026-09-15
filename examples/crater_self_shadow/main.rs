@@ -12,11 +12,11 @@ fn main() {
     {
         let config = app.sim_config();
         let mut c = config.borrow_mut();
-        c.render_back_face = true;
-        c.debug_light_cube_show = true;
-        c.access_shadow_map = true;
-        c.wireframe_mode = 2;
-        c.wireframe_color = wgpu::Color {
+        c.shading.render_back_face = true;
+        c.light.cube_show = true;
+        c.shadows.access_shadow_map = true;
+        c.wireframe.mode = 2;
+        c.wireframe.color = wgpu::Color {
             r: 0.05,
             g: 0.05,
             b: 0.05,

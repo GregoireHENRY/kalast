@@ -136,7 +136,7 @@ print(f"  detector {NPX}x{NPY}, fovy {tiri.fovy:.1f} deg")
 app = kalast.app.App()
 app.config.width = NPX
 app.config.height = NPY
-app.simulation.config.access_shadow_map = True
+app.simulation.config.shadows.access_shadow_map = True
 app.simulation.config.huds = [kalast.app.Hud("")]   # filled in before_render
 app.simulation.camera.projection.fovy = numpy.radians(tiri.fovy)
 

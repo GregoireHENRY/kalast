@@ -31,7 +31,7 @@ impl Passes {
         uniforms: &super::uniform::Uniforms,
         // The render size, passed in rather than read from the config: since
         // the window and the image became two different sizes,
-        // `config.width` is `0` whenever the image is following the window.
+        // `config.image.width` is `0` whenever the image is following the window.
         size: (u32, u32),
     ) -> Self {
         let layouts_all = uniforms.layouts_all();
@@ -39,7 +39,7 @@ impl Passes {
 
         // Resolved once, so the main pass and the light cube it draws inside
         // cannot disagree about it.
-        let samples = render::resolve_samples(device, format, config.msaa);
+        let samples = render::resolve_samples(device, format, config.shading.msaa);
 
         Self {
             shadow: shadow::Pass::new(device, &uniforms.layouts_for_shadow()),
@@ -111,10 +111,10 @@ impl Passes {
             &self.bindings,
             config,
             timer.and_then(|t| t.scope(super::gpu_timing::Scope::Render)),
-            config.occlusion_queries.then_some(&self.occlusion),
+            config.debug.occlusion_queries.then_some(&self.occlusion),
         );
 
-        if config.debug_depth_show {
+        if config.debug.depth_show {
             self.depth.render(
                 view,
                 encoder,

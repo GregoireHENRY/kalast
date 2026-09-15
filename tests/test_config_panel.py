@@ -36,43 +36,47 @@ def test_panel_is_regenerated() -> None:
 def test_every_field_has_a_widget() -> None:
     """No config option is silently missing from the panel.
 
-    A field may opt out with `/// :skip:`, which is deliberate and visible in
-    the Rust source; anything else must appear.
+    `Config` is a struct of sub-structs, one per group, so this walks each
+    group's own fields and expects `c.<group>.<field>`; `AppConfig` is flat and
+    expects `a.<field>`. A field may opt out with `/// :skip:`, which is
+    deliberate and visible in the Rust source; anything else must appear.
     """
     src = CONFIG.read_text()
     panel = PANEL.read_text()
+
+    def skipped(name: str) -> bool:
+        # The whole doc block, not just the line above `pub`: `:skip:` is
+        # allowed anywhere in it, and the generator reads it that way.
+        block = re.search(rf"((?:^[ \t]*///[^\n]*\n)*)[ \t]*pub {name}:", src, re.M)
+        return bool(block and ":skip:" in block.group(1))
+
+    def types(struct: str) -> list[tuple[str, str]]:
+        m = re.search(r"pub struct %s \{(.*?)\n\}" % struct, src, re.S)
+        assert m, f"{struct} not found in {CONFIG}"
+        return re.findall(r"^\s*pub (\w+): ([^,\n]+),", m.group(1), re.M)
+
     missing = []
-    for struct, prefix in (
-        ("Config", "c."),
-        ("Colorbar", "c.colorbar."),
-        ("AppConfig", "a."),
-    ):
-        for name in fields(struct):
-            # The whole doc block, not just the line above `pub`: `:skip:` is
-            # allowed anywhere in it, and the generator reads it that way.
-            block = re.search(
-                rf"((?:^[ \t]*///[^\n]*\n)*)[ \t]*pub {name}:", src, re.M
-            )
-            if block and ":skip:" in block.group(1):
-                continue
-            if f"{prefix}{name}" not in panel:
-                missing.append(f"{prefix}{name}")
+    for group, gtype in types("Config"):
+        members = fields(gtype)
+        assert members, f"Config.{group}: {gtype} has no fields -- not a group?"
+        for name in members:
+            if not skipped(name) and f"c.{group}.{name}" not in panel:
+                missing.append(f"c.{group}.{name}")
+    for name in fields("AppConfig"):
+        if not skipped(name) and f"a.{name}" not in panel:
+            missing.append(f"a.{name}")
     assert not missing, "no widget for: " + ", ".join(missing)
 
 
-def main() -> int:
-    failed = 0
-    for name, fn in sorted(globals().items()):
-        if not name.startswith("test_"):
-            continue
-        try:
-            fn()
-            print(f"ok   {name}")
-        except AssertionError as e:
-            print(f"FAIL {name}: {e}")
-            failed += 1
-    return 1 if failed else 0
-
-
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # Runnable without pytest, which is not installed here.
+    failures = 0
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            try:
+                fn()
+                print(f"ok   {name}")
+            except Exception as e:
+                failures += 1
+                print(f"FAIL {name}\n     {type(e).__name__}: {e}")
+    raise SystemExit(failures)

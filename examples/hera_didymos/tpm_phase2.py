@@ -350,8 +350,8 @@ for n in ACTIVE:
 app = kalast.app.App()
 app.config.width = 512
 app.config.height = 512
-app.simulation.config.export_dir = f"{OUT}/frames"
-app.simulation.config.access_shadow_map = SHADOWING
+app.simulation.config.export.dir = f"{OUT}/frames"
+app.simulation.config.shadows.access_shadow_map = SHADOWING
 app.simulation.config.huds = [kalast.app.Hud("")]   # filled in before_render
 app.simulation.camera.projection.fovy = 20.0 * RPD
 

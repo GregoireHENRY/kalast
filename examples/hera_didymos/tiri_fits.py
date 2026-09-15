@@ -119,7 +119,7 @@ app = kalast.app.App()
 app.config.width = NPX
 app.config.height = NPY
 # The ID pass reads geometry, not the shadow map, so nothing here needs it.
-app.simulation.config.access_shadow_map = False
+app.simulation.config.shadows.access_shadow_map = False
 
 app.simulation.camera.projection.fovy = numpy.radians(tiri.fovy)
 

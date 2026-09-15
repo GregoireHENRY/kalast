@@ -7,11 +7,11 @@ from kalast.app import App, Hud
 
 
 app = App()
-app.simulation.config.access_shadow_map = True
-app.simulation.config.wireframe_mode = 2
-app.simulation.config.wireframe_color = [0.05, 0.05, 0.05, 1.0]
+app.simulation.config.shadows.access_shadow_map = True
+app.simulation.config.wireframe.mode = 2
+app.simulation.config.wireframe.color = [0.05, 0.05, 0.05, 1.0]
 app.simulation.huds = [Hud("", size=16)]
-app.simulation.config.axes = "blender"
+app.simulation.config.axes.style = "blender"
 
 app.simulation.sun.pos = [0.0, 20.0, 0.0]
 app.simulation.camera.pos = [-0.9687278, 13.656183, 7.445293]

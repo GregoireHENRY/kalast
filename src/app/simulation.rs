@@ -24,7 +24,7 @@ pub struct Simulation {
     pub export_once: bool,
 
     /// One-off request for a single body's fractions, for callers that only
-    /// want them at particular epochs. `config.access_shadow_map` is the usual
+    /// want them at particular epochs. `config.shadows.access_shadow_map` is the usual
     /// route and covers every body every frame.
     pub facet_shadow_request: Option<usize>,
     /// Per-facet occluded fractions, indexed by body. Empty for bodies not
@@ -110,10 +110,10 @@ pub struct Diagnostics {
     /// The debug light cube is enabled but sits beyond the camera's far
     /// plane, so it is being drawn and clipped away.
     pub light_cube_clipped: bool,
-    /// Per-pass GPU times, when `config.gpu_timing` is on. All zero and
+    /// Per-pass GPU times, when `config.debug.gpu_timing` is on. All zero and
     /// `valid: false` otherwise, and on an adapter without timestamp queries.
     pub gpu: crate::app::gpu_timing::Timings,
-    /// What each body actually drew, when `config.occlusion_queries` is on.
+    /// What each body actually drew, when `config.debug.occlusion_queries` is on.
     /// `valid: false` otherwise, and until the first readback lands.
     pub occlusion: crate::app::occlusion::Counts,
 }
@@ -294,7 +294,7 @@ impl Simulation {
 
     /// Ask for `body`'s per-facet occluded fractions to be read back from
     /// the shadow map after this frame renders. Only needed when
-    /// `config.access_shadow_map` is off and you want them for one frame.
+    /// `config.shadows.access_shadow_map` is off and you want them for one frame.
     pub fn request_hemicube(&mut self, body: usize, facets: Vec<u32>, resolution: u32, batch: u32) {
         self.hemicube_request = Some((body, facets, resolution, batch));
     }

@@ -306,6 +306,21 @@ pub fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     config.add_class::<app::config::Config>()?;
     config.add_class::<app::config::AppConfig>()?;
     config.add_class::<app::config::Hud>()?;
+    // The group views, so their types are importable and inspectable.
+    config.add_class::<app::config_gen::ShadingConfig>()?;
+    config.add_class::<app::config_gen::LightConfig>()?;
+    config.add_class::<app::config_gen::ShadowsConfig>()?;
+    config.add_class::<app::config_gen::WireframeConfig>()?;
+    config.add_class::<app::config_gen::SelectionConfig>()?;
+    config.add_class::<app::config_gen::DataConfig>()?;
+    config.add_class::<app::config_gen::ColorbarConfig>()?;
+    config.add_class::<app::config_gen::AxesConfig>()?;
+    config.add_class::<app::config_gen::GridConfig>()?;
+    config.add_class::<app::config_gen::HudConfig>()?;
+    config.add_class::<app::config_gen::ExportConfig>()?;
+    config.add_class::<app::config_gen::ControlsConfig>()?;
+    config.add_class::<app::config_gen::ImageConfig>()?;
+    config.add_class::<app::config_gen::DebugConfig>()?;
     pyadd_f!(config, app::config::colormap_by_name);
     pyadd_f!(config, app::config::colormap_names);
     app.add_submodule(&config)?;

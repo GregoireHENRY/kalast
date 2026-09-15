@@ -53,11 +53,11 @@ def before_render(sim: Simulation, dt: float) -> None:
 app = kalast.app.App()
 app.config.width = 1020
 app.config.height = 1020
-app.simulation.config.color_mode = 0
+app.simulation.config.shading.color_mode = 0
 
-app.simulation.config.shadow_normal_offset_scale = 2e-4
-app.simulation.config.shadow_bias_scale = 1e-3
-app.simulation.config.shadow_bias_minimum = 5e-4
+app.simulation.config.shadows.normal_offset_scale = 2e-4
+app.simulation.config.shadows.bias_scale = 1e-3
+app.simulation.config.shadows.bias_minimum = 5e-4
 
 spice.kclear()
 spice.furnsh("/Users/gregoireh/data/spice/hera/kernels/mk/hera_plan_local.tm")

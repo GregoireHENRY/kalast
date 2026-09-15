@@ -191,7 +191,9 @@ def parse(src: str):
         return []
     by_name = {c: members for c, members, _ in classes}
 
-    for im in re.finditer(r"#\[pymethods\]\s*impl (\w+) \{", src):
+    # `impl Foo {` or `impl super::config::Foo {`: a generated block may live
+    # in another file from the struct it extends.
+    for im in re.finditer(r"#\[pymethods\]\s*impl (?:[\w:]+::)?(\w+) \{", src):
         cls = im.group(1)
         if cls not in by_name:
             continue
@@ -419,6 +421,11 @@ TARGETS = {
     # file away from the formula that uses them.
     "src/scattering.rs": "kalast/scattering.pyi",
     "src/lightcurve.rs": "kalast/lightcurve.pyi",
+    # The generated half of the config bindings. `Config` and `AppConfig` are
+    # *declared* in config.rs and get most of their accessors here, under
+    # `impl super::config::Config` -- so both files are parsed as one text for
+    # one stub, and the class picks up members from either.
+    "src/py/app/config_gen.rs": "kalast/app/config.pyi",
 }
 
 
@@ -427,7 +434,15 @@ def main() -> int:
     ap.add_argument("--check", action="store_true")
     args = ap.parse_args()
 
-    parsed = {rs: parse((ROOT / rs).read_text()) for rs in TARGETS}
+    # Several sources may feed one stub; they are parsed as one text so a
+    # class declared in one and extended in another comes out whole.
+    by_pyi: dict[str, list[str]] = {}
+    for rs, pyi in TARGETS.items():
+        by_pyi.setdefault(pyi, []).append(rs)
+    parsed = {
+        pyi: parse("\n".join((ROOT / rs).read_text() for rs in sources))
+        for pyi, sources in by_pyi.items()
+    }
 
     # Where a pyo3 accessor carries no doc of its own, fall back to the doc on
     # the field it wraps: that is where the explanation actually lives.
@@ -444,14 +459,14 @@ def main() -> int:
                     members[i] = (m[0], m[1], m[2], src_docs[m[1]])
 
     index = {
-        cls: TARGETS[rs].removesuffix(".pyi").replace("/", ".")
-        for rs, classes in parsed.items()
+        cls: pyi.removesuffix(".pyi").replace("/", ".")
+        for pyi, classes in parsed.items()
         for cls, _, _ in classes
     }
 
     stale = []
-    for rs, pyi in TARGETS.items():
-        text = render(parsed[rs], index)
+    for pyi, classes in parsed.items():
+        text = render(classes, index)
         path = ROOT / pyi
         if args.check:
             if not path.exists() or path.read_text() != text:

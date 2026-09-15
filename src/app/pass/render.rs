@@ -115,24 +115,24 @@ impl Pass {
         format: wgpu::TextureFormat,
         config: &crate::app::config::Config,
         layouts: &[Option<&wgpu::BindGroupLayout>],
-        // See `Passes::new`: `config.width` is `0` while the image follows
+        // See `Passes::new`: `config.image.width` is `0` while the image follows
         // the window, so the real size has to be handed in.
         size: (u32, u32),
     ) -> Self {
         // Culling is a main-pass-only decision: the shadow pass deliberately
         // stays unculled so non-closed geometry still casts from whichever
         // side faces the light.
-        let cull_mode = if config.render_back_face {
+        let cull_mode = if config.shading.render_back_face {
             None
         } else {
             Some(wgpu::Face::Back)
         };
 
-        let samples = resolve_samples(device, format, config.msaa);
-        if samples != config.msaa {
+        let samples = resolve_samples(device, format, config.shading.msaa);
+        if samples != config.shading.msaa {
             eprintln!(
                 "msaa: {}x is not supported here, using {}x",
-                config.msaa, samples
+                config.shading.msaa, samples
             );
         }
 
@@ -227,7 +227,7 @@ impl Pass {
                 depth_slice: None,
                 resolve_target,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(config.background),
+                    load: wgpu::LoadOp::Clear(config.shading.background),
                     store,
                 },
             })],
@@ -262,20 +262,20 @@ impl Pass {
         // `light_cube_scale`, so shrinking it did not help. The shadow pass
         // already skips it (`meshes[1..]`), so it never cast either; this
         // makes the main pass agree.
-        if config.debug_light_cube_show {
+        if config.light.cube_show {
             light.render(&mut render_pass, &meshes[0], bindings);
         }
 
         // Ground first, then the annotation that stands on it. Both are
         // tested against the bodies and neither writes depth, so the order
         // between them is only about which is drawn over which.
-        if config.axes == crate::app::axes::AxesStyle::Blender && config.grid {
+        if config.axes.style == crate::app::axes::AxesStyle::Blender && config.grid.enabled {
             grid.render(&mut render_pass);
         }
 
         // After the bodies and, like the light cube, without writing depth:
         // annotation is occluded by what it annotates and never the reverse.
-        if config.axes != crate::app::axes::AxesStyle::Off {
+        if config.axes.style != crate::app::axes::AxesStyle::Off {
             axes.render(&mut render_pass, bindings);
         }
 
@@ -286,7 +286,7 @@ impl Pass {
         // On top of every other overlay. It is a control, not an annotation:
         // something that can be clicked has to be the thing under the
         // pointer, so nothing may be drawn over it.
-        if config.axes.has_gizmo() {
+        if config.axes.style.has_gizmo() {
             gizmo.render(&mut render_pass);
         }
 

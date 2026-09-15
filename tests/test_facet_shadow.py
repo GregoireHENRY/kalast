@@ -156,7 +156,7 @@ def main() -> int:
     app = App()
     app.config.open_in_background = True
     c = app.simulation.config
-    c.vsync = False
+    app.config.vsync = False
     c.render_back_face = True
     c.access_shadow_map = True
     c.shadow_pcf = 0

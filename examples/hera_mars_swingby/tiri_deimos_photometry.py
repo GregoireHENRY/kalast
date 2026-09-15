@@ -95,7 +95,7 @@ OUT.mkdir(parents=True, exist_ok=True)
 app = kalast.app.App()
 app.config.width = 512
 app.config.height = 512
-app.simulation.config.access_shadow_map = True
+app.simulation.config.shadows.access_shadow_map = True
 app.simulation.config.huds = [kalast.app.Hud("")]   # filled in before_render
 app.simulation.load_mesh(path=MESH, mat=numpy.eye(4), flatten=True)
 nface = len(app.simulation.bodies[0].mesh.facets)
