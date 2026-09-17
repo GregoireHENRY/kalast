@@ -978,7 +978,8 @@ impl Controller {
     /// over a gesture means "twice as big". Mapped onto the geometric zoom
     /// exactly, so the scene comes as much closer as the fingers opened.
     /// Fed in as notches it had been a tenth of that: a whole pinch brought
-    /// the eye 11% closer, which read as a pinch that did nothing.
+    /// the eye 11% closer -- and in the editor not even that, since egui
+    /// consumed the event before it got here (see `window_event`).
     pub fn pinch(&mut self, magnification: Float) {
         self.zoom(magnification.ln_1p() / SENSITIVITY_ZOOM_WHEEL);
     }

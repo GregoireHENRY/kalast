@@ -1973,10 +1973,16 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
             //
             // So: the scene gets pointer events only while the pointer is on
             // it, and the UI gets them the rest of the time.
+            //
+            // A pinch is a pointer event too. egui claims it wherever the
+            // pointer is over any of its areas, the viewport included, so
+            // left off this list it was consumed here every time and never
+            // reached the camera -- a pinch in the editor did nothing at all.
             let pointer = matches!(
                 event,
                 winit::event::WindowEvent::MouseInput { .. }
                     | winit::event::WindowEvent::MouseWheel { .. }
+                    | winit::event::WindowEvent::PinchGesture { .. }
                     | winit::event::WindowEvent::CursorMoved { .. }
                     | winit::event::WindowEvent::CursorLeft { .. }
             );

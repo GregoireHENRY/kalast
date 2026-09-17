@@ -270,8 +270,9 @@ the cursor free. Wheel notches and `Ctrl` + swipe pixels are normalised against
 each other in `Controller::scroll` (`PIXELS_PER_NOTCH`, fifty) so one
 `sensitivity_zoom` suits both; before that a notch was multiplied by 100 and
 fed to rotation, which limited a mouse to large single-axis jumps. The pinch
-was fed in as notches until 17 September, so a whole pinch moved the eye 11%
--- it read as dead.
+did nothing in the editor until 17 September: egui consumed it before the
+camera saw it, and where it did get through (a bare window) it was fed in as
+notches, so a whole pinch moved the eye 11%.
 
 ## Mouse — WASD
 

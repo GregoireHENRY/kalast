@@ -63,13 +63,21 @@ by the window scale factor because the pixels arrive physical and a drag
 arrives in points; without that a swipe on a retina panel orbited twice as
 far as the drag beside it.
 
-**The pinch was nearly dead, and had been all along.** `PinchGesture` was
-wired to `zoom(delta)`, i.e. its magnification fed in as wheel notches. A
-notch is 12% of distance; a whole pinch sums to about `+1.0` of magnification,
-so it moved the eye 11%. `Controller::pinch` now maps `ln(1 + m)` onto the
-geometric zoom, which makes a pinch that doubles the spread halve the distance
--- exact, and unit-tested. If it feels strong, `controls.sensitivity_zoom`
-scales it along with the wheel.
+**The pinch was dead in the editor, and had been all along -- twice over.**
+First, it never arrived. The editor gives egui first refusal on every window
+event and drops what egui reports as consumed; egui-winit answers a
+`PinchGesture` with `consumed = egui_wants_pointer_input()`, which is true
+whenever the pointer is over *any* egui area, and the viewport is one. The
+wheel escapes because `MouseWheel` is on the short list of pointer events the
+editor routes by `pointer_on_scene()` instead of by `consumed`; the pinch was
+not on that list, so it was swallowed every time. It is on the list now.
+Second, where it did arrive -- a bare `app.start()` window with no editor --
+it was wired to `zoom(delta)`, its magnification fed in as wheel notches. A
+notch is 12% of distance and a whole pinch sums to about `+1.0`, so it moved
+the eye 11%. `Controller::pinch` now maps `ln(1 + m)` onto the geometric zoom,
+which makes a pinch that doubles the spread halve the distance -- exact, and
+unit-tested. If it feels strong, `controls.sensitivity_zoom` scales it along
+with the wheel.
 
 Direction: with macOS "natural" scrolling on -- the default -- a swipe's pixel
 deltas carry the same sign as a pointer drag in the same direction, so the

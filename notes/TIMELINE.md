@@ -2215,6 +2215,7 @@ files.
 Two-finger swipe orbits, `shift` pans, `ctrl` zooms, pinch zooms 1:1; a wheel
 still zooms. Wheel and trackpad are told apart the way Blender does it -- by
 notches against pixels -- in `Controller::scroll`, three unit tests on the
-routing. The pinch had been fed in as notches, so a whole pinch moved the eye
-11% and read as dead. `controls.trackpad_orbit` is the way back to zoom-on-swipe,
+routing. The pinch had never reached the camera in the editor -- egui consumed
+it, the wheel being exempt and the pinch not -- and where it did, it was fed
+in as notches, so a whole pinch moved the eye 11%. `controls.trackpad_orbit` is the way back to zoom-on-swipe,
 which is also the switch for a Magic Mouse. Note: `2026-09-17_trackpad_gestures.md`.
