@@ -2275,3 +2275,11 @@ time. Flat is the default now, and the argument is the exception --
 `smooth: bool` the same way. `flatten=` is accepted for a release, inverted,
 with a `DeprecationWarning`; `tests/test_load_mesh.py` checks all four
 spellings.
+
+## 2026-09-17 — closing over an edited script asks first
+
+The editor's window closed over an unsaved edit without a word. Now
+`CloseRequested` over a dirty buffer raises a modal -- Save and quit, Quit
+without saving, Cancel -- and the answer comes back through the same request
+plumbing as the buttons: a save that fails keeps the window. `app.close()`
+from a script is not intercepted; that is the program ending.

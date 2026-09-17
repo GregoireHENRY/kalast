@@ -67,6 +67,13 @@ Nothing happens while a script has not run — there is no iteration to take.
 thrown away by the key most often pressed to mean "stop what you are doing".
 Closing the window does it instead, or ⌘Q.
 
+**An edited script asks first.** Closing the editor's window over a script
+that has changed since it was last saved puts up *Save and quit / Quit
+without saving / Cancel*; the backdrop or `Escape` is Cancel. A save that
+fails keeps the window, since the edit it was to keep would go with it. Only
+the window's close is intercepted: `app.close()` from a script is the program
+ending, and is not asked.
+
 `App::exit` blocks on `FrameExporter::finish()` before quitting, so every
 queued frame reaches disk. Killing the process instead loses whatever is still
 in the export pipeline — a killed background thread cannot be resumed. For any

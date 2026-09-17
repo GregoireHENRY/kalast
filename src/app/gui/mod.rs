@@ -187,6 +187,14 @@ pub struct Editor {
     pub restart_request: bool,
     pub open_request: bool,
     pub save_request: bool,
+    /// The window was asked to close over an edited script. The editor puts
+    /// the question; the answer comes back as one of the two below, or as
+    /// nothing, which is Cancel.
+    pub confirm_exit: bool,
+    /// Quit without saving. Drained by the app, which owns the exit.
+    pub quit_request: bool,
+    /// Save first, then quit -- and if the save fails, stay.
+    pub exit_after_save: bool,
 
     /// Which profile the Rust buttons act on. Release by default, because a
     /// debug build of this renderer is 2-15x slower and an example run for
@@ -258,6 +266,9 @@ impl Editor {
             script_dirty: false,
             run_request: false,
             restart_request: false,
+            confirm_exit: false,
+            quit_request: false,
+            exit_after_save: false,
             open_request: false,
             save_request: false,
             rust_release: true,
@@ -372,6 +383,11 @@ impl Editor {
         // whether there is a script, the script panel needs the buffer, and
         // one cannot borrow it while the other holds it.
         let has_script = !self.script.trim().is_empty();
+        let confirm_exit = self.confirm_exit;
+        let path_label = match self.script_path.trim() {
+            "" => "The script".to_string(),
+            p => p.to_string(),
+        };
         shared.panels_shown = [show_top, show_bottom, show_left, show_right];
         shared.pointer = pointer.map(|p| (p.x, p.y));
         shared.ui_size = (screen.width(), screen.height());
@@ -386,6 +402,7 @@ impl Editor {
         let dirty = &mut self.script_dirty;
         let ran = &mut shared.script_ran;
         let (mut run_request, mut open_request, mut save_request) = (false, false, false);
+        let (mut save_and_quit, mut quit_now, mut cancel_exit) = (false, false, false);
         // A Rust example is built and launched rather than run in this
         // process, so the transport buttons do not apply to one.
         let building = self.building.load(std::sync::atomic::Ordering::SeqCst);
@@ -896,6 +913,37 @@ impl Editor {
                 out_open = open;
                 scene_panel(ui_root, &mut vp_rect, &mut wanted);
             }
+
+            // Asked once, over everything: closing the window over an edited
+            // script would throw the edit away. The backdrop or Escape is
+            // Cancel, the same as the button.
+            if confirm_exit {
+                let modal = egui::Modal::new(egui::Id::new("confirm_exit")).show(
+                    ui_root.ctx(),
+                    |ui| {
+                        ui.set_width(380.0);
+                        ui.heading("Unsaved changes");
+                        ui.label(format!(
+                            "{path_label} has been edited since it was last saved."
+                        ));
+                        ui.add_space(8.0);
+                        ui.horizontal(|ui| {
+                            if ui.button("Save and quit").clicked() {
+                                save_and_quit = true;
+                            }
+                            if ui.button("Quit without saving").clicked() {
+                                quit_now = true;
+                            }
+                            if ui.button("Cancel").clicked() {
+                                cancel_exit = true;
+                            }
+                        });
+                    },
+                );
+                if modal.should_close() {
+                    cancel_exit = true;
+                }
+            }
         });
 
         self.viewport_size = wanted;
@@ -906,6 +954,14 @@ impl Editor {
         self.docked_open = out_open;
         self.run_request |= run_request;
         self.restart_request |= restart_request;
+        if save_and_quit {
+            self.save_request = true;
+            self.exit_after_save = true;
+        }
+        self.quit_request |= quit_now;
+        if save_and_quit || quit_now || cancel_exit {
+            self.confirm_exit = false;
+        }
         self.open_request |= open_request;
         self.save_request |= save_request;
         self.build_request |= build_request;

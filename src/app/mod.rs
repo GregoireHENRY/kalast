@@ -1086,7 +1086,12 @@ impl App {
             asked_open | std::mem::take(&mut editor.open_request),
             std::mem::take(&mut editor.save_request),
         );
-        if !(run || open || save) {
+        // From the unsaved-changes dialog: quit now, or once the save below
+        // has landed. A save that fails keeps the window, since the edit it
+        // was to keep would go with it.
+        let quit = std::mem::take(&mut editor.quit_request);
+        let exit_after_save = std::mem::take(&mut editor.exit_after_save);
+        if !(run || open || save || quit) {
             return;
         }
         let path = editor.script_path.clone();
@@ -1132,6 +1137,13 @@ impl App {
                 }
                 Err(e) => messages.push(format!("cannot save {path}: {e}")),
             }
+        }
+
+        if quit || (exit_after_save && saved) {
+            // Not `exit` itself: this is inside a frame with no event loop to
+            // hand, and `about_to_wait` takes the flag at the first chance,
+            // flushing the export queue on the way out as the button does.
+            self.shared.borrow_mut().exit_requested = true;
         }
 
         if opened.is_some() || saved {
@@ -2037,7 +2049,15 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
         }
 
         match event {
-            winit::event::WindowEvent::CloseRequested => self.exit(ev),
+            winit::event::WindowEvent::CloseRequested => {
+                // Over an edited script the window asks first. The dialog
+                // is the editor's; its answer comes back as a request, and
+                // `serve_editor_requests` turns it into the exit.
+                match self.editor.as_mut() {
+                    Some(editor) if editor.script_dirty => editor.confirm_exit = true,
+                    _ => self.exit(ev),
+                }
+            }
             winit::event::WindowEvent::Resized(size) => {
                 let win = self.window.as_mut().unwrap();
                 win.resize(size.width, size.height, &sim_cfg.borrow());
