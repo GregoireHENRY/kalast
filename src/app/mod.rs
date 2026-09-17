@@ -441,8 +441,10 @@ pub(crate) fn expand_hud(
     // if that is slower -- not at the frame rate the estimator measured.
     let its = if state.is_paused {
         0.0
+    } else if state.rate_limited {
+        state.rate_limit.min(rate)
     } else {
-        state.rate.map_or(rate, |cap| cap.min(rate))
+        rate
     };
     let nit = match state.pause_at {
         Some(n) => n.to_string(),

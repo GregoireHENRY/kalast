@@ -2241,10 +2241,14 @@ bit-identical. Note: `2026-09-17_pcf_erosion.md`; test: `tests/test_pcf_filters.
 
 ## 2026-09-17 — a rate cap, to watch a mutual event
 
-`sim.state.rate` (and a `rate` slider in the Run header): a cap on iterations
-per second. The frame keeps its full rate, so the camera stays live; the
-counter and both callbacks wait, the same contract as pause, so no script
-steps an iteration twice. Asked for because the didymos example at 600 it/s
-turns a mutual event into a blink. `State::begin_frame` decides once per
-frame, `State::advance` moves the counter; measured advance to advance, so
-unpausing never waits out a period.
+`sim.state.rate_limited` / `rate_limit` (a checkbox and a slider in the Run
+header): a cap on iterations per second. The frame keeps its full rate, so
+the camera stays live; the counter and both callbacks wait, the same contract
+as pause, so no script steps an iteration twice. Asked for because the
+didymos example at 600 it/s turns a mutual event into a blink.
+`State::begin_frame` decides once per frame, `State::advance` moves the
+counter. The next iteration is scheduled one period on from when it was
+*due*, not from when it happened: measured from the last advance, a cap set
+at the run's own ~350 it/s held every frame that came a hair early and the
+run visibly slowed -- a beat between two nearly equal periods. Frames slower
+than the cap bank nothing, so nothing bursts later.

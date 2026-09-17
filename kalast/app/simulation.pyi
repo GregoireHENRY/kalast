@@ -310,12 +310,14 @@ class State:
     Also what `{nit}` reads in a HUD template, since it is the only thing that
     tells the engine how long a run is meant to be.
     """
-    rate: float | None
-    """Cap on iterations per second, or `None` to run as fast as the frame does.
+    rate_limited: bool
+    """Cap the iteration rate at `rate_limit`; off runs as fast as the frame does.
 
     The frame keeps its full rate -- the camera stays live -- while the
     counter and both callbacks wait, exactly as under pause.
     """
+    rate_limit: float
+    """Iterations per second while `rate_limited`. Kept while the cap is off."""
     def toggle_pause(self) -> bool:
         """Flip the pause state, returning the new value."""
         ...

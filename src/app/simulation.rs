@@ -430,17 +430,27 @@ pub struct State {
     /// Also what `{nit}` reads in a HUD template, since it is the only thing that
     /// tells the engine how long a run is meant to be.
     pub pause_at: Option<usize>,
-    /// Cap on iterations per second; `None` runs as fast as the frame does.
+    /// Cap the iteration rate at `rate_limit`. Off, the counter moves every frame.
     ///
     /// For watching something that otherwise flashes past -- a mutual event at
     /// 600 it/s is a blink. The frame keeps its full rate, so the camera stays
     /// live; only the counter and the callbacks wait, exactly as under pause.
-    pub rate: Option<crate::Float>,
+    pub rate_limited: bool,
+    /// Iterations per second while `rate_limited`. Kept when the cap is off, so
+    /// switching it back on returns to the same speed.
+    pub rate_limit: crate::Float,
     /// Set by `begin_frame`: this frame does not advance, because the run is
     /// paused or the cap says it is too soon. Read by `advance`.
     pub held: bool,
-    /// When the counter last advanced, which is what `rate` is measured from.
-    pub last_advance: Option<std::time::Instant>,
+    /// When the next iteration is due under the cap.
+    ///
+    /// Scheduled one period on from when it *was* due, not from when it
+    /// happened. Measured from the last advance, a cap equal to the run's own
+    /// rate held every frame that came a hair early and the run fell towards
+    /// half speed -- a beat between two nearly equal periods. Scheduling
+    /// forward, a late advance does not push the next one later, so the
+    /// average is the cap exactly while frames are faster than it.
+    pub due: Option<std::time::Instant>,
 }
 
 impl State {
@@ -449,30 +459,37 @@ impl State {
             iteration: 0,
             is_paused: false,
             pause_at: None,
-            rate: None,
+            rate_limited: false,
+            rate_limit: 10.0,
             held: false,
-            last_advance: None,
+            due: None,
         }
     }
 
     /// One frame's decision: does the simulation advance this frame?
     ///
-    /// `false` while paused, and `false` while `rate` says the last advance
-    /// was too recent. The frame draws either way, so the window stays live;
-    /// but the callbacks are skipped and `advance` does nothing, the same
-    /// contract as pause, so a physics script never steps one iteration
-    /// twice. A frame that advances stamps `now`, so the cap is measured from
-    /// advance to advance and unpausing never waits out a period.
+    /// `false` while paused, and `false` while the cap says the next
+    /// iteration is not yet due. The frame draws either way, so the window
+    /// stays live; but the callbacks are skipped and `advance` does nothing,
+    /// the same contract as pause, so a physics script never steps one
+    /// iteration twice.
     pub fn begin_frame(&mut self, now: std::time::Instant) -> bool {
-        let too_soon = match (self.rate, self.last_advance) {
-            (Some(rate), Some(last)) if rate > 0.0 => {
-                now.duration_since(last).as_secs_f64() < 1.0 / rate as f64
-            }
-            _ => false,
-        };
-        self.held = self.is_paused || too_soon;
+        if !self.rate_limited || !(self.rate_limit > 0.0) {
+            // Forgotten while off, so switching the cap on starts at once.
+            self.due = None;
+            self.held = self.is_paused;
+            return !self.held;
+        }
+        let period = std::time::Duration::from_secs_f64(1.0 / self.rate_limit as f64);
+        self.held = self.is_paused || self.due.is_some_and(|due| now < due);
         if !self.held {
-            self.last_advance = Some(now);
+            // One period on from when it was due, so lateness does not
+            // accumulate into a slower rate -- but never behind `now`, so
+            // frames slower than the cap (or a pause) cannot bank a burst.
+            self.due = Some(match self.due {
+                Some(due) if due + period > now => due + period,
+                _ => now + period,
+            });
         }
         !self.held
     }
@@ -510,14 +527,14 @@ impl State {
 mod pause_tests {
     use super::*;
 
-    /// `rate` caps iterations per second by holding frames the way pause
-    /// does: the counter waits, the frame still draws. Measured from advance
-    /// to advance, so unpausing never waits out a period.
+    /// The cap holds frames the way pause does: the counter waits, the frame
+    /// still draws. Unpausing never waits out a period.
     #[test]
-    fn rate_holds_the_counter_until_the_period_has_passed() {
+    fn rate_limit_holds_the_counter_until_the_next_iteration_is_due() {
         use std::time::{Duration, Instant};
         let mut s = State::new();
-        s.rate = Some(1.0);
+        s.rate_limited = true;
+        s.rate_limit = 1.0;
         let t0 = Instant::now();
 
         assert!(s.begin_frame(t0), "the first frame under a cap advances");
@@ -532,16 +549,53 @@ mod pause_tests {
         s.advance();
         assert_eq!(s.iteration, 2);
 
-        s.rate = None;
+        s.rate_limited = false;
         assert!(s.begin_frame(t0 + Duration::from_millis(1501)), "no cap, every frame");
         s.advance();
         assert_eq!(s.iteration, 3);
 
-        s.rate = Some(1.0);
+        s.rate_limited = true;
         s.is_paused = true;
         assert!(!s.begin_frame(t0 + Duration::from_secs(10)), "pause wins");
         s.is_paused = false;
         assert!(s.begin_frame(t0 + Duration::from_secs(10)), "unpausing advances at once");
+    }
+
+    /// A cap equal to the run's own rate must not slow it. Measured from the
+    /// last advance it did: frames a hair early were held, and the run fell
+    /// towards half speed. Scheduled forward, the average is the cap; and
+    /// frames slower than the cap cannot bank a burst for later.
+    #[test]
+    fn rate_limit_at_the_natural_rate_costs_nothing_and_banks_nothing() {
+        use std::time::{Duration, Instant};
+        let mut s = State::new();
+        s.rate_limited = true;
+        s.rate_limit = 100.0; // 10 ms
+        let t0 = Instant::now();
+
+        // Frames every 9.9 ms: a hair faster than the cap.
+        let mut advanced = 0;
+        for k in 0..101 {
+            if s.begin_frame(t0 + Duration::from_micros(9_900 * k)) {
+                advanced += 1;
+            }
+        }
+        assert!(advanced >= 98, "a beat against the cap: {advanced} of 101 frames advanced");
+
+        // Frames every 20 ms: slower than the cap, every one advances.
+        let t1 = t0 + Duration::from_secs(2);
+        let slow = (0..50)
+            .filter(|k| s.begin_frame(t1 + Duration::from_millis(20 * k)))
+            .count();
+        assert_eq!(slow, 50, "slower than the cap, every frame is due");
+
+        // Then a burst of 1 ms frames: the slow stretch banked nothing, so
+        // 50 ms holds about five iterations, not fifty.
+        let t2 = t1 + Duration::from_millis(20 * 50);
+        let burst = (0..50)
+            .filter(|k| s.begin_frame(t2 + Duration::from_millis(*k)))
+            .count();
+        assert!(burst <= 7, "banked iterations released in a burst: {burst} in 50 ms");
     }
 
     /// `pause_at` used to be set and never acted on, which made Step behave

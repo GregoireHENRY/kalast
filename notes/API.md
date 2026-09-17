@@ -114,7 +114,7 @@ Both see the same `state.iteration`: the counter advances only once both have
 run, so a loop deriving an epoch from it cannot see two different times within
 one frame.
 
-**Neither runs while paused** (`P`), nor on a frame `state.rate` holds, so a script needs no `is_paused` check of
+**Neither runs while paused** (`P`), nor on a frame `state.rate_limited` holds, so a script needs no `is_paused` check of
 its own — it simply is not called. Heavy CPU work in either blocks the render
 loop.
 
@@ -505,7 +505,7 @@ nothing existing changes. Pick one per script; there is no reason to mix.
   window has to stay responsive to the key that unpauses it — but
   `state.iteration` does not advance and the callbacks do not run. A driven
   loop that should also idle when paused must check `sim.state.is_paused`
-  itself. A frame held by `state.rate` is the same: the loop body runs, the
+  itself. A frame held by `state.rate_limited` is the same: the loop body runs, the
   counter has not moved, and it re-renders the same epoch -- harmless, since
   everything it sets is a function of `state.iteration`.
 - **Not usable after `start()`.** A platform event loop cannot be created
@@ -553,7 +553,8 @@ the callback returns.
 | `iteration` | frames advanced so far; readable and writable |
 | `is_paused` | `P` toggles it; readable and writable |
 | `pause_at` | `int` or `None` — stop at this iteration |
-| `rate` | `float` (it/s) or `None` — cap the iteration rate; frames still draw at full rate, the counter and both callbacks wait, as under pause. The Run header's `rate` slider sets the same field |
+| `rate_limited` | `bool` — cap the iteration rate at `rate_limit`; frames still draw at full rate, the counter and both callbacks wait, as under pause. The Run header's checkbox |
+| `rate_limit` | `float`, iterations per second while `rate_limited`; kept while the cap is off. The Run header's slider |
 | `toggle_pause()` | flips `is_paused`, returns the new value |
 
 `pause_at` is also what `{nit}` reads in a HUD template, since it is the only
