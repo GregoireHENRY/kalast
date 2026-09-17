@@ -675,10 +675,11 @@ fn selection_ui(ui: &mut egui::Ui, sim: &mut Simulation, color: crate::Vec3) {
 }
 
 /// A collapsing section, opened by default or not.
-fn group(ui: &mut egui::Ui, title: &str, open: bool, add: impl FnOnce(&mut egui::Ui)) {
-    egui::CollapsingHeader::new(title)
-        .default_open(open)
-        .show(ui, add);
+/// A topic header, folded. Every section starts closed so the panel opens as
+/// a table of contents rather than a wall -- Run, Bodies, Selection and HUD
+/// used to start open and pushed everything else below the fold.
+fn group(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui)) {
+    egui::CollapsingHeader::new(title).show(ui, add);
 }
 
 /// The right-hand panel: everything about the scene, by topic.
@@ -709,7 +710,7 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config, a: &mut AppCon
     let sel = c.selection.color;
     let selection_color = crate::Vec3::new(sel.r as Float, sel.g as Float, sel.b as Float);
 
-    group(ui, "Run", true, |ui| {
+    group(ui, "Run", |ui| {
         // Named as the field is, because that is what a script writes --
         // and it is one ahead of the toolbar's counter on purpose: the
         // toolbar says which frame you are looking at, this says how many
@@ -731,45 +732,45 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config, a: &mut AppCon
         });
     });
 
-    group(ui, "Bodies", true, |ui| bodies_ui(ui, sim));
+    group(ui, "Bodies", |ui| bodies_ui(ui, sim));
 
     // Named for the anchor-body picker below, and collected first because
     // that reads `bodies` while the picker holds `camera` mutably.
     let names: Vec<String> = sim.bodies.iter().map(body_name).collect();
 
-    group(ui, "Selection", true, |ui| {
+    group(ui, "Selection", |ui| {
         selection_ui(ui, sim, selection_color);
         sub(ui, "settings");
         group_selection(ui, c);
     });
 
-    group(ui, "Camera", false, |ui| eye_ui(ui, &mut sim.camera, &names, false));
+    group(ui, "Camera", |ui| eye_ui(ui, &mut sim.camera, &names, false));
 
     // Where it is, then what it does as a light. One header, because that is
     // one thing.
-    group(ui, "Sun", false, |ui| {
+    group(ui, "Sun", |ui| {
         eye_ui(ui, &mut sim.sun, &names, true);
         sub(ui, "light");
         group_light(ui, c);
     });
 
-    group(ui, "Shading", false, |ui| group_shading(ui, c));
-    group(ui, "Shadows", false, |ui| group_shadows(ui, c));
-    group(ui, "Wireframe", false, |ui| group_wireframe(ui, c));
+    group(ui, "Shading", |ui| group_shading(ui, c));
+    group(ui, "Shadows", |ui| group_shadows(ui, c));
+    group(ui, "Wireframe", |ui| group_wireframe(ui, c));
 
-    group(ui, "Data colouring", false, |ui| {
+    group(ui, "Data colouring", |ui| {
         group_data(ui, c);
         sub(ui, "colour bar");
         group_colorbar(ui, c);
     });
 
-    group(ui, "Axes & grid", false, |ui| {
+    group(ui, "Axes & grid", |ui| {
         group_axes(ui, c);
         sub(ui, "grid");
         group_grid(ui, c);
     });
 
-    group(ui, "HUD", true, |ui| {
+    group(ui, "HUD", |ui| {
         huds_ui(ui, sim);
         sub(ui, "settings");
         group_hud(ui, c);
@@ -778,15 +779,15 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config, a: &mut AppCon
     // The OS window, then the image drawn into it: two sizes since the editor
     // made them two different things, so the second is namespaced -- its
     // `width` and `height` widgets would otherwise share ids with the first.
-    group(ui, "Window", false, |ui| {
+    group(ui, "Window", |ui| {
         group_app(ui, a);
         sub(ui, "image  (0 = follow the window)");
         ui.push_id("image", |ui| group_image(ui, c));
     });
 
-    group(ui, "Controls", false, |ui| group_controls(ui, c));
+    group(ui, "Controls", |ui| group_controls(ui, c));
 
-    group(ui, "Export", false, |ui| {
+    group(ui, "Export", |ui| {
         ui.checkbox(&mut sim.export, "export")
             .on_hover_text("Write every frame from now on");
         if ui
@@ -803,7 +804,7 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config, a: &mut AppCon
     // What the last frame could actually see, then the switches. The renderer
     // writes the diagnostics after fitting the frustums, and they are the
     // quickest answer to "why is my body not on screen".
-    group(ui, "Debug", false, |ui| {
+    group(ui, "Debug", |ui| {
         let d = &sim.diagnostics;
         row(ui, "bodies", format!("{} of {} visible", d.n_visible, d.n_bodies));
         row(ui, "clipped near", d.out_near.to_string());
