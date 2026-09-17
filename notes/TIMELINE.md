@@ -2209,3 +2209,12 @@ were two of each. The panel generator emits one function per group and the
 
 Three generators, three guard tests, all current. 92 Rust tests, 14 Python
 files.
+
+## 2026-09-17 — trackpad gestures, Blender's map
+
+Two-finger swipe orbits, `shift` pans, `ctrl` zooms, pinch zooms 1:1; a wheel
+still zooms. Wheel and trackpad are told apart the way Blender does it -- by
+notches against pixels -- in `Controller::scroll`, three unit tests on the
+routing. The pinch had been fed in as notches, so a whole pinch moved the eye
+11% and read as dead. `controls.trackpad_orbit` is the way back to zoom-on-swipe,
+which is also the switch for a Magic Mouse. Note: `2026-09-17_trackpad_gestures.md`.

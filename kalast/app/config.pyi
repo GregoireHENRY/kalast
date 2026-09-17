@@ -732,6 +732,14 @@ class ControlsConfig:
     because a trackpad has no middle button, which once made the arcball
     completely unusable there.
     """
+    trackpad_orbit: bool
+    """Two-finger swipe on a trackpad orbits, `shift` pans and `ctrl` zooms; off, it zooms like a wheel.
+
+    Blender's default trackpad map. A trackpad is told from a wheel by
+    what it reports -- pixels against notches -- which is how Blender
+    tells them apart too, so a Magic Mouse counts as a trackpad here as
+    it does there; this is the switch for it. A pinch zooms either way.
+    """
 
 class ImageConfig:
     """The size of the image being rendered, as distinct from the window.

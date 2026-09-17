@@ -858,6 +858,7 @@ impl App {
             self.controller.sensitivity_rotate = c.controls.sensitivity_rotate;
             self.controller.sensitivity_zoom = c.controls.sensitivity_zoom;
             self.controller.emulate_middle_button = c.controls.emulate_middle_button;
+            self.controller.trackpad_orbit = c.controls.trackpad_orbit;
         }
 
         // Cloned so the config is not borrowed while `self.window` is held
@@ -1676,6 +1677,7 @@ impl App {
         self.controller.sensitivity_rotate = c.controls.sensitivity_rotate;
         self.controller.sensitivity_zoom = c.controls.sensitivity_zoom;
         self.controller.emulate_middle_button = c.controls.emulate_middle_button;
+        self.controller.trackpad_orbit = c.controls.trackpad_orbit;
     }
 
     /// Runs before each frame is drawn. Named for when it runs, to pair with
@@ -2451,7 +2453,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
 
             winit::event::WindowEvent::PinchGesture { delta, .. } => {
                 if self.simulation.borrow().camera.control == frame::Control::Arcball {
-                    self.controller.zoom(delta as Float);
+                    self.controller.pinch(delta as Float);
                 }
             }
 
@@ -2506,6 +2508,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
             winit::event::WindowEvent::ModifiersChanged(modifiers) => {
                 self.controller.shift_pressed = modifiers.state().shift_key();
                 self.controller.alt_pressed = modifiers.state().alt_key();
+                self.controller.ctrl_pressed = modifiers.state().control_key();
             }
 
             _ => {}
@@ -2554,21 +2557,13 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
             }
 
             winit::event::DeviceEvent::MouseWheel { delta } => {
-                // A wheel reports discrete notches, a trackpad reports
-                // pixels. Normalising them here is what lets one sensitivity
-                // constant feel right on both -- previously a notch was
-                // multiplied by 100 and fed to rotation, so a mouse could
-                // only spin the camera in huge single-axis jumps.
-                let notches = match delta {
-                    winit::event::MouseScrollDelta::LineDelta(_, dy) => dy as Float,
-                    winit::event::MouseScrollDelta::PixelDelta(winit::dpi::PhysicalPosition {
-                        y,
-                        ..
-                    }) => y as Float / 50.0,
-                };
-
+                // Wheel or trackpad is decided in `Controller::scroll`, from
+                // the kind of delta. The scale factor is the window's: a
+                // trackpad reports physical pixels and a drag reports points,
+                // and a swipe should orbit as far as a drag of its length.
                 if self.simulation.borrow().camera.control == frame::Control::Arcball {
-                    self.controller.zoom(notches);
+                    let scale = self.window.as_ref().map_or(1.0, |w| w.window.scale_factor());
+                    self.controller.scroll(delta, scale as Float);
                 }
             }
             _ => {}

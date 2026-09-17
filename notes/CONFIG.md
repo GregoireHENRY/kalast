@@ -880,7 +880,10 @@ Bindings in the default Arcball mode:
 | Alt + left-drag | orbit (when `controls.emulate_middle_button`) |
 | Shift + middle-drag | pan |
 | Shift + alt + left-drag | pan (when `controls.emulate_middle_button`) |
-| Wheel / two-finger scroll | zoom |
+| Wheel | zoom |
+| Two-finger swipe | orbit (trackpad; `controls.trackpad_orbit`) |
+| Shift + two-finger swipe | pan (trackpad) |
+| Ctrl + two-finger swipe | zoom (trackpad) |
 | Pinch gesture | zoom (trackpad) |
 | `T` | toggle Arcball / WASD |
 
@@ -888,10 +891,9 @@ WASD mode grabs the cursor and uses `W A S D` + `Space` / `LeftShift` to fly.
 
 All four sensitivities scale a corresponding built-in constant, so `1.0` means
 "the default feel" and `2.0` means "twice as fast". Copied onto the controller
-**once**, by `apply_config_at_start` (`src/app/mod.rs:66-70`); the controller
-is then applied each frame via `sim.camera.update_with_controller`
-(`src/app/mod.rs:184`) using the arithmetic in `src/app/frame.rs`. Changing
-them after `start()` does nothing.
+at the top of every frame by `apply_live_config`, so a change from a script or
+the panel takes effect on the next frame; the controller is then applied via
+`sim.camera.update_with_controller` using the arithmetic in `src/app/frame.rs`.
 
 Pointer-driven terms are deliberately **not** scaled by frame time -- a mouse
 delta is a displacement, not a rate. `controls.sensitivity_move` doubles as the pan
@@ -904,8 +906,16 @@ hardware with no middle button -- a trackpad. Blender calls the same setting
 carries over. The real middle button keeps working either way; turning this
 off only makes alt + left inert.
 Accepted: `True` / `False`.
-Copied onto the controller once by `apply_config_at_start`, like the
-`sensitivity_*` values, so set it before `app.start()`.
+Copied onto the controller every frame, like the `sensitivity_*` values.
+
+### `controls.trackpad_orbit: bool` — default `true` *(live)*
+Two-finger swipe on a trackpad orbits, `shift` + swipe pans and `ctrl` + swipe
+zooms -- Blender's default trackpad map -- while a wheel zooms as before. Off,
+the trackpad zooms on every swipe, the behaviour before 17 September.
+Trackpad and wheel are told apart by what the event reports, pixels against
+notches, the way Blender does it; so a Magic Mouse counts as a trackpad here
+too, and this is the switch for it. A pinch zooms either way.
+Accepted: `True` / `False`.
 
 ### `controls.sensitivity_move: Float` — default `1.0` *(live)*
 Translation speed. `src/app/frame.rs:197`.

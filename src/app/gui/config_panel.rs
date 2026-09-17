@@ -298,6 +298,7 @@ pub fn group_controls(ui: &mut egui::Ui, c: &mut Config) {
     ui.add(egui::Slider::new(&mut c.controls.sensitivity_rotate, 0.1..=5.0).text("sensitivity_rotate")).on_hover_text("Multiplier for arcball orbit speed.");
     ui.add(egui::Slider::new(&mut c.controls.sensitivity_zoom, 0.1..=5.0).text("sensitivity_zoom")).on_hover_text("Multiplier for scroll and pinch zoom speed.");
     ui.checkbox(&mut c.controls.emulate_middle_button, "emulate_middle_button").on_hover_text("Treat alt + left-drag as a middle-drag, so the arcball can be orbited on hardware with no middle button. Blender calls the same setting \"Emulate 3 Button Mouse\". Defaults on for macOS, where a trackpad is the common case, and off elsewhere. Let `Option`/`Alt` + left-drag stand in for a middle-drag.");
+    ui.checkbox(&mut c.controls.trackpad_orbit, "trackpad_orbit").on_hover_text("Two-finger swipe on a trackpad orbits, `shift` pans and `ctrl` zooms; off, it zooms like a wheel.");
 }
 
 /// `config.image` -- Image.

@@ -16,6 +16,9 @@ pub const SENSITIVITY_ORBIT: Float = 0.008;
 pub const SENSITIVITY_ZOOM_WHEEL: Float = 0.12;
 // Fraction of the anchor distance per pixel of pan.
 pub const SENSITIVITY_PAN: Float = 0.0015;
+/// A trackpad zooming as a wheel: this many physical pixels of swipe make one
+/// notch. Normalising them is what lets one `sensitivity_zoom` suit both.
+pub const PIXELS_PER_NOTCH: Float = 50.0;
 
 /// Reversed-Z perspective: the near plane maps to 1.0, the far plane to 0.0.
 ///
@@ -824,6 +827,7 @@ pub struct Controller {
     pub shift_pressed: bool,
     pub left_pressed: bool,
     pub alt_pressed: bool,
+    pub ctrl_pressed: bool,
 
     /// A left-drag that began on the navigation gizmo, which orbits wherever
     /// the pointer then goes. Blender's gizmo behaves the same way, and the
@@ -834,6 +838,10 @@ pub struct Controller {
     /// Treat alt + left-drag as a middle-drag, for hardware with no middle
     /// button -- a trackpad. Blender calls this "Emulate 3 Button Mouse".
     pub emulate_middle_button: bool,
+
+    /// Two-finger swipe orbits (`shift` pans, `ctrl` zooms) instead of
+    /// zooming -- Blender's trackpad map. See `scroll`.
+    pub trackpad_orbit: bool,
 
     pub sensitivity_move: Float,
     pub sensitivity_look: Float,
@@ -864,8 +872,10 @@ impl Controller {
             shift_pressed: false,
             left_pressed: false,
             alt_pressed: false,
+            ctrl_pressed: false,
             gizmo_pressed: false,
             emulate_middle_button: cfg!(target_os = "macos"),
+            trackpad_orbit: true,
             sensitivity_move,
             sensitivity_look,
             sensitivity_rotate,
@@ -935,6 +945,42 @@ impl Controller {
         } else {
             self.mouse_motion(dx, dy);
         }
+    }
+
+    /// Routes a scroll. Which device sent it is read from the *kind* of
+    /// delta -- a wheel reports notches, a trackpad reports pixels (macOS
+    /// flags them `hasPreciseScrollingDeltas`; winit keeps the distinction
+    /// as `LineDelta` against `PixelDelta`) -- which is the same test
+    /// Blender makes before mapping the two differently. The map is
+    /// Blender's default: a wheel zooms; two fingers orbit, `shift` pans,
+    /// `ctrl` zooms. `trackpad_orbit` off makes the trackpad zoom like a
+    /// wheel again, which is also the way out for a Magic Mouse, whose
+    /// surface reports pixels too.
+    ///
+    /// Pixels arrive physical and pointer motion arrives in points, so the
+    /// swipe is divided by `scale_factor` to orbit exactly as far as a drag
+    /// of the same length on the same screen. Zooming keeps the raw pixel
+    /// count, as it always did.
+    pub fn scroll(&mut self, delta: winit::event::MouseScrollDelta, scale_factor: Float) {
+        match delta {
+            winit::event::MouseScrollDelta::LineDelta(_, notches) => self.zoom(notches as Float),
+            winit::event::MouseScrollDelta::PixelDelta(px) => {
+                if self.trackpad_orbit && !self.ctrl_pressed {
+                    self.drag(px.x as Float / scale_factor, px.y as Float / scale_factor);
+                } else {
+                    self.zoom(px.y as Float / PIXELS_PER_NOTCH);
+                }
+            }
+        }
+    }
+
+    /// A pinch, from the magnification the OS reports -- summing to `+1.0`
+    /// over a gesture means "twice as big". Mapped onto the geometric zoom
+    /// exactly, so the scene comes as much closer as the fingers opened.
+    /// Fed in as notches it had been a tenth of that: a whole pinch brought
+    /// the eye 11% closer, which read as a pinch that did nothing.
+    pub fn pinch(&mut self, magnification: Float) {
+        self.zoom(magnification.ln_1p() / SENSITIVITY_ZOOM_WHEEL);
     }
 }
 
@@ -1329,6 +1375,64 @@ mod tests {
         ctrl.emulate_middle_button = true;
         ctrl.middle_pressed = true;
         assert!(ctrl.is_dragging());
+    }
+
+    /// A wheel and a trackpad are told apart by what they report -- notches
+    /// against pixels -- and get Blender's map: the wheel zooms, two fingers
+    /// orbit, `shift` pans, `ctrl` zooms.
+    #[test]
+    fn wheel_zooms_and_a_trackpad_swipe_orbits() {
+        use winit::dpi::PhysicalPosition;
+        use winit::event::MouseScrollDelta::{LineDelta, PixelDelta};
+
+        let mut ctrl = controller();
+        ctrl.scroll(LineDelta(0.0, 1.0), 2.0);
+        assert_eq!((ctrl.zoom, ctrl.horizontal, ctrl.vertical), (1.0, 0.0, 0.0), "a notch zooms");
+
+        let mut ctrl = controller();
+        ctrl.scroll(PixelDelta(PhysicalPosition::new(20.0, -8.0)), 2.0);
+        assert_eq!(ctrl.zoom, 0.0, "a swipe must not zoom");
+        // Physical pixels on a 2x screen: the orbit of a 10 x -4 point drag.
+        assert_eq!((ctrl.horizontal, ctrl.vertical), (10.0, -4.0));
+
+        let mut ctrl = controller();
+        ctrl.shift_pressed = true;
+        ctrl.scroll(PixelDelta(PhysicalPosition::new(20.0, -8.0)), 2.0);
+        assert_eq!((ctrl.horizontal, ctrl.vertical), (0.0, 0.0), "shift + swipe must not orbit");
+        assert_eq!((ctrl.pan_horizontal, ctrl.pan_vertical), (10.0, -4.0));
+
+        let mut ctrl = controller();
+        ctrl.ctrl_pressed = true;
+        ctrl.scroll(PixelDelta(PhysicalPosition::new(20.0, -50.0)), 2.0);
+        assert_eq!((ctrl.horizontal, ctrl.vertical), (0.0, 0.0), "ctrl + swipe must not orbit");
+        assert_eq!(ctrl.zoom, -1.0, "ctrl + swipe zooms at the pixel rate, unscaled");
+    }
+
+    /// `trackpad_orbit` off is the old behaviour, and the way out for a
+    /// Magic Mouse, whose surface reports pixels like a trackpad.
+    #[test]
+    fn trackpad_orbit_off_zooms_like_a_wheel() {
+        use winit::dpi::PhysicalPosition;
+        use winit::event::MouseScrollDelta::PixelDelta;
+
+        let mut ctrl = controller();
+        ctrl.trackpad_orbit = false;
+        ctrl.scroll(PixelDelta(PhysicalPosition::new(20.0, 50.0)), 2.0);
+        assert_eq!((ctrl.horizontal, ctrl.vertical), (0.0, 0.0));
+        assert_eq!(ctrl.zoom, 1.0);
+    }
+
+    /// A pinch that doubles -- magnification summing to one -- halves the
+    /// distance to the anchor, exactly. As notches it had been a tenth of
+    /// that.
+    #[test]
+    fn pinch_open_to_double_halves_the_distance() {
+        let mut eye = eye_at_distance(10.0);
+        let mut ctrl = controller();
+        ctrl.pinch(1.0);
+        eye.arcball_update(&mut ctrl);
+        let d = eye.distance_anchor();
+        assert!((d - 5.0).abs() < 1e-4, "distance after a doubling pinch: {d}");
     }
 
     /// A script assigning `up` parallel to `dir` used to make `fix_up`

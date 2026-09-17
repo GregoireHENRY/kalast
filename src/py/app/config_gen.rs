@@ -872,6 +872,16 @@ impl ControlsConfig {
     fn emulate_middle_button(&self) -> bool { self.config.borrow().controls.emulate_middle_button }
     #[setter]
     fn set_emulate_middle_button(&mut self, v: bool) { self.config.borrow_mut().controls.emulate_middle_button = v; }
+    /// Two-finger swipe on a trackpad orbits, `shift` pans and `ctrl` zooms; off, it zooms like a wheel.
+    ///
+    /// Blender's default trackpad map. A trackpad is told from a wheel by
+    /// what it reports -- pixels against notches -- which is how Blender
+    /// tells them apart too, so a Magic Mouse counts as a trackpad here as
+    /// it does there; this is the switch for it. A pinch zooms either way.
+    #[getter]
+    fn trackpad_orbit(&self) -> bool { self.config.borrow().controls.trackpad_orbit }
+    #[setter]
+    fn set_trackpad_orbit(&mut self, v: bool) { self.config.borrow_mut().controls.trackpad_orbit = v; }
     fn __repr__(&self) -> String {
         format!("{:?}", self.config.borrow().controls)
     }

@@ -1016,6 +1016,13 @@ pub struct Controls {
     /// because a trackpad has no middle button, which once made the arcball
     /// completely unusable there.
     pub emulate_middle_button: bool,
+    /// Two-finger swipe on a trackpad orbits, `shift` pans and `ctrl` zooms; off, it zooms like a wheel.
+    ///
+    /// Blender's default trackpad map. A trackpad is told from a wheel by
+    /// what it reports -- pixels against notches -- which is how Blender
+    /// tells them apart too, so a Magic Mouse counts as a trackpad here as
+    /// it does there; this is the switch for it. A pinch zooms either way.
+    pub trackpad_orbit: bool,
 }
 
 impl Default for Controls {
@@ -1026,6 +1033,7 @@ impl Default for Controls {
             sensitivity_rotate: 1.0,
             sensitivity_zoom: 1.0,
             emulate_middle_button: cfg!(target_os = "macos"),
+            trackpad_orbit: true,
         }
     }
 }

@@ -22,7 +22,8 @@ Handled in `src/app/mod.rs` (`window_event` / `device_event`) and
 | `Space` | WASD | Move up |
 | `Left Shift` | WASD | Move down |
 | `Option` / `Alt` | Arcball | Held with a left-drag, stands in for the middle button — see below |
-| `Left Shift` | Arcball | Held during a drag, pans instead of orbiting — see below |
+| `Left Shift` | Arcball | Held during a drag or a two-finger swipe, pans instead of orbiting — see below |
+| `Ctrl` | Arcball | Held during a two-finger swipe, zooms instead of orbiting — see below |
 
 **The editor's Restart has no key, deliberately.** It clears the scene and
 runs the script again, so a keystroke would throw away a long run; it is worth
@@ -116,11 +117,12 @@ re-centres it.
 Effective in WASD mode only. `Left Shift` specifically — `ShiftRight` is not
 bound.
 
-### `Left Shift` and `Option` — drag modifiers
+### `Left Shift`, `Option` and `Ctrl` — drag modifiers
 
-Both are modifiers rather than actions: they change what a pointer drag does in
-Arcball mode. `Left Shift` turns an orbit into a pan; `Option` makes a left
-drag act as a middle drag. See the next section.
+All three are modifiers rather than actions: they change what a pointer
+gesture does in Arcball mode. `Left Shift` turns an orbit into a pan, drag or
+swipe alike; `Option` makes a left drag act as a middle drag; `Ctrl` makes a
+two-finger swipe zoom. See "Mouse and trackpad" below.
 
 ## The navigation gizmo
 
@@ -132,7 +134,7 @@ Shown by `config.axes.style = "gizmo"` and `"blender"`, in the corner
 |---|---|
 | Click a ball | Look straight down that axis, orthographically |
 | Turn away from that view | Puts the projection back to what it was |
-| Scroll in an axis view | Zooms — by the *extent*, since distance means nothing to a parallel projection |
+| Zoom in an axis view (wheel, pinch, `Ctrl` + swipe) | Zooms — by the *extent*, since distance means nothing to a parallel projection |
 | Left-drag anywhere on the widget | Orbit — no middle button, no `Option` |
 | Hover a ball | Lightens it; a ring fills in, to show it can be clicked |
 
@@ -234,10 +236,27 @@ per-facet work wants anyway.
 
 | Gesture | Does |
 |---|---|
+| Two-finger swipe | Orbit |
+| `Shift` + two-finger swipe | Pan |
+| `Ctrl` + two-finger swipe | Zoom |
+| Pinch | Zoom — 1:1, fingers opening to twice the spread bring the scene twice as close |
 | `Option` + click-drag | Orbit (`Option` is `Alt`; on a Mac keyboard the key is labelled ⌥) |
 | `Shift` + `Option` + click-drag | Pan |
-| Two-finger scroll | Zoom |
-| Pinch | Zoom |
+
+This is Blender's default trackpad map, and the trackpad is told from a wheel
+the way Blender tells it: by what the event reports. A wheel reports notches,
+a trackpad reports pixels (`hasPreciseScrollingDeltas` on macOS, which winit
+keeps as `LineDelta` against `PixelDelta`), and `Controller::scroll` routes on
+that alone. So a Magic Mouse counts as a trackpad, as it does in Blender;
+`config.controls.trackpad_orbit = False` makes any pixel-reporting surface
+zoom like a wheel again, the behaviour before 17 September.
+
+A swipe orbits as far as a drag of the same length: the pixels arrive
+physical and a drag arrives in points, so the swipe is divided by the window's
+scale factor. macOS keeps sending scroll events after the fingers lift
+(momentum), and winit does not mark them, so a flick keeps orbiting a little
+-- Blender does the same. With "natural" scrolling off in System Settings the
+swipe runs the other way; there is no switch for that yet.
 
 The `Option` substitution is gated on `config.controls.emulate_middle_button`, which
 defaults to `true` on macOS and `false` elsewhere, and matches Blender's
@@ -246,12 +265,13 @@ Linux or Windows. It exists because a trackpad has no middle button, which had
 made the arcball unusable on macOS; covered by the regression test
 `alt_left_drag_substitutes_for_the_middle_button`.
 
-The arcball reacts only during a drag, leaving the cursor free otherwise. Both
-zoom gestures go through the same path: a wheel reports discrete notches and a
-trackpad reports pixels, and they are normalised against each other
-(`src/app/mod.rs:448-454`) so one sensitivity constant suits both. Before that
-a notch was multiplied by 100 and fed to rotation, which limited a mouse to
-large single-axis jumps.
+The arcball reacts to a drag, a swipe and a zoom, and to nothing else, leaving
+the cursor free. Wheel notches and `Ctrl` + swipe pixels are normalised against
+each other in `Controller::scroll` (`PIXELS_PER_NOTCH`, fifty) so one
+`sensitivity_zoom` suits both; before that a notch was multiplied by 100 and
+fed to rotation, which limited a mouse to large single-axis jumps. The pinch
+was fed in as notches until 17 September, so a whole pinch moved the eye 11%
+-- it read as dead.
 
 ## Mouse — WASD
 
