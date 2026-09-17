@@ -679,6 +679,15 @@ each layer aims itself from `sun.pos` at the body it covers, so `sun.pos`
 alone determines the lighting. Older scripts calling `sun.look_anchor()` still
 run; the call simply has no effect.
 
+**`sun.pos` can be the real thing.** Put the Sun at its true distance --
+`p_sun` from SPICE, 1.5e8 km -- and the lighting and shadows are the same as
+with a Sun brought in close. Only its direction is used: each shadow layer's
+eye sits just outside the scene on the line from the Sun, because a matrix
+carrying a 1.5e8 km translation, applied by the GPU in f32, has a precision of
+about 9 km and turned a 2 km scene into one black quantum. Until 17 September
+the Hera examples worked around that with `p_sun / AU_KM * 500.0`; they no
+longer need to.
+
 Use `set_control_none()` for a scripted render whose camera is placed from
 SPICE, so a stray drag cannot move an instrument pointing. Note `T` still
 switches out of it — see `CONTROLS.md`.

@@ -54,6 +54,9 @@ pub fn light_view_proj(
 /// could clear.
 pub struct LightFit {
     pub view_proj: Mat4,
+    /// The view the extents were measured in, eye included -- what a test
+    /// needs to check the depth slab against.
+    pub view: Mat4,
     /// Half-extent of the orthographic box, world units.
     pub side: Float,
     pub near: Float,
@@ -80,7 +83,23 @@ pub fn fit_light_view_proj(
     } else {
         up_world
     };
-    let view = Mat4::look_to_rh(sun_pos, dir, up);
+
+    // The eye sits just outside the scene on the line from the Sun, not at
+    // the Sun. The projection is orthographic, so only the direction
+    // matters -- and an eye at the Sun's true distance, 1.5e8 km, puts a
+    // translation of that size into a matrix the GPU applies in f32, whose
+    // precision there is about 9 km. A 2 km scene collapsed into one
+    // quantum: the fitted extent and every shadow depth were noise, and
+    // Didymos rendered black until `sun.pos` was moved in to 500 km by
+    // hand. Two reaches back keeps every scene corner in front of the eye.
+    let reach = scene
+        .corners()
+        .into_iter()
+        .map(|c| (c - target).length())
+        .fold(0.0 as Float, Float::max)
+        .max(Float::EPSILON);
+    let eye = target - dir * (2.0 * reach);
+    let view = Mat4::look_to_rh(eye, dir, up);
 
     // Lateral extent: this body alone.
     let mut half = 0.0 as Float;
@@ -103,6 +122,7 @@ pub fn fit_light_view_proj(
     LightFit {
         // Not reversed-Z; see `light_view_proj` above for why.
         view_proj: Mat4::orthographic_rh(-side, side, -side, side, near, far) * view,
+        view,
         side,
         near,
         far,
@@ -2639,9 +2659,65 @@ mod tests {
             // The whole scene has to sit inside the depth slab, or occluders
             // in front of the body stop casting into its layer.
             for c in scene.corners() {
-                let z = -Mat4::look_to_rh(sun, (body.center() - sun).normalize(), Vec3::Y)
-                    .transform_point3(c)
-                    .z;
+                let z = -fit.view.transform_point3(c).z;
+                assert!(
+                    z >= fit.near && z <= fit.far,
+                    "scene corner at depth {} outside [{}, {}] for {:?}",
+                    z,
+                    fit.near,
+                    fit.far,
+                    d
+                );
+            }
+        }
+    }
+
+    /// The light matrix must not carry the Sun's distance. It used to: the
+    /// eye sat at `sun.pos`, so with the Sun at its true 1 AU the matrix held
+    /// a translation of 1.5e8 km, which the GPU applies in f32 with a
+    /// precision of about 9 km -- a 2 km scene collapsed into one quantum
+    /// and rendered black. The projection is orthographic, so the eye only
+    /// has to be on the line from the Sun; it sits just outside the scene.
+    #[test]
+    fn light_fit_survives_the_sun_at_its_true_distance() {
+        let r = 0.4;
+        let body = aabb(Vec3::new(0.3, -0.2, 0.1), r);
+        let scene = body.union(&aabb(Vec3::new(1.2, 0.0, 0.0), 0.1));
+        let target = body.center();
+        let reach = scene
+            .corners()
+            .into_iter()
+            .map(|c| (c - target).length())
+            .fold(0.0 as Float, Float::max);
+
+        for d in [
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(-0.3, 0.87, 0.39).normalize(),
+            Vec3::new(1.0, 1.0, 1.0).normalize(),
+        ] {
+            let sun = target + d * 1.496e8;
+            let fit = fit_light_view_proj(sun, &body, &scene, Vec3::Y);
+
+            let (lo, hi) = (r * 1.05, r * 3.0f64.sqrt() as Float * 1.05 * 1.001);
+            assert!(
+                fit.side >= lo && fit.side <= hi,
+                "side {} outside [{}, {}] for {:?}",
+                fit.side,
+                lo,
+                hi,
+                d
+            );
+            // The translation is the eye's own coordinates and nothing
+            // larger: the Sun's distance stays out of the matrix.
+            let shift = fit.view.w_axis.truncate().length();
+            let bound = target.length() + 4.0 * reach + 1.0;
+            assert!(
+                shift <= bound,
+                "light view carries a translation of {shift}, bound {bound}, for {:?}",
+                d
+            );
+            for c in scene.corners() {
+                let z = -fit.view.transform_point3(c).z;
                 assert!(
                     z >= fit.near && z <= fit.far,
                     "scene corner at depth {} outside [{}, {}] for {:?}",

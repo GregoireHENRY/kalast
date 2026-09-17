@@ -2292,3 +2292,15 @@ so one can be dragged or double-clicked back out on its own. The per-panel
 fold already existed -- `show_collapsible`, drag past the minimum -- this is
 the toggle over all three. `N`, Blender's sidebar key; not `Tab`, which egui
 takes to focus the first text field.
+
+## 2026-09-17 — the Sun at its true distance
+
+`sun.pos = p_sun` straight from SPICE rendered Didymos black, and the Hera
+examples carried `p_sun / AU_KM * 500.0` to live with it. The light's view
+had its eye at the Sun, so the matrix held a 1.5e8 km translation, which the
+GPU applies in f32 -- about 9 km of precision there -- and a 2 km scene
+collapsed into one quantum. The eye now sits two scene-reaches outside the
+scene on the line from the Sun, which is all an orthographic light needs.
+Tested twice over: the light matrix's translation is bounded by the scene
+(Rust), and two spheres render the same with the Sun at 50 units and at
+1 AU (`tests/test_far_sun.py`). The workaround can go.
