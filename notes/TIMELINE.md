@@ -2306,3 +2306,14 @@ scene on the line from the Sun, which is all an orthographic light needs.
 Tested twice over: the light matrix's translation is bounded by the scene
 (Rust), and two spheres render the same with the Sun at 50 units and at
 1 AU (`tests/test_far_sun.py`). The workaround can go.
+
+## 2026-09-17 — a command-line script runs before the window
+
+The editor opened at the default size, black, then ran the script and
+resized to what it asked for. The window is created by the first frame from
+`app.config` as it stands, and the script ran after that frame. It is queued
+as the pending script at `editor_start` now, and `editor_tick` hands it over
+before drawing anything -- `step()` reports the run over while a script is
+pending -- so width, title and `open_in_background` set by the script are
+what the window comes up with. Rust test:
+`a_command_line_script_runs_before_the_window_exists`.

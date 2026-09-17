@@ -1277,8 +1277,20 @@ impl App {
         // A script named on the command line is *shown*: built and rendered at
         // iteration 0, then held. Opening a file and getting a black viewport
         // until you find Play is no way to open a file.
+        //
+        // And run *before* the first frame, not after it. The window is
+        // created by the first frame from `app.config` as it stands, so a
+        // script that sets its own width, title or `open_in_background` used
+        // to get a window at the defaults for one black frame and a resize
+        // the moment it ran. Queued as the pending script directly, held at
+        // the start as Restart holds it; `editor_tick` takes it before it
+        // draws anything, because `step()` reports the run over while one
+        // is pending.
         if opened_python {
-            self.restart_script();
+            let queued = self.shared.borrow().pending_script.clone();
+            if let Some((path, source)) = queued {
+                self.shared.borrow_mut().script_pending = Some((path, source, true));
+            }
         }
 
         // A Rust example is shown by loading it -- there is nothing else to
@@ -2782,4 +2794,29 @@ mod hud_tests {
         assert_eq!(expand_hud("no braces", &s, 60.0, &Default::default(), s.iteration), "no braces");
     }
 
+}
+
+#[cfg(test)]
+mod editor_tests {
+    use super::*;
+
+    /// A script named on the command line runs before the first frame, so
+    /// the window it opens is the one it asked for -- width, title,
+    /// `open_in_background` -- rather than the defaults for a black frame and
+    /// then a resize.
+    #[test]
+    fn a_command_line_script_runs_before_the_window_exists() {
+        let dir = std::env::temp_dir().join(format!("kalast_editor_start_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("sized.py");
+        std::fs::write(&path, "app.config.width = 640\n").unwrap();
+
+        let mut app = App::new();
+        app.editor_start(&[path.to_string_lossy().into_owned()]);
+        let handed_over = matches!(app.editor_tick(), EditorTick::Run { .. });
+        std::fs::remove_dir_all(&dir).ok();
+
+        assert!(handed_over, "the first tick must hand the script over, not draw");
+        assert!(app.window.is_none(), "no window may exist before the script has run");
+    }
 }

@@ -197,7 +197,9 @@ Three things make the example *this* window rather than a second one:
   frame, and the host renders them from then on. The `App` around them was
   scaffolding: a window it never opened, an event loop it will never pump.
 - **A loaded example is held at iteration 0**, like a `.py` named on the
-  command line: one iteration so the callbacks fire and the scene is where
+  command line (which also runs *before* the window opens, so the width,
+  title or `open_in_background` it sets is what the window comes up with,
+  rather than the defaults for one black frame and then a resize): one iteration so the callbacks fire and the scene is where
   iteration 0 puts it, then stop. That is applied when the host *adopts* the
   scene, not after the call that loaded it -- a driven example does not return
   until its loop ends, so anything set afterwards is set when the run is
