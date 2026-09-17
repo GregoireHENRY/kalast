@@ -110,7 +110,9 @@ WASD, so `set_control_none()` prevents input from moving the camera but does
 not prevent `T` from leaving that state.
 
 Switching to WASD hides and grabs the cursor; switching back releases and
-re-centres it.
+re-centres it. Either way the camera is **levelled** first -- roll taken out,
+the side kept -- so the mode being entered starts with the world's pole at the
+top of the screen, or the bottom if you arrived upside down.
 
 ### `W` `A` `S` `D`, `Space`, `Left Shift` — movement
 
@@ -283,10 +285,22 @@ same from the sign of `up · up_world`. The vertical term needs nothing, its
 axis being the screen's own right. Since 17 September; before that the flip
 happened at the pole.
 
+**And the orbit is level.** Every orbit ends with `Eye::level()`: `up` is put
+back to world-up as seen from the view direction, on the side it already was.
+Roll used to get in two ways and then stay -- the WASD look yawed about the
+camera's own up, and a new `anchor_body` re-aimed the camera while `fix_up`
+kept whatever `up` the old elevation had left -- so the turntable's pole sat
+off the top of the screen and the orbit ran tilted. A script's `up` is still
+its own: nothing levels until you take hold of the camera.
+
 ## Mouse — WASD
 
 The cursor is hidden and grabbed (`Confined`, falling back to `Locked`), so
-every pointer motion is a look, with no button held. `T` returns to Arcball and
+every pointer motion is a look, with no button held. Looking around yaws about
+world up and pitches about the screen's right, so it cannot roll the horizon;
+until 17 September it yawed about the camera's own up, and a pitch followed by
+a look around tilted the horizon a little every time -- the tilt that met you
+on switching back to the arcball. `T` returns to Arcball and
 releases the cursor; `Escape` quits and also releases it.
 
 ## Setting the mode from Python

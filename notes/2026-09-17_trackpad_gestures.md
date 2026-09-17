@@ -109,3 +109,38 @@ One difference: Blender latches the flag at the start of a drag, so a drag
 that crosses the pole keeps its sign until release; here it is read each
 frame, so the crossing flips at once and the scene keeps following the
 pointer. Unit test: `horizontal_orbit_follows_the_screen_when_upside_down`.
+
+## The tilted orbit
+
+Also reported today: after `T` back from WASD, or after switching the focused
+body, the orbit was sometimes tilted -- spinning about an axis that was not
+the world's +Z on screen. It always *was* about +Z; the camera had roll, so
+that pole was off the top of the screen.
+
+Two sources, both now closed:
+
+- **The WASD look yawed about the camera's own `up`.** After any pitch that
+  axis is off vertical, and yawing about it tilts the horizon a little; every
+  look around added some. The classic first-person-camera mistake. It yaws
+  about `up_world` now (reversed when upside down, as the orbit is), and
+  pitches about `right()`; both preserve levelness, so from a level start the
+  look can never roll.
+- **A new anchor kept a stale `up`.** `anchor_body` moves the anchor; the
+  next orbit calls `look_anchor()`, which re-aims `dir` and lets `fix_up`
+  keep roll -- and from an elevated view the old `up` is tilted toward the
+  horizon, so re-aiming sideways leaves it rolled about the new `dir`.
+
+`Eye::level()` takes the roll out: `up := up_world` projected perpendicular to
+`dir`, on the side `up` already was, so an upside-down camera stays upside
+down and the orbit reversal above keeps making sense; exactly along the pole
+it leaves `up` alone. It runs after every orbit, after every WASD look, and on
+`T` in both directions. It deliberately does *not* run in `sanitize_basis` or
+`look_anchor`: the Hera scripts assign `up` from SPICE every frame, and
+levelling there would silently discard the instrument's attitude. A script's
+`up` holds until the user takes the camera.
+
+Blender's turntable, for the record, cannot introduce roll either and its walk
+mode keeps the view upright; it does not auto-level a view that a script or
+"align to object" rolled, but nothing in ordinary use rolls one. Three tests:
+`wasd_look_does_not_accumulate_roll`, `orbit_levels_a_rolled_camera`,
+`level_keeps_an_upside_down_camera_upside_down`.

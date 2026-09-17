@@ -2415,6 +2415,15 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     (winit::keyboard::KeyCode::KeyT, true) => {
                         // switch camera type
                         self.simulation.borrow_mut().camera.control.toggle();
+                        // Either way, hand over a level camera: whatever roll
+                        // the mode being left had built up, the new one
+                        // starts with the world's pole at the top of the
+                        // screen -- or the bottom, if you arrived upside down.
+                        {
+                            let mut sim = self.simulation.borrow_mut();
+                            sim.camera.sanitize_basis();
+                            sim.camera.level();
+                        }
                         let control = self.simulation.borrow().camera.control;
                         if self.sim_config().borrow().debug.app {
                             println!("[APP] Camera control changed, now is {:?}", control);

@@ -2220,4 +2220,7 @@ it, the wheel being exempt and the pinch not -- and where it did, it was fed
 in as notches, so a whole pinch moved the eye 11%. `controls.trackpad_orbit` is the way back to zoom-on-swipe,
 which is also the switch for a Magic Mouse. And the turntable's orbital term
 now reverses when the view is upside down, as Blender's does, so a drag to the
-right turns the scene right either way up. Note: `2026-09-17_trackpad_gestures.md`.
+right turns the scene right either way up. And the camera is levelled whenever
+the user takes hold of it -- orbit, WASD look, `T` -- because the WASD look
+yawed about the camera's own up and anchor switches kept a stale `up`, and
+both left the turntable tilted. Note: `2026-09-17_trackpad_gestures.md`.

@@ -417,6 +417,28 @@ impl Eye {
         }
     }
 
+    /// Takes the roll out: `up` becomes world-up as seen from `dir`, on the
+    /// side it already was, so an upside-down camera loses its tilt and stays
+    /// upside down rather than flipping the scene over. Looking straight
+    /// along `up_world` there is no side to choose, and `up` is left alone.
+    ///
+    /// The turntable orbits about `up_world`, and any roll in `up` puts that
+    /// pole off the top of the screen -- the orbit looks tilted. Roll got in
+    /// two ways: the WASD look yawed about the camera's own `up`, which after
+    /// a pitch is not vertical (it yaws about `up_world` now); and a fresh
+    /// anchor re-aimed `dir` while `fix_up` kept whatever `up` had been,
+    /// which from an elevated view is not vertical either. Called wherever
+    /// the user takes hold of the camera -- an orbit, a look around, `T` --
+    /// and nowhere a script does: a script's `up` is its own until then.
+    pub fn level(&mut self) {
+        let dir = self.dir.normalize();
+        let level = self.up_world - self.up_world.dot(dir) * dir;
+        if level.is_finite() && level.length_squared() > 1e-12 {
+            let side = if self.up.dot(self.up_world) < 0.0 { -1.0 } else { 1.0 };
+            self.up = level.normalize() * side;
+        }
+    }
+
     /// Forces `pos`/`dir`/`up` into a usable state before the controller acts
     /// on them, so that whatever a script assigned -- an unnormalised `dir`,
     /// an `up` parallel to it, a NaN left over from an earlier frame -- the
@@ -770,6 +792,10 @@ impl Eye {
             self.pos = self.anchor + m * (self.pos - self.anchor);
             self.up = m * self.up;
             self.look_anchor();
+            // `look_anchor` keeps roll, and after an anchor switch that roll
+            // is whatever the old elevation left in `up`; the orbit is level
+            // by construction only once `up` is.
+            self.level();
         }
     }
 
@@ -784,17 +810,27 @@ impl Eye {
             * self.distance_anchor();
 
         // look around
-        let m1 = Mat3::from_axis_angle(
-            self.up,
-            -ctrl.horizontal * ctrl.sensitivity_look * SENSITIVITY_LOOK * dt,
-        );
-        let m2 = Mat3::from_axis_angle(
-            self.right(),
-            -ctrl.vertical * ctrl.sensitivity_look * SENSITIVITY_LOOK * dt,
-        );
-        let m = m1 * m2;
-        self.up = m * self.up;
-        self.dir = m * self.dir;
+        if ctrl.horizontal != 0.0 || ctrl.vertical != 0.0 {
+            // Yaw about the world's up, not the camera's: after a pitch the
+            // camera's own up is off vertical, and yawing about it tilted the
+            // horizon a little more with every look around -- the roll that
+            // met the user on switching back to the arcball. Reversed when
+            // upside down, as the orbit is, so the view still turns the way
+            // the pointer went.
+            let reverse = if self.up.dot(self.up_world) < 0.0 { -1.0 } else { 1.0 };
+            let m1 = Mat3::from_axis_angle(
+                self.up_world,
+                -reverse * ctrl.horizontal * ctrl.sensitivity_look * SENSITIVITY_LOOK * dt,
+            );
+            let m2 = Mat3::from_axis_angle(
+                self.right(),
+                -ctrl.vertical * ctrl.sensitivity_look * SENSITIVITY_LOOK * dt,
+            );
+            let m = m1 * m2;
+            self.up = m * self.up;
+            self.dir = m * self.dir;
+            self.level();
+        }
     }
 
     pub fn update_with_controller(&mut self, ctrl: &mut Controller, dt: Float) {
@@ -1470,6 +1506,57 @@ mod tests {
             "the camera must cross the screen the same way either way up: \
              upright {upright}, inverted {inverted}"
         );
+    }
+
+    /// The WASD look yawed about the camera's own up, so a pitch followed by
+    /// a look around tilted the horizon a little each time -- the roll that
+    /// met the user on switching back to the arcball. It yaws about world up
+    /// now, and stays level through any amount of looking around.
+    #[test]
+    fn wasd_look_does_not_accumulate_roll() {
+        let mut eye = eye_at_distance(10.0);
+        eye.control = Control::WASD;
+        let mut ctrl = controller();
+        for _ in 0..50 {
+            for (dx, dy) in [(0.0, 40.0), (60.0, 0.0), (0.0, -25.0)] {
+                ctrl.mouse_motion(dx, dy);
+                eye.update_with_controller(&mut ctrl, 1.0 / 60.0);
+            }
+        }
+        let tilt = eye.right().dot(eye.up_world).abs();
+        assert!(tilt < 1e-4, "horizon tilted: right . up_world = {tilt}");
+        assert!(eye.up.dot(eye.up_world) > 0.0, "the look flipped the camera over");
+    }
+
+    /// A fresh anchor re-aims `dir`, and `fix_up` keeps whatever `up` had
+    /// been -- from an elevated view, not vertical -- so the first orbit
+    /// after switching bodies ran tilted. Orbiting levels now.
+    #[test]
+    fn orbit_levels_a_rolled_camera() {
+        let mut eye = eye_at_distance(10.0);
+        // Roll the camera half a radian about its view direction.
+        eye.up = Mat3::from_axis_angle(eye.dir, 0.5) * eye.up;
+        assert!(eye.right().dot(eye.up_world).abs() > 0.4, "the setup did not roll");
+
+        let mut ctrl = controller();
+        ctrl.mouse_motion(5.0, 0.0);
+        eye.arcball_update(&mut ctrl);
+
+        let tilt = eye.right().dot(eye.up_world).abs();
+        assert!(tilt < 1e-5, "still rolled after an orbit: {tilt}");
+        assert!(eye.up.dot(eye.up_world) > 0.0, "levelled onto the wrong side");
+    }
+
+    /// Levelling keeps the side: an upside-down camera loses its tilt and
+    /// stays upside down, so taking hold of it does not flip the scene over.
+    #[test]
+    fn level_keeps_an_upside_down_camera_upside_down() {
+        let mut eye = eye_at_distance(10.0);
+        eye.up = -Vec3::Z;
+        eye.sanitize_basis();
+        eye.up = Mat3::from_axis_angle(eye.dir, 0.3) * eye.up;
+        eye.level();
+        assert!((eye.up + Vec3::Z).length() < 1e-5, "up = {}", eye.up);
     }
 
     /// A script assigning `up` parallel to `dir` used to make `fix_up`
