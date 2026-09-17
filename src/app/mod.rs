@@ -165,6 +165,16 @@ pub struct Shared {
 }
 
 impl Shared {
+    /// Another run has been asked for -- a script pending from Play, Restart
+    /// or an opened file, or an example to load -- which ends the run in
+    /// progress. `step()` and `is_running()` say `false` while it holds, so a
+    /// driven loop of either language exits the way it does when the window
+    /// closes and the flow comes back to the editor, which takes the request
+    /// between frames.
+    pub fn superseded(&self) -> bool {
+        self.script_pending.is_some() || self.load_requested.is_some()
+    }
+
     fn new() -> Self {
         Self {
             before_render: None,
@@ -796,6 +806,15 @@ impl App {
             return hosted::step().unwrap_or(false);
         }
 
+        // Another run asked for -- Restart, or a file opened -- ends this
+        // one, the same way the hosted path's `superseded` does: a driven
+        // script's own `while app.step():` exits here as it does when the
+        // window closes, and the editor takes the request between frames.
+        // Without this the request sat pending for as long as the script's
+        // loop ran, which was forever, and Restart did nothing.
+        if self.shared.borrow().superseded() {
+            return false;
+        }
         if !self.shared.borrow().running {
             return false;
         }
@@ -1270,7 +1289,10 @@ impl App {
     /// the script runs, so the script gets the app to itself. The policy stays
     /// here, in one copy, whoever is turning the handle.
     pub fn editor_tick(&mut self) -> EditorTick {
-        if !self.step() {
+        // `step()` also says "over" while another run is pending -- that is
+        // how a driven script's loop is asked to end -- and here that is not
+        // an end but the request itself, taken below. Closed means closed.
+        if !self.step() && !self.shared.borrow().running {
             return EditorTick::Closed;
         }
         // Between frames, which is the only place an example may run: its
@@ -1662,7 +1684,8 @@ impl App {
         if let Some(running) = hosted::is_running() {
             return running;
         }
-        self.shared.borrow().running
+        let shared = self.shared.borrow();
+        shared.running && !shared.superseded()
     }
 
     /// The simulation's config, as a handle.

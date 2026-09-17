@@ -44,9 +44,15 @@ PROBE = textwrap.dedent("""
         app.restart_script()
 
     frames = 0
-    while app.step():
-        frames += 1
+    while True:
+        alive = app.step()
+        # `step()` is also False while a run is pending -- that is how a
+        # driven script's loop is asked to end -- so only "nothing pending"
+        # means closed.
         asked = app.take_script_request()
+        if not alive and asked is None:
+            break
+        frames += 1
         if asked:
             path, source, paused = asked
             app.simulation.reset()
@@ -86,6 +92,93 @@ def probe(script: str | None, steps: int = 0) -> tuple[int, bool, int, int]:
             _, it, paused, bodies, drawn = line.split()
             return int(it), paused == "True", int(bodies), int(drawn)
     raise AssertionError("probe produced nothing:\n" + r.stdout + r.stderr)
+
+
+RESTART_SCRIPT = textwrap.dedent("""
+    import sys
+    import numpy
+    from kalast.app import App
+
+    app = App()
+    app.simulation.load_mesh(
+        path="res/plane_crater_1024-5000_h=0.437.obj", mat=numpy.eye(4), flatten=True
+    )
+    sys._runs = getattr(sys, "_runs", 0) + 1
+    while app.running:
+        st = app.simulation.state
+        if st.is_paused:
+            st.is_paused = False  # the hold at the start: press Play
+        if sys._runs == 1 and st.iteration >= 5:
+            sys._restarted_at = st.iteration
+            app.restart_script()  # what the Restart button does
+        if sys._runs >= 2 and st.iteration >= 3:
+            app.close()
+        app.step()
+""")
+
+RESTART_PROBE = textwrap.dedent("""
+    import sys
+    from kalast import editor
+    from kalast.app import App
+
+    app = App()
+    app.config.open_in_background = True
+    app.config.editor = True
+    app.config.width, app.config.height = 640, 480
+    editor.capture_output(app)
+    app.set_script("restart_probe.py", open(sys.argv[1]).read())
+    app.simulation.state.is_paused = True
+    app.restart_script()
+
+    while True:
+        alive = app.step()
+        asked = app.take_script_request()
+        if not alive and asked is None:
+            break
+        if asked:
+            path, source, paused = asked
+            app.simulation.reset()
+            if paused:
+                app.simulation.state.pause_at = 1
+            app.simulation.state.is_paused = False
+            app.script_ran = True
+            editor.run_toplevel(app, source, path)
+    print("PROBE %d %d %d %d" % (getattr(sys, "_runs", 0), getattr(sys, "_restarted_at", -1),
+                                 len(app.simulation.bodies), app.simulation.state.iteration),
+          flush=True)
+""")
+
+
+def test_restart_ends_a_driven_loop_and_runs_the_script_again() -> None:
+    """Restart did nothing for a script that drives its own loop.
+
+    The request was recorded inside the frame and taken between two editor
+    frames -- but a `while app.running:` script never gave the editor a
+    frame back, because `running` and `step()` only went False when the
+    window closed. Now another pending run ends the loop the same way, the
+    script returns, and the editor runs it again from the top over a cleared
+    scene. The script here presses Restart itself at iteration 5, then
+    closes the window on its second run.
+    """
+    script = ROOT / "tests" / "_restart_script.py"
+    harness = ROOT / "tests" / "_restart_probe.py"
+    script.write_text(RESTART_SCRIPT)
+    harness.write_text(RESTART_PROBE)
+    try:
+        r = subprocess.run(
+            [sys.executable, str(harness), str(script)],
+            capture_output=True, text=True, timeout=120, cwd=ROOT,
+        )
+    finally:
+        script.unlink(missing_ok=True)
+        harness.unlink(missing_ok=True)
+    line = next((l for l in r.stdout.splitlines() if l.startswith("PROBE")), None)
+    assert line, "probe produced nothing:\n" + r.stdout + r.stderr
+    _, runs, restarted_at, bodies, it = line.split()
+    assert int(runs) == 2, f"the script should have run twice, ran {runs}"
+    assert int(restarted_at) >= 5, "the first run should have got to iteration 5"
+    assert int(bodies) == 1, f"the scene must be cleared between runs, has {bodies} bodies"
+    assert 3 <= int(it) < 5, f"the second run should have stopped at 3, was at {it}"
 
 
 def test_no_script_does_not_advance() -> None:

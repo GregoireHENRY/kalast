@@ -508,6 +508,12 @@ nothing existing changes. Pick one per script; there is no reason to mix.
   itself. A frame held by `state.rate_limited` is the same: the loop body runs, the
   counter has not moved, and it re-renders the same epoch -- harmless, since
   everything it sets is a function of `state.iteration`.
+- **Restart ends the loop.** Once another run is pending -- Restart, or a
+  file opened -- `step()` returns `False` and `app.running` reads `False`, so
+  a `while app.running:` loop exits the way it does when the window closes,
+  and the editor runs the script again from the top over a cleared scene.
+  Anything a script must do on the way out (flush a file, `kclear`) goes
+  after the loop, where it already had to go for the close.
 - **Not usable after `start()`.** A platform event loop cannot be created
   twice in one process and `start()` consumes it. `step()` afterwards reports
   the app as stopped rather than panicking.

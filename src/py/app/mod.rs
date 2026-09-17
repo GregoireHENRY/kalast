@@ -391,7 +391,11 @@ impl App {
     /// Whether the window is still open.
     #[getter]
     fn running(&self) -> bool {
-        self.shared.borrow().running
+        // `False` once another run is pending as well as once the window has
+        // closed: both end a `while app.running:` loop, and Restart is the
+        // first of them.
+        let shared = self.shared.borrow();
+        shared.running && !shared.superseded()
     }
 
     /// Runs before each frame is drawn. Set body transforms, camera and

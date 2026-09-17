@@ -2252,3 +2252,14 @@ counter. The next iteration is scheduled one period on from when it was
 at the run's own ~350 it/s held every frame that came a hair early and the
 run visibly slowed -- a beat between two nearly equal periods. Frames slower
 than the cap bank nothing, so nothing bursts later.
+
+## 2026-09-17 — Restart reaches a driven script
+
+Restart did nothing for a script that drives its own loop: the request was
+recorded inside the frame and taken between two editor frames, but a
+`while app.running:` script never handed a frame back, since `running` and
+`step()` only went false when the window closed. The hosted Rust path already
+had the rule -- `superseded` -- and the Python path has it now: another
+pending run ends the loop, the script returns, and the editor runs it again
+from the top. Tested by a script that presses Restart from inside its own
+loop.
