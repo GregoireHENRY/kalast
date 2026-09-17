@@ -483,7 +483,27 @@ impl Hapke {
         let cos_psi = psi.cos();
         let half = 0.5 * psi;
         let sin2_half = half.sin() * half.sin();
-        let f = (-2.0 * half.tan()).exp();
+        // `f(psi) = exp(-2 tan(psi/2))`, which must go to **zero** as `psi`
+        // approaches pi, where `tan` diverges.
+        //
+        // It cannot be written that literally. The representable `pi/2` sits
+        // just *past* the true one, so at `psi = pi` the f32 `tan` returns a
+        // large **negative** number (-2.3e7), `-2 * t` is then large and
+        // positive, `exp` overflows to `+inf`, and the denominator below
+        // evaluates `1 - inf + inf * chi * ratio` = **NaN**. That is not a
+        // contrived geometry: `psi = pi` is the whole back-scattering plane,
+        // and `cos psi` clamps to -1 for every facet at the limb and
+        // terminator -- which is exactly where roughness does its work.
+        //
+        // A negative tangent here can only mean the argument has crossed the
+        // pole, since `psi/2` is in `[0, pi/2]` by construction, so the sign
+        // is the test and the limit is 0.
+        let tan_half = half.tan();
+        let f = if tan_half < 0.0 || !tan_half.is_finite() {
+            0.0
+        } else {
+            (-2.0 * tan_half).exp()
+        };
 
         // The two branches. `ratio` is the term inside S's denominator, and it
         // is the *same quantity* on both sides once i and e are swapped --
@@ -653,6 +673,40 @@ mod tests {
                 last = d;
             }
             assert!(last < 1e-6, "limit not reached: {last}");
+        }
+    }
+
+    /// Every geometry must give a finite answer, and `psi = pi` is the one
+    /// that did not.
+    ///
+    /// Caught originally by the reciprocity test failing `NaN vs NaN`, which
+    /// is luck rather than intent: two NaNs comparing unequal is what made it
+    /// visible, and a check written as `(a - b).abs() < tol` would have been
+    /// green. Worth its own test, because the back-scattering plane is where
+    /// every limb and terminator facet of a real body lands.
+    #[test]
+    fn roughness_stays_finite_in_the_back_scattering_plane() {
+        for tb in [5.0, 20.0, 30.0, 45.0, 60.0] {
+            let h = Hapke {
+                w: 0.2,
+                theta_bar: tb * crate::util::RPD,
+                ..Hapke::default()
+            };
+            for (mu0, mu) in [(0.9, 0.2), (0.5, 0.5), (0.2, 0.9), (0.99, 0.01)] {
+                // Sweep past the largest phase angle the pair allows, which is
+                // where `cos psi` clamps to -1 and `tan(psi/2)` reaches its
+                // pole.
+                for k in 0..40 {
+                    let alpha = crate::util::PI * k as Float / 39.0;
+                    let (mu0e, mue, s) = h.roughness_terms(mu0, mu, alpha);
+                    assert!(
+                        mu0e.is_finite() && mue.is_finite() && s.is_finite(),
+                        "theta_bar={tb} mu0={mu0} mu={mu} alpha={alpha}:                          mu0e={mu0e} mue={mue} S={s}"
+                    );
+                    let r = h.reflectance_smooth(mu0, mu, alpha);
+                    assert!(r.is_finite() && r >= 0.0, "reflectance {r}");
+                }
+            }
         }
     }
 

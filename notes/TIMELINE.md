@@ -2317,3 +2317,40 @@ before drawing anything -- `step()` reports the run over while a script is
 pending -- so width, title and `open_in_background` set by the script are
 what the window comes up with. Rust test:
 `a_command_line_script_runs_before_the_window_exists`.
+
+## 17 September — pulled the macOS work, and it was red here
+
+Six days of macOS work pulled onto Windows: 34 commits, 103 files, the light
+curve driver, Hapke's `theta_bar`, the nested config, the viewport tuning, the
+trackpad gestures and the PCF fix. All notes read.
+
+**`theta_bar` closed my own open item, and corrected my estimate of it by an
+order of magnitude** — I had placed it at a few mmag by analogy with `w` and
+`b0`; measured it is 23 mmag rms and a **15 % change in light curve
+amplitude**, the quantity an axis ratio is fitted to. Roughness acts near the
+limb and terminator, whose share of the disc changes as an elongated body
+turns, so it is structurally a different kind of parameter from the ones I
+reasoned from. Recorded in `2026-09-11_hapke_roughness.md`.
+
+**Two tests were red on this machine and green on the other**, both the same
+cause: `roughness_terms` returned **NaN** across the whole back-scattering
+plane. `f(psi) = exp(-2 tan(psi/2))` must go to zero as `psi -> pi`; in f32 the
+representable `pi/2` sits past the true pole, so `tan` returns -2.3e7, `exp`
+overflows to `+inf`, and the shadowing denominator evaluates `inf - inf`.
+`cos psi` clamps to -1 for every facet at the limb and terminator — exactly
+where roughness does its work — so this was NaN over the part of the body the
+parameter exists to model. Fixed, and pinned by a finiteness test rather than
+by luck: reciprocity caught it only because two NaNs compare unequal.
+`2026-09-17_hapke_nan_at_psi_pi.md`.
+
+Also corrected four descriptions of the render/compute shadow difference that
+`65f5794` invalidated — the `(1 + N)` offset scaling is gone, so filtering is
+the only difference now. Second time those two paths have drifted in prose
+while agreeing in code.
+
+Local data paths re-applied after the pull: the root swap plus
+`hera_plan_local.tm` -> `hera_plan.tm` and the same for `hera_ops`. **Six
+Didymos/Dimorphos mesh paths do not resolve here** and were left alone — the
+examples now want a different source model (`9309mm` against the `01165mm` on
+disk) at different decimation levels, so substituting would silently run a
+different shape.

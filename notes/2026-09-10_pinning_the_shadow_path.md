@@ -17,7 +17,8 @@ values reported Deimos at 0.55 % shadowed against a true ~46 %. Found and
 fixed long before this audit.
 
 The one real difference is at `shadow_pcf > 0`: the fragment shader filters
-over a `(2N+1)^2` kernel and widens its normal offset by `(1 + N)` to match
+over a `(2N+1)^2` kernel and, at the time, widened its normal offset by
+`(1 + N)` to match
 that kernel's reach, and the compute path does neither.
 
 **And the compute path is right.** The Sun is a point source here, so
@@ -109,3 +110,12 @@ lets facets escape the depth comparison, which can only manufacture false
 - **Verifying a test by breaking the code costs one rebuild each way** and is
   the only thing that distinguishes a test from a comment. It changed the
   design of this one completely.
+
+## Superseded, 17 September
+
+`65f5794` removed the `(1 + N)` normal-offset scaling from the render: it was
+moving shadow edges rather than blurring them, and the mechanism this note
+attributes it to was not the real one — see `2026-09-17_pcf_erosion.md`. The
+offset is the same `lb.x * k` in both paths now, so **filtering is the only
+difference between them**. The reasoning above about why they are allowed to
+differ still stands; only the list of ways they differ has shrunk.

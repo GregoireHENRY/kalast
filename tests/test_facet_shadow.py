@@ -4,8 +4,7 @@
 `shaders/facet_shadow.wgsl` is not the render's shadow term, and the two are
 easy to confuse -- the shader's own header claimed they "cannot disagree"
 until this test was written, which is false the moment `shadow_pcf > 0`. The
-render filters over a `(2N+1)^2` kernel and widens its normal offset by
-`(1 + N)` to match that kernel's reach; the compute path takes one tap and
+render filters over a `(2N+1)^2` kernel; the compute path takes one tap and
 returns a binary occlusion.
 
 That divergence is deliberate. The Sun is a point source here, so occlusion

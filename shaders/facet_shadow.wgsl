@@ -6,9 +6,12 @@
 //
 // It is NOT the render's shadow term, and must not be described as one. This
 // takes a single tap and returns a binary occlusion; `mesh_shadow.wgsl` takes
-// a (2N+1)^2 PCF kernel at `shadow_pcf = N` and widens its normal offset by
-// `(1 + N)` to match that kernel's reach. At `shadow_pcf = 0` the two are the
-// same expression; above it they deliberately part company, and this path is
+// a (2N+1)^2 PCF kernel at `shadow_pcf = N`. The normal offset is the same
+// `lb.x * k` in both since `65f5794`, which removed the `(1 + N)` scaling the
+// render used to apply -- that was moving shadow edges rather than blurring
+// them, see `notes/2026-09-17_pcf_erosion.md`. So the filtering is now the
+// only difference. At `shadow_pcf = 0` the two are identical; above it they
+// deliberately part company, and this path is
 // **invariant to `shadow_pcf`** -- a property `tests/test_facet_shadow.py`
 // asserts, because a good deal depends on it.
 //
