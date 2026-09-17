@@ -322,6 +322,7 @@ pub fn group_debug(ui: &mut egui::Ui, c: &mut Config) {
 /// `app.config` -- Window.
 pub fn group_app(ui: &mut egui::Ui, a: &mut AppConfig) {
     ui.checkbox(&mut a.focus, "focus").on_hover_text("Give the whole window to the renderer: panels out of the way, each coming back when the pointer reaches its edge.");
+    ui.checkbox(&mut a.panels_folded, "panels_folded").on_hover_text("Fold the editor's resizable panels to the window edges; `N` toggles it.");
     ui.add(egui::DragValue::new(&mut a.width).speed(1.0).prefix("window width  ")).on_hover_text("Window size in physical pixels.");
     ui.add(egui::DragValue::new(&mut a.height).speed(1.0).prefix("window height  "));
     ui.horizontal(|ui| {

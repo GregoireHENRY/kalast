@@ -1237,6 +1237,18 @@ impl super::config::AppConfig {
     fn focus(&self) -> bool { self.config.borrow().focus }
     #[setter]
     fn set_focus(&mut self, v: bool) { self.config.borrow_mut().focus = v; }
+    /// Fold the editor's resizable panels to the window edges; `N` toggles it.
+    ///
+    /// Script, simulation and log fold to their edges and come back together;
+    /// each keeps egui's thin handle, so one can be dragged or double-clicked
+    /// back out on its own. Reads `true` only while all three are folded, so
+    /// dragging one out clears it. The halfway house between the full layout
+    /// and `focus`, which hides everything and reveals on hover. Set before
+    /// `start()` to open the editor folded.
+    #[getter]
+    fn panels_folded(&self) -> bool { self.config.borrow().panels_folded }
+    #[setter]
+    fn set_panels_folded(&mut self, v: bool) { self.config.borrow_mut().panels_folded = v; }
     /// Open the window without taking focus, so a run can go on beside
     /// other work.
     ///

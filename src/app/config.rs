@@ -1230,6 +1230,15 @@ pub struct AppConfig {
     /// and nothing else. Set both to be rid of everything at once; set this
     /// alone and the window stays where it is.
     pub focus: bool,
+    /// Fold the editor's resizable panels to the window edges; `N` toggles it.
+    ///
+    /// Script, simulation and log fold to their edges and come back together;
+    /// each keeps egui's thin handle, so one can be dragged or double-clicked
+    /// back out on its own. Reads `true` only while all three are folded, so
+    /// dragging one out clears it. The halfway house between the full layout
+    /// and `focus`, which hides everything and reveals on hover. Set before
+    /// `start()` to open the editor folded.
+    pub panels_folded: bool,
 
     /// Open the window without taking focus, so a run can go on beside
     /// other work.
@@ -1317,6 +1326,7 @@ impl Default for AppConfig {
         Self {
             editor: false,
             focus: false,
+            panels_folded: false,
             open_in_background: false,
             width: 0,
             height: 0,

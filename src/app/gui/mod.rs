@@ -140,6 +140,11 @@ pub struct Editor {
     ///
     /// The toolbar is not resizable and is always open.
     docked_open: [bool; 4],
+    /// What `AppConfig::panels_folded` said last frame. The config's word for
+    /// "all three shut" is applied to the panels when it changes, and written
+    /// back from them every frame, so a script, the checkbox, `N` and a drag
+    /// all agree.
+    last_folded: bool,
 
     /// How big each floating panel is: top, bottom, left, right.
     ///
@@ -267,6 +272,7 @@ impl Editor {
             registered_generation: u64::MAX,
             panels: [egui::Rect::NOTHING; 4],
             docked_open: [true; 4],
+            last_folded: false,
             float_sizes: FLOAT_DEFAULTS,
             resizing: None,
             viewport_rect: egui::Rect::NOTHING,
@@ -390,6 +396,14 @@ impl Editor {
         let mut out_sizes = self.float_sizes;
         let mut out_resizing = self.resizing;
         let was_shown = self.panels.map(|r| r.is_positive());
+        // A change on the config side -- a script before `start()`, the
+        // Window header's checkbox -- folds or unfolds all three. The
+        // per-panel state stays the editor's, since egui moves it by drag.
+        if app_config.panels_folded != self.last_folded {
+            for open in &mut self.docked_open[1..] {
+                *open = !app_config.panels_folded;
+            }
+        }
         let open_docked = self.docked_open;
         let mut out_open = self.docked_open;
         // Read before the panel closures are built: the toolbar needs to know
@@ -965,6 +979,11 @@ impl Editor {
         self.float_sizes = out_sizes;
         self.resizing = out_resizing;
         self.docked_open = out_open;
+        // Written back from the panels: folded means all three are, so
+        // dragging one out clears it and `N` then folds everything again.
+        let folded = !self.docked_open[1..].iter().any(|&open| open);
+        app_config.panels_folded = folded;
+        self.last_folded = folded;
         self.run_request |= run_request;
         self.restart_request |= restart_request;
         if save_and_quit {

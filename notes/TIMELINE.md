@@ -2291,7 +2291,9 @@ panels fold to their window edges at once, each keeping egui's thin handle
 so one can be dragged or double-clicked back out on its own. The per-panel
 fold already existed -- `show_collapsible`, drag past the minimum -- this is
 the toggle over all three. `N`, Blender's sidebar key; not `Tab`, which egui
-takes to focus the first text field.
+takes to focus the first text field. And as config: `app.config.panels_folded`,
+set before `start()` to open the editor folded, written back from the
+panels so a drag that brings one out clears it.
 
 ## 2026-09-17 — the Sun at its true distance
 

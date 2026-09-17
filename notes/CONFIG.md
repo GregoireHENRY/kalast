@@ -58,6 +58,20 @@ whether a panel is showing or not.
 Independent of `simulation.app.config.fullscreen`, which is the OS window and
 nothing else. Set both for an immersive fullscreen.
 
+
+### `app.config.panels_folded: bool` — default `False` *(live)*
+Fold the editor's three resizable panels — script, simulation, log — to their
+window edges, or bring them all back. What the `N` key toggles; set it before
+`start()` to open the editor folded. Each folded panel keeps egui's thin
+handle at its edge and can be dragged or double-clicked back out on its own,
+and the field follows the panels: it reads `True` only while all three are
+folded, so dragging one out clears it and `N` then folds everything again.
+
+The halfway house between the full layout and `app.config.focus`: the space
+is the renderer's, but nothing appears or disappears on hover. Docked layout
+only; in focus mode there are no docked panels to fold.
+Accepted: `True` / `False`.
+
 ### `app.config.open_in_background: bool` — default `False` *(startup only)*
 Open the window **without taking focus**, so a run can go on beside other work.
 

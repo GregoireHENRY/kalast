@@ -66,6 +66,10 @@ here it is all three, since the toolbar is not resizable and stays.
 Docked layout only — focus mode has no docked panels to fold, so there it
 does nothing visible until focus mode is left.
 
+The same state is `app.config.panels_folded`: set it before `start()` to open
+the editor folded, tick it in the Window header, or read it -- it says `True`
+only while all three are folded, so a drag that brings one out clears it.
+
 ### `K` — one iteration
 
 The two lines the editor's Step button runs: set `state.pause_at` one ahead
