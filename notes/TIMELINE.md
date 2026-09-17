@@ -2218,4 +2218,6 @@ notches against pixels -- in `Controller::scroll`, three unit tests on the
 routing. The pinch had never reached the camera in the editor -- egui consumed
 it, the wheel being exempt and the pinch not -- and where it did, it was fed
 in as notches, so a whole pinch moved the eye 11%. `controls.trackpad_orbit` is the way back to zoom-on-swipe,
-which is also the switch for a Magic Mouse. Note: `2026-09-17_trackpad_gestures.md`.
+which is also the switch for a Magic Mouse. And the turntable's orbital term
+now reverses when the view is upside down, as Blender's does, so a drag to the
+right turns the scene right either way up. Note: `2026-09-17_trackpad_gestures.md`.

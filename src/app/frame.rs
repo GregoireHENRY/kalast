@@ -748,9 +748,17 @@ impl Eye {
         if (ctrl.horizontal != 0.0 || ctrl.vertical != 0.0)
             && self.distance_anchor() > 1e-9
         {
+            // The turntable spins about the world's up whichever way the
+            // camera hangs, so with the view upside down a drag to the right
+            // moved the camera to the same *world* side -- which, screen
+            // right being mirrored, turned the scene to the left. Blender
+            // reverses its orbital term when world-Z points down the screen
+            // (`vod->reverse`); this is the same test, on `up`. The vertical
+            // term needs nothing, its axis being the screen's own right.
+            let reverse = if self.up.dot(self.up_world) < 0.0 { -1.0 } else { 1.0 };
             let m1 = Mat3::from_axis_angle(
                 self.up_world,
-                -ctrl.horizontal * ctrl.sensitivity_rotate * SENSITIVITY_ORBIT,
+                -reverse * ctrl.horizontal * ctrl.sensitivity_rotate * SENSITIVITY_ORBIT,
             );
             let m2 = Mat3::from_axis_angle(
                 self.right(),
@@ -1434,6 +1442,34 @@ mod tests {
         eye.arcball_update(&mut ctrl);
         let d = eye.distance_anchor();
         assert!((d - 5.0).abs() < 1e-4, "distance after a doubling pinch: {d}");
+    }
+
+    /// Upside down, a drag to the right still turns the scene to the right.
+    /// The turntable spins about world up, so without the reversal the same
+    /// drag moved the camera to the same *world* side -- with screen right
+    /// mirrored, the opposite side of the screen. Blender reverses the
+    /// orbital term for an upside-down view; so does this.
+    #[test]
+    fn horizontal_orbit_follows_the_screen_when_upside_down() {
+        let travel = |up: Vec3| {
+            let mut eye = eye_at_distance(10.0);
+            eye.up = up;
+            eye.sanitize_basis();
+            let (pos, right) = (eye.pos, eye.right());
+            let mut ctrl = controller();
+            ctrl.mouse_motion(30.0, 0.0);
+            eye.arcball_update(&mut ctrl);
+            // The camera's travel along what was screen-right.
+            (eye.pos - pos).dot(right)
+        };
+        let upright = travel(Vec3::Z);
+        let inverted = travel(-Vec3::Z);
+        assert!(upright.abs() > 1e-3, "the drag did not orbit: {upright}");
+        assert!(
+            (upright - inverted).abs() < 1e-4,
+            "the camera must cross the screen the same way either way up: \
+             upright {upright}, inverted {inverted}"
+        );
     }
 
     /// A script assigning `up` parallel to `dir` used to make `fix_up`

@@ -89,3 +89,23 @@ Trackpad Direction" corrects; no switch here yet, since winit does not report
 Not done, deliberately: the two-finger twist (`RotationGesture`, azimuth in
 Blender) and `ctrl` / `shift` + wheel panning on a mouse. Neither was asked
 for and each is a few lines on the same controller if wanted.
+
+## Upside down, the drag reversed
+
+Reported the same afternoon: with the view upside down (-Z up the screen), a
+drag to the right turned the scene to the left. Blender does not do that.
+
+The turntable orbits about `up_world` with a fixed sign, so the camera always
+travels to the same *world* side for a drag to the right. Upright, that side is
+screen-left and the scene turns right -- grab-and-drag. Upside down, screen
+right is the mirror of world right, the camera travels to screen-right and the
+scene turns left. Blender has the same turntable and handles it with one
+flag, `vod->reverse = -1` when `persmat[2][1] < 0` -- when world-Z projects
+down the screen -- applied to the global-Z rotation only. `arcball_update`
+now does the same from `up.dot(up_world) < 0`. The vertical term is untouched,
+as in Blender: its axis is `right()`, the screen's own, which flips with `up`.
+
+One difference: Blender latches the flag at the start of a drag, so a drag
+that crosses the pole keeps its sign until release; here it is read each
+frame, so the crossing flips at once and the scene keeps following the
+pointer. Unit test: `horizontal_orbit_follows_the_screen_when_upside_down`.

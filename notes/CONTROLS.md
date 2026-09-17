@@ -274,6 +274,15 @@ did nothing in the editor until 17 September: egui consumed it before the
 camera saw it, and where it did get through (a bare window) it was fed in as
 notches, so a whole pinch moved the eye 11%.
 
+**Either way up, the scene follows the pointer.** The turntable spins about
+world up, so with the view upside down the same drag moved the camera to the
+same *world* side -- the opposite side of the screen -- and a drag to the right
+turned the scene to the left. Blender reverses its orbital term when world-Z
+points down the screen (`vod->reverse`), and `Eye::arcball_update` does the
+same from the sign of `up · up_world`. The vertical term needs nothing, its
+axis being the screen's own right. Since 17 September; before that the flip
+happened at the pole.
+
 ## Mouse — WASD
 
 The cursor is hidden and grabbed (`Confined`, falling back to `Locked`), so
