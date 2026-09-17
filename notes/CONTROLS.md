@@ -26,8 +26,9 @@ Handled in `src/app/mod.rs` (`window_event` / `device_event`) and
 | `Ctrl` | Arcball | Held during a two-finger swipe, zooms instead of orbiting — see below |
 
 **The editor's Restart has no key, deliberately.** It clears the scene and
-runs the script again -- a script driving its own `while app.running:` loop
-is asked to end it first, `running` going false as it does at close -- so a keystroke would throw away a long run; it is worth
+runs the script again -- the text in the panel, saved or not, so an edit can
+be tried before it is kept; a script driving its own `while app.running:`
+loop is asked to end it first, `running` going false as it does at close -- so a keystroke would throw away a long run; it is worth
 having to aim for the button.
 
 ### `F` — fullscreen

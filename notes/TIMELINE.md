@@ -2262,4 +2262,6 @@ recorded inside the frame and taken between two editor frames, but a
 had the rule -- `superseded` -- and the Python path has it now: another
 pending run ends the loop, the script returns, and the editor runs it again
 from the top. Tested by a script that presses Restart from inside its own
-loop.
+loop. And Restart stays enabled after an edit: editing clears `script_ran`
+so that Play means "run the new text", which greyed Restart out at the
+moment it was wanted. It runs the text in the panel, saved or not.

@@ -501,23 +501,30 @@ impl Editor {
                             run_request = true;
                         }
                     }
+                    // Enabled whenever there is something to run, not only
+                    // once it has run: an edit clears `script_ran` so that
+                    // Play means "run the new text", and that greyed Restart
+                    // out at exactly the moment it was wanted -- to see the
+                    // change. It runs the text in the panel, saved or not;
+                    // saving is for when the change is worth keeping.
                     if ui
                         .add_enabled(
-                            script_ran && !native,
+                            have_script && !native,
                             egui::Button::new("\u{27f2} Restart").min_size(TRANSPORT),
                         )
                         .on_hover_text(if native {
                             "This window is the example; close it and launch again"
-                        } else if loaded {
+                        } else if is_rust {
                             "Load this example again and stop at the start"
                         } else {
-                            "Rebuild the scene from the script and stop at the start"
+                            "Rebuild the scene from the text in the panel -- saved or not -- and stop at the start"
                         })
                         .clicked()
                     {
                         // Reloading *is* the restart: it clears the scene and
-                        // runs the example again from the top.
-                        if loaded {
+                        // runs the example again from the top. A `.rs` never
+                        // reaches the script runner, so for one this is Play.
+                        if is_rust {
                             launch_request = true;
                         } else {
                             run_request = true;
