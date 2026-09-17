@@ -437,7 +437,13 @@ pub(crate) fn expand_hud(
     diag: &crate::app::simulation::Diagnostics,
     drawn: usize,
 ) -> String {
-    let its = if state.is_paused { 0.0 } else { rate };
+    // Under a rate cap the counter moves at the cap, or at the frame rate
+    // if that is slower -- not at the frame rate the estimator measured.
+    let its = if state.is_paused {
+        0.0
+    } else {
+        state.rate.map_or(rate, |cap| cap.min(rate))
+    };
     let nit = match state.pause_at {
         Some(n) => n.to_string(),
         None => "?".to_string(),
@@ -2082,7 +2088,13 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 // The frame itself still runs and still presents, so the
                 // window keeps drawing the paused scene and stays responsive
                 // to input; only the simulation stops advancing.
-                let paused = self.simulation.borrow().state.is_paused;
+                // Also a frame the rate cap holds: same treatment, the
+                // counter and the callbacks wait while the frame draws.
+                let paused = !self
+                    .simulation
+                    .borrow_mut()
+                    .state
+                    .begin_frame(std::time::Instant::now());
 
                 // Held across the borrow below: the editor draws after it,
                 // because the UI needs `&mut Simulation::state` for its

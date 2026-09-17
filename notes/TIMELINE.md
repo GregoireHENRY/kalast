@@ -2238,3 +2238,13 @@ handled by the receiver-plane term, whose ceiling is now a slope (tan 85°)
 instead of one texel of depth. Centroid shift 6 px and 3 px, darkness integral
 conserved to 0.3 %, false darkening at pcf 16 down fivefold. `pcf = 0` is
 bit-identical. Note: `2026-09-17_pcf_erosion.md`; test: `tests/test_pcf_filters.py`.
+
+## 2026-09-17 — a rate cap, to watch a mutual event
+
+`sim.state.rate` (and a `rate` slider in the Run header): a cap on iterations
+per second. The frame keeps its full rate, so the camera stays live; the
+counter and both callbacks wait, the same contract as pause, so no script
+steps an iteration twice. Asked for because the didymos example at 600 it/s
+turns a mutual event into a blink. `State::begin_frame` decides once per
+frame, `State::advance` moves the counter; measured advance to advance, so
+unpausing never waits out a period.

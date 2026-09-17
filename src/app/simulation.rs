@@ -265,23 +265,7 @@ impl Simulation {
     }
 
     pub fn update(&mut self) {
-        if self.state.is_paused {
-            return;
-        }
-
-        self.state.iteration += 1;
-
-        // `pause_at` was set in three places and enforced in none: the Step
-        // button raised it and unpaused, and nothing ever paused again, so
-        // Step ran on like Play. A HUD's `{nit}` read it the whole time.
-        //
-        // `==`, not `>=`: the counter moves one at a time, so exact is
-        // enough, and it means Play after an automatic pause advances past
-        // the mark instead of stopping on it again. `pause_at` is left set,
-        // because `{nit}` uses it as the length of the run.
-        if self.state.pause_at == Some(self.state.iteration) {
-            self.state.is_paused = true;
-        }
+        self.state.advance();
     }
 
     pub fn toggle_export(&mut self) {
@@ -446,6 +430,17 @@ pub struct State {
     /// Also what `{nit}` reads in a HUD template, since it is the only thing that
     /// tells the engine how long a run is meant to be.
     pub pause_at: Option<usize>,
+    /// Cap on iterations per second; `None` runs as fast as the frame does.
+    ///
+    /// For watching something that otherwise flashes past -- a mutual event at
+    /// 600 it/s is a blink. The frame keeps its full rate, so the camera stays
+    /// live; only the counter and the callbacks wait, exactly as under pause.
+    pub rate: Option<crate::Float>,
+    /// Set by `begin_frame`: this frame does not advance, because the run is
+    /// paused or the cap says it is too soon. Read by `advance`.
+    pub held: bool,
+    /// When the counter last advanced, which is what `rate` is measured from.
+    pub last_advance: Option<std::time::Instant>,
 }
 
 impl State {
@@ -454,6 +449,53 @@ impl State {
             iteration: 0,
             is_paused: false,
             pause_at: None,
+            rate: None,
+            held: false,
+            last_advance: None,
+        }
+    }
+
+    /// One frame's decision: does the simulation advance this frame?
+    ///
+    /// `false` while paused, and `false` while `rate` says the last advance
+    /// was too recent. The frame draws either way, so the window stays live;
+    /// but the callbacks are skipped and `advance` does nothing, the same
+    /// contract as pause, so a physics script never steps one iteration
+    /// twice. A frame that advances stamps `now`, so the cap is measured from
+    /// advance to advance and unpausing never waits out a period.
+    pub fn begin_frame(&mut self, now: std::time::Instant) -> bool {
+        let too_soon = match (self.rate, self.last_advance) {
+            (Some(rate), Some(last)) if rate > 0.0 => {
+                now.duration_since(last).as_secs_f64() < 1.0 / rate as f64
+            }
+            _ => false,
+        };
+        self.held = self.is_paused || too_soon;
+        if !self.held {
+            self.last_advance = Some(now);
+        }
+        !self.held
+    }
+
+    /// Advances the counter, unless `begin_frame` held this frame. Once per
+    /// frame, after both callbacks, so they see the same value.
+    pub fn advance(&mut self) {
+        if self.is_paused || self.held {
+            return;
+        }
+
+        self.iteration += 1;
+
+        // `pause_at` was set in three places and enforced in none: the Step
+        // button raised it and unpaused, and nothing ever paused again, so
+        // Step ran on like Play. A HUD's `{nit}` read it the whole time.
+        //
+        // `==`, not `>=`: the counter moves one at a time, so exact is
+        // enough, and it means Play after an automatic pause advances past
+        // the mark instead of stopping on it again. `pause_at` is left set,
+        // because `{nit}` uses it as the length of the run.
+        if self.pause_at == Some(self.iteration) {
+            self.is_paused = true;
         }
     }
 
@@ -467,6 +509,40 @@ impl State {
 #[cfg(test)]
 mod pause_tests {
     use super::*;
+
+    /// `rate` caps iterations per second by holding frames the way pause
+    /// does: the counter waits, the frame still draws. Measured from advance
+    /// to advance, so unpausing never waits out a period.
+    #[test]
+    fn rate_holds_the_counter_until_the_period_has_passed() {
+        use std::time::{Duration, Instant};
+        let mut s = State::new();
+        s.rate = Some(1.0);
+        let t0 = Instant::now();
+
+        assert!(s.begin_frame(t0), "the first frame under a cap advances");
+        s.advance();
+        assert_eq!(s.iteration, 1);
+
+        assert!(!s.begin_frame(t0 + Duration::from_millis(10)), "10 ms into a 1 s period");
+        s.advance();
+        assert_eq!(s.iteration, 1, "a held frame must not count");
+
+        assert!(s.begin_frame(t0 + Duration::from_millis(1500)));
+        s.advance();
+        assert_eq!(s.iteration, 2);
+
+        s.rate = None;
+        assert!(s.begin_frame(t0 + Duration::from_millis(1501)), "no cap, every frame");
+        s.advance();
+        assert_eq!(s.iteration, 3);
+
+        s.rate = Some(1.0);
+        s.is_paused = true;
+        assert!(!s.begin_frame(t0 + Duration::from_secs(10)), "pause wins");
+        s.is_paused = false;
+        assert!(s.begin_frame(t0 + Duration::from_secs(10)), "unpausing advances at once");
+    }
 
     /// `pause_at` used to be set and never acted on, which made Step behave
     /// as Play.

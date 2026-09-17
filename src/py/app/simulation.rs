@@ -597,6 +597,20 @@ impl State {
         self.simulation.borrow_mut().state.pause_at = pause_at;
     }
 
+    /// Cap on iterations per second, or `None` to run as fast as the frame does.
+    ///
+    /// The frame keeps its full rate -- the camera stays live -- while the
+    /// counter and both callbacks wait, exactly as under pause.
+    #[getter]
+    fn rate(&self) -> Option<Float> {
+        self.simulation.borrow().state.rate
+    }
+
+    #[setter]
+    fn set_rate(&mut self, rate: Option<Float>) {
+        self.simulation.borrow_mut().state.rate = rate;
+    }
+
     /// Flip the pause state, returning the new value.
     pub fn toggle_pause(&mut self) -> bool {
         self.simulation.borrow_mut().state.toggle_pause()

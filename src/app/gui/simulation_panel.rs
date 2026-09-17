@@ -719,6 +719,22 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config, a: &mut AppCon
                 .on_hover_text("sim.state.iteration -- iterations begun, so one ahead of the frame on screen");
         });
         ui.checkbox(&mut sim.state.is_paused, "is_paused");
+        // A cap on iterations per second, for watching something that
+        // otherwise flashes past. Logarithmic: the useful range runs from
+        // one iteration every few seconds to a few hundred a second.
+        ui.horizontal(|ui| {
+            let mut on = sim.state.rate.is_some();
+            if ui
+                .checkbox(&mut on, "rate")
+                .on_hover_text("sim.state.rate -- cap on iterations per second; off runs as fast as the frame does")
+                .changed()
+            {
+                sim.state.rate = on.then_some(10.0);
+            }
+            if let Some(rate) = sim.state.rate.as_mut() {
+                ui.add(egui::Slider::new(rate, 0.1..=1000.0).logarithmic(true).suffix(" it/s"));
+            }
+        });
         ui.horizontal(|ui| {
             let mut on = sim.state.pause_at.is_some();
             if ui.checkbox(&mut on, "pause_at").changed() {
