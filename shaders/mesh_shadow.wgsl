@@ -32,7 +32,7 @@ struct Light {
     // One per body: aimed at it and sized to it, with depth spanning the
     // scene so occluders still cast into it.
     view_proj_layers: array<mat4x4<f32>, 8>,
-    // Per layer: (normal_offset_scale, bias_scale, bias_minimum, unused).
+    // Per layer: (normal_offset_scale, bias_scale, bias_minimum, texel_depth).
     // Per layer because each covers a different world extent at the same
     // texel count, so one texel is a different distance in each.
     layer_bias: array<vec4<f32>, 8>,
@@ -283,16 +283,33 @@ fn project_light(m: mat4x4<f32>, pos: vec3<f32>) -> vec3<f32> {
     return vec3<f32>(pr.xy * 0.5 + 0.5, pr.z);
 }
 
-// Ceiling on the per-tap receiver-plane adjustment, in normalised depth.
+// Ceiling on the receiver-plane slope, as tan(incidence).
 //
-// The gradient is only valid where the occluder *is* the receiver -- a wall
-// shadowing itself. Where the occluder is another surface, such as the rim
-// casting onto the crater floor, the receiver's slope says nothing about the
-// stored depth, and an unclamped adjustment pushes those taps out of shadow:
-// the floor leak went 215 -> 3,892 px at pcf=2 with no ceiling. Measured on
-// the crater, 1e-4 removes the wall acne (39,219 -> 710 px) while leaving the
-// floor leak at its best value.
-const GRAD_MAX: f32 = 1.0e-4;
+// The per-tap adjustment extends the receiver's plane out to the tap. That is
+// right where the tap lands on the receiver itself and wrong where it lands
+// on an occluder -- there the receiver's slope says nothing about the stored
+// depth -- or where the surface has curved away from its own plane. Both
+// failures grow with the slope, and at a terminator the slope runs to
+// infinity: a receiver at 89.9 degrees extrapolated sixteen texels rises a
+// kilometre in depth, past Dimorphos, and the tap goes lit.
+//
+// This used to be a fixed depth ceiling, `GRAD_MAX = 1e-4`, about one texel
+// at 8192. That left the adjustment nothing to say beyond the first tap, and
+// the acne it should have prevented was being suppressed instead by scaling
+// the normal offset with the kernel -- which lifted the lookup up to
+// seventeen texels off the surface and ate the shadow at grazing incidence
+// (see `notes/2026-09-17_pcf_erosion.md`). A slope ceiling scales with the
+// tap's distance, so a wall stays a wall out to the kernel's edge, and it
+// bites only where the planar assumption is already false.
+//
+// 85 degrees, not 80: on a sphere most of the acne-prone surface is the band
+// just short of the terminator, and a ceiling at tan(80) let it self-shadow
+// again -- 211 -> 3,075 px on Didymos at pcf 4, against 473 at tan(85) and
+// 211 unclamped. Unclamped would do here, but a close occluder at a
+// terminator -- a boulder's shadow at sunset -- is exactly where an unbounded
+// extrapolation flips, so the ceiling stays, set where it costs almost
+// nothing.
+const GRAD_MAX_SLOPE: f32 = 11.43; // tan(85 deg)
 
 @group(2) @binding(0)
 var t_shadow: texture_depth_2d_array;
@@ -388,17 +405,14 @@ fn fs_shaded(in: VertexOutput) -> vec4<f32> {
     // shadow: this body's own layer, with that layer's bias
     let layer = min(in.shadow_layer, max(view.light.n_layers, 1u) - 1u);
     let lb = view.light.layer_bias[layer];
-    // Scaled by the PCF kernel radius, not one texel. `lb.x` is one texel
-    // diagonal, which is the right separation for a single tap -- but a
-    // `shadow_pcf = N` kernel reaches N texels away, and every one of those
-    // taps compares against a stored depth that far along the surface. With a
-    // one-texel offset those taps flip, and averaging turns a black interior
-    // into grey: 7,952 px of the crater floor lifted out of full shadow at
-    // N = 4, against 494 with the offset scaled to the kernel.
-    //
-    // `N = 0` keeps exactly the previous value, so the single-tap path -- and
-    // every product rendered with it -- is unchanged.
-    let normal_offset = lb.x * (1.0 + f32(globals.shadow_pcf)) * k;
+    // One texel diagonal, whatever the kernel. This used to scale with the
+    // PCF radius to keep far taps from self-shadowing a tilted receiver, but
+    // lifting the lookup N texels off the surface moves the shadow's edge --
+    // at grazing incidence by far more than N texels along the surface --
+    // and Dimorphos's shadow on Didymos shrank from 78,042 to 8,539 px
+    // between pcf 0 and 16 at 512. The far taps are the receiver-plane
+    // term's job below; the offset only has to clear the texel it is in.
+    let normal_offset = lb.x * k;
     let offset_pos = in.world_pos + in.world_normal * normal_offset;
     let light_space = view.light.view_proj_layers[layer] * vec4<f32>(offset_pos, 1.0);
     var proj = light_space.xyz / light_space.w;
@@ -407,8 +421,14 @@ fn fs_shaded(in: VertexOutput) -> vec4<f32> {
     let depth = proj.z;
     let bias = max(lb.y * k2, lb.z);
 
-    let grad = receiver_plane_grad(
+    var grad = receiver_plane_grad(
         view.light.view_proj_layers[layer], offset_pos, in.world_normal);
+    // `grad` is depth per uv. Per texel, in units of one texel's depth, it is
+    // tan(incidence) -- which is what the ceiling is written in.
+    let slope = length(grad) / (f32(globals.shadow_resolution) * max(lb.w, 1.0e-12));
+    if slope > GRAD_MAX_SLOPE {
+        grad *= GRAD_MAX_SLOPE / slope;
+    }
 
     var shadow = 1.0;
 
@@ -432,7 +452,7 @@ fn fs_shaded(in: VertexOutput) -> vec4<f32> {
                 let offset = vec2<f32>(f32(x), f32(y)) * texel_size;
                 // Compare against the depth the receiver actually has at
                 // this tap, not at the kernel centre.
-                let adj = clamp(dot(offset, grad), -GRAD_MAX, GRAD_MAX);
+                let adj = dot(offset, grad);
                 sum += textureSampleCompare(t_shadow, s_shadow, uv + offset, layer,
                                             depth + adj - bias);
             }

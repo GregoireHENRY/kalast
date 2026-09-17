@@ -198,6 +198,9 @@ pub struct ShadowFit {
     pub normal_offset_scale: f32,
     pub bias_scale: f32,
     pub bias_minimum: f32,
+    /// One texel's worth of normalised depth: the unit the shader's slope
+    /// ceiling is written in. Geometry, not a knob, so it is never pinned.
+    pub texel_depth: f32,
 }
 
 /// Derives shadow bias and normal offset from the light's fitted orthographic
@@ -256,6 +259,7 @@ pub fn fit_shadow(light: &Resolved, shadow_resolution: u32) -> ShadowFit {
         bias_scale: (texel_depth * BIAS_SCALE_FACTOR) as f32,
         // Floor for surfaces facing the light head-on.
         bias_minimum: (texel_depth * BIAS_MIN_FACTOR) as f32,
+        texel_depth: texel_depth as f32,
     }
 }
 

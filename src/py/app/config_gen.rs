@@ -231,9 +231,12 @@ impl ShadowsConfig {
     /// `shadow_pcf = 4` costs +2.5 ms at 800x600 and +7.8 ms at 3024x1964. Benchmark
     /// it at the resolution you actually run.
     ///
-    /// The normal offset scales with this, since an N-radius kernel reaches N texels
-    /// away and a one-texel offset would let those taps flip. `shadow_pcf = 0` is
-    /// bit-identical to the pre-scaling behaviour.
+    /// A filter, not a shift: every tap compares against the depth the
+    /// receiver's own plane has at that tap, so the kernel blurs the edge
+    /// without moving it. Until 17 September the normal offset grew with the
+    /// radius instead, which at grazing incidence pushed the shadow's edge
+    /// away from the terminator -- Dimorphos's shadow on Didymos detached
+    /// and shrank as the kernel grew. See `notes/2026-09-17_pcf_erosion.md`.
     #[getter]
     fn pcf(&self) -> u32 { self.config.borrow().shadows.pcf }
     #[setter]
@@ -241,8 +244,10 @@ impl ShadowsConfig {
     /// Push the sample along the surface normal before the shadow lookup, in
     /// world units. `None` fits it per frame from the layer's own texel size.
     ///
-    /// Scaled by the PCF kernel radius, since an N-radius kernel reaches N
-    /// texels away and a one-texel offset would let those taps flip.
+    /// One texel diagonal whatever the PCF radius. The far taps of a kernel
+    /// are the shader's per-tap receiver-plane term's business, not this
+    /// offset's: lifting the lookup further off the surface moved the shadow
+    /// instead of blurring it.
     ///
     /// Pinning it is now worse than leaving it automatic: with per-body shadow
     /// layers a pinned value replaces the fitted one on *every* layer, and

@@ -1122,14 +1122,20 @@ VRAM.
 ### `shadows.pcf: u32` — default `0` *(live)*
 Percentage-closer-filtering kernel *radius*.
 
-**The normal offset scales with this**, `lb.x * (1 + shadow_pcf)`. One texel
-diagonal is the right surface separation for a single tap, but an `N`-radius
-kernel reaches `N` texels away and each of those taps compares against a
-stored depth that far along the surface. With a one-texel offset they flip,
-and averaging turns full shadow into grey: on the crater example 7,952 px of
-the floor lifted out of black at `N = 4`, against 388 once scaled. `N = 0` is
-bit-identical to the previous behaviour, so nothing rendered with the default
-changes.
+**A filter, not a shift.** Each tap compares against the depth the receiver's
+own plane has *at that tap* (the receiver-plane term, with its slope capped at
+tan 85°), so the kernel blurs the shadow's edge without moving it. It used to
+work the other way round: the normal offset grew with the radius,
+`lb.x * (1 + N)`, and lifting the lookup `N` texels off the surface moves the
+edge -- at grazing incidence by `sqrt(2 R h)` along a body of radius `R`, far
+more than `N` texels. Dimorphos's shadow on Didymos, landing at the
+terminator, detached at `N = 7` and all but vanished at `N = 16` (at 512:
+78,042 -> 8,539 black px, darkness centroid moved 103 px). Now the centroid
+moves 6 px there and 3 px at 8192, the darkness integral is conserved to
+0.3 %, and false darkening at `N = 16` is a fifth of what it was. `N = 0` is
+bit-identical either way, so nothing rendered with the default changes.
+Measured in `notes/2026-09-17_pcf_erosion.md`; guarded by
+`tests/test_pcf_filters.py`.
 
 | Value | Behaviour |
 |---|---|
@@ -1157,7 +1163,9 @@ light space, scaled by `k = 1 - N·L` so the offset grows at grazing angles:
 `offset_pos = world_pos + world_normal * shadow_normal_offset_scale * k`.
 `src/app/window.rs:205`, shader `mesh_shadow.wgsl:144-145`.
 Accepted: any float. Too small leaves shadow acne; too large detaches shadows
-from their casters (peter-panning).
+from their casters (peter-panning). It no longer grows with `shadows.pcf`:
+that was peter-panning by another name, and is what the receiver-plane term
+is for.
 
 ### `shadows.bias_scale: Optional[float]` — default `None` (automatic) *(live)*
 ### `shadows.bias_minimum: Optional[float]` — default `None` (automatic) *(live)*

@@ -112,6 +112,13 @@ should do.
 
 Residuals, not zero: 710 px on the wall, 388 px in the floor.
 
+**Superseded 2026-09-17.** Scaling the normal offset with the kernel was
+suppressing the acne the clamped receiver-plane term should have prevented,
+and paid for it by moving the shadow: at grazing incidence the lift pushed
+Dimorphos's shadow off the terminator and shrank it with `N`. The offset is
+one texel again and the receiver-plane term's ceiling is a slope, tan 85°,
+instead of a fixed depth. See `2026-09-17_pcf_erosion.md`.
+
 ## Still open: the automatic bias is not calibrated
 
 The crater has an **exact** answer -- the depression is 63.28% of facets by

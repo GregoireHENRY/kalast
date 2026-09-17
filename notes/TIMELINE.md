@@ -2224,3 +2224,17 @@ right turns the scene right either way up. And the camera is levelled whenever
 the user takes hold of it -- orbit, WASD look, `T` -- because the WASD look
 yawed about the camera's own up and anchor switches kept a stale `up`, and
 both left the turntable tilted. Note: `2026-09-17_trackpad_gestures.md`.
+
+## 2026-09-17 — PCF moved shadows; now it filters
+
+Reported on the Didymos example at iteration 12907: Dimorphos's shadow, landing
+at Didymos's terminator, detached from the night side at `shadows.pcf = 7` and
+all but vanished at 16. A filter blurs an edge; it does not move it. The normal
+offset was growing with the kernel radius, and a lift of `h` off a body of
+radius `R` moves a grazing shadow edge by `sqrt(2 R h)` -- 45 m at pcf 0 and
+512, 185 m at pcf 16. Measured by the darkness centroid: 103 px of shift at
+512/16, 29 px at 8192/16. The offset is one texel again; the far taps are
+handled by the receiver-plane term, whose ceiling is now a slope (tan 85°)
+instead of one texel of depth. Centroid shift 6 px and 3 px, darkness integral
+conserved to 0.3 %, false darkening at pcf 16 down fivefold. `pcf = 0` is
+bit-identical. Note: `2026-09-17_pcf_erosion.md`; test: `tests/test_pcf_filters.py`.

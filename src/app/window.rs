@@ -1649,7 +1649,7 @@ impl Window {
                         .unwrap_or(fit.normal_offset_scale) as Float,
                     config.shadows.bias_scale.unwrap_or(fit.bias_scale) as Float,
                     config.shadows.bias_minimum.unwrap_or(fit.bias_minimum) as Float,
-                    0.0,
+                    fit.texel_depth as Float,
                 );
             }
         }
