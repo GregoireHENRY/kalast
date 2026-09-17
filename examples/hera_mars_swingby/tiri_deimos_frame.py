@@ -86,8 +86,8 @@ app.config.height = NPY
 app.simulation.config.shadows.access_shadow_map = True
 app.simulation.config.huds = [kalast.app.Hud("")]   # filled in before_render
 app.simulation.camera.projection.fovy = 2.0 * HY
-app.simulation.load_mesh(path=MESH, mat=numpy.eye(4), flatten=True)
-app.simulation.load_mesh(path=SPHERE, mat=numpy.eye(4), flatten=True)
+app.simulation.load_mesh(path=MESH, mat=numpy.eye(4))
+app.simulation.load_mesh(path=SPHERE, mat=numpy.eye(4))
 nface = len(app.simulation.bodies[0].mesh.facets)
 mars_mesh = app.simulation.bodies[1].mesh
 n_mars = len(mars_mesh.facets)

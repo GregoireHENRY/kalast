@@ -453,7 +453,7 @@ not in the `while` line:**
 
 ```python
 app = App()
-app.simulation.load_mesh(path=..., mat=numpy.eye(4), flatten=True)
+app.simulation.load_mesh(path=..., mat=numpy.eye(4))
 sim = app.simulation
 
 while app.running:
@@ -734,12 +734,16 @@ for that plane; assigning `None` restores automatic. `fovy` is never automatic
 ## Meshes
 
 ```python
-sim.load_mesh(path=..., mat=numpy.eye(4), flatten=True, shadow_path=None)
+sim.load_mesh(path=..., mat=numpy.eye(4), smooth=False, shadow_path=None)
 sim.add_mesh(mesh, mat=None)
 ```
 
-`flatten=True` gives each facet its own vertices, which is what makes
-per-facet data and the wireframe overlay work.
+Meshes load **flat**: each facet owns its three vertices, which is what
+per-facet data, the wireframe overlay and the facet index map need.
+`smooth=True` keeps the file's shared vertices instead, for a smooth-shaded
+surface. `flatten=` was the argument until 17 September, default off, so every
+script had to say `flatten=True`; it is accepted for a release, inverted, with
+a `DeprecationWarning`.
 
 `shadow_path` names a coarser mesh to render into the shadow map in place of
 `path`. The shadow map only decides which fragments are lit, so a coarser
@@ -765,7 +769,7 @@ every later index means. Colours have their own, cheaper route in
 ### What a `Mesh` carries
 
 Per-vertex arrays, one row per vertex, in the order the buffers hold them —
-which after `flatten=True` is three unshared rows per facet:
+which, loaded flat (the default), is three unshared rows per facet:
 
 | | |
 |---|---|
@@ -922,7 +926,7 @@ what a latitude and longitude have to come from. It returns the nearest hit
 across every body.
 
 **Indexed meshes bleed**: the three vertices are shared with neighbouring
-facets. Load with `flatten=True`.
+facets. Load flat (the default), not `smooth=True`.
 
 ### Facet index map — feeds the FITS products
 

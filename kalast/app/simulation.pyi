@@ -43,8 +43,14 @@ class Simulation:
     aims itself from `sun.pos` at the body it covers, so `dir` and `anchor` are
     not consulted.
     """
-    def load_mesh(self, path: str, mat: list[list[float]] | None, flatten: bool | None, shadow_path: str | None) -> None:
-        """`shadow_path` optionally names a lower-resolution mesh to render into
+    def load_mesh(self, path: str, mat: list[list[float]] | None, smooth: bool, shadow_path: str | None, flatten: bool | None) -> None:
+        """Meshes load *flat* -- each facet owning its three vertices -- which is
+        what per-facet data, the wireframe overlay and the facet index map
+        need. `smooth=True` keeps the file's shared vertices instead, for a
+        smooth-shaded surface. `flatten=` is the old spelling, accepted for a
+        release with a `DeprecationWarning`.
+
+        `shadow_path` optionally names a lower-resolution mesh to render into
         the shadow map in place of `path`. The shadow map only decides which
         fragments are lit, so a coarser occluder buys performance without
         touching per-facet science data -- unlike loading a coarser `path`,

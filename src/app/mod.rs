@@ -1251,7 +1251,7 @@ impl App {
                 Some("obj") => {
                     self.simulation
                         .borrow_mut()
-                        .load_mesh(path, crate::Mat4::IDENTITY, true);
+                        .load_mesh(path, crate::Mat4::IDENTITY, false);
                 }
                 _ => eprintln!("don't know what to do with {arg}: expected .py, .rs or .obj"),
             }

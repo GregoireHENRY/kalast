@@ -71,7 +71,7 @@ app = kalast.app.App()
 app.config.width = 256
 app.config.height = 256
 for i, name in enumerate(BODIES):
-    app.simulation.load_mesh(path=MESH[name], mat=numpy.eye(4), flatten=True)
+    app.simulation.load_mesh(path=MESH[name], mat=numpy.eye(4))
     mesh = app.simulation.bodies[i].mesh
     s = state[name]
     s["index"] = i

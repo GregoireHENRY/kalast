@@ -98,8 +98,8 @@ app.simulation.camera.projection.fovy = numpy.radians(tiri.fovy)
 # time: Deimos is drawn with the scene fitted to Deimos, Mars with the scene
 # fitted to Mars, and the two images composited. Loading both up front avoids
 # rebuilding GPU buffers between passes.
-app.simulation.load_mesh(path=MESH, mat=numpy.eye(4), flatten=True)
-app.simulation.load_mesh(path=SPHERE, mat=numpy.eye(4), flatten=True)
+app.simulation.load_mesh(path=MESH, mat=numpy.eye(4))
+app.simulation.load_mesh(path=SPHERE, mat=numpy.eye(4))
 deimos_mesh = app.simulation.bodies[0].mesh
 nface = len(deimos_mesh.facets)
 mars_mesh = app.simulation.bodies[1].mesh

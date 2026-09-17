@@ -60,17 +60,14 @@ app.simulation.camera.projection.fovy = 10.0 * RPD
 app.simulation.load_mesh(
     path="/Users/gregoireh/data/mesh/mars/mars_dtm_10x.obj",
     mat=numpy.eye(4),
-    flatten=True,
 )
 app.simulation.load_mesh(
     path="/Users/gregoireh/data/mesh/phobos/phobos_m003_gas_v01_10k.obj",
     mat=numpy.eye(4),
-    flatten=True,
 )
 app.simulation.load_mesh(
     path="/Users/gregoireh/data/mesh/deimos/deimos_10k.obj",
     mat=numpy.eye(4),
-    flatten=True,
 )
 app.simulation.bodies[0].mat = pos_mat("MARS", "IAU_MARS", et0)
 app.simulation.bodies[1].mat = pos_mat("PHOBOS", "IAU_PHOBOS", et0) @ M4_RESCALE

@@ -140,7 +140,7 @@ app.simulation.config.shadows.access_shadow_map = True
 app.simulation.config.huds = [kalast.app.Hud("")]   # filled in before_render
 app.simulation.camera.projection.fovy = numpy.radians(tiri.fovy)
 
-app.simulation.load_mesh(path=MESH, mat=numpy.eye(4), flatten=True)
+app.simulation.load_mesh(path=MESH, mat=numpy.eye(4))
 mesh = app.simulation.bodies[0].mesh
 nface = len(mesh.facets)
 if nface != T.shape[0]:

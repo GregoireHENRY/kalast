@@ -2265,3 +2265,13 @@ from the top. Tested by a script that presses Restart from inside its own
 loop. And Restart stays enabled after an edit: editing clears `script_ran`
 so that Play means "run the new text", which greyed Restart out at the
 moment it was wanted. It runs the text in the panel, saved or not.
+
+## 2026-09-17 — meshes load flat by default
+
+`load_mesh(..., flatten=True)` appeared 27 times in the live examples and
+tests and `flatten=False` nowhere: a default nobody wanted, spelled out every
+time. Flat is the default now, and the argument is the exception --
+`smooth=True` keeps the file's shared vertices. The Rust `load_mesh` takes
+`smooth: bool` the same way. `flatten=` is accepted for a release, inverted,
+with a `DeprecationWarning`; `tests/test_load_mesh.py` checks all four
+spellings.

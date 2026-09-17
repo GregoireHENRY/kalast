@@ -155,11 +155,15 @@ impl Simulation {
         }
     }
 
-    pub fn load_mesh<P>(&mut self, path: P, mat: Mat4, flatten: bool)
+    /// Load a mesh as a body. Flat by default -- each facet owning its three
+    /// vertices, which is what per-facet data, the wireframe overlay and the
+    /// facet index map need. `smooth` keeps the file's shared vertices
+    /// instead, for a smooth-shaded surface.
+    pub fn load_mesh<P>(&mut self, path: P, mat: Mat4, smooth: bool)
     where
         P: AsRef<std::path::Path>,
     {
-        self.load_mesh_with_shadow(path, mat, flatten, None::<&std::path::Path>);
+        self.load_mesh_with_shadow(path, mat, smooth, None::<&std::path::Path>);
     }
 
     /// As `load_mesh`, but renders `shadow_path` into the shadow map instead
@@ -169,7 +173,7 @@ impl Simulation {
         &mut self,
         path: P,
         mat: Mat4,
-        flatten: bool,
+        smooth: bool,
         shadow_path: Option<S>,
     ) where
         P: AsRef<std::path::Path>,
@@ -177,7 +181,7 @@ impl Simulation {
     {
         let mut mesh = crate::mesh::Mesh::load(path, |x| x);
 
-        if flatten {
+        if !smooth {
             mesh.flatten();
         }
 
@@ -186,7 +190,7 @@ impl Simulation {
 
             // Match the main mesh's flattening: the shadow pass shares the
             // render pipeline's vertex layout and flat/indexed draw path.
-            if flatten {
+            if !smooth {
                 shadow.flatten();
             }
 

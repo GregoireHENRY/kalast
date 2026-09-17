@@ -97,7 +97,7 @@ app.config.width = 512
 app.config.height = 512
 app.simulation.config.shadows.access_shadow_map = True
 app.simulation.config.huds = [kalast.app.Hud("")]   # filled in before_render
-app.simulation.load_mesh(path=MESH, mat=numpy.eye(4), flatten=True)
+app.simulation.load_mesh(path=MESH, mat=numpy.eye(4))
 nface = len(app.simulation.bodies[0].mesh.facets)
 pos = numpy.array([app.simulation.bodies[0].mesh.facets[k].pos
                    for k in range(nface)]) * 1e3

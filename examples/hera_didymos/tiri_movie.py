@@ -102,7 +102,7 @@ app.simulation.config.shadows.access_shadow_map = False
 
 app.simulation.camera.projection.fovy = numpy.radians(tiri.fovy)
 for b in BODIES:
-    app.simulation.load_mesh(path=MESH[b], mat=numpy.eye(4), flatten=True)
+    app.simulation.load_mesh(path=MESH[b], mat=numpy.eye(4))
 n_facets = [len(app.simulation.bodies[i].mesh.facets) for i in range(len(BODIES))]
 
 t_norm = colors.Normalize(*T_RANGE)

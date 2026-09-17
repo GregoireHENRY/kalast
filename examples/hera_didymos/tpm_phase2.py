@@ -360,7 +360,7 @@ app.simulation.camera.projection.fovy = 20.0 * RPD
 # deliverable is about, so it is the one kept.
 loaded = ACTIVE
 for i, name in enumerate(loaded):
-    app.simulation.load_mesh(path=MESH[name], mat=numpy.eye(4), flatten=True,
+    app.simulation.load_mesh(path=MESH[name], mat=numpy.eye(4),
                              shadow_path=PROXY.get(name))
     mesh = app.simulation.bodies[i].mesh
     s = state[name]

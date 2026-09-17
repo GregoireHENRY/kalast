@@ -119,7 +119,6 @@ def main() -> int:
     sim.load_mesh(
         path=os.path.join(ROOT, "res", "plane_crater_1024-5000_h=0.437.obj"),
         mat=numpy.eye(4),
-        flatten=True,
     )
 
     def grab(name: str) -> numpy.ndarray:

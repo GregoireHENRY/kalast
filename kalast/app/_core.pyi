@@ -41,7 +41,7 @@ class App:
 
         ```python
         app = App()
-        app.simulation.load_mesh(path=..., mat=numpy.eye(4), flatten=True)
+        app.simulation.load_mesh(path=..., mat=numpy.eye(4))
         app.start_editor()
         ```
 

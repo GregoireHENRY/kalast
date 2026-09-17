@@ -90,6 +90,12 @@ impl Simulation {
         }
     }
 
+    /// Meshes load *flat* -- each facet owning its three vertices -- which is
+    /// what per-facet data, the wireframe overlay and the facet index map
+    /// need. `smooth=True` keeps the file's shared vertices instead, for a
+    /// smooth-shaded surface. `flatten=` is the old spelling, accepted for a
+    /// release with a `DeprecationWarning`.
+    ///
     /// `shadow_path` optionally names a lower-resolution mesh to render into
     /// the shadow map in place of `path`. The shadow map only decides which
     /// fragments are lit, so a coarser occluder buys performance without
@@ -99,23 +105,44 @@ impl Simulation {
     #[pyo3(signature = (
         path,
         mat=None,
-        flatten=None,
+        smooth=false,
         shadow_path=None,
+        flatten=None,
     ))]
     fn load_mesh(
         &mut self,
+        py: Python<'_>,
         path: &str,
         mat: Option<[[Float; 4]; 4]>,
-        flatten: Option<bool>,
+        smooth: bool,
         shadow_path: Option<&str>,
-    ) {
+        flatten: Option<bool>,
+    ) -> PyResult<()> {
+        // `flatten=` was the argument until 17 September, default off -- so
+        // every script said `flatten=True`, which is the wrong default to
+        // have to spell out. Accepted for a release, inverted, with a
+        // warning.
+        let smooth = match flatten {
+            Some(flat) => {
+                PyErr::warn(
+                    py,
+                    &py.get_type::<pyo3::exceptions::PyDeprecationWarning>(),
+                    c"load_mesh(flatten=...) is deprecated: meshes load flat by default; \
+                      pass smooth=True to keep the file's shared vertices",
+                    2,
+                )?;
+                !flat
+            }
+            None => smooth,
+        };
         self.inner.borrow_mut().load_mesh_with_shadow(
             path,
             mat.map(|m| Mat4::from_cols_array_2d(&m).transpose())
                 .unwrap_or(Mat4::IDENTITY),
-            flatten.unwrap_or(false),
+            smooth,
             shadow_path,
         );
+        Ok(())
     }
 
     // This function in Python has to clone the mesh to transfer it to Simulation.

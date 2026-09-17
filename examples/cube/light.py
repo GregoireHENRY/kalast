@@ -11,7 +11,7 @@ app.simulation.config.wireframe.mode = 2
 app.simulation.config.wireframe.color = [0.05, 0.05, 0.05, 1.0]
 app.simulation.camera.pos = [18.0, 5.0, 10.0]
 app.simulation.camera.look_anchor()
-app.simulation.load_mesh(path="res/cube.obj", mat=numpy.eye(4), flatten=True)
+app.simulation.load_mesh(path="res/cube.obj")
 
 while app.running:
     a = 0.01 * app.simulation.state.iteration

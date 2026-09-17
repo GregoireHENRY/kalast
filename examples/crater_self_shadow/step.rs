@@ -33,7 +33,6 @@ fn main() {
         hud.size = 16.0;
         sim.huds = vec![Rc::new(RefCell::new(hud))];
 
-        sim.sun.pos = Vec3::new(0.0, 20.0, 5.0);
         sim.camera.pos = Vec3::new(1.5778934, 1.9384689, 1.5082116);
         sim.camera.dir = Vec3::new(-0.54051036, -0.6640262, -0.5166407);
         sim.camera.up = Vec3::new(-0.3261482, -0.40068075, 0.85620236);
@@ -41,7 +40,7 @@ fn main() {
         sim.load_mesh(
             "res/plane_crater_1024-5000_h=0.437.obj",
             Mat4::IDENTITY,
-            true,
+            false, // smooth: no -- flat, as every render wants
         );
     }
 

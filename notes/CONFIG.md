@@ -1523,7 +1523,7 @@ scene when it sits over a dark body.
 Barycentric edge detection in the main fragment shader -- a single pass, so
 the overlay cannot z-fight. Full write-up in `2026-08-25_renderer_auto_fit_wireframe/`.
 
-**Requires flat meshes** (`load_mesh(..., flatten=True)`). The barycentrics
+**Requires flat meshes** (the default; not `load_mesh(..., smooth=True)`). The barycentrics
 come from `vertex_index % 3`, which is only a triangle corner for
 non-indexed geometry. Smooth meshes render shaded with a one-time warning
 rather than noise; the check is per mesh, via `INSTANCE_FLAG_FLAT` in

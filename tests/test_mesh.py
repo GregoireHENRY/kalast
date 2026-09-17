@@ -144,8 +144,8 @@ def test_recompute_facets_survives_a_flatten():
     `compute_facets` reads `indices`, so with the stale ones a flattened cube
     recomputed to **NaN** normals off a degenerate triangle -- 10 of 12 facets
     wrong and a NaN total area -- from a method documented as the thing to
-    call after moving vertices, on meshes every render example loads with
-    `flatten=True`.
+    call after moving vertices, on meshes every render example loads flat --
+    the default.
     """
     m = kalast.mesh.Mesh(CUBE)
     want_n = [numpy.array(f.normal).copy() for f in m.facets]

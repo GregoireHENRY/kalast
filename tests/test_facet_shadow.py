@@ -163,7 +163,7 @@ def main() -> int:
 
     sim = app.simulation
     sim.sun.pos = SUN
-    sim.load_mesh(path=MESH, mat=numpy.eye(4), flatten=True)
+    sim.load_mesh(path=MESH, mat=numpy.eye(4))
 
     base = settle(app, sim, 0)
     if base is None:

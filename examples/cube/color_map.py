@@ -11,7 +11,7 @@ app.simulation.config.wireframe.mode = 2
 app.simulation.config.wireframe.color = [1.0, 0.0, 1.0, 1.0]
 app.simulation.camera.pos = [10.0, 0.0, 0.0]
 app.simulation.camera.dir = [-1.0, 0.0, 0.0]
-app.simulation.load_mesh(path="res/cube.obj", mat=numpy.eye(4), flatten=True)
+app.simulation.load_mesh(path="res/cube.obj")
 
 mesh = app.simulation.bodies[0].mesh
 nface = len(mesh.facets)

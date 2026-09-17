@@ -115,7 +115,7 @@ def main() -> int:
     app.config.height = 256
     sim = app.simulation
     app.config.vsync = False
-    sim.load_mesh(path=str(box), mat=numpy.eye(4), flatten=True)
+    sim.load_mesh(path=str(box), mat=numpy.eye(4))
 
     mesh = sim.bodies[0].mesh
     nface = len(mesh.facets)

@@ -101,7 +101,7 @@ RESTART_SCRIPT = textwrap.dedent("""
 
     app = App()
     app.simulation.load_mesh(
-        path="res/plane_crater_1024-5000_h=0.437.obj", mat=numpy.eye(4), flatten=True
+        path="res/plane_crater_1024-5000_h=0.437.obj", mat=numpy.eye(4)
     )
     sys._runs = getattr(sys, "_runs", 0) + 1
     while app.running:
