@@ -108,7 +108,6 @@ fn bodies_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
         let mut drop_it = false;
         egui::CollapsingHeader::new(format!("body {i}  {name}"))
             .id_salt(i)
-            .default_open(true)
             .show(ui, |ui| {
                 dirty |= body_ui(ui, i, &mut sim.bodies[i]);
                 if ui
@@ -445,7 +444,6 @@ fn huds_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
         let mut hud = handle.borrow_mut();
         egui::CollapsingHeader::new(format!("hud {i}"))
             .id_salt(i)
-            .default_open(true)
             .show(ui, |ui| {
                 // Typing here takes the HUD off the script: what is typed
                 // goes in `pin`, which the frame uses in place of `text`.
