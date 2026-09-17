@@ -2283,3 +2283,12 @@ The editor's window closed over an unsaved edit without a word. Now
 without saving, Cancel -- and the answer comes back through the same request
 plumbing as the buttons: a save that fails keeps the window. `app.close()`
 from a script is not intercepted; that is the program ending.
+
+## 2026-09-17 — `N` folds the panels
+
+A halfway house between the full layout and focus mode: the three resizable
+panels fold to their window edges at once, each keeping egui's thin handle
+so one can be dragged or double-clicked back out on its own. The per-panel
+fold already existed -- `show_collapsible`, drag past the minimum -- this is
+the toggle over all three. `N`, Blender's sidebar key; not `Tab`, which egui
+takes to focus the first text field.

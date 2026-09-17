@@ -2508,6 +2508,16 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         }
                     }
 
+                    // Fold the editor's panels to the edges, or unfold them.
+                    // Blender's sidebar key; here it is all three. Not `Tab`,
+                    // which egui takes to focus the first text field, so the
+                    // next keystroke would have gone into the script.
+                    (winit::keyboard::KeyCode::KeyN, true) => {
+                        if let Some(editor) = self.editor.as_mut() {
+                            editor.toggle_panels();
+                        }
+                    }
+
                     (winit::keyboard::KeyCode::KeyH, true) => {
                         println!(
                             "camera: pos={} up={} dir={} anchor={} projection={:?}",

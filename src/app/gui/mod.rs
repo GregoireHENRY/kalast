@@ -220,6 +220,19 @@ pub struct Editor {
 }
 
 impl Editor {
+    /// Fold the three resizable panels to the window edges, or bring them
+    /// all back. Each folded panel keeps egui's thin handle at its edge, so
+    /// one can be dragged or double-clicked back out on its own -- the
+    /// halfway house between the full layout and focus mode, which hides
+    /// everything and reveals on hover. The toolbar is not resizable and
+    /// stays.
+    pub fn toggle_panels(&mut self) {
+        let any_open = self.docked_open[1..].iter().any(|&open| open);
+        for open in &mut self.docked_open[1..] {
+            *open = !any_open;
+        }
+    }
+
     pub fn new(
         window: &winit::window::Window,
         device: &wgpu::Device,

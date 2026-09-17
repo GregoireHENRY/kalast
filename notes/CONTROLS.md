@@ -17,6 +17,7 @@ Handled in `src/app/mod.rs` (`window_event` / `device_event`) and
 | `K` | any | Advance one iteration and hold — the editor's Step button |
 | `F` | any | Toggle fullscreen — the same thing the green button does |
 | `Shift`+`F` | any | Toggle focus mode — give the window to the renderer |
+| `N` | any | Fold the editor's panels to the window edges, or bring them back — see below |
 | `T` | any | Toggle camera control, Arcball ⇄ WASD |
 | `W` `A` `S` `D` | WASD | Move forward / left / back / right |
 | `Space` | WASD | Move up |
@@ -51,6 +52,19 @@ the renderer alone on the screen.
 
 Independent of `app.config.fullscreen`, which is the OS window and
 nothing else.
+
+### `N` — fold the panels
+
+The three resizable panels — script, simulation, log — fold to their window
+edges, or all come back. Each folded panel keeps egui's thin handle at its
+edge, so one can be dragged or double-clicked back out on its own; and
+dragging an open panel past its minimum folds it alone, the same way. The
+halfway house between the full layout and focus mode: the space is the
+renderer's, but nothing moves on its own. Blender's `N` toggles its sidebar;
+here it is all three, since the toolbar is not resizable and stays.
+
+Docked layout only — focus mode has no docked panels to fold, so there it
+does nothing visible until focus mode is left.
 
 ### `K` — one iteration
 
