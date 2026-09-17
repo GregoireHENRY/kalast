@@ -31,6 +31,3 @@ while app.running:
     illum = app.simulation.facet_illumination(0)
     lit = float((illum > 0).mean()) if illum is not None else 0.0
     app.simulation.huds[0].text = f"lit {lit * 100:.1f} %"
-
-    if it >= 10000:
-        app.close()

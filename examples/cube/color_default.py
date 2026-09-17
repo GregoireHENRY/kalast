@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import numpy
+import numpy  # noqa
 
 import kalast
 
