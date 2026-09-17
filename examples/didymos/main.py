@@ -3,60 +3,20 @@
 import numpy
 import spiceypy as spice
 
-import kalast
-from kalast.app import Simulation
-
+import kalast  # noqa
+from kalast.app import App
 from kalast.util import AU_KM
 
 
-def before_render(sim: Simulation, dt: float) -> None:
-    if sim.state.is_paused:
-        return
-
-    et = et0 + sim.state.iteration * 60.0
-
-    (p_sun, _lt) = spice.spkpos("SUN", et, "ECLIPJ2000", "none", "DIDYMOS")
-    (p_dimo, _lt) = spice.spkpos("DIMORPHOS", et, "ECLIPJ2000", "none", "DIDYMOS")
-    m_didy_ej2k = spice.pxform("DIDYMOS_FIXED", "ECLIPJ2000", et)
-    m_dimo_ej2k = spice.pxform("DIMORPHOS_FIXED", "ECLIPJ2000", et)
-
-    sim.sun.pos = p_sun / AU_KM * 10.0
-    sim.sun.look_anchor()
-
-    sim.bodies[0].mat[:3, :3] = m_didy_ej2k
-    sim.bodies[1].mat[:3, 3] = p_dimo
-    sim.bodies[1].mat[:3, :3] = m_dimo_ej2k
-
-    # sim.bodies[1].mat = mat @ sim.bodies[1].mat
-    # p1 = sim.bodies[1].mat[:3, 3]
-    # print(f"#{sim.state.iteration} {p1}")
-
-
-app = kalast.app.App()
-
-app.simulation.config.shading.color_mode = 0
-# app.simulation.config.light.cube_show = True
-
-app.simulation.config.shadows.normal_offset_scale = 2e-4
-app.simulation.config.shadows.bias_scale = 1e-3
-app.simulation.config.shadows.bias_minimum = 5e-4
+app = App()
+app.simulation.config.wireframe.mode = 2
+app.simulation.config.wireframe.color = [0.05, 0.05, 0.05, 1.0]
+app.simulation.config.axes.style = "blender"
 
 app.simulation.sun.pos = [0.0, 50.0, 0.0]
-app.simulation.sun.look_anchor()
-app.simulation.sun.projection.side = 2.0
-app.simulation.sun.projection.near = 0.1
-app.simulation.sun.projection.far = 100.0
-
-# app.simulation.camera.pos = [0.0, 10.0, 0.0]
-# app.simulation.camera.look_anchor()
-
-app.simulation.camera.pos=[-1.1002305, -3.005702, 2.0494902]
-app.simulation.camera.up=[0.18536071, 0.50638384, 0.8421501]
-app.simulation.camera.dir=[0.2894826, 0.7908329, -0.53924316]
-
-# Can set orthographic camera projection to create ground-based telescope image.
-# app.simulation.camera.projection.set_orthographic()
-# app.simulation.camera.projection.side = 2.0
+app.simulation.camera.pos = [-1.1002305, -3.005702, 2.0494902]
+app.simulation.camera.up = [0.18536071, 0.50638384, 0.8421501]
+app.simulation.camera.dir = [0.2894826, 0.7908329, -0.53924316]
 
 spice.kclear()
 spice.furnsh("/Users/gregoireh/data/spice/hera/kernels/mk/hera_plan_local.tm")
@@ -66,16 +26,8 @@ et = et0
 
 (p_sun, _lt) = spice.spkpos("SUN", et, "ECLIPJ2000", "none", "DIDYMOS")
 (p_dimo, _lt) = spice.spkpos("DIMORPHOS", et, "ECLIPJ2000", "none", "DIDYMOS")
-
 m_didy_ej2k = spice.pxform("DIDYMOS_FIXED", "ECLIPJ2000", et)
 m_dimo_ej2k = spice.pxform("DIMORPHOS_FIXED", "ECLIPJ2000", et)
-
-# Custom spin axis
-# mat_spin_tilt = numpy.eye(4)
-# mat_spin_tilt[:3, :3] = kalast.util.mat_axis_angle(
-#     numpy.array([0.0, 1.0, 0.0]), kalast.util.PI
-# )
-# mat = mat_spin_tilt.copy()
 
 mat = numpy.eye(4)
 mat[:3, :3] = m_didy_ej2k
@@ -87,11 +39,6 @@ app.simulation.load_mesh(
     mat=mat,
     flatten=True,
 )
-
-# Custom dimorphos position
-# mat[0:3, 3] = [0.0, 1.2, 0.0]
-
-# matmul -> new = old @ mat
 
 mat = numpy.eye(4)
 mat[:3, 3] = p_dimo
@@ -105,10 +52,18 @@ app.simulation.load_mesh(
     flatten=True,
 )
 
-# mat = numpy.eye(4)
-# mat[:3, :3] = kalast.util.mat_axis_angle(numpy.array([0.0, 0.0, 1.0]), 0.01)
+while app.running:
+    et = et0 + app.simulation.state.iteration * 60.0
+    (p_sun, _lt) = spice.spkpos("SUN", et, "ECLIPJ2000", "none", "DIDYMOS")
+    (p_dimo, _lt) = spice.spkpos("DIMORPHOS", et, "ECLIPJ2000", "none", "DIDYMOS")
+    m_didy_ej2k = spice.pxform("DIDYMOS_FIXED", "ECLIPJ2000", et)
+    m_dimo_ej2k = spice.pxform("DIMORPHOS_FIXED", "ECLIPJ2000", et)
 
-app.before_render = before_render
-app.start()
+    app.simulation.sun.pos = p_sun / AU_KM * 10.0
+    app.simulation.bodies[0].mat[:3, :3] = m_didy_ej2k
+    app.simulation.bodies[1].mat[:3, 3] = p_dimo
+    app.simulation.bodies[1].mat[:3, :3] = m_dimo_ej2k
+
+    app.step()
 
 spice.kclear()
