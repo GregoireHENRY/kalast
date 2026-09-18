@@ -750,9 +750,12 @@ sim.add_mesh(mesh, mat=None)
 ```
 
 Meshes load **flat**: each facet owns its three vertices, which is what
-per-facet data, the wireframe overlay and the facet index map need.
-`smooth=True` keeps the file's shared vertices instead, for a smooth-shaded
-surface. `flatten=` was the argument until 17 September, default off, so every
+per-facet data, the wireframe overlay and the facet index map need. Flat is
+built *as* flat -- the file's positions and triangles parsed in parallel and
+the corners laid out straight from them, a 3M-facet model in 0.2 s -- with
+nothing kept to smoothen back to. `smooth=True` returns the shared mesh the
+file describes instead, for a smooth-shaded surface; neither is made from the
+other. `flatten=` was the argument until 17 September, default off, so every
 script had to say `flatten=True`; it is accepted for a release, inverted, with
 a `DeprecationWarning`.
 
@@ -799,7 +802,7 @@ And the operations on one:
 | | |
 |---|---|
 | `is_flat()` | whether each facet owns its vertices — a method, not a property |
-| `flatten()`, `smoothen()` | switch between that and shared corners. Follow with `sim.rebuild_meshes()` |
+| `flatten()`, `smoothen()` | switch between that and shared corners. Follow with `sim.rebuild_meshes()`. A mesh loaded flat (the default) keeps no shared corners to go back to: `smoothen()` warns and leaves it flat -- load with `smooth=True` for the shared mesh |
 | `recompute_facets()` | recompute centres, normals and areas after moving vertices |
 | `mark_colors_dirty()` | re-upload colours next frame, after writing `colors` in place |
 | `update_all_vertices_colors(mode, color)` | set every vertex to one colour and mode |

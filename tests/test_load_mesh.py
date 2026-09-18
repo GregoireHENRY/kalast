@@ -17,6 +17,7 @@ import warnings
 
 import numpy
 
+import kalast.mesh
 from kalast.app import App
 
 CUBE = "res/cube.obj"
@@ -56,6 +57,25 @@ def main() -> int:
     rows = [len(sim.bodies[i].mesh.vertices) for i in range(2)]
     check("flat is three rows per facet", rows[0] == 36, f"{rows[0]} rows")
     check("smooth is the file's corners", rows[1] == 8, f"{rows[1]} rows")
+
+    # Flat is built as flat: nothing is kept to smoothen back to, and asking
+    # says so rather than silently doing nothing.
+    flat_mesh = sim.bodies[0].mesh
+    kept = len(flat_mesh._vertices_before_flatten)
+    check("a mesh loaded flat keeps no shared copy", kept == 0, f"{kept} shared vertices kept")
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        flat_mesh.smoothen()
+    check(
+        "smoothen() on it warns and leaves it flat",
+        flat_mesh.is_flat() and any("smooth=True" in str(w.message) for w in caught),
+        f"is_flat {flat_mesh.is_flat()}, {len(caught)} warning(s)",
+    )
+    # Explicit round trips on a Mesh object keep working.
+    m = kalast.mesh.Mesh(CUBE)
+    m.flatten()
+    m.smoothen()
+    check("an explicit flatten still finds its way back", not m.is_flat() and len(m.vertices) == 8)
 
     if failures:
         print(f"\n{len(failures)} failure(s)")

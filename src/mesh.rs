@@ -292,6 +292,10 @@ pub struct Mesh {
     // per load rather than per frame -- a full pass over 9.4M vertices is
     // milliseconds at load time but would be nonsense every frame.
     // Call `recompute_bounds` after mutating vertex positions in place.
+    /// Whether every facet owns its three vertices. Explicit, because it
+    /// used to be inferred from the shared copy `flatten` keeps for
+    /// `smoothen` -- and a mesh loaded flat keeps none.
+    pub flat: bool,
     pub bounds: Aabb,
 
     /// The file this was loaded from, or `None` for a mesh built in memory.
@@ -322,6 +326,7 @@ impl Mesh {
             _vertices_before_flatten: vec![],
             _indices_before_flatten: vec![],
             colors_dirty: false,
+            flat: false,
             bounds: Aabb {
                 min: Vec3::ZERO,
                 max: Vec3::ZERO,
@@ -336,6 +341,62 @@ impl Mesh {
     /// needed for facet data.
     pub fn recompute_bounds(&mut self) {
         self.bounds = Aabb::from_vertices(&self.vertices);
+    }
+
+    /// The default way in: a flat mesh built straight from the file's
+    /// positions and triangles, with no shared mesh in between and nothing
+    /// kept to go back to.
+    ///
+    /// Two costs went with the old route -- parse to a shared mesh, then
+    /// `flatten` it -- that a flat mesh never needed: the shared vertices
+    /// built, copied and kept (150 MB for a 3M-facet model), and a parse
+    /// that ran on one core for 0.85 s of the 1.0 s a load took. Plain
+    /// `v`/`f` triangle files, which is what shape models are, are parsed in
+    /// parallel over the bytes and the flat vertices and facets are built in
+    /// parallel from the result. Anything else the format allows -- texture
+    /// coordinates, normals, materials, several objects, indices with
+    /// slashes or negative -- goes through `load` and `flatten` exactly as
+    /// before, minus the copy kept for `smoothen`. See
+    /// `notes/2026-09-18_memory_meshes_and_shadow_maps.md`.
+    pub fn load_flat<P, F>(path: P, update_pos: F) -> Self
+    where
+        P: AsRef<std::path::Path>,
+        F: Fn(Vec3) -> Vec3,
+    {
+        let path = path.as_ref();
+        let parsed = std::fs::read(path)
+            .ok()
+            .and_then(|bytes| parse_plain_obj(&bytes));
+        let Some((mut positions, tris)) = parsed else {
+            let mut mesh = Self::load(path, update_pos);
+            mesh.flatten();
+            mesh._vertices_before_flatten = Vec::new();
+            mesh._indices_before_flatten = Vec::new();
+            return mesh;
+        };
+        println!("loading model: {:?}", path);
+        for p in positions.iter_mut() {
+            *p = update_pos(*p);
+        }
+        let (min, max) = positions.iter().fold(
+            (Vec3::splat(Float::INFINITY), Vec3::splat(Float::NEG_INFINITY)),
+            |(lo, hi), p| (lo.min(*p), hi.max(*p)),
+        );
+        let (vertices, facets) = build_flat(&positions, &tris);
+        drop(positions);
+        Mesh {
+            indices: (0..vertices.len() as u32).collect(),
+            vertices,
+            facets,
+            material_id: None,
+            _vertices_before_flatten: vec![],
+            _indices_before_flatten: vec![],
+            colors_dirty: false,
+            flat: true,
+            bounds: Aabb { min, max },
+            path: Some(path.to_path_buf()),
+            values: vec![],
+        }
     }
 
     pub fn load<P, F>(path: P, update_pos: F) -> Self
@@ -481,6 +542,7 @@ impl Mesh {
             _vertices_before_flatten: vec![],
             _indices_before_flatten: vec![],
             colors_dirty: false,
+            flat: false,
         };
 
         // Can now use normals per facet (if computed) to compute normals per vertex.
@@ -522,14 +584,15 @@ impl Mesh {
         // flattened mesh produced NaN normals off a degenerate triangle.
         self._indices_before_flatten = std::mem::take(&mut self.indices);
         self.indices = (0..self.vertices.len() as u32).collect();
+        self.flat = true;
     }
 
     // Re-create vertices by removing duplicates (if it had been flatten before).
     // Compute normals per vertex using normals per facet averaged.
-    pub fn smoothen(&mut self) {
-        // re-create vertices if flatten (detected if as many vertices as indices)
-
-        // temporary until better solution is found
+    /// Back to shared corners with averaged normals. `false` when there is
+    /// nothing to go back to: a mesh loaded flat keeps no shared topology
+    /// (`load_flat`), and stays as it is -- load it with `smooth` instead.
+    pub fn smoothen(&mut self) -> bool {
         if !self._vertices_before_flatten.is_empty() {
             self.vertices = self._vertices_before_flatten.drain(..).collect();
             // And the topology with them: the loop below walks `indices` to
@@ -538,8 +601,10 @@ impl Mesh {
             if !self._indices_before_flatten.is_empty() {
                 self.indices = std::mem::take(&mut self._indices_before_flatten);
             }
+            self.flat = false;
+        } else if self.flat {
+            return false;
         }
-
         // this could be the better solution is removing dups works, but im not sure, need tests
         /*
         if self.vertices.len() == self.indices.len() {
@@ -569,6 +634,7 @@ impl Mesh {
         for ii in 0..self.vertices.len() {
             self.vertices[ii].normal = self.vertices[ii].normal.normalize();
         }
+        true
     }
 
     // Recompute facets (pos, normal, area) from current vertices positions and indices.
@@ -691,8 +757,7 @@ impl Mesh {
     }
 
     pub fn is_flat(&self) -> bool {
-        // temporary until better solution is found
-        !self._vertices_before_flatten.is_empty()
+        self.flat
     }
 
     pub fn get_facet_vertices(&self, facet: usize) -> [&Vertex; 3] {
@@ -949,6 +1014,7 @@ impl Model {
                     _vertices_before_flatten: vec![],
                     _indices_before_flatten: vec![],
                     colors_dirty: false,
+                    flat: false,
                     bounds,
                     path: Some(path.to_path_buf()),
                     values: vec![],
@@ -1533,5 +1599,243 @@ mod tests {
         assert!(!m.is_flat());
         assert_eq!(m.indices, want);
         assert_eq!(m.vertices.len(), 4);
+    }
+}
+
+/// Threads for the parallel parts of a load: the machine's, capped.
+fn load_threads() -> usize {
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1)
+        .clamp(1, 16)
+}
+
+/// Parse an OBJ that is nothing but `v` and `f` lines -- comments, blank
+/// lines, one `o`/`g` group and `s` lines allowed -- into positions and
+/// triangles, in parallel over the bytes. `None` for anything else, which
+/// is not a failure but a handover to tobj, whose semantics for texture
+/// coordinates, normals, materials and several objects this does not
+/// reproduce.
+///
+/// Faces are 1-based absolute indices; polygons are fanned `(0, i, i+1)`,
+/// the way tobj triangulates them. Every index is checked against the
+/// vertex count once the chunks are joined, since a face may name a vertex
+/// defined further down the file.
+pub(crate) fn parse_plain_obj(bytes: &[u8]) -> Option<(Vec<Vec3>, Vec<[u32; 3]>)> {
+    // Chunk boundaries fall after a newline, so no line is split.
+    let n = load_threads().min(bytes.len() / (1 << 16) + 1);
+    let mut cuts = vec![0usize];
+    for i in 1..n {
+        let mut at = bytes.len() * i / n;
+        while at < bytes.len() && bytes[at] != b'\n' {
+            at += 1;
+        }
+        at = (at + 1).min(bytes.len());
+        if at > *cuts.last().unwrap() {
+            cuts.push(at);
+        }
+    }
+    if *cuts.last().unwrap() < bytes.len() {
+        cuts.push(bytes.len());
+    }
+
+    let parts: Vec<Option<(Vec<Vec3>, Vec<[u32; 3]>, usize)>> = std::thread::scope(|scope| {
+        let handles: Vec<_> = cuts
+            .windows(2)
+            .map(|w| {
+                let chunk = &bytes[w[0]..w[1]];
+                scope.spawn(move || parse_plain_chunk(chunk))
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+
+    let mut positions = Vec::new();
+    let mut tris = Vec::new();
+    let mut groups = 0;
+    for part in parts {
+        let (p, t, g) = part?;
+        positions.extend(p);
+        tris.extend(t);
+        groups += g;
+    }
+    if groups > 1 || positions.is_empty() || tris.is_empty() {
+        return None;
+    }
+    let n_v = positions.len() as u32;
+    if tris.iter().any(|t| t.iter().any(|&i| i >= n_v)) {
+        return None;
+    }
+    Some((positions, tris))
+}
+
+/// One chunk of lines: positions, triangles (0-based) and the number of
+/// `o`/`g` lines seen. `None` bails the whole parse to tobj.
+fn parse_plain_chunk(chunk: &[u8]) -> Option<(Vec<Vec3>, Vec<[u32; 3]>, usize)> {
+    let mut positions = Vec::new();
+    let mut tris = Vec::new();
+    let mut groups = 0;
+    for line in chunk.split(|&b| b == b'\n') {
+        let line = line.strip_suffix(b"\r").unwrap_or(line);
+        let line = line.trim_ascii_start();
+        let Some(&head) = line.first() else {
+            continue;
+        };
+        let rest = &line[1..];
+        let blank_after = matches!(rest.first(), Some(b' ') | Some(b'\t'));
+        match head {
+            b'#' => {}
+            b'v' if blank_after => {
+                let text = std::str::from_utf8(rest).ok()?;
+                let mut it = text.split_ascii_whitespace();
+                let x: Float = it.next()?.parse().ok()?;
+                let y: Float = it.next()?.parse().ok()?;
+                let z: Float = it.next()?.parse().ok()?;
+                positions.push(Vec3::new(x, y, z));
+            }
+            b'f' if blank_after => {
+                let text = std::str::from_utf8(rest).ok()?;
+                let mut corners: [u32; 8] = [0; 8];
+                let mut k = 0;
+                for tok in text.split_ascii_whitespace() {
+                    if k == 8 || !tok.bytes().all(|b| b.is_ascii_digit()) {
+                        return None; // slashes, negatives, or more than an octagon
+                    }
+                    let one_based: u32 = tok.parse().ok()?;
+                    corners[k] = one_based.checked_sub(1)?;
+                    k += 1;
+                }
+                if k < 3 {
+                    return None;
+                }
+                for i in 1..k - 1 {
+                    tris.push([corners[0], corners[i], corners[i + 1]]);
+                }
+            }
+            b'o' | b'g' if blank_after || rest.is_empty() => groups += 1,
+            b's' if blank_after => {}
+            _ => return None, // vt, vn, vp, mtllib, usemtl, or anything unknown
+        }
+    }
+    Some((positions, tris, groups))
+}
+
+/// The flat vertices and facets of `tris` over `positions`, built in
+/// parallel: each triangle's three corners take its facet normal, exactly
+/// as `flatten` gives them, and its centre, normal and area are computed in
+/// the same pass, exactly as `compute_facets` does.
+fn build_flat(positions: &[Vec3], tris: &[[u32; 3]]) -> (Vec<Vertex>, Vec<Facet>) {
+    let n = tris.len();
+    let mut vertices = vec![Vertex::default(); 3 * n];
+    let mut facets = vec![Facet::default(); n];
+    let step = n.div_ceil(load_threads()).max(1);
+    std::thread::scope(|scope| {
+        for ((vs, fs), ts) in vertices
+            .chunks_mut(3 * step)
+            .zip(facets.chunks_mut(step))
+            .zip(tris.chunks(step))
+        {
+            scope.spawn(move || {
+                for ((v, f), t) in vs.chunks_mut(3).zip(fs.iter_mut()).zip(ts) {
+                    let a = positions[t[0] as usize];
+                    let b = positions[t[1] as usize];
+                    let c = positions[t[2] as usize];
+                    let ab = b - a;
+                    let ac = c - a;
+                    let normal = normal_facet(&ab, &ac);
+                    *f = Facet {
+                        pos: (a + b + c) / 3.0,
+                        normal,
+                        area: area_facet(&ab, &ac),
+                    };
+                    for (slot, pos) in v.iter_mut().zip([a, b, c]) {
+                        *slot = Vertex {
+                            pos,
+                            normal,
+                            ..Vertex::default()
+                        };
+                    }
+                }
+            });
+        }
+    });
+    (vertices, facets)
+}
+
+#[cfg(test)]
+mod load_flat_tests {
+    use super::*;
+
+    fn same_mesh(a: &Mesh, b: &Mesh) {
+        assert_eq!(a.vertices.len(), b.vertices.len(), "vertex count");
+        assert_eq!(a.indices, b.indices, "indices");
+        assert_eq!(a.facets.len(), b.facets.len(), "facet count");
+        for (i, (x, y)) in a.vertices.iter().zip(&b.vertices).enumerate() {
+            assert_eq!(x.pos, y.pos, "position of vertex {i}");
+            assert_eq!(x.normal, y.normal, "normal of vertex {i}");
+            assert_eq!(x.tex, y.tex, "tex of vertex {i}");
+            assert_eq!(x.color, y.color, "colour of vertex {i}");
+        }
+        for (i, (x, y)) in a.facets.iter().zip(&b.facets).enumerate() {
+            assert_eq!(x.pos, y.pos, "centre of facet {i}");
+            assert_eq!(x.normal, y.normal, "normal of facet {i}");
+            assert_eq!(x.area, y.area, "area of facet {i}");
+        }
+        assert_eq!(a.bounds.min, b.bounds.min);
+        assert_eq!(a.bounds.max, b.bounds.max);
+    }
+
+    /// The fast path has to be indistinguishable from parse-then-flatten,
+    /// down to the bit: same corners, same normals, same facets, same box.
+    #[test]
+    fn load_flat_matches_load_then_flatten_bitwise() {
+        for path in ["res/cube.obj", "res/ico3.obj", "res/plane_crater_1024-5000_h=0.437.obj"] {
+            let bytes = std::fs::read(path).unwrap();
+            assert!(parse_plain_obj(&bytes).is_some(), "{path} should take the fast path");
+            let fast = Mesh::load_flat(path, |x| x);
+            let mut slow = Mesh::load(path, |x| x);
+            slow.flatten();
+            same_mesh(&fast, &slow);
+            assert!(fast.is_flat() && slow.is_flat());
+            assert!(fast._vertices_before_flatten.is_empty(), "nothing kept to go back to");
+        }
+    }
+
+    /// Comments, blank lines, CRLF, a quad fanned as tobj fans it, one
+    /// object line, a face naming a vertex defined later.
+    #[test]
+    fn plain_parser_handles_the_format_shape_models_use() {
+        let text = b"# a comment\r\no thing\n\nv 0 0 0\nv 1 0 0\r\nv 1 1 0\nf 1 2 3 4\nv 0 1 0\ns off\n";
+        let (p, t) = parse_plain_obj(text).expect("plain file");
+        assert_eq!(p.len(), 4);
+        assert_eq!(t, vec![[0, 1, 2], [0, 2, 3]]);
+    }
+
+    /// Everything the fast path does not reproduce hands over to tobj.
+    #[test]
+    fn plain_parser_bails_on_what_it_does_not_speak() {
+        for text in [
+            &b"v 0 0 0\nv 1 0 0\nv 0 1 0\nvt 0 0\nf 1 2 3\n"[..],
+            b"v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1/1 2/2 3/3\n",
+            b"v 0 0 0\nv 1 0 0\nv 0 1 0\nf -3 -2 -1\n",
+            b"v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 4\n",
+            b"mtllib a.mtl\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n",
+            b"o a\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\no b\nf 1 2 3\n",
+        ] {
+            assert!(parse_plain_obj(text).is_none(), "{:?}", std::str::from_utf8(text));
+        }
+    }
+
+    /// A mesh loaded flat cannot go back: `smoothen` says so and leaves it flat.
+    #[test]
+    fn a_mesh_loaded_flat_stays_flat_when_asked_to_smoothen() {
+        let mut m = Mesh::load_flat("res/cube.obj", |x| x);
+        assert!(!m.smoothen());
+        assert!(m.is_flat());
+        assert_eq!(m.vertices.len(), 36);
+        let mut shared = Mesh::load("res/cube.obj", |x| x);
+        shared.flatten();
+        assert!(shared.smoothen(), "an explicit flatten keeps its way back");
+        assert!(!shared.is_flat());
     }
 }

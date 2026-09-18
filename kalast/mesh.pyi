@@ -70,6 +70,10 @@ class Mesh:
     def flatten(self) -> None:
         ...
     def smoothen(self) -> None:
+        """Back to shared corners with averaged normals. A mesh loaded flat --
+        the default -- keeps no shared topology to go back to and stays as it
+        is, with a warning: load it with `smooth=True` instead.
+        """
         ...
     def recompute_facets(self) -> None:
         ...

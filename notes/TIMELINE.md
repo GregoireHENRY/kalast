@@ -2377,3 +2377,15 @@ streamed), and the GPU copies were built whole and staged whole again by
 slices of 2¹⁸ vertices now; the remainder is the buffers themselves). Peak
 RSS for the full pair 5.35 → 4.74 GB. The 150 MB `flatten()` keeps for
 `smoothen()` is documented and left for a decision.
+
+## 2026-09-18 — flat is built as flat
+
+The default load parsed to a shared mesh with tobj on one core (0.85 s of a
+1.0 s load for a 3M-facet model), flattened it, and kept the shared copy for
+a `smoothen` nobody called. `Mesh::load_flat` parses the plain `v`/`f` files
+shape models are in parallel and builds the flat vertices and facets in
+parallel from positions and triangles, bit-for-bit the old result, with
+nothing kept: 1.01 → 0.20 s, ~1.5 → ~0.95 GB per mesh. Anything else in the
+format falls back to tobj unchanged; `smooth=True` returns the shared mesh
+directly. `is_flat()` had been inferred from the kept copy and is an explicit
+flag now. Note: `2026-09-18_memory_meshes_and_shadow_maps.md`.

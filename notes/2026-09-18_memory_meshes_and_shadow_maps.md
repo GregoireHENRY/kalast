@@ -90,9 +90,42 @@ on unified memory are RSS and on a discrete card are VRAM.
 
 What `flatten()` keeps for `smoothen()` is small: the shared vertices (114
 MB for this model) and the shared indices (36 MB), 150 MB against the 682 MB
-flat array, which is the flattening itself. Dropping that copy in the loader
-would save 10 % of a full-resolution mesh's RAM; `smoothen()` on such a mesh
-would have to re-weld by position. Not done, pending a decision.
+flat array, which is the flattening itself. The loader no longer keeps it --
+see the next section -- and an explicit `Mesh.flatten()` still does.
+
+## Loading flat, directly
+
+The decision: flat is the default and is built as flat; smooth is asked for
+and built as smooth; neither is made from the other. `Mesh::load_flat`
+reads the file, parses the plain `v`/`f` triangle format shape models use
+**in parallel over the bytes** (chunks cut at newlines, one thread each, the
+face indices checked against the vertex count once joined), drops the text,
+and builds the flat vertices and the facets **in parallel** in one pass --
+each corner takes its facet's normal, the centre, normal and area computed
+alongside, bit-for-bit what `flatten` and `compute_facets` produce, which a
+Rust test asserts on the three bundled meshes. Nothing is kept to go back to;
+`smoothen()` on such a mesh returns `false`, and the Python binding warns.
+Anything the format allows beyond that -- texture coordinates, normals,
+materials, several objects, indices with slashes or negative, polygons past
+an octagon -- hands over to tobj and the old `load` + `flatten`, minus the
+kept copy, so nothing changes for those files.
+
+One trap on the way: `is_flat()` was *defined* as "the kept shared copy is
+non-empty". Dropping the copy would have turned every loaded mesh into an
+indexed one for the GPU, silently. It is an explicit `flat` flag now.
+
+Measured on the 3M-facet Didymos model, 8 cores:
+
+| | before | after |
+|---|---|---|
+| `load_mesh` (default, flat) | 1.01 s (0.85 of it tobj, one core) | **0.20 s** |
+| RSS per loaded mesh | ~1.5 GB | **~0.95 GB** (0.80 GB is the flat mesh itself) |
+| `load_mesh(smooth=True)` | 0.94 s | 0.94 s, unchanged |
+
+What is left of the load time is the float parse (4.7 M decimals) and
+building 9.4 M vertices; the remaining RSS above the mesh is the parse's
+positions and triangles, freed before the flat build and reused by it. The
+first frame's upload is separate, and memory-bound.
 
 ## What changed
 

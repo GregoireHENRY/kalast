@@ -179,20 +179,23 @@ impl Simulation {
         P: AsRef<std::path::Path>,
         S: AsRef<std::path::Path>,
     {
-        let mut mesh = crate::mesh::Mesh::load(path, |x| x);
-
-        if !smooth {
-            mesh.flatten();
-        }
+        // Flat is built as flat, with nothing kept to smoothen back to;
+        // smooth is the shared mesh the file describes. Neither is made
+        // from the other.
+        let mesh = if smooth {
+            crate::mesh::Mesh::load(path, |x| x)
+        } else {
+            crate::mesh::Mesh::load_flat(path, |x| x)
+        };
 
         let shadow_mesh = shadow_path.map(|p| {
-            let mut shadow = crate::mesh::Mesh::load(p, |x| x);
-
             // Match the main mesh's flattening: the shadow pass shares the
             // render pipeline's vertex layout and flat/indexed draw path.
-            if !smooth {
-                shadow.flatten();
-            }
+            let shadow = if smooth {
+                crate::mesh::Mesh::load(p, |x| x)
+            } else {
+                crate::mesh::Mesh::load_flat(p, |x| x)
+            };
 
             Rc::new(RefCell::new(shadow))
         });

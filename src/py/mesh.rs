@@ -494,8 +494,20 @@ impl Mesh {
         self.inner.borrow_mut().flatten();
     }
 
-    fn smoothen(&mut self) {
-        self.inner.borrow_mut().smoothen();
+    /// Back to shared corners with averaged normals. A mesh loaded flat --
+    /// the default -- keeps no shared topology to go back to and stays as it
+    /// is, with a warning: load it with `smooth=True` instead.
+    fn smoothen(&mut self, py: Python<'_>) -> PyResult<()> {
+        if !self.inner.borrow_mut().smoothen() {
+            PyErr::warn(
+                py,
+                &py.get_type::<pyo3::exceptions::PyRuntimeWarning>(),
+                c"this mesh was loaded flat and keeps no shared topology to smoothen back to; \
+                  load it with smooth=True",
+                2,
+            )?;
+        }
+        Ok(())
     }
 
     fn recompute_facets(&mut self) {
