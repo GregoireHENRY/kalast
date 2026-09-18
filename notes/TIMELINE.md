@@ -2367,3 +2367,13 @@ is allocated at the body count now and grown as bodies arrive: 10k pair at
 would have made it a crash: `facet_shadow` read body *i* from layer *i* even
 with the per-body fit off, where only layer 0 is drawn. Note:
 `2026-09-18_memory_meshes_and_shadow_maps.md`.
+
+## 2026-09-18 — two transients off the mesh load
+
+Measured against the same 3M-facet pair: the OBJ was read whole into a
+`String` and held for the length of the parse (parse peak 973 → 812 MB once
+streamed), and the GPU copies were built whole and staged whole again by
+`create_buffer_init` (first frame +2.36 → +1.85 GB for the pair, written in
+slices of 2¹⁸ vertices now; the remainder is the buffers themselves). Peak
+RSS for the full pair 5.35 → 4.74 GB. The 150 MB `flatten()` keeps for
+`smoothen()` is documented and left for a decision.

@@ -35,6 +35,10 @@ After allocating the array at the body count (two layers here):
 | 100k + 100k | **1.0 GB** | -- |
 | 3M + 3M | 7.0 GB | 7.0 GB |
 
+And after the streamed read and the sliced upload as well, the full pair at
+8192: RSS 1.61 GB after Didymos, 2.87 after Dimorphos, **4.72 GB after the
+first frame** (was 5.33), peak 4.74 (was 5.35); footprint 6.07 GB.
+
 The 3M row did not move, and honesty requires saying why: in those runs the
 shadow array never appeared in the footprint, before or after -- the total is
 RSS plus the mesh buffers (`IOAccelerator` 1.74 GB), with no 2 GB left over
@@ -65,11 +69,30 @@ So a full-resolution pair is ~5.3 GB of RAM before shadows, and that alone is
 more than the 3 GB that machine had free. The 100k models are what
 interactive work wants; the full models are for data products.
 
-The parse residue is the one piece that is not spoken for. It is an OBJ
-reader's working set -- the file as a string, the tokens, the intermediate
-vectors -- freed but not returned to the OS, and it is the same size whether
-the mesh is then flattened or not. A streaming parse, or a binary cache of
-the flattened mesh, would take it away; neither is done.
+The parse residue is a reader's working set, freed but not returned to the
+OS, and reusable: the peak during the parse equals the RSS after it, `del`
+of the mesh gives nothing back, and a second parse adds only 354 MB because
+it lands in the first one's pages. Read against `Mesh::load` and tobj 4.0.5
+it is: the whole 163 MB file read into a `String` and held for the length of
+the parse; tobj's list of every face as `Face::Triangle(VertexIndices × 3)`,
+~80 bytes a face, ~250 MB; the `single_index` de-duplication map, ~100 MB;
+tobj's output vectors, ~57 MB. The first of those was kalast's choice and
+is gone -- the file is streamed through a `BufReader` now -- and the parse
+peak fell from 973 to 812 MB. The rest is tobj's design.
+
+The first frame's transient was the other avoidable piece: the GPU copies
+were built whole (`extract_geometry`, `extract_attribs`: 56 + 32 bytes a
+vertex, 830 MB per mesh) and then staged whole again by
+`create_buffer_init`. They are written in slices of 2¹⁸ vertices now, so the
+transient is one slice, 23 MB. For the pair the first frame added 1.85 GB of
+RSS instead of 2.36; what remains is the vertex buffers themselves, which
+on unified memory are RSS and on a discrete card are VRAM.
+
+What `flatten()` keeps for `smoothen()` is small: the shared vertices (114
+MB for this model) and the shared indices (36 MB), 150 MB against the 682 MB
+flat array, which is the flattening itself. Dropping that copy in the loader
+would save 10 % of a full-resolution mesh's RAM; `smoothen()` on such a mesh
+would have to re-weld by position. Not done, pending a decision.
 
 ## What changed
 

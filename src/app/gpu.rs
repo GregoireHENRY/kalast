@@ -370,6 +370,46 @@ pub struct AttribVertex {
     _padding: [u32; 3],
 }
 
+/// Vertices per upload slice. The GPU copies used to be built whole -- 56 +
+/// 32 bytes a vertex, 830 MB for a 3M-facet model -- and then staged whole
+/// again by `create_buffer_init`, so the first frame cost 2.3 GB of transient
+/// RAM for the Didymos pair. Written in slices this size, the transient is one
+/// slice: 23 MB. `notes/2026-09-18_memory_meshes_and_shadow_maps.md`.
+const UPLOAD_CHUNK: usize = 1 << 18;
+
+/// Fill `buffer` with `n` elements produced a slice at a time.
+fn upload_chunked<T: bytemuck::Pod>(
+    queue: &wgpu::Queue,
+    buffer: &wgpu::Buffer,
+    n: usize,
+    make: impl Fn(std::ops::Range<usize>) -> Vec<T>,
+) {
+    let stride = std::mem::size_of::<T>() as u64;
+    let mut start = 0;
+    while start < n {
+        let end = (start + UPLOAD_CHUNK).min(n);
+        let slice = make(start..end);
+        queue.write_buffer(buffer, start as u64 * stride, bytemuck::cast_slice(&slice));
+        start = end;
+    }
+}
+
+/// An empty buffer of `n` elements of `T` (one at least: a zero-size buffer
+/// is a validation error), to be filled by `upload_chunked`.
+fn empty_buffer<T>(
+    device: &wgpu::Device,
+    n: usize,
+    usage: wgpu::BufferUsages,
+    label: &str,
+) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some(label),
+        size: (n.max(1) * std::mem::size_of::<T>()) as u64,
+        usage: usage | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
+}
+
 fn extract_geometry(vertices: &[crate::mesh::Vertex]) -> Vec<GeometryVertex> {
     vertices
         .iter()
@@ -387,7 +427,13 @@ fn extract_geometry(vertices: &[crate::mesh::Vertex]) -> Vec<GeometryVertex> {
 /// belongs to facet `i / 3`. For an indexed one there is no such mapping, so
 /// the value is left at zero rather than guessed -- `Mesh::set_values` refuses
 /// an indexed mesh for the same reason.
-fn extract_attribs(vertices: &[crate::mesh::Vertex], values: &[crate::Float]) -> Vec<AttribVertex> {
+/// `first` is the index of `vertices[0]` in the whole mesh, so a slice of a
+/// flat mesh still finds its facet's value at `index / 3`.
+fn extract_attribs(
+    vertices: &[crate::mesh::Vertex],
+    values: &[crate::Float],
+    first: usize,
+) -> Vec<AttribVertex> {
     vertices
         .iter()
         .enumerate()
@@ -395,7 +441,7 @@ fn extract_attribs(vertices: &[crate::mesh::Vertex], values: &[crate::Float]) ->
             color: v.color,
             color_mode: v.color_mode,
             extra: v.extra,
-            value: values.get(i / 3).copied().unwrap_or(0.0) as f32,
+            value: values.get((first + i) / 3).copied().unwrap_or(0.0) as f32,
             _padding: [0; 3],
         })
         .collect()
@@ -549,6 +595,38 @@ impl MeshBuffer {
 
     pub fn new(
         device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        vertices: &[crate::mesh::Vertex],
+        indices: &[u32],
+        instance: &InstanceInput,
+        is_flat: bool,
+        values: &[crate::Float],
+    ) -> Self {
+        let n = vertices.len();
+        // STORAGE so the per-facet shadow query can read exactly the
+        // geometry that gets drawn, rather than a second upload that could
+        // drift out of sync. Filled a slice at a time; see `UPLOAD_CHUNK`
+        // for why not `create_buffer_init`.
+        let geometry_buffer = empty_buffer::<GeometryVertex>(
+            device,
+            n,
+            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::STORAGE,
+            "mesh geometry",
+        );
+        upload_chunked(queue, &geometry_buffer, n, |r| extract_geometry(&vertices[r]));
+        let attrib_buffer =
+            empty_buffer::<AttribVertex>(device, n, wgpu::BufferUsages::VERTEX, "mesh attributes");
+        upload_chunked(queue, &attrib_buffer, n, |r| {
+            extract_attribs(&vertices[r.clone()], values, r.start)
+        });
+        Self::with_vertex_buffers(device, geometry_buffer, attrib_buffer, n, indices, instance, is_flat)
+    }
+
+    /// For a small mesh built into the program -- the depth pass's quad --
+    /// where staging it whole is a few hundred bytes and no queue is to
+    /// hand. Loaded meshes go through `new`.
+    pub fn new_static(
+        device: &wgpu::Device,
         vertices: &[crate::mesh::Vertex],
         indices: &[u32],
         instance: &InstanceInput,
@@ -557,19 +635,34 @@ impl MeshBuffer {
     ) -> Self {
         let geometry_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             contents: bytemuck::cast_slice(&extract_geometry(vertices)),
-            // STORAGE so the per-facet shadow query can read exactly the
-            // geometry that gets drawn, rather than a second upload that
-            // could drift out of sync.
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::STORAGE,
-            label: None,
+            label: Some("mesh geometry"),
         });
-
         let attrib_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            contents: bytemuck::cast_slice(&extract_attribs(vertices, values)),
+            contents: bytemuck::cast_slice(&extract_attribs(vertices, values, 0)),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            label: None,
+            label: Some("mesh attributes"),
         });
+        Self::with_vertex_buffers(
+            device,
+            geometry_buffer,
+            attrib_buffer,
+            vertices.len(),
+            indices,
+            instance,
+            is_flat,
+        )
+    }
 
+    fn with_vertex_buffers(
+        device: &wgpu::Device,
+        geometry_buffer: wgpu::Buffer,
+        attrib_buffer: wgpu::Buffer,
+        n_vertices: usize,
+        indices: &[u32],
+        instance: &InstanceInput,
+        is_flat: bool,
+    ) -> Self {
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             contents: bytemuck::cast_slice(indices),
             usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::STORAGE,
@@ -583,7 +676,7 @@ impl MeshBuffer {
         });
 
         Self {
-            n_vertices: vertices.len() as _,
+            n_vertices: n_vertices as _,
             n_indices: indices.len() as _,
             is_flat,
 
@@ -622,11 +715,9 @@ impl MeshBuffer {
         vertices: &[crate::mesh::Vertex],
         values: &[crate::Float],
     ) {
-        queue.write_buffer(
-            &self.attrib_buffer,
-            0,
-            bytemuck::cast_slice(&extract_attribs(vertices, values)),
-        );
+        upload_chunked(queue, &self.attrib_buffer, vertices.len(), |r| {
+            extract_attribs(&vertices[r.clone()], values, r.start)
+        });
     }
 
     /// Re-uploads the instance transform in place (no reallocation) --

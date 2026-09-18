@@ -792,9 +792,13 @@ impl Model {
         let path = path.as_ref();
         println!("loading model: {:?}", path);
 
-        let obj_text = std::fs::read_to_string(path).unwrap();
-        let obj_cursor = std::io::Cursor::new(obj_text);
-        let mut obj_reader = std::io::BufReader::new(obj_cursor);
+        // Streamed from the file, not read into a `String` first: the whole
+        // text sat in memory for the length of the parse, 163 MB for a 3M
+        // facet model, on top of tobj's own working set. Measured in
+        // `notes/2026-09-18_memory_meshes_and_shadow_maps.md`.
+        let file = std::fs::File::open(path)
+            .unwrap_or_else(|e| panic!("cannot open mesh {}: {e}", path.display()));
+        let mut obj_reader = std::io::BufReader::with_capacity(1 << 20, file);
 
         let (models, obj_materials) = tobj::load_obj_buf(
             &mut obj_reader,

@@ -41,7 +41,7 @@ impl Pass {
         height: u32,
         format: wgpu::TextureFormat,
     ) -> Self {
-        let mesh = gpu::MeshBuffer::new(
+        let mesh = gpu::MeshBuffer::new_static(
             device,
             DEPTH_VERTICES,
             DEPTH_INDICES,

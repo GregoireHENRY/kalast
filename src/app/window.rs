@@ -808,6 +808,7 @@ impl Window {
 
         meshes.push(super::gpu::MeshBuffer::new(
             &device,
+                &queue,
             &crate::meshes::cube::VERTICES,
             &crate::meshes::cube::INDICES,
             &super::gpu::InstanceInput::default(),
@@ -847,6 +848,7 @@ impl Window {
 
                 meshes.push(super::gpu::MeshBuffer::new(
                     &device,
+                &queue,
                     &mesh.vertices,
                     &mesh.indices,
                     &instance,
@@ -858,6 +860,7 @@ impl Window {
                     let shadow = shadow.borrow();
                     super::gpu::MeshBuffer::new(
                         &device,
+                &queue,
                         &shadow.vertices,
                         &shadow.indices,
                         &instance,
@@ -1489,6 +1492,7 @@ impl Window {
                     let mesh = mesh.borrow();
                     super::gpu::MeshBuffer::new(
                         &self.device,
+                        &self.queue,
                         &mesh.vertices,
                         &mesh.indices,
                         &instance,
@@ -1500,6 +1504,7 @@ impl Window {
                 // it would be indexed one place out.
                 None => super::gpu::MeshBuffer::new(
                     &self.device,
+                        &self.queue,
                     &[],
                     &[],
                     &instance,
@@ -1513,6 +1518,7 @@ impl Window {
                     let shadow = shadow.borrow();
                     super::gpu::MeshBuffer::new(
                         &self.device,
+                        &self.queue,
                         &shadow.vertices,
                         &shadow.indices,
                         &instance,
