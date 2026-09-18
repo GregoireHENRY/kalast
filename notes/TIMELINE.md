@@ -2435,22 +2435,36 @@ flat mesh, `normals` is empty there. A shape-model fingerprint should hash
 `positions[indices]`, which is invariant -- the four TPM scripts do now, and
 their digests are unchanged, so saved spin-up states stay valid.
 
-## 2026-09-18 — a tagged release builds itself
+## 2026-09-18 — a tagged release builds, and publishes, itself
 
-`.github/workflows/release.yml`, the repository's first workflow: push a `v*`
-tag and each of linux-x86_64, macos-arm64, macos-x86_64 and windows-x86_64
-produces an archive holding the editor, `res/`, `examples/`, `notes/`,
-`shaders/`, `README.rst`, `pyproject.toml` and the Python wheel.
+`.github/workflows/release.yml`, the repository's first workflow. A `v*` tag
+produces **one executable** per platform -- linux-x86_64, macos-arm64,
+macos-x86_64, windows-x86_64 -- archived with `res/`, `examples/`, `notes/`,
+`shaders/`, `README.rst` and `pyproject.toml`, and publishes the crate to
+crates.io and the package to PyPI.
 
-**The executable is built `--no-default-features`, on purpose.** With the
-`python` feature pyo3 links libpython by absolute path -- the binary here
-names `/opt/homebrew/opt/python@3.14/.../Python` -- so it starts on the
-machine that built it and nowhere else, and `pyproject.toml` pins 3.14.x,
-which few machines have. Without it there is no libpython at all: the editor
-opens meshes, renders and loads `.rs` examples anywhere. Running a `.py`
-example needs the wheel that ships beside it, which is what the release notes
-say.
+**One executable means no Python in it.** Built with the `python` feature,
+pyo3 links libpython by absolute path -- the binary here names
+`/opt/homebrew/opt/python@3.14/.../Python` -- so it would start on the machine
+that built it and nowhere else. Embedding an interpreter would not help
+either: the examples import numpy, spiceypy and matplotlib, so it would have
+to carry a site-packages too. So the executable is the engine and the editor,
+which run anywhere with nothing installed, and `.py` scripts are what
+`pip install kalast` is for -- published from the same tag.
 
-A `version` job fails the tag when it disagrees with `Cargo.toml` and
-`pyproject.toml`, since the wheel takes its version from the manifest rather
-than the tag and would otherwise ship `kalast-0.1.0` inside `kalast-v0.2.0`.
+`Cargo.toml` grew an `include` list. Without it `cargo package` packed the
+whole tree, 477 files including `res/ico7.obj` at 12 MB, and crates.io refuses
+anything over 10 MB; with it the package is 117 files and 2.5 MB -- the
+shaders, the three `include_bytes!` resources and the two meshes the library's
+tests load. The patterns needed leading slashes: a bare `README.rst` is a
+gitignore-style glob and matched five of them inside `.venv/`.
+
+**Two things the registries said that the repository did not.** `cargo
+package` fails today: `kalast_macros = "0.1"` cannot resolve, because the only
+`kalast_macros` on crates.io is 0.4.1. And `kalast` itself is published up to
+0.4.1 while every manifest here says 0.1.0 -- so a `v0.1.0` tag would publish
+*below* what installers already resolve to. `kalast` is free on PyPI. The
+`version` job checks all of it before anything is built: the three manifests
+against the tag, the `kalast_macros` requirement against the version being
+published, both registries for a collision, and a warning when the tag is
+lower than the registry's maximum.

@@ -3,8 +3,29 @@ name = "kalast"
 version = "0.1.0"
 description = "TPM for binary asteroids"
 authors = ["Grégoire Henry <gregoireh@pm.me>"]
-repository = "https://github.com/GregoireHENRY/kalast-priv"
+repository = "https://github.com/GregoireHENRY/kalast"
 license = "MIT OR Apache-2.0"
+
+# What goes into the crates.io package. Without this cargo packs the whole
+# working tree -- 477 files, `res/ico7.obj` at 12 MB and `notes/` at 5 MB --
+# and crates.io refuses anything over 10 MB. Only what the build reads at
+# compile time belongs here: the shaders, the three `include_bytes!`/
+# `include_str!` resources, and the two meshes the library's own tests load.
+# `examples/`, `notes/` and the rest of `res/` ship in the release bundle
+# instead, which is where a user of the *program* looks for them.
+# Leading slashes anchor to the package root: these are gitignore-style
+# globs, so a bare `README.rst` matched five of them inside `.venv/`.
+include = [
+    "/src/**/*.rs",
+    "/shaders/*.wgsl",
+    "/res/cube.obj",
+    "/res/ico3.obj",
+    "/res/plane_crater_1024-5000_h=0.437.obj",
+    "/res/DejaVuSans.ttf",
+    "/res/happy-tree.png",
+    "/Cargo.toml",
+    "/README.rst",
+]
 edition = "2024"
 # keywords = []
 # categories = []

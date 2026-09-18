@@ -1,26 +1,25 @@
-# A tagged release: the editor as an executable, plus everything it needs to
-# be useful on a machine that has never seen this repository.
+# A tagged release: one executable per platform, the crate on crates.io, the
+# package on PyPI.
 #
-# Two artefacts per platform, because one cannot be both:
+# The executable is built `--no-default-features`, which is what makes it one
+# file rather than a file plus a Python. With the `python` feature pyo3 links
+# libpython, by *absolute path* on macOS -- the binary built on the author's
+# machine names `/opt/homebrew/opt/python@3.14/.../Python` -- so it would
+# start on that machine and nowhere else, and `pyproject.toml` pins 3.14.x,
+# which few machines have. Embedding an interpreter instead would not help
+# either: the examples import numpy, spiceypy and matplotlib, so a bundled
+# interpreter would have to bring a whole site-packages with it.
 #
-#   kalast[.exe]   the editor built with `--no-default-features`, so it links
-#                  no libpython and runs anywhere. It opens meshes, renders,
-#                  and loads `.rs` examples. It cannot run a `.py` script:
-#                  that needs an interpreter in the process.
-#   *.whl          the Python package. `pip install` it and `python -m kalast
-#                  examples/.../main.py` runs the scripts, which is what the
-#                  bundled `examples/` are.
-#
-# The binary is not built with the `python` feature on purpose. pyo3 links
-# libpython by absolute path on macOS -- `/opt/homebrew/opt/python@3.14/...`
-# on the machine that built it -- so such a binary starts on that machine and
-# nowhere else, and `pyproject.toml` pins 3.14.x, which few machines have.
+# So: the executable opens meshes, renders, and loads `.rs` examples, on any
+# machine, with nothing installed. `.py` scripts are what `pip install kalast`
+# is for, and that is published here too.
 name: release
 
 on:
   push:
     tags: ["v*"]
-  # So a bundle can be built and downloaded without cutting a tag first.
+  # Builds the same artefacts without making a release, so the whole thing
+  # can be rehearsed before a tag is cut.
   workflow_dispatch:
 
 permissions:
@@ -28,56 +27,97 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # What pyproject.toml pins: `requires-python = ">=3.14.3,<3.15"`.
+  PYTHON_VERSION: "3.14"
 
 jobs:
-  # The wheel takes its version from `pyproject.toml`, not from the tag, so a
-  # tag that disagrees ships `kalast-0.1.0-*.whl` inside `kalast-v0.2.0-*`.
-  # Cheap to check, confusing to discover after the fact.
+  # Three places carry the version and they must agree: the wheel and the
+  # crate take theirs from the manifests, not from the tag, so a mismatch
+  # ships `kalast-0.1.0` under a `v0.2.0` tag -- and a publish cannot be
+  # taken back.
   version:
-    name: the tag matches the manifests
+    name: the tag is publishable
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - uses: actions/checkout@v4
-      - shell: bash
+      - name: Check every manifest and both registries
+        shell: bash
         run: |
           set -euo pipefail
           tag="${GITHUB_REF_NAME#v}"
-          cargo_version=$(sed -n '/^\[package\]/,/^\[/p' Cargo.toml \
-            | sed -n 's/^version *= *"\(.*\)"/\1/p' | head -1)
-          py_version=$(sed -n '/^\[project\]/,/^\[/p' pyproject.toml \
-            | sed -n 's/^version *= *"\(.*\)"/\1/p' | head -1)
-          echo "tag $tag | Cargo.toml $cargo_version | pyproject.toml $py_version"
-          if [ "$tag" != "$cargo_version" ] || [ "$tag" != "$py_version" ]; then
-            echo "::error::tag v$tag does not match Cargo.toml ($cargo_version)" \
-                 "and pyproject.toml ($py_version) -- bump them or retag"
-            exit 1
+          field() { sed -n "/^\[$2\]/,/^\[/p" "$1" | sed -n 's/^version *= *"\(.*\)"/\1/p' | head -1; }
+          cargo_version=$(field Cargo.toml package)
+          macros_version=$(field macros/Cargo.toml package)
+          py_version=$(field pyproject.toml project)
+          macros_req=$(sed -n 's/^kalast_macros *= *{.*version *= *"\([^"]*\)".*/\1/p' Cargo.toml | head -1)
+          echo "tag $tag | Cargo.toml $cargo_version | macros $macros_version" \
+               "| pyproject $py_version | kalast_macros req '$macros_req'"
+
+          fail=0
+          note() { echo "::error::$*"; fail=1; }
+
+          # 1. The three manifests carry the version the artefacts are named
+          #    by, and none of them reads the tag.
+          [ "$tag" = "$cargo_version" ]  || note "Cargo.toml is $cargo_version, tag is v$tag"
+          [ "$tag" = "$macros_version" ] || note "macros/Cargo.toml is $macros_version, tag is v$tag"
+          [ "$tag" = "$py_version" ]     || note "pyproject.toml is $py_version, tag is v$tag"
+
+          # 2. `cargo publish` resolves kalast_macros from the *registry*, not
+          #    from macros/, so the requirement has to admit the version about
+          #    to be published there. A requirement of "0.1" against a macros
+          #    crate at 0.4.1 is why publishing failed before this check
+          #    existed.
+          case "$tag" in
+            "$macros_req"|"$macros_req".*) ;;
+            *) note "kalast_macros = \"$macros_req\" does not admit $tag -- set it to the version being published" ;;
+          esac
+
+          # 3. Neither registry lets a version be published twice, and both
+          #    already carry this project. Better to find out here than after
+          #    the GitHub release exists and half the publishing is done.
+          ua="User-Agent: kalast release workflow"
+          if curl -sf -H "$ua" "https://crates.io/api/v1/crates/kalast/$tag" >/dev/null; then
+            note "crates.io already has kalast $tag"
+          fi
+          if curl -sf -H "$ua" "https://crates.io/api/v1/crates/kalast_macros/$tag" >/dev/null; then
+            echo "note: crates.io already has kalast_macros $tag; that step will be skipped"
+          fi
+          if curl -sf "https://pypi.org/pypi/kalast/$tag/json" >/dev/null; then
+            note "PyPI already has kalast $tag"
           fi
 
-  bundle:
-    name: ${{ matrix.target }}
+          # 4. A warning, not an error: publishing below the registry's
+          #    highest version is legal and occasionally deliberate, but
+          #    `cargo add kalast` and `pip install kalast` would go on
+          #    resolving to the older, higher one, so the release would be
+          #    invisible to everyone who did not read the tag.
+          latest=$(curl -sf -H "$ua" https://crates.io/api/v1/crates/kalast \
+            | sed -n 's/.*"max_version":"\([^"]*\)".*/\1/p' | head -1)
+          if [ -n "${latest:-}" ] && [ "$(printf '%s\n%s\n' "$latest" "$tag" | sort -V | tail -1)" != "$tag" ]; then
+            echo "::warning::crates.io already publishes kalast $latest;" \
+                 "$tag is lower, so installers will keep resolving to $latest"
+          fi
+
+          exit $fail
+
+  executable:
+    name: executable ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest,  target: linux-x86_64,  archive: tar }
-          - { os: macos-14,       target: macos-arm64,   archive: tar }
-          - { os: macos-13,       target: macos-x86_64,  archive: tar }
-          - { os: windows-latest, target: windows-x86_64, archive: zip }
+          - { os: ubuntu-latest,   target: linux-x86_64,   archive: tar }
+          - { os: macos-14,        target: macos-arm64,    archive: tar }
+          - { os: macos-13,        target: macos-x86_64,   archive: tar }
+          - { os: windows-latest,  target: windows-x86_64, archive: zip }
     steps:
       - uses: actions/checkout@v4
-
       - uses: dtolnay/rust-toolchain@stable
-
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
-
-      - uses: actions/setup-python@v5
-        with:
-          # What pyproject.toml pins: `requires-python = ">=3.14.3,<3.15"`.
-          python-version: "3.14"
 
       # winit and wgpu link X11, Wayland and Vulkan at build time; the runner
       # image carries none of the -dev packages.
@@ -90,28 +130,20 @@ jobs:
             libxkbcommon-dev libwayland-dev wayland-protocols \
             libgl1-mesa-dev libvulkan-dev
 
-      # The engine alone: no pyo3, no libpython, nothing to find at runtime.
       - name: Build the editor
         run: cargo build --release --bin kalast --no-default-features
 
-      # The shape this binary is built in, so a break in it fails the tag
-      # rather than the download. One platform: the tests are the same code
-      # and three runs of them buy nothing but minutes.
+      # The shape the executable is built in, so a break in it fails the tag
+      # rather than the download. One platform: the same code three times
+      # buys minutes, not coverage.
       - name: Engine tests
         if: runner.os == 'Linux'
         run: cargo test --release --lib --no-default-features
-
-      - name: Build the Python wheel
-        run: |
-          python -m pip install --upgrade pip maturin
-          python -m maturin build --release --out dist
 
       - name: Assemble the bundle
         shell: bash
         run: |
           set -euo pipefail
-          # The tag when there is one; otherwise the commit, so a manual
-          # run cannot produce a bundle that looks like a release.
           if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
             version="${GITHUB_REF_NAME}"
           else
@@ -126,14 +158,12 @@ jobs:
             cp target/release/kalast "dist/$name/"
           fi
 
-          # res/ is needed at runtime -- the bundled examples load meshes from
-          # it by relative path. shaders/ is compiled into the binary and ships
-          # to be read and edited, not because the binary looks for it.
+          # `res/` is read at runtime -- the bundled examples load meshes from
+          # it by relative path. `shaders/` is compiled into the binary and
+          # ships to be read and edited, not because anything looks for it.
           cp -r res examples notes shaders "dist/$name/"
-          # README.md does not exist in this repository; the README is reST.
+          # The README here is reStructuredText, not Markdown.
           cp README.rst pyproject.toml "dist/$name/"
-          cp dist/*.whl "dist/$name/" 2>/dev/null || true
-
           echo "name=$name" >> "$GITHUB_ENV"
 
       - name: Archive
@@ -149,23 +179,78 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.name }}
+          name: bundle-${{ matrix.target }}
           path: |
             dist/*.tar.gz
             dist/*.zip
           if-no-files-found: error
 
-  release:
-    name: publish
-    needs: [version, bundle]
+  wheels:
+    name: wheel ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,  target: linux-x86_64,   args: "--manylinux auto" }
+          - { os: macos-14,       target: macos-arm64,    args: "" }
+          - { os: macos-13,       target: macos-x86_64,   args: "" }
+          - { os: windows-latest, target: windows-x86_64, args: "" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          args: --release --out dist ${{ matrix.args }}
+          sccache: "true"
+          # The manylinux container is a bare CentOS-alike: wgpu and winit
+          # need their headers there just as the host build does.
+          before-script-linux: |
+            if command -v yum >/dev/null; then
+              yum install -y libX11-devel libXcursor-devel libXrandr-devel \
+                libXi-devel libxkbcommon-devel wayland-devel mesa-libGL-devel \
+                vulkan-headers
+            else
+              apt-get update && apt-get install --no-install-recommends -y \
+                libx11-dev libxcursor-dev libxrandr-dev libxi-dev \
+                libxkbcommon-dev libwayland-dev libgl1-mesa-dev libvulkan-dev
+            fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.target }}
+          path: dist/*.whl
+          if-no-files-found: error
+
+  sdist:
+    name: sdist
     runs-on: ubuntu-latest
-    # A tag makes a release; a manual run just leaves the artefacts to
-    # download from the run's page.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: github release
+    needs: [version, executable]
+    runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: dist
+          pattern: bundle-*
           merge-multiple: true
 
       - uses: softprops/action-gh-release@v2
@@ -175,28 +260,91 @@ jobs:
             dist/*.zip
           generate_release_notes: true
           body: |
-            Each bundle holds the editor, the resources it renders and the
-            documentation:
+            Each archive holds one executable and everything it renders:
 
             | | |
             |---|---|
             | `kalast` / `kalast.exe` | the editor. Open it on its own, or give it a `.obj` or a `.rs` example |
             | `res/` | the meshes and colour maps the examples load |
             | `examples/`, `notes/`, `shaders/`, `README.rst` | to read, run and edit |
-            | `kalast-*.whl` | the Python package |
 
-            **Running the `.py` examples needs the wheel.** The executable is
-            built without an embedded interpreter so that it depends on no
-            particular Python: a binary linked against one starts only on a
-            machine that has that exact version, at that exact path. With
-            Python 3.14 installed:
+            The executable carries no Python, which is what makes it one file
+            that starts anywhere. **Running the `.py` examples is
+            `pip install kalast`** — published from this same tag:
 
             ```
-            pip install kalast-*.whl
+            pip install kalast
             python -m kalast examples/two_spheres/main.py
             ```
 
             `examples/two_spheres` and `examples/cube` need nothing but the
             bundled `res/`. The Hera and Didymos examples carry absolute paths
-            to shape models and SPICE kernels that are not shipped here -- see
+            to shape models and SPICE kernels that are not shipped here — see
             "First-time setup" in `CLAUDE.md`.
+
+  pypi:
+    name: publish to PyPI
+    needs: [version, wheels, sdist]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    environment: pypi
+    permissions:
+      # Trusted publishing: PyPI verifies this workflow's identity, so there
+      # is no API token to store or rotate. Configure the publisher once at
+      # https://pypi.org/manage/project/kalast/settings/publishing/
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: "{wheel-*,sdist}"
+          merge-multiple: true
+      - run: ls -l dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  crates:
+    name: publish to crates.io
+    needs: version
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    environment: crates-io
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      # `cargo publish` verifies by building, and the default features bring
+      # in pyo3 and the window stack.
+      - name: Build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libx11-dev libxcursor-dev libxrandr-dev libxi-dev \
+            libxkbcommon-dev libwayland-dev wayland-protocols \
+            libgl1-mesa-dev libvulkan-dev
+
+      # The macros crate first: `kalast` depends on it by version, so it has
+      # to exist on the registry before `kalast` can be verified. Skipped
+      # when that version is already up there -- its version moves rarely,
+      # and `cargo publish` treats "already exists" as an error.
+      - name: Publish kalast_macros, if that version is new
+        working-directory: macros
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          v=$(sed -n 's/^version *= *"\(.*\)"/\1/p' Cargo.toml | head -1)
+          if curl -sf "https://crates.io/api/v1/crates/kalast_macros/$v" >/dev/null; then
+            echo "kalast_macros $v is already on crates.io"
+          else
+            cargo publish
+            # The index takes a moment to catch up, and the next step reads it.
+            sleep 30
+          fi
+
+      - name: Publish kalast
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish
