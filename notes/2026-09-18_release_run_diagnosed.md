@@ -121,7 +121,43 @@ crates.io, which has only 0.4.1 until the macro crate is published. The job
 publishes `kalast_macros` first and sleeps 30 s for the index, which is the
 order that handles it.
 
-## What is left, and it is not code
+## Outcome: v0.5.0 is published
+
+Tag moved to `2b4f5d5`, the stuck run cancelled, and run `35378532502` is
+**green end to end** — 13 of 13 jobs, including the three that were red and
+the `macos-x86_64` pair that had never started.
+
+Verified against the registries rather than the job status:
+
+| | |
+|---|---|
+| crates.io | `kalast` 0.5.0, `kalast_macros` 0.5.0 |
+| PyPI | `kalast` 0.5.0, 5 files |
+| GitHub release | 4 executables, 22–24 MB each |
+
+The PyPI file list is worth reading, because it confirms the Linux fix did the
+thing it was for:
+
+```
+kalast-0.5.0-cp314-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+kalast-0.5.0-cp314-abi3-macosx_10_12_x86_64.whl
+kalast-0.5.0-cp314-abi3-macosx_11_0_arm64.whl
+kalast-0.5.0-cp314-abi3-win_amd64.whl
+kalast-0.5.0.tar.gz
+```
+
+**`manylinux_2_17`** — glibc 2.17, so the wheel installs on anything back to
+RHEL 7. The host build the broken config was doing would have produced a tag
+against ubuntu-24.04's glibc 2.39, which PyPI accepts but which would have
+excluded most of the distributions people actually run.
+
+`publish to PyPI` also passed first time, so the trusted publisher was already
+registered — the last open question from the incoming handoff, answered by it
+simply working.
+
+**0.5.0 is now burned on both registries.** Any further fix is 0.5.1.
+
+## What was left, and was not code
 
 Nothing published, so no version is burned and `v0.5.0` can be reused.
 

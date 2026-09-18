@@ -2541,3 +2541,25 @@ looked at — because a queued job does not look like a failure.
 
 Nothing published, so v0.5.0 can be reused. The tag points at `b4429b0` and
 the fixes are after it, so it must move before a re-run.
+
+## 18 September — v0.5.0 published
+
+Run `35378532502` green end to end, 13 of 13 jobs. Tag moved to `2b4f5d5`,
+the stuck run cancelled.
+
+- **crates.io**: `kalast` 0.5.0 and `kalast_macros` 0.5.0
+- **PyPI**: `kalast` 0.5.0, four wheels and an sdist
+- **GitHub release**: executables for linux-x86_64, macos-arm64,
+  macos-x86_64 and windows-x86_64
+
+The Linux wheel's tag is `manylinux_2_17_x86_64.manylinux2014_x86_64` — glibc
+2.17, installable back to RHEL 7. The broken configuration was building on the
+host, which would have tagged against ubuntu-24.04's glibc 2.39 and excluded
+most of the distributions people run. That the container fix was needed at all
+is only visible in the tag.
+
+`publish to PyPI` passed first time, so the trusted publisher was already
+registered, answering the last open question from the Mac handoff.
+
+**0.5.0 is burned on both registries now**; any further fix is 0.5.1. First
+release of kalast above 0.4.1, and the first through this workflow.
