@@ -10,6 +10,17 @@ repository = "https://github.com/GregoireHENRY/kalast"
 proc-macro = true
 
 [dependencies]
-syn = { version = "2", type-features = ["full", "parsing"] }
+# `features`, not `type-features`. Cargo has no `type-features` key, so it
+# ignored the whole list and pulled syn with its defaults -- which do not
+# include `full`, the feature gating `syn::Item`, `syn::File` and
+# `parse_file`, all three of which this crate uses.
+#
+# It built anyway in the workspace, because another member enables those
+# features and cargo unifies them across the graph. It is only when the crate
+# is built *alone* that the declaration has to be right, and the first thing
+# that does that is `cargo publish` verifying its own tarball -- which is why
+# this surfaced as "failed to verify package tarball" at a release rather than
+# as a compile error at any point in the year before it.
+syn = { version = "2", features = ["full", "parsing"] }
 quote = "1"
 proc-macro2 = "1"
