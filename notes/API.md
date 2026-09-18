@@ -756,14 +756,7 @@ the corners laid out straight from them, a 3M-facet model in 0.2 s -- with
 nothing kept to smoothen back to. `smooth=True` returns the shared mesh the
 file describes instead, for a smooth-shaded surface, built the same way and
 as fast; neither is made from the other.
-
-Plain `v`/`f` files -- what shape models are -- leave a **sidecar cache**,
-`<file>.kmesh`, beside the OBJ after their first load: the parsed positions
-and triangles, a third the size of the text, keyed on the file's size and
-modification time so an edited model is re-parsed. A 3M-facet model loads in
-~80 ms from it against ~200 ms cold; `KALAST_MESH_CACHE=0` disables it, and
-`KALAST_TIMING=1` prints each load's phases. Files with texture coordinates,
-normals or materials go through the general reader and get no cache. `flatten=` was the argument until 17 September, default off, so every
+`KALAST_TIMING=1` prints each load's phases. `flatten=` was the argument until 17 September, default off, so every
 script had to say `flatten=True`; it is accepted for a release, inverted, with
 a `DeprecationWarning`.
 

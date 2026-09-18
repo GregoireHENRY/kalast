@@ -129,34 +129,24 @@ with the facets in parallel and the vertex normals summed in `smoothen`'s
 order, so it is bit-for-bit tobj's output (`load_matches_tobj_bitwise`) and
 tobj remains as `load_via_tobj`, the fallback and the reference.
 
-## Under 100 ms: the sidecar cache
+## Under 100 ms: what was tried, and what was kept
 
 Asked for next: a 3M-facet load in under 100 ms. `KALAST_TIMING=1` prints
 the phases (`[LOAD] read 21 ms | parse 78–129 ms | build 90 ms | indices 3
 ms`), which named the two levers.
 
-**The parse goes away.** The parsed, canonical positions and triangles --
-55 MB for this model against 163 MB of text -- are written beside the OBJ as
-`<file>.kmesh`, keyed on the OBJ's size and modification time, and read
-straight into the destination arrays (one copy; a byte buffer in between was
-half the read). An edited or replaced model is re-parsed and the cache
-rewritten; a truncated or foreign cache is refused; a directory that cannot
-be written just does not get one; `KALAST_MESH_CACHE=0` turns it off. The
-first load pays the parse plus 22 ms to write; every load after reads it in
-15 ms. `*.kmesh` is gitignored.
-
 **The build loses its pre-fill.** `vec![Vertex::default(); 9.4 M]` wrote the
 684 MB once before the threads wrote it again, a third of the build; the
-vectors are `MaybeUninit` now and written exactly once.
-
-| 3M-facet model | cold (parse, write cache) | cached |
-|---|---|---|
-| flat | 211 ms | **75–95 ms** (cache 15, build 55–75, indices 3) |
-| smooth | ~200 ms | **72–100 ms** |
-
+vectors are `MaybeUninit` now and written exactly once. Build 90 → 55 ms.
 The build's spread is page faults: it is 684 MB of fresh memory, and it runs
-slower once the process is large and the GPU holds wired buffers (55 ms with
-an empty window, 95–120 with a 3M mesh already uploaded, once 344).
+slower once the process is large and the GPU holds wired buffers.
+
+**A sidecar cache was tried and rejected.** Writing the parsed positions and
+triangles beside the OBJ (55 MB against 163 MB of text) took the cached load
+to 75–95 ms. It is gone: kalast does not leave files next to a user's
+models. The parse is paid every load, ~100 ms of the ~200; the way under
+100 ms without a cache is to have less to build, which is the redesign
+below.
 
 **What is left is bandwidth, not code.** The frame that uploads a 3M mesh
 takes 260–320 ms after the conversion went parallel (356 before): 830 MB of

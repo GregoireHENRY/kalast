@@ -106,7 +106,9 @@ fn bodies_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
     for i in 0..sim.bodies.len() {
         let name = body_name(&sim.bodies[i]);
         let mut drop_it = false;
-        egui::CollapsingHeader::new(format!("body {i}  {name}"))
+        // The index alone in the header: a shape model's file name is long,
+        // and three of them made the section unreadable. Hover for it.
+        egui::CollapsingHeader::new(format!("body {i}"))
             .id_salt(i)
             .show(ui, |ui| {
                 dirty |= body_ui(ui, i, &mut sim.bodies[i]);
@@ -117,7 +119,9 @@ fn bodies_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
                 {
                     drop_it = true;
                 }
-            });
+            })
+            .header_response
+            .on_hover_text(&name);
         if drop_it {
             remove = Some(i);
         }

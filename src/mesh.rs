@@ -1828,138 +1828,18 @@ fn canonicalise(positions: &[Vec3], tris: &[[u32; 3]]) -> (Vec<Vec3>, Vec<[u32; 
     (out_pos, out_tris)
 }
 
-/// Positions and triangles of a plain OBJ, canonical, from the sidecar cache
-/// when it is current and from the file otherwise -- in which case the
-/// cache is written for next time. `None` hands over to tobj.
-///
-/// The cache is `<file>.kmesh` beside the OBJ: 57 MB for a 3M-facet model
-/// against 163 MB of text, and 15 ms to read against 100 ms to parse. It is
-/// keyed on the OBJ's size and modification time, so an edited or replaced
-/// model is re-parsed and the cache rewritten; a cache that cannot be
-/// written -- a read-only directory -- is simply not written.
-/// `KALAST_MESH_CACHE=0` turns it off, and `KALAST_TIMING=1` shows which
-/// way a load went.
+/// Positions and triangles of a plain OBJ, canonical, or `None` to hand
+/// over to tobj. Parsed every time: a cache beside the data was tried and
+/// rejected -- kalast does not leave files next to a user's models.
 fn plain_mesh(path: &std::path::Path, timer: &mut LoadTimer) -> Option<(Vec<Vec3>, Vec<[u32; 3]>)> {
-    let use_cache = std::env::var_os("KALAST_MESH_CACHE").map_or(true, |v| v != "0");
-    let stamp = std::fs::metadata(path).ok().map(|m| CacheStamp::of(&m));
-    if use_cache {
-        if let Some(found) = stamp.as_ref().and_then(|st| read_cache(path, st)) {
-            timer.phase("cache");
-            return Some(found);
-        }
-    }
     let bytes = std::fs::read(path).ok()?;
     timer.phase("read");
     let (positions, tris) = parse_plain_obj(&bytes)?;
     drop(bytes);
     timer.phase("parse");
-    let (positions, tris) = canonicalise(&positions, &tris);
+    let out = canonicalise(&positions, &tris);
     timer.phase("canonicalise");
-    if use_cache {
-        if let Some(st) = stamp {
-            write_cache(path, &st, &positions, &tris);
-            timer.phase("write cache");
-        }
-    }
-    Some((positions, tris))
-}
-
-/// What the cache is keyed on: the OBJ as it was when the cache was written.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-struct CacheStamp {
-    len: u64,
-    mtime_secs: u64,
-    mtime_nanos: u32,
-}
-
-impl CacheStamp {
-    fn of(meta: &std::fs::Metadata) -> Self {
-        let mtime = meta
-            .modified()
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .unwrap_or_default();
-        Self {
-            len: meta.len(),
-            mtime_secs: mtime.as_secs(),
-            mtime_nanos: mtime.subsec_nanos(),
-        }
-    }
-}
-
-const CACHE_MAGIC: &[u8; 8] = b"KMESH\0\0\0";
-const CACHE_VERSION: u32 = 1;
-/// Magic, version, float width, then the stamp and the two counts.
-const CACHE_HEADER: usize = 8 + 4 + 4 + 8 + 8 + 4 + 8 + 8;
-
-fn cache_path(path: &std::path::Path) -> std::path::PathBuf {
-    let mut name = path.file_name().unwrap_or_default().to_os_string();
-    name.push(".kmesh");
-    path.with_file_name(name)
-}
-
-fn read_cache(path: &std::path::Path, stamp: &CacheStamp) -> Option<(Vec<Vec3>, Vec<[u32; 3]>)> {
-    use std::io::Read;
-    let mut file = std::fs::File::open(cache_path(path)).ok()?;
-    let mut head = [0u8; CACHE_HEADER];
-    file.read_exact(&mut head).ok()?;
-    if &head[..8] != CACHE_MAGIC {
-        return None;
-    }
-    let u32_at = |at: usize| u32::from_le_bytes(head[at..at + 4].try_into().unwrap());
-    let u64_at = |at: usize| u64::from_le_bytes(head[at..at + 8].try_into().unwrap());
-    if u32_at(8) != CACHE_VERSION || u32_at(12) != std::mem::size_of::<Float>() as u32 {
-        return None;
-    }
-    let written = CacheStamp {
-        len: u64_at(16),
-        mtime_secs: u64_at(24),
-        mtime_nanos: u32_at(32),
-    };
-    if written != *stamp {
-        return None;
-    }
-    let (n_v, n_f) = (u64_at(36) as usize, u64_at(44) as usize);
-    let expected = CACHE_HEADER as u64
-        + (n_v * std::mem::size_of::<Vec3>()) as u64
-        + (n_f * std::mem::size_of::<[u32; 3]>()) as u64;
-    if file.metadata().ok()?.len() != expected {
-        return None;
-    }
-    // Read straight into the arrays -- one copy, no 57 MB byte buffer in
-    // between, which was half the read time.
-    let mut positions = vec![Vec3::ZERO; n_v];
-    let mut tris = vec![[0u32; 3]; n_f];
-    file.read_exact(bytemuck::cast_slice_mut::<Vec3, u8>(&mut positions)).ok()?;
-    file.read_exact(bytemuck::cast_slice_mut::<[u32; 3], u8>(&mut tris)).ok()?;
-    if tris.iter().any(|t| t.iter().any(|&i| i as usize >= n_v)) {
-        return None;
-    }
-    Some((positions, tris))
-}
-
-fn write_cache(path: &std::path::Path, stamp: &CacheStamp, positions: &[Vec3], tris: &[[u32; 3]]) {
-    let mut out = Vec::with_capacity(
-        CACHE_HEADER + std::mem::size_of_val(positions) + std::mem::size_of_val(tris),
-    );
-    out.extend_from_slice(CACHE_MAGIC);
-    out.extend_from_slice(&CACHE_VERSION.to_le_bytes());
-    out.extend_from_slice(&(std::mem::size_of::<Float>() as u32).to_le_bytes());
-    out.extend_from_slice(&stamp.len.to_le_bytes());
-    out.extend_from_slice(&stamp.mtime_secs.to_le_bytes());
-    out.extend_from_slice(&stamp.mtime_nanos.to_le_bytes());
-    out.extend_from_slice(&(positions.len() as u64).to_le_bytes());
-    out.extend_from_slice(&(tris.len() as u64).to_le_bytes());
-    debug_assert_eq!(out.len(), CACHE_HEADER);
-    out.extend_from_slice(bytemuck::cast_slice(positions));
-    out.extend_from_slice(bytemuck::cast_slice(tris));
-    // Written beside, then renamed into place: a reader never sees half a
-    // file, and a second process writing the same cache loses nothing.
-    let target = cache_path(path);
-    let tmp = target.with_extension(format!("kmesh.{}.tmp", std::process::id()));
-    if std::fs::write(&tmp, &out).is_ok() && std::fs::rename(&tmp, &target).is_err() {
-        let _ = std::fs::remove_file(&tmp);
-    }
+    Some(out)
 }
 
 /// The shared mesh of `tris` over `positions`, in tobj's order: vertices
@@ -2156,46 +2036,6 @@ mod load_flat_tests {
         ] {
             assert!(parse_plain_obj(text).is_none(), "{:?}", std::str::from_utf8(text));
         }
-    }
-
-    /// The sidecar cache gives the same mesh back, is dropped when the OBJ
-    /// changes underneath it, and is dropped when it is damaged.
-    #[test]
-    fn sidecar_cache_round_trips_and_notices_a_changed_file() {
-        let dir = std::env::temp_dir().join(format!("kalast_kmesh_{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let obj = dir.join("cube.obj");
-        std::fs::copy("res/cube.obj", &obj).unwrap();
-        let cache = cache_path(&obj);
-        let reference = Mesh::load_via_tobj(&obj, |x| x);
-
-        let first = Mesh::load(&obj, |x| x);
-        assert!(cache.exists(), "the first load writes the cache");
-        same_mesh(&first, &reference);
-        let second = Mesh::load(&obj, |x| x);
-        same_mesh(&second, &reference);
-
-        // The file changes: the cache is stale and must not be used.
-        std::thread::sleep(std::time::Duration::from_millis(20));
-        let mut text = std::fs::read_to_string(&obj).unwrap();
-        text.push_str("# edited\n");
-        std::fs::write(&obj, text).unwrap();
-        let third = Mesh::load(&obj, |x| x);
-        same_mesh(&third, &reference);
-        let stamp = CacheStamp::of(&std::fs::metadata(&obj).unwrap());
-        assert!(read_cache(&obj, &stamp).is_some(), "rewritten for the edited file");
-
-        // Damaged: truncated, then wrong magic.
-        let good = std::fs::read(&cache).unwrap();
-        std::fs::write(&cache, &good[..good.len() / 2]).unwrap();
-        assert!(read_cache(&obj, &stamp).is_none(), "a truncated cache is refused");
-        same_mesh(&Mesh::load(&obj, |x| x), &reference);
-        let mut bad = good.clone();
-        bad[0] = b'X';
-        std::fs::write(&cache, &bad).unwrap();
-        assert!(read_cache(&obj, &stamp).is_none(), "a foreign file is refused");
-
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// A mesh loaded flat cannot go back: `smoothen` says so and leaves it flat.
