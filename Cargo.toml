@@ -85,7 +85,20 @@ tobj = { version = "4.0" }
 pyo3 = { version = "0.28", optional = true, features = [
     "experimental-inspect",
     "abi3-py314",
-    "multiple-pymethods"
+    "multiple-pymethods",
+    # Windows needs a Python import library to link against, and without this
+    # it has to find a real interpreter to derive one from. `maturin develop`
+    # always has one -- the active venv -- so the gap only shows in
+    # `maturin build`, which is what the release workflow runs:
+    #
+    #     Need a Python interpreter to compile for Windows without PyO3's
+    #     `generate-import-lib` feature
+    #
+    # That is the whole of the `wheel windows-x86_64` failure in run
+    # 35374536810, reproduced locally on Windows. With this, pyo3 generates
+    # the import library itself and the build needs no interpreter at all,
+    # which is also what makes an abi3 wheel cross-compilable.
+    "generate-import-lib"
 ] }
 numpy = { version = "0.28", optional = true }
 
