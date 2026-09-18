@@ -2503,3 +2503,41 @@ body's own layer. The array is already per-body, so the layers exist. Next.
 Nearly shipped as an unqualified win — the rate alone said 1.56x and "faster"
 was the whole of what was asked. One exported frame each way changed the
 recommendation.
+
+## 18 September, later — the release run diagnosed, and two hypotheses wrong
+
+`gh` authenticated here, logs read, all three red jobs fixed.
+`notes/2026-09-18_release_run_diagnosed.md`.
+
+**A fourth problem was hiding the other three.** `gh run view --log` returned
+nothing and the Mac note guessed "still uploading". The run had never
+*completed*: both `macos-x86_64` jobs sat queued from 17:28 against
+`macos-13`, retired in December 2025. A job asking for a dead runner label
+does not fail, it waits — so the run hung and GitHub served no logs at all.
+`macos-15-intel` now, the last x86_64 macOS image. And the per-job REST
+endpoint serves logs mid-run where `gh run view --log` refuses:
+`gh api repos/O/R/actions/jobs/ID/logs --allow-escape-sequences`.
+
+**crates.io was never the token.** Both handoffs said so; the secret was
+created 17:22:55 and the run started 17:28:21. The real cause is
+`type-features` instead of `features` on syn in `macros/Cargo.toml`, so `full`
+was off and `syn::Item`, `syn::File` and `parse_file` were all configured out.
+It compiled anyway in the workspace because another member enables them and
+cargo unifies features — **a dependency declaration only has to be right when
+the crate is built alone**, and the first thing that does that is `cargo
+publish` verifying its tarball. A manifest typo invisible until the first
+release.
+
+**The Linux wheel was neither hypothesis either.** `--manylinux auto` went
+through `args`, so the action never started a container and
+`before-script-linux` ran on the host unprivileged, where apt cannot lock. The
+script is dropped rather than fixed: x11-dl, wayland-sys and ash all dlopen,
+so no `-devel` package is needed, and installing them would next have hit the
+dead yum mirrors that were the other standing guess.
+
+Three hypotheses across two handoffs, one right. All three were answerable by
+reading a log, and the log was unreachable only because of a queued job nobody
+looked at — because a queued job does not look like a failure.
+
+Nothing published, so v0.5.0 can be reused. The tag points at `b4429b0` and
+the fixes are after it, so it must move before a re-run.

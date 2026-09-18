@@ -29,7 +29,24 @@ command now produces `kalast-0.5.0-cp314-abi3-win_amd64.whl`. It is also what
 makes an abi3 wheel cross-compilable, so it is the right answer rather than
 pinning an interpreter into the job.
 
-### ⏳ `publish to crates.io` — needs you, and it is not the versions
+### ✅ `publish to crates.io` — **corrected: it was never the token**
+
+**This section was wrong when written and is left in place with the
+correction, because the wrong reasoning is the useful part.** It said the
+failure was the missing `CARGO_REGISTRY_TOKEN` and therefore "account setup,
+not code". Once `gh` could read the log: the secret was created at 17:22:55
+and the run started at 17:28:21, so it was present the whole time. One API
+call ruled it out, and that should have come before any hypothesis.
+
+The real cause is a manifest typo — `type-features` instead of `features` on
+syn in `macros/Cargo.toml` — so `full` was never enabled and the crate does
+not compile standalone, which is exactly what `cargo publish` does when it
+verifies its tarball. Fixed and verified by dry run. See
+`2026-09-18_release_run_diagnosed.md`.
+
+The original reasoning follows.
+
+### ⏳ (superseded) `publish to crates.io` — needs you, and it is not the versions
 
 I checked the hypothesis that a version mismatch caused it. **It did not.**
 `Cargo.toml` and `macros/Cargo.toml` are both `0.5.0`, the dependency is
@@ -44,7 +61,22 @@ handoff guessed. That is account setup, not code:
 - GitHub → Settings → Secrets and variables → Actions →
   `CARGO_REGISTRY_TOKEN`
 
-### ❌ `wheel linux-x86_64` — **not diagnosed, and deliberately not guessed at**
+### ✅ `wheel linux-x86_64` — **since diagnosed, and it was neither hypothesis**
+
+`--manylinux auto` went through `args`, which reaches maturin but not the
+action, so no container was started: the build ran natively on ubuntu-24.04
+and `before-script-linux` ran on the host unprivileged, where apt cannot lock.
+The script is now dropped entirely — x11-dl, wayland-sys and ash all dlopen,
+so no `-devel` package is needed — and `manylinux` is passed as the action's
+input.
+
+**And the reason no log was readable**: the run never completed, because both
+`macos-x86_64` jobs were queued forever against `macos-13`, retired in
+December 2025. Now `macos-15-intel`.
+
+The original text follows.
+
+### ❌ (superseded) `wheel linux-x86_64` — **not diagnosed, and deliberately not guessed at**
 
 `gh` is not authenticated on this machine, so I could not read the job log.
 I did not change the `before-script-linux` on a hypothesis: the incoming
