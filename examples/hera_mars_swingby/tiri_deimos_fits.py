@@ -145,7 +145,7 @@ mesh = app.simulation.bodies[0].mesh
 nface = len(mesh.facets)
 if nface != T.shape[0]:
     raise SystemExit(f"mesh has {nface:,} facets, restart state has {T.shape[0]:,}")
-fp = hashlib.sha256(numpy.asarray(mesh.positions, dtype=numpy.float64).tobytes()).hexdigest()
+fp = hashlib.sha256(numpy.asarray(mesh.positions, dtype=numpy.float64)[numpy.asarray(mesh.indices)].tobytes()).hexdigest()
 fp_file = src / "mesh_fingerprint.txt"
 if fp_file.exists() and fp_file.read_text().strip() != fp:
     raise SystemExit("the shape model has changed since the spin-up; re-run tpm_deimos.py")

@@ -810,15 +810,12 @@ impl Window {
         // InstanceInput is full in location (16)
         // need to move that to uniform or something else
 
-        meshes.push(super::gpu::MeshBuffer::new(
+        meshes.push(super::gpu::MeshBuffer::new_static(
             &device,
-                &queue,
             &mesh_attrs_layout,
-            &crate::meshes::cube::VERTICES,
-            &crate::meshes::cube::INDICES,
+            crate::meshes::cube::POSITIONS,
+            crate::meshes::cube::INDICES,
             &super::gpu::InstanceInput::default(),
-            false,
-            &[],
         ));
 
         // Element 0 pairs with the light cube, which the shadow pass skips.
@@ -842,8 +839,8 @@ impl Window {
                 }
 
                 if config.debug.window_mesh {
-                    for v in &mesh.vertices {
-                        println!("v: {}", v.pos);
+                    for p in &mesh.positions {
+                        println!("v: {}", p);
                     }
                     println!("indices: {:?}", &mesh.indices);
                     println!("mat: {:?}", body.mat);
@@ -855,11 +852,8 @@ impl Window {
                     &device,
                 &queue,
             &mesh_attrs_layout,
-                    &mesh.vertices,
-                    &mesh.indices,
+                    &mesh,
                     &instance,
-                    mesh.is_flat(),
-                    &mesh.values,
                 ));
 
                 shadow_meshes.push(body.shadow_mesh.as_ref().map(|shadow| {
@@ -868,13 +862,8 @@ impl Window {
                         &device,
                 &queue,
             &mesh_attrs_layout,
-                        &shadow.vertices,
-                        &shadow.indices,
+                        &shadow,
                         &instance,
-                        shadow.is_flat(),
-                        // The shadow stand-in only ever writes depth, so its
-                        // colours and values are never read.
-                        &[],
                     )
                 }));
             }
@@ -1502,24 +1491,18 @@ impl Window {
                         &self.device,
                         &self.queue,
                         &self.uniforms.mesh_attrs,
-                        &mesh.vertices,
-                        &mesh.indices,
+                        &mesh,
                         &instance,
-                        mesh.is_flat(),
-                        &mesh.values,
                     )
                 }
                 // A body with no mesh still needs a slot, or every body after
                 // it would be indexed one place out.
-                None => super::gpu::MeshBuffer::new(
+                None => super::gpu::MeshBuffer::new_static(
                     &self.device,
-                        &self.queue,
-                        &self.uniforms.mesh_attrs,
+                    &self.uniforms.mesh_attrs,
                     &[],
                     &[],
                     &instance,
-                    false,
-                    &[],
                 ),
             };
             self.meshes.push(buffer);
@@ -1530,11 +1513,8 @@ impl Window {
                         &self.device,
                         &self.queue,
                         &self.uniforms.mesh_attrs,
-                        &shadow.vertices,
-                        &shadow.indices,
+                        &shadow,
                         &instance,
-                        shadow.is_flat(),
-                        &[],
                     )
                 }));
         }
@@ -2019,7 +1999,7 @@ impl Window {
                 // both are per-vertex attributes uploaded together, so a
                 // script that changes either marks colours dirty.
                 let m = mesh.borrow();
-                self.meshes[1 + ii].update_attrib_buffer(&self.queue, &m.vertices, &m.values);
+                self.meshes[1 + ii].update_attrib_buffer(&self.queue, &m);
                 drop(m);
                 mesh.borrow_mut().colors_dirty = false;
             }
@@ -2621,7 +2601,7 @@ mod tests {
 
     fn body_at(centre: Vec3, half: Float) -> crate::app::body::Body {
         let mut mesh = crate::mesh::Mesh::load("res/cube.obj", move |v| v * half + centre);
-        mesh.bounds = crate::mesh::Aabb::from_vertices(&mesh.vertices);
+        mesh.bounds = crate::mesh::Aabb::from_positions(&mesh.positions);
         crate::app::body::Body {
             mesh: Some(std::rc::Rc::new(std::cell::RefCell::new(mesh))),
             ..Default::default()

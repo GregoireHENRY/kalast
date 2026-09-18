@@ -305,15 +305,27 @@ impl Mesh {
             let mut mesh = crate::mesh::Mesh::new();
 
             if let Some(vs) = vertices {
-                mesh.vertices = vs.into_iter().map(|v| v.inner.borrow().clone()).collect();
+                // A `Vertex` is a value handed in, not how a mesh is stored:
+                // it is unpacked into the three arrays that are.
+                for v in vs {
+                    let v = *v.inner.borrow();
+                    mesh.positions.push(v.pos);
+                    mesh.normals.push(v.normal);
+                    mesh.attrs.push(crate::mesh::Attr {
+                        color: v.color,
+                        color_mode: v.color_mode,
+                        #[cfg(feature = "use_f64")]
+                        _pad: 0,
+                    });
+                }
             }
 
             if let Some(fs) = facets {
                 mesh.facets = fs.into_iter().map(|f| f.inner.borrow().clone()).collect();
             }
 
-            if let (true, Some(idx)) = (!mesh.vertices.is_empty(), indices.as_ref()) {
-                mesh.facets = crate::mesh::compute_facets(&mesh.vertices, idx);
+            if let (true, Some(idx)) = (!mesh.positions.is_empty(), indices.as_ref()) {
+                mesh.facets = crate::mesh::compute_facets(&mesh.positions, idx);
             }
 
             if let Some(idx) = indices {
@@ -372,33 +384,33 @@ impl Mesh {
         self.inner.borrow_mut().material_id = id;
     }
 
-    #[getter]
-    fn _vertices_before_flatten(&self) -> VerticesBeforeFlattenView {
-        VerticesBeforeFlattenView {
-            mesh: self.inner.clone(),
-        }
-    }
 
+    /// `(v, 3)` — one row per vertex the file describes, shared between the
+    /// facets that meet there whether the mesh is flat or smooth.
     #[getter]
     fn positions(slf: Bound<'_, Self>) -> Bound<'_, numpy::PyArray2<Float>> {
-        // println!("{}", std::mem::size_of::<crate::mesh::Vertex>());
-        vertex_matrix_array(slf, crate::mesh::POS_OFFSET, 3)
+        vec3_array(slf, |m| &m.positions)
     }
 
+    /// `(v, 3)` for a smooth mesh, and **empty** for a flat one, where every
+    /// corner takes its facet's normal — `mesh.facets[i].normal`, or
+    /// `get_facet_normals(i)`.
     #[getter]
     fn normals(slf: Bound<'_, Self>) -> Bound<'_, numpy::PyArray2<Float>> {
-        vertex_matrix_array(slf, crate::mesh::NORMAL_OFFSET, 3)
+        vec3_array(slf, |m| &m.normals)
     }
 
+    /// `(n, 3)`: one row per **facet** on a flat mesh, one per vertex on a
+    /// smooth one — the granularity the shading actually has.
     #[getter]
     fn colors(slf: Bound<'_, Self>) -> Bound<'_, numpy::PyArray2<Float>> {
-        vertex_matrix_array(slf, crate::mesh::COLOR_OFFSET, 3)
+        attr_array(slf, crate::mesh::ATTR_COLOR_OFFSET, 3)
     }
 
     #[getter]
     fn color_modes(slf: Bound<'_, Self>) -> Bound<'_, numpy::PyArray1<u32>> {
-        let start = crate::mesh::COLOR_MODE_OFFSET;
-        let stride = crate::mesh::VERTEX_STRIDE;
+        let start = crate::mesh::ATTR_MODE_OFFSET;
+        let stride = crate::mesh::ATTR_STRIDE;
 
         #[cfg(feature = "use_f64")]
         let start = start * 2;
@@ -411,9 +423,9 @@ impl Mesh {
         let mesh = slf.borrow();
         let mesh = mesh.inner.borrow();
 
-        let slice: &[u32] = bytemuck::cast_slice(&mesh.vertices);
+        let slice: &[u32] = bytemuck::cast_slice(&mesh.attrs);
         let arr = ndarray::ArrayView1::from(slice)
-            .into_shape_with_order((mesh.vertices.len(), stride))
+            .into_shape_with_order((mesh.attrs.len(), stride))
             .unwrap();
 
         let arr = arr.slice(ndarray::s![.., start..start + size]);
@@ -425,20 +437,14 @@ impl Mesh {
         self.inner.borrow_mut().flatten();
     }
 
-    /// Back to shared corners with averaged normals. A mesh loaded flat --
-    /// the default -- keeps no shared topology to go back to and stays as it
-    /// is, with a warning: load it with `smooth=True` instead.
-    fn smoothen(&mut self, py: Python<'_>) -> PyResult<()> {
-        if !self.inner.borrow_mut().smoothen() {
-            PyErr::warn(
-                py,
-                &py.get_type::<pyo3::exceptions::PyRuntimeWarning>(),
-                c"this mesh was loaded flat and keeps no shared topology to smoothen back to; \
-                  load it with smooth=True",
-                2,
-            )?;
-        }
-        Ok(())
+    /// Shade smoothly: a normal per vertex, averaged over the facets around
+    /// it, and a colour per vertex.
+    ///
+    /// Always possible, on any mesh. It used to depend on a copy of the
+    /// shared vertices that `flatten` kept, so a mesh loaded flat could not
+    /// go back; the shared vertices never go away now.
+    fn smoothen(&mut self) {
+        self.inner.borrow_mut().smoothen();
     }
 
     fn recompute_facets(&mut self) {
@@ -527,31 +533,50 @@ impl Mesh {
         self.inner.borrow().get_facet_indices(facet)
     }
 
+    /// The facet's three corner positions.
+    ///
+    /// Copies, where these used to be views into the vertex array: a flat
+    /// mesh's corners are shared entries now, so writing one through here
+    /// would move it for every facet that meets there. Write
+    /// `mesh.positions` if that is what you mean.
     fn get_facet_positions(
         slf: Bound<'_, Self>,
         facet: isize,
     ) -> [Bound<'_, numpy::PyArray1<Float>>; 3] {
-        let n = slf.borrow().inner.borrow().facets.len();
-        let facet = super::util::isize_to_usize(facet, n).unwrap();
-        facets_matrix_array(slf, crate::mesh::POS_OFFSET, 3, facet)
+        let py = slf.py();
+        let mesh = slf.borrow();
+        let mesh = mesh.inner.borrow();
+        let facet = super::util::isize_to_usize(facet, mesh.facets.len()).unwrap();
+        mesh.get_facet_positions(facet)
+            .map(|v| v.to_array().to_pyarray(py))
     }
 
+    /// The normal at each corner: the facet's own, three times over, when the
+    /// mesh is flat; the vertex normals when it is smooth.
     fn get_facet_normals(
         slf: Bound<'_, Self>,
         facet: isize,
     ) -> [Bound<'_, numpy::PyArray1<Float>>; 3] {
-        let n = slf.borrow().inner.borrow().facets.len();
-        let facet = super::util::isize_to_usize(facet, n).unwrap();
-        facets_matrix_array(slf, crate::mesh::NORMAL_OFFSET, 3, facet)
+        let py = slf.py();
+        let mesh = slf.borrow();
+        let mesh = mesh.inner.borrow();
+        let facet = super::util::isize_to_usize(facet, mesh.facets.len()).unwrap();
+        mesh.get_facet_normals(facet)
+            .map(|v| v.to_array().to_pyarray(py))
     }
 
+    /// The colour at each corner: the facet's own when flat, the vertices'
+    /// when smooth.
     fn get_facet_colors(
         slf: Bound<'_, Self>,
         facet: isize,
     ) -> [Bound<'_, numpy::PyArray1<Float>>; 3] {
-        let n = slf.borrow().inner.borrow().facets.len();
-        let facet = super::util::isize_to_usize(facet, n).unwrap();
-        facets_matrix_array(slf, crate::mesh::COLOR_OFFSET, 3, facet)
+        let py = slf.py();
+        let mesh = slf.borrow();
+        let mesh = mesh.inner.borrow();
+        let facet = super::util::isize_to_usize(facet, mesh.facets.len()).unwrap();
+        mesh.get_facet_colors(facet)
+            .map(|v| v.to_array().to_pyarray(py))
     }
 
     fn update_all_vertices_colors(&mut self, mode: u32, color: [Float; 3]) {
@@ -578,19 +603,84 @@ impl Mesh {
     }
 }
 
-crate::impl_mesh_view!(VerticesView, VertexView, Vertex, vertices);
-crate::impl_mesh_view!(
-    VerticesBeforeFlattenView,
-    VertexBeforeFlattenView,
-    Vertex,
-    _vertices_before_flatten
-);
 crate::impl_mesh_view!(FacetsView, FacetView, Facet, facets);
 
-crate::impl_mesh_field_vec!(VertexView, vertices, pos);
-crate::impl_mesh_field_vec!(VertexView, vertices, normal);
-crate::impl_mesh_field_vec!(VertexView, vertices, color);
-crate::impl_mesh_field_scalar!(VertexView, vertices, color_mode, u32);
+/// The mesh's vertices, as a sequence of cursors.
+///
+/// Only a position: normals and colours are arrays of their own now, at the
+/// granularity the shading has -- per facet on a flat mesh -- and a shared
+/// vertex has no single one of either to give. `mesh.normals`,
+/// `mesh.colors` and `get_facet_normals` are where they live.
+#[pyclass(unsendable)]
+pub struct VerticesView {
+    mesh: Rc<RefCell<crate::mesh::Mesh>>,
+}
+
+#[pymethods]
+impl VerticesView {
+    fn __len__(&self) -> usize {
+        self.mesh.borrow().positions.len()
+    }
+
+    fn __getitem__(&self, index: isize) -> PyResult<VertexView> {
+        let index = super::util::isize_to_usize(index, self.mesh.borrow().positions.len())?;
+        Ok(VertexView {
+            mesh: self.mesh.clone(),
+            index,
+        })
+    }
+
+    pub fn append(&mut self, element: Vertex) {
+        let v = *element.inner.borrow();
+        let mut mesh = self.mesh.borrow_mut();
+        mesh.positions.push(v.pos);
+        mesh.normals.push(v.normal);
+        mesh.attrs.push(crate::mesh::Attr {
+            color: v.color,
+            color_mode: v.color_mode,
+            #[cfg(feature = "use_f64")]
+            _pad: 0,
+        });
+    }
+
+    pub fn clear(&mut self) {
+        let mut mesh = self.mesh.borrow_mut();
+        mesh.positions.clear();
+        mesh.normals.clear();
+        mesh.attrs.clear();
+    }
+
+    pub fn extend(&mut self, elements: Vec<Vertex>) {
+        for e in elements {
+            self.append(e);
+        }
+    }
+
+    pub fn __repr__(&self) -> String {
+        format!("{:?}", self.mesh.borrow().positions)
+    }
+}
+
+#[pyclass(unsendable)]
+pub struct VertexView {
+    pub mesh: Rc<RefCell<crate::mesh::Mesh>>,
+    pub index: usize,
+}
+
+#[pymethods]
+impl VertexView {
+    #[getter]
+    fn pos<'py>(slf: Bound<'py, Self>) -> Bound<'py, numpy::PyArray1<Float>> {
+        let this = slf.borrow();
+        let mesh = this.mesh.borrow();
+        let arr = ndarray::ArrayView1::from(mesh.positions[this.index].as_ref());
+        unsafe { numpy::PyArray1::borrow_from_array(&arr, slf.into_any()) }
+    }
+
+    pub fn __repr__(&self) -> String {
+        format!("{:?}", self.mesh.borrow().positions[self.index])
+    }
+}
 
 crate::impl_mesh_field_vec!(FacetView, facets, pos);
 crate::impl_mesh_field_vec!(FacetView, facets, normal);
@@ -619,56 +709,45 @@ impl FacetVerticesView {
     }
 
     fn __repr__(&self) -> String {
-        format!("{:?}", self.mesh.borrow().get_facet_vertices(self.index))
+        format!("{:?}", self.mesh.borrow().get_facet_positions(self.index))
     }
 }
 
-fn vertex_matrix<'a>(mesh: &'a crate::mesh::Mesh) -> ndarray::ArrayView2<'a, Float> {
-    let slice: &[Float] = bytemuck::cast_slice(&mesh.vertices);
-    // println!("{}", slice.len());
-    // println!("{} {}", mesh.vertices.len(), mesh.facets.len());
+/// An `(n, 3)` view straight onto a `Vec<Vec3>` -- contiguous, so no stride
+/// arithmetic, unlike the array-of-structs this used to read.
+fn vec3_array<'py>(
+    slf: Bound<'py, Mesh>,
+    pick: impl Fn(&crate::mesh::Mesh) -> &Vec<crate::Vec3>,
+) -> Bound<'py, numpy::PyArray2<Float>> {
+    let mesh = slf.borrow();
+    let mesh = mesh.inner.borrow();
+    let v = pick(&mesh);
+    let slice: &[Float] = bytemuck::cast_slice(v.as_slice());
+    let arr = ndarray::ArrayView1::from(slice)
+        .into_shape_with_order((v.len(), 3))
+        .unwrap();
+    unsafe { numpy::PyArray2::borrow_from_array(&arr, slf.into_any()) }
+}
 
+fn attr_matrix<'a>(mesh: &'a crate::mesh::Mesh) -> ndarray::ArrayView2<'a, Float> {
+    let slice: &[Float] = bytemuck::cast_slice(&mesh.attrs);
     ndarray::ArrayView1::from(slice)
-        .into_shape_with_order((mesh.vertices.len(), crate::mesh::VERTEX_STRIDE))
+        .into_shape_with_order((mesh.attrs.len(), crate::mesh::ATTR_STRIDE))
         .unwrap()
 }
 
-fn vertex_matrix_array<'a>(
+fn attr_array<'a>(
     slf: Bound<'_, Mesh>,
     start: usize,
     size: usize,
 ) -> Bound<'_, numpy::PyArray2<Float>> {
     let mesh = slf.borrow();
     let mesh = mesh.inner.borrow();
-    let arr = vertex_matrix(&mesh);
+    let arr = attr_matrix(&mesh);
     let arr = arr.slice(ndarray::s![.., start..start + size]);
     unsafe { numpy::PyArray2::borrow_from_array(&arr, slf.into_any()) }
 }
 
-fn facets_matrix_array<'a>(
-    slf: Bound<'_, Mesh>,
-    start: usize,
-    size: usize,
-    facet: usize,
-) -> [Bound<'_, numpy::PyArray1<Float>>; 3] {
-    let mesh = slf.borrow();
-    let mesh = mesh.inner.borrow();
-    let indices = mesh.get_facet_indices(facet).map(|i| i as usize);
-    let arr = vertex_matrix(&mesh);
-    let arr = arr.slice(ndarray::s![.., start..start + size]);
-
-    let arr0 = arr.slice(ndarray::s![indices[0], ..]);
-    let arr1 = arr.slice(ndarray::s![indices[1], ..]);
-    let arr2 = arr.slice(ndarray::s![indices[2], ..]);
-
-    unsafe {
-        [
-            numpy::PyArray1::borrow_from_array(&arr0, slf.clone().into_any()),
-            numpy::PyArray1::borrow_from_array(&arr1, slf.clone().into_any()),
-            numpy::PyArray1::borrow_from_array(&arr2, slf.into_any()),
-        ]
-    }
-}
 
 #[pyfunction]
 pub fn load_image(path: &str) -> ((u32, u32), Vec<u8>) {
@@ -806,10 +885,9 @@ pub fn intersect_mesh<'py>(
 
 #[pyfunction]
 pub fn compute_facets(vertices: Vec<Vertex>, indices: Vec<u32>) -> Vec<Facet> {
-    let vertices: Vec<crate::mesh::Vertex> =
-        vertices.iter().map(|v| v.inner.borrow().clone()).collect();
+    let positions: Vec<crate::Vec3> = vertices.iter().map(|v| v.inner.borrow().pos).collect();
 
-    crate::mesh::compute_facets(&vertices, &indices)
+    crate::mesh::compute_facets(&positions, &indices)
         .into_iter()
         .map(|f| Facet {
             inner: Rc::new(RefCell::new(f)),

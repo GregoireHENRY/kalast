@@ -246,9 +246,10 @@ From a script: `sim.selected_facets`, `sim.toggle_facet(body, facet)`,
 `sim.clear_selection()`, and `sim.pick_facet(origin, direction)` for the ray
 test on its own. See `API.md`.
 
-**On an indexed mesh the colour bleeds into the neighbouring facets**, because
-they share the three vertices being painted. Load with `flatten=True`, which
-per-facet work wants anyway.
+**On a smooth mesh the colour bleeds into the neighbouring facets**, because
+colour is per vertex there and the three being painted are shared. A flat mesh
+-- the default, and what per-facet work wants anyway -- is coloured per facet,
+so the selection stops at its own edges.
 
 ## Mouse and trackpad — Arcball (the default)
 

@@ -156,5 +156,5 @@ pandas.DataFrame({"depth": z}).to_csv(out / "z.csv", index=False, encoding="utf-
 pandas.DataFrame({"facet": numpy.arange(nface), "t_surface": t}).to_csv(
     out / "tmp_surf_final.csv", index=False, encoding="utf-8-sig")
 (out / "mesh_fingerprint.txt").write_text(hashlib.sha256(
-    numpy.asarray(mesh.positions, dtype=numpy.float64).tobytes()).hexdigest())
+    numpy.asarray(mesh.positions, dtype=numpy.float64)[numpy.asarray(mesh.indices)].tobytes()).hexdigest())
 print(f"wrote {out}/")

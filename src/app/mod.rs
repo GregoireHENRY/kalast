@@ -1637,7 +1637,7 @@ impl App {
             let geometry = sim.bodies.get(body).and_then(|b| b.mesh.as_ref()).map(|m| {
                 let m = m.borrow();
                 let f = m.facets[facet];
-                let v = m.get_facet_positions(facet).map(|p| *p);
+                let v = m.get_facet_positions(facet);
                 (f.normal, f.pos, f.area, v)
             });
             (list, geometry)

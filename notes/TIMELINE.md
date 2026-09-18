@@ -2413,3 +2413,24 @@ Verified against nine reference renders; the only thing that changed is a
 flat facet with one corner coloured differently from its siblings, which now
 takes the first corner's colour. `tests/test_mesh_attrs.py` guards it, and
 fails when the flat/smooth selection is broken.
+
+## 2026-09-18 — a mesh is its shared vertices, and flat is a flag
+
+The third of the memory changes, and the one that removes a duplicate rather
+than a waste: a flat mesh was a second copy of the geometry -- `flatten` built
+one vertex per corner, renumbered the indices to `0..3f`, and kept the shared
+vertices aside for `smoothen`. The corners are expanded into the GPU vertex
+buffer now and nowhere else, so `flatten` and `smoothen` change `attrs` and
+`normals` and nothing else, work on any mesh, and cost no memory.
+`_vertices_before_flatten` and `_indices_before_flatten` -- "temporary until
+better solution is found" -- are gone with the class of stale-index bugs they
+caused.
+
+Per 3M-facet mesh the CPU holds 186 MB where it held 480. The Didymos pair
+across the day: peak RSS 4.74 -> 1.43 GB, GPU 1.74 -> 0.53 GB, footprint
+6.07 -> 2.70 GB, the upload frame 261 -> 45 ms, the load 200 -> 142 ms.
+
+For a caller: `positions` is the shared vertices, `colors` is per facet on a
+flat mesh, `normals` is empty there. A shape-model fingerprint should hash
+`positions[indices]`, which is invariant -- the four TPM scripts do now, and
+their digests are unchanged, so saved spin-up states stay valid.

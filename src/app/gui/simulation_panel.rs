@@ -291,7 +291,7 @@ fn mesh_ui(ui: &mut egui::Ui, mesh: &mut crate::mesh::Mesh) -> bool {
     // One number per row, for the same reason the bounds are split: the
     // widest row in a side panel is the panel's width.
     row(ui, "facets", mesh.facets.len().to_string());
-    row(ui, "vertices", mesh.vertices.len().to_string());
+    row(ui, "vertices", mesh.positions.len().to_string());
     row(ui, "indices", mesh.indices.len().to_string());
 
     let was = mesh.is_flat();
@@ -872,24 +872,30 @@ mod tests {
     use super::*;
 
     /// The shading toggle is `flatten`/`smoothen` and nothing else, so it
-    /// has to survive being pressed more than once: `flatten` stashes the
-    /// vertices it is about to replace, and a second call with nothing
-    /// restored would stash the flattened ones and lose the originals.
+    /// has to survive being pressed more than once. It used to rebuild the
+    /// vertex array each way -- `flatten` stashing the vertices it replaced,
+    /// and a second call with nothing restored stashing the flattened ones
+    /// and losing the originals. Neither touches the geometry now: what
+    /// changes is `attrs`, per facet or per vertex, and `normals`.
     #[test]
     fn shading_toggles_back_and_forth() {
         let mut mesh = crate::mesh::Mesh::load("res/ico3.obj", |v| v);
-        let smooth = mesh.vertices.len();
+        let vertices = mesh.positions.len();
         let facets = mesh.facets.len();
         assert!(!mesh.is_flat());
 
         for _ in 0..3 {
             mesh.flatten();
             assert!(mesh.is_flat());
-            assert_eq!(mesh.vertices.len(), facets * 3);
+            assert_eq!(mesh.attrs.len(), facets, "a flat mesh is coloured per facet");
+            assert!(mesh.normals.is_empty(), "and takes its normals from them");
 
             mesh.smoothen();
             assert!(!mesh.is_flat());
-            assert_eq!(mesh.vertices.len(), smooth);
+            assert_eq!(mesh.attrs.len(), vertices, "a smooth one per vertex");
+            assert_eq!(mesh.normals.len(), vertices);
+            // The geometry is the same either way, which is the point.
+            assert_eq!(mesh.positions.len(), vertices);
             assert_eq!(mesh.facets.len(), facets);
         }
     }
@@ -905,13 +911,17 @@ mod tests {
         assert!(try_load("res", true).is_err());
     }
 
+    /// Loading flat or smooth gives the same geometry and differs in the
+    /// shading attributes: it used to give a different vertex array.
     #[test]
-    fn loading_flat_gives_every_facet_its_own_vertices() {
-        let mesh = try_load("res/ico3.obj", true).unwrap();
-        assert!(mesh.is_flat());
-        assert_eq!(mesh.vertices.len(), mesh.facets.len() * 3);
+    fn loading_flat_and_smooth_differ_only_in_the_attributes() {
+        let flat = try_load("res/ico3.obj", true).unwrap();
+        let smooth = try_load("res/ico3.obj", false).unwrap();
 
-        let mesh = try_load("res/ico3.obj", false).unwrap();
-        assert!(!mesh.is_flat());
+        assert!(flat.is_flat() && !smooth.is_flat());
+        assert_eq!(flat.positions, smooth.positions);
+        assert_eq!(flat.indices, smooth.indices);
+        assert_eq!(flat.attrs.len(), flat.facets.len());
+        assert_eq!(smooth.attrs.len(), smooth.positions.len());
     }
 }

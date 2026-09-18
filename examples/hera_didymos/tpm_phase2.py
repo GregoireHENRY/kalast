@@ -376,7 +376,7 @@ for i, name in enumerate(loaded):
     # identical and every position different, and the run would proceed
     # silently against the wrong geometry. Fingerprint the positions.
     fp = hashlib.sha256(
-        numpy.asarray(mesh.positions, dtype=numpy.float64).tobytes()
+        numpy.asarray(mesh.positions, dtype=numpy.float64)[numpy.asarray(mesh.indices)].tobytes()
     ).hexdigest()
     fp_file = Path(RESTART[name]) / "mesh_fingerprint.txt"
     if fp_file.exists():

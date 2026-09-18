@@ -81,10 +81,10 @@ def _stub_members(pyi: str, cls: str) -> set[str]:
     """Public members a stub declares, by the same rule `dir()` is filtered by.
 
     Underscore names are dropped on *both* sides. `Mesh._vertices_before_flatten`
-    is real and correctly stubbed, but the comparison used to keep it from the
-    stub while filtering it out of `dir()`, so a correct stub read as inventing
-    an attribute. A visibility rule applied to one side of an equality is a bug
-    in the equality.
+    -- since removed -- was real and correctly stubbed, but the comparison kept
+    it from the stub while filtering it out of `dir()`, so a correct stub read
+    as inventing an attribute. A visibility rule applied to one side of an
+    equality is a bug in the equality.
     """
     tree = ast.parse((ROOT / pyi).read_text())
     for n in tree.body:
@@ -192,6 +192,8 @@ def _cases():
          kalast.mesh.Facet(pos=[0.0, 0.0, 0.0], normal=[0.0, 0.0, 1.0], area=0.05)),
         ("kalast/mesh.pyi", "Mesh", _mesh),
         ("kalast/mesh.pyi", "FacetVerticesView", _mesh.get_facet_vertices(0)),
+        ("kalast/mesh.pyi", "VerticesView", _mesh.vertices),
+        ("kalast/mesh.pyi", "VertexView", _mesh.vertices[0]),
     ]
     return _CASES
 

@@ -30,18 +30,18 @@ def test_a_cube_loads_with_shared_corners():
     assert len(m.vertices) == 8, len(m.vertices)
     assert m.indices.size == 36, m.indices.size
     assert len(m.facets) == 12, len(m.facets)
-    # Empty until `flatten` stashes the shared corners to restore later.
-    assert len(m._vertices_before_flatten) == 0
 
 
 def test_every_per_vertex_array_has_one_row_per_vertex():
-    """Eight vertices, so every attribute array is eight rows.
+    """Eight vertices, so a smooth cube's arrays are eight rows.
 
-    A vertex carries a position, a normal, a colour and a colour mode, and
-    nothing else: the texture coordinate, tangent and bitangent it used to
-    have were 36 of its 76 bytes and no live shader read any of them.
+    A vertex is a position; the normal and the colour are arrays of their own,
+    per vertex on a smooth mesh and per facet on a flat one. The texture
+    coordinate, tangent and bitangent a vertex used to carry were 36 of its 76
+    bytes and no live shader read any of them.
     """
     m = kalast.mesh.Mesh(CUBE)
+    assert not m.is_flat()
     assert m.positions.shape == (8, 3), m.positions.shape
     assert m.normals.shape == (8, 3), m.normals.shape
     assert m.colors.shape == (8, 3), m.colors.shape
@@ -73,68 +73,62 @@ def test_facet_normals_are_the_cube_faces():
     assert (m.facets[11].normal == numpy.array([0.0, 1.0, 0.0])).all()
 
 
-def test_flatten_gives_every_facet_its_own_corners():
-    m = kalast.mesh.Mesh(CUBE)
-    m.flatten()
-    assert len(m.vertices) == 36, len(m.vertices)
-    assert m.indices.size == 36, m.indices.size
-    assert len(m.facets) == 12, len(m.facets)
-    # The shared corners are kept, which is what lets `smoothen` undo this.
-    assert len(m._vertices_before_flatten) == 8
-    assert m.positions.shape == (36, 3), m.positions.shape
-    assert m.normals.shape == (36, 3), m.normals.shape
+def test_flatten_changes_the_shading_not_the_geometry():
+    """Flattening is a flag and two arrays, not a second copy of the mesh.
 
-
-def test_flatten_moves_no_geometry():
-    """Unsharing corners must not move one of them.
-
-    Checked on `positions[3f:3f+3]`, the rows flatten actually rebuilds, so
-    it holds independently of how the facet accessors index into them -- see
-    `test_flatten_renumbers_the_indices_to_the_identity` for that half.
+    It used to rebuild the vertex array -- one entry per corner, 36 for a cube
+    -- and renumber the indices to the identity to match, keeping the shared
+    corners aside so `smoothen` could put them back. That was 293 MB of
+    duplicated positions, normals and colours on a 3M-facet model. The corners
+    stay shared now, the indices go on addressing them, and what changes is
+    `colors` (per facet) and `normals` (empty, the facet's own being every
+    corner's).
     """
     m = kalast.mesh.Mesh(CUBE)
-    before = {f: numpy.array(m.get_facet_positions(f)) for f in range(12)}
+    before = m.positions.copy()
+    indices = list(m.indices)
+
     m.flatten()
-    for f, want in before.items():
-        got = m.positions[3 * f:3 * f + 3]
-        assert (got == want).all(), (f, got, want)
+
+    assert m.is_flat()
+    assert (m.positions == before).all(), "flatten must not move a corner"
+    assert list(m.indices) == indices, "nor renumber one"
+    assert len(m.facets) == 12
+    assert m.colors.shape == (12, 3), "a colour per facet"
+    assert m.color_modes.shape == (12,)
+    assert m.normals.shape == (0, 3), "and no per-vertex normal to give"
 
 
-def test_flatten_gives_every_corner_its_own_facet_normal():
-    """The whole point of flattening, and the invariant worth asserting.
+def test_a_flat_facets_corners_take_its_normal():
+    """The whole point of flat shading, asked of the accessor that answers it.
 
-    Before it a corner shared between faces carries one averaged normal;
-    after it each of a facet's three rows carries that facet's own.
+    A corner shared between faces carries one averaged normal while the mesh
+    is smooth; flat, each of a facet's three corners reports that facet's own.
     """
     m = kalast.mesh.Mesh(CUBE)
     m.flatten()
     for f in range(12):
         want = numpy.array(m.facets[f].normal)
-        got = m.normals[3 * f:3 * f + 3]
+        got = numpy.array(m.get_facet_normals(f))
         assert (got == want).all(), (f, got, want)
 
 
-def test_flatten_renumbers_the_indices_to_the_identity():
-    """A flat mesh's vertices are triangle-major, so its indices are `0..3f`.
+def test_flatten_and_smoothen_round_trip():
+    """Both ways, any number of times, with the geometry untouched.
 
-    They used not to be: `flatten` rebuilt the vertices and left the shared
-    pre-flatten indices in place, so facet 1 still pointed at rows 1, 3 and 4
-    where its corners had moved to 3, 4 and 5. Everything that read `indices`
-    without first asking `is_flat()` was then wrong for every facet but facet
-    0, whose stale indices happened to be `[0, 1, 2]` anyway.
-
-    The renderer never noticed -- `gpu.rs` draws a flat mesh sequentially and
-    ignores the index buffer -- and neither did ray casting or
-    `Mesh::get_facet_vertices`, both of which branch on `is_flat()`. What did
-    notice was `recompute_facets`; see below.
+    A mesh loaded flat used to have nothing to go back to, because `smoothen`
+    restored a copy that only `flatten` made.
     """
     m = kalast.mesh.Mesh(CUBE)
-    m.flatten()
-    assert list(m.indices) == list(range(36)), list(m.indices)[:9]
-    for f in range(12):
-        assert m.get_facet_indices(f) == [3 * f, 3 * f + 1, 3 * f + 2], (f, m.get_facet_indices(f))
-        got = numpy.array(m.get_facet_positions(f))
-        assert (got == m.positions[3 * f:3 * f + 3]).all(), (f, got)
+    positions, indices = m.positions.copy(), list(m.indices)
+    for _ in range(3):
+        m.flatten()
+        assert m.is_flat() and m.colors.shape == (12, 3)
+        m.smoothen()
+        assert not m.is_flat() and m.colors.shape == (8, 3)
+        assert m.normals.shape == (8, 3)
+        assert (m.positions == positions).all()
+        assert list(m.indices) == indices
 
 
 def test_recompute_facets_survives_a_flatten():
@@ -174,7 +168,6 @@ def test_smoothen_is_the_exact_inverse_of_flatten():
     assert len(m.vertices) == 8, len(m.vertices)
     assert m.indices.size == 36, m.indices.size
     assert len(m.facets) == 12, len(m.facets)
-    assert len(m._vertices_before_flatten) == 0
     for f, want in before.items():
         assert (numpy.array(m.get_facet_positions(f)) == want).all(), (
             f,
@@ -187,7 +180,6 @@ def test_the_crater_plane_loads_as_a_triangulated_grid():
     assert len(m.vertices) == 1089, len(m.vertices)   # 33 x 33
     assert m.indices.size == 6144, m.indices.size     # 2048 x 3
     assert len(m.facets) == 2048, len(m.facets)
-    assert len(m._vertices_before_flatten) == 0
 
     assert m.get_facet_indices(0) == [0, 1, 2]
     assert m.get_facet_indices(1) == [3, 4, 0]

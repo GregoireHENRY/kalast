@@ -121,9 +121,9 @@ def main() -> int:
     # facets and nowhere else.
     mesh = sim.bodies[0].mesh
     cols = numpy.asarray(mesh.colors)
+    assert cols.shape == (n_flat, 3), f"a flat mesh is coloured per facet: {cols.shape}"
     painted = numpy.arange(0, n_flat, 4)
-    for f in painted:
-        cols[3 * f : 3 * f + 3] = [1.0, 0.0, 0.0]
+    cols[painted] = [1.0, 0.0, 0.0]
     mesh.mark_colors_dirty()
     app.step()
     coloured = grab()

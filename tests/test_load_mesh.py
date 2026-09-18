@@ -53,24 +53,29 @@ def main() -> int:
         len(deprecations) == 2 and all("smooth=True" in str(w.message) for w in deprecations),
         f"{len(deprecations)} DeprecationWarning(s)",
     )
-    # A flat cube: 12 facets, three rows each; shared: the file's 8 corners.
-    rows = [len(sim.bodies[i].mesh.vertices) for i in range(2)]
-    check("flat is three rows per facet", rows[0] == 36, f"{rows[0]} rows")
-    check("smooth is the file's corners", rows[1] == 8, f"{rows[1]} rows")
+    # Flat and smooth are the same geometry: eight shared corners either
+    # way. They used to be different vertex arrays, 36 rows against 8.
+    rows = [len(sim.bodies[i].mesh.positions) for i in range(2)]
+    check("flat keeps the file's shared corners", rows[0] == 8, f"{rows[0]} rows")
+    check("and so does smooth", rows[1] == 8, f"{rows[1]} rows")
 
-    # Flat is built as flat: nothing is kept to smoothen back to, and asking
-    # says so rather than silently doing nothing.
+    # What differs is the shading: a colour per facet against one per vertex.
+    colors = [sim.bodies[i].mesh.colors.shape for i in range(2)]
+    check("flat is coloured per facet", colors[0] == (12, 3), f"{colors[0]}")
+    check("smooth per vertex", colors[1] == (8, 3), f"{colors[1]}")
+
+    # And a mesh loaded flat can be smoothed: there is nothing to restore, so
+    # nothing to be missing. It used to refuse, having kept no shared copy.
     flat_mesh = sim.bodies[0].mesh
-    kept = len(flat_mesh._vertices_before_flatten)
-    check("a mesh loaded flat keeps no shared copy", kept == 0, f"{kept} shared vertices kept")
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        flat_mesh.smoothen()
+    flat_mesh.smoothen()
     check(
-        "smoothen() on it warns and leaves it flat",
-        flat_mesh.is_flat() and any("smooth=True" in str(w.message) for w in caught),
-        f"is_flat {flat_mesh.is_flat()}, {len(caught)} warning(s)",
+        "a mesh loaded flat can be smoothed",
+        not flat_mesh.is_flat() and flat_mesh.colors.shape == (8, 3),
+        f"is_flat {flat_mesh.is_flat()}, colors {flat_mesh.colors.shape}",
     )
+    flat_mesh.flatten()
+    check("and flattened again", flat_mesh.is_flat() and flat_mesh.colors.shape == (12, 3))
+
     # Explicit round trips on a Mesh object keep working.
     m = kalast.mesh.Mesh(CUBE)
     m.flatten()

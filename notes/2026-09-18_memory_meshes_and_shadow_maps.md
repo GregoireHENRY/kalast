@@ -90,8 +90,8 @@ on unified memory are RSS and on a discrete card are VRAM.
 
 What `flatten()` keeps for `smoothen()` is small: the shared vertices (114
 MB for this model) and the shared indices (36 MB), 150 MB against the 682 MB
-flat array, which is the flattening itself. The loader no longer keeps it --
-see the next section -- and an explicit `Mesh.flatten()` still does.
+flat array, which is the flattening itself. Both are gone by the end of this
+note -- the flat array with them.
 
 ## Loading flat, directly
 
@@ -103,9 +103,10 @@ face indices checked against the vertex count once joined), drops the text,
 and builds the flat vertices and the facets **in parallel** in one pass --
 each corner takes its facet's normal, the centre, normal and area computed
 alongside, bit-for-bit what `flatten` and `compute_facets` produce, which a
-Rust test asserts on the three bundled meshes. Nothing is kept to go back to;
-`smoothen()` on such a mesh returns `false`, and the Python binding warns.
-Anything the format allows beyond that -- texture coordinates, normals,
+Rust test asserts on the three bundled meshes. Nothing is kept to go back to.
+(Superseded the same day -- see *The mesh, made one thing*: there is nothing
+to keep, because the shared vertices never go away, so `smoothen()` works on
+any mesh.) Anything the format allows beyond that -- texture coordinates, normals,
 materials, several objects, indices with slashes or negative, polygons past
 an octagon -- hands over to tobj and the old `load` + `flatten`, minus the
 kept copy, so nothing changes for those files.
@@ -205,6 +206,58 @@ smooth body in one scene, each shaded from its own attributes, and colour
 written to whole facets landing on those facets and nowhere else. Breaking
 the index selection makes it fail 22% / 15% against thresholds of 85% / 5%.
 
+
+## The mesh, made one thing
+
+The last of it: a flat mesh was a **second copy of the geometry**. `flatten`
+rebuilt the vertex array with one entry per corner -- three positions where
+the file had one -- renumbered the indices to `0..3f` to match, and kept the
+shared vertices aside so `smoothen` could put them back. On a 3M-facet model
+that is 9.4 M positions where 1.6 M would do, and it is where a class of bugs
+came from: `_indices_before_flatten`, `recompute_facets` returning NaN off a
+degenerate triangle, `flip_facets` swapping vertices for one kind of mesh and
+indices for the other.
+
+A mesh is now its shared vertices and its triangles, and **flat is a flag**.
+`flatten()` makes `attrs` per facet and drops `normals`; `smoothen()` makes
+them per vertex and computes them; neither touches `positions` or `indices`.
+The corners are expanded when the GPU vertex buffer is built -- from the
+indices, into a buffer the GPU needed anyway -- and nowhere else.
+
+Per 3M-facet flat mesh on the CPU:
+
+| | before | after |
+|---|---|---|
+| positions | 9.4 M x 12 B = 108 MB | 1.6 M x 12 B = **18 MB** |
+| normals | 9.4 M x 12 B = 108 MB | **0** -- the facet's is every corner's |
+| colour + mode | 9.4 M x 16 B = 144 MB | 3.1 M x 16 B = **48 MB** |
+| indices | 36 MB | 36 MB |
+| facets | 84 MB | 84 MB |
+| **total** | **480 MB** | **186 MB** |
+
+Measured on the Didymos + Dimorphos pair at 8192, both full models, across
+the three changes:
+
+| | start of day | dead fields gone | per-facet on the GPU | shared on the CPU |
+|---|---|---|---|---|
+| peak RSS | 4.74 GB | 2.38 GB | 2.03 GB | **1.43 GB** |
+| GPU allocations | 1.74 GB | 0.88 GB | 0.52 GB | 0.53 GB |
+| process footprint | 6.07 GB | 3.27 GB | 3.09 GB | **2.70 GB** |
+| frame that uploads a mesh | 261 ms | 261 ms | 60 ms | **45 ms** |
+| `load_mesh`, one 3M model | 200 ms | 164 ms | 159 ms | **142 ms** |
+
+The GPU figure does not move at the last step, and should not: the GPU still
+draws a flat mesh non-indexed from expanded corners, because that is where
+`vertex_index / 3` comes from and WGSL has no primitive index.
+
+**What changed for a caller.** `mesh.positions` is the shared vertices, so a
+flat mesh's has a third the rows; `mesh.colors` is per facet, so
+`colors[3 * f + k]` becomes `colors[f]`; `mesh.normals` is empty on a flat
+mesh, its facets' being every corner's. A fingerprint over `positions` moves
+with the representation and one over `positions[indices]` does not -- the four
+TPM scripts hash the latter now, and their digests are unchanged
+(`9dd9857ce077a747` on the crater, before and after), so saved spin-up states
+stay valid. Verified bit-identical across the whole reference battery.
 
 ## What changed
 

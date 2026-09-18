@@ -52,21 +52,33 @@ class Mesh:
         ...
     def load(self, _cls: object, pyo3: object, path: str, update_pos: object) -> object:
         ...
-    vertices: object
+    vertices: VerticesView
     indices: numpy.ndarray
     facets: object
     material_id: int | None
-    _vertices_before_flatten: object
     positions: numpy.ndarray
+    """`(v, 3)` — one row per vertex the file describes, shared between the
+    facets that meet there whether the mesh is flat or smooth.
+    """
     normals: numpy.ndarray
+    """`(v, 3)` for a smooth mesh, and **empty** for a flat one, where every
+    corner takes its facet's normal — `mesh.facets[i].normal`, or
+    `get_facet_normals(i)`.
+    """
     colors: numpy.ndarray
+    """`(n, 3)`: one row per **facet** on a flat mesh, one per vertex on a
+    smooth one — the granularity the shading actually has.
+    """
     color_modes: numpy.ndarray
     def flatten(self) -> None:
         ...
     def smoothen(self) -> None:
-        """Back to shared corners with averaged normals. A mesh loaded flat --
-        the default -- keeps no shared topology to go back to and stays as it
-        is, with a warning: load it with `smooth=True` instead.
+        """Shade smoothly: a normal per vertex, averaged over the facets around
+        it, and a colour per vertex.
+
+        Always possible, on any mesh. It used to depend on a copy of the
+        shared vertices that `flatten` kept, so a mesh loaded flat could not
+        go back; the shared vertices never go away now.
         """
         ...
     def recompute_facets(self) -> None:
@@ -97,15 +109,46 @@ class Mesh:
     def get_facet_indices(self, facet: int) -> list[int]:
         ...
     def get_facet_positions(self, facet: int) -> list[numpy.ndarray]:
+        """The facet's three corner positions.
+
+        Copies, where these used to be views into the vertex array: a flat
+        mesh's corners are shared entries now, so writing one through here
+        would move it for every facet that meets there. Write
+        `mesh.positions` if that is what you mean.
+        """
         ...
     def get_facet_normals(self, facet: int) -> list[numpy.ndarray]:
+        """The normal at each corner: the facet's own, three times over, when the
+        mesh is flat; the vertex normals when it is smooth.
+        """
         ...
     def get_facet_colors(self, facet: int) -> list[numpy.ndarray]:
+        """The colour at each corner: the facet's own when flat, the vertices'
+        when smooth.
+        """
         ...
     def update_all_vertices_colors(self, mode: int, color: list[float]) -> None:
         ...
     def intersect(self, p: list[float], u: list[float], exit_first: bool) -> tuple[int, list[float]] | None:
         ...
+
+class VerticesView:
+    """The mesh's vertices, as a sequence of cursors.
+
+    Only a position: normals and colours are arrays of their own now, at the
+    granularity the shading has -- per facet on a flat mesh -- and a shared
+    vertex has no single one of either to give. `mesh.normals`,
+    `mesh.colors` and `get_facet_normals` are where they live.
+    """
+    def append(self, element: Vertex) -> None:
+        ...
+    def clear(self) -> None:
+        ...
+    def extend(self, elements: list[Vertex]) -> None:
+        ...
+
+class VertexView:
+    pos: numpy.ndarray
 
 class FacetVerticesView:
     ...

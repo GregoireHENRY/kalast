@@ -361,7 +361,7 @@ else:
     # different, so a count check cannot catch a stale restart -- record what
     # the mesh actually was. `tpm_phase2.py` refuses to start on a mismatch.
     (out / "mesh_fingerprint.txt").write_text(hashlib.sha256(
-        numpy.asarray(mesh.positions, dtype=numpy.float64).tobytes()
+        numpy.asarray(mesh.positions, dtype=numpy.float64)[numpy.asarray(mesh.indices)].tobytes()
     ).hexdigest())
     pandas.DataFrame({"facet": numpy.arange(nface), "t_surface": temps}).to_csv(
         out / "tmp_surf_final.csv", index=False, encoding="utf-8-sig"

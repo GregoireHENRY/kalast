@@ -383,11 +383,11 @@ fn f32x3(v: Vec3) -> [f32; 3] {
 /// How many entries the attribute buffer holds: one per facet for a flat
 /// mesh, one per vertex for a smooth one -- which is exactly what
 /// `vertex_index / 3` and `vertex_index` index in the vertex shader.
-pub fn n_attrs(n_vertices: usize, is_flat: bool) -> usize {
-    if is_flat {
-        n_vertices / 3
+pub fn n_attrs(mesh: &crate::mesh::Mesh) -> usize {
+    if mesh.flat {
+        mesh.facets.len()
     } else {
-        n_vertices
+        mesh.positions.len()
     }
 }
 
@@ -471,11 +471,36 @@ fn empty_buffer<T>(
     })
 }
 
-fn extract_geometry(vertices: &[crate::mesh::Vertex]) -> Vec<GeometryVertex> {
-    vertices
-        .iter()
-        .map(|v| GeometryVertex { pos: f32x3(v.pos) })
-        .collect()
+/// The GPU's vertex positions for entries `range`.
+///
+/// A flat mesh is drawn non-indexed with one vertex per *corner*, so its
+/// corners are expanded here -- `positions[indices[c]]` -- and nowhere on the
+/// CPU, which is what lets the mesh keep its shared vertices. A smooth mesh
+/// is drawn indexed and its positions go up as they are.
+fn extract_geometry(mesh: &crate::mesh::Mesh, range: std::ops::Range<usize>) -> Vec<GeometryVertex> {
+    if mesh.flat {
+        range
+            .map(|c| GeometryVertex {
+                pos: f32x3(mesh.positions[mesh.indices[c] as usize]),
+            })
+            .collect()
+    } else {
+        range
+            .map(|v| GeometryVertex {
+                pos: f32x3(mesh.positions[v]),
+            })
+            .collect()
+    }
+}
+
+/// How many vertices the GPU draws: one per corner for a flat mesh, one per
+/// shared vertex for a smooth one.
+pub fn n_gpu_vertices(mesh: &crate::mesh::Mesh) -> usize {
+    if mesh.flat {
+        mesh.indices.len()
+    } else {
+        mesh.positions.len()
+    }
 }
 
 /// The attributes of entries `range` of the buffer: facets of a flat mesh,
@@ -488,24 +513,27 @@ fn extract_geometry(vertices: &[crate::mesh::Vertex]) -> Vec<GeometryVertex> {
 ///
 /// `values` is per facet, so only a flat mesh has one to read; `set_values`
 /// refuses an indexed mesh for that reason, and a smooth one gets zero.
-fn extract_attrs(
-    vertices: &[crate::mesh::Vertex],
-    is_flat: bool,
-    values: &[crate::Float],
-    range: std::ops::Range<usize>,
-) -> Vec<MeshAttr> {
+fn extract_attrs(mesh: &crate::mesh::Mesh, range: std::ops::Range<usize>) -> Vec<MeshAttr> {
+    let default = crate::mesh::Attr::default();
     range
         .map(|i| {
-            let v = &vertices[if is_flat { 3 * i } else { i }];
+            let a = mesh.attrs.get(i).copied().unwrap_or(default);
             MeshAttr {
-                normal: f32x3(v.normal),
-                value: if is_flat {
-                    values.get(i).copied().unwrap_or(0.0) as f32
+                normal: f32x3(if mesh.flat {
+                    mesh.facets
+                        .get(i)
+                        .map(|f| f.normal)
+                        .unwrap_or(crate::Vec3::ZERO)
+                } else {
+                    mesh.normals.get(i).copied().unwrap_or(crate::Vec3::ZERO)
+                }),
+                value: if mesh.flat {
+                    mesh.values.get(i).copied().unwrap_or(0.0) as f32
                 } else {
                     0.0
                 },
-                color: f32x3(v.color),
-                color_mode: v.color_mode,
+                color: f32x3(a.color),
+                color_mode: a.color_mode,
             }
         })
         .collect()
@@ -647,13 +675,10 @@ impl MeshBuffer {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         attrs_layout: &wgpu::BindGroupLayout,
-        vertices: &[crate::mesh::Vertex],
-        indices: &[u32],
+        mesh: &crate::mesh::Mesh,
         instance: &InstanceInput,
-        is_flat: bool,
-        values: &[crate::Float],
     ) -> Self {
-        let n = vertices.len();
+        let n = n_gpu_vertices(mesh);
         // STORAGE so the per-facet shadow query can read exactly the
         // geometry that gets drawn, rather than a second upload that could
         // drift out of sync. Filled a slice at a time; see `UPLOAD_CHUNK`
@@ -664,49 +689,56 @@ impl MeshBuffer {
             wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::STORAGE,
             "mesh geometry",
         );
-        upload_chunked(queue, &geometry_buffer, n, |r| extract_geometry(&vertices[r]));
-        let n_attrs = n_attrs(n, is_flat);
-        let attrib_buffer = empty_buffer::<MeshAttr>(
-            device,
-            n_attrs,
-            wgpu::BufferUsages::STORAGE,
-            "mesh attributes",
-        );
-        upload_chunked(queue, &attrib_buffer, n_attrs, |r| {
-            extract_attrs(vertices, is_flat, values, r)
-        });
+        upload_chunked(queue, &geometry_buffer, n, |r| extract_geometry(mesh, r));
+
+        let na = n_attrs(mesh);
+        let attrib_buffer =
+            empty_buffer::<MeshAttr>(device, na, wgpu::BufferUsages::STORAGE, "mesh attributes");
+        upload_chunked(queue, &attrib_buffer, na, |r| extract_attrs(mesh, r));
+
         Self::with_vertex_buffers(
             device,
             attrs_layout,
             geometry_buffer,
             attrib_buffer,
             n,
-            indices,
+            &mesh.indices,
             instance,
-            is_flat,
+            mesh.flat,
         )
     }
 
-    /// For a small mesh built into the program -- the depth pass's quad --
-    /// where staging it whole is a few hundred bytes and no queue is to
-    /// hand. Loaded meshes go through `new`.
+    /// For a mesh built into the program -- the light cube, the depth pass's
+    /// quad -- where staging it whole is a few hundred bytes and no queue is
+    /// to hand. Drawn indexed and never shaded, so its attributes are one
+    /// default per position. Loaded meshes go through `new`.
     pub fn new_static(
         device: &wgpu::Device,
         attrs_layout: &wgpu::BindGroupLayout,
-        vertices: &[crate::mesh::Vertex],
+        positions: &[crate::Vec3],
         indices: &[u32],
         instance: &InstanceInput,
-        is_flat: bool,
-        values: &[crate::Float],
     ) -> Self {
+        let geometry: Vec<GeometryVertex> = positions
+            .iter()
+            .map(|p| GeometryVertex { pos: f32x3(*p) })
+            .collect();
         let geometry_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            contents: bytemuck::cast_slice(&extract_geometry(vertices)),
+            contents: bytemuck::cast_slice(&geometry),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::STORAGE,
             label: Some("mesh geometry"),
         });
-        let n_attrs = n_attrs(vertices.len(), is_flat);
+        let attrs = vec![
+            MeshAttr {
+                normal: [0.0; 3],
+                value: 0.0,
+                color: [1.0; 3],
+                color_mode: 0,
+            };
+            positions.len().max(1)
+        ];
         let attrib_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            contents: bytemuck::cast_slice(&extract_attrs(vertices, is_flat, values, 0..n_attrs)),
+            contents: bytemuck::cast_slice(&attrs),
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             label: Some("mesh attributes"),
         });
@@ -715,10 +747,10 @@ impl MeshBuffer {
             attrs_layout,
             geometry_buffer,
             attrib_buffer,
-            vertices.len(),
+            positions.len(),
             indices,
             instance,
-            is_flat,
+            false,
         )
     }
 
@@ -787,17 +819,9 @@ impl MeshBuffer {
     /// Window::update checks that flag before calling this, so a
     /// static-coloured mesh never pays this cost after its initial upload in
     /// `new`.
-    pub fn update_attrib_buffer(
-        &mut self,
-        queue: &wgpu::Queue,
-        vertices: &[crate::mesh::Vertex],
-        values: &[crate::Float],
-    ) {
-        let is_flat = self.is_flat;
-        let n = n_attrs(vertices.len(), is_flat);
-        upload_chunked(queue, &self.attrib_buffer, n, |r| {
-            extract_attrs(vertices, is_flat, values, r)
-        });
+    pub fn update_attrib_buffer(&mut self, queue: &wgpu::Queue, mesh: &crate::mesh::Mesh) {
+        let n = n_attrs(mesh);
+        upload_chunked(queue, &self.attrib_buffer, n, |r| extract_attrs(mesh, r));
     }
 
     /// Re-uploads the instance transform in place (no reallocation) --

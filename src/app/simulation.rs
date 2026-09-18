@@ -719,26 +719,32 @@ mod illumination_tests {
 pub struct Selection {
     pub body: usize,
     pub facet: usize,
-    /// The three vertices' `(color, color_mode)` as they were, so deselecting
-    /// restores rather than guesses. A script that repaints the mesh while a
-    /// facet is selected will have that overwritten on deselect -- there is
-    /// no way to tell an intervening change from the selection's own.
-    previous: [(crate::Vec3, u32); 3],
+    /// The `(color, color_mode)` of every attribute slot the selection
+    /// overwrote, so deselecting restores rather than guesses -- one slot on
+    /// a flat mesh, where colour is per facet, and three on a smooth one,
+    /// where it is per vertex. A script that repaints the mesh while a facet
+    /// is selected will have that overwritten on deselect: there is no way to
+    /// tell an intervening change from the selection's own.
+    previous: Vec<(crate::Vec3, u32)>,
 }
 
 impl Simulation {
-    /// Which vertices a facet owns, in the order the mesh stores them.
-    fn facet_vertices(mesh: &crate::mesh::Mesh, facet: usize) -> Option<[usize; 3]> {
+    /// Which entries of `mesh.attrs` a facet's colour lives in: its own, on a
+    /// flat mesh, and its three vertices' on a smooth one.
+    fn facet_attr_slots(mesh: &crate::mesh::Mesh, facet: usize) -> Option<Vec<usize>> {
+        let i = facet * 3;
+        if i + 2 >= mesh.indices.len() {
+            return None;
+        }
         if mesh.is_flat() {
-            let i = facet * 3;
-            (i + 2 < mesh.vertices.len()).then_some([i, i + 1, i + 2])
+            (facet < mesh.attrs.len()).then(|| vec![facet])
         } else {
-            let i = facet * 3;
-            (i + 2 < mesh.indices.len()).then_some([
-                mesh.indices[i] as usize,
-                mesh.indices[i + 1] as usize,
-                mesh.indices[i + 2] as usize,
-            ])
+            Some(
+                (0..3)
+                    .map(|k| mesh.indices[i + k] as usize)
+                    .filter(|&v| v < mesh.attrs.len())
+                    .collect(),
+            )
         }
     }
 
@@ -751,10 +757,10 @@ impl Simulation {
     /// Select a facet, or deselect it if it already is. Returns whether it is
     /// selected afterwards.
     ///
-    /// On an indexed mesh the three vertices are shared with neighbouring
-    /// facets, so the colour bleeds into them. Load with `flatten=True` --
-    /// which per-facet work wants anyway -- for a selection that stops at the
-    /// facet's own edges.
+    /// On a smooth mesh colour is per vertex and the three are shared with
+    /// neighbouring facets, so the colour bleeds into them. A flat mesh --
+    /// the default, and what per-facet work wants anyway -- keeps colour per
+    /// facet, so the selection stops at its own edges.
     pub fn toggle_facet(&mut self, body: usize, facet: usize, color: crate::Vec3) -> bool {
         if let Some(i) = self
             .selected_facets
@@ -764,10 +770,10 @@ impl Simulation {
             let s = self.selected_facets.remove(i);
             if let Some(mesh) = self.bodies.get(body).and_then(|b| b.mesh.as_ref()) {
                 let mut mesh = mesh.borrow_mut();
-                if let Some(v) = Self::facet_vertices(&mesh, facet) {
+                if let Some(v) = Self::facet_attr_slots(&mesh, facet) {
                     for (slot, (c, m)) in v.into_iter().zip(s.previous) {
-                        mesh.vertices[slot].color = c;
-                        mesh.vertices[slot].color_mode = m;
+                        mesh.attrs[slot].color = c;
+                        mesh.attrs[slot].color_mode = m;
                     }
                     mesh.colors_dirty = true;
                 }
@@ -779,18 +785,18 @@ impl Simulation {
             return false;
         };
         let mut mesh = handle.borrow_mut();
-        let Some(v) = Self::facet_vertices(&mesh, facet) else {
+        let Some(v) = Self::facet_attr_slots(&mesh, facet) else {
             return false;
         };
 
-        let mut previous = [(crate::Vec3::ZERO, 0u32); 3];
-        for (slot, prev) in v.into_iter().zip(previous.iter_mut()) {
-            let vertex = &mut mesh.vertices[slot];
-            *prev = (vertex.color, vertex.color_mode);
-            vertex.color = color;
+        let mut previous = Vec::with_capacity(v.len());
+        for slot in v {
+            let attr = &mut mesh.attrs[slot];
+            previous.push((attr.color, attr.color_mode));
+            attr.color = color;
             // The shader reads this per facet and it overrides the global
             // mode, so the rest of the body is untouched.
-            vertex.color_mode = 1;
+            attr.color_mode = 1;
         }
         mesh.colors_dirty = true;
         drop(mesh);
@@ -809,10 +815,10 @@ impl Simulation {
         for s in selected {
             if let Some(mesh) = self.bodies.get(s.body).and_then(|b| b.mesh.as_ref()) {
                 let mut mesh = mesh.borrow_mut();
-                if let Some(v) = Self::facet_vertices(&mesh, s.facet) {
+                if let Some(v) = Self::facet_attr_slots(&mesh, s.facet) {
                     for (slot, (c, m)) in v.into_iter().zip(s.previous) {
-                        mesh.vertices[slot].color = c;
-                        mesh.vertices[slot].color_mode = m;
+                        mesh.attrs[slot].color = c;
+                        mesh.attrs[slot].color_mode = m;
                     }
                     mesh.colors_dirty = true;
                 }
@@ -974,28 +980,31 @@ mod selection_tests {
     #[test]
     fn selecting_paints_the_facet_and_deselecting_puts_it_back() {
         let mut sim = cube();
+        // A flat mesh is coloured per facet, so facet 1's colour is
+        // `attrs[1]` -- it used to be its three corners' vertex colours.
         let before = {
             let m = sim.bodies[0].mesh.as_ref().unwrap().borrow();
-            (m.vertices[3].color, m.vertices[3].color_mode)
+            (m.attrs[1].color, m.attrs[1].color_mode)
         };
 
         let yellow = crate::Vec3::new(1.0, 0.85, 0.1);
         assert!(sim.toggle_facet(0, 1, yellow), "first click selects");
         {
             let m = sim.bodies[0].mesh.as_ref().unwrap().borrow();
-            assert_eq!(m.vertices[3].color, yellow);
-            // Mode 1 on the facet's own vertices is what the shader reads to
-            // override the global mode for this facet alone.
-            assert_eq!(m.vertices[3].color_mode, 1);
+            assert_eq!(m.attrs[1].color, yellow);
+            // Mode 1 on the facet is what the shader reads to override the
+            // global mode for this facet alone.
+            assert_eq!(m.attrs[1].color_mode, 1);
             assert!(m.colors_dirty);
             // and nothing else moved
-            assert_eq!(m.vertices[0].color_mode, before.1);
+            assert_eq!(m.attrs[0].color_mode, before.1);
+            assert_ne!(m.attrs[0].color, yellow);
         }
         assert!(sim.is_selected(0, 1));
 
         assert!(!sim.toggle_facet(0, 1, yellow), "second click deselects");
         let m = sim.bodies[0].mesh.as_ref().unwrap().borrow();
-        assert_eq!((m.vertices[3].color, m.vertices[3].color_mode), before);
+        assert_eq!((m.attrs[1].color, m.attrs[1].color_mode), before);
         assert!(sim.selected_facets.is_empty());
     }
 
@@ -1003,7 +1012,7 @@ mod selection_tests {
     fn clearing_restores_every_one() {
         let mut sim = cube();
         let yellow = crate::Vec3::new(1.0, 0.85, 0.1);
-        let before = sim.bodies[0].mesh.as_ref().unwrap().borrow().vertices.clone();
+        let before = sim.bodies[0].mesh.as_ref().unwrap().borrow().attrs.clone();
         for f in [0, 3, 7] {
             sim.toggle_facet(0, f, yellow);
         }
@@ -1012,7 +1021,7 @@ mod selection_tests {
         sim.clear_selection();
         assert!(sim.selected_facets.is_empty());
         let m = sim.bodies[0].mesh.as_ref().unwrap().borrow();
-        for (a, b) in m.vertices.iter().zip(&before) {
+        for (a, b) in m.attrs.iter().zip(&before) {
             assert_eq!((a.color, a.color_mode), (b.color, b.color_mode));
         }
     }

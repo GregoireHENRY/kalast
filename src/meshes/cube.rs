@@ -1,16 +1,15 @@
 use crate::Vec3;
-use crate::mesh::Vertex;
 
 #[rustfmt::skip]
-pub const VERTICES: &[Vertex] = &[
-    Vertex { pos: Vec3::new( 1.0,  1.0,  1.0), ..Vertex::default() },
-    Vertex { pos: Vec3::new( 1.0,  1.0, -1.0), ..Vertex::default() },
-    Vertex { pos: Vec3::new( 1.0, -1.0,  1.0), ..Vertex::default() },
-    Vertex { pos: Vec3::new( 1.0, -1.0, -1.0), ..Vertex::default() },
-    Vertex { pos: Vec3::new(-1.0,  1.0,  1.0), ..Vertex::default() },
-    Vertex { pos: Vec3::new(-1.0,  1.0, -1.0), ..Vertex::default() },
-    Vertex { pos: Vec3::new(-1.0, -1.0,  1.0), ..Vertex::default() },
-    Vertex { pos: Vec3::new(-1.0, -1.0, -1.0), ..Vertex::default() },
+pub const POSITIONS: &[Vec3] = &[
+    Vec3::new( 1.0,  1.0,  1.0),
+    Vec3::new( 1.0,  1.0, -1.0),
+    Vec3::new( 1.0, -1.0,  1.0),
+    Vec3::new( 1.0, -1.0, -1.0),
+    Vec3::new(-1.0,  1.0,  1.0),
+    Vec3::new(-1.0,  1.0, -1.0),
+    Vec3::new(-1.0, -1.0,  1.0),
+    Vec3::new(-1.0, -1.0, -1.0),
 ];
 
 #[rustfmt::skip]

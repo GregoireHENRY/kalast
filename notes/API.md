@@ -784,44 +784,63 @@ every later index means. Colours have their own, cheaper route in
 ### What a `Mesh` carries
 
 Per-vertex arrays, one row per vertex, in the order the buffers hold them —
-which, loaded flat (the default), is three unshared rows per facet:
+whose rows are the vertices the file describes, shared between the facets that
+meet there:
 
 | | |
 |---|---|
-| `positions`, `normals` | `(n, 3)` |
-| `colors` | `(n, 3)` |
+| `positions` | `(v, 3)`, one row per shared vertex |
+| `normals` | `(v, 3)` on a smooth mesh, empty on a flat one |
+| `colors` | `(f, 3)` on a flat mesh, `(v, 3)` on a smooth one |
 | `color_modes` | `(n,)`, per-vertex selector for what the shader outputs |
 | `vertices`, `facets` | views over the rows themselves, as `Vertex` / `Facet` objects |
 | `indices` | `(3f,)` triangle indices — after `flatten` these are `0..3f`, one per row |
 | `values` | `(f,)` per-facet scalar to colour by; see below |
 | `material_id` | index into the model's materials, or `None` |
 
-**On a flat mesh, colour is per facet.** Normal, colour, colour mode and
-value are held once per facet on the GPU rather than once per corner — the
-three corners of a flat facet share a normal and a value by construction, and
-a facet shaded three different colours is not something flat shading can
-express. So the facet takes its **first corner's** colour and mode. Writing
-all three, which is what the selection, a colormap and every script here do,
-is unchanged; writing one corner on its own now colours the whole facet if it
-is corner 0 and nothing if it is corner 1 or 2, where it used to give a
-gradient across the facet. A smooth mesh is untouched: its attributes stay
-per vertex.
+**A mesh is its shared vertices, and flat is a shading flag.** `positions` is
+one row per vertex *the file describes* — a corner where several facets meet
+is one row — whether the mesh is flat or smooth, and `indices` addresses them.
+Flat used to be a second representation, one vertex per corner with the
+indices renumbered to `0..3f`; the corners are expanded when the GPU buffers
+are built and nowhere else, which took a 3M-facet model from 480 MB to 187 MB.
 
-A vertex carries a position, a normal, a colour and a colour mode, and
-nothing else. It used to carry a texture coordinate, a tangent and a
-bitangent as well -- for normal mapping, which no shader here does -- and an
-unread `extra` word: 36 of its 76 bytes, on every vertex of every mesh.
-`mesh.textures`, `.tangents` and `.bitangents` are gone with them, and a
-textured `.obj` still loads, its texture coordinates simply not kept.
+So `flatten()` and `smoothen()` change what is shaded, not what is there, and
+either works on any mesh, any number of times — a mesh loaded flat used to
+have nothing to go back to.
+
+| array | flat | smooth |
+|---|---|---|
+| `positions` | `(v, 3)` — shared | `(v, 3)` — shared |
+| `indices` | `(3f,)` into `positions` | the same |
+| `normals` | **empty**: every corner takes its facet's, `facets[i].normal` | `(v, 3)` |
+| `colors`, `color_modes` | `(f, …)` — **one per facet** | `(v, …)` — one per vertex |
+
+Colour is per facet on a flat mesh because that is the granularity flat
+shading has: a facet shaded three different colours is not something it can
+express. Writing whole facets — the selection, a colormap,
+`update_all_vertices_colors`, every script here — is unchanged in effect;
+`colors[3 * f + k]` is not, and becomes `colors[f]`.
+
+If you hash `positions` to fingerprint a shape model, hash
+`positions[indices]` instead: that is corner-major and so is invariant to all
+of this. The TPM examples do, and their digests are unchanged.
+
+A vertex carries a position and nothing else. It used to carry a normal, a
+colour and a mode as well — per corner, three times over on a flat mesh — plus
+a texture coordinate, a tangent and a bitangent for normal mapping, which no
+shader here does, and an unread `extra` word. `mesh.textures`, `.tangents` and
+`.bitangents` are gone with them, and a textured `.obj` still loads, its
+texture coordinates simply not kept.
 
 And the operations on one:
 
 | | |
 |---|---|
 | `is_flat()` | whether each facet owns its vertices — a method, not a property |
-| `flatten()`, `smoothen()` | switch between that and shared corners. Follow with `sim.rebuild_meshes()`. A mesh loaded flat (the default) keeps no shared corners to go back to: `smoothen()` warns and leaves it flat -- load with `smooth=True` for the shared mesh |
+| `flatten()`, `smoothen()` | switch the shading between per facet and per vertex. The geometry does not move, so either works on any mesh, any number of times. Follow with `sim.rebuild_meshes()` |
 | `recompute_facets()` | recompute centres, normals and areas after moving vertices |
-| `mark_colors_dirty()` | re-upload colours next frame, after writing `colors` in place. On a flat mesh the GPU keeps one colour per *facet*, taken from its first corner — see below |
+| `mark_colors_dirty()` | re-upload colours next frame, after writing `colors` in place |
 | `update_all_vertices_colors(mode, color)` | set every vertex to one colour and mode |
 | `get_facet_positions(i)` | the three corners of one facet |
 | `get_facet_normals(i)`, `get_facet_colors(i)` | the same three, other attributes |

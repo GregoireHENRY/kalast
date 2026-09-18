@@ -4,23 +4,11 @@ use crate::Vec3;
 // The unit quad. Its texture coordinate is `(x, 1 - y)` and the shader works
 // that out for itself, rather than the vertex carrying one -- `Vertex` has no
 // texture coordinate since nothing that renders a body used it.
-const DEPTH_VERTICES: &[crate::mesh::Vertex] = &[
-    crate::mesh::Vertex {
-        pos: Vec3::new(0.0, 0.0, 0.0),
-        ..crate::mesh::Vertex::default()
-    },
-    crate::mesh::Vertex {
-        pos: Vec3::new(1.0, 0.0, 0.0),
-        ..crate::mesh::Vertex::default()
-    },
-    crate::mesh::Vertex {
-        pos: Vec3::new(1.0, 1.0, 0.0),
-        ..crate::mesh::Vertex::default()
-    },
-    crate::mesh::Vertex {
-        pos: Vec3::new(0.0, 1.0, 0.0),
-        ..crate::mesh::Vertex::default()
-    },
+const DEPTH_POSITIONS: &[Vec3] = &[
+    Vec3::new(0.0, 0.0, 0.0),
+    Vec3::new(1.0, 0.0, 0.0),
+    Vec3::new(1.0, 1.0, 0.0),
+    Vec3::new(0.0, 1.0, 0.0),
 ];
 
 const DEPTH_INDICES: &[u32] = &[0, 1, 2, 0, 2, 3];
@@ -46,11 +34,9 @@ impl Pass {
         let mesh = gpu::MeshBuffer::new_static(
             device,
             &attrs_layout,
-            DEPTH_VERTICES,
+            DEPTH_POSITIONS,
             DEPTH_INDICES,
             &gpu::InstanceInput::default(),
-            false,
-            &[],
         );
 
         let texture = gpu::Texture::create_depth_texture_render_debug(device, width, height);

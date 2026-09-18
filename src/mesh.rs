@@ -4,17 +4,11 @@ use pyo3::prelude::*;
 
 use crate::{Float, Mat4, Vec3};
 
-// In `Float`s: pos 3, normal 3, colour 3, then the mode as one slot --
-// `u32` under f32, `u32` plus four bytes of padding under f64, which is why
-// the stride is the same 10 either way.
-//
-// std::mem::size_of::<Vertex>() / 8 = 10 (f64), / 4 = 10 (f32)
-pub const VERTEX_STRIDE: usize = 10;
-
-pub const POS_OFFSET: usize = 0;
-pub const NORMAL_OFFSET: usize = 3;
-pub const COLOR_OFFSET: usize = 6;
-pub const COLOR_MODE_OFFSET: usize = 9;
+// `Attr` in `Float`s: colour 3, then the mode as one slot -- `u32` under f32,
+// `u32` plus four bytes of padding under f64 -- so the stride is 4 either way.
+pub const ATTR_STRIDE: usize = 4;
+pub const ATTR_COLOR_OFFSET: usize = 0;
+pub const ATTR_MODE_OFFSET: usize = 3;
 
 pub const MESH_CUBE: &'static str = include_str!("../res/cube.obj");
 
@@ -72,11 +66,11 @@ impl Aabb {
         self.min.x > self.max.x || self.min.y > self.max.y || self.min.z > self.max.z
     }
 
-    pub fn from_vertices(vertices: &[Vertex]) -> Self {
+    pub fn from_positions(positions: &[Vec3]) -> Self {
         let mut aabb = Self::empty();
-        for v in vertices {
-            aabb.min = aabb.min.min(v.pos);
-            aabb.max = aabb.max.max(v.pos);
+        for p in positions {
+            aabb.min = aabb.min.min(*p);
+            aabb.max = aabb.max.max(*p);
         }
         aabb
     }
@@ -188,6 +182,30 @@ impl std::fmt::Debug for Vertex {
     }
 }
 
+/// What a surface is coloured by: per facet on a flat mesh, per vertex on a
+/// smooth one. The same pair the GPU reads out of its attribute buffer.
+#[repr(C)]
+#[derive(Copy, Clone, PartialEq, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct Attr {
+    pub color: Vec3,
+    pub color_mode: u32,
+    /// Only under `use_f64`, where `Vec3` is 8-aligned and the struct would
+    /// otherwise carry four bytes of padding, which `Pod` forbids.
+    #[cfg(feature = "use_f64")]
+    pub _pad: u32,
+}
+
+impl Attr {
+    pub const fn default() -> Self {
+        Self {
+            color: Vec3::new(1.0, 1.0, 1.0),
+            color_mode: 0,
+            #[cfg(feature = "use_f64")]
+            _pad: 0,
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Copy, Clone, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Facet {
@@ -262,22 +280,34 @@ impl Material {
 #[repr(C)]
 #[derive(Clone, PartialEq)]
 pub struct Mesh {
-    pub vertices: Vec<Vertex>,
-    pub indices: Vec<u32>,
-    pub facets: Vec<Facet>,
-    pub material_id: Option<usize>,
-
-    // temporary until better solution is found
-    pub(crate) _vertices_before_flatten: Vec<Vertex>,
-
-    /// The shared topology `flatten` replaced, so `smoothen` can put it back.
+    /// The vertices the file describes: a corner shared by several facets is
+    /// one entry here, whether the mesh is shaded flat or smooth.
     ///
-    /// A flat mesh's `indices` are the identity `0..3f`, because its vertices
-    /// are already triangle-major. Keeping that true rather than leaving the
-    /// pre-flatten values in place is what lets every consumer read `indices`
-    /// without first asking `is_flat()` -- and forgetting to ask is what made
-    /// `recompute_facets` return NaN normals on a flattened mesh.
-    pub(crate) _indices_before_flatten: Vec<u32>,
+    /// A flat mesh used to hold one vertex per *corner* -- three times the
+    /// positions, and a normal, colour and mode on each that all three
+    /// carried identically. The corners are expanded when the GPU buffers are
+    /// built and nowhere else, which took a 3M-facet model from 480 MB to
+    /// 187 MB. See `notes/2026-09-18_memory_meshes_and_shadow_maps.md`.
+    pub positions: Vec<Vec3>,
+
+    /// One normal per vertex, for smooth shading. **Empty when `flat`**,
+    /// where every corner takes its facet's normal and a shared vertex has no
+    /// single one to give.
+    pub normals: Vec<Vec3>,
+
+    /// Colour and mode: one per **facet** when `flat`, one per vertex
+    /// otherwise -- exactly what the GPU reads, so the two cannot drift.
+    pub attrs: Vec<Attr>,
+
+    /// Three per facet, into `positions`. Real indices for every mesh now:
+    /// a flat one's used to be the identity `0..3f`, because its corners
+    /// were its vertices.
+    pub indices: Vec<u32>,
+
+    /// Centre, normal and area per facet, derived from the geometry.
+    pub facets: Vec<Facet>,
+
+    pub material_id: Option<usize>,
 
     // Set by mutating vertex color/color_mode/extra in place (e.g.
     // per-facet colormaps) to request a GPU re-upload on the next frame.
@@ -290,9 +320,12 @@ pub struct Mesh {
     // per load rather than per frame -- a full pass over 9.4M vertices is
     // milliseconds at load time but would be nonsense every frame.
     // Call `recompute_bounds` after mutating vertex positions in place.
-    /// Whether every facet owns its three vertices. Explicit, because it
-    /// used to be inferred from the shared copy `flatten` keeps for
-    /// `smoothen` -- and a mesh loaded flat keeps none.
+    /// Shade every facet as a flat plate, from its own normal, rather than
+    /// interpolating a normal across it.
+    ///
+    /// A flag, not a second copy of the geometry: `flatten` and `smoothen`
+    /// recompute `attrs` and `normals` and set this, and neither touches
+    /// `positions` or `indices`.
     pub flat: bool,
     pub bounds: Aabb,
 
@@ -317,12 +350,12 @@ pub struct Mesh {
 impl Mesh {
     pub const fn new() -> Self {
         Self {
-            vertices: vec![],
+            positions: vec![],
+            normals: vec![],
+            attrs: vec![],
             indices: vec![],
             facets: vec![],
             material_id: None,
-            _vertices_before_flatten: vec![],
-            _indices_before_flatten: vec![],
             colors_dirty: false,
             flat: false,
             bounds: Aabb {
@@ -338,68 +371,29 @@ impl Mesh {
     /// after mutating positions in place, the same way `recompute_facets` is
     /// needed for facet data.
     pub fn recompute_bounds(&mut self) {
-        self.bounds = Aabb::from_vertices(&self.vertices);
+        self.bounds = Aabb::from_positions(&self.positions);
     }
 
-    /// The default way in: a flat mesh built straight from the file's
-    /// positions and triangles, with no shared mesh in between and nothing
-    /// kept to go back to.
+    /// The default way in: the mesh the file describes, shaded flat.
     ///
-    /// Two costs went with the old route -- parse to a shared mesh, then
-    /// `flatten` it -- that a flat mesh never needed: the shared vertices
-    /// built, copied and kept (150 MB for a 3M-facet model), and a parse
-    /// that ran on one core for 0.85 s of the 1.0 s a load took. Plain
-    /// `v`/`f` triangle files, which is what shape models are, are parsed in
-    /// parallel over the bytes and the flat vertices and facets are built in
-    /// parallel from the result. Anything else the format allows -- texture
-    /// coordinates, normals, materials, several objects, indices with
-    /// slashes or negative -- goes through `load` and `flatten` exactly as
-    /// before, minus the copy kept for `smoothen`. See
+    /// Flat and smooth differ in `attrs` and `normals` and in nothing else --
+    /// the geometry is the same shared vertices and triangles either way --
+    /// so this is the canonical load plus `flatten`. It used to be a second
+    /// representation, one vertex per corner, which for a 3M-facet model was
+    /// 293 MB of duplicated positions, normals and colours. See
     /// `notes/2026-09-18_memory_meshes_and_shadow_maps.md`.
     pub fn load_flat<P, F>(path: P, update_pos: F) -> Self
     where
         P: AsRef<std::path::Path>,
         F: Fn(Vec3) -> Vec3,
     {
-        let path = path.as_ref();
-        let mut timer = LoadTimer::start();
-        let Some((mut positions, tris)) = plain_mesh(path, &mut timer) else {
-            let mut mesh = Self::load_via_tobj(path, update_pos);
-            mesh.flatten();
-            mesh._vertices_before_flatten = Vec::new();
-            mesh._indices_before_flatten = Vec::new();
-            return mesh;
-        };
-        println!("loading model: {:?}", path);
-        for p in positions.iter_mut() {
-            *p = update_pos(*p);
-        }
-        let (min, max) = positions.iter().fold(
-            (Vec3::splat(Float::INFINITY), Vec3::splat(Float::NEG_INFINITY)),
-            |(lo, hi), p| (lo.min(*p), hi.max(*p)),
-        );
-        let (vertices, facets) = build_flat(&positions, &tris);
-        drop(positions);
-        timer.phase("build");
-        let indices = (0..vertices.len() as u32).collect();
-        timer.phase("indices");
-        Mesh {
-            indices,
-            vertices,
-            facets,
-            material_id: None,
-            _vertices_before_flatten: vec![],
-            _indices_before_flatten: vec![],
-            colors_dirty: false,
-            flat: true,
-            bounds: Aabb { min, max },
-            path: Some(path.to_path_buf()),
-            values: vec![],
-        }
+        let mut mesh = Self::load_canonical(path.as_ref(), update_pos, false);
+        mesh.flatten();
+        mesh
     }
 
-    /// The shared mesh the file describes: its vertices, the triangles over
-    /// them, and a normal per vertex averaged from the facets around it.
+    /// The mesh the file describes, shaded smoothly: a normal per vertex,
+    /// averaged over the facets around it.
     ///
     /// Built directly for the plain `v`/`f` files shape models are -- parsed
     /// in parallel, vertices numbered by first appearance in the faces and
@@ -411,33 +405,51 @@ impl Mesh {
         P: AsRef<std::path::Path>,
         F: Fn(Vec3) -> Vec3,
     {
-        let path = path.as_ref();
+        Self::load_canonical(path.as_ref(), update_pos, true)
+    }
+
+    /// Positions, triangles and facets, with `smoothen` run when `smooth`.
+    /// Falls back to tobj for anything the plain parser does not speak.
+    fn load_canonical<F>(path: &std::path::Path, update_pos: F, smooth: bool) -> Self
+    where
+        F: Fn(Vec3) -> Vec3,
+    {
         let mut timer = LoadTimer::start();
         let Some((mut positions, tris)) = plain_mesh(path, &mut timer) else {
-            return Self::load_via_tobj(path, update_pos);
+            let mut mesh = Self::load_via_tobj(path, update_pos);
+            if !smooth {
+                mesh.flatten();
+            }
+            return mesh;
         };
         println!("loading model: {:?}", path);
         for p in positions.iter_mut() {
             *p = update_pos(*p);
         }
-        let (vertices, indices, facets) = build_smooth(&positions, &tris);
-        drop(positions);
+        let bounds = Aabb::from_positions(&positions);
+        let indices: Vec<u32> = tris.iter().flatten().copied().collect();
+        drop(tris);
+        let facets = build_facets(&positions, &indices);
         timer.phase("build");
-        let bounds = Aabb::from_vertices(&vertices);
-        timer.phase("bounds");
-        Mesh {
-            vertices,
+
+        let mut mesh = Mesh {
+            attrs: vec![Attr::default(); positions.len()],
+            positions,
+            normals: vec![],
             indices,
             facets,
             material_id: None,
-            _vertices_before_flatten: vec![],
-            _indices_before_flatten: vec![],
             colors_dirty: false,
             flat: false,
             bounds,
             path: Some(path.to_path_buf()),
             values: vec![],
+        };
+        if smooth {
+            mesh.smoothen();
+            timer.phase("normals");
         }
+        mesh
     }
 
     /// The same through tobj: the general OBJ reader, with texture
@@ -602,120 +614,69 @@ impl Mesh {
 
     // Take normals per facet and straight apply them to vertices per facet.
     // Also duplicate vertex to follow indices.
+    /// Shade every facet as a flat plate.
+    ///
+    /// Recomputes what shading reads and nothing else: `attrs` becomes one
+    /// entry per facet -- taking the colour of the facet's first corner --
+    /// and `normals` is dropped, since a flat corner's normal is its facet's.
+    /// `positions` and `indices` are untouched, which is why this is now
+    /// exactly reversible and costs no memory.
     pub fn flatten(&mut self) {
-        // temporary until better solution is found
-        self._vertices_before_flatten = self.vertices.clone();
-
-        let mut new = vec![];
-
-        for (fi, fv) in self.indices.chunks(3).enumerate() {
-            self.vertices[fv[0] as usize].normal = self.facets[fi].normal;
-            self.vertices[fv[1] as usize].normal = self.facets[fi].normal;
-            self.vertices[fv[2] as usize].normal = self.facets[fi].normal;
-
-            new.push(self.vertices[fv[0] as usize]);
-            new.push(self.vertices[fv[1] as usize]);
-            new.push(self.vertices[fv[2] as usize]);
+        if !self.flat {
+            let per_vertex = std::mem::take(&mut self.attrs);
+            self.attrs = (0..self.facets.len())
+                .map(|f| {
+                    let first = self.indices.get(3 * f).copied().unwrap_or(0) as usize;
+                    per_vertex.get(first).copied().unwrap_or(Attr::default())
+                })
+                .collect();
         }
-
-        self.vertices = new;
-
-        // The rebuilt vertices are triangle-major, so the shared indices no
-        // longer address them: facet 1 kept pointing at rows 1, 3 and 4 where
-        // its corners had moved to 3, 4 and 5. The renderer never noticed --
-        // it draws a flat mesh sequentially and ignores the index buffer --
-        // but `compute_facets` reads them, so `recompute_facets()` on a
-        // flattened mesh produced NaN normals off a degenerate triangle.
-        self._indices_before_flatten = std::mem::take(&mut self.indices);
-        self.indices = (0..self.vertices.len() as u32).collect();
+        self.normals = Vec::new();
         self.flat = true;
     }
 
-    // Re-create vertices by removing duplicates (if it had been flatten before).
-    // Compute normals per vertex using normals per facet averaged.
-    /// Back to shared corners with averaged normals. `false` when there is
-    /// nothing to go back to: a mesh loaded flat keeps no shared topology
-    /// (`load_flat`), and stays as it is -- load it with `smooth` instead.
+    /// Shade smoothly: a normal per vertex, averaged over the facets around
+    /// it, and a colour per vertex.
+    ///
+    /// Always possible now, and `true` always. It used to depend on a copy of
+    /// the shared vertices kept by `flatten`, so a mesh loaded flat could not
+    /// go back; there is nothing to keep since the shared vertices never went
+    /// away. Coming from a flat mesh a vertex takes the colour of the first
+    /// facet that names it -- several may, with different colours, and one of
+    /// them has to win.
     pub fn smoothen(&mut self) -> bool {
-        if !self._vertices_before_flatten.is_empty() {
-            self.vertices = self._vertices_before_flatten.drain(..).collect();
-            // And the topology with them: the loop below walks `indices` to
-            // average facet normals onto shared corners, which the identity
-            // indices of a flat mesh cannot express.
-            if !self._indices_before_flatten.is_empty() {
-                self.indices = std::mem::take(&mut self._indices_before_flatten);
-            }
-            self.flat = false;
-        } else if self.flat {
-            return false;
-        }
-        // this could be the better solution is removing dups works, but im not sure, need tests
-        /*
-        if self.vertices.len() == self.indices.len() {
-            let mut dups = vec![];
-            for v in self.vertices.drain(..) {
-                if !dups.contains(&v) {
-                    dups.push(v);
+        if self.flat {
+            let per_facet = std::mem::take(&mut self.attrs);
+            let mut per_vertex = vec![Attr::default(); self.positions.len()];
+            let mut seen = vec![false; self.positions.len()];
+            for (f, fv) in self.indices.chunks(3).enumerate() {
+                let Some(a) = per_facet.get(f) else { continue };
+                for &c in fv {
+                    let c = c as usize;
+                    if !seen[c] {
+                        per_vertex[c] = *a;
+                        seen[c] = true;
+                    }
                 }
             }
-            self.vertices = dups;
+            self.attrs = per_vertex;
         }
-        */
+        self.flat = false;
 
-        // reset normals per vertex
-        for ii in 0..self.vertices.len() {
-            self.vertices[ii].normal = Vec3::ZERO;
+        let mut normals = vec![Vec3::ZERO; self.positions.len()];
+        for (f, fv) in self.indices.chunks(3).enumerate() {
+            let Some(facet) = self.facets.get(f) else { continue };
+            for &c in fv {
+                normals[c as usize] += facet.normal;
+            }
         }
-
-        // add surrounding normals per facet
-        for (fi, fv) in self.indices.chunks(3).enumerate() {
-            self.vertices[fv[0] as usize].normal += self.facets[fi].normal;
-            self.vertices[fv[1] as usize].normal += self.facets[fi].normal;
-            self.vertices[fv[2] as usize].normal += self.facets[fi].normal;
+        for n in normals.iter_mut() {
+            *n = n.normalize_or_zero();
         }
-
-        // normalize to get average
-        for ii in 0..self.vertices.len() {
-            self.vertices[ii].normal = self.vertices[ii].normal.normalize();
-        }
+        self.normals = normals;
         true
     }
 
-    // Recompute facets (pos, normal, area) from current vertices positions and indices.
-    // Call after mutating vertex positions in place, since facets are not kept in sync automatically.
-    /// Facets whose normal points into the body rather than out of it.
-    ///
-    /// A decimated shape model can carry a handful of triangles with reversed
-    /// winding, and they are quietly destructive. The thermophysical model
-    /// clamps `cos(incidence)` at zero, so such a facet is permanently dark
-    /// and sits at night temperature forever. A hemicube placed on one looks
-    /// *into* the body and reports a self view factor near 1, which would
-    /// pour a body's own thermal emission back into it.
-    ///
-    /// Detected by comparing each normal against the outward radial direction
-    /// from the mesh centroid, which assumes a roughly star-shaped body.
-    ///
-    /// **This heuristic is unreliable, measured against the hemicube.** A
-    /// facet that really is reversed sees its own body fill its hemisphere,
-    /// so a self view factor near 1 is ground truth and needs no assumption
-    /// about shape. Compared on the decimated Dimorphos models:
-    ///
-    /// | mesh | flagged here | self VF > 0.5 | agreeing |
-    /// |---|---|---|---|
-    /// | 10k | 22 | 1 | 1 |
-    /// | 100k | 21 | 3 | 2 |
-    ///
-    /// So it over-reports by ~20x on these meshes, and on the 100k it also
-    /// *misses* one (66473). Flipping what it reports makes things strictly
-    /// worse: the 21 false positives are real concavities, and reversing them
-    /// sends their self view factor from 0.24 to 1.0.
-    ///
-    /// Use it as a cheap pre-filter only. `flip_facets` is deliberately not
-    /// wired to it.
-    ///
-    /// Worth knowing where these come from: the **full-resolution 3.1M
-    /// Dimorphos and every Didymos model flag zero**. They are a decimation
-    /// artefact, not a defect of the source shape models.
     pub fn inward_facing_facets(&self) -> Vec<u32> {
         if self.facets.is_empty() {
             return vec![];
@@ -750,24 +711,20 @@ impl Mesh {
     ///
     /// `_vertices_before_flatten` is not updated, so a later `smoothen` would
     /// undo this. Nothing in the run path does that.
+    /// Turn these facets over: swap two of their corners and recompute them.
+    ///
+    /// Always the indices now. It used to swap the *vertices* of a flat mesh
+    /// instead, because its corners were its vertices; they are shared again,
+    /// so swapping one would turn its neighbours over too.
     pub fn flip_facets(&mut self, facets: &[u32]) -> usize {
-        let flat = self.is_flat();
         let mut flipped = 0;
 
         for &fi in facets {
             let f = fi as usize;
-            if f >= self.facets.len() {
+            if f >= self.facets.len() || f * 3 + 2 >= self.indices.len() {
                 continue;
             }
-            // One or the other, never both: a flat mesh carries its winding
-            // in the vertex order and its indices are the identity, so
-            // swapping those too would undo the swap for everything that
-            // reads through them.
-            if flat && f * 3 + 2 < self.vertices.len() {
-                self.vertices.swap(f * 3 + 1, f * 3 + 2);
-            } else if f * 3 + 2 < self.indices.len() {
-                self.indices.swap(f * 3 + 1, f * 3 + 2);
-            }
+            self.indices.swap(f * 3 + 1, f * 3 + 2);
             flipped += 1;
         }
 
@@ -776,69 +733,74 @@ impl Mesh {
             if f >= self.facets.len() {
                 continue;
             }
-            let [a, b, c] = self.get_facet_positions(f).map(|p| *p);
+            let [a, b, c] = self.get_facet_positions(f);
             let (ab, ac) = (b - a, c - a);
-            let normal = normal_facet(&ab, &ac);
             self.facets[f] = Facet {
                 pos: (a + b + c) / 3.0,
-                normal,
+                normal: normal_facet(&ab, &ac),
                 area: area_facet(&ab, &ac),
             };
-            if flat {
-                for k in 0..3 {
-                    if f * 3 + k < self.vertices.len() {
-                        self.vertices[f * 3 + k].normal = normal;
-                    }
-                }
-            }
+        }
+
+        // A smooth mesh's vertex normals are an average over the facets
+        // around each vertex, so turning one over changes its neighbours'.
+        if !self.flat {
+            self.smoothen();
         }
 
         flipped
     }
 
     pub fn recompute_facets(&mut self) {
-        self.facets = compute_facets(&self.vertices, &self.indices);
+        self.facets = compute_facets(&self.positions, &self.indices);
     }
 
     pub fn is_flat(&self) -> bool {
         self.flat
     }
 
-    pub fn get_facet_vertices(&self, facet: usize) -> [&Vertex; 3] {
-        if self.is_flat() {
-            self.vertices
-                .chunks(3)
-                .map(|c| [&c[0], &c[1], &c[2]])
-                .skip(facet)
-                .next()
-                .unwrap()
+    pub fn get_facet_indices(&self, facet: usize) -> [u32; 3] {
+        let at = 3 * facet;
+        [self.indices[at], self.indices[at + 1], self.indices[at + 2]]
+    }
+
+    /// The three corner positions, by value: they are shared entries in
+    /// `positions` now, so there is no per-facet slice to borrow.
+    pub fn get_facet_positions(&self, facet: usize) -> [Vec3; 3] {
+        self.get_facet_indices(facet)
+            .map(|i| self.positions[i as usize])
+    }
+
+    /// The normal at each corner: the facet's own three times over when the
+    /// mesh is flat, the vertex normals when it is smooth.
+    pub fn get_facet_normals(&self, facet: usize) -> [Vec3; 3] {
+        if self.flat || self.normals.is_empty() {
+            let n = self.facets.get(facet).map(|f| f.normal).unwrap_or(Vec3::ZERO);
+            [n; 3]
         } else {
             self.get_facet_indices(facet)
-                .map(|ii| &self.vertices[ii as usize])
+                .map(|i| self.normals[i as usize])
         }
     }
 
-    pub fn get_facet_indices(&self, facet: usize) -> [u32; 3] {
-        self.indices
-            .chunks(3)
-            .map(|c| [c[0], c[1], c[2]])
-            .skip(facet)
-            .next()
-            .unwrap()
+    /// The colour at each corner: the facet's own when flat, the vertices'
+    /// when smooth.
+    pub fn get_facet_colors(&self, facet: usize) -> [Vec3; 3] {
+        if self.flat {
+            let c = self.attrs.get(facet).map(|a| a.color).unwrap_or(Vec3::ONE);
+            [c; 3]
+        } else {
+            self.get_facet_indices(facet)
+                .map(|i| self.attrs.get(i as usize).map(|a| a.color).unwrap_or(Vec3::ONE))
+        }
     }
 
-    pub fn get_facet_positions(&self, facet: usize) -> [&Vec3; 3] {
-        self.get_facet_vertices(facet).map(|v| &v.pos)
-    }
-
-    pub fn get_facet_normals(&self, facet: usize) -> [&Vec3; 3] {
-        self.get_facet_vertices(facet).map(|v| &v.normal)
-    }
-
+    /// One colour and mode for the whole mesh: every facet of a flat one,
+    /// every vertex of a smooth one.
     pub fn update_all_vertices_colors(&mut self, mode: u32, color: Vec3) {
-        for v in &mut self.vertices {
-            v.color_mode = mode;
-            v.color = color;
+        for a in &mut self.attrs {
+            a.color_mode = mode;
+            a.color = color;
         }
     }
 
@@ -858,16 +820,11 @@ impl Mesh {
     /// it are the same point only up to the rasteriser's fill rule, so a hit
     /// right on an edge can fall the other side of it.
     pub fn intersect_facet(&self, p: &Vec3, u: &Vec3, facet: usize) -> Option<Vec3> {
-        let n = if self.is_flat() {
-            self.vertices.len() / 3
-        } else {
-            self.indices.len() / 3
-        };
-        if facet >= n {
+        if facet >= self.indices.len() / 3 {
             return None;
         }
         let [a, b, c] = self.get_facet_positions(facet);
-        intersect_triangle_moller_trumbore(p, u, a, b, c)
+        intersect_triangle_moller_trumbore(p, u, &a, &b, &c)
     }
 }
 
@@ -875,8 +832,8 @@ impl std::fmt::Debug for Mesh {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Mesh(vertices={:?}, indices={:?}, facets={:?}, material_id={}",
-            self.vertices,
+            "Mesh(positions={:?}, indices={:?}, facets={:?}, material_id={}",
+            self.positions,
             self.indices,
             self.facets,
             self.material_id
@@ -954,28 +911,24 @@ impl Model {
                 // Texture coordinates and normals in the file are dropped: no
                 // live shader samples a texture or uses a supplied normal, and
                 // the normals a mesh renders with are computed below from the
-                // facets. `Vertex` carries neither any more.
-                let vertices: Vec<Vertex> = (0..positions.len() / 3)
-                    .map(|i| Vertex {
-                        pos: update_pos(
+                // facets.
+                let positions: Vec<Vec3> = (0..positions.len() / 3)
+                    .map(|i| {
+                        update_pos(
                             [positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]].into(),
-                        ),
-                        ..Vertex::default()
+                        )
                     })
                     .collect();
-                let facets = compute_facets(&vertices, &indices);
-
-                let bounds = Aabb::from_vertices(&vertices);
+                let facets = compute_facets(&positions, &indices);
+                let bounds = Aabb::from_positions(&positions);
 
                 let mut mesh = Mesh {
-                    vertices,
+                    attrs: vec![Attr::default(); positions.len()],
+                    positions,
+                    normals: vec![],
                     indices,
                     facets,
                     material_id,
-
-                    // temporary until better solution is found
-                    _vertices_before_flatten: vec![],
-                    _indices_before_flatten: vec![],
                     colors_dirty: false,
                     flat: false,
                     bounds,
@@ -996,13 +949,13 @@ impl Model {
     }
 }
 
-pub fn compute_facets(vertices: &[Vertex], indices: &[u32]) -> Vec<Facet> {
+pub fn compute_facets(positions: &[Vec3], indices: &[u32]) -> Vec<Facet> {
     let mut facets: Vec<Facet> = vec![];
 
     for fv in indices.chunks(3) {
-        let a = vertices[fv[0] as usize].pos;
-        let b = vertices[fv[1] as usize].pos;
-        let c = vertices[fv[2] as usize].pos;
+        let a = positions[fv[0] as usize];
+        let b = positions[fv[1] as usize];
+        let c = positions[fv[2] as usize];
 
         let pos = (a + b + c) / 3.0;
 
@@ -1163,25 +1116,19 @@ pub fn intersect_mesh(mesh: &Mesh, p: &Vec3, u: &Vec3, exit_first: bool) -> Opti
     let mut best_intersect: Option<(usize, Vec3)> = None;
     let mut best_dist: Option<Float> = None;
 
-    let it: Vec<(&Vec3, &Vec3, &Vec3)> = {
-        if mesh.is_flat() {
-            mesh.vertices
-                .chunks(3)
-                .map(|c| (&c[0].pos, &c[1].pos, &c[2].pos))
-                .collect()
-        } else {
-            mesh.indices
-                .chunks(3)
-                .map(|c| {
-                    (
-                        &mesh.vertices[c[0] as usize].pos,
-                        &mesh.vertices[c[1] as usize].pos,
-                        &mesh.vertices[c[2] as usize].pos,
-                    )
-                })
-                .collect()
-        }
-    };
+    // One path: a flat mesh is indexed like any other now, its corners
+    // shared rather than tripled.
+    let it: Vec<(&Vec3, &Vec3, &Vec3)> = mesh
+        .indices
+        .chunks(3)
+        .map(|c| {
+            (
+                &mesh.positions[c[0] as usize],
+                &mesh.positions[c[1] as usize],
+                &mesh.positions[c[2] as usize],
+            )
+        })
+        .collect();
 
     // println!("{} {}", p, u);
 
@@ -1496,37 +1443,37 @@ mod tests {
     /// and it has a shared edge, which is the whole point of flattening.
     fn square() -> Mesh {
         let mut m = Mesh::new();
-        m.vertices = [
-            [0.0, 0.0, 0.0],
-            [1.0, 0.0, 0.0],
-            [1.0, 1.0, 0.0],
-            [0.0, 1.0, 0.0],
-        ]
-        .iter()
-        .map(|p| Vertex {
-            pos: (*p).into(),
-            ..Vertex::default()
-        })
-        .collect();
+        m.positions = vec![
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(1.0, 1.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+        ];
+        m.attrs = vec![Attr::default(); 4];
         m.indices = vec![0, 1, 2, 0, 2, 3];
-        m.facets = compute_facets(&m.vertices, &m.indices);
+        m.facets = compute_facets(&m.positions, &m.indices);
         m
     }
 
+    /// Flattening is a shading change, not a geometry one: the shared
+    /// corners stay shared and the indices go on addressing them. It used to
+    /// rebuild the vertex array -- one per corner, six here -- and renumber
+    /// the indices to match, which is where a whole class of stale-index bugs
+    /// came from.
     #[test]
-    fn flatten_renumbers_the_indices_to_address_the_rebuilt_vertices() {
+    fn flatten_leaves_the_geometry_alone() {
         let mut m = square();
-        let before: Vec<[Vec3; 3]> = (0..2).map(|f| m.get_facet_positions(f).map(|p| *p)).collect();
+        let before: Vec<[Vec3; 3]> = (0..2).map(|f| m.get_facet_positions(f)).collect();
+        let indices = m.indices.clone();
 
         m.flatten();
 
         assert!(m.is_flat());
-        assert_eq!(m.vertices.len(), 6);
-        assert_eq!(m.indices, vec![0, 1, 2, 3, 4, 5]);
-        // The corners must still be where they were, read back through the
-        // indices -- which is what left the shared ones in place broke.
+        assert_eq!(m.positions.len(), 4, "the corners are still shared");
+        assert_eq!(m.indices, indices);
+        assert_eq!(m.attrs.len(), 2, "one colour per facet");
         for f in 0..2 {
-            assert_eq!(m.get_facet_positions(f).map(|p| *p), before[f], "facet {f}");
+            assert_eq!(m.get_facet_positions(f), before[f], "facet {f}");
         }
     }
 
@@ -1554,14 +1501,16 @@ mod tests {
     }
 
     #[test]
-    fn smoothen_puts_the_shared_topology_back() {
+    fn smoothen_puts_the_shading_back() {
         let mut m = square();
         let want = m.indices.clone();
         m.flatten();
         m.smoothen();
         assert!(!m.is_flat());
         assert_eq!(m.indices, want);
-        assert_eq!(m.vertices.len(), 4);
+        assert_eq!(m.positions.len(), 4);
+        assert_eq!(m.attrs.len(), 4, "a colour per vertex again");
+        assert_eq!(m.normals.len(), 4, "and a normal per vertex");
     }
 }
 
@@ -1759,36 +1708,19 @@ fn plain_mesh(path: &std::path::Path, timer: &mut LoadTimer) -> Option<(Vec<Vec3
     Some(out)
 }
 
-/// The shared mesh of `tris` over `positions`, in tobj's order: vertices
-/// numbered by first appearance in the faces, unreferenced ones dropped,
-/// facets as `compute_facets` computes them, and a normal per vertex summed
-/// from its facets in facet order and normalised -- the arithmetic of
-/// `smoothen`, in its order, so the bits agree.
-fn build_smooth(positions: &[Vec3], tris: &[[u32; 3]]) -> (Vec<Vertex>, Vec<u32>, Vec<Facet>) {
-    // `positions` and `tris` are canonical -- see `canonicalise` -- so the
-    // vertices are the positions as they come and the indices the triangles
-    // flattened.
-    let mut vertices: Vec<Vertex> = positions
-        .iter()
-        .map(|&pos| Vertex {
-            pos,
-            ..Vertex::default()
-        })
-        .collect();
-    let indices: Vec<u32> = tris.iter().flatten().copied().collect();
-
-    // Facets in parallel: each reads the shared vertices, writes its own.
+/// Facets of `tris` over `positions`, computed in parallel: centre, normal
+/// and area, exactly as `compute_facets` gives them one at a time.
+fn build_facets(positions: &[Vec3], indices: &[u32]) -> Vec<Facet> {
     let n = indices.len() / 3;
     let mut facets = vec![Facet::default(); n];
     let step = n.div_ceil(load_threads()).max(1);
     std::thread::scope(|scope| {
         for (fs, is) in facets.chunks_mut(step).zip(indices.chunks(3 * step)) {
-            let vertices = &vertices;
             scope.spawn(move || {
                 for (f, fv) in fs.iter_mut().zip(is.chunks(3)) {
-                    let a = vertices[fv[0] as usize].pos;
-                    let b = vertices[fv[1] as usize].pos;
-                    let c = vertices[fv[2] as usize].pos;
+                    let a = positions[fv[0] as usize];
+                    let b = positions[fv[1] as usize];
+                    let c = positions[fv[2] as usize];
                     let ab = b - a;
                     let ac = c - a;
                     *f = Facet {
@@ -1800,84 +1732,7 @@ fn build_smooth(positions: &[Vec3], tris: &[[u32; 3]]) -> (Vec<Vertex>, Vec<u32>
             });
         }
     });
-
-    // Vertex normals: a scatter onto shared corners, so sequential, in the
-    // order `smoothen` adds them.
-    for (fi, fv) in indices.chunks(3).enumerate() {
-        for &c in fv {
-            vertices[c as usize].normal += facets[fi].normal;
-        }
-    }
-    for v in vertices.iter_mut() {
-        v.normal = v.normal.normalize();
-    }
-    (vertices, indices, facets)
-}
-
-/// The flat vertices and facets of `tris` over `positions`, built in
-/// parallel: each triangle's three corners take its facet normal, exactly
-/// as `flatten` gives them, and its centre, normal and area are computed in
-/// the same pass, exactly as `compute_facets` does.
-fn build_flat(positions: &[Vec3], tris: &[[u32; 3]]) -> (Vec<Vertex>, Vec<Facet>) {
-    let n = tris.len();
-    // Uninitialised, not `vec![default; n]`: the fill wrote the 684 MB of a
-    // 3M-facet model once before the threads wrote it again, and was a third
-    // of the build. Every element is written below: the chunks partition
-    // both vectors exactly, in step with the triangles.
-    let mut vertices: Vec<std::mem::MaybeUninit<Vertex>> = Vec::with_capacity(3 * n);
-    let mut facets: Vec<std::mem::MaybeUninit<Facet>> = Vec::with_capacity(n);
-    // SAFETY: `MaybeUninit` needs no initialisation; the capacity is there.
-    unsafe {
-        vertices.set_len(3 * n);
-        facets.set_len(n);
-    }
-    let step = n.div_ceil(load_threads()).max(1);
-    std::thread::scope(|scope| {
-        for ((vs, fs), ts) in vertices
-            .chunks_mut(3 * step)
-            .zip(facets.chunks_mut(step))
-            .zip(tris.chunks(step))
-        {
-            scope.spawn(move || {
-                for ((v, f), t) in vs.chunks_mut(3).zip(fs.iter_mut()).zip(ts) {
-                    let a = positions[t[0] as usize];
-                    let b = positions[t[1] as usize];
-                    let c = positions[t[2] as usize];
-                    let ab = b - a;
-                    let ac = c - a;
-                    let normal = normal_facet(&ab, &ac);
-                    f.write(Facet {
-                        pos: (a + b + c) / 3.0,
-                        normal,
-                        area: area_facet(&ab, &ac),
-                    });
-                    for (slot, pos) in v.iter_mut().zip([a, b, c]) {
-                        slot.write(Vertex {
-                            pos,
-                            normal,
-                            ..Vertex::default()
-                        });
-                    }
-                }
-            });
-        }
-    });
-    // SAFETY: every element was written above -- `3 * step` vertices and
-    // `step` facets per chunk of `step` triangles, over all `n` triangles.
-    let vertices = unsafe { assume_init_vec(vertices) };
-    let facets = unsafe { assume_init_vec(facets) };
-    (vertices, facets)
-}
-
-/// `Vec<MaybeUninit<T>>` to `Vec<T>` once every element is written.
-///
-/// # Safety
-/// Every element must have been initialised.
-unsafe fn assume_init_vec<T>(v: Vec<std::mem::MaybeUninit<T>>) -> Vec<T> {
-    let mut v = std::mem::ManuallyDrop::new(v);
-    // SAFETY: `MaybeUninit<T>` has the layout of `T`, and the caller vouches
-    // for the contents; the allocation is handed over, not duplicated.
-    unsafe { Vec::from_raw_parts(v.as_mut_ptr() as *mut T, v.len(), v.capacity()) }
+    facets
 }
 
 #[cfg(test)]
@@ -1885,14 +1740,11 @@ mod load_flat_tests {
     use super::*;
 
     fn same_mesh(a: &Mesh, b: &Mesh) {
-        assert_eq!(a.vertices.len(), b.vertices.len(), "vertex count");
+        assert_eq!(a.positions, b.positions, "positions");
         assert_eq!(a.indices, b.indices, "indices");
+        assert_eq!(a.normals, b.normals, "vertex normals");
+        assert_eq!(a.attrs.len(), b.attrs.len(), "attribute count");
         assert_eq!(a.facets.len(), b.facets.len(), "facet count");
-        for (i, (x, y)) in a.vertices.iter().zip(&b.vertices).enumerate() {
-            assert_eq!(x.pos, y.pos, "position of vertex {i}");
-            assert_eq!(x.normal, y.normal, "normal of vertex {i}");
-            assert_eq!(x.color, y.color, "colour of vertex {i}");
-        }
         for (i, (x, y)) in a.facets.iter().zip(&b.facets).enumerate() {
             assert_eq!(x.pos, y.pos, "centre of facet {i}");
             assert_eq!(x.normal, y.normal, "normal of facet {i}");
@@ -1914,7 +1766,6 @@ mod load_flat_tests {
             slow.flatten();
             same_mesh(&fast, &slow);
             assert!(fast.is_flat() && slow.is_flat());
-            assert!(fast._vertices_before_flatten.is_empty(), "nothing kept to go back to");
         }
     }
 
@@ -1954,16 +1805,25 @@ mod load_flat_tests {
         }
     }
 
-    /// A mesh loaded flat cannot go back: `smoothen` says so and leaves it flat.
+    /// A mesh loaded flat can be smoothed and flattened again: the shared
+    /// vertices never went away. It used to depend on a copy `flatten` kept,
+    /// which a mesh loaded flat had never made, so `smoothen` refused.
     #[test]
-    fn a_mesh_loaded_flat_stays_flat_when_asked_to_smoothen() {
+    fn a_mesh_loaded_flat_can_be_smoothed_and_flattened_again() {
         let mut m = Mesh::load_flat("res/cube.obj", |x| x);
-        assert!(!m.smoothen());
         assert!(m.is_flat());
-        assert_eq!(m.vertices.len(), 36);
-        let mut shared = Mesh::load_via_tobj("res/cube.obj", |x| x);
-        shared.flatten();
-        assert!(shared.smoothen(), "an explicit flatten keeps its way back");
-        assert!(!shared.is_flat());
+        assert_eq!(m.positions.len(), 8, "a cube's eight shared corners");
+        assert_eq!(m.attrs.len(), 12, "one colour per facet");
+
+        assert!(m.smoothen());
+        assert!(!m.is_flat());
+        assert_eq!(m.positions.len(), 8);
+        assert_eq!(m.attrs.len(), 8);
+        assert_eq!(m.normals.len(), 8);
+
+        m.flatten();
+        assert!(m.is_flat());
+        assert_eq!(m.attrs.len(), 12);
+        assert!(m.normals.is_empty());
     }
 }

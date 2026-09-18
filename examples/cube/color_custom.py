@@ -15,9 +15,10 @@ app.simulation.load_mesh(path="res/cube.obj")
 
 mesh = app.simulation.bodies[0].mesh
 nface = len(mesh.facets)
-for iface in range(0, nface):
-    for k in range(3):
-        mesh.colors[iface * 3 + k, :] = numpy.array([1.0, 1.0, 1.0]) * iface / (nface - 1)
+# One colour per facet: `mesh.colors` has a row per facet on a flat mesh --
+# the default -- and a row per vertex on a smooth one.
+for iface in range(nface):
+    mesh.colors[iface, :] = numpy.array([1.0, 1.0, 1.0]) * iface / (nface - 1)
 
 while app.running:
     app.step()
