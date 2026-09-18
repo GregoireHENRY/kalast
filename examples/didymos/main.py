@@ -5,11 +5,10 @@ import spiceypy as spice
 
 import kalast  # noqa
 from kalast.app import App
-from kalast.util import AU_KM
 
 
 app = App()
-app.simulation.config.wireframe.mode = 2
+app.simulation.config.wireframe.mode = 0
 app.simulation.config.wireframe.color = [0.05, 0.05, 0.05, 1.0]
 app.simulation.config.axes.style = "blender"
 
