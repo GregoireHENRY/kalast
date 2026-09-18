@@ -90,19 +90,14 @@ fn colormap_lookup(v: f32) -> vec3<f32> {
 
 struct VertexInput {
     @location(0) pos: vec3<f32>,
-    @location(1) tex: vec2<f32>,
-    @location(2) normal: vec3<f32>,
-    @location(3) tangent: vec3<f32>,
-    @location(4) bitangent: vec3<f32>,
+    @location(1) normal: vec3<f32>,
     @location(5) color: vec3<f32>,
     @location(6) color_mode: u32,
-    @location(7) extra: u32,
     @location(18) value: f32,
 };
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
-    @location(0) tex: vec2<f32>,
     @location(1) color: vec3<f32>,
     @location(2) world_normal: vec3<f32>,
     @location(3) world_pos: vec3<f32>,
@@ -146,8 +141,6 @@ fn vs_main(
     );
 
     var out: VertexOutput;
-    out.tex = vertex.tex;
-
     // if instance.color_mode == 0 {
     //     out.color = vertex.color;
     // } else {
@@ -390,7 +383,6 @@ fn fs_shaded(in: VertexOutput) -> vec4<f32> {
         return vec4<f32>(color, 1.0);
     }
     // } else if globals.color_mode == ??? {
-    // object_color = textureSample(t_diffuse, s_diffuse, in.tex);
 
     // 0 or else
     //

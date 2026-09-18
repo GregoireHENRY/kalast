@@ -17,19 +17,13 @@ impl Vertex {
     #[new]
     #[pyo3(signature = (
         pos=None,
-        tex=None,
         normal=None,
-        tangent=None,
-        bitangent=None,
         color=None,
         color_mode=None,
     ))]
     pub fn new(
         pos: Option<[Float; 3]>,
-        tex: Option<[Float; 2]>,
         normal: Option<[Float; 3]>,
-        tangent: Option<[Float; 3]>,
-        bitangent: Option<[Float; 3]>,
         color: Option<[Float; 3]>,
         color_mode: Option<u32>,
     ) -> Self {
@@ -38,17 +32,8 @@ impl Vertex {
         if let Some(pos) = pos {
             vertex.pos = pos.into();
         }
-        if let Some(tex) = tex {
-            vertex.tex = tex.into();
-        }
         if let Some(normal) = normal {
             vertex.normal = normal.into();
-        }
-        if let Some(tangent) = tangent {
-            vertex.tangent = tangent.into();
-        }
-        if let Some(bitangent) = bitangent {
-            vertex.bitangent = bitangent.into();
         }
         if let Some(color) = color {
             vertex.color = color.into();
@@ -76,19 +61,6 @@ impl Vertex {
     }
 
     #[getter]
-    fn tex<'py>(slf: pyo3::Bound<'py, Self>) -> pyo3::Bound<'py, numpy::PyArray1<Float>> {
-        let inner = &slf.borrow().inner;
-        let slice = &inner.borrow().tex;
-        let arr = ndarray::ArrayView1::from(slice.as_ref());
-        unsafe { numpy::PyArray1::borrow_from_array(&arr, slf.into_any()) }
-    }
-
-    #[setter]
-    fn set_tex(&self, arr: [Float; 2]) {
-        self.inner.borrow_mut().tex = arr.into();
-    }
-
-    #[getter]
     fn normal<'py>(slf: pyo3::Bound<'py, Self>) -> pyo3::Bound<'py, numpy::PyArray1<Float>> {
         let inner = &slf.borrow().inner;
         let slice = &inner.borrow().normal;
@@ -101,31 +73,6 @@ impl Vertex {
         self.inner.borrow_mut().normal = arr.into();
     }
 
-    #[getter]
-    fn tangent<'py>(slf: pyo3::Bound<'py, Self>) -> pyo3::Bound<'py, numpy::PyArray1<Float>> {
-        let inner = &slf.borrow().inner;
-        let slice = &inner.borrow().tangent;
-        let arr = ndarray::ArrayView1::from(slice.as_ref());
-        unsafe { numpy::PyArray1::borrow_from_array(&arr, slf.into_any()) }
-    }
-
-    #[setter]
-    fn set_tangent(&self, arr: [Float; 3]) {
-        self.inner.borrow_mut().tangent = arr.into();
-    }
-
-    #[getter]
-    fn bitangent<'py>(slf: pyo3::Bound<'py, Self>) -> pyo3::Bound<'py, numpy::PyArray1<Float>> {
-        let inner = &slf.borrow().inner;
-        let slice = &inner.borrow().bitangent;
-        let arr = ndarray::ArrayView1::from(slice.as_ref());
-        unsafe { numpy::PyArray1::borrow_from_array(&arr, slf.into_any()) }
-    }
-
-    #[setter]
-    fn set_bitangent(&self, arr: [Float; 3]) {
-        self.inner.borrow_mut().bitangent = arr.into();
-    }
 
     #[getter]
     fn color<'py>(slf: pyo3::Bound<'py, Self>) -> pyo3::Bound<'py, numpy::PyArray1<Float>> {
@@ -335,7 +282,6 @@ impl Mesh {
         mesh.flip_facets(facets.as_slice().unwrap())
     }
 
-
     #[new]
     #[pyo3(signature = (
         path=None,
@@ -440,23 +386,8 @@ impl Mesh {
     }
 
     #[getter]
-    fn textures(slf: Bound<'_, Self>) -> Bound<'_, numpy::PyArray2<Float>> {
-        vertex_matrix_array(slf, crate::mesh::TEX_OFFSET, 2)
-    }
-
-    #[getter]
     fn normals(slf: Bound<'_, Self>) -> Bound<'_, numpy::PyArray2<Float>> {
         vertex_matrix_array(slf, crate::mesh::NORMAL_OFFSET, 3)
-    }
-
-    #[getter]
-    fn tangents(slf: Bound<'_, Self>) -> Bound<'_, numpy::PyArray2<Float>> {
-        vertex_matrix_array(slf, crate::mesh::TANGENT_OFFSET, 3)
-    }
-
-    #[getter]
-    fn bitangents(slf: Bound<'_, Self>) -> Bound<'_, numpy::PyArray2<Float>> {
-        vertex_matrix_array(slf, crate::mesh::BITANGENT_OFFSET, 3)
     }
 
     #[getter]
@@ -657,10 +588,7 @@ crate::impl_mesh_view!(
 crate::impl_mesh_view!(FacetsView, FacetView, Facet, facets);
 
 crate::impl_mesh_field_vec!(VertexView, vertices, pos);
-crate::impl_mesh_field_vec!(VertexView, vertices, tex);
 crate::impl_mesh_field_vec!(VertexView, vertices, normal);
-crate::impl_mesh_field_vec!(VertexView, vertices, tangent);
-crate::impl_mesh_field_vec!(VertexView, vertices, bitangent);
 crate::impl_mesh_field_vec!(VertexView, vertices, color);
 crate::impl_mesh_field_scalar!(VertexView, vertices, color_mode, u32);
 

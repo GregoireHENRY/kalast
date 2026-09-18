@@ -37,18 +37,17 @@ def test_a_cube_loads_with_shared_corners():
 def test_every_per_vertex_array_has_one_row_per_vertex():
     """Eight vertices, so every attribute array is eight rows.
 
-    A cube `.obj` carries only positions and indices; the rest are allocated
-    at load and left zero, which is what makes the *shapes* the thing to
-    check rather than the contents.
+    A vertex carries a position, a normal, a colour and a colour mode, and
+    nothing else: the texture coordinate, tangent and bitangent it used to
+    have were 36 of its 76 bytes and no live shader read any of them.
     """
     m = kalast.mesh.Mesh(CUBE)
     assert m.positions.shape == (8, 3), m.positions.shape
-    assert m.textures.shape == (8, 2), m.textures.shape
     assert m.normals.shape == (8, 3), m.normals.shape
-    assert m.tangents.shape == (8, 3), m.tangents.shape
-    assert m.bitangents.shape == (8, 3), m.bitangents.shape
     assert m.colors.shape == (8, 3), m.colors.shape
     assert m.color_modes.shape == (8,), m.color_modes.shape
+    for gone in ("textures", "tangents", "bitangents"):
+        assert not hasattr(m, gone), f"{gone} should be gone"
 
 
 def test_facet_indices_and_positions_are_the_same_question():

@@ -1,6 +1,5 @@
 struct VertexInput {
     @location(0) pos: vec3<f32>,
-    @location(1) tex: vec2<f32>,
 };
 
 struct VertexOutput {
@@ -13,7 +12,8 @@ fn vs_main(
     vertex: VertexInput
 ) -> VertexOutput {
     var out: VertexOutput;
-    out.tex = vertex.tex;
+    // The quad spans 0..1 in x and y; v runs the other way from y.
+    out.tex = vec2<f32>(vertex.pos.x, 1.0 - vertex.pos.y);
     out.clip_position = vec4<f32>(vertex.pos, 1.0);
     return out;
 }

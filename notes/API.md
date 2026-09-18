@@ -789,14 +789,19 @@ which, loaded flat (the default), is three unshared rows per facet:
 | | |
 |---|---|
 | `positions`, `normals` | `(n, 3)` |
-| `textures` | `(n, 2)` texture coordinates |
-| `tangents`, `bitangents` | `(n, 3)`, for normal mapping |
 | `colors` | `(n, 3)` |
 | `color_modes` | `(n,)`, per-vertex selector for what the shader outputs |
 | `vertices`, `facets` | views over the rows themselves, as `Vertex` / `Facet` objects |
 | `indices` | `(3f,)` triangle indices — after `flatten` these are `0..3f`, one per row |
 | `values` | `(f,)` per-facet scalar to colour by; see below |
 | `material_id` | index into the model's materials, or `None` |
+
+A vertex carries a position, a normal, a colour and a colour mode, and
+nothing else. It used to carry a texture coordinate, a tangent and a
+bitangent as well -- for normal mapping, which no shader here does -- and an
+unread `extra` word: 36 of its 76 bytes, on every vertex of every mesh.
+`mesh.textures`, `.tangents` and `.bitangents` are gone with them, and a
+textured `.obj` still loads, its texture coordinates simply not kept.
 
 And the operations on one:
 

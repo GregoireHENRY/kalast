@@ -2,24 +2,19 @@ use glam::Vec4Swizzles;
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
-use crate::{Float, Mat4, Vec2, Vec3};
+use crate::{Float, Mat4, Vec3};
 
-// std::mem::size_of::<Vertex>() / 8 = 18
-#[cfg(feature = "use_f64")]
-pub const VERTEX_STRIDE: usize = 18;
-
-// std::mem::size_of::<Vertex>() / 4 = 19
-#[cfg(not(feature = "use_f64"))]
-pub const VERTEX_STRIDE: usize = 19;
+// In `Float`s: pos 3, normal 3, colour 3, then the mode as one slot --
+// `u32` under f32, `u32` plus four bytes of padding under f64, which is why
+// the stride is the same 10 either way.
+//
+// std::mem::size_of::<Vertex>() / 8 = 10 (f64), / 4 = 10 (f32)
+pub const VERTEX_STRIDE: usize = 10;
 
 pub const POS_OFFSET: usize = 0;
-pub const TEX_OFFSET: usize = 3;
-pub const NORMAL_OFFSET: usize = 5;
-pub const TANGENT_OFFSET: usize = 8;
-pub const BITANGENT_OFFSET: usize = 11;
-pub const COLOR_OFFSET: usize = 14;
-pub const COLOR_MODE_OFFSET: usize = 17;
-// pub const EXTRA_OFFSET: usize = 17.5;
+pub const NORMAL_OFFSET: usize = 3;
+pub const COLOR_OFFSET: usize = 6;
+pub const COLOR_MODE_OFFSET: usize = 9;
 
 pub const MESH_CUBE: &'static str = include_str!("../res/cube.obj");
 
@@ -144,18 +139,29 @@ impl Aabb {
     }
 }
 
-// Do not reorder Vertex fields without updating offsets in GPU code and Pyo3 POD bindings.
+/// One vertex, as both the CPU and the GPU see it.
+///
+/// It used to carry a texture coordinate, a tangent and a bitangent -- for
+/// normal mapping, which no live shader does -- and an `extra` word nothing
+/// ever read: 36 of its 76 bytes, on every vertex of every mesh, 340 MB of a
+/// 3M-facet model. They are gone; a textured OBJ still loads, its texture
+/// coordinates simply are not kept. See
+/// `notes/2026-09-18_memory_meshes_and_shadow_maps.md`.
+///
+/// Do not reorder these without updating the offsets above, the GPU layout in
+/// `app::gpu`, and the strides the Python views use.
 #[repr(C)]
 #[derive(Copy, Clone, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Vertex {
     pub pos: Vec3,
-    pub tex: Vec2,
     pub normal: Vec3,
-    pub tangent: Vec3,
-    pub bitangent: Vec3,
     pub color: Vec3,
     pub color_mode: u32,
-    pub extra: u32,
+    /// Only under `use_f64`, where the three vectors are 8-aligned and the
+    /// struct would otherwise carry four bytes of padding -- which `Pod`
+    /// forbids. Named rather than implied, so `bytemuck` can see it.
+    #[cfg(feature = "use_f64")]
+    pub _pad: u32,
 }
 
 impl Vertex {
@@ -163,13 +169,11 @@ impl Vertex {
     pub const fn default() -> Self {
         Self {
             pos: Vec3::new(0.0, 0.0, 0.0),
-            tex: Vec2::new(0.0, 0.0),
             normal: Vec3::new(0.0, 0.0, 0.0),
-            tangent: Vec3::new(0.0, 0.0, 0.0),
-            bitangent: Vec3::new(0.0, 0.0, 0.0),
             color: Vec3::new(1.0, 1.0, 1.0),
             color_mode: 0,
-            extra: 0,
+            #[cfg(feature = "use_f64")]
+            _pad: 0,
         }
     }
 }
@@ -178,14 +182,8 @@ impl std::fmt::Debug for Vertex {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Vertex(pos={}, tex={}, normal={}, tangent={}, bitangent={}, color={}, color_mode={})",
-            self.pos,
-            self.tex,
-            self.normal,
-            self.tangent,
-            self.bitangent,
-            self.color,
-            self.color_mode,
+            "Vertex(pos={}, normal={}, color={}, color_mode={})",
+            self.pos, self.normal, self.color, self.color_mode,
         )
     }
 }
@@ -938,8 +936,11 @@ impl Model {
                 let tobj::Model { mesh, .. } = m;
                 let tobj::Mesh {
                     positions,
-                    texcoords,
-                    normals,
+                    // Dropped: no live shader samples a texture, and the
+                    // normals a mesh renders with are computed from its
+                    // facets below.
+                    texcoords: _,
+                    normals: _,
                     indices,
                     material_id,
                     ..
@@ -950,103 +951,19 @@ impl Model {
                 // println!("indices:{}", indices.len());
                 // println!("normals:{}", normals.len());
 
-                let mut vertices = (0..positions.len() / 3)
-                    .map(|i| {
-                        let pos = update_pos(
+                // Texture coordinates and normals in the file are dropped: no
+                // live shader samples a texture or uses a supplied normal, and
+                // the normals a mesh renders with are computed below from the
+                // facets. `Vertex` carries neither any more.
+                let vertices: Vec<Vertex> = (0..positions.len() / 3)
+                    .map(|i| Vertex {
+                        pos: update_pos(
                             [positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]].into(),
-                        );
-
-                        let mut v = Vertex {
-                            pos,
-                            ..Vertex::default()
-                        };
-                        if !texcoords.is_empty() {
-                            v.tex = [texcoords[i * 2], 1.0 - texcoords[i * 2 + 1]].into();
-                        }
-                        if !normals.is_empty() {
-                            unimplemented!("Mesh has normals per vertices but will be ignored cus not implemented to read them.");
-                            // v.normal = [normals[i * 3], normals[i * 3 + 1], normals[i * 3 + 2]].into();
-                        }
-                        v
+                        ),
+                        ..Vertex::default()
                     })
-                    .collect::<Vec<_>>();
-
-                // Calculate normals per facet if normals per vertex not computed and texcoords are not provided.
-                // When texcoords are provided, we use tangent and bitangent as calculated just above.
-
-                let mut facets: Vec<Facet> = vec![];
-                if texcoords.is_empty() {
-                    if normals.is_empty() {
-                        facets = compute_facets(&vertices, &indices);
-                    }
-                }
-                // Calculate tangents and bitangets for texture normal mapping.
-                // We're going to use the triangles, so we need to loop through the indices in chunks of 3.
-                else {
-                    let mut triangles_included = vec![0; vertices.len()];
-
-                    for c in indices.chunks(3) {
-                        let v0 = vertices[c[0] as usize];
-                        let v1 = vertices[c[1] as usize];
-                        let v2 = vertices[c[2] as usize];
-
-                        let pos0 = v0.pos;
-                        let pos1 = v1.pos;
-                        let pos2 = v2.pos;
-
-                        let uv0 = v0.tex;
-                        let uv1 = v1.tex;
-                        let uv2 = v2.tex;
-
-                        // Calculate the edges of the triangle
-                        let delta_pos1 = pos1 - pos0;
-                        let delta_pos2 = pos2 - pos0;
-
-                        // This will give us a direction to calculate the
-                        // tangent and bitangent
-                        let delta_uv1 = uv1 - uv0;
-                        let delta_uv2 = uv2 - uv0;
-
-                        // Solving the following system of equations will
-                        // give us the tangent and bitangent.
-                        //     delta_pos1 = delta_uv1.x * T + delta_u.y * B
-                        //     delta_pos2 = delta_uv2.x * T + delta_uv2.y * B
-                        // Luckily, the place I found this equation provided
-                        // the solution!
-                        let r = 1.0 / (delta_uv1.x * delta_uv2.y - delta_uv1.y * delta_uv2.x);
-                        let tangent = (delta_pos1 * delta_uv2.y - delta_pos2 * delta_uv1.y) * r;
-                        // We flip the bitangent to enable right-handed normal
-                        // maps with wgpu texture coordinate system
-                        let bitangent = (delta_pos2 * delta_uv1.x - delta_pos1 * delta_uv2.x) * -r;
-
-                        // We'll use the same tangent/bitangent for each vertex in the triangle
-                        vertices[c[0] as usize].tangent =
-                            (tangent + Vec3::from(vertices[c[0] as usize].tangent)).into();
-                        vertices[c[1] as usize].tangent =
-                            (tangent + Vec3::from(vertices[c[1] as usize].tangent)).into();
-                        vertices[c[2] as usize].tangent =
-                            (tangent + Vec3::from(vertices[c[2] as usize].tangent)).into();
-                        vertices[c[0] as usize].bitangent =
-                            (bitangent + Vec3::from(vertices[c[0] as usize].bitangent)).into();
-                        vertices[c[1] as usize].bitangent =
-                            (bitangent + Vec3::from(vertices[c[1] as usize].bitangent)).into();
-                        vertices[c[2] as usize].bitangent =
-                            (bitangent + Vec3::from(vertices[c[2] as usize].bitangent)).into();
-
-                        // Used to average the tangents/bitangents
-                        triangles_included[c[0] as usize] += 1;
-                        triangles_included[c[1] as usize] += 1;
-                        triangles_included[c[2] as usize] += 1;
-                    }
-
-                    // Average the tangents/bitangents
-                    for (i, n) in triangles_included.into_iter().enumerate() {
-                        let denom = 1.0 / n as Float;
-                        let v = &mut vertices[i];
-                        v.tangent = v.tangent * denom;
-                        v.bitangent = v.bitangent * denom;
-                    }
-                }
+                    .collect();
+                let facets = compute_facets(&vertices, &indices);
 
                 let bounds = Aabb::from_vertices(&vertices);
 
@@ -1974,7 +1891,6 @@ mod load_flat_tests {
         for (i, (x, y)) in a.vertices.iter().zip(&b.vertices).enumerate() {
             assert_eq!(x.pos, y.pos, "position of vertex {i}");
             assert_eq!(x.normal, y.normal, "normal of vertex {i}");
-            assert_eq!(x.tex, y.tex, "tex of vertex {i}");
             assert_eq!(x.color, y.color, "colour of vertex {i}");
         }
         for (i, (x, y)) in a.facets.iter().zip(&b.facets).enumerate() {

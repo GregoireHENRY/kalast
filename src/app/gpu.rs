@@ -351,10 +351,7 @@ impl<U: bytemuck::NoUninit> UniformBuffer<U> {
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GeometryVertex {
     pub pos: Vec3,
-    pub tex: crate::Vec2,
     pub normal: Vec3,
-    pub tangent: Vec3,
-    pub bitangent: Vec3,
 }
 
 #[repr(C)]
@@ -362,12 +359,10 @@ pub struct GeometryVertex {
 pub struct AttribVertex {
     pub color: Vec3,
     pub color_mode: u32,
-    pub extra: u32,
     /// The facet's scalar, when the mesh carries `values`. Held per vertex
     /// because that is what the vertex stage can read; every vertex of a facet
     /// gets the same number, so the facet comes out flat.
     pub value: f32,
-    _padding: [u32; 3],
 }
 
 /// Vertices per upload slice. The GPU copies used to be built whole -- 56 +
@@ -433,10 +428,7 @@ fn extract_geometry(vertices: &[crate::mesh::Vertex]) -> Vec<GeometryVertex> {
         .iter()
         .map(|v| GeometryVertex {
             pos: v.pos,
-            tex: v.tex,
             normal: v.normal,
-            tangent: v.tangent,
-            bitangent: v.bitangent,
         })
         .collect()
 }
@@ -458,26 +450,20 @@ fn extract_attribs(
         .map(|(i, v)| AttribVertex {
             color: v.color,
             color_mode: v.color_mode,
-            extra: v.extra,
             value: values.get((first + i) / 3).copied().unwrap_or(0.0) as f32,
-            _padding: [0; 3],
         })
         .collect()
 }
 
 impl crate::mesh::Vertex {
-    pub const GEOMETRY_ATTRIBS: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
+    pub const GEOMETRY_ATTRIBS: [wgpu::VertexAttribute; 2] = wgpu::vertex_attr_array![
         0 => Float32x3,
-        1 => Float32x2,
-        2 => Float32x3,
-        3 => Float32x3,
-        4 => Float32x3,
+        1 => Float32x3,
     ];
 
-    pub const ATTRIB_ATTRIBS: [wgpu::VertexAttribute; 4] = wgpu::vertex_attr_array![
+    pub const ATTRIB_ATTRIBS: [wgpu::VertexAttribute; 3] = wgpu::vertex_attr_array![
         5 => Float32x3,
         6 => Uint32,
-        7 => Uint32,
         18 => Float32,
     ];
 

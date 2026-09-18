@@ -5,13 +5,10 @@
 import numpy  # noqa: F401
 
 class Vertex:
-    def __init__(self, pos: list[float] | None, tex: list[float] | None, normal: list[float] | None, tangent: list[float] | None, bitangent: list[float] | None, color: list[float] | None, color_mode: int | None) -> None:
+    def __init__(self, pos: list[float] | None, normal: list[float] | None, color: list[float] | None, color_mode: int | None) -> None:
         ...
     pos: numpy.ndarray
-    tex: numpy.ndarray
     normal: numpy.ndarray
-    tangent: numpy.ndarray
-    bitangent: numpy.ndarray
     color: numpy.ndarray
     color_mode: int
 
@@ -61,10 +58,7 @@ class Mesh:
     material_id: int | None
     _vertices_before_flatten: object
     positions: numpy.ndarray
-    textures: numpy.ndarray
     normals: numpy.ndarray
-    tangents: numpy.ndarray
-    bitangents: numpy.ndarray
     colors: numpy.ndarray
     color_modes: numpy.ndarray
     def flatten(self) -> None:
