@@ -2434,3 +2434,23 @@ For a caller: `positions` is the shared vertices, `colors` is per facet on a
 flat mesh, `normals` is empty there. A shape-model fingerprint should hash
 `positions[indices]`, which is invariant -- the four TPM scripts do now, and
 their digests are unchanged, so saved spin-up states stay valid.
+
+## 2026-09-18 — a tagged release builds itself
+
+`.github/workflows/release.yml`, the repository's first workflow: push a `v*`
+tag and each of linux-x86_64, macos-arm64, macos-x86_64 and windows-x86_64
+produces an archive holding the editor, `res/`, `examples/`, `notes/`,
+`shaders/`, `README.rst`, `pyproject.toml` and the Python wheel.
+
+**The executable is built `--no-default-features`, on purpose.** With the
+`python` feature pyo3 links libpython by absolute path -- the binary here
+names `/opt/homebrew/opt/python@3.14/.../Python` -- so it starts on the
+machine that built it and nowhere else, and `pyproject.toml` pins 3.14.x,
+which few machines have. Without it there is no libpython at all: the editor
+opens meshes, renders and loads `.rs` examples anywhere. Running a `.py`
+example needs the wheel that ships beside it, which is what the release notes
+say.
+
+A `version` job fails the tag when it disagrees with `Cargo.toml` and
+`pyproject.toml`, since the wheel takes its version from the manifest rather
+than the tag and would otherwise ship `kalast-0.1.0` inside `kalast-v0.2.0`.

@@ -1,0 +1,202 @@
+# A tagged release: the editor as an executable, plus everything it needs to
+# be useful on a machine that has never seen this repository.
+#
+# Two artefacts per platform, because one cannot be both:
+#
+#   kalast[.exe]   the editor built with `--no-default-features`, so it links
+#                  no libpython and runs anywhere. It opens meshes, renders,
+#                  and loads `.rs` examples. It cannot run a `.py` script:
+#                  that needs an interpreter in the process.
+#   *.whl          the Python package. `pip install` it and `python -m kalast
+#                  examples/.../main.py` runs the scripts, which is what the
+#                  bundled `examples/` are.
+#
+# The binary is not built with the `python` feature on purpose. pyo3 links
+# libpython by absolute path on macOS -- `/opt/homebrew/opt/python@3.14/...`
+# on the machine that built it -- so such a binary starts on that machine and
+# nowhere else, and `pyproject.toml` pins 3.14.x, which few machines have.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  # So a bundle can be built and downloaded without cutting a tag first.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # The wheel takes its version from `pyproject.toml`, not from the tag, so a
+  # tag that disagrees ships `kalast-0.1.0-*.whl` inside `kalast-v0.2.0-*`.
+  # Cheap to check, confusing to discover after the fact.
+  version:
+    name: the tag matches the manifests
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v4
+      - shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          cargo_version=$(sed -n '/^\[package\]/,/^\[/p' Cargo.toml \
+            | sed -n 's/^version *= *"\(.*\)"/\1/p' | head -1)
+          py_version=$(sed -n '/^\[project\]/,/^\[/p' pyproject.toml \
+            | sed -n 's/^version *= *"\(.*\)"/\1/p' | head -1)
+          echo "tag $tag | Cargo.toml $cargo_version | pyproject.toml $py_version"
+          if [ "$tag" != "$cargo_version" ] || [ "$tag" != "$py_version" ]; then
+            echo "::error::tag v$tag does not match Cargo.toml ($cargo_version)" \
+                 "and pyproject.toml ($py_version) -- bump them or retag"
+            exit 1
+          fi
+
+  bundle:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,  target: linux-x86_64,  archive: tar }
+          - { os: macos-14,       target: macos-arm64,   archive: tar }
+          - { os: macos-13,       target: macos-x86_64,  archive: tar }
+          - { os: windows-latest, target: windows-x86_64, archive: zip }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - uses: actions/setup-python@v5
+        with:
+          # What pyproject.toml pins: `requires-python = ">=3.14.3,<3.15"`.
+          python-version: "3.14"
+
+      # winit and wgpu link X11, Wayland and Vulkan at build time; the runner
+      # image carries none of the -dev packages.
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libx11-dev libxcursor-dev libxrandr-dev libxi-dev \
+            libxkbcommon-dev libwayland-dev wayland-protocols \
+            libgl1-mesa-dev libvulkan-dev
+
+      # The engine alone: no pyo3, no libpython, nothing to find at runtime.
+      - name: Build the editor
+        run: cargo build --release --bin kalast --no-default-features
+
+      # The shape this binary is built in, so a break in it fails the tag
+      # rather than the download. One platform: the tests are the same code
+      # and three runs of them buy nothing but minutes.
+      - name: Engine tests
+        if: runner.os == 'Linux'
+        run: cargo test --release --lib --no-default-features
+
+      - name: Build the Python wheel
+        run: |
+          python -m pip install --upgrade pip maturin
+          python -m maturin build --release --out dist
+
+      - name: Assemble the bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The tag when there is one; otherwise the commit, so a manual
+          # run cannot produce a bundle that looks like a release.
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            version="${GITHUB_REF_NAME}"
+          else
+            version="dev-${GITHUB_SHA:0:7}"
+          fi
+          name="kalast-${version}-${{ matrix.target }}"
+          mkdir -p "dist/$name"
+
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp target/release/kalast.exe "dist/$name/"
+          else
+            cp target/release/kalast "dist/$name/"
+          fi
+
+          # res/ is needed at runtime -- the bundled examples load meshes from
+          # it by relative path. shaders/ is compiled into the binary and ships
+          # to be read and edited, not because the binary looks for it.
+          cp -r res examples notes shaders "dist/$name/"
+          # README.md does not exist in this repository; the README is reST.
+          cp README.rst pyproject.toml "dist/$name/"
+          cp dist/*.whl "dist/$name/" 2>/dev/null || true
+
+          echo "name=$name" >> "$GITHUB_ENV"
+
+      - name: Archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            7z a -tzip "${{ env.name }}.zip" "${{ env.name }}" >/dev/null
+          else
+            tar -czf "${{ env.name }}.tar.gz" "${{ env.name }}"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.name }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+          if-no-files-found: error
+
+  release:
+    name: publish
+    needs: [version, bundle]
+    runs-on: ubuntu-latest
+    # A tag makes a release; a manual run just leaves the artefacts to
+    # download from the run's page.
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+          generate_release_notes: true
+          body: |
+            Each bundle holds the editor, the resources it renders and the
+            documentation:
+
+            | | |
+            |---|---|
+            | `kalast` / `kalast.exe` | the editor. Open it on its own, or give it a `.obj` or a `.rs` example |
+            | `res/` | the meshes and colour maps the examples load |
+            | `examples/`, `notes/`, `shaders/`, `README.rst` | to read, run and edit |
+            | `kalast-*.whl` | the Python package |
+
+            **Running the `.py` examples needs the wheel.** The executable is
+            built without an embedded interpreter so that it depends on no
+            particular Python: a binary linked against one starts only on a
+            machine that has that exact version, at that exact path. With
+            Python 3.14 installed:
+
+            ```
+            pip install kalast-*.whl
+            python -m kalast examples/two_spheres/main.py
+            ```
+
+            `examples/two_spheres` and `examples/cube` need nothing but the
+            bundled `res/`. The Hera and Didymos examples carry absolute paths
+            to shape models and SPICE kernels that are not shipped here -- see
+            "First-time setup" in `CLAUDE.md`.
