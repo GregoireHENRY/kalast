@@ -225,7 +225,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: wheel-${{ matrix.target }}
+          name: pypi-wheel-${{ matrix.target }}
           path: dist/*.whl
           if-no-files-found: error
 
@@ -240,7 +240,7 @@ jobs:
           args: --out dist
       - uses: actions/upload-artifact@v4
         with:
-          name: sdist
+          name: pypi-sdist
           path: dist/*.tar.gz
           if-no-files-found: error
 
@@ -300,7 +300,9 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: dist
-          pattern: "{wheel-*,sdist}"
+          # One prefix rather than a brace list: the pattern is a plain
+          # glob, and `{a,b}` is not one.
+          pattern: pypi-*
           merge-multiple: true
       - run: ls -l dist
       - uses: pypa/gh-action-pypi-publish@release/v1
