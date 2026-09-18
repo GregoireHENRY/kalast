@@ -87,7 +87,6 @@ impl FacetIdPass {
                 // slot has to line up so the instance data lands in slot 2.
                 buffers: &[
                     Some(crate::mesh::Vertex::geometry_desc()),
-                    Some(crate::mesh::Vertex::attrib_desc()),
                     Some(super::gpu::MeshBuffer::desc()),
                 ],
                 compilation_options: Default::default(),

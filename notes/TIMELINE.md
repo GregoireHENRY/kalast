@@ -2398,3 +2398,18 @@ load to 75–95 ms and was rejected the same hour: kalast does not leave files
 beside a user's models. Cold load ~200 ms; the frame that uploads the mesh
 260–320 ms of moving 830 MB of fat vertices. Under that means changing what a
 mesh *is* -- see `2026-09-18_memory_meshes_and_shadow_maps.md`.
+
+## 2026-09-18 — the vertex, emptied out
+
+`tex`, `tangent`, `bitangent` and `extra` went first: 36 of a vertex's 76
+bytes, declared by the shaders and read by none. Then normal, colour, mode
+and value moved off the vertex into a storage buffer held **per facet** for a
+flat mesh, since its three corners share all four by construction -- indexed
+`vertex_index / 3` or `vertex_index`, the instance's flat flag choosing.
+
+The 3M Didymos + Dimorphos pair: peak RSS 4.74 -> 2.03 GB, GPU 1.74 -> 0.52
+GB, footprint 6.07 -> 3.09 GB, and the frame that uploads a mesh 261 -> 60 ms.
+Verified against nine reference renders; the only thing that changed is a
+flat facet with one corner coloured differently from its siblings, which now
+takes the first corner's colour. `tests/test_mesh_attrs.py` guards it, and
+fails when the flat/smooth selection is broken.

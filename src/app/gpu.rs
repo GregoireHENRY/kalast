@@ -350,19 +350,67 @@ impl<U: bytemuck::NoUninit> UniformBuffer<U> {
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GeometryVertex {
-    pub pos: Vec3,
-    pub normal: Vec3,
+    pub pos: [f32; 3],
 }
 
+/// Everything about a surface that is not its position: read from a storage
+/// buffer by the vertex stage, **one entry per facet** for a flat mesh and one
+/// per vertex for a smooth one.
+///
+/// Per corner it was 20 bytes over 9.4 M corners on a 3M-facet model; per
+/// facet it is 32 over 3.1 M. The normal moved here for the same reason: a
+/// flat mesh's three corners carry one facet normal between them, so storing
+/// it three times was storing it twice too often.
+///
+/// Laid out for std430 -- both `vec3`s land on a 16-byte boundary, so the
+/// struct is exactly 32 bytes with no implicit padding. Keep it in step with
+/// `MeshAttr` in `mesh_shadow.wgsl`.
 #[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct AttribVertex {
-    pub color: Vec3,
-    pub color_mode: u32,
-    /// The facet's scalar, when the mesh carries `values`. Held per vertex
-    /// because that is what the vertex stage can read; every vertex of a facet
-    /// gets the same number, so the facet comes out flat.
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct MeshAttr {
+    pub normal: [f32; 3],
+    /// The facet's scalar, when the mesh carries `values`.
     pub value: f32,
+    pub color: [f32; 3],
+    pub color_mode: u32,
+}
+
+/// `crate::Vec3` is `f64` under `use_f64`; the GPU always wants `f32`.
+fn f32x3(v: Vec3) -> [f32; 3] {
+    [v.x as f32, v.y as f32, v.z as f32]
+}
+
+/// How many entries the attribute buffer holds: one per facet for a flat
+/// mesh, one per vertex for a smooth one -- which is exactly what
+/// `vertex_index / 3` and `vertex_index` index in the vertex shader.
+pub fn n_attrs(n_vertices: usize, is_flat: bool) -> usize {
+    if is_flat {
+        n_vertices / 3
+    } else {
+        n_vertices
+    }
+}
+
+/// Which bind group the per-mesh attribute buffer occupies: after the five
+/// the `Bindings` set, so nothing else moves.
+pub const ATTRS_GROUP: u32 = 5;
+
+/// The bind group layout the attribute buffer is bound through: one read-only
+/// storage buffer, visible to the vertex stage.
+pub fn mesh_attrs_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("mesh attrs"),
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::VERTEX,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Storage { read_only: true },
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }],
+    })
 }
 
 /// Vertices per upload slice. The GPU copies used to be built whole -- 56 +
@@ -426,45 +474,48 @@ fn empty_buffer<T>(
 fn extract_geometry(vertices: &[crate::mesh::Vertex]) -> Vec<GeometryVertex> {
     vertices
         .iter()
-        .map(|v| GeometryVertex {
-            pos: v.pos,
-            normal: v.normal,
-        })
+        .map(|v| GeometryVertex { pos: f32x3(v.pos) })
         .collect()
 }
 
-/// `values` is per facet; vertices are per corner. For a flat mesh corner `i`
-/// belongs to facet `i / 3`. For an indexed one there is no such mapping, so
-/// the value is left at zero rather than guessed -- `Mesh::set_values` refuses
-/// an indexed mesh for the same reason.
-/// `first` is the index of `vertices[0]` in the whole mesh, so a slice of a
-/// flat mesh still finds its facet's value at `index / 3`.
-fn extract_attribs(
+/// The attributes of entries `range` of the buffer: facets of a flat mesh,
+/// vertices of a smooth one.
+///
+/// A flat facet takes its first corner's colour and mode. All three carry the
+/// same one wherever anything in kalast writes them -- the selection, a
+/// colormap, `update_all_vertices_colors` -- and three different colours on
+/// one flat-shaded facet was never something flat shading could express.
+///
+/// `values` is per facet, so only a flat mesh has one to read; `set_values`
+/// refuses an indexed mesh for that reason, and a smooth one gets zero.
+fn extract_attrs(
     vertices: &[crate::mesh::Vertex],
+    is_flat: bool,
     values: &[crate::Float],
-    first: usize,
-) -> Vec<AttribVertex> {
-    vertices
-        .iter()
-        .enumerate()
-        .map(|(i, v)| AttribVertex {
-            color: v.color,
-            color_mode: v.color_mode,
-            value: values.get((first + i) / 3).copied().unwrap_or(0.0) as f32,
+    range: std::ops::Range<usize>,
+) -> Vec<MeshAttr> {
+    range
+        .map(|i| {
+            let v = &vertices[if is_flat { 3 * i } else { i }];
+            MeshAttr {
+                normal: f32x3(v.normal),
+                value: if is_flat {
+                    values.get(i).copied().unwrap_or(0.0) as f32
+                } else {
+                    0.0
+                },
+                color: f32x3(v.color),
+                color_mode: v.color_mode,
+            }
         })
         .collect()
 }
 
 impl crate::mesh::Vertex {
-    pub const GEOMETRY_ATTRIBS: [wgpu::VertexAttribute; 2] = wgpu::vertex_attr_array![
+    /// The position, and nothing else. Everything else a surface has is per
+    /// facet and comes from the storage buffer -- see `MeshAttr`.
+    pub const GEOMETRY_ATTRIBS: [wgpu::VertexAttribute; 1] = wgpu::vertex_attr_array![
         0 => Float32x3,
-        1 => Float32x3,
-    ];
-
-    pub const ATTRIB_ATTRIBS: [wgpu::VertexAttribute; 3] = wgpu::vertex_attr_array![
-        5 => Float32x3,
-        6 => Uint32,
-        18 => Float32,
     ];
 
     pub fn geometry_desc() -> wgpu::VertexBufferLayout<'static> {
@@ -472,14 +523,6 @@ impl crate::mesh::Vertex {
             array_stride: std::mem::size_of::<GeometryVertex>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &Self::GEOMETRY_ATTRIBS,
-        }
-    }
-
-    pub fn attrib_desc() -> wgpu::VertexBufferLayout<'static> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<AttribVertex>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &Self::ATTRIB_ATTRIBS,
         }
     }
 }
@@ -572,8 +615,11 @@ pub struct MeshBuffer {
     pub geometry_buffer: wgpu::Buffer,
     // Dynamic: some scripts recolor every frame (e.g. a per-facet
     // colormap). Persistent buffer, updated in place via write_buffer
-    // rather than reallocated -- see update_attrib_buffer.
+    // rather than reallocated -- see update_attrib_buffer. A storage
+    // buffer, one entry per facet (flat) or per vertex (smooth), read by
+    // the vertex stage through `attr_bind_group`.
     pub attrib_buffer: wgpu::Buffer,
+    pub attr_bind_group: wgpu::BindGroup,
     pub index_buffer: wgpu::Buffer,
 
     // Dynamic: the body's transform, changes every frame it moves.
@@ -600,6 +646,7 @@ impl MeshBuffer {
     pub fn new(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        attrs_layout: &wgpu::BindGroupLayout,
         vertices: &[crate::mesh::Vertex],
         indices: &[u32],
         instance: &InstanceInput,
@@ -618,12 +665,26 @@ impl MeshBuffer {
             "mesh geometry",
         );
         upload_chunked(queue, &geometry_buffer, n, |r| extract_geometry(&vertices[r]));
-        let attrib_buffer =
-            empty_buffer::<AttribVertex>(device, n, wgpu::BufferUsages::VERTEX, "mesh attributes");
-        upload_chunked(queue, &attrib_buffer, n, |r| {
-            extract_attribs(&vertices[r.clone()], values, r.start)
+        let n_attrs = n_attrs(n, is_flat);
+        let attrib_buffer = empty_buffer::<MeshAttr>(
+            device,
+            n_attrs,
+            wgpu::BufferUsages::STORAGE,
+            "mesh attributes",
+        );
+        upload_chunked(queue, &attrib_buffer, n_attrs, |r| {
+            extract_attrs(vertices, is_flat, values, r)
         });
-        Self::with_vertex_buffers(device, geometry_buffer, attrib_buffer, n, indices, instance, is_flat)
+        Self::with_vertex_buffers(
+            device,
+            attrs_layout,
+            geometry_buffer,
+            attrib_buffer,
+            n,
+            indices,
+            instance,
+            is_flat,
+        )
     }
 
     /// For a small mesh built into the program -- the depth pass's quad --
@@ -631,6 +692,7 @@ impl MeshBuffer {
     /// hand. Loaded meshes go through `new`.
     pub fn new_static(
         device: &wgpu::Device,
+        attrs_layout: &wgpu::BindGroupLayout,
         vertices: &[crate::mesh::Vertex],
         indices: &[u32],
         instance: &InstanceInput,
@@ -642,13 +704,15 @@ impl MeshBuffer {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::STORAGE,
             label: Some("mesh geometry"),
         });
+        let n_attrs = n_attrs(vertices.len(), is_flat);
         let attrib_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            contents: bytemuck::cast_slice(&extract_attribs(vertices, values, 0)),
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            contents: bytemuck::cast_slice(&extract_attrs(vertices, is_flat, values, 0..n_attrs)),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             label: Some("mesh attributes"),
         });
         Self::with_vertex_buffers(
             device,
+            attrs_layout,
             geometry_buffer,
             attrib_buffer,
             vertices.len(),
@@ -660,6 +724,7 @@ impl MeshBuffer {
 
     fn with_vertex_buffers(
         device: &wgpu::Device,
+        attrs_layout: &wgpu::BindGroupLayout,
         geometry_buffer: wgpu::Buffer,
         attrib_buffer: wgpu::Buffer,
         n_vertices: usize,
@@ -667,6 +732,14 @@ impl MeshBuffer {
         instance: &InstanceInput,
         is_flat: bool,
     ) -> Self {
+        let attr_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("mesh attrs"),
+            layout: attrs_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: attrib_buffer.as_entire_binding(),
+            }],
+        });
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             contents: bytemuck::cast_slice(indices),
             usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::STORAGE,
@@ -686,6 +759,7 @@ impl MeshBuffer {
 
             geometry_buffer,
             attrib_buffer,
+            attr_bind_group,
             index_buffer,
 
             instance_buffer,
@@ -707,20 +781,22 @@ impl MeshBuffer {
     //     (self.index_buffer.size() / 4) as _
     // }
 
-    /// Re-uploads color/color_mode/extra for all vertices, in place (no
-    /// reallocation). Only call when they've actually changed -- e.g. a
-    /// per-facet colormap script sets Mesh::colors_dirty after mutating
-    /// `mesh.colors`, and Window::update checks that flag before calling
-    /// this, so a static-colored mesh never pays this cost after its
-    /// initial upload in `new`.
+    /// Re-uploads normal/colour/mode/value, in place (no reallocation). Only
+    /// call when they've actually changed -- e.g. a per-facet colormap script
+    /// sets Mesh::colors_dirty after mutating `mesh.colors`, and
+    /// Window::update checks that flag before calling this, so a
+    /// static-coloured mesh never pays this cost after its initial upload in
+    /// `new`.
     pub fn update_attrib_buffer(
         &mut self,
         queue: &wgpu::Queue,
         vertices: &[crate::mesh::Vertex],
         values: &[crate::Float],
     ) {
-        upload_chunked(queue, &self.attrib_buffer, vertices.len(), |r| {
-            extract_attribs(&vertices[r.clone()], values, r.start)
+        let is_flat = self.is_flat;
+        let n = n_attrs(vertices.len(), is_flat);
+        upload_chunked(queue, &self.attrib_buffer, n, |r| {
+            extract_attrs(vertices, is_flat, values, r)
         });
     }
 
@@ -731,10 +807,11 @@ impl MeshBuffer {
         queue.write_buffer(&self.instance_buffer, 0, bytemuck::bytes_of(instance));
     }
 
+    /// Draw it with positions alone -- what the shadow, facet-id, hemicube
+    /// and light-cube passes want, none of which shade.
     pub fn render(&self, pass: &mut wgpu::RenderPass) {
         pass.set_vertex_buffer(0, self.geometry_buffer.slice(..));
-        pass.set_vertex_buffer(1, self.attrib_buffer.slice(..));
-        pass.set_vertex_buffer(2, self.instance_buffer.slice(..));
+        pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
         pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
 
         if self.is_flat {
@@ -742,6 +819,14 @@ impl MeshBuffer {
         } else {
             pass.draw_indexed(0..self.n_indices, 0, 0..1);
         }
+    }
+
+    /// Draw it shaded: the same, plus the attribute buffer at group
+    /// `ATTRS_GROUP`. Only the main pass's pipeline declares that group, so
+    /// only the main pass may call this.
+    pub fn render_shaded(&self, pass: &mut wgpu::RenderPass) {
+        pass.set_bind_group(ATTRS_GROUP, Some(&self.attr_bind_group), &[]);
+        self.render(pass);
     }
 
     pub fn desc() -> wgpu::VertexBufferLayout<'static> {

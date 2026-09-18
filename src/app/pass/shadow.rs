@@ -20,7 +20,6 @@ impl Pass {
             wgpu::PrimitiveTopology::TriangleList,
             &[
                 Some(crate::mesh::Vertex::geometry_desc()),
-                Some(crate::mesh::Vertex::attrib_desc()),
                 Some(gpu::MeshBuffer::desc()),
             ],
         );

@@ -800,6 +800,10 @@ impl Window {
             );
         }
 
+        // Before the meshes, which each need a bind group made from it, and
+        // before `Uniforms`, which ends up owning it.
+        let mesh_attrs_layout = super::gpu::mesh_attrs_layout(&device);
+
         let mut meshes = vec![];
 
         // TODO: ADD COLOR PER MESH?
@@ -809,6 +813,7 @@ impl Window {
         meshes.push(super::gpu::MeshBuffer::new(
             &device,
                 &queue,
+            &mesh_attrs_layout,
             &crate::meshes::cube::VERTICES,
             &crate::meshes::cube::INDICES,
             &super::gpu::InstanceInput::default(),
@@ -849,6 +854,7 @@ impl Window {
                 meshes.push(super::gpu::MeshBuffer::new(
                     &device,
                 &queue,
+            &mesh_attrs_layout,
                     &mesh.vertices,
                     &mesh.indices,
                     &instance,
@@ -861,6 +867,7 @@ impl Window {
                     super::gpu::MeshBuffer::new(
                         &device,
                 &queue,
+            &mesh_attrs_layout,
                         &shadow.vertices,
                         &shadow.indices,
                         &instance,
@@ -933,6 +940,7 @@ impl Window {
             colormap,
             bar,
             layer_select: super::uniform::LayerSelect::new(&device),
+            mesh_attrs: mesh_attrs_layout,
         };
 
         let passes = super::pass::Passes::new(
@@ -1493,6 +1501,7 @@ impl Window {
                     super::gpu::MeshBuffer::new(
                         &self.device,
                         &self.queue,
+                        &self.uniforms.mesh_attrs,
                         &mesh.vertices,
                         &mesh.indices,
                         &instance,
@@ -1505,6 +1514,7 @@ impl Window {
                 None => super::gpu::MeshBuffer::new(
                     &self.device,
                         &self.queue,
+                        &self.uniforms.mesh_attrs,
                     &[],
                     &[],
                     &instance,
@@ -1519,6 +1529,7 @@ impl Window {
                     super::gpu::MeshBuffer::new(
                         &self.device,
                         &self.queue,
+                        &self.uniforms.mesh_attrs,
                         &shadow.vertices,
                         &shadow.indices,
                         &instance,

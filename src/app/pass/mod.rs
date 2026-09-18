@@ -44,7 +44,7 @@ impl Passes {
         Self {
             shadow: shadow::Pass::new(device, &uniforms.layouts_for_shadow()),
 
-            render: render::Pass::new(device, format, config, &layouts_all, size),
+            render: render::Pass::new(device, format, config, &uniforms.layouts_shaded(), size),
             light_cube: light_cube::Pass::new(device, format, &layouts_all, samples),
             axes: axes::Pass::new(device, format, &layouts_all, samples),
             grid: grid::Pass::new(device, format, samples),

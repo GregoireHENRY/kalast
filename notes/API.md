@@ -796,6 +796,17 @@ which, loaded flat (the default), is three unshared rows per facet:
 | `values` | `(f,)` per-facet scalar to colour by; see below |
 | `material_id` | index into the model's materials, or `None` |
 
+**On a flat mesh, colour is per facet.** Normal, colour, colour mode and
+value are held once per facet on the GPU rather than once per corner — the
+three corners of a flat facet share a normal and a value by construction, and
+a facet shaded three different colours is not something flat shading can
+express. So the facet takes its **first corner's** colour and mode. Writing
+all three, which is what the selection, a colormap and every script here do,
+is unchanged; writing one corner on its own now colours the whole facet if it
+is corner 0 and nothing if it is corner 1 or 2, where it used to give a
+gradient across the facet. A smooth mesh is untouched: its attributes stay
+per vertex.
+
 A vertex carries a position, a normal, a colour and a colour mode, and
 nothing else. It used to carry a texture coordinate, a tangent and a
 bitangent as well -- for normal mapping, which no shader here does -- and an
@@ -810,7 +821,7 @@ And the operations on one:
 | `is_flat()` | whether each facet owns its vertices — a method, not a property |
 | `flatten()`, `smoothen()` | switch between that and shared corners. Follow with `sim.rebuild_meshes()`. A mesh loaded flat (the default) keeps no shared corners to go back to: `smoothen()` warns and leaves it flat -- load with `smooth=True` for the shared mesh |
 | `recompute_facets()` | recompute centres, normals and areas after moving vertices |
-| `mark_colors_dirty()` | re-upload colours next frame, after writing `colors` in place |
+| `mark_colors_dirty()` | re-upload colours next frame, after writing `colors` in place. On a flat mesh the GPU keeps one colour per *facet*, taken from its first corner — see below |
 | `update_all_vertices_colors(mode, color)` | set every vertex to one colour and mode |
 | `get_facet_positions(i)` | the three corners of one facet |
 | `get_facet_normals(i)`, `get_facet_colors(i)` | the same three, other attributes |

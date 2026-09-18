@@ -40,8 +40,12 @@ impl Pass {
         height: u32,
         format: wgpu::TextureFormat,
     ) -> Self {
+        // Its own layout: the quad is never drawn shaded, so the bind group
+        // it gets is never bound -- but a `MeshBuffer` always has one.
+        let attrs_layout = gpu::mesh_attrs_layout(device);
         let mesh = gpu::MeshBuffer::new_static(
             device,
+            &attrs_layout,
             DEPTH_VERTICES,
             DEPTH_INDICES,
             &gpu::InstanceInput::default(),
@@ -67,7 +71,6 @@ impl Pass {
             wgpu::PrimitiveTopology::TriangleList,
             &[
                 Some(crate::mesh::Vertex::geometry_desc()),
-                Some(crate::mesh::Vertex::attrib_desc()),
                 Some(gpu::MeshBuffer::desc()),
             ],
         );

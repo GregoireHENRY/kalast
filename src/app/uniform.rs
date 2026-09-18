@@ -242,6 +242,9 @@ pub struct Uniforms {
     pub bar: super::gpu::UniformBuffer<Bar>,
     pub shadow: super::gpu::Texture,
     pub layer_select: LayerSelect,
+    /// The per-mesh attribute buffer's layout, held here so the pipeline that
+    /// declares it and the meshes that fill it cannot drift apart.
+    pub mesh_attrs: wgpu::BindGroupLayout,
     // pub textures: Vec<super::gpu::Texture>,
 }
 
@@ -255,6 +258,16 @@ impl Uniforms {
             Some(&self.bar.layout),
             // Some(&self.textures[0].layout.as_ref().unwrap()),
         ]
+    }
+
+    /// `layouts_all` plus the per-mesh attributes at `ATTRS_GROUP`. Only the
+    /// main pass takes this: every group a pipeline declares must be bound
+    /// before a draw, and the light cube, axes and colour bar share
+    /// `layouts_all` while carrying no attributes of their own.
+    pub fn layouts_shaded(&self) -> Vec<Option<&wgpu::BindGroupLayout>> {
+        let mut layouts = self.layouts_all();
+        layouts.push(Some(&self.mesh_attrs));
+        layouts
     }
 
     pub fn layouts_for_shadow(&self) -> Vec<Option<&wgpu::BindGroupLayout>> {

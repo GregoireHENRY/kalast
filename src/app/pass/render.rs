@@ -150,7 +150,6 @@ impl Pass {
             wgpu::PrimitiveTopology::TriangleList,
             &[
                 Some(crate::mesh::Vertex::geometry_desc()),
-                Some(crate::mesh::Vertex::attrib_desc()),
                 Some(gpu::MeshBuffer::desc()),
             ],
         );
@@ -248,7 +247,7 @@ impl Pass {
         bindings.all(&mut render_pass);
 
         for mesh in &meshes[1..] {
-            mesh.render(&mut render_pass);
+            mesh.render_shaded(&mut render_pass);
         }
 
         // The light cube is a debug marker, not geometry: it must never

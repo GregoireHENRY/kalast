@@ -30,11 +30,11 @@
 //
 // Geometry is read straight out of the render pass's vertex buffer rather
 // than a second upload, so the positions tested are exactly the positions
-// drawn. GeometryVertex is 6 consecutive f32 (pos.3, normal.3), so vertex i
-// starts at i * 6 -- see `GeometryVertex` in src/app/gpu.rs; the two must
-// stay in step.
+// drawn. GeometryVertex is a position and nothing else, so vertex i starts
+// at i * 3 -- see `GeometryVertex` in src/app/gpu.rs; the two must stay in
+// step.
 
-const VERTEX_STRIDE: u32 = 6u;
+const VERTEX_STRIDE: u32 = 3u;
 
 struct Params {
     // Body model matrix: geometry is stored in model space.

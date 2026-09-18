@@ -148,28 +148,63 @@ models. The parse is paid every load, ~100 ms of the ~200; the way under
 100 ms without a cache is to have less to build, which is the redesign
 below.
 
-**What is left is bandwidth, not code.** The frame that uploads a 3M mesh
-takes 260–320 ms after the conversion went parallel (356 before): 830 MB of
-`GeometryVertex` + `AttribVertex` -- 88 bytes a corner, three corners a
-facet, of which texture coordinates, tangent and bitangent are zero and the
-normal is the facet's repeated three times -- copied into staging, copied to
-the GPU, and faulted in. Below that floor the *format* has to change, and
-that is a design decision, not a tuning:
+## The vertex, emptied out
 
-- **Expand on the GPU.** Upload the canonical 57 MB and let a compute pass
-  write the fat vertex buffers -- upload ~40 ms, memory unchanged, the
-  vertex format untouched, one shader.
-- **A compact flat vertex.** Positions plus a facet index per corner, with
-  normal, colour, value and mode per *facet* in a storage buffer: 830 →
-  ~210 MB of VRAM per 3M mesh and a proportionally faster upload; touches the
-  shaders, the wireframe and the facet index map.
-- **A leaner CPU mesh.** Positions, triangles and facets (0.14 GB per 3M)
-  instead of 76 bytes a corner (0.68 GB), with the per-vertex Python views
-  derived; the largest change, and the one that cuts RAM fivefold.
+Three changes, in order, each verified against nine reference renders --
+shaded, wireframe, PCF, colormap values, whole-facet colours, single-corner
+colours, selection, unshaded, plus the `facet_shadow` and `facet_id` arrays.
 
-What is left of the cached load is the float-free build itself; the remaining RSS above the mesh is the parse's
-positions and triangles, freed before the flat build and reused by it. The
-first frame's upload is separate, and memory-bound.
+**What nothing read.** `tex`, `tangent` and `bitangent` were for normal
+mapping, which no live shader does: `mesh_shadow.wgsl` declared all three and
+read none, `facet_id` and `hemicube` the same, and the only `textureSample`
+in the render path is commented out. `extra` was read nowhere at all.
+Together 36 of a vertex's 76 bytes. Gone; a textured `.obj` still loads, its
+texture coordinates simply not kept, and the depth-debug quad works its own
+out from its position.
+
+**What belonged to the facet.** Normal, colour, colour mode and value were
+four more vertex attributes, 20 bytes on every corner -- and three times over
+for a flat mesh, whose corners share one facet normal, one colour and one
+value between them. They are a storage buffer now, one entry per facet for a
+flat mesh and one per vertex for a smooth one, read in the vertex stage at
+`vertex_index / 3` or `vertex_index`, chosen by the instance's flat flag. One
+buffer, one shader, one pipeline; the attribute buffer is bound per mesh at
+group 5, which only the main pass declares.
+
+Per 3M-facet mesh on the GPU:
+
+| | geometry | attributes | total |
+|---|---|---|---|
+| before | 9.4 M x 56 B = 527 MB | 9.4 M x 36 B = 339 MB | **866 MB** |
+| after the dead fields went | 9.4 M x 24 B = 226 MB | 9.4 M x 20 B = 188 MB | 414 MB |
+| after the move to per facet | 9.4 M x 12 B = 113 MB | 3.1 M x 32 B = 100 MB | **213 MB** |
+
+Measured on the Didymos + Dimorphos pair at 8192, both full models:
+
+| | before | dead fields gone | per-facet attributes |
+|---|---|---|---|
+| RSS after both loads | 2.87 GB | 1.42 GB | 1.42 GB |
+| peak RSS | 4.74 GB | 2.38 GB | **2.03 GB** |
+| GPU allocations | 1.74 GB | 0.88 GB | **0.52 GB** |
+| process footprint | 6.07 GB | 3.27 GB | **3.09 GB** |
+| the frame that uploads a mesh | 261 ms | 261 ms | **60 ms** |
+| `load_mesh`, one 3M model | 200 ms | 164 ms | 159 ms |
+
+The upload frame is the one that had been the floor -- 830 MB of fat vertices
+moved per pair -- and at 60 ms it is no longer the thing to look at.
+
+**The one behaviour that changed**: a flat facet takes its first corner's
+colour, so a single corner coloured on its own no longer paints a gradient
+across the facet. Everything that writes all three corners -- the selection, a
+colormap, `update_all_vertices_colors`, every script here -- renders
+bit-for-bit as before, which the reference battery shows: only the
+single-corner case differs, and it differs as predicted.
+
+`tests/test_mesh_attrs.py` guards the flat/smooth lookup: a flat body and a
+smooth body in one scene, each shaded from its own attributes, and colour
+written to whole facets landing on those facets and nowhere else. Breaking
+the index selection makes it fail 22% / 15% against thresholds of 85% / 5%.
+
 
 ## What changed
 

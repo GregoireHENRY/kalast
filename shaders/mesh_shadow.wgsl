@@ -90,11 +90,22 @@ fn colormap_lookup(v: f32) -> vec3<f32> {
 
 struct VertexInput {
     @location(0) pos: vec3<f32>,
-    @location(1) normal: vec3<f32>,
-    @location(5) color: vec3<f32>,
-    @location(6) color_mode: u32,
-    @location(18) value: f32,
 };
+
+/// Everything a surface has that is not its position: **one entry per facet**
+/// for a flat mesh, one per vertex for a smooth one. These were four more
+/// vertex attributes, 20 bytes on every corner of every mesh -- and three
+/// times over for a flat one, whose three corners carry the same facet
+/// normal, colour and value between them. Keep in step with `MeshAttr` in
+/// `app/gpu.rs`.
+struct MeshAttr {
+    normal: vec3<f32>,
+    value: f32,
+    color: vec3<f32>,
+    mode: u32,
+};
+
+@group(5) @binding(0) var<storage, read> attrs: array<MeshAttr>;
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
@@ -141,16 +152,19 @@ fn vs_main(
     );
 
     var out: VertexOutput;
-    // if instance.color_mode == 0 {
-    //     out.color = vertex.color;
-    // } else {
-    //     out.color = instance.color;
-    // }
 
-    out.color = vertex.color;
-    out.color_mode = vertex.color_mode;
+    // A flat mesh is drawn non-indexed and triangle-major, so three
+    // consecutive vertex indices are one facet and `vertex_index / 3` is it.
+    // A smooth mesh is drawn indexed, where `vertex_index` is the vertex's
+    // own id and its attributes are its own. One buffer, one shader; the
+    // instance's flat flag says which.
+    let attr_index = select(vertex_index, vertex_index / 3u, (instance.flags & 1u) != 0u);
+    let attr = attrs[attr_index];
 
-    out.world_normal = normalize(normal_matrix * vertex.normal);
+    out.color = attr.color;
+    out.color_mode = attr.mode;
+
+    out.world_normal = normalize(normal_matrix * attr.normal);
 
     var world_pos = model_matrix * vec4<f32>(vertex.pos, 1.0);
     out.world_pos = world_pos.xyz;
@@ -170,7 +184,7 @@ fn vs_main(
     );
     out.flags = instance.flags;
     out.shadow_layer = instance.shadow_layer;
-    out.value = vertex.value;
+    out.value = attr.value;
 
     return out;
 }

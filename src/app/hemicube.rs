@@ -130,7 +130,6 @@ impl Hemicube {
                 entry_point: Some("vs_main"),
                 buffers: &[
                     Some(crate::mesh::Vertex::geometry_desc()),
-                    Some(crate::mesh::Vertex::attrib_desc()),
                     Some(super::gpu::MeshBuffer::desc()),
                 ],
                 compilation_options: Default::default(),
