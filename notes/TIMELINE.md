@@ -2386,6 +2386,6 @@ a `smoothen` nobody called. `Mesh::load_flat` parses the plain `v`/`f` files
 shape models are in parallel and builds the flat vertices and facets in
 parallel from positions and triangles, bit-for-bit the old result, with
 nothing kept: 1.01 → 0.20 s, ~1.5 → ~0.95 GB per mesh. Anything else in the
-format falls back to tobj unchanged; `smooth=True` returns the shared mesh
-directly. `is_flat()` had been inferred from the kept copy and is an explicit
+format falls back to tobj unchanged. The smooth path followed the same
+day, in tobj's vertex order so the bits agree: 0.94 → 0.17 s. `is_flat()` had been inferred from the kept copy and is an explicit
 flag now. Note: `2026-09-18_memory_meshes_and_shadow_maps.md`.

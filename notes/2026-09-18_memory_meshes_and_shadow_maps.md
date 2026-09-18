@@ -120,7 +120,14 @@ Measured on the 3M-facet Didymos model, 8 cores:
 |---|---|---|
 | `load_mesh` (default, flat) | 1.01 s (0.85 of it tobj, one core) | **0.20 s** |
 | RSS per loaded mesh | ~1.5 GB | **~0.95 GB** (0.80 GB is the flat mesh itself) |
-| `load_mesh(smooth=True)` | 0.94 s | 0.94 s, unchanged |
+| `load_mesh(smooth=True)` | 0.94 s | **0.17 s**, RSS +0.70 → +0.45 GB |
+
+The smooth path got the same construction the same day: `Mesh::load` builds
+the shared mesh straight from the parallel parse, numbering vertices by first
+appearance in the faces and dropping unreferenced ones -- tobj's own order --
+with the facets in parallel and the vertex normals summed in `smoothen`'s
+order, so it is bit-for-bit tobj's output (`load_matches_tobj_bitwise`) and
+tobj remains as `load_via_tobj`, the fallback and the reference.
 
 What is left of the load time is the float parse (4.7 M decimals) and
 building 9.4 M vertices; the remaining RSS above the mesh is the parse's

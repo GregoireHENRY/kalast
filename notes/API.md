@@ -754,8 +754,8 @@ per-facet data, the wireframe overlay and the facet index map need. Flat is
 built *as* flat -- the file's positions and triangles parsed in parallel and
 the corners laid out straight from them, a 3M-facet model in 0.2 s -- with
 nothing kept to smoothen back to. `smooth=True` returns the shared mesh the
-file describes instead, for a smooth-shaded surface; neither is made from the
-other. `flatten=` was the argument until 17 September, default off, so every
+file describes instead, for a smooth-shaded surface, built the same way and
+as fast; neither is made from the other. `flatten=` was the argument until 17 September, default off, so every
 script had to say `flatten=True`; it is accepted for a release, inverted, with
 a `DeprecationWarning`.
 
