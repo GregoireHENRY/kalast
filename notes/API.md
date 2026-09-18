@@ -761,9 +761,37 @@ script had to say `flatten=True`; it is accepted for a release, inverted, with
 a `DeprecationWarning`.
 
 `shadow_path` names a coarser mesh to render into the shadow map in place of
-`path`. The shadow map only decides which fragments are lit, so a coarser
-occluder buys performance without touching per-facet science data — unlike
-loading a coarser `path`, which would invalidate anything facet-indexed.
+`path`. Nothing facet-indexed is disturbed — unlike loading a coarser `path`,
+which would invalidate any per-facet array.
+
+**But it does change the illumination, including `facet_shadow`.** This
+paragraph used to claim it bought performance "without touching per-facet
+science data", and that was measured on 18 September and is wrong: the shadow
+map decides which fragments are lit, and `facet_shadow` reads that same map.
+A body rendered at 100k is then depth-tested against a 10k version of itself,
+and the bias constants are fitted for a body against its own geometry.
+
+Measured on the Didymos pair, 100k rendered with a 10k proxy, against the same
+pair with no proxy:
+
+| | |
+|---|---|
+| speed | **1062 → 1656 it/s, a factor 1.56** |
+| facets whose `facet_shadow` differs | 2.90 % |
+| facets flipped by ≥ 0.5 | 0.69 % |
+| shadowed fraction | 0.4651 → 0.4715, a **1.4 % relative bias** |
+
+The image difference is speckle on the self-shadowed limb — self-shadowing
+acne — not a displaced mutual shadow.
+
+So: **take it for interactive work and figures**, where 1.56x is worth
+speckle on a limb. **Do not take it for anything reading `facet_shadow`**
+without measuring: a 1.4 % bias in the illuminated fraction goes into the
+surface energy balance, and it is a bias rather than noise, so it does not
+average out over a rotation. A proxy used for *other* bodies only, keeping the
+full mesh in each body's own layer, would keep the saving and drop the acne;
+the shadow array is already per-body, and that is not implemented yet. See
+`notes/2026-09-18_shadow_proxy_measured.md`.
 
 ### `sim.rebuild_meshes()` — after changing a mesh's *shape*
 
