@@ -46,6 +46,10 @@ fn dir_row(ui: &mut egui::Ui, path: Option<&std::path::Path>) {
 }
 
 /// A body's file name, or a stand-in for one built in memory.
+/// What a body is called in the panel: its shape model's file name without
+/// the extension. Every one of them is `.obj`, so the extension is four
+/// characters that say nothing and push the part that identifies the model
+/// out of the header.
 fn body_name(body: &crate::app::body::Body) -> String {
     body.mesh
         .as_ref()
@@ -53,7 +57,21 @@ fn body_name(body: &crate::app::body::Body) -> String {
             m.borrow()
                 .path
                 .as_ref()
-                .and_then(|p| p.file_name().map(|f| f.to_string_lossy().into_owned()))
+                .and_then(|p| p.file_stem().map(|f| f.to_string_lossy().into_owned()))
+        })
+        .unwrap_or_else(|| "built in memory".to_string())
+}
+
+/// The whole path, for the header's hover: which of two decimations of one
+/// model a body is comes from the directory as often as the name.
+fn body_path(body: &crate::app::body::Body) -> String {
+    body.mesh
+        .as_ref()
+        .and_then(|m| {
+            m.borrow()
+                .path
+                .as_ref()
+                .map(|p| p.to_string_lossy().into_owned())
         })
         .unwrap_or_else(|| "built in memory".to_string())
 }
@@ -105,10 +123,9 @@ fn bodies_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
 
     for i in 0..sim.bodies.len() {
         let name = body_name(&sim.bodies[i]);
+        let path = body_path(&sim.bodies[i]);
         let mut drop_it = false;
-        // The index alone in the header: a shape model's file name is long,
-        // and three of them made the section unreadable. Hover for it.
-        egui::CollapsingHeader::new(format!("body {i}"))
+        egui::CollapsingHeader::new(format!("body {i}  {name}"))
             .id_salt(i)
             .show(ui, |ui| {
                 dirty |= body_ui(ui, i, &mut sim.bodies[i]);
@@ -121,7 +138,7 @@ fn bodies_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
                 }
             })
             .header_response
-            .on_hover_text(&name);
+            .on_hover_text(&path);
         if drop_it {
             remove = Some(i);
         }
@@ -923,5 +940,31 @@ mod tests {
         assert_eq!(flat.indices, smooth.indices);
         assert_eq!(flat.attrs.len(), flat.facets.len());
         assert_eq!(smooth.attrs.len(), smooth.positions.len());
+    }
+}
+
+#[cfg(test)]
+mod naming_tests {
+    use super::*;
+
+    /// The header names a body by its shape model's stem. Every one of them
+    /// is `.obj`, so the extension is four characters that say nothing; the
+    /// full path is the hover, because which decimation of a model a body is
+    /// often comes from the directory rather than the name.
+    #[test]
+    fn a_body_is_named_by_its_file_stem() {
+        let mut mesh = crate::mesh::Mesh::new();
+        mesh.path = Some(std::path::PathBuf::from(
+            "/data/mesh/didymos/g_01165mm_spc_didy_v003_100k.obj",
+        ));
+        let body = crate::app::body::Body {
+            mesh: Some(std::rc::Rc::new(std::cell::RefCell::new(mesh))),
+            ..Default::default()
+        };
+        assert_eq!(body_name(&body), "g_01165mm_spc_didy_v003_100k");
+        assert_eq!(body_path(&body), "/data/mesh/didymos/g_01165mm_spc_didy_v003_100k.obj");
+
+        let bare = crate::app::body::Body::default();
+        assert_eq!(body_name(&bare), "built in memory");
     }
 }
