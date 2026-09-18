@@ -104,6 +104,12 @@ jobs:
 
           exit $fail
 
+  # macOS x86_64 runs on `macos-15-intel`, not `macos-13`. The macOS 13 image
+  # was retired in December 2025, and a job asking for it does not fail -- it
+  # sits "queued" until the run times out, which is what happened to both
+  # macos-x86_64 jobs in run 35374536810 and why that run never completed or
+  # served a log. `macos-15-intel` is the last x86_64 macOS image and is
+  # available until August 2027; after that this target goes.
   executable:
     name: executable ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
@@ -113,7 +119,7 @@ jobs:
         include:
           - { os: ubuntu-latest,   target: linux-x86_64,   archive: tar }
           - { os: macos-14,        target: macos-arm64,    archive: tar }
-          - { os: macos-13,        target: macos-x86_64,   archive: tar }
+          - { os: macos-15-intel,  target: macos-x86_64,   archive: tar }
           - { os: windows-latest,  target: windows-x86_64, archive: zip }
     steps:
       - uses: actions/checkout@v4
@@ -195,10 +201,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest,  target: linux-x86_64,   args: "--manylinux auto" }
-          - { os: macos-14,       target: macos-arm64,    args: "" }
-          - { os: macos-13,       target: macos-x86_64,   args: "" }
-          - { os: windows-latest, target: windows-x86_64, args: "" }
+          - { os: ubuntu-latest,  target: linux-x86_64,   manylinux: "auto" }
+          - { os: macos-14,       target: macos-arm64,    manylinux: "" }
+          - { os: macos-15-intel, target: macos-x86_64,   manylinux: "" }
+          - { os: windows-latest, target: windows-x86_64, manylinux: "" }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -208,20 +214,34 @@ jobs:
       - uses: PyO3/maturin-action@v1
         with:
           command: build
-          args: --release --out dist ${{ matrix.args }}
+          args: --release --out dist
           sccache: "true"
-          # The manylinux container is a bare CentOS-alike: wgpu and winit
-          # need their headers there just as the host build does.
-          before-script-linux: |
-            if command -v yum >/dev/null; then
-              yum install -y libX11-devel libXcursor-devel libXrandr-devel \
-                libXi-devel libxkbcommon-devel wayland-devel mesa-libGL-devel \
-                vulkan-headers
-            else
-              apt-get update && apt-get install --no-install-recommends -y \
-                libx11-dev libxcursor-dev libxrandr-dev libxi-dev \
-                libxkbcommon-dev libwayland-dev libgl1-mesa-dev libvulkan-dev
-            fi
+          # `manylinux` is the *action's* input, not maturin's flag, and the
+          # difference is the whole of the `wheel linux-x86_64` failure in run
+          # 35374536810. Passing `--manylinux auto` through `args` reaches
+          # maturin but tells the action nothing, so it never starts a
+          # container: the build ran natively on ubuntu-24.04 and
+          # `before-script-linux` ran on the host as an unprivileged user,
+          # where `apt-get` cannot take its lock --
+          #
+          #     E: Could not open lock file /var/lib/apt/lists/lock (13: Permission denied)
+          #
+          # As the action's input it selects the manylinux image and runs the
+          # build inside it, which is also what makes the wheel's tag a
+          # manylinux one rather than a bare `linux_x86_64` that PyPI refuses.
+          manylinux: ${{ matrix.manylinux }}
+
+          # There is deliberately no `before-script-linux`. Every Linux system
+          # library this project touches is loaded at *runtime*, not linked at
+          # build time: `x11-dl` dlopens libX11, `wayland-sys` dlopens
+          # libwayland through winit's default `wayland-dlopen`, and `ash`
+          # dlopens libvulkan. So the container needs no -devel packages, and
+          # installing them was solving a problem the build does not have --
+          # while adding one, since a CentOS-7-based image has dead yum
+          # mirrors unless its vault repos are pinned.
+          #
+          # If a header does turn out to be needed, maturin will name it,
+          # which is a better failure than apt dying before maturin runs.
 
       - uses: actions/upload-artifact@v4
         with:
