@@ -2468,3 +2468,38 @@ package` fails today: `kalast_macros = "0.1"` cannot resolve, because the only
 against the tag, the `kalast_macros` requirement against the version being
 published, both registries for a collision, and a warning when the tag is
 lower than the registry's maximum.
+
+## 18 September — the Windows wheel, and the shadow proxy priced
+
+Pulled the v0.5.0 release work and picked up its handoff.
+`notes/2026-09-18_HANDOFF_windows_wheel_and_shadow_proxy.md`.
+
+**One of the three release failures is fixed.** `wheel windows-x86_64`
+reproduced on this machine: `maturin build` needs a Python interpreter on
+Windows to derive an import library, unless pyo3's `generate-import-lib` is
+on. `maturin develop` always has one — the active venv — so the daily loop
+never exercises it and the gap surfaced at a tag. Feature added, wheel builds.
+
+crates.io is **not** a version mismatch — both manifests are 0.5.0, the
+dependency is `version = "0.5"`, crates.io has 0.4.1 — so it is the missing
+`CARGO_REGISTRY_TOKEN`, which is account setup. The Linux wheel is **not
+diagnosed**: `gh` is unauthenticated here and editing CI on a hypothesis is
+how one red job becomes three.
+
+**The shadow proxy is worth 1.56x and is not free.** 1062 → 1656 it/s on the
+Didymos pair rendered at 100k with a 10k `shadow_path`. But `API.md` claimed
+it buys that "without touching per-facet science data", and it does: the
+shadow map decides which fragments are lit and `facet_shadow` reads that same
+map, so a body is depth-tested against a coarser version of itself. 2.90 % of
+facets differ, 0.69 % flip by half or more, and the shadowed fraction goes
+0.4651 → 0.4715 — a 1.4 % relative **bias**, which does not average out over a
+rotation. In the image it is self-shadow acne on the limb, not a displaced
+mutual shadow. Good for interactive work, bad for the TPM; `API.md` says so
+now.
+
+The fix that keeps both: a proxy for *other* bodies only, full mesh in each
+body's own layer. The array is already per-body, so the layers exist. Next.
+
+Nearly shipped as an unqualified win — the rate alone said 1.56x and "faster"
+was the whole of what was asked. One exported frame each way changed the
+recommendation.
