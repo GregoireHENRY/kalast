@@ -1,6 +1,6 @@
 [package]
 name = "kalast"
-version = "0.1.0"
+version = "0.5.0"
 description = "TPM for binary asteroids"
 authors = ["Grégoire Henry <gregoireh@pm.me>"]
 repository = "https://github.com/GregoireHENRY/kalast"
@@ -58,7 +58,7 @@ use_f64 = ["tobj/use_f64"]
 python = ["dep:pyo3", "dep:numpy", "pyo3/auto-initialize"]
 
 [dependencies]
-kalast_macros = { path = "macros", version = "0.1" }
+kalast_macros = { path = "macros", version = "0.5" }
 
 # Generic
 zerocopy = "0.8.47"

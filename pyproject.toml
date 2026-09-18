@@ -1,6 +1,6 @@
 [project]
 name = "kalast"
-version = "0.1.0"
+version = "0.5.0"
 description = "TPM for binary asteroids"
 readme = "README.rst"
 requires-python = ">=3.14.3,<3.15"

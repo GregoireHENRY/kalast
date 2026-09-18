@@ -92,8 +92,11 @@ jobs:
           #    `cargo add kalast` and `pip install kalast` would go on
           #    resolving to the older, higher one, so the release would be
           #    invisible to everyone who did not read the tag.
+          # `grep -o`, not sed: the payload is one line with no trailing
+          # newline and the sed form silently produced nothing, which made
+          # this warning unreachable.
           latest=$(curl -sf -H "$ua" https://crates.io/api/v1/crates/kalast \
-            | sed -n 's/.*"max_version":"\([^"]*\)".*/\1/p' | head -1)
+            | grep -o '"max_version":"[^"]*"' | head -1 | cut -d'"' -f4)
           if [ -n "${latest:-}" ] && [ "$(printf '%s\n%s\n' "$latest" "$tag" | sort -V | tail -1)" != "$tag" ]; then
             echo "::warning::crates.io already publishes kalast $latest;" \
                  "$tag is lower, so installers will keep resolving to $latest"
