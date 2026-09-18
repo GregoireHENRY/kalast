@@ -28,3 +28,4 @@ target/kalast-hosted/
 
 # Modules moved aside by tools/develop.py because Windows had them mapped.
 kalast/_rs.pyd.old-*
+*.kmesh

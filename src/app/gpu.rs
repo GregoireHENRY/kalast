@@ -378,19 +378,37 @@ pub struct AttribVertex {
 const UPLOAD_CHUNK: usize = 1 << 18;
 
 /// Fill `buffer` with `n` elements produced a slice at a time.
-fn upload_chunked<T: bytemuck::Pod>(
+///
+/// The slices of one batch are produced on all cores at once and then
+/// written in order; the batch is one slice per core, so the transient stays
+/// bounded (23 MB a slice) while the conversion -- which was a third of the
+/// frame that uploads a 3M-facet mesh -- runs in parallel. The copies
+/// themselves are memory-bound and stay sequential.
+fn upload_chunked<T: bytemuck::Pod + Send>(
     queue: &wgpu::Queue,
     buffer: &wgpu::Buffer,
     n: usize,
-    make: impl Fn(std::ops::Range<usize>) -> Vec<T>,
+    make: impl Fn(std::ops::Range<usize>) -> Vec<T> + Sync,
 ) {
     let stride = std::mem::size_of::<T>() as u64;
-    let mut start = 0;
-    while start < n {
-        let end = (start + UPLOAD_CHUNK).min(n);
-        let slice = make(start..end);
-        queue.write_buffer(buffer, start as u64 * stride, bytemuck::cast_slice(&slice));
-        start = end;
+    let ranges: Vec<std::ops::Range<usize>> = (0..n)
+        .step_by(UPLOAD_CHUNK)
+        .map(|s| s..(s + UPLOAD_CHUNK).min(n))
+        .collect();
+    for batch in ranges.chunks(crate::mesh::load_threads()) {
+        let slices: Vec<Vec<T>> = std::thread::scope(|scope| {
+            let handles: Vec<_> = batch
+                .iter()
+                .map(|r| {
+                    let (make, r) = (&make, r.clone());
+                    scope.spawn(move || make(r))
+                })
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        for (r, slice) in batch.iter().zip(&slices) {
+            queue.write_buffer(buffer, r.start as u64 * stride, bytemuck::cast_slice(slice));
+        }
     }
 }
 

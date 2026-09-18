@@ -2389,3 +2389,14 @@ nothing kept: 1.01 → 0.20 s, ~1.5 → ~0.95 GB per mesh. Anything else in the
 format falls back to tobj unchanged. The smooth path followed the same
 day, in tobj's vertex order so the bits agree: 0.94 → 0.17 s. `is_flat()` had been inferred from the kept copy and is an explicit
 flag now. Note: `2026-09-18_memory_meshes_and_shadow_maps.md`.
+
+## 2026-09-18 — under 100 ms from the sidecar cache
+
+The parsed, canonical positions and triangles are written beside the OBJ as
+`<file>.kmesh` (55 MB against 163 MB of text), keyed on size and mtime, read
+straight into the destination arrays; the flat build lost its pre-fill
+(`MaybeUninit`). A 3M-facet model: 211 ms cold, **75–95 ms** cached, smooth
+72–100. `KALAST_TIMING=1` prints the phases. The frame that uploads the mesh
+is the floor now, 260–320 ms of moving 830 MB of fat vertices, and going
+below it means changing the vertex format or expanding on the GPU -- laid
+out as options in `2026-09-18_memory_meshes_and_shadow_maps.md`.

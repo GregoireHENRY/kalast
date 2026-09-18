@@ -364,10 +364,8 @@ impl Mesh {
         F: Fn(Vec3) -> Vec3,
     {
         let path = path.as_ref();
-        let parsed = std::fs::read(path)
-            .ok()
-            .and_then(|bytes| parse_plain_obj(&bytes));
-        let Some((mut positions, tris)) = parsed else {
+        let mut timer = LoadTimer::start();
+        let Some((mut positions, tris)) = plain_mesh(path, &mut timer) else {
             let mut mesh = Self::load_via_tobj(path, update_pos);
             mesh.flatten();
             mesh._vertices_before_flatten = Vec::new();
@@ -384,8 +382,11 @@ impl Mesh {
         );
         let (vertices, facets) = build_flat(&positions, &tris);
         drop(positions);
+        timer.phase("build");
+        let indices = (0..vertices.len() as u32).collect();
+        timer.phase("indices");
         Mesh {
-            indices: (0..vertices.len() as u32).collect(),
+            indices,
             vertices,
             facets,
             material_id: None,
@@ -413,10 +414,8 @@ impl Mesh {
         F: Fn(Vec3) -> Vec3,
     {
         let path = path.as_ref();
-        let parsed = std::fs::read(path)
-            .ok()
-            .and_then(|bytes| parse_plain_obj(&bytes));
-        let Some((mut positions, tris)) = parsed else {
+        let mut timer = LoadTimer::start();
+        let Some((mut positions, tris)) = plain_mesh(path, &mut timer) else {
             return Self::load_via_tobj(path, update_pos);
         };
         println!("loading model: {:?}", path);
@@ -425,7 +424,9 @@ impl Mesh {
         }
         let (vertices, indices, facets) = build_smooth(&positions, &tris);
         drop(positions);
+        timer.phase("build");
         let bounds = Aabb::from_vertices(&vertices);
+        timer.phase("bounds");
         Mesh {
             vertices,
             indices,
@@ -1647,8 +1648,48 @@ mod tests {
     }
 }
 
+/// Phase times of a load, printed on drop when `KALAST_TIMING` is set --
+/// `[LOAD] read 31 ms | parse 92 ms | build 61 ms` -- because a load that
+/// feels slow is one of four things and guessing which has been wrong twice.
+struct LoadTimer {
+    on: bool,
+    last: std::time::Instant,
+    phases: Vec<(&'static str, std::time::Duration)>,
+}
+
+impl LoadTimer {
+    fn start() -> Self {
+        Self {
+            on: std::env::var_os("KALAST_TIMING").is_some(),
+            last: std::time::Instant::now(),
+            phases: Vec::new(),
+        }
+    }
+    fn phase(&mut self, name: &'static str) {
+        if self.on {
+            let now = std::time::Instant::now();
+            self.phases.push((name, now - self.last));
+            self.last = now;
+        }
+    }
+}
+
+impl Drop for LoadTimer {
+    fn drop(&mut self) {
+        if self.on && !self.phases.is_empty() {
+            let total: std::time::Duration = self.phases.iter().map(|p| p.1).sum();
+            let parts: Vec<String> = self
+                .phases
+                .iter()
+                .map(|(n, d)| format!("{n} {:.0} ms", d.as_secs_f64() * 1e3))
+                .collect();
+            eprintln!("[LOAD] {} | total {:.0} ms", parts.join(" | "), total.as_secs_f64() * 1e3);
+        }
+    }
+}
+
 /// Threads for the parallel parts of a load: the machine's, capped.
-fn load_threads() -> usize {
+pub(crate) fn load_threads() -> usize {
     std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(1)
@@ -1765,29 +1806,179 @@ fn parse_plain_chunk(chunk: &[u8]) -> Option<(Vec<Vec3>, Vec<[u32; 3]>, usize)> 
     Some((positions, tris, groups))
 }
 
+/// The parsed file in tobj's order -- vertices numbered by first appearance
+/// in the faces, unreferenced ones dropped -- which is what both builds take
+/// and what the sidecar cache stores.
+fn canonicalise(positions: &[Vec3], tris: &[[u32; 3]]) -> (Vec<Vec3>, Vec<[u32; 3]>) {
+    let mut remap = vec![u32::MAX; positions.len()];
+    let mut out_pos = Vec::new();
+    let mut out_tris = Vec::with_capacity(tris.len());
+    for t in tris {
+        let mut n = [0u32; 3];
+        for (k, &old) in t.iter().enumerate() {
+            let slot = &mut remap[old as usize];
+            if *slot == u32::MAX {
+                *slot = out_pos.len() as u32;
+                out_pos.push(positions[old as usize]);
+            }
+            n[k] = *slot;
+        }
+        out_tris.push(n);
+    }
+    (out_pos, out_tris)
+}
+
+/// Positions and triangles of a plain OBJ, canonical, from the sidecar cache
+/// when it is current and from the file otherwise -- in which case the
+/// cache is written for next time. `None` hands over to tobj.
+///
+/// The cache is `<file>.kmesh` beside the OBJ: 57 MB for a 3M-facet model
+/// against 163 MB of text, and 15 ms to read against 100 ms to parse. It is
+/// keyed on the OBJ's size and modification time, so an edited or replaced
+/// model is re-parsed and the cache rewritten; a cache that cannot be
+/// written -- a read-only directory -- is simply not written.
+/// `KALAST_MESH_CACHE=0` turns it off, and `KALAST_TIMING=1` shows which
+/// way a load went.
+fn plain_mesh(path: &std::path::Path, timer: &mut LoadTimer) -> Option<(Vec<Vec3>, Vec<[u32; 3]>)> {
+    let use_cache = std::env::var_os("KALAST_MESH_CACHE").map_or(true, |v| v != "0");
+    let stamp = std::fs::metadata(path).ok().map(|m| CacheStamp::of(&m));
+    if use_cache {
+        if let Some(found) = stamp.as_ref().and_then(|st| read_cache(path, st)) {
+            timer.phase("cache");
+            return Some(found);
+        }
+    }
+    let bytes = std::fs::read(path).ok()?;
+    timer.phase("read");
+    let (positions, tris) = parse_plain_obj(&bytes)?;
+    drop(bytes);
+    timer.phase("parse");
+    let (positions, tris) = canonicalise(&positions, &tris);
+    timer.phase("canonicalise");
+    if use_cache {
+        if let Some(st) = stamp {
+            write_cache(path, &st, &positions, &tris);
+            timer.phase("write cache");
+        }
+    }
+    Some((positions, tris))
+}
+
+/// What the cache is keyed on: the OBJ as it was when the cache was written.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct CacheStamp {
+    len: u64,
+    mtime_secs: u64,
+    mtime_nanos: u32,
+}
+
+impl CacheStamp {
+    fn of(meta: &std::fs::Metadata) -> Self {
+        let mtime = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .unwrap_or_default();
+        Self {
+            len: meta.len(),
+            mtime_secs: mtime.as_secs(),
+            mtime_nanos: mtime.subsec_nanos(),
+        }
+    }
+}
+
+const CACHE_MAGIC: &[u8; 8] = b"KMESH\0\0\0";
+const CACHE_VERSION: u32 = 1;
+/// Magic, version, float width, then the stamp and the two counts.
+const CACHE_HEADER: usize = 8 + 4 + 4 + 8 + 8 + 4 + 8 + 8;
+
+fn cache_path(path: &std::path::Path) -> std::path::PathBuf {
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(".kmesh");
+    path.with_file_name(name)
+}
+
+fn read_cache(path: &std::path::Path, stamp: &CacheStamp) -> Option<(Vec<Vec3>, Vec<[u32; 3]>)> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(cache_path(path)).ok()?;
+    let mut head = [0u8; CACHE_HEADER];
+    file.read_exact(&mut head).ok()?;
+    if &head[..8] != CACHE_MAGIC {
+        return None;
+    }
+    let u32_at = |at: usize| u32::from_le_bytes(head[at..at + 4].try_into().unwrap());
+    let u64_at = |at: usize| u64::from_le_bytes(head[at..at + 8].try_into().unwrap());
+    if u32_at(8) != CACHE_VERSION || u32_at(12) != std::mem::size_of::<Float>() as u32 {
+        return None;
+    }
+    let written = CacheStamp {
+        len: u64_at(16),
+        mtime_secs: u64_at(24),
+        mtime_nanos: u32_at(32),
+    };
+    if written != *stamp {
+        return None;
+    }
+    let (n_v, n_f) = (u64_at(36) as usize, u64_at(44) as usize);
+    let expected = CACHE_HEADER as u64
+        + (n_v * std::mem::size_of::<Vec3>()) as u64
+        + (n_f * std::mem::size_of::<[u32; 3]>()) as u64;
+    if file.metadata().ok()?.len() != expected {
+        return None;
+    }
+    // Read straight into the arrays -- one copy, no 57 MB byte buffer in
+    // between, which was half the read time.
+    let mut positions = vec![Vec3::ZERO; n_v];
+    let mut tris = vec![[0u32; 3]; n_f];
+    file.read_exact(bytemuck::cast_slice_mut::<Vec3, u8>(&mut positions)).ok()?;
+    file.read_exact(bytemuck::cast_slice_mut::<[u32; 3], u8>(&mut tris)).ok()?;
+    if tris.iter().any(|t| t.iter().any(|&i| i as usize >= n_v)) {
+        return None;
+    }
+    Some((positions, tris))
+}
+
+fn write_cache(path: &std::path::Path, stamp: &CacheStamp, positions: &[Vec3], tris: &[[u32; 3]]) {
+    let mut out = Vec::with_capacity(
+        CACHE_HEADER + std::mem::size_of_val(positions) + std::mem::size_of_val(tris),
+    );
+    out.extend_from_slice(CACHE_MAGIC);
+    out.extend_from_slice(&CACHE_VERSION.to_le_bytes());
+    out.extend_from_slice(&(std::mem::size_of::<Float>() as u32).to_le_bytes());
+    out.extend_from_slice(&stamp.len.to_le_bytes());
+    out.extend_from_slice(&stamp.mtime_secs.to_le_bytes());
+    out.extend_from_slice(&stamp.mtime_nanos.to_le_bytes());
+    out.extend_from_slice(&(positions.len() as u64).to_le_bytes());
+    out.extend_from_slice(&(tris.len() as u64).to_le_bytes());
+    debug_assert_eq!(out.len(), CACHE_HEADER);
+    out.extend_from_slice(bytemuck::cast_slice(positions));
+    out.extend_from_slice(bytemuck::cast_slice(tris));
+    // Written beside, then renamed into place: a reader never sees half a
+    // file, and a second process writing the same cache loses nothing.
+    let target = cache_path(path);
+    let tmp = target.with_extension(format!("kmesh.{}.tmp", std::process::id()));
+    if std::fs::write(&tmp, &out).is_ok() && std::fs::rename(&tmp, &target).is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+}
+
 /// The shared mesh of `tris` over `positions`, in tobj's order: vertices
 /// numbered by first appearance in the faces, unreferenced ones dropped,
 /// facets as `compute_facets` computes them, and a normal per vertex summed
 /// from its facets in facet order and normalised -- the arithmetic of
 /// `smoothen`, in its order, so the bits agree.
 fn build_smooth(positions: &[Vec3], tris: &[[u32; 3]]) -> (Vec<Vertex>, Vec<u32>, Vec<Facet>) {
-    let mut remap = vec![u32::MAX; positions.len()];
-    let mut vertices: Vec<Vertex> = Vec::new();
-    let mut indices = Vec::with_capacity(3 * tris.len());
-    for t in tris {
-        for &old in t {
-            let slot = &mut remap[old as usize];
-            if *slot == u32::MAX {
-                *slot = vertices.len() as u32;
-                vertices.push(Vertex {
-                    pos: positions[old as usize],
-                    ..Vertex::default()
-                });
-            }
-            indices.push(*slot);
-        }
-    }
-    drop(remap);
+    // `positions` and `tris` are canonical -- see `canonicalise` -- so the
+    // vertices are the positions as they come and the indices the triangles
+    // flattened.
+    let mut vertices: Vec<Vertex> = positions
+        .iter()
+        .map(|&pos| Vertex {
+            pos,
+            ..Vertex::default()
+        })
+        .collect();
+    let indices: Vec<u32> = tris.iter().flatten().copied().collect();
 
     // Facets in parallel: each reads the shared vertices, writes its own.
     let n = indices.len() / 3;
@@ -1832,8 +2023,17 @@ fn build_smooth(positions: &[Vec3], tris: &[[u32; 3]]) -> (Vec<Vertex>, Vec<u32>
 /// the same pass, exactly as `compute_facets` does.
 fn build_flat(positions: &[Vec3], tris: &[[u32; 3]]) -> (Vec<Vertex>, Vec<Facet>) {
     let n = tris.len();
-    let mut vertices = vec![Vertex::default(); 3 * n];
-    let mut facets = vec![Facet::default(); n];
+    // Uninitialised, not `vec![default; n]`: the fill wrote the 684 MB of a
+    // 3M-facet model once before the threads wrote it again, and was a third
+    // of the build. Every element is written below: the chunks partition
+    // both vectors exactly, in step with the triangles.
+    let mut vertices: Vec<std::mem::MaybeUninit<Vertex>> = Vec::with_capacity(3 * n);
+    let mut facets: Vec<std::mem::MaybeUninit<Facet>> = Vec::with_capacity(n);
+    // SAFETY: `MaybeUninit` needs no initialisation; the capacity is there.
+    unsafe {
+        vertices.set_len(3 * n);
+        facets.set_len(n);
+    }
     let step = n.div_ceil(load_threads()).max(1);
     std::thread::scope(|scope| {
         for ((vs, fs), ts) in vertices
@@ -1849,23 +2049,38 @@ fn build_flat(positions: &[Vec3], tris: &[[u32; 3]]) -> (Vec<Vertex>, Vec<Facet>
                     let ab = b - a;
                     let ac = c - a;
                     let normal = normal_facet(&ab, &ac);
-                    *f = Facet {
+                    f.write(Facet {
                         pos: (a + b + c) / 3.0,
                         normal,
                         area: area_facet(&ab, &ac),
-                    };
+                    });
                     for (slot, pos) in v.iter_mut().zip([a, b, c]) {
-                        *slot = Vertex {
+                        slot.write(Vertex {
                             pos,
                             normal,
                             ..Vertex::default()
-                        };
+                        });
                     }
                 }
             });
         }
     });
+    // SAFETY: every element was written above -- `3 * step` vertices and
+    // `step` facets per chunk of `step` triangles, over all `n` triangles.
+    let vertices = unsafe { assume_init_vec(vertices) };
+    let facets = unsafe { assume_init_vec(facets) };
     (vertices, facets)
+}
+
+/// `Vec<MaybeUninit<T>>` to `Vec<T>` once every element is written.
+///
+/// # Safety
+/// Every element must have been initialised.
+unsafe fn assume_init_vec<T>(v: Vec<std::mem::MaybeUninit<T>>) -> Vec<T> {
+    let mut v = std::mem::ManuallyDrop::new(v);
+    // SAFETY: `MaybeUninit<T>` has the layout of `T`, and the caller vouches
+    // for the contents; the allocation is handed over, not duplicated.
+    unsafe { Vec::from_raw_parts(v.as_mut_ptr() as *mut T, v.len(), v.capacity()) }
 }
 
 #[cfg(test)]
@@ -1941,6 +2156,46 @@ mod load_flat_tests {
         ] {
             assert!(parse_plain_obj(text).is_none(), "{:?}", std::str::from_utf8(text));
         }
+    }
+
+    /// The sidecar cache gives the same mesh back, is dropped when the OBJ
+    /// changes underneath it, and is dropped when it is damaged.
+    #[test]
+    fn sidecar_cache_round_trips_and_notices_a_changed_file() {
+        let dir = std::env::temp_dir().join(format!("kalast_kmesh_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let obj = dir.join("cube.obj");
+        std::fs::copy("res/cube.obj", &obj).unwrap();
+        let cache = cache_path(&obj);
+        let reference = Mesh::load_via_tobj(&obj, |x| x);
+
+        let first = Mesh::load(&obj, |x| x);
+        assert!(cache.exists(), "the first load writes the cache");
+        same_mesh(&first, &reference);
+        let second = Mesh::load(&obj, |x| x);
+        same_mesh(&second, &reference);
+
+        // The file changes: the cache is stale and must not be used.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let mut text = std::fs::read_to_string(&obj).unwrap();
+        text.push_str("# edited\n");
+        std::fs::write(&obj, text).unwrap();
+        let third = Mesh::load(&obj, |x| x);
+        same_mesh(&third, &reference);
+        let stamp = CacheStamp::of(&std::fs::metadata(&obj).unwrap());
+        assert!(read_cache(&obj, &stamp).is_some(), "rewritten for the edited file");
+
+        // Damaged: truncated, then wrong magic.
+        let good = std::fs::read(&cache).unwrap();
+        std::fs::write(&cache, &good[..good.len() / 2]).unwrap();
+        assert!(read_cache(&obj, &stamp).is_none(), "a truncated cache is refused");
+        same_mesh(&Mesh::load(&obj, |x| x), &reference);
+        let mut bad = good.clone();
+        bad[0] = b'X';
+        std::fs::write(&cache, &bad).unwrap();
+        assert!(read_cache(&obj, &stamp).is_none(), "a foreign file is refused");
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// A mesh loaded flat cannot go back: `smoothen` says so and leaves it flat.

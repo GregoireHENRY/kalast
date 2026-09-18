@@ -129,8 +129,55 @@ with the facets in parallel and the vertex normals summed in `smoothen`'s
 order, so it is bit-for-bit tobj's output (`load_matches_tobj_bitwise`) and
 tobj remains as `load_via_tobj`, the fallback and the reference.
 
-What is left of the load time is the float parse (4.7 M decimals) and
-building 9.4 M vertices; the remaining RSS above the mesh is the parse's
+## Under 100 ms: the sidecar cache
+
+Asked for next: a 3M-facet load in under 100 ms. `KALAST_TIMING=1` prints
+the phases (`[LOAD] read 21 ms | parse 78–129 ms | build 90 ms | indices 3
+ms`), which named the two levers.
+
+**The parse goes away.** The parsed, canonical positions and triangles --
+55 MB for this model against 163 MB of text -- are written beside the OBJ as
+`<file>.kmesh`, keyed on the OBJ's size and modification time, and read
+straight into the destination arrays (one copy; a byte buffer in between was
+half the read). An edited or replaced model is re-parsed and the cache
+rewritten; a truncated or foreign cache is refused; a directory that cannot
+be written just does not get one; `KALAST_MESH_CACHE=0` turns it off. The
+first load pays the parse plus 22 ms to write; every load after reads it in
+15 ms. `*.kmesh` is gitignored.
+
+**The build loses its pre-fill.** `vec![Vertex::default(); 9.4 M]` wrote the
+684 MB once before the threads wrote it again, a third of the build; the
+vectors are `MaybeUninit` now and written exactly once.
+
+| 3M-facet model | cold (parse, write cache) | cached |
+|---|---|---|
+| flat | 211 ms | **75–95 ms** (cache 15, build 55–75, indices 3) |
+| smooth | ~200 ms | **72–100 ms** |
+
+The build's spread is page faults: it is 684 MB of fresh memory, and it runs
+slower once the process is large and the GPU holds wired buffers (55 ms with
+an empty window, 95–120 with a 3M mesh already uploaded, once 344).
+
+**What is left is bandwidth, not code.** The frame that uploads a 3M mesh
+takes 260–320 ms after the conversion went parallel (356 before): 830 MB of
+`GeometryVertex` + `AttribVertex` -- 88 bytes a corner, three corners a
+facet, of which texture coordinates, tangent and bitangent are zero and the
+normal is the facet's repeated three times -- copied into staging, copied to
+the GPU, and faulted in. Below that floor the *format* has to change, and
+that is a design decision, not a tuning:
+
+- **Expand on the GPU.** Upload the canonical 57 MB and let a compute pass
+  write the fat vertex buffers -- upload ~40 ms, memory unchanged, the
+  vertex format untouched, one shader.
+- **A compact flat vertex.** Positions plus a facet index per corner, with
+  normal, colour, value and mode per *facet* in a storage buffer: 830 →
+  ~210 MB of VRAM per 3M mesh and a proportionally faster upload; touches the
+  shaders, the wireframe and the facet index map.
+- **A leaner CPU mesh.** Positions, triangles and facets (0.14 GB per 3M)
+  instead of 76 bytes a corner (0.68 GB), with the per-vertex Python views
+  derived; the largest change, and the one that cuts RAM fivefold.
+
+What is left of the cached load is the float-free build itself; the remaining RSS above the mesh is the parse's
 positions and triangles, freed before the flat build and reused by it. The
 first frame's upload is separate, and memory-bound.
 
