@@ -18,14 +18,10 @@ app.simulation.camera.up = [0.18536071, 0.50638384, 0.8421501]
 app.simulation.camera.dir = [0.2894826, 0.7908329, -0.53924316]
 
 app.simulation.load_mesh(
-    # path="/Users/gregoireh/data/mesh/didymos/didymos_g_9309mm_spc_obj_0000n00000_v003_decimated_3072.obj",
-    # path="/Users/gregoireh/data/mesh/didymos/didymos_g_9309mm_spc_obj_0000n00000_v003_decimated_1k.obj",
-    path="/Users/gregoireh/data/mesh/didymos/didymos_g_9309mm_spc_obj_0000n00000_v003.obj",
+    path="/Users/gregoireh/data/mesh/didymos/g_01165mm_spc_didy_v003.obj"
 )
 app.simulation.load_mesh(
-    # path="/Users/gregoireh/data/mesh/dimorphos/dimorphos_g_1940mm_spc_obj_0000n00000_v004_decimated_3072.obj",
-    # path="/Users/gregoireh/data/mesh/dimorphos/dimorphos_g_1940mm_spc_obj_0000n00000_v004_decimated_1k.obj",
-    path="/Users/gregoireh/data/mesh/dimorphos/dimorphos_g_1940mm_spc_obj_0000n00000_v004.obj",
+    path="/Users/gregoireh/data/mesh/dimorphos/g_00243mm_spc_dimo_v004.obj",
 )
 
 spice.kclear()
@@ -39,7 +35,7 @@ while app.running:
     m_didy_ej2k = spice.pxform("DIDYMOS_FIXED", "ECLIPJ2000", et)
     m_dimo_ej2k = spice.pxform("DIMORPHOS_FIXED", "ECLIPJ2000", et)
 
-    app.simulation.sun.pos = p_sun / AU_KM * 10.0
+    app.simulation.sun.pos = p_sun
     app.simulation.bodies[0].mat[:3, :3] = m_didy_ej2k
     app.simulation.bodies[1].mat[:3, 3] = p_dimo
     app.simulation.bodies[1].mat[:3, :3] = m_dimo_ej2k
