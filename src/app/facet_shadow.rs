@@ -194,9 +194,12 @@ impl FacetShadowQuery {
                     // A single-layer view: the compute shader binds a plain
                     // texture_depth_2d and cannot take the array view.
                     resource: wgpu::BindingResource::TextureView(
+                        // Past the allocation, the last layer -- never the
+                        // array view, which this binding cannot take.
                         shadow
                             .layer_views
                             .get(shadow_layer)
+                            .or(shadow.layer_views.last())
                             .unwrap_or(&shadow.view),
                     ),
                 },

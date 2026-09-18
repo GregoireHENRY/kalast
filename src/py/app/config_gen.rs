@@ -213,10 +213,11 @@ pub struct ShadowsConfig {
 impl ShadowsConfig {
     /// Side length of each square shadow map, in texels.
     ///
-    /// The array is always allocated at all 8 layers, so the cost is
-    /// `resolution^2 x 4 bytes x 8` -- 2.1 GB at the default 8192, 8.6 GB at 16384.
-    /// Dropping to 2048 is the first thing to try when VRAM is tight or interactive
-    /// frame times matter.
+    /// One layer per body (one in all with `per_body` off), each
+    /// `resolution^2 x 4 bytes`: 268 MB a layer at the default 8192, 1.07 GB at
+    /// 16384, 17 MB at 2048. Dropping to 4096 is the first thing to try when
+    /// memory is tight or interactive frame times matter. See
+    /// `notes/2026-09-18_memory_meshes_and_shadow_maps.md`.
     ///
     /// It also feeds the automatic bias, which is expressed relative to one texel,
     /// so changing it changes the shadow bias with it.

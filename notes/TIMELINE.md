@@ -2354,3 +2354,16 @@ Didymos/Dimorphos mesh paths do not resolve here** and were left alone — the
 examples now want a different source model (`9309mm` against the `01165mm` on
 disk) at different decimation levels, so substituting would silently run a
 different shape.
+
+## 2026-09-18 — the shadow array sized to the scene
+
+Out of memory on a 16 GB machine with 13 GB in use: measured, the two full
+Didymos/Dimorphos models are 5.3 GB of RAM (76 bytes a vertex in the default
+f32 build, three a facet, about as much again left behind by the OBJ parse,
+plus the GPU copy and its staging) -- but the shadow array
+was 2.1 GB before a mesh was loaded, eight layers at 8192 for every scene. It
+is allocated at the body count now and grown as bodies arrive: 10k pair at
+8192, footprint 2.39 → 0.87 GB. Fixed alongside, since the smaller array
+would have made it a crash: `facet_shadow` read body *i* from layer *i* even
+with the per-body fit off, where only layer 0 is drawn. Note:
+`2026-09-18_memory_meshes_and_shadow_maps.md`.

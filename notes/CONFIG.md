@@ -1129,9 +1129,13 @@ Side length of the square shadow map, in texels. Used **twice** at
 at `src/app/window.rs:202`, where the shader uses it to compute
 `texel_size = 1.0 / shadow_resolution` for PCF offsets.
 Accepted: any positive integer the GPU can allocate as a depth texture;
-powers of two are the sane choice. `8192` is a 256 MB-class depth target --
-lowering it to `4096` or `2048` is the first thing to try if you are tight on
-VRAM.
+powers of two are the sane choice. Each layer is `resolution^2 x 4 bytes` --
+268 MB at `8192`, 67 MB at `4096`, 17 MB at `2048` -- and the array holds
+**one layer per body** (one in all with `shadows.per_body` off), grown as
+bodies are loaded. It used to hold the cap of eight for every scene, 2.1 GB at
+`8192` before a mesh was loaded; a two-body scene now takes 0.54 GB. Lowering
+to `4096` is the first thing to try if you are tight on memory. Measured in
+`notes/2026-09-18_memory_meshes_and_shadow_maps.md`.
 
 ### `shadows.pcf: u32` — default `0` *(live)*
 Percentage-closer-filtering kernel *radius*.

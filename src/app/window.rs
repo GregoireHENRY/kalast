@@ -28,6 +28,19 @@ pub fn light_view_proj(
     proj * view
 }
 
+/// How many shadow layers a scene uses: one per body up to the cap, or one
+/// in all when the per-body fit is off. What the array is allocated at --
+/// `resolution^2 x 4 bytes` a layer, 268 MB at 8192, so allocating the cap of
+/// eight for every scene cost 2.1 GB before a single mesh was loaded.
+pub fn shadow_layers_wanted(config: &crate::app::config::Config, bodies: usize) -> u32 {
+    let n = if config.shadows.per_body {
+        bodies.min(super::uniform::MAX_SHADOW_LAYERS)
+    } else {
+        1
+    };
+    n.max(1) as u32
+}
+
 /// Light matrix for one body's shadow layer.
 ///
 /// Aimed at that body and sized to it, which is the whole point: one map
@@ -893,13 +906,14 @@ impl Window {
         let view = super::gpu::UniformBuffer::new(&device, super::uniform::View { camera, light });
 
         // One layer per body, so each gets a shadow map aimed at it and sized
-        // to it. Allocated at the cap rather than at the body count, because
-        // bodies can be loaded after the window exists.
+        // to it. Allocated at the body count and grown as bodies arrive, not
+        // at the cap: eight layers at 8192 are 2.1 GB whatever the scene, and
+        // a two-body scene uses two. See `shadow_layers_wanted`.
         let shadow = super::gpu::Texture::create_depth_texture_shadow_pass(
             &device,
             config.shadows.resolution,
             config.shadows.resolution,
-            super::uniform::MAX_SHADOW_LAYERS as u32,
+            shadow_layers_wanted(config, simulation.bodies.len()),
         );
 
         let colormap = super::gpu::UniformBuffer::new(
@@ -1005,22 +1019,28 @@ impl Window {
             return vec![];
         };
 
+        // The layer this body was fitted into: its own under the per-body
+        // fit, layer 0 without it -- the clamp the fragment shader applies.
+        // It used to be `body` regardless, which with the per-body fit off
+        // read body 1's occlusion from a layer nothing had rendered into;
+        // and never past the allocation, which no longer pads to the cap.
+        let layer = body
+            .min(self.uniforms.view.uniform.light.n_layers.max(1) as usize - 1)
+            .min(self.uniforms.shadow.layer_views.len().max(1) - 1);
         self.facet_shadow.as_ref().unwrap().query(
             &self.device,
             &self.queue,
             &self.uniforms.shadow,
-            body.min(super::uniform::MAX_SHADOW_LAYERS - 1),
+            layer,
             mesh,
             self.last_body_mats.get(body).copied().unwrap_or(Mat4::IDENTITY),
             // This body's own layer, not the shared scratch. Each layer is
             // fitted to its body, so querying with the wrong matrix reads a
             // map covering a different volume -- silently wrong occlusion
             // rather than an error, and it feeds the TPM.
-            self.uniforms.view.uniform.light.view_proj_layers
-                [body.min(super::uniform::MAX_SHADOW_LAYERS - 1)],
+            self.uniforms.view.uniform.light.view_proj_layers[layer],
             self.uniforms.view.uniform.light.pos,
-            self.uniforms.view.uniform.light.layer_bias
-                [body.min(super::uniform::MAX_SHADOW_LAYERS - 1)],
+            self.uniforms.view.uniform.light.layer_bias[layer],
         )
     }
 
@@ -1387,11 +1407,18 @@ impl Window {
     /// to be rebuilt with it -- hence the cost of a pipeline recompile on top
     /// of the allocation.
     pub fn set_shadow_resolution(&mut self, config: &crate::app::config::Config) {
+        let layers = self.uniforms.shadow.layer_views.len().max(1) as u32;
+        self.rebuild_shadow(config, layers);
+    }
+
+    /// Reallocate the shadow array at `config.shadows.resolution` with
+    /// `layers` layers and rebind it, which means rebuilding the passes.
+    fn rebuild_shadow(&mut self, config: &crate::app::config::Config, layers: u32) {
         self.uniforms.shadow = super::gpu::Texture::create_depth_texture_shadow_pass(
             &self.device,
             config.shadows.resolution,
             config.shadows.resolution,
-            super::uniform::MAX_SHADOW_LAYERS as u32,
+            layers,
         );
         self.rebuild_passes(config);
     }
@@ -1629,6 +1656,15 @@ impl Window {
             1
         };
         self.uniforms.view.uniform.light.n_layers = n_layers as u32;
+
+        // The array grows to the layers in use and is never shrunk: a
+        // Restart empties the scene for a frame, and shrinking then would
+        // pay the rebuild twice. The session's high-water mark is the cost,
+        // which for any one scene is its body count.
+        let wanted = shadow_layers_wanted(config, simulation.bodies.len()) as usize;
+        if wanted > self.uniforms.shadow.layer_views.len() {
+            self.rebuild_shadow(config, wanted as u32);
+        }
 
         if let Some(scene) = simulation.scene_bounds() {
             for i in 0..n_layers {
