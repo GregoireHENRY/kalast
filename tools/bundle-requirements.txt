@@ -1,0 +1,25 @@
+# What a release bundle's own interpreter needs installed, beside the kalast
+# wheel itself, for `import kalast` to succeed.
+#
+# This is *not* `pyproject.toml`'s dependency list. That list is what a
+# developer wants available -- pymeshlab for decimating a shape model,
+# astropy, pandas, symfit for analysis -- and installing all of it comes to
+# 766 MB, most of which no example imports. This is the closure actually
+# reached when `kalast/__init__.py` is executed: 374 MB, and the bundle ships
+# that.
+#
+# Re-derive it with `python tools/bundle_closure.py`, which installs the
+# wheel with --no-deps into a throwaway venv and adds whatever the import
+# error names until `import kalast` returns. Nothing has to remember to run
+# it: the release workflow imports kalast in the assembled bundle, so a
+# missing entry fails the tag rather than the download.
+#
+# scipy and pyarrow are here only because `kalast/__init__.py` eagerly
+# imports `kalast.plot`, and `plot/tool.py` and `plot/smap.py` import them at
+# module level. They are 226 of the 374 MB. Making `kalast.plot` import them
+# lazily would cut the bundle by more than half.
+numpy>=2.5
+scipy>=1.16
+matplotlib>=3.10
+pyarrow>=24
+spiceypy>=8

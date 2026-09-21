@@ -1,21 +1,30 @@
 # A tagged release: one executable per platform, the crate on crates.io, the
 # package on PyPI.
 #
-# The executable is built `--no-default-features`, which is what makes it one
-# file rather than a file plus a Python. With the `python` feature pyo3 links
-# libpython, by *absolute path* on macOS -- the binary built on the author's
-# machine names `/opt/homebrew/opt/python@3.14/.../Python` -- so it would
-# start on that machine and nowhere else, and `pyproject.toml` pins 3.14.x,
-# which few machines have. Embedding an interpreter instead would not help
-# either: the examples import numpy, spiceypy and matplotlib, so a bundled
-# interpreter would have to bring a whole site-packages with it.
+# **The bundle is plug and play: kalast IS the executable.** Downloading it
+# and running a `.py` example installs nothing, asks for no virtualenv and
+# writes nothing to the user's machine. `pip install kalast` is for people
+# who want the package, the way `cargo add` is -- not a step anyone has to
+# take to use a release.
 #
-# So: the executable opens and renders meshes on any machine with nothing
-# installed. Given a `.py` it hands it to an installed `python -m kalast` --
-# see `run_script` in `src/bin/kalast.rs` -- so `pip install kalast`, also
-# published here, makes the scripts work through the same executable. A `.rs`
-# example it cannot do from a bundle: hosting one generates a wrapper crate
-# depending on `kalast` *by path*, so it needs cargo and this source tree.
+# That takes two pieces. The executable is built `--no-default-features`, so
+# it links no libpython: with the `python` feature pyo3 links one by
+# *absolute path* on macOS, naming a directory that exists on the build
+# machine and nowhere else. And the bundle carries its own interpreter --
+# python-build-standalone, relocatable, with the wheel from this same tag
+# and `tools/bundle-requirements.txt` already installed in it. `run_script`
+# in `src/bin/kalast.rs` looks for that interpreter beside the executable
+# before it looks at `PATH`.
+#
+# Why a whole interpreter rather than embedding one: the examples import
+# numpy, spiceypy, matplotlib, and `kalast/__init__.py` reaches scipy and
+# pyarrow, so an embedded interpreter would need a site-packages beside it
+# regardless. Shipping the interpreter with the site-packages is the same
+# bytes, relocatable, and testable here before the tag goes out.
+#
+# A `.rs` example is the one thing a bundle cannot do: hosting one generates
+# a wrapper crate depending on `kalast` *by path*, so it needs cargo and this
+# source tree.
 name: release
 
 on:
@@ -32,6 +41,11 @@ env:
   CARGO_TERM_COLOR: always
   # What pyproject.toml pins: `requires-python = ">=3.14.3,<3.15"`.
   PYTHON_VERSION: "3.14"
+  # The interpreter the bundles carry. A dated release of
+  # astral-sh/python-build-standalone, pinned rather than floating: a bundle
+  # that silently changed Python between tags would be a different product.
+  PBS_RELEASE: "20260901"
+  PBS_PYTHON: "3.14.7"
 
 jobs:
   # Three places carry the version and they must agree: the wheel and the
@@ -116,14 +130,19 @@ jobs:
   executable:
     name: executable ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
+    # The bundle installs the wheel from this same tag into the interpreter it
+    # ships, so the two cannot disagree about what this version is. It also
+    # means a broken wheel now stops the executable, which is right: a bundle
+    # whose Python half is missing is not one we want to publish.
+    needs: wheels
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest,   target: linux-x86_64,   archive: tar }
-          - { os: macos-14,        target: macos-arm64,    archive: tar }
-          - { os: macos-15-intel,  target: macos-x86_64,   archive: tar }
-          - { os: windows-latest,  target: windows-x86_64, archive: zip }
+          - { os: ubuntu-latest,   target: linux-x86_64,   archive: tar, pbs: x86_64-unknown-linux-gnu }
+          - { os: macos-14,        target: macos-arm64,    archive: tar, pbs: aarch64-apple-darwin }
+          - { os: macos-15-intel,  target: macos-x86_64,   archive: tar, pbs: x86_64-apple-darwin }
+          - { os: windows-latest,  target: windows-x86_64, archive: zip, pbs: x86_64-pc-windows-msvc }
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -179,6 +198,61 @@ jobs:
           # The README here is reStructuredText, not Markdown.
           cp README.rst pyproject.toml "dist/$name/"
           echo "name=$name" >> "$GITHUB_ENV"
+
+      # The wheel built by this run, for this platform, rather than whatever
+      # PyPI happens to hold: on a first tag PyPI does not have it yet, and
+      # on a re-run it would pin the bundle to an older build.
+      - uses: actions/download-artifact@v4
+        with:
+          name: pypi-wheel-${{ matrix.target }}
+          path: wheel
+
+      - name: Put an interpreter in the bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="cpython-${PBS_PYTHON}+${PBS_RELEASE}-${{ matrix.pbs }}-install_only_stripped.tar.gz"
+          curl -sSfL -o python.tar.gz \
+            "https://github.com/astral-sh/python-build-standalone/releases/download/${PBS_RELEASE}/${base}"
+          # Unpacks as `python/`, which is where `python_beside` looks.
+          tar -xzf python.tar.gz -C "dist/${{ env.name }}"
+
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            py="dist/${{ env.name }}/python/python.exe"
+          else
+            py="dist/${{ env.name }}/python/bin/python3"
+          fi
+          "$py" -V
+
+          # The requirements first, the wheel last and with --no-deps: what
+          # `pyproject.toml` declares is what a *developer* wants available
+          # (pymeshlab, astropy, pandas, symfit) and comes to 766 MB, most of
+          # which no example imports. `tools/bundle-requirements.txt` is the
+          # closure `import kalast` actually reaches. pip will say those four
+          # are missing; that is the point, and it does not fail.
+          "$py" -m pip -q install --upgrade pip
+          "$py" -m pip -q install -r tools/bundle-requirements.txt
+          "$py" -m pip -q install --no-deps wheel/*.whl
+
+          find "dist/${{ env.name }}/python" -name '__pycache__' -type d -prune -exec rm -rf {} + || true
+          find "dist/${{ env.name }}/python" -type d \( -name tests -o -name test \) -prune \
+            -exec rm -rf {} + || true
+
+      # Nothing in this workflow used to run what it published, and all three
+      # faults a user hit in v0.5.0 would have shown up here. A window cannot
+      # be opened on a runner, so this is the import -- which is exactly what
+      # failed -- and not the render.
+      - name: Import kalast from the bundle
+        shell: bash
+        working-directory: dist/${{ env.name }}
+        run: |
+          set -euo pipefail
+          if [ "${{ runner.os }}" = "Windows" ]; then py=python/python.exe; else py=python/bin/python3; fi
+          # Run from inside the bundle, never from the checkout: a clone has
+          # its own `kalast/` package whose extension is linked against the
+          # developer's libpython, and importing that one segfaults.
+          "$py" -c "import kalast, sys; print('kalast', kalast.__version__ if hasattr(kalast, '__version__') else '', 'from', kalast.__file__)"
+          du -sm . | awk '{print "bundle unpacked: " $1 " MB"}'
 
       - name: Archive
         shell: bash
@@ -288,30 +362,36 @@ jobs:
             dist/*.zip
           generate_release_notes: true
           body: |
-            Each archive holds one executable and everything it renders:
+            **Unpack it and run it. There is nothing to install.**
+
+            ```
+            ./kalast                                   # the editor
+            ./kalast examples/two_spheres/main.py      # an example
+            ./kalast some/shape.obj                    # a mesh
+            ```
 
             | | |
             |---|---|
-            | `kalast` / `kalast.exe` | the editor. Open it on its own, or give it a `.obj` to render, or a `.py` once the package below is installed |
-            | | A `.rs` example needs cargo **and** a clone of the repository — it is compiled against kalast as a path dependency — so it is the one thing this executable cannot do |
+            | `kalast` / `kalast.exe` | the editor. Open it on its own, or give it a `.obj` or a `.py` |
+            | `python/` | the interpreter the `.py` examples run in, with kalast and its dependencies already in it. Nothing is installed on your machine and nothing is written outside this folder |
             | `res/` | the meshes and colour maps the examples load |
             | `examples/`, `notes/`, `README.rst` | to read and to run |
 
-            The executable carries no Python, which is what makes it one file
-            that starts anywhere. Hand it a `.py` and it passes it to an
-            installed `python -m kalast` — so **running the `.py` examples is
-            `pip install kalast`**, published from this same tag, after which
-            the executable runs them too:
+            Run it from inside the unpacked folder — the examples load `res/`
+            by a relative path.
 
-            ```
-            pip install kalast
-            python -m kalast examples/two_spheres/main.py
-            ```
+            **`pip install kalast` is a different way in, not a prerequisite**
+            — for putting kalast in your own environment, the way `cargo add`
+            does. This release publishes it too.
 
             `examples/two_spheres` and `examples/cube` need nothing but the
             bundled `res/`. The Hera and Didymos examples carry absolute paths
             to shape models and SPICE kernels that are not shipped here — see
             "First-time setup" in `CLAUDE.md`.
+
+            A `.rs` example is the one thing a bundle cannot run: it is
+            compiled against kalast as a path dependency, so it needs cargo
+            **and** a clone of the repository.
 
   pypi:
     name: publish to PyPI

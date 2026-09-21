@@ -2597,3 +2597,29 @@ None of this is in v0.5.0 -- the fixes are for the next tag. **The gap that
 produced all three is that the release workflow builds an executable nobody
 ever runs**, on any platform. A smoke step is hard (the runners have no
 display) but downloading the artefact and giving it a `.obj` is not.
+
+## 2026-09-21 — the bundle stopped asking for a virtualenv
+
+The answer to "so now rust and python example will work?" was no for Python,
+not really: it needed `pip install kalast` first, and being told so clearly is
+not the same as working. **Kalast is the executable**; `pip install` is a
+second way in, like `cargo add`, not a step a release should require.
+
+So the bundle carries its own interpreter -- python-build-standalone, pinned
+by date, with this tag's own wheel and `tools/bundle-requirements.txt`
+installed into it -- and `run_script` looks beside `current_exe` before it
+looks at `PATH`. Nothing is installed on the user's machine and nothing is
+written outside the folder they unpacked.
+
+Measured, not guessed: `pip install kalast` is **766 MB**, the closure
+`import kalast` actually reaches is **374 MB**, and the bundle is **380 MB**
+unpacked, **130 MB** compressed. pyarrow and scipy are 174 MB of that and are
+reached only because `kalast/__init__.py` eagerly imports `kalast.plot`;
+deferring that would roughly halve the download and is the next thing to do.
+
+Assembled and run here before committing: the executable picked the
+interpreter beside it and rendered 60 frames. **And the workflow now imports
+kalast from the bundle it just built** -- the step whose absence let all three
+v0.5.0 faults ship. Details, including a segfault that turns out to be a
+kalast clone shadowing the installed package, in
+`2026-09-21_a_bundle_that_runs_python.md`.

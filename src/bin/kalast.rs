@@ -115,16 +115,34 @@ fn run_script(app: &Rc<RefCell<kalast::app::App>>, path: &str, source: &str) {
 /// Without an interpreter, hand the script to one.
 ///
 /// The window closes and a Python-hosted editor opens with the script in it.
-/// `KALAST_PYTHON` names the interpreter when a virtualenv is not on `PATH`.
+///
+/// **A release bundle carries its own interpreter**, with kalast and the
+/// packages the examples import already installed in it, so there is nothing
+/// for the user to install and nothing written to their machine on first run
+/// -- see `python_beside`. The `python` on `PATH` is for a build that is not
+/// in a bundle, and `KALAST_PYTHON` overrides both.
 #[cfg(not(feature = "python"))]
 fn run_script(app: &Rc<RefCell<kalast::app::App>>, path: &str, _source: &str) {
     if !path.ends_with(".py") {
         return;
     }
-    let interpreters = match std::env::var("KALAST_PYTHON") {
-        Ok(p) if !p.is_empty() => vec![p],
-        _ => vec!["python".to_string(), "python3".to_string()],
-    };
+
+    let mut interpreters: Vec<String> = Vec::new();
+    match std::env::var("KALAST_PYTHON") {
+        // Named deliberately, so it is the *only* one tried. Falling back to
+        // some other interpreter would hide a typo in the variable behind a
+        // run that silently used something else.
+        Ok(p) if !p.is_empty() => interpreters.push(p),
+        _ => {
+            let bundled = std::env::current_exe()
+                .ok()
+                .and_then(|exe| exe.parent().and_then(python_beside));
+            interpreters.extend(bundled.map(|p| p.to_string_lossy().into_owned()));
+            interpreters.push("python".to_string());
+            interpreters.push("python3".to_string());
+        }
+    }
+
     let mut tried = Vec::new();
     for exe in interpreters {
         // Ask whether the package is there before handing the script over.
@@ -139,6 +157,21 @@ fn run_script(app: &Rc<RefCell<kalast::app::App>>, path: &str, _source: &str) {
             .status()
         {
             Ok(s) if s.success() => {}
+            // Killed by a signal rather than exiting: `code()` is `None`.
+            // Worth its own message because there is one realistic way to
+            // get here and it is invisible otherwise -- a clone of this
+            // repository as the working directory puts its own `kalast/` on
+            // `sys.path` ahead of the installed one, and that package's
+            // extension is linked against whichever libpython built it, so
+            // loading it into a different interpreter segfaults.
+            Ok(s) if s.code().is_none() => {
+                tried.push(format!(
+                    "{exe}: crashed importing kalast -- if the working \
+                     directory is a kalast clone, its own kalast/ is \
+                     shadowing the installed package"
+                ));
+                continue;
+            }
             Ok(_) => {
                 tried.push(format!("{exe}: found, but it has no kalast package"));
                 continue;
@@ -163,9 +196,81 @@ fn run_script(app: &Rc<RefCell<kalast::app::App>>, path: &str, _source: &str) {
     eprintln!(
         "cannot run {path}: this build has no interpreter of its own, and no \
          usable one was found to hand it to ({}).\n  \
-         Install the package -- `pip install kalast` -- into the interpreter \
-         you want used, and set KALAST_PYTHON to it if it is not the `python` \
-         on PATH.",
+         A release bundle ships one beside the executable and needs nothing \
+         installed; this is not one. Otherwise `pip install kalast` into the \
+         interpreter you want used, and set KALAST_PYTHON to it if it is not \
+         the `python` on PATH.",
         tried.join("; ")
     );
+}
+
+/// The interpreter a release bundle ships, given the directory it sits in.
+///
+/// A bundle is laid out
+///
+/// ```text
+/// kalast-v0.5.1-macos-arm64/
+///   kalast                 <- this program
+///   python/bin/python3     <- with kalast and its runtime deps installed
+///   examples/  res/  notes/
+/// ```
+///
+/// which is why this looks beside `current_exe` rather than in the working
+/// directory: a bundle is unpacked wherever the user likes and usually run
+/// through a path, not from inside it.
+///
+/// Not `#[cfg]`-gated, unlike its caller, so that the test below runs in an
+/// ordinary `cargo test` -- the default build has the `python` feature, and a
+/// guard compiled out is a guard nobody checks.
+fn python_beside(dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    let candidate = if cfg!(windows) {
+        dir.join("python").join("python.exe")
+    } else {
+        dir.join("python").join("bin").join("python3")
+    };
+    candidate.is_file().then_some(candidate)
+}
+
+#[cfg(test)]
+mod bundled_python_tests {
+    use super::python_beside;
+
+    fn tmp(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("kalast-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_bare_directory_has_no_bundled_interpreter() {
+        let dir = tmp("bare");
+        assert_eq!(python_beside(&dir), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_bundle_layout_is_found() {
+        let dir = tmp("bundle");
+        let (sub, exe) = if cfg!(windows) {
+            (dir.join("python"), "python.exe")
+        } else {
+            (dir.join("python").join("bin"), "python3")
+        };
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(sub.join(exe), b"").unwrap();
+        assert_eq!(python_beside(&dir), Some(sub.join(exe)));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A directory where the interpreter *should* be but is not -- an
+    /// interrupted unpack -- must not be reported as a bundle, or the run
+    /// fails later with a spawn error instead of falling through to `python`.
+    #[test]
+    fn an_empty_python_directory_is_not_a_bundle() {
+        let dir = tmp("empty");
+        std::fs::create_dir_all(dir.join("python").join("bin")).unwrap();
+        assert_eq!(python_beside(&dir), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
