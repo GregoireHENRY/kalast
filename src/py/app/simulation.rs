@@ -32,6 +32,12 @@ impl Simulation {
         self.inner.borrow_mut().reset();
     }
 
+    /// Point the camera and the Sun at everything loaded: Blender's default
+    /// view and light, backed off until the whole scene fits.
+    fn frame_all(&self) {
+        self.inner.borrow_mut().frame_all();
+    }
+
     #[getter]
     /// Every setting: shading, shadows, axes, colour bar, export, window.
     /// See `CONFIG.md`.

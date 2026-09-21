@@ -482,6 +482,27 @@ impl Eye {
         self.fix_up();
     }
 
+    /// Stand back from `bounds`, along `from`, far enough to see all of it.
+    ///
+    /// The bounding sphere -- centre, half-diagonal -- is placed so it fills
+    /// the vertical field, then backed off another 15 %: a sphere already
+    /// overstates most shapes, and the rest is breathing room. The anchor
+    /// moves to the centre, the eye looks at it, and `up` is levelled to
+    /// world up, so the first orbit gesture behaves. `from` is a direction,
+    /// not a position; only its bearing is used.
+    pub fn frame(&mut self, bounds: &crate::mesh::Aabb, from: Vec3) {
+        if bounds.is_empty() {
+            return;
+        }
+        let radius = bounds.radius().max(1e-6);
+        let distance = radius / (self.projection.fovy * 0.5).sin() * 1.15;
+        self.anchor = bounds.center();
+        self.anchor_body = None;
+        self.pos = self.anchor + from.normalize() * distance;
+        self.look_anchor();
+        self.level();
+    }
+
     pub fn set_target(&mut self, target: Vec3) {
         self.anchor = target;
         self.dir = (self.anchor - self.pos).normalize();
@@ -1687,5 +1708,42 @@ mod tests {
 
         ctrl.middle_pressed = true;
         assert!(ctrl.is_dragging(), "middle button must still work");
+    }
+}
+
+#[cfg(test)]
+mod frame_tests {
+    use super::*;
+
+    fn unit_box() -> crate::mesh::Aabb {
+        crate::mesh::Aabb::from_positions(&[Vec3::splat(-1.0), Vec3::splat(1.0)])
+    }
+
+    #[test]
+    fn the_whole_box_is_inside_the_field_of_view() {
+        let mut eye = Eye::new();
+        let bounds = unit_box();
+        eye.frame(&bounds, Vec3::new(7.36, -6.93, 4.96));
+
+        assert!((eye.anchor - bounds.center()).length() < 1e-6, "anchored on the centre");
+        let to_anchor = (eye.anchor - eye.pos).normalize();
+        assert!(eye.dir.dot(to_anchor) > 0.9999, "looking at it");
+        assert!(eye.up.dot(eye.up_world) > 0.0, "levelled, not upside down");
+
+        // Every corner within half the vertical field of the view axis: the
+        // bounding *sphere* is what was fitted, so the corners have margin.
+        let half = eye.projection.fovy * 0.5;
+        for corner in bounds.corners() {
+            let angle = eye.dir.angle_between(corner - eye.pos);
+            assert!(angle < half, "corner {corner} at {angle} rad is outside the {half} rad half-field");
+        }
+    }
+
+    #[test]
+    fn empty_bounds_leave_the_eye_alone() {
+        let mut eye = Eye::new();
+        let before = (eye.pos, eye.dir, eye.anchor);
+        eye.frame(&crate::mesh::Aabb::empty(), Vec3::X);
+        assert_eq!((eye.pos, eye.dir, eye.anchor), before);
     }
 }

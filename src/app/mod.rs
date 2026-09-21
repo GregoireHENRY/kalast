@@ -1343,6 +1343,16 @@ impl App {
                     self.simulation
                         .borrow_mut()
                         .load_mesh(path, crate::Mat4::IDENTITY, false);
+                    // A mesh alone was a black window: camera and Sun both
+                    // at the origin, inside it. Frame it the way Blender
+                    // opens a file, with the grid, the gizmo and the
+                    // wireframe that give a bare shape its scale.
+                    self.simulation.borrow_mut().frame_all();
+                    let config = self.sim_config();
+                    let mut c = config.borrow_mut();
+                    c.axes.style = crate::app::axes::AxesStyle::Blender;
+                    c.wireframe.mode = 2;
+                    c.wireframe.color = wgpu::Color { r: 0.05, g: 0.05, b: 0.05, a: 1.0 };
                 }
                 _ => eprintln!("don't know what to do with {arg}: expected .py, .rs or .obj"),
             }
@@ -2897,5 +2907,29 @@ mod editor_tests {
 
         assert!(handed_over, "the first tick must hand the script over, not draw");
         assert!(app.window.is_none(), "no window may exist before the script has run");
+    }
+
+    /// `./kalast some.obj` was a black window: the mesh loaded, and camera
+    /// and Sun both stayed at the origin, inside it. A mesh opened on its
+    /// own is framed and dressed the way Blender opens a file.
+    #[test]
+    fn a_command_line_mesh_is_framed_and_dressed() {
+        let mut app = App::new();
+        app.editor_start(&["res/ico1.obj".to_string()]);
+
+        let sim = app.simulation.borrow();
+        assert_eq!(sim.bodies.len(), 1, "the mesh loaded");
+        assert!(sim.camera.pos.length() > 1.0, "the camera backed off, got {}", sim.camera.pos);
+        assert!(sim.sun.pos.length() > 1.0, "the Sun is outside the body, got {}", sim.sun.pos);
+        assert!(
+            sim.camera.dir.dot((sim.camera.anchor - sim.camera.pos).normalize()) > 0.9999,
+            "the camera looks at it"
+        );
+        drop(sim);
+
+        let config = app.sim_config();
+        let c = config.borrow();
+        assert!(matches!(c.axes.style, crate::app::axes::AxesStyle::Blender), "Blender axes");
+        assert_eq!(c.wireframe.mode, 2, "wireframe on");
     }
 }

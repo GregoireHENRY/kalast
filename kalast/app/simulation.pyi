@@ -22,6 +22,11 @@ class Simulation:
         way through *and* what the panel edits by hand.
         """
         ...
+    def frame_all(self) -> None:
+        """Point the camera and the Sun at everything loaded: Blender's default
+        view and light, backed off until the whole scene fits.
+        """
+        ...
     config: Config
     """Every setting: shading, shadows, axes, colour bar, export, window.
     See `CONFIG.md`.

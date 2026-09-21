@@ -159,6 +159,36 @@ impl Simulation {
     /// vertices, which is what per-facet data, the wireframe overlay and the
     /// facet index map need. `smooth` keeps the file's shared vertices
     /// instead, for a smooth-shaded surface.
+    /// Point the camera and the Sun at everything loaded.
+    ///
+    /// What a mesh opened with nothing else set needs: `./kalast some.obj`
+    /// gave a black window, camera and Sun both at the origin, inside the
+    /// body. The camera stands where Blender's default view stands, backed
+    /// off until the whole scene fits; the Sun stands where Blender's
+    /// default light stands -- high, and to the camera's right rather than
+    /// behind it, so the relief reads. Bounds are taken through each body's
+    /// transform, so a body placed by its `mat` counts where it is.
+    pub fn frame_all(&mut self) {
+        let mut all = crate::mesh::Aabb::empty();
+        for body in &self.bodies {
+            if let Some(mesh) = &body.mesh {
+                all = all.union(&mesh.borrow().bounds.transformed(&body.mat));
+            }
+        }
+        if all.is_empty() {
+            return;
+        }
+        // Blender's default camera, `(7.36, -6.93, 4.96)`, and its default
+        // light, `(4.08, 1.01, 5.90)`, both toward the origin: the view
+        // everyone who has opened Blender knows.
+        self.camera.frame(&all, crate::Vec3::new(7.36, -6.93, 4.96));
+        let radius = all.radius().max(1e-6);
+        self.sun.anchor = all.center();
+        self.sun.anchor_body = None;
+        self.sun.pos = all.center() + crate::Vec3::new(4.08, 1.01, 5.90).normalize() * radius * 10.0;
+        self.sun.look_anchor();
+    }
+
     pub fn load_mesh<P>(&mut self, path: P, mat: Mat4, smooth: bool)
     where
         P: AsRef<std::path::Path>,
@@ -1064,5 +1094,38 @@ mod selection_tests {
         assert_eq!(lat_lon(crate::Vec3::new(0.0, 1.0, 0.0)), (0.0, 90.0));
         assert_eq!(lat_lon(crate::Vec3::new(0.0, 0.0, 2.0)).0, 90.0);
         assert_eq!(lat_lon(crate::Vec3::ZERO), (0.0, 0.0));
+    }
+}
+
+#[cfg(test)]
+mod frame_all_tests {
+    use super::*;
+
+    /// Two bodies, one moved away by its matrix: the framing has to cover
+    /// where they *are*, and the Sun has to end up outside and lit-side.
+    #[test]
+    fn frames_every_body_where_its_matrix_put_it() {
+        let mut sim = Simulation::new();
+        sim.load_mesh("res/cube.obj", Mat4::IDENTITY, false);
+        sim.load_mesh("res/cube.obj", Mat4::from_translation(crate::Vec3::new(6.0, 0.0, 0.0)), false);
+        sim.frame_all();
+
+        let centre = sim.camera.anchor;
+        assert!((centre.x - 3.0).abs() < 1e-3, "anchor between the two cubes, got {centre}");
+        assert!(sim.camera.pos.length() > 3.0, "the camera backed off");
+        assert!(sim.sun.pos.length() > 3.0, "the Sun is not inside the scene");
+        assert!(
+            sim.sun.dir.dot((sim.sun.anchor - sim.sun.pos).normalize()) > 0.9999,
+            "the Sun looks at the scene"
+        );
+        assert!(sim.sun.pos.z > centre.z, "and from above, where Blender's light is");
+    }
+
+    #[test]
+    fn nothing_loaded_changes_nothing() {
+        let mut sim = Simulation::new();
+        let (pos, sun) = (sim.camera.pos, sim.sun.pos);
+        sim.frame_all();
+        assert_eq!((sim.camera.pos, sim.sun.pos), (pos, sun));
     }
 }

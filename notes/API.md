@@ -694,6 +694,21 @@ Use `set_control_none()` for a scripted render whose camera is placed from
 SPICE, so a stray drag cannot move an instrument pointing. Note `T` still
 switches out of it — see `CONTROLS.md`.
 
+### `sim.frame_all()`
+
+Point the camera and the Sun at everything loaded. The camera stands where
+Blender's default view stands, backed off until the bounding sphere of every
+body -- taken through its `mat`, so where it *is* -- fits the field of view;
+the Sun stands where Blender's default light stands, high and to the
+camera's right. Both look at the centre. This is what `./kalast some.obj`
+does after loading, and what a script wants when it has placed bodies and
+has no camera of its own in mind.
+
+```python
+app.simulation.load_mesh(path="res/ico1.obj")
+app.simulation.frame_all()
+```
+
 ### Control mode
 
 Which mouse and key bindings drive an `Eye`. `CONTROLS.md` has the bindings

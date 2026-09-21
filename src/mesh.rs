@@ -75,6 +75,16 @@ impl Aabb {
         aabb
     }
 
+    /// The box around this box's eight corners after `mat` -- a body's
+    /// bounds where the body actually is, not where its file put it.
+    pub fn transformed(&self, mat: &Mat4) -> Self {
+        if self.is_empty() {
+            return Self::empty();
+        }
+        let corners = self.corners().map(|c| mat.transform_point3(c));
+        Self::from_positions(&corners)
+    }
+
     pub fn union(&self, other: &Self) -> Self {
         if self.is_empty() {
             return *other;

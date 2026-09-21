@@ -2888,3 +2888,18 @@ build-machine paths rewritten to the user's. Proven locally against the
 source tree; against crates.io it waits for 0.5.3, since the published
 0.5.2 has no `embed` feature to ask for. Details appended to
 `2026-09-21_one_compile_not_three.md`.
+
+## 2026-09-21 — `./kalast some.obj` no longer opens on a black window
+
+Reported: opening a mesh from the command line rendered nothing. `editor_start`
+loaded it and did nothing else, so camera and Sun both sat at the origin --
+inside the body. `Simulation::frame_all()` now stands the camera where
+Blender's default view stands, backed off until the bounding sphere of every
+body (through its `mat`, so where it *is*) fits the field of view, and puts
+the Sun where Blender's default light stands, high and to the camera's
+right; both look at the centre. An `.obj` on the command line gets that plus
+the Blender axes and the wireframe, which give a bare shape its scale.
+Measured through the readback: 48 % of `ico1.obj` lit, a sphere from one
+side, where it had been 0. Exposed as `app.simulation.frame_all()`; stubs
+and `API.md` updated; the command-line path itself is pinned by a headless
+editor test.
