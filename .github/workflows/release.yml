@@ -10,9 +10,12 @@
 # either: the examples import numpy, spiceypy and matplotlib, so a bundled
 # interpreter would have to bring a whole site-packages with it.
 #
-# So: the executable opens meshes, renders, and loads `.rs` examples, on any
-# machine, with nothing installed. `.py` scripts are what `pip install kalast`
-# is for, and that is published here too.
+# So: the executable opens and renders meshes on any machine with nothing
+# installed. Given a `.py` it hands it to an installed `python -m kalast` --
+# see `run_script` in `src/bin/kalast.rs` -- so `pip install kalast`, also
+# published here, makes the scripts work through the same executable. A `.rs`
+# example it cannot do from a bundle: hosting one generates a wrapper crate
+# depending on `kalast` *by path*, so it needs cargo and this source tree.
 name: release
 
 on:
@@ -287,13 +290,15 @@ jobs:
 
             | | |
             |---|---|
-            | `kalast` / `kalast.exe` | the editor. Open it on its own, or give it a `.obj` or a `.rs` example |
+            | `kalast` / `kalast.exe` | the editor. Open it on its own, or give it a `.obj` to render, or a `.py` once the package below is installed |
             | `res/` | the meshes and colour maps the examples load |
             | `examples/`, `notes/`, `shaders/`, `README.rst` | to read, run and edit |
 
             The executable carries no Python, which is what makes it one file
-            that starts anywhere. **Running the `.py` examples is
-            `pip install kalast`** — published from this same tag:
+            that starts anywhere. Hand it a `.py` and it passes it to an
+            installed `python -m kalast` — so **running the `.py` examples is
+            `pip install kalast`**, published from this same tag, after which
+            the executable runs them too:
 
             ```
             pip install kalast
