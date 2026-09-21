@@ -2845,3 +2845,28 @@ Not done, and recorded in the note: one shared `libkalast.dylib` would save
 54 MB more and is the wrong trade, because Rust's dylib ABI is unstable and
 a user rebuilding a `.rs` uses their own rustc -- which is the whole reason
 the host/guest boundary is a C ABI with a fingerprint.
+
+## 2026-09-21 — one compile of the engine per bundle, and the wheel stopped linking libpython
+
+A release bundle compiled kalast and its ~200 dependencies three times. The
+wheel is a separate link and a separate CI job; the executable is the
+product; the hosted-example build was waste. It now shares the executable's
+target directory and finds everything built: **18 s and 3 crates, against
+1m 21s and 30**. Four things had to be identical -- target dir
+(`KALAST_HOSTED_TARGET_DIR`), the `-L` path (a stable stage name, renamed at
+the end, which also fixes the cross-run cache), the rpath (both binaries get
+both), and the **lockfile**, which the first attempt missed: the wrapper
+resolved its own and drifted to `egui 0.36.2` against the root's `0.36.1`,
+recompiling everything downstream. `write_wrapper` copies the root's now.
+
+The collapse forced a feature split -- `python` / `embed` / `ext` -- because
+the guest needs the host's exact link policy, and that closed a latent bug:
+without `extension-module` the wheel linked libpython by absolute path, and
+python-build-standalone's `python3` has its interpreter linked in
+statically, so a locally built wheel segfaulted on import inside the
+bundle. PyPI's worked only because the runner's Python happens to be one
+pyo3 does not link against. `pyproject.toml` asks for `ext` now.
+
+All measured locally on macOS arm64, no CI: bundle 291 MB unpacked, 113 MB
+compressed, every check passing. Details in
+`2026-09-21_one_compile_not_three.md`.

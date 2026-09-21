@@ -32,7 +32,7 @@ fn main() {
 
     // Before the interpreter is started, which the first `Python::attach`
     // does and cannot be undone.
-    #[cfg(feature = "python")]
+    #[cfg(feature = "embed")]
     point_at_the_bundled_interpreter();
 
     // Before anything opens a window or asks for an adapter: these modes
@@ -40,7 +40,7 @@ fn main() {
     if args.iter().any(|a| a == "--precompile") {
         std::process::exit(precompile(&args));
     }
-    #[cfg(feature = "python")]
+    #[cfg(feature = "embed")]
     if args.iter().any(|a| a == "--python-check") {
         std::process::exit(python_check());
     }
@@ -81,7 +81,7 @@ fn main() {
 /// where the linked interpreter is the developer's own and correctly
 /// configured already, it would send it looking in a directory that does
 /// not exist.
-#[cfg(feature = "python")]
+#[cfg(feature = "embed")]
 fn point_at_the_bundled_interpreter() {
     let Some(home) = kalast::app::bundled_python_dir() else {
         return;
@@ -101,7 +101,7 @@ fn point_at_the_bundled_interpreter() {
 /// can fail -- wrong prefix, a library the loader cannot find, an
 /// `abi3` mismatch -- all look like a bundle that opens fine and then does
 /// nothing when handed a script.
-#[cfg(feature = "python")]
+#[cfg(feature = "embed")]
 fn python_check() -> i32 {
     use pyo3::prelude::*;
 
@@ -190,7 +190,7 @@ fn precompile(args: &[String]) -> i32 {
 }
 
 /// Execute a `.py` against the app already on screen.
-#[cfg(feature = "python")]
+#[cfg(feature = "embed")]
 fn run_script(app: &Rc<RefCell<kalast::app::App>>, path: &str, source: &str) {
     use pyo3::prelude::*;
 
@@ -260,7 +260,7 @@ fn run_script(app: &Rc<RefCell<kalast::app::App>>, path: &str, source: &str) {
 /// for the user to install and nothing written to their machine on first run
 /// -- see `kalast::app::bundled_python_dir`. The `python` on `PATH` is for a build that is not
 /// in a bundle, and `KALAST_PYTHON` overrides both.
-#[cfg(not(feature = "python"))]
+#[cfg(not(feature = "embed"))]
 fn run_script(app: &Rc<RefCell<kalast::app::App>>, path: &str, _source: &str) {
     if !path.ends_with(".py") {
         return;

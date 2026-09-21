@@ -34,6 +34,15 @@ pub fn wrapper_dir() -> std::path::PathBuf {
 /// between `python -m kalast` and `cargo run --bin kalast` does not recompile
 /// from scratch each way.
 pub fn build_dir() -> std::path::PathBuf {
+    // The release workflow points this at the *same* target directory the
+    // executable was built in, so that cargo finds kalast and its ~200
+    // dependencies already compiled with an identical fingerprint and
+    // builds only the wrapper -- seconds instead of a second full compile
+    // of the engine. Never set in the editor a user runs; there the default
+    // below is where `is_current` and the shipped libraries agree to meet.
+    if let Some(dir) = std::env::var_os("KALAST_HOSTED_TARGET_DIR") {
+        return std::path::PathBuf::from(dir);
+    }
     let features = if cfg!(feature = "python") {
         "python"
     } else {
@@ -103,8 +112,15 @@ pub fn package_name(example: &std::path::Path) -> String {
 /// never showed up in the repository, where the host has `python` too, and
 /// would have broken every hosted build from a bundle.
 fn kalast_dependency(root: &std::path::Path) -> String {
-    let features = if cfg!(feature = "python") {
-        ", features = [\"python\"]"
+    // The host's *exact* feature, not merely `python`: `embed` and `ext`
+    // differ in how pyo3 links, and a guest has to be linked the way the
+    // process that will load it was. An `embed` guest into an `ext` host
+    // (`python -m kalast` hosting a `.rs`) would bring its own libpython
+    // into an interpreter that already has one.
+    let features = if cfg!(feature = "embed") {
+        ", features = [\"embed\"]"
+    } else if cfg!(feature = "ext") {
+        ", features = [\"ext\"]"
     } else {
         ""
     };
@@ -133,6 +149,21 @@ pub fn write_wrapper(example: &std::path::Path) -> Result<(), String> {
         .map_err(|e| format!("cannot read the working directory: {e}"))?;
 
     let dependency = kalast_dependency(&root);
+    // The wrapper is a workspace of its own, so left alone it resolves a
+    // lockfile of its own -- and a fresh resolution picks newer patch
+    // versions than the root's (egui 0.36.2 against 0.36.1, font-types
+    // 0.12.5 against 0.12.4, and on down the tree). Different versions are
+    // different crates, and every crate downstream of the difference is a
+    // second compile: thirty of them, naga and wgpu-core among them, in a
+    // build that had been given the executable's target directory precisely
+    // so it would find them already built. Same lockfile, same graph.
+    // Only from a source tree; a bundle has no root lock and nothing to
+    // share.
+    let root_lock = root.join("Cargo.lock");
+    if root.join("Cargo.toml").is_file() && root_lock.is_file() {
+        std::fs::copy(&root_lock, dir.join("Cargo.lock"))
+            .map_err(|e| format!("cannot copy {} beside the wrapper: {e}", root_lock.display()))?;
+    }
     let name = package_name(example);
     let example_path = root.join(example);
     let example = example_path.to_string_lossy().replace('\\', "/");
@@ -493,21 +524,7 @@ pub fn build_hosted(example: &std::path::Path, release: bool, busy: Arc<AtomicBo
 ///
 /// Does nothing from a clone, where the developer's own Python is
 /// configured correctly and none of this applies.
-fn configure_for_bundled_python(cmd: &mut std::process::Command) {
-    let Some(python) = crate::app::bundled_python_dir() else {
-        return;
-    };
-    let interpreter = if cfg!(windows) {
-        python.join("python.exe")
-    } else {
-        python.join("bin").join("python3")
-    };
-    cmd.env("PYO3_PYTHON", &interpreter);
-    cmd.env_remove("PYTHONHOME");
-
-    // Whatever the caller already had, in cargo's own encoding. `RUSTFLAGS`
-    // is **split on whitespace**, so it cannot carry the path below; the
-    // encoded form is separated by `\x1f` and can.
+fn configure_guest_link(cmd: &mut std::process::Command) {
     let mut flags: Vec<String> = match std::env::var("CARGO_ENCODED_RUSTFLAGS") {
         Ok(encoded) => encoded
             .split(UNIT_SEPARATOR)
@@ -520,17 +537,43 @@ fn configure_for_bundled_python(cmd: &mut std::process::Command) {
             .map(str::to_string)
             .collect(),
     };
-    flags.extend(bundled_python_rustflags(&python));
 
-    println!("  PYO3_PYTHON={}", interpreter.display());
-    println!("  rustflags: {}", flags.join(" "));
-    cmd.env(
-        "CARGO_ENCODED_RUSTFLAGS",
-        flags.join(&UNIT_SEPARATOR.to_string()),
-    );
-    // Ignored once the encoded form is set, and leaving it would only
-    // mislead anyone reading the environment of a failed build.
-    cmd.env_remove("RUSTFLAGS");
+    // An `ext` host is an interpreter that loaded us, so the guest is an
+    // extension module too: pyo3 links nothing and the symbols come from
+    // that interpreter at load time -- which macOS's linker has to be told
+    // to allow. The interpreter to configure against is the one running.
+    if cfg!(feature = "ext") {
+        if cfg!(target_os = "macos") {
+            flags.push("-C".into());
+            flags.push("link-arg=-undefined".into());
+            flags.push("-C".into());
+            flags.push("link-arg=dynamic_lookup".into());
+        }
+        if let Ok(exe) = std::env::current_exe() {
+            cmd.env("PYO3_PYTHON", exe);
+        }
+    }
+
+    if let Some(python) = crate::app::bundled_python_dir() {
+        let interpreter = if cfg!(windows) {
+            python.join("python.exe")
+        } else {
+            python.join("bin").join("python3")
+        };
+        cmd.env("PYO3_PYTHON", &interpreter);
+        cmd.env_remove("PYTHONHOME");
+        flags.extend(bundled_python_rustflags(&python));
+        println!("  PYO3_PYTHON={}", interpreter.display());
+    }
+
+    if !flags.is_empty() {
+        println!("  rustflags: {}", flags.join(" "));
+        cmd.env(
+            "CARGO_ENCODED_RUSTFLAGS",
+            flags.join(&UNIT_SEPARATOR.to_string()),
+        );
+        cmd.env_remove("RUSTFLAGS");
+    }
 }
 
 /// What cargo separates encoded rustflags with.
@@ -556,7 +599,20 @@ fn bundled_python_rustflags(python: &std::path::Path) -> Vec<String> {
             format!("native={}", python.join("libs").display()),
         ];
     }
+    // Two rpaths, and both binaries get both, on purpose. The executable
+    // needs `<origin>/python/lib`; a hosted library, four directories down
+    // in `target/kalast-hosted/python/release/`, needs the other. Giving
+    // each only its own would make their `RUSTFLAGS` differ, cargo
+    // fingerprints every crate on those, and the whole engine would compile
+    // a second time for the guest. Identical flags -- and this list is what
+    // the release workflow writes for the executable, in this order -- let
+    // the guest reuse everything but its own 30-line wrapper.
     let origin = if cfg!(target_os = "macos") {
+        "@executable_path"
+    } else {
+        "$ORIGIN"
+    };
+    let loader = if cfg!(target_os = "macos") {
         "@loader_path"
     } else {
         "$ORIGIN"
@@ -565,7 +621,9 @@ fn bundled_python_rustflags(python: &std::path::Path) -> Vec<String> {
         "-L".to_string(),
         format!("native={}", python.join("lib").display()),
         "-C".to_string(),
-        format!("link-arg=-Wl,-rpath,{origin}/../../../../python/lib"),
+        format!("link-arg=-Wl,-rpath,{origin}/python/lib"),
+        "-C".to_string(),
+        format!("link-arg=-Wl,-rpath,{loader}/../../../../python/lib"),
     ]
 }
 
@@ -597,6 +655,17 @@ mod rustflag_tests {
             back.iter().any(|a| a.contains("kalast 2/python")),
             "the space survives: {back:?}"
         );
+    }
+
+    /// Both rpaths, for both binaries: the executable's and the hosted
+    /// library's. Identical flags are what let the guest reuse the
+    /// executable's compiled dependencies instead of rebuilding them.
+    #[cfg(not(windows))]
+    #[test]
+    fn both_rpaths_are_present() {
+        let flags = bundled_python_rustflags(std::path::Path::new("/p/python")).join(" ");
+        assert!(flags.contains("/python/lib "), "the executable's: {flags}");
+        assert!(flags.contains("/../../../../python/lib"), "the library's: {flags}");
     }
 
     /// `-L` and its value are separate arguments; joined into one they would
@@ -651,7 +720,7 @@ pub fn build_hosted_blocking(
     if release {
         cmd.arg("--release");
     }
-    configure_for_bundled_python(&mut cmd);
+    configure_guest_link(&mut cmd);
     println!("$ {}", show(&cmd));
     match cmd.status() {
         Ok(s) if s.success() => Ok(dylib_path_for(&package_name(example), release)),
@@ -843,11 +912,19 @@ mod tests {
         // feature set, and the assertion has to follow it or the test only
         // passes in the default build. See `dependency_tests`.
         assert_eq!(
-            manifest.contains("features = [\"python\"]"),
-            cfg!(feature = "python"),
+            manifest.contains("features = [\"embed\"]"),
+            cfg!(feature = "embed"),
             "the host's features are passed on, or the layouts disagree"
         );
         assert!(manifest.contains("crate-type = [\"cdylib\"]"));
+
+        // And it resolves the root's dependency graph, not one of its own.
+        // Cargo.lock is gitignored here, so only when the root has one.
+        let root_lock = std::path::Path::new("Cargo.lock");
+        if root_lock.is_file() {
+            let ours = std::fs::read(wrapper_dir().join("Cargo.lock")).expect("a lockfile beside the wrapper");
+            assert_eq!(ours, std::fs::read(root_lock).unwrap(), "the wrapper's lockfile is the root's");
+        }
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -897,10 +974,11 @@ mod dependency_tests {
         let repo = std::env::current_dir().unwrap();
         for dep in [kalast_dependency(&repo), kalast_dependency(std::path::Path::new("/"))] {
             assert!(dep.contains("default-features = false"), "{dep}");
-            assert_eq!(
-                dep.contains("features = [\"python\"]"),
-                cfg!(feature = "python"),
-                "the guest gets exactly the host's feature set: {dep}"
+            assert_eq!(dep.contains("features = [\"embed\"]"), cfg!(feature = "embed"), "{dep}");
+            assert_eq!(dep.contains("features = [\"ext\"]"), cfg!(feature = "ext"), "{dep}");
+            assert!(
+                !dep.contains("features = [\"python\"]"),
+                "`python` alone says nothing about linking: {dep}"
             );
         }
     }

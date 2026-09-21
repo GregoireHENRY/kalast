@@ -36,9 +36,10 @@ dev = [
 
 [tool.maturin]
 module-name = "kalast._rs"
-# The bindings are a cargo feature, off by default, so that `cargo build`
-# produces an engine that does not link Python. Building the wheel turns it on.
-features = ["python"]
+# `ext`, not `embed`: an extension module must not link libpython -- the
+# host interpreter supplies the symbols -- and pyo3's `extension-module`
+# feature is what says so. See the feature block in Cargo.toml.
+features = ["ext"]
 
 [build-system]
 requires = ["maturin>=1.0,<2.0"]

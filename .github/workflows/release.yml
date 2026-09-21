@@ -154,11 +154,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
-          # The hosted wrapper builds kalast a second time into a target
-          # directory of its own -- deliberately, so a `python`-featured
-          # guest cannot land beside a plain one -- and without this that
-          # second build starts from nothing every run.
-          cache-directories: target/kalast-hosted
 
       # winit and wgpu link X11, Wayland and Vulkan at build time; the runner
       # image carries none of the -dev packages.
@@ -183,6 +178,13 @@ jobs:
             version="dev-${GITHUB_SHA:0:7}"
           fi
           echo "name=kalast-${version}-${{ matrix.target }}" >> "$GITHUB_ENV"
+          # Built under a name with **no version and no commit in it**, and
+          # renamed to `name` only at the end. The executable is linked with
+          # `-L native=<stage>/python/lib`, cargo fingerprints every crate on
+          # `RUSTFLAGS`, and while that path carried the commit it changed on
+          # every push: nothing was ever reused from `Swatinem/rust-cache`,
+          # all ~200 dependencies rebuilt every run, and 4 minutes became 24.
+          echo "stage=dist/kalast-${{ matrix.target }}" >> "$GITHUB_ENV"
 
       # The wheel built by this run, for this platform, rather than whatever
       # PyPI happens to hold: on a first tag PyPI does not have it yet, and
@@ -199,58 +201,54 @@ jobs:
           base="cpython-${PBS_PYTHON}+${PBS_RELEASE}-${{ matrix.pbs }}-install_only_stripped.tar.gz"
           curl -sSfL -o python.tar.gz \
             "https://github.com/astral-sh/python-build-standalone/releases/download/${PBS_RELEASE}/${base}"
-          # Into `runtime/python`, a path with **no version and no commit in
-          # it**, and only moved into the bundle once the build is done.
-          #
-          # This is not tidiness. The executable is linked with
-          # `-L native=<here>/lib`, and cargo fingerprints every crate on
-          # `RUSTFLAGS` -- so while this path was `dist/kalast-dev-<sha>-…`
-          # it changed on every push, nothing was ever reused from
-          # `Swatinem/rust-cache`, and all ~200 dependencies rebuilt every
-          # run. That is what took `executable macos-x86_64` from 4 minutes
-          # to 24.
-          rm -rf runtime && mkdir -p runtime
-          tar -xzf python.tar.gz -C runtime
+          # Unpacks as `python/`, which is where `bundled_python_dir` looks.
+          rm -rf "${{ env.stage }}" && mkdir -p "${{ env.stage }}"
+          tar -xzf python.tar.gz -C "${{ env.stage }}"
 
           if [ "${{ runner.os }}" = "Windows" ]; then
-            py="runtime/python/python.exe"
+            py="${{ env.stage }}/python/python.exe"
           else
-            py="runtime/python/bin/python3"
+            py="${{ env.stage }}/python/bin/python3"
           fi
           "$py" -V
 
           # The requirements first, the wheel last and with --no-deps: what
           # `pyproject.toml` declares is what a *developer* wants available
-          # (pymeshlab, astropy, pandas, symfit) and comes to 766 MB, most of
-          # which no example imports. `tools/bundle-requirements.txt` is the
-          # closure `import kalast` actually reaches. pip will say those four
-          # are missing; that is the point, and it does not fail.
+          # and comes to 766 MB, most of which no example imports.
+          # `tools/bundle-requirements.txt` is what `import kalast` reaches
+          # plus what the shipped examples call. pip will say the rest is
+          # missing; that is the point, and it does not fail.
           "$py" -m pip -q install --upgrade pip
           "$py" -m pip -q install -r tools/bundle-requirements.txt
           "$py" -m pip -q install --no-deps wheel/*.whl
 
-          find runtime/python -name '__pycache__' -type d -prune -exec rm -rf {} + || true
-          find runtime/python -type d \( -name tests -o -name test \) -prune \
+          find "${{ env.stage }}/python" -name '__pycache__' -type d -prune -exec rm -rf {} + || true
+          find "${{ env.stage }}/python" -type d \( -name tests -o -name test \) -prune \
             -exec rm -rf {} + || true
 
-      # **With** the `python` feature, linked against the interpreter above.
-      # That is what lets a `.py` run in the window already open. Without it
-      # the executable had no interpreter, handed the script to a second
-      # process, and closed its own window to make way for it -- which is
-      # what users saw, and is the opposite of the rule in CLAUDE.md that
-      # Rust owns the loop and calls Python for the interpreter.
+      # **With** the `embed` feature, linked against the interpreter above.
+      # That is what lets a `.py` run in the window already open; without an
+      # interpreter of its own the executable handed the script to a second
+      # process and closed its window to make way for it.
       #
       # Neither flag is optional. python-build-standalone reports its
       # `LIBDIR` as `/install/lib`, the path inside the container it was
       # built in, so pyo3 emits `-lpython3.14` against a search path that
-      # does not exist -- hence `-L native=`. And libpython's install name
-      # is `@rpath/libpython3.14.dylib`, so the rpath is what makes the
-      # result look beside itself instead of at a directory on this runner.
+      # does not exist -- hence `-L native=`. And libpython's install name is
+      # `@rpath/...`, so the rpaths are what make the result look beside
+      # itself instead of at this runner.
+      #
+      # **Two rpaths, the executable's and a hosted library's, and this
+      # exact list in this exact order.** `bundled_python_rustflags` in
+      # `src/app/cargo.rs` writes the same six arguments for a guest, and
+      # cargo fingerprints every crate on them: identical flags are what let
+      # the precompile step below find the engine already built and compile
+      # only its 30-line wrapper, instead of the whole thing a second time.
       - name: Build the kalast UI app
         shell: bash
         run: |
           set -euo pipefail
-          root="$PWD/runtime/python"
+          root="$PWD/${{ env.stage }}/python"
           case "${{ runner.os }}" in
             Windows)
               export PYO3_PYTHON="$root/python.exe"
@@ -258,11 +256,11 @@ jobs:
               ;;
             macOS)
               export PYO3_PYTHON="$root/bin/python3"
-              export RUSTFLAGS="-L native=$root/lib -C link-arg=-Wl,-rpath,@executable_path/python/lib"
+              export RUSTFLAGS="-L native=$root/lib -C link-arg=-Wl,-rpath,@executable_path/python/lib -C link-arg=-Wl,-rpath,@loader_path/../../../../python/lib"
               ;;
             *)
               export PYO3_PYTHON="$root/bin/python3"
-              export RUSTFLAGS="-L native=$root/lib -C link-arg=-Wl,-rpath,\$ORIGIN/python/lib"
+              export RUSTFLAGS="-L native=$root/lib -C link-arg=-Wl,-rpath,\$ORIGIN/python/lib -C link-arg=-Wl,-rpath,\$ORIGIN/../../../../python/lib"
               ;;
           esac
           echo "PYO3_PYTHON=$PYO3_PYTHON"
@@ -278,112 +276,111 @@ jobs:
 
       # Into the bundle before it is run at all: it finds its libpython
       # beside itself, so from `target/release` it would not start.
-      - name: Put the interpreter and the executable in the bundle
+      - name: Put the executable in the bundle
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "dist/${{ env.name }}"
-          # Moved, not copied: it is 400 MB and nothing needs it twice.
-          mv runtime/python "dist/${{ env.name }}/python"
           if [ "${{ runner.os }}" = "Windows" ]; then
-            cp target/release/kalast.exe "dist/${{ env.name }}/"
+            cp target/release/kalast.exe "${{ env.stage }}/"
             # Windows resolves a DLL by name, searching the executable's own
             # directory but not `python/`, so libpython has to sit beside it.
-            #
-            # *All* of them, not `python314.dll` alone: with `abi3-py314`
-            # pyo3 links the stable-ABI forwarder `python3.dll`, which then
-            # loads `python314.dll`, and there is a C runtime beside them
-            # too. Copying only the versioned one left an executable that
-            # did not start at all -- Git Bash reports that as exit 127,
-            # which reads like the file is missing when it is a dependency
-            # that is.
-            cp "dist/${{ env.name }}"/python/*.dll "dist/${{ env.name }}/"
-            ls "dist/${{ env.name }}"/*.dll
+            # *All* of them: with `abi3` pyo3 links the forwarder
+            # `python3.dll`, which loads `python314.dll`, and there is a C
+            # runtime beside them too. Copying only the versioned one left
+            # an executable that did not start -- Git Bash reports that as
+            # exit 127, which reads like a missing file when it is a
+            # dependency that is.
+            cp "${{ env.stage }}"/python/*.dll "${{ env.stage }}/"
+            ls "${{ env.stage }}"/*.dll
           else
-            cp target/release/kalast "dist/${{ env.name }}/"
+            cp target/release/kalast "${{ env.stage }}/"
           fi
 
       # A window cannot be opened on a runner, so this is how we find out
-      # whether the interpreter linked into the executable actually works.
-      # Worth checking on every platform: it is a relocated CPython reached
-      # through `PYTHONHOME`, and every way it can fail -- wrong prefix, a
-      # library the loader cannot find, an abi3 mismatch -- looks like a
-      # bundle that opens fine and then does nothing with a script.
+      # whether the interpreter linked into the executable actually works: a
+      # relocated CPython reached through `PYTHONHOME`, and every way it can
+      # fail looks like a bundle that opens fine and does nothing with a
+      # script. A failure to *start* prints nothing at all, hence the `ls`.
       - name: The embedded interpreter works
         shell: bash
         run: |
           set -euo pipefail
           if [ "${{ runner.os }}" = "Windows" ]; then exe=kalast.exe; else exe=kalast; fi
-          # On a failure to *start* -- a dependency the loader cannot find --
-          # there is no output at all, so say what is there before giving up.
-          "./dist/${{ env.name }}/$exe" --python-check || {
+          "./${{ env.stage }}/$exe" --python-check || {
             echo "::error::the executable did not start; its directory holds:"
-            ls -l "dist/${{ env.name }}"
+            ls -l "${{ env.stage }}"
             exit 1
           }
 
       # Built by the executable that is about to ship, not by a recipe
       # written here: `--precompile` runs the editor's own `write_wrapper`
-      # and `build_hosted_blocking`, so the libraries land in the directory
-      # `is_current` looks in, with the feature set it expects. A second
-      # recipe in YAML would drift, and the way it would show up is the
-      # editor silently recompiling everything the bundle shipped.
+      # and `build_hosted_blocking`, with the feature set the editor
+      # expects. A second recipe in YAML would drift, and the way it would
+      # show up is the editor silently recompiling everything the bundle
+      # shipped.
       #
-      # Run from the checkout, so the wrapper takes kalast as a path
-      # dependency rather than from crates.io -- which at tag time does not
-      # yet carry this version.
+      # `KALAST_HOSTED_TARGET_DIR` points the guest build at the directory
+      # the executable was just built in. Same features, same `RUSTFLAGS`,
+      # same interpreter, so cargo finds kalast and its dependencies already
+      # compiled and builds only the wrapper -- seconds, where a target
+      # directory of its own meant the whole engine a second time. (Not on
+      # Windows: the guest's `-L` path comes out of `current_exe` with
+      # backslashes and does not match the host's, so it rebuilds there.
+      # Correct, just slower.)
       #
-      # `examples/old/` is skipped. README calls those superseded and not
-      # user-facing, and five of the seven `.rs` files under `examples/`
-      # are there -- none of them compiles against the current API.
+      # The examples are touched first. With the target directory restored
+      # from cache, a library from a *previous* run can be newer than the
+      # checkout and `is_current` would keep it -- shipping a guest built
+      # from last week's engine, which the fingerprint only catches if a
+      # layout changed.
+      #
+      # `examples/old/` is skipped: superseded, and none of it compiles.
       - name: Precompile the Rust examples
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${{ runner.os }}" = "Windows" ]; then exe="$PWD/dist/${{ env.name }}/kalast.exe"
-          else exe="$PWD/dist/${{ env.name }}/kalast"; fi
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            exe="$PWD/${{ env.stage }}/kalast.exe"
+            export KALAST_HOSTED_TARGET_DIR="$(pwd -W)/target"
+          else
+            exe="$PWD/${{ env.stage }}/kalast"
+            export KALAST_HOSTED_TARGET_DIR="$PWD/target"
+          fi
+          find examples -name '*.rs' -not -path 'examples/old/*' -exec touch {} +
           find examples -name '*.rs' -not -path 'examples/old/*' -print0 \
-            | xargs -0 "$exe" --precompile
+            | xargs -0 "$exe" --precompile 2>&1 | tee hosted-build.log
+          grep '^built ' hosted-build.log | awk '{print $2}' > hosted-libs.txt
+          [ -s hosted-libs.txt ] || { echo "::error::no hosted library was built"; exit 1; }
 
       - name: Assemble the rest of the bundle
         shell: bash
         run: |
           set -euo pipefail
-          name="${{ env.name }}"
+          stage="${{ env.stage }}"
 
           # `res/` is read at runtime. `examples/` and `notes/` are to read
-          # and to run. `shaders/` is *not* shipped: every one of them is
-          # compiled into the binary by `include_wgsl!`, so a copy in the
-          # bundle can be edited all day and change nothing -- which is worse
-          # than not having it.
-          cp -r res examples notes "dist/$name/"
-          # The README here is reStructuredText, not Markdown.
-          #
-          # `pyproject.toml` is **not** shipped. It was, and it was
-          # misleading in the way `shaders/` was: it declares a
-          # `[build-system]` that cannot run from an archive and 766 MB of
-          # dependencies the bundle neither has nor needs, so `pip install .`
-          # from inside one does the wrong thing.
-          cp README.rst "dist/$name/"
+          # and to run. Not shipped: `shaders/`, compiled into the binary by
+          # `include_wgsl!`, and `pyproject.toml`, which declares a build
+          # system that cannot run from an archive and 766 MB of
+          # dependencies the bundle does not have.
+          cp -r res examples notes "$stage/"
+          cp README.rst "$stage/"
 
-          # The hosted libraries, at the one path the editor looks for them.
-          # `dylib_path_for` builds it from `build_dir()`, so a library
-          # anywhere else is one the editor ignores and recompiles -- which
-          # is the whole point of shipping them. `python`, not `plain`,
-          # because the executable now carries an interpreter.
-          case "${{ runner.os }}" in
-            Windows) ext=dll ;;
-            macOS)   ext=dylib ;;
-            *)       ext=so ;;
-          esac
-          hosted=target/kalast-hosted/python/release
-          mkdir -p "dist/$name/$hosted"
-          cp "$hosted"/*."$ext" "dist/$name/$hosted/"
-          # Explicitly newer than the examples just copied beside them.
-          # `is_current` compares the two, and without this the libraries
-          # are current only by the accident of `cp -r examples` running
-          # first -- an ordering nothing else in this file depends on.
-          touch "dist/$name/$hosted"/*."$ext"
+          # The hosted libraries, at the one path the editor looks for them:
+          # `dylib_path_for` without `KALAST_HOSTED_TARGET_DIR` set, which is
+          # how a user's editor runs. Anywhere else is a library it ignores
+          # and recompiles, which is the whole point of shipping them.
+          hosted="$stage/target/kalast-hosted/python/release"
+          mkdir -p "$hosted"
+          while read -r lib; do cp "$lib" "$hosted/"; done < hosted-libs.txt
+          # Explicitly newer than the examples copied beside them, since
+          # `is_current` compares the two.
+          touch "$hosted"/*
+
+          # Now, and only now, the name that carries the version. Every
+          # rpath inside is relative, so the rename is safe, and every step
+          # from here on refers to `env.name`.
+          mv "$stage" "dist/${{ env.name }}"
 
       # 3 MB off the executable, 3.7 off the extension module and 3.5 off
       # each hosted library -- about 14 MB, for symbol names in a crash

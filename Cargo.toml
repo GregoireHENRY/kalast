@@ -45,17 +45,31 @@ crate-type = ["lib", "cdylib"]
 #
 # Being a *default* feature rather than a mandatory dependency is what keeps
 # that true: the dependency is opt-out, not unconditional.
-default = ["python"]
+default = ["embed"]
 use_f64 = ["tobj/use_f64"]
 
-# The Python bindings, and -- for a binary rather than an extension module --
-# an embedded interpreter. maturin turns this on explicitly through
-# pyproject.toml as well, so the extension does not depend on the default.
-# `auto-initialize` is what lets the binary start an interpreter: pyo3 0.28
-# keeps the explicit entry point private. It is inert in the extension module
-# maturin builds, where the interpreter always exists already and the
-# initialisation it guards is skipped.
-python = ["dep:pyo3", "dep:numpy", "pyo3/auto-initialize"]
+# The Python bindings. On their own they say nothing about *linking*, which
+# is the whole point of the two features below it: pyo3 has to be told
+# whether this build will start an interpreter or be loaded into one, and
+# the two answers are mutually exclusive.
+python = ["dep:pyo3", "dep:numpy"]
+
+# A binary that carries an interpreter. `auto-initialize` is what lets it
+# start one -- pyo3 0.28 keeps the explicit entry point private -- and it
+# makes pyo3 link libpython. The default, so `cargo run --bin kalast` can run
+# a `.py` in its own window.
+embed = ["python", "pyo3/auto-initialize"]
+
+# An extension module, loaded into an interpreter that already exists.
+# `extension-module` makes pyo3 link *nothing*: the symbols come from the
+# host at load time. This is what pyproject.toml asks maturin for, and it
+# is not optional. Without it pyo3 links whatever libpython the build
+# machine's Python reports, by absolute path -- and python-build-standalone's
+# `bin/python3` has its interpreter linked in statically, so an extension
+# that brings a second one segfaults on import. The wheels on PyPI worked
+# only because the GitHub runner's Python happened to be one pyo3 did not
+# link against.
+ext = ["python", "pyo3/extension-module"]
 
 [dependencies]
 kalast_macros = { path = "macros", version = "0.5" }
