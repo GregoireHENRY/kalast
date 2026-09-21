@@ -450,62 +450,67 @@ fn linker_hint() -> Option<String> {
 /// it reads the wrong bytes. The host is the only thing that knows which it
 /// is, so it says so on the command line.
 pub fn build_hosted(example: &std::path::Path, release: bool, busy: Arc<AtomicBool>) {
+    let example = example.to_path_buf();
+    std::thread::spawn(move || {
+        // On a thread because from a bundle with no Rust on the machine the
+        // first of these downloads a toolchain, and the render loop is not
+        // waiting for that.
+        match build_hosted_blocking(&example, release) {
+            Ok(built) => println!("built {}", built.display()),
+            Err(e) => println!("build failed: {e}"),
+        }
+        busy.store(false, Ordering::SeqCst);
+    });
+}
+
+/// The same build, run here rather than on a thread, for a caller with no
+/// window: `kalast --precompile`, which is how a release bundle arrives with
+/// its `.rs` examples already built.
+///
+/// One function for both so there is no second recipe. A bundle's libraries
+/// have to be produced by the same `write_wrapper`, the same feature set and
+/// the same target directory the editor would look in, or they are libraries
+/// the editor ignores.
+pub fn build_hosted_blocking(
+    example: &std::path::Path,
+    release: bool,
+) -> Result<std::path::PathBuf, String> {
     // The feature set the wrapper is given is this build's own, decided in
     // `kalast_dependency`: `python` changes the layout of `Shared` and
     // `Tick`, and a guest that disagrees is handed an `App` whose fields are
     // somewhere else.
-    if let Err(e) = write_wrapper(example) {
-        println!("{e}");
-        busy.store(false, Ordering::SeqCst);
-        return;
+    write_wrapper(example)?;
+
+    // The linker first, because it is the one thing a toolchain cannot
+    // supply and checking it costs nothing -- whereas finding out after
+    // downloading a few hundred megabytes would be a poor trade.
+    if let Some(hint) = linker_hint() {
+        return Err(hint);
     }
+    let toolchain = find_or_install_cargo()?;
 
     let manifest = wrapper_dir().join("Cargo.toml");
-    let built = dylib_path_for(&package_name(example), release);
     let target_dir = std::env::current_dir().unwrap_or_default().join(build_dir());
-    std::thread::spawn(move || {
-        // Everything below happens off the render thread, which matters more
-        // than it used to: from a bundle with no Rust on the machine, the
-        // first of these downloads a toolchain.
-        // The linker first, because it is the one thing a toolchain cannot
-        // supply and checking it costs nothing -- whereas finding out after
-        // downloading a few hundred megabytes would be a poor trade.
-        if let Some(hint) = linker_hint() {
-            println!("build failed: {hint}");
-            busy.store(false, Ordering::SeqCst);
-            return;
-        }
-        let toolchain = match find_or_install_cargo() {
-            Ok(t) => t,
-            Err(e) => {
-                println!("build failed: {e}");
-                busy.store(false, Ordering::SeqCst);
-                return;
-            }
-        };
-
-        let mut cmd = std::process::Command::new(&toolchain.cargo);
-        cmd.args(["build", "--color=never", "--manifest-path"])
-            .arg(&manifest)
-            .env("CARGO_TARGET_DIR", &target_dir);
-        // A toolchain this program installed is reached by absolute path and
-        // has nothing in the environment pointing at it, so both homes have
-        // to be named or its rustup proxy finds no toolchain at all.
-        if let Some(home) = &toolchain.home {
-            cmd.env("CARGO_HOME", home.join("cargo"))
-                .env("RUSTUP_HOME", home.join("rustup"));
-        }
-        if release {
-            cmd.arg("--release");
-        }
-        println!("$ {}", show(&cmd));
-        match cmd.status() {
-            Ok(s) if s.success() => println!("built {}", built.display()),
-            Ok(s) => println!("build failed: cargo exited with {s}"),
-            Err(e) => println!("build failed: could not run cargo: {e}"),
-        }
-        busy.store(false, Ordering::SeqCst);
-    });
+    let mut cmd = std::process::Command::new(&toolchain.cargo);
+    cmd.args(["build", "--color=never", "--manifest-path"])
+        .arg(&manifest)
+        .env("CARGO_TARGET_DIR", &target_dir);
+    // A toolchain this program installed is reached by absolute path and has
+    // nothing in the environment pointing at it, so both homes have to be
+    // named or its rustup proxy finds no toolchain at all.
+    if let Some(home) = &toolchain.home {
+        cmd.env("CARGO_HOME", home.join("cargo"))
+            .env("RUSTUP_HOME", home.join("rustup"));
+    }
+    if release {
+        cmd.arg("--release");
+    }
+    println!("$ {}", show(&cmd));
+    match cmd.status() {
+        Ok(s) if s.success() => Ok(dylib_path_for(&package_name(example), release)),
+        Ok(s) => Err(format!("cargo exited with {s}")),
+        Err(e) => Err(format!("could not run cargo: {e}")),
+    }
 }
 
 /// Load a built example into this process and run its `scene`.

@@ -176,6 +176,25 @@ jobs:
         if: runner.os == 'Linux'
         run: cargo test --release --lib --no-default-features
 
+      # Built by the executable that is about to ship, not by a recipe
+      # written here: `--precompile` runs the editor's own `write_wrapper`
+      # and `build_hosted_blocking`, so the libraries land in the directory
+      # `is_current` looks in, with the feature set it expects. A second
+      # recipe in YAML would drift, and the way it would show up is the
+      # editor silently recompiling everything the bundle shipped.
+      #
+      # `examples/old/` is skipped. README calls those superseded and not
+      # user-facing, and five of the seven `.rs` files under `examples/`
+      # are there -- none of them compiles against the current API.
+      - name: Precompile the Rust examples
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ runner.os }}" = "Windows" ]; then exe=target/release/kalast.exe
+          else exe=target/release/kalast; fi
+          find examples -name '*.rs' -not -path 'examples/old/*' -print0 \
+            | xargs -0 "$exe" --precompile
+
       - name: Assemble the bundle
         shell: bash
         run: |
@@ -202,6 +221,20 @@ jobs:
           cp -r res examples notes "dist/$name/"
           # The README here is reStructuredText, not Markdown.
           cp README.rst pyproject.toml "dist/$name/"
+
+          # The hosted libraries, at the one path the editor looks for them.
+          # `dylib_path_for` builds it from `build_dir()`, so a library
+          # anywhere else is one the editor ignores and recompiles -- which
+          # is the whole point of shipping them. `plain` because the
+          # executable is built `--no-default-features`.
+          case "${{ runner.os }}" in
+            Windows) ext=dll ;;
+            macOS)   ext=dylib ;;
+            *)       ext=so ;;
+          esac
+          hosted=target/kalast-hosted/plain/release
+          mkdir -p "dist/$name/$hosted"
+          cp "$hosted"/*."$ext" "dist/$name/$hosted/"
           echo "name=$name" >> "$GITHUB_ENV"
 
       # The wheel built by this run, for this platform, rather than whatever
@@ -258,6 +291,27 @@ jobs:
           # developer's libpython, and importing that one segfaults.
           "$py" -c "import kalast, sys; print('kalast', kalast.__version__ if hasattr(kalast, '__version__') else '', 'from', kalast.__file__)"
           du -sm . | awk '{print "bundle unpacked: " $1 " MB"}'
+
+      # Run in the bundle, where there is no source tree: `--precompile`
+      # checks `is_current` before it builds anything, so "0 built" is proof
+      # that the libraries shipped are the ones the editor will load. If a
+      # path or a timestamp were wrong it would instead try to compile, and
+      # from here that means crates.io, which does not have this version
+      # until the `crates` job publishes it -- so it fails rather than
+      # quietly producing a bundle that recompiles on first use.
+      - name: The Rust examples are built, not merely shipped
+        shell: bash
+        working-directory: dist/${{ env.name }}
+        run: |
+          set -euo pipefail
+          if [ "${{ runner.os }}" = "Windows" ]; then exe=./kalast.exe; else exe=./kalast; fi
+          out=$(find examples -name '*.rs' -not -path 'examples/old/*' -print0 \
+                | xargs -0 "$exe" --precompile)
+          echo "$out"
+          grep -q "0 built, 0 failed" <<<"$out" || {
+            echo "::error::the bundle's hosted libraries are not the ones the editor looks for"
+            exit 1
+          }
 
       - name: Archive
         shell: bash
@@ -386,6 +440,7 @@ jobs:
             | `kalast` / `kalast.exe` | the editor. Open it on its own, or give it a `.obj`, a `.py` or a `.rs` |
             | `python/` | the interpreter the `.py` examples run in, with kalast and its dependencies already in it. Nothing is installed on your machine and nothing is written outside this folder |
             | `res/` | the meshes and colour maps the examples load |
+            | `target/` | the `.rs` examples, already compiled. Delete it and they are rebuilt from source instead |
             | `examples/`, `notes/`, `README.rst` | to read and to run |
 
             Run it from inside the unpacked folder — the examples load `res/`
@@ -400,23 +455,25 @@ jobs:
             to shape models and SPICE kernels that are not shipped here — see
             "First-time setup" in `CLAUDE.md`.
 
-            **A `.rs` example is compiled, so the first one you open needs a
-            Rust toolchain.** If the machine has none, the editor downloads a
-            minimal one into `toolchain/` beside the executable and reuses it
-            after that — nothing goes into your `$HOME`, and deleting the
-            folder removes it. The example itself is compiled against the
-            crates.io release of this same version, so no clone is needed
-            either. On macOS it also needs Apple's command line tools for the
-            linker (`xcode-select --install`); the editor says so if they are
-            missing rather than failing at the link step.
+            **The `.rs` examples come compiled**, so opening one loads it and
+            runs, with no cargo and no toolchain involved. `examples/old/` is
+            the exception — those are superseded and do not build against the
+            current API; they are shipped to read, not to run.
 
-            That first Rust build is a few minutes — it fetches and compiles
-            the engine and its dependencies — and the Log panel shows cargo
-            working through it. Everything after that is seconds, because the
-            toolchain and the build directory stay in the folder. They are
-            also about 460 MB and 600 MB respectively, so a folder you have
-            built a `.rs` in is a large one; nothing else on the machine is
-            touched, and deleting the folder reclaims all of it.
+            **Editing a `.rs`, or opening one of your own, means compiling
+            it**, and that needs cargo. If the machine has none, the editor
+            fetches a minimal toolchain into `toolchain/` beside the
+            executable and reuses it after that — nothing goes into your
+            `$HOME`, and deleting the folder removes it. Your example is
+            compiled against the crates.io release of this same version, so
+            no clone is needed either. On macOS it also wants Apple's command
+            line tools for the linker (`xcode-select --install`); the editor
+            says so up front rather than failing at the link step.
+
+            That first build is a few minutes, and the Log panel shows cargo
+            working through it; later ones are seconds. It is not small
+            either — about 460 MB of toolchain and 600 MB of build directory,
+            both inside this folder, both reclaimed by deleting it.
 
   pypi:
     name: publish to PyPI

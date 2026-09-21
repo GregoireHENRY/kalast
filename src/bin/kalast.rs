@@ -30,6 +30,12 @@ use std::rc::Rc;
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
+    // Before anything opens a window or asks for an adapter: this mode has
+    // neither, and it runs on release runners that have no display.
+    if args.iter().any(|a| a == "--precompile") {
+        std::process::exit(precompile(&args));
+    }
+
     // An `Rc` rather than a plain `App`, because a Python script is handed a
     // handle onto this same app and `py::App` is built from one.
     let app = Rc::new(RefCell::new(kalast::app::App::new()));
@@ -48,6 +54,57 @@ fn main() {
             }
         }
     }
+}
+
+/// Build the hosted library for each `.rs` named, then exit.
+///
+/// ```sh
+/// kalast --precompile examples/crater_self_shadow/step.rs
+/// ```
+///
+/// **This is how a release bundle arrives with its Rust examples already
+/// built.** The workflow runs the executable it has just built over the
+/// examples it is about to ship, so the libraries come out of the same
+/// `write_wrapper`, the same feature set and the same target directory the
+/// editor will look in. A second recipe written in YAML would drift from
+/// this one, and the way that would show up is the editor silently
+/// recompiling every example it was handed -- which is the whole thing this
+/// is here to avoid.
+///
+/// Release rather than debug, because `rust_release` in the editor defaults
+/// to true and a debug library is one it would not look for.
+fn precompile(args: &[String]) -> i32 {
+    let examples: Vec<&String> = args.iter().filter(|a| a.ends_with(".rs")).collect();
+    if examples.is_empty() {
+        eprintln!("--precompile: name at least one .rs example to build");
+        return 2;
+    }
+    let (mut built, mut current, mut failed) = (0, 0, 0);
+    for example in &examples {
+        // `is_current` first, which makes this idempotent and makes it the
+        // check as well as the build: run in an assembled bundle it must
+        // report everything up to date and compile nothing, and if it does
+        // compile something then what was shipped is something the editor
+        // would have ignored.
+        if kalast::app::cargo::is_current(true, example) {
+            println!("up to date {example}");
+            current += 1;
+            continue;
+        }
+        println!("--- {example}");
+        match kalast::app::cargo::build_hosted_blocking(std::path::Path::new(example), true) {
+            Ok(path) => {
+                println!("built {}", path.display());
+                built += 1;
+            }
+            Err(e) => {
+                eprintln!("cannot precompile {example}: {e}");
+                failed += 1;
+            }
+        }
+    }
+    println!("precompiled: {current} up to date, {built} built, {failed} failed");
+    i32::from(failed > 0)
 }
 
 /// Execute a `.py` against the app already on screen.

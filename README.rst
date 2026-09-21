@@ -42,10 +42,11 @@ per platform. Unpack it and run it from inside the folder:
 
 There is nothing to install and nothing is written outside the folder. The
 archive carries its own Python, with kalast and its dependencies already in
-it. A ``.rs`` is compiled, so the first one you open needs a Rust toolchain:
-if the machine has none, the editor fetches a minimal one into ``toolchain/``
-beside the executable and reuses it afterwards. On macOS that also wants
-Apple's command line tools for the linker (``xcode-select --install``).
+it, and the ``.rs`` examples come compiled. Editing one, or opening a ``.rs``
+of your own, means compiling it: if the machine has no cargo the editor
+fetches a minimal toolchain into ``toolchain/`` beside the executable and
+reuses it afterwards. On macOS that also wants Apple's command line tools for
+the linker (``xcode-select --install``).
 
 **The package**, to use kalast from your own environment:
 

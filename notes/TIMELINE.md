@@ -2645,3 +2645,24 @@ crates.io in 1m15s with guest and host fingerprints identical, and with
 `crates`, since a bundle published before the crate it compiles against is a
 bundle whose Rust half cannot work. Details in
 `2026-09-21_a_bundle_that_compiles_rust.md`.
+
+## 2026-09-21 — and the Rust examples ship already built
+
+The last piece: someone who opens the example in the archive should not wait
+five minutes or fetch a toolchain. `kalast --precompile a.rs b.rs` builds
+and exits with no window, and the release workflow runs it **with the
+executable it is about to ship**, so the libraries come out of the same
+`write_wrapper`, feature set and `build_dir()` the editor looks in. A recipe
+written in YAML would drift, and the way that shows up is the editor
+silently recompiling everything the bundle shipped.
+
+It checks `is_current` first, so it is idempotent -- which makes it the
+verification too: run inside the assembled bundle it must report **0 built**,
+and anything else fails the job. Locally: 2 up to date, 0 built, both
+libraries accepted by the host (`af5af4cdd9cd31f3`), and
+`./kalast examples/crater_self_shadow/step.rs` loaded the shipped library and
+rendered to iteration 10000 with no cargo, no toolchain and no network.
+
+32 MB added to the archive. "All the Rust examples" is two of seven --
+`--precompile` over all seven gives *2 of 7 built*, the other five being the
+`examples/old/` versions that do not compile against the current API.
