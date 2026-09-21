@@ -2711,3 +2711,29 @@ was tagged is exactly what was rehearsed: a `touch` on the copied libraries
 library copy, and the in-bundle check is what would catch a reordering), and
 making the import check assert the wheel's version instead of printing an
 empty `kalast.__version__` that does not exist.
+
+### v0.5.1 shipped, and the artefact was run
+
+Run 35600392575: **every job green** -- the version gate, four wheels,
+sdist, four executables, crates.io, PyPI, the GitHub release. The first
+fully green release here; v0.5.0 took three runs across two machines and
+still shipped a bundle that did not work.
+
+Then the thing whose absence caused all of this: the published
+`kalast-v0.5.1-macos-arm64.tar.gz` was downloaded and run.
+
+```
+kalast 0.5.1 from .../kalast-v0.5.1-macos-arm64/python/lib/python3.14/site-packages/kalast/__init__.py
+precompiled: 2 up to date, 0 built, 0 failed
+loaded target/kalast-hosted/plain/release/libcrater_self_shadow_step.dylib
+PY OK: 60 frames, lit 98.1 %
+```
+
+A `.py` ran on the interpreter in the archive and a `.rs` loaded from the
+library in the archive, on a machine where neither `pip install kalast` nor
+cargo was involved. **CI checking the bundle it just built is not the same
+as running the artefact a person downloads**, and after v0.5.0 that is not a
+distinction worth being relaxed about.
+
+Sizes as published: 149 MB macos-arm64, 157 macos-x86_64, 159
+windows-x86_64, 217 linux-x86_64.
