@@ -102,3 +102,44 @@ macOS arm64, no CI run. Guest build 18 s / 3 crates; the bundle
 compressed, against 149 MB for v0.5.2; inside it `kalast 0.5.2` from its own
 site-packages, `2 up to date, 0 built, 0 failed`, the embedded interpreter
 starting, and a hosted library loading with the two-rpath layout.
+
+## And then the interpreter folder, which was 214 MB
+
+Asked what a release bundle's `python/` was made of, and it split five ways:
+
+| | MB | who needs it |
+|---|---|---|
+| libpython + stdlib | 36 | the UI app's embedded interpreter |
+| numpy, spiceypy, kalast's Python | 25 | `import kalast` |
+| scipy, matplotlib, PIL, fontTools | 104 | three shipped examples that plot, two that solve |
+| `bin/python3`, kalast's `.so`, pip | 40 | only `python/bin/python3 -m kalast` |
+| `include/`, `share/`, tcl/tk | 13 | nothing |
+
+CPython was in there **twice** -- statically inside `bin/python3.14`, and
+again as `lib/libpython3.14.dylib` for the executable -- and the UI app only
+ever used the dylib. kalast's own `_rs.abi3.so` was never loaded either:
+`append_to_inittab` hands the embedded interpreter the executable's
+bindings, precisely so there are not two engines in one process.
+
+The last two rows go. `python/` is 165 MB; the bundle 248 MB unpacked and
+**97 MB** compressed, against 113 before and 149 at v0.5.2. What goes with
+them is `python/bin/python3 -m kalast script.py` as a second way in, which
+opened the same window; `./kalast script.py` is the way in. Plotting stays,
+because three of the examples in the archive plot and shipping examples
+that do not run is worse than 104 MB.
+
+**The coupling.** Rebuilding a `.rs` from a bundle handed pyo3
+`python/bin/python3` to introspect, and `bundled_python_dir()` used that
+same binary as its marker -- so removing it would have cost the embedded
+interpreter its `PYTHONHOME` as well. The marker is the standard library
+now, and the workflow writes what pyo3 learned from the interpreter to
+`python/pyo3-config.txt` while it still has one to ask; `configure_guest_link`
+reads that through `PYO3_CONFIG_FILE`, rewriting the two build-machine paths
+in it to the user's. Proven from the pruned bundle: a `.rs` rebuilt against
+the source tree with no interpreter binary present, and loaded.
+
+Against crates.io it cannot be proven until 0.5.3 is published: the
+bundle's wrapper now asks for `kalast = "=<version>"` with feature `embed`,
+and the 0.5.2 on the registry predates the split -- *"available features:
+default, python, use_f64"*. A resolution error, not a linking one, and it
+answers itself with the next tag.

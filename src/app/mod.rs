@@ -397,15 +397,22 @@ pub fn bundled_python_dir() -> Option<std::path::PathBuf> {
 /// that is not the one this test binary happens to live in.
 pub fn bundled_python_beside(dir: &std::path::Path) -> Option<std::path::PathBuf> {
     let python = dir.join("python");
-    // The interpreter itself, not just the directory: an interrupted unpack
-    // leaves the second without the first, and reporting that as a bundle
-    // turns a clear "not found" into a spawn error much later.
-    let interpreter = if cfg!(windows) {
-        python.join("python.exe")
+    // The standard library is the marker, not `bin/python3`. A release
+    // bundle keeps the first and drops the second: the executable carries
+    // its own interpreter, so the 18 MB `bin/python3` was a second CPython
+    // nobody ran. An interrupted unpack has neither, and reporting that as
+    // a bundle would turn a clear "not found" into failures much later.
+    let site_packages = if cfg!(windows) {
+        python.join("Lib").join("site-packages")
     } else {
-        python.join("bin").join("python3")
+        std::fs::read_dir(python.join("lib"))
+            .ok()?
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("python3")))?
+            .join("site-packages")
     };
-    interpreter.is_file().then_some(python)
+    site_packages.is_dir().then_some(python)
 }
 
 #[cfg(test)]
@@ -429,22 +436,21 @@ mod bundled_python_tests {
     #[test]
     fn the_bundle_layout_is_found() {
         let dir = tmp("bundle");
-        let (sub, exe) = if cfg!(windows) {
-            (dir.join("python"), "python.exe")
+        let site = if cfg!(windows) {
+            dir.join("python").join("Lib").join("site-packages")
         } else {
-            (dir.join("python").join("bin"), "python3")
+            dir.join("python").join("lib").join("python3.14").join("site-packages")
         };
-        std::fs::create_dir_all(&sub).unwrap();
-        std::fs::write(sub.join(exe), b"").unwrap();
+        std::fs::create_dir_all(&site).unwrap();
         assert_eq!(bundled_python_beside(&dir), Some(dir.join("python")));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// An interrupted unpack: the directory without the interpreter in it.
+    /// An interrupted unpack: the directory without a standard library in it.
     #[test]
     fn an_empty_python_directory_is_not_a_bundle() {
         let dir = tmp("empty");
-        std::fs::create_dir_all(dir.join("python").join("bin")).unwrap();
+        std::fs::create_dir_all(dir.join("python").join("lib")).unwrap();
         assert_eq!(bundled_python_beside(&dir), None);
         let _ = std::fs::remove_dir_all(&dir);
     }

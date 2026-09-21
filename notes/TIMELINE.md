@@ -2870,3 +2870,21 @@ pyo3 does not link against. `pyproject.toml` asks for `ext` now.
 All measured locally on macOS arm64, no CI: bundle 291 MB unpacked, 113 MB
 compressed, every check passing. Details in
 `2026-09-21_one_compile_not_three.md`.
+
+## 2026-09-21 — the bundle's interpreter, pruned to what the UI app uses
+
+`python/` was 214 MB, and 49 of it nothing ran: a second CPython linked
+statically into `bin/python3`, kalast's own extension module (the embedded
+interpreter gets the executable's bindings through `inittab`), pip, tcl/tk,
+headers. Gone; `python/` is 165 MB and the bundle **97 MB compressed**, from
+149 at v0.5.2. `python/bin/python3 -m kalast` goes with it -- it opened the
+same window. Plotting stays, for the three shipped examples that plot.
+
+The coupling was that rebuilding a `.rs` handed pyo3 that binary to
+introspect, and the bundle marker was that binary too. The marker is the
+standard library now, and pyo3 reads `python/pyo3-config.txt` -- written by
+the workflow while it still had an interpreter to ask -- with the two
+build-machine paths rewritten to the user's. Proven locally against the
+source tree; against crates.io it waits for 0.5.3, since the published
+0.5.2 has no `embed` feature to ask for. Details appended to
+`2026-09-21_one_compile_not_three.md`.

@@ -524,7 +524,7 @@ pub fn build_hosted(example: &std::path::Path, release: bool, busy: Arc<AtomicBo
 ///
 /// Does nothing from a clone, where the developer's own Python is
 /// configured correctly and none of this applies.
-fn configure_guest_link(cmd: &mut std::process::Command) {
+fn configure_guest_link(cmd: &mut std::process::Command) -> Result<(), String> {
     let mut flags: Vec<String> = match std::env::var("CARGO_ENCODED_RUSTFLAGS") {
         Ok(encoded) => encoded
             .split(UNIT_SEPARATOR)
@@ -555,15 +555,58 @@ fn configure_guest_link(cmd: &mut std::process::Command) {
     }
 
     if let Some(python) = crate::app::bundled_python_dir() {
+        // pyo3's build script wants to know what it is building against,
+        // and normally learns it by running an interpreter. A bundle ships
+        // none -- the executable carries its own -- so the release workflow
+        // writes what that interpreter would have said to
+        // `python/pyo3-config.txt` while it still has one to ask, and the
+        // guest is configured from that. Two lines in it are the build
+        // machine's and are rewritten to this machine's on the way through;
+        // the copy goes beside the wrapper because the bundle may be read
+        // only, and `target/` has to be writable for any of this anyway.
+        let shipped = python.join("pyo3-config.txt");
         let interpreter = if cfg!(windows) {
             python.join("python.exe")
         } else {
             python.join("bin").join("python3")
         };
-        cmd.env("PYO3_PYTHON", &interpreter);
+        if shipped.is_file() {
+            let lib_dir = python.join(if cfg!(windows) { "libs" } else { "lib" });
+            let text = std::fs::read_to_string(&shipped)
+                .map_err(|e| format!("cannot read {}: {e}", shipped.display()))?;
+            let text: String = text
+                .lines()
+                .map(|l| {
+                    if l.starts_with("lib_dir=") {
+                        format!("lib_dir={}\n", lib_dir.display())
+                    } else if l.starts_with("executable=") {
+                        format!("executable={}\n", interpreter.display())
+                    } else {
+                        format!("{l}\n")
+                    }
+                })
+                .collect();
+            let local = std::env::current_dir()
+                .map_err(|e| format!("cannot read the working directory: {e}"))?
+                .join(wrapper_dir())
+                .join("pyo3-config.txt");
+            std::fs::write(&local, text)
+                .map_err(|e| format!("cannot write {}: {e}", local.display()))?;
+            cmd.env("PYO3_CONFIG_FILE", &local);
+            cmd.env_remove("PYO3_PYTHON");
+            println!("  PYO3_CONFIG_FILE={}", local.display());
+        } else if interpreter.is_file() {
+            cmd.env("PYO3_PYTHON", &interpreter);
+            println!("  PYO3_PYTHON={}", interpreter.display());
+        } else {
+            return Err(format!(
+                "{} has neither pyo3-config.txt nor an interpreter, so there is \
+                 nothing to configure the build against",
+                python.display()
+            ));
+        }
         cmd.env_remove("PYTHONHOME");
         flags.extend(bundled_python_rustflags(&python));
-        println!("  PYO3_PYTHON={}", interpreter.display());
     }
 
     if !flags.is_empty() {
@@ -574,6 +617,7 @@ fn configure_guest_link(cmd: &mut std::process::Command) {
         );
         cmd.env_remove("RUSTFLAGS");
     }
+    Ok(())
 }
 
 /// What cargo separates encoded rustflags with.
@@ -720,7 +764,7 @@ pub fn build_hosted_blocking(
     if release {
         cmd.arg("--release");
     }
-    configure_guest_link(&mut cmd);
+    configure_guest_link(&mut cmd)?;
     println!("$ {}", show(&cmd));
     match cmd.status() {
         Ok(s) if s.success() => Ok(dylib_path_for(&package_name(example), release)),

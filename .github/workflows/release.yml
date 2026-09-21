@@ -267,6 +267,20 @@ jobs:
           echo "RUSTFLAGS=$RUSTFLAGS"
           cargo build --release --bin kalast
 
+          # What pyo3 learned by running that interpreter, written down for
+          # later. The bundle ships no interpreter binary -- the executable
+          # carries its own -- so when a user rebuilds a `.rs`, pyo3 has
+          # nothing to run and reads this instead (`configure_guest_link`
+          # in src/app/cargo.rs, which rewrites the two build-machine paths
+          # in it to the user's). `PYO3_PRINT_CONFIG` halts the compile on
+          # purpose, hence the `|| true`.
+          ( PYO3_PRINT_CONFIG=1 cargo build --release --lib 2>&1 || true ) \
+            | sed -n 's/^ *\([a-z_]*=.*\)$/\1/p' > "$root/pyo3-config.txt"
+          [ "$(grep -c . "$root/pyo3-config.txt")" -gt 5 ] || {
+            echo "::error::pyo3 printed no configuration"; cat "$root/pyo3-config.txt"; exit 1
+          }
+          grep -E "^(version|shared|abi3|lib_name)=" "$root/pyo3-config.txt" | tr '\n' ' '; echo
+
       # The engine alone, which is still a supported build and the shape the
       # audit was written for. One platform: the same code three times buys
       # minutes, not coverage.
@@ -382,10 +396,38 @@ jobs:
           # from here on refers to `env.name`.
           mv "$stage" "dist/${{ env.name }}"
 
-      # 3 MB off the executable, 3.7 off the extension module and 3.5 off
-      # each hosted library -- about 14 MB, for symbol names in a crash
-      # backtrace. Done before the checks below, so what they exercise is
-      # exactly what ships.
+      # 49 MB of the interpreter that nothing in a bundle runs. `bin/python3`
+      # (18 MB, a second CPython linked in statically -- the executable uses
+      # `lib/libpython`), kalast's own extension module (15 MB; the embedded
+      # interpreter gets the executable's bindings through `inittab` and
+      # never loads it), pip, tcl/tk, headers. What goes with them is
+      # `python/bin/python3 -m kalast` as a second way in, which opened the
+      # same window; `./kalast script.py` is the way in.
+      #
+      # After every step that needed the interpreter binary: pyo3
+      # introspected it to build, pip ran in it, and the config above was
+      # dumped from it. Before the checks, so what they exercise is what
+      # ships.
+      - name: Prune the interpreter to what the UI app uses
+        shell: bash
+        working-directory: dist/${{ env.name }}
+        run: |
+          set -euo pipefail
+          before=$(du -sm python | cut -f1)
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            rm -rf python/python.exe python/pythonw.exe python/Scripts python/include python/tcl \
+                   python/*.dll python/Lib/site-packages/pip* python/Lib/site-packages/kalast/_rs*.pyd
+          else
+            rm -rf python/bin python/include python/share python/lib/pkgconfig \
+                   python/lib/tcl* python/lib/tk* python/lib/itcl* python/lib/thread* python/lib/libtcl* \
+                   python/lib/python3.*/site-packages/pip* python/lib/python3.*/site-packages/kalast/_rs.abi3.so
+          fi
+          echo "python/ $before MB -> $(du -sm python | cut -f1) MB"
+          [ -f python/pyo3-config.txt ] || { echo "::error::pyo3-config.txt missing after pruning"; exit 1; }
+
+      # 3 MB off the executable and 3.5 off each hosted library -- about
+      # 10 MB, for symbol names in a crash backtrace. Done before the checks
+      # below, so what they exercise is exactly what ships.
       #
       # Windows keeps its symbols in `.pdb` files that are not shipped, so
       # there is nothing there to strip.
@@ -401,7 +443,7 @@ jobs:
           hosted=target/kalast-hosted/python/release
           before=$(du -sm . | cut -f1)
           # shellcheck disable=SC2086
-          strip $flags kalast python/lib/python*/site-packages/kalast/_rs.abi3.so "$hosted"/*."$ext"
+          strip $flags kalast "$hosted"/*."$ext"
           echo "bundle $before MB -> $(du -sm . | cut -f1) MB"
 
           # `strip -x` and `--strip-unneeded` both keep exported symbols --
@@ -422,27 +464,22 @@ jobs:
 
       # Nothing in this workflow used to run what it published, and all
       # three faults a user hit in v0.5.0 would have shown up here.
-      - name: Import kalast from the bundle
+      - name: The bundle is the version it claims
         shell: bash
         working-directory: dist/${{ env.name }}
         run: |
           set -euo pipefail
-          if [ "${{ runner.os }}" = "Windows" ]; then py=python/python.exe; else py=python/bin/python3; fi
-          # Run from inside the bundle, never from the checkout: a clone has
-          # its own `kalast/` package whose extension is linked against the
-          # developer's libpython, and importing that one segfaults.
-          #
-          # The version, not just the import: this is the only place the
-          # wheel actually in the bundle is compared with the one this tag
-          # is publishing. Read from the checkout, not from the bundle --
-          # the bundle no longer carries `pyproject.toml`, and a bundle
-          # vouching for its own version would prove nothing anyway.
+          if [ "${{ runner.os }}" = "Windows" ]; then exe=./kalast.exe; else exe=./kalast; fi
+          # Through the executable's own interpreter -- there is no other in
+          # the bundle now. The version is compared with the checkout's,
+          # since a bundle vouching for its own would prove nothing.
+          out=$("$exe" --python-check)
+          echo "$out"
+          got=$(sed -n 's/^embedded interpreter OK: kalast \(.*\)$/\1/p' <<<"$out")
           want=$(sed -n '/^\[project\]/,/^\[/p' "$GITHUB_WORKSPACE/pyproject.toml" \
                  | sed -n 's/^version *= *"\(.*\)"/\1/p' | head -1)
-          got=$("$py" -c "import importlib.metadata as m; print(m.version('kalast'))")
-          "$py" -c "import kalast; print('kalast', '$got', 'from', kalast.__file__)"
-          [ "$got" = "$want" ] || {
-            echo "::error::the bundle carries kalast $got but this build is $want"
+          [ -n "$got" ] && [ "$got" = "$want" ] || {
+            echo "::error::the bundle carries kalast '$got' but this build is $want"
             exit 1
           }
           du -sm . | awk '{print "bundle unpacked: " $1 " MB"}'
