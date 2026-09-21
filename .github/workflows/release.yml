@@ -358,7 +358,13 @@ jobs:
           # than not having it.
           cp -r res examples notes "dist/$name/"
           # The README here is reStructuredText, not Markdown.
-          cp README.rst pyproject.toml "dist/$name/"
+          #
+          # `pyproject.toml` is **not** shipped. It was, and it was
+          # misleading in the way `shaders/` was: it declares a
+          # `[build-system]` that cannot run from an archive and 766 MB of
+          # dependencies the bundle neither has nor needs, so `pip install .`
+          # from inside one does the wrong thing.
+          cp README.rst "dist/$name/"
 
           # The hosted libraries, at the one path the editor looks for them.
           # `dylib_path_for` builds it from `build_dir()`, so a library
@@ -393,8 +399,11 @@ jobs:
           #
           # The version, not just the import: this is the only place the
           # wheel actually in the bundle is compared with the one this tag
-          # is publishing.
-          want=$(sed -n '/^\[project\]/,/^\[/p' pyproject.toml | sed -n 's/^version *= *"\(.*\)"/\1/p' | head -1)
+          # is publishing. Read from the checkout, not from the bundle --
+          # the bundle no longer carries `pyproject.toml`, and a bundle
+          # vouching for its own version would prove nothing anyway.
+          want=$(sed -n '/^\[project\]/,/^\[/p' "$GITHUB_WORKSPACE/pyproject.toml" \
+                 | sed -n 's/^version *= *"\(.*\)"/\1/p' | head -1)
           got=$("$py" -c "import importlib.metadata as m; print(m.version('kalast'))")
           "$py" -c "import kalast; print('kalast', '$got', 'from', kalast.__file__)"
           [ "$got" = "$want" ] || {
