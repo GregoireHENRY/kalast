@@ -1,6 +1,6 @@
 [package]
 name = "kalast"
-version = "0.5.1"
+version = "0.5.2"
 description = "TPM for binary asteroids"
 authors = ["Grégoire Henry <gregoireh@pm.me>"]
 repository = "https://github.com/GregoireHENRY/kalast"
