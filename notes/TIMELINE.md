@@ -2796,3 +2796,27 @@ whose pipeline had never run, and while the delta was three version strings
 that is the same shape of gap that let v0.5.0 out. And artefact reuse across
 runs, which is only worth its complexity once the above is measured, because
 it buys those last two minutes and nothing more.
+
+## 2026-09-21 — a space in the bundle's path broke rebuilding a `.rs`
+
+Reported from `~/Downloads/kalast-v0.5.2-macos-arm64 2`, the name macOS
+gives a second download of the same archive. `RUSTFLAGS` is **split on
+whitespace**, so `-L native=…/kalast-v0.5.2-macos-arm64 2/python/lib`
+reached rustc as two arguments:
+
+```
+error: multiple input filenames provided (first two filenames are `-` and `2/python/lib`)
+```
+
+`CARGO_ENCODED_RUSTFLAGS` exists for this -- separated by `\x1f`, so a path
+with spaces stays one argument -- and `bundled_python_rustflags` now returns
+one element per rustc argument, unit-tested against a path containing a
+space. Verified in a folder named exactly like the report: *0 up to date, 1
+built, 0 failed*.
+
+Only the *rebuild* path was affected; the prebuilt library loads fine. And
+the workflow builds with plain `RUSTFLAGS` from `$PWD/runtime/python`, which
+is why two rehearsals and a release never saw it: a GitHub workspace is
+`/home/runner/work/…` or `D:\a\…` and never contains a space. **The runtime
+path is the user's; the CI path is not.** Worth remembering the next time
+something passes CI and fails on a download.

@@ -505,32 +505,108 @@ fn configure_for_bundled_python(cmd: &mut std::process::Command) {
     cmd.env("PYO3_PYTHON", &interpreter);
     cmd.env_remove("PYTHONHOME");
 
+    // Whatever the caller already had, in cargo's own encoding. `RUSTFLAGS`
+    // is **split on whitespace**, so it cannot carry the path below; the
+    // encoded form is separated by `\x1f` and can.
+    let mut flags: Vec<String> = match std::env::var("CARGO_ENCODED_RUSTFLAGS") {
+        Ok(encoded) => encoded
+            .split(UNIT_SEPARATOR)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect(),
+        Err(_) => std::env::var("RUSTFLAGS")
+            .unwrap_or_default()
+            .split_whitespace()
+            .map(str::to_string)
+            .collect(),
+    };
+    flags.extend(bundled_python_rustflags(&python));
+
+    println!("  PYO3_PYTHON={}", interpreter.display());
+    println!("  rustflags: {}", flags.join(" "));
+    cmd.env(
+        "CARGO_ENCODED_RUSTFLAGS",
+        flags.join(&UNIT_SEPARATOR.to_string()),
+    );
+    // Ignored once the encoded form is set, and leaving it would only
+    // mislead anyone reading the environment of a failed build.
+    cmd.env_remove("RUSTFLAGS");
+}
+
+/// What cargo separates encoded rustflags with.
+const UNIT_SEPARATOR: char = '\u{1f}';
+
+/// One element per rustc argument, so that a path may contain a space.
+///
+/// It routinely does. The bundle is wherever the user unpacked it, and macOS
+/// names a second download of the same archive
+/// `kalast-v0.5.2-macos-arm64 2` -- which through `RUSTFLAGS` arrived at
+/// rustc as two arguments and failed the build with
+///
+/// ```text
+/// error: multiple input filenames provided (first two filenames are `-` and `2/python/lib`)
+/// ```
+fn bundled_python_rustflags(python: &std::path::Path) -> Vec<String> {
     // Windows keeps the import library in `libs` and resolves DLLs by name
     // rather than by path, and the host has already loaded this one by the
     // time it opens the guest -- so there is no rpath to add.
-    let flags = if cfg!(windows) {
-        format!("-L native={}", python.join("libs").display())
-    } else {
-        let origin = if cfg!(target_os = "macos") {
-            "@loader_path"
-        } else {
-            "$ORIGIN"
-        };
-        format!(
-            "-L native={} -C link-arg=-Wl,-rpath,{origin}/../../../../python/lib",
-            python.join("lib").display(),
-        )
-    };
-    // Appended rather than assigned: someone may have their own, and this
-    // returns early from a clone anyway.
-    let mut all = std::env::var("RUSTFLAGS").unwrap_or_default();
-    if !all.is_empty() {
-        all.push(' ');
+    if cfg!(windows) {
+        return vec![
+            "-L".to_string(),
+            format!("native={}", python.join("libs").display()),
+        ];
     }
-    all.push_str(&flags);
-    println!("  PYO3_PYTHON={}", interpreter.display());
-    println!("  RUSTFLAGS={all}");
-    cmd.env("RUSTFLAGS", all);
+    let origin = if cfg!(target_os = "macos") {
+        "@loader_path"
+    } else {
+        "$ORIGIN"
+    };
+    vec![
+        "-L".to_string(),
+        format!("native={}", python.join("lib").display()),
+        "-C".to_string(),
+        format!("link-arg=-Wl,-rpath,{origin}/../../../../python/lib"),
+    ]
+}
+
+#[cfg(test)]
+mod rustflag_tests {
+    use super::{UNIT_SEPARATOR, bundled_python_rustflags};
+
+    /// Reported from `~/Downloads/kalast-v0.5.2-macos-arm64 2`, the name
+    /// macOS gives a second download: the path has to survive as **one**
+    /// argument, which is why these are joined with `\x1f` and handed to
+    /// `CARGO_ENCODED_RUSTFLAGS` rather than to `RUSTFLAGS`.
+    #[test]
+    fn a_path_with_a_space_stays_one_argument() {
+        let python = std::path::Path::new("/Users/someone/Downloads/kalast 2/python");
+        let flags = bundled_python_rustflags(python);
+
+        let search: Vec<&String> = flags
+            .iter()
+            .filter(|f| f.starts_with("native="))
+            .collect();
+        assert_eq!(search.len(), 1, "{flags:?}");
+        assert!(search[0].contains("kalast 2"), "{flags:?}");
+
+        // And the encoding cargo actually reads keeps it that way.
+        let encoded = flags.join(&UNIT_SEPARATOR.to_string());
+        let back: Vec<&str> = encoded.split(UNIT_SEPARATOR).collect();
+        assert_eq!(back, flags, "round trip");
+        assert!(
+            back.iter().any(|a| a.contains("kalast 2/python")),
+            "the space survives: {back:?}"
+        );
+    }
+
+    /// `-L` and its value are separate arguments; joined into one they would
+    /// reach rustc as an unknown flag.
+    #[test]
+    fn the_search_path_is_two_arguments() {
+        let flags = bundled_python_rustflags(std::path::Path::new("/p/python"));
+        let i = flags.iter().position(|f| f == "-L").expect("a -L");
+        assert!(flags[i + 1].starts_with("native=/p/python/lib"), "{flags:?}");
+    }
 }
 
 /// The same build, run here rather than on a thread, for a caller with no
