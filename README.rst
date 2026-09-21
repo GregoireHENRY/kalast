@@ -25,6 +25,38 @@ temperature output and an infrared flux simulation — emission and
 reflection — based on a thermal camera's specifications, e.g. its spectral
 response function).
 
+Getting it
+==========
+
+Three ways in, and only the third needs anything installed.
+
+**A release.** https://github.com/GregoireHENRY/kalast/releases — one archive
+per platform. Unpack it and run it from inside the folder:
+
+.. code:: sh
+
+    ./kalast                                   # the editor
+    ./kalast examples/two_spheres/main.py      # a Python example
+    ./kalast examples/crater_self_shadow/step.rs   # a Rust one
+    ./kalast some/shape.obj                    # a mesh
+
+There is nothing to install and nothing is written outside the folder. The
+archive carries its own Python, with kalast and its dependencies already in
+it. A ``.rs`` is compiled, so the first one you open needs a Rust toolchain:
+if the machine has none, the editor fetches a minimal one into ``toolchain/``
+beside the executable and reuses it afterwards. On macOS that also wants
+Apple's command line tools for the linker (``xcode-select --install``).
+
+**The package**, to use kalast from your own environment:
+
+.. code:: sh
+
+    pip install kalast          # Python
+    cargo add kalast            # Rust
+
+**A clone**, to work on kalast itself — that is what *Compilation* below is
+about. If you are reading this inside an unpacked release, it is not for you.
+
 Structure
 =========
 

@@ -22,9 +22,14 @@
 # regardless. Shipping the interpreter with the site-packages is the same
 # bytes, relocatable, and testable here before the tag goes out.
 #
-# A `.rs` example is the one thing a bundle cannot do: hosting one generates
-# a wrapper crate depending on `kalast` *by path*, so it needs cargo and this
-# source tree.
+# A `.rs` example works too, and needed two changes to. The generated
+# wrapper crate depended on `kalast` by *path*, which only exists in a clone;
+# from a bundle it depends on the crates.io release of the exact version
+# running, published by this same workflow. And compiling needs cargo, so if
+# the machine has none the editor installs a minimal toolchain into
+# `toolchain/` beside the executable -- the first time a `.rs` is actually
+# compiled, not at first launch, because most people never open one and a
+# toolchain is a few hundred megabytes.
 name: release
 
 on:
@@ -345,7 +350,13 @@ jobs:
 
   release:
     name: github release
-    needs: [version, executable]
+    # `crates` as well as `executable`, and that is not belt and braces: a
+    # `.rs` run from a bundle is compiled against `kalast = "=<this version>"`
+    # on crates.io, so a release published before the crate exists ships an
+    # archive whose Rust half cannot work. Waiting costs a few minutes. If
+    # crates.io ever has to be skipped, drop it from here in the same commit
+    # and know what the bundles lose.
+    needs: [version, executable, crates]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
@@ -372,7 +383,7 @@ jobs:
 
             | | |
             |---|---|
-            | `kalast` / `kalast.exe` | the editor. Open it on its own, or give it a `.obj` or a `.py` |
+            | `kalast` / `kalast.exe` | the editor. Open it on its own, or give it a `.obj`, a `.py` or a `.rs` |
             | `python/` | the interpreter the `.py` examples run in, with kalast and its dependencies already in it. Nothing is installed on your machine and nothing is written outside this folder |
             | `res/` | the meshes and colour maps the examples load |
             | `examples/`, `notes/`, `README.rst` | to read and to run |
@@ -389,9 +400,23 @@ jobs:
             to shape models and SPICE kernels that are not shipped here — see
             "First-time setup" in `CLAUDE.md`.
 
-            A `.rs` example is the one thing a bundle cannot run: it is
-            compiled against kalast as a path dependency, so it needs cargo
-            **and** a clone of the repository.
+            **A `.rs` example is compiled, so the first one you open needs a
+            Rust toolchain.** If the machine has none, the editor downloads a
+            minimal one into `toolchain/` beside the executable and reuses it
+            after that — nothing goes into your `$HOME`, and deleting the
+            folder removes it. The example itself is compiled against the
+            crates.io release of this same version, so no clone is needed
+            either. On macOS it also needs Apple's command line tools for the
+            linker (`xcode-select --install`); the editor says so if they are
+            missing rather than failing at the link step.
+
+            That first Rust build is a few minutes — it fetches and compiles
+            the engine and its dependencies — and the Log panel shows cargo
+            working through it. Everything after that is seconds, because the
+            toolchain and the build directory stay in the folder. They are
+            also about 460 MB and 600 MB respectively, so a folder you have
+            built a `.rs` in is a large one; nothing else on the machine is
+            touched, and deleting the folder reclaims all of it.
 
   pypi:
     name: publish to PyPI

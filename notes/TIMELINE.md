@@ -2623,3 +2623,25 @@ kalast from the bundle it just built** -- the step whose absence let all three
 v0.5.0 faults ship. Details, including a segfault that turns out to be a
 kalast clone shadowing the installed package, in
 `2026-09-21_a_bundle_that_runs_python.md`.
+
+## 2026-09-21 — and a `.rs` example runs from a release too
+
+"Rust examples need to run too, that's the whole point of the bundle." Two
+independent reasons they could not, both fixed: the generated wrapper
+depended on kalast **by path**, so it needed a clone, and it now depends on
+`= the exact version running` from crates.io; and a machine may have no
+cargo, so the editor installs a minimal toolchain into `toolchain/` beside
+the executable the first time a `.rs` is actually compiled.
+
+A live bug fell out of the first one. `python` is a *default* feature and the
+wrapper never turned defaults off, so a `--no-default-features` host -- which
+is what a bundle is -- would have built a guest *with* pyo3 and refused it at
+load. Invisible in the repository, where the host has `python` too.
+
+Both measured: a bundle compiled `crater_self_shadow/step.rs` against
+crates.io in 1m15s with guest and host fingerprints identical, and with
+`env -i` and an empty `HOME` the bootstrap installed cargo 1.98.1 into
+`toolchain/` (458 MB) and wrote nothing to `$HOME`. `release` now waits for
+`crates`, since a bundle published before the crate it compiles against is a
+bundle whose Rust half cannot work. Details in
+`2026-09-21_a_bundle_that_compiles_rust.md`.

@@ -80,6 +80,43 @@ pub fn package_name(example: &std::path::Path) -> String {
 
 
 
+/// How the generated wrapper reaches kalast: the source tree, or the release.
+///
+/// From a clone, kalast is a **path** dependency on the working directory --
+/// which is what makes the compile button a second-long rebuild rather than
+/// a download, and what lets an edit to the engine show up in a hosted
+/// example immediately.
+///
+/// A release bundle has no source tree, and this used to be the end of it:
+/// cargo said "failed to read <bundle>/Cargo.toml", naming a file nobody had
+/// been told to expect. It is compiled against the crates.io release of the
+/// version running instead, so a `.rs` example works from a download.
+///
+/// `=0.5.0` rather than `0.5`, because `abi_fingerprint` hashes
+/// `CARGO_PKG_VERSION`: a guest resolved one patch ahead of the host would
+/// compile and then be refused at load.
+///
+/// **`default-features = false` in both cases.** `python` is a default
+/// feature, so leaving the default on gave a guest the interpreter a
+/// `--no-default-features` host does not have -- a different `Shared`
+/// layout, and a load refused with "built against a different kalast". It
+/// never showed up in the repository, where the host has `python` too, and
+/// would have broken every hosted build from a bundle.
+fn kalast_dependency(root: &std::path::Path) -> String {
+    let features = if cfg!(feature = "python") {
+        ", features = [\"python\"]"
+    } else {
+        ""
+    };
+    if root.join("Cargo.toml").is_file() && root.join("src").is_dir() {
+        let path = root.to_string_lossy().replace('\\', "/");
+        format!("kalast = {{ path = \"{path}\", default-features = false{features} }}")
+    } else {
+        let version = env!("CARGO_PKG_VERSION");
+        format!("kalast = {{ version = \"={version}\", default-features = false{features} }}")
+    }
+}
+
 /// Write a crate that wraps `example` and exports what the host calls.
 ///
 /// The example is included as a module, so its own `fn main` becomes
@@ -87,28 +124,7 @@ pub fn package_name(example: &std::path::Path) -> String {
 /// generated crate rather than a target in this manifest because a declared
 /// target whose file is missing breaks every cargo command in the repo,
 /// including for someone who never opens the editor.
-/// Hosting a `.rs` compiles it against kalast as a **path** dependency on the
-/// working directory, so it only works from a clone of the repository.
-///
-/// A release bundle is not one, and cargo's complaint there names a file the
-/// user never expected to have -- "failed to load manifest for dependency
-/// `kalast`: failed to read <bundle>/Cargo.toml". Said here instead, before
-/// anything is spawned.
-fn check_source_tree(root: &std::path::Path, example: &std::path::Path) -> Result<(), String> {
-    if root.join("Cargo.toml").is_file() && root.join("src").is_dir() {
-        return Ok(());
-    }
-    Err(format!(
-        "cannot host {}: a .rs example is compiled against kalast as a path \
-         dependency, so it has to run from a clone of the repository, and \
-         {} is not one. Run it from the source tree -- or use a .py example, \
-         which needs only `pip install kalast`.",
-        example.display(),
-        root.display(),
-    ))
-}
-
-pub fn write_wrapper(example: &std::path::Path, features: &str) -> Result<(), String> {
+pub fn write_wrapper(example: &std::path::Path) -> Result<(), String> {
     let dir = wrapper_dir();
     let src = dir.join("src");
     std::fs::create_dir_all(&src).map_err(|e| format!("cannot create {}: {e}", src.display()))?;
@@ -116,12 +132,10 @@ pub fn write_wrapper(example: &std::path::Path, features: &str) -> Result<(), St
     let root = std::env::current_dir()
         .map_err(|e| format!("cannot read the working directory: {e}"))?;
 
-    check_source_tree(&root, example)?;
-
+    let dependency = kalast_dependency(&root);
     let name = package_name(example);
     let example_path = root.join(example);
     let example = example_path.to_string_lossy().replace('\\', "/");
-    let kalast = root.to_string_lossy().replace('\\', "/");
 
     std::fs::write(
         dir.join("Cargo.toml"),
@@ -135,7 +149,7 @@ pub fn write_wrapper(example: &std::path::Path, features: &str) -> Result<(), St
              [lib]\n\
              crate-type = [\"cdylib\"]\n\n\
              [dependencies]\n\
-             kalast = {{ path = \"{kalast}\"{features} }}\n\n\
+             {dependency}\n\n\
              [workspace]\n"
         ),
     )
@@ -208,6 +222,227 @@ pub unsafe extern "C" fn kalast_example(host: *const kalast::app::hosted::HostAp
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// The toolchain
+//
+// A `.rs` example is compiled, so it needs cargo. From a clone that is a
+// given. From a release bundle it is not, and telling the user to go and
+// install Rust would make the executable a set of instructions rather than a
+// program -- so it installs one itself, the first time one is actually
+// needed.
+//
+// Not at first launch: most people never open a `.rs`, and a toolchain is a
+// few hundred megabytes. The trigger is pressing compile on one.
+// ---------------------------------------------------------------------------
+
+/// Where a bundle keeps a toolchain it installed for itself.
+///
+/// In the working directory, beside `target/`, for the reason the wrapper
+/// crate is there: a bundle is run from inside itself, so everything a hosted
+/// build produces stays in the folder the user unpacked and goes away when
+/// they delete it. Nothing is written to `$HOME` and nothing is hidden.
+pub fn toolchain_dir() -> std::path::PathBuf {
+    std::path::Path::new("toolchain").to_path_buf()
+}
+
+/// A cargo this program may run.
+pub struct Toolchain {
+    pub cargo: std::path::PathBuf,
+    /// `CARGO_HOME` and `RUSTUP_HOME` for one we installed. `None` for a
+    /// toolchain already on the machine, which manages its own.
+    pub home: Option<std::path::PathBuf>,
+}
+
+/// The rustup name for the machine this is running on.
+fn host_triple() -> Option<&'static str> {
+    Some(
+        match (std::env::consts::OS, std::env::consts::ARCH) {
+            ("macos", "aarch64") => "aarch64-apple-darwin",
+            ("macos", "x86_64") => "x86_64-apple-darwin",
+            ("linux", "x86_64") => "x86_64-unknown-linux-gnu",
+            ("linux", "aarch64") => "aarch64-unknown-linux-gnu",
+            ("windows", "x86_64") => "x86_64-pc-windows-msvc",
+            ("windows", "aarch64") => "aarch64-pc-windows-msvc",
+            _ => return None,
+        },
+    )
+}
+
+fn runs(cargo: &std::path::Path, home: Option<&std::path::Path>) -> bool {
+    let mut cmd = std::process::Command::new(cargo);
+    cmd.arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    if let Some(home) = home {
+        cmd.env("CARGO_HOME", home.join("cargo"))
+            .env("RUSTUP_HOME", home.join("rustup"));
+    }
+    cmd.status().map(|s| s.success()).unwrap_or(false)
+}
+
+fn cargo_in(home: &std::path::Path) -> std::path::PathBuf {
+    home.join("cargo")
+        .join("bin")
+        .join(format!("cargo{}", std::env::consts::EXE_SUFFIX))
+}
+
+/// A cargo already on this machine, if there is one.
+///
+/// `PATH` first, then the two places a rustup install puts it. Looking in
+/// `~/.cargo/bin` is not belt and braces: a bundle double-clicked in Finder
+/// inherits a `PATH` from `launchd`, not from the shell, so a machine with a
+/// perfectly good toolchain looks empty from there. Downloading a second one
+/// in that case would be the wrong answer to the right question.
+fn existing_cargo() -> Option<Toolchain> {
+    let bare = std::path::Path::new("cargo");
+    if runs(bare, None) {
+        return Some(Toolchain {
+            cargo: bare.to_path_buf(),
+            home: None,
+        });
+    }
+    let homes = [
+        std::env::var_os("CARGO_HOME").map(std::path::PathBuf::from),
+        std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".cargo")),
+        std::env::var_os("USERPROFILE").map(|h| std::path::PathBuf::from(h).join(".cargo")),
+    ];
+    for home in homes.into_iter().flatten() {
+        let cargo = home
+            .join("bin")
+            .join(format!("cargo{}", std::env::consts::EXE_SUFFIX));
+        if cargo.is_file() && runs(&cargo, None) {
+            return Some(Toolchain { cargo, home: None });
+        }
+    }
+    None
+}
+
+/// Install a minimal toolchain under `home`, the way rustup's own installer
+/// does when it is not talking to a terminal.
+///
+/// `--profile minimal` is rustc, cargo and the standard library and nothing
+/// else -- no docs, no clippy, no rustfmt -- because the only thing it is
+/// here to do is build one cdylib. `--no-modify-path` because a program that
+/// edits someone's shell profile behind their back has overstepped; the
+/// toolchain is used by absolute path instead.
+fn install_toolchain(home: &std::path::Path) -> Result<(), String> {
+    let triple = host_triple().ok_or_else(|| {
+        format!(
+            "no rustup build for {}-{}; install Rust yourself from https://rustup.rs",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        )
+    })?;
+    let name = format!("rustup-init{}", std::env::consts::EXE_SUFFIX);
+    let url = format!("https://static.rust-lang.org/rustup/dist/{triple}/{name}");
+
+    std::fs::create_dir_all(home).map_err(|e| format!("cannot create {}: {e}", home.display()))?;
+    let init = home.join(&name);
+
+    println!("no cargo found, and a .rs example has to be compiled.");
+    println!("installing a Rust toolchain into {}", home.display());
+    let mut curl = std::process::Command::new("curl");
+    curl.args(["-sSfL", "--proto", "=https", "--tlsv1.2", "-o"])
+        .arg(&init)
+        .arg(&url);
+    println!("$ {}", show(&curl));
+    match curl.status() {
+        Ok(s) if s.success() => {}
+        Ok(s) => return Err(format!("downloading rustup-init failed ({s}); {url}")),
+        // curl ships with macOS, every Linux desktop and Windows 10 and
+        // later, so this is nearly always "no network" rather than "no
+        // curl" -- but name the URL either way, so it can be done by hand.
+        Err(e) => {
+            return Err(format!(
+                "cannot run curl to download a toolchain ({e}). Fetch {url} \
+                 by hand, or install Rust from https://rustup.rs"
+            ));
+        }
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&init, std::fs::Permissions::from_mode(0o755))
+            .map_err(|e| format!("cannot make {} executable: {e}", init.display()))?;
+    }
+
+    let mut rustup = std::process::Command::new(&init);
+    rustup
+        .args([
+            "-y",
+            "--profile",
+            "minimal",
+            "--no-modify-path",
+            "--default-toolchain",
+            "stable",
+        ])
+        .env("CARGO_HOME", home.join("cargo"))
+        .env("RUSTUP_HOME", home.join("rustup"));
+    println!("$ {}", show(&rustup));
+    println!("(a few hundred MB; it is kept here and reused)");
+    let done = rustup.status();
+    let _ = std::fs::remove_file(&init);
+    match done {
+        Ok(s) if s.success() => Ok(()),
+        Ok(s) => Err(format!("rustup-init exited with {s}")),
+        Err(e) => Err(format!("cannot run {}: {e}", init.display())),
+    }
+}
+
+/// The cargo to build a hosted example with, installing one if this machine
+/// has none.
+pub fn find_or_install_cargo() -> Result<Toolchain, String> {
+    if let Some(found) = existing_cargo() {
+        return Ok(found);
+    }
+    let home = toolchain_dir();
+    let ours = cargo_in(&home);
+    if ours.is_file() && runs(&ours, Some(&home)) {
+        return Ok(Toolchain {
+            cargo: ours,
+            home: Some(home),
+        });
+    }
+    install_toolchain(&home)?;
+    let ours = cargo_in(&home);
+    if !ours.is_file() {
+        return Err(format!(
+            "rustup finished but there is no cargo at {}",
+            ours.display()
+        ));
+    }
+    Ok(Toolchain {
+        cargo: ours,
+        home: Some(home),
+    })
+}
+
+/// What a toolchain cannot supply: the system linker rustc calls at the end.
+///
+/// Worth its own check because the failure is otherwise a wall of `ld` output
+/// after a five-minute compile, and the fix is one command the user has to be
+/// told. Only macOS is checked: a Linux desktop essentially always has `cc`,
+/// and on Windows rustup itself refuses to proceed without the MSVC tools and
+/// says so better than this could.
+fn linker_hint() -> Option<String> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+    let ok = std::process::Command::new("xcode-select")
+        .arg("-p")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    (!ok).then(|| {
+        "no command line tools, so rustc has no linker. Run `xcode-select --install`, \
+         then press compile again."
+            .to_string()
+    })
+}
+
 /// Build that cdylib, **with this build's own feature set**.
 ///
 /// Not optional. The `python` feature changes the layout of `Shared` and
@@ -215,15 +450,11 @@ pub unsafe extern "C" fn kalast_example(host: *const kalast::app::hosted::HostAp
 /// it reads the wrong bytes. The host is the only thing that knows which it
 /// is, so it says so on the command line.
 pub fn build_hosted(example: &std::path::Path, release: bool, busy: Arc<AtomicBool>) {
-    // Matching the host's features is not optional: `python` changes the
-    // layout of `Shared` and `Tick`, and a guest built without it would be
-    // handed an `App` whose fields are somewhere else.
-    let features = if cfg!(feature = "python") {
-        ", features = [\"python\"]"
-    } else {
-        ""
-    };
-    if let Err(e) = write_wrapper(example, features) {
+    // The feature set the wrapper is given is this build's own, decided in
+    // `kalast_dependency`: `python` changes the layout of `Shared` and
+    // `Tick`, and a guest that disagrees is handed an `App` whose fields are
+    // somewhere else.
+    if let Err(e) = write_wrapper(example) {
         println!("{e}");
         busy.store(false, Ordering::SeqCst);
         return;
@@ -233,10 +464,37 @@ pub fn build_hosted(example: &std::path::Path, release: bool, busy: Arc<AtomicBo
     let built = dylib_path_for(&package_name(example), release);
     let target_dir = std::env::current_dir().unwrap_or_default().join(build_dir());
     std::thread::spawn(move || {
-        let mut cmd = std::process::Command::new("cargo");
+        // Everything below happens off the render thread, which matters more
+        // than it used to: from a bundle with no Rust on the machine, the
+        // first of these downloads a toolchain.
+        // The linker first, because it is the one thing a toolchain cannot
+        // supply and checking it costs nothing -- whereas finding out after
+        // downloading a few hundred megabytes would be a poor trade.
+        if let Some(hint) = linker_hint() {
+            println!("build failed: {hint}");
+            busy.store(false, Ordering::SeqCst);
+            return;
+        }
+        let toolchain = match find_or_install_cargo() {
+            Ok(t) => t,
+            Err(e) => {
+                println!("build failed: {e}");
+                busy.store(false, Ordering::SeqCst);
+                return;
+            }
+        };
+
+        let mut cmd = std::process::Command::new(&toolchain.cargo);
         cmd.args(["build", "--color=never", "--manifest-path"])
             .arg(&manifest)
             .env("CARGO_TARGET_DIR", &target_dir);
+        // A toolchain this program installed is reached by absolute path and
+        // has nothing in the environment pointing at it, so both homes have
+        // to be named or its rustup proxy finds no toolchain at all.
+        if let Some(home) = &toolchain.home {
+            cmd.env("CARGO_HOME", home.join("cargo"))
+                .env("RUSTUP_HOME", home.join("rustup"));
+        }
         if release {
             cmd.arg("--release");
         }
@@ -414,7 +672,7 @@ mod tests {
 
         // `write_wrapper` writes under `target/`, relative to the working
         // directory, which for a test is the crate root.
-        write_wrapper(&example, ", features = [\"python\"]").unwrap();
+        write_wrapper(&example).unwrap();
 
         let lib = std::fs::read_to_string(wrapper_dir().join("src/lib.rs")).unwrap();
         assert!(lib.contains("plain.rs"), "it says where it came from");
@@ -429,8 +687,12 @@ mod tests {
         assert!(lib.contains("kalast_abi"), "and the ABI check exported");
 
         let manifest = std::fs::read_to_string(wrapper_dir().join("Cargo.toml")).unwrap();
-        assert!(
+        // `cfg!` and not a literal: the wrapper is given *this* build's
+        // feature set, and the assertion has to follow it or the test only
+        // passes in the default build. See `dependency_tests`.
+        assert_eq!(
             manifest.contains("features = [\"python\"]"),
+            cfg!(feature = "python"),
             "the host's features are passed on, or the layouts disagree"
         );
         assert!(manifest.contains("crate-type = [\"cdylib\"]"));
@@ -440,29 +702,67 @@ mod tests {
 }
 
 #[cfg(test)]
-mod source_tree_tests {
+mod dependency_tests {
     use super::*;
 
-    /// The released executable cannot host a `.rs`, and has to say so itself.
-    /// Reported from the v0.5.0 bundle: `./kalast examples/.../step.rs` ended
-    /// in "failed to read <bundle>/Cargo.toml", a file nobody had ever been
-    /// told to expect.
+    /// A clone compiles against itself, which is what makes the compile
+    /// button a rebuild rather than a download.
     #[test]
-    fn hosting_rust_needs_the_source_tree() {
+    fn a_clone_is_compiled_against_itself() {
         let repo = std::env::current_dir().unwrap();
-        let example = std::path::Path::new("examples/crater_self_shadow/step.rs");
-        assert!(
-            check_source_tree(&repo, example).is_ok(),
-            "the repository itself must count as a source tree"
-        );
+        let dep = kalast_dependency(&repo);
+        assert!(dep.contains("path = "), "{dep}");
+        assert!(!dep.contains("version = "), "{dep}");
+    }
 
+    /// And a bundle, which has no source tree, against the release. Reported
+    /// from v0.5.0: `./kalast examples/.../step.rs` ended in "failed to read
+    /// <bundle>/Cargo.toml", a file nobody had been told to expect.
+    #[test]
+    fn a_bundle_is_compiled_against_the_release() {
         let bundle = std::env::temp_dir().join(format!("kalast_bundle_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&bundle);
         std::fs::create_dir_all(&bundle).unwrap();
-        let err = check_source_tree(&bundle, example).unwrap_err();
-        std::fs::remove_dir_all(&bundle).ok();
+        let dep = kalast_dependency(&bundle);
+        let _ = std::fs::remove_dir_all(&bundle);
 
-        assert!(err.contains("clone of the repository"), "{err}");
-        assert!(err.contains("pip install kalast"), "points at what does work: {err}");
-        assert!(!err.contains("Cargo.toml"), "must not name a file the user has no reason to have: {err}");
+        assert!(!dep.contains("path = "), "nothing to point a path at: {dep}");
+        assert!(
+            dep.contains(&format!("version = \"={}\"", env!("CARGO_PKG_VERSION"))),
+            "pinned exactly, because abi_fingerprint hashes the version and a \
+             guest one patch ahead would be refused at load: {dep}"
+        );
+    }
+
+    /// The bug this would have caused, had the registry dependency been
+    /// added without it: `python` is a *default* feature, so a wrapper that
+    /// does not turn defaults off gives the guest an interpreter the
+    /// `--no-default-features` host has not got. Different `Shared` layout,
+    /// and every hosted build from a bundle refused at load with "built
+    /// against a different kalast".
+    #[test]
+    fn defaults_are_off_and_the_host_s_features_named_explicitly() {
+        let repo = std::env::current_dir().unwrap();
+        for dep in [kalast_dependency(&repo), kalast_dependency(std::path::Path::new("/"))] {
+            assert!(dep.contains("default-features = false"), "{dep}");
+            assert_eq!(
+                dep.contains("features = [\"python\"]"),
+                cfg!(feature = "python"),
+                "the guest gets exactly the host's feature set: {dep}"
+            );
+        }
+    }
+
+    /// Every platform the release builds an executable for has to be one
+    /// rustup publishes an installer for, or a bundle there cannot compile a
+    /// `.rs` at all.
+    #[test]
+    fn rustup_has_a_build_for_this_machine() {
+        assert!(
+            host_triple().is_some(),
+            "no rustup triple for {}-{}",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        );
     }
 }

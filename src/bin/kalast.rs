@@ -221,7 +221,9 @@ fn run_script(app: &Rc<RefCell<kalast::app::App>>, path: &str, _source: &str) {
 ///
 /// Not `#[cfg]`-gated, unlike its caller, so that the test below runs in an
 /// ordinary `cargo test` -- the default build has the `python` feature, and a
-/// guard compiled out is a guard nobody checks.
+/// guard compiled out is a guard nobody checks. Which is also why it is dead
+/// code in that build, and says so rather than warning every time.
+#[cfg_attr(feature = "python", allow(dead_code))]
 fn python_beside(dir: &std::path::Path) -> Option<std::path::PathBuf> {
     let candidate = if cfg!(windows) {
         dir.join("python").join("python.exe")
