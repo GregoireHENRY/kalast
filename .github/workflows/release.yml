@@ -270,11 +270,18 @@ jobs:
           set -euo pipefail
           if [ "${{ runner.os }}" = "Windows" ]; then
             cp target/release/kalast.exe "dist/${{ env.name }}/"
-            # Windows resolves a DLL by name and searches the executable's
-            # own directory, but not `python/`, so libpython has to sit
-            # beside it. Same file, loaded once.
-            v="${PBS_PYTHON%.*}"
-            cp "dist/${{ env.name }}/python/python${v//./}.dll" "dist/${{ env.name }}/"
+            # Windows resolves a DLL by name, searching the executable's own
+            # directory but not `python/`, so libpython has to sit beside it.
+            #
+            # *All* of them, not `python314.dll` alone: with `abi3-py314`
+            # pyo3 links the stable-ABI forwarder `python3.dll`, which then
+            # loads `python314.dll`, and there is a C runtime beside them
+            # too. Copying only the versioned one left an executable that
+            # did not start at all -- Git Bash reports that as exit 127,
+            # which reads like the file is missing when it is a dependency
+            # that is.
+            cp "dist/${{ env.name }}"/python/*.dll "dist/${{ env.name }}/"
+            ls "dist/${{ env.name }}"/*.dll
           else
             cp target/release/kalast "dist/${{ env.name }}/"
           fi
@@ -290,7 +297,13 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ runner.os }}" = "Windows" ]; then exe=kalast.exe; else exe=kalast; fi
-          "./dist/${{ env.name }}/$exe" --python-check
+          # On a failure to *start* -- a dependency the loader cannot find --
+          # there is no output at all, so say what is there before giving up.
+          "./dist/${{ env.name }}/$exe" --python-check || {
+            echo "::error::the executable did not start; its directory holds:"
+            ls -l "dist/${{ env.name }}"
+            exit 1
+          }
 
       # Built by the executable that is about to ship, not by a recipe
       # written here: `--precompile` runs the editor's own `write_wrapper`

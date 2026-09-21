@@ -96,3 +96,32 @@ embedded interpreter OK: kalast 0.5.1
 and a script run through the editor wrote `pid 73179  frames 60  lit 98.1 %`
 from **the editor's own process**, with no `$ … -m kalast` line and nothing
 closed or reopened.
+
+## What the first rehearsal caught
+
+Run 35604620915, `workflow_dispatch`: macOS arm64, macOS x86_64 and Linux
+green through every new step -- the executable linked against the bundle's
+interpreter, `--python-check` started it with no display, the guest compiled
+with a matching configuration, and the version assertion passed. `$ORIGIN`
+reached the linker intact on Linux, which was the piece that could not be
+tested from a Mac.
+
+**Windows failed, and the symptom was worth the trip.** `--python-check`
+ended in
+
+```
+##[error]Process completed with exit code 127
+```
+
+with no output at all. Exit 127 from Git Bash on an `.exe` that plainly
+exists means a **dependency** the loader could not find, not a missing
+file -- and the `cp` of `python314.dll` had succeeded, so the executable was
+there with a libpython beside it.
+
+The one it actually wants is `python3.dll`: with `abi3-py314` pyo3 links
+the stable-ABI forwarder, which then loads `python314.dll`, and there is a C
+runtime beside them as well. Every DLL at the root of `python/` now goes
+beside the executable. And because a failure to *start* prints nothing at
+all, the step lists the directory before giving up, so the next version of
+this is one log read rather than two.
+
