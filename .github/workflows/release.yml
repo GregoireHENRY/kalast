@@ -170,10 +170,12 @@ jobs:
             cp target/release/kalast "dist/$name/"
           fi
 
-          # `res/` is read at runtime -- the bundled examples load meshes from
-          # it by relative path. `shaders/` is compiled into the binary and
-          # ships to be read and edited, not because anything looks for it.
-          cp -r res examples notes shaders "dist/$name/"
+          # `res/` is read at runtime. `examples/` and `notes/` are to read
+          # and to run. `shaders/` is *not* shipped: every one of them is
+          # compiled into the binary by `include_wgsl!`, so a copy in the
+          # bundle can be edited all day and change nothing -- which is worse
+          # than not having it.
+          cp -r res examples notes "dist/$name/"
           # The README here is reStructuredText, not Markdown.
           cp README.rst pyproject.toml "dist/$name/"
           echo "name=$name" >> "$GITHUB_ENV"
@@ -291,8 +293,9 @@ jobs:
             | | |
             |---|---|
             | `kalast` / `kalast.exe` | the editor. Open it on its own, or give it a `.obj` to render, or a `.py` once the package below is installed |
+            | | A `.rs` example needs cargo **and** a clone of the repository — it is compiled against kalast as a path dependency — so it is the one thing this executable cannot do |
             | `res/` | the meshes and colour maps the examples load |
-            | `examples/`, `notes/`, `shaders/`, `README.rst` | to read, run and edit |
+            | `examples/`, `notes/`, `README.rst` | to read and to run |
 
             The executable carries no Python, which is what makes it one file
             that starts anywhere. Hand it a `.py` and it passes it to an

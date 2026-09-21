@@ -2563,3 +2563,37 @@ registered, answering the last open question from the Mac handoff.
 
 **0.5.0 is burned on both registries now**; any further fix is 0.5.1. First
 release of kalast above 0.4.1, and the first through this workflow.
+
+## 2026-09-21 — the v0.5.0 bundle, actually run
+
+Nothing in the pipeline runs the executable it ships, so the first person to
+try it was the user, on the released macos-arm64 archive. The editor opens.
+The two examples did not, each for its own reason, and both messages named
+the wrong thing:
+
+- **`./kalast examples/.../step.rs`** ended in *"failed to read
+  `<bundle>/Cargo.toml`"*. Hosting a `.rs` generates a wrapper crate that
+  depends on kalast **by path**, at the working directory, so it needs a clone
+  of the repository and a cargo toolchain -- neither of which is in a bundle,
+  and `Cargo.toml` is a file the user had no reason to expect. `write_wrapper`
+  checks for the source tree first now and says that, pointing at `.py` as the
+  thing that does work. `check_source_tree` is unit-tested against the repo
+  and against an empty directory.
+- **`./kalast examples/.../step.py`** printed Python's *"No module named
+  kalast"*. The no-interpreter build hands a `.py` to `python -m kalast`, and
+  it spawned and walked away, so the interpreter answered into a terminal
+  after our own window had closed -- and answered the wrong question, since
+  the interpreter existed and the package did not. It runs `import kalast`
+  first now, and if that fails says `pip install kalast` and names the
+  interpreter it tried.
+
+**`shaders/` is out of the bundle.** Every shader is compiled into the binary
+by `include_wgsl!`, so the copy in the archive could be edited all day and
+change nothing, which is worse than not shipping it. It was in the original
+request and I shipped it without saying that; the workflow now says why it
+does not.
+
+None of this is in v0.5.0 -- the fixes are for the next tag. **The gap that
+produced all three is that the release workflow builds an executable nobody
+ever runs**, on any platform. A smoke step is hard (the runners have no
+display) but downloading the artefact and giving it a `.obj` is not.

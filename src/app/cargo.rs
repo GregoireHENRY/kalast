@@ -87,6 +87,27 @@ pub fn package_name(example: &std::path::Path) -> String {
 /// generated crate rather than a target in this manifest because a declared
 /// target whose file is missing breaks every cargo command in the repo,
 /// including for someone who never opens the editor.
+/// Hosting a `.rs` compiles it against kalast as a **path** dependency on the
+/// working directory, so it only works from a clone of the repository.
+///
+/// A release bundle is not one, and cargo's complaint there names a file the
+/// user never expected to have -- "failed to load manifest for dependency
+/// `kalast`: failed to read <bundle>/Cargo.toml". Said here instead, before
+/// anything is spawned.
+fn check_source_tree(root: &std::path::Path, example: &std::path::Path) -> Result<(), String> {
+    if root.join("Cargo.toml").is_file() && root.join("src").is_dir() {
+        return Ok(());
+    }
+    Err(format!(
+        "cannot host {}: a .rs example is compiled against kalast as a path \
+         dependency, so it has to run from a clone of the repository, and \
+         {} is not one. Run it from the source tree -- or use a .py example, \
+         which needs only `pip install kalast`.",
+        example.display(),
+        root.display(),
+    ))
+}
+
 pub fn write_wrapper(example: &std::path::Path, features: &str) -> Result<(), String> {
     let dir = wrapper_dir();
     let src = dir.join("src");
@@ -94,6 +115,9 @@ pub fn write_wrapper(example: &std::path::Path, features: &str) -> Result<(), St
 
     let root = std::env::current_dir()
         .map_err(|e| format!("cannot read the working directory: {e}"))?;
+
+    check_source_tree(&root, example)?;
+
     let name = package_name(example);
     let example_path = root.join(example);
     let example = example_path.to_string_lossy().replace('\\', "/");
@@ -412,5 +436,33 @@ mod tests {
         assert!(manifest.contains("crate-type = [\"cdylib\"]"));
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod source_tree_tests {
+    use super::*;
+
+    /// The released executable cannot host a `.rs`, and has to say so itself.
+    /// Reported from the v0.5.0 bundle: `./kalast examples/.../step.rs` ended
+    /// in "failed to read <bundle>/Cargo.toml", a file nobody had ever been
+    /// told to expect.
+    #[test]
+    fn hosting_rust_needs_the_source_tree() {
+        let repo = std::env::current_dir().unwrap();
+        let example = std::path::Path::new("examples/crater_self_shadow/step.rs");
+        assert!(
+            check_source_tree(&repo, example).is_ok(),
+            "the repository itself must count as a source tree"
+        );
+
+        let bundle = std::env::temp_dir().join(format!("kalast_bundle_{}", std::process::id()));
+        std::fs::create_dir_all(&bundle).unwrap();
+        let err = check_source_tree(&bundle, example).unwrap_err();
+        std::fs::remove_dir_all(&bundle).ok();
+
+        assert!(err.contains("clone of the repository"), "{err}");
+        assert!(err.contains("pip install kalast"), "points at what does work: {err}");
+        assert!(!err.contains("Cargo.toml"), "must not name a file the user has no reason to have: {err}");
     }
 }

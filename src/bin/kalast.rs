@@ -127,6 +127,27 @@ fn run_script(app: &Rc<RefCell<kalast::app::App>>, path: &str, _source: &str) {
     };
     let mut tried = Vec::new();
     for exe in interpreters {
+        // Ask whether the package is there before handing the script over.
+        // Spawning and walking away leaves the interpreter to say "No module
+        // named kalast" into a terminal the user may not be watching, after
+        // this window has already closed -- and it is the wrong question
+        // answered: the interpreter exists, the package is what is missing.
+        match std::process::Command::new(&exe)
+            .args(["-c", "import kalast"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+        {
+            Ok(s) if s.success() => {}
+            Ok(_) => {
+                tried.push(format!("{exe}: found, but it has no kalast package"));
+                continue;
+            }
+            Err(e) => {
+                tried.push(format!("{exe}: {e}"));
+                continue;
+            }
+        }
         println!("$ {exe} -m kalast {path}");
         match std::process::Command::new(&exe)
             .args(["-m", "kalast", path])
@@ -140,10 +161,11 @@ fn run_script(app: &Rc<RefCell<kalast::app::App>>, path: &str, _source: &str) {
         }
     }
     eprintln!(
-        "cannot run {path}: this build has no interpreter, and none was found \
-         to hand it to ({}).\n  \
-         build with the default features to run Python here, or set \
-         KALAST_PYTHON.",
+        "cannot run {path}: this build has no interpreter of its own, and no \
+         usable one was found to hand it to ({}).\n  \
+         Install the package -- `pip install kalast` -- into the interpreter \
+         you want used, and set KALAST_PYTHON to it if it is not the `python` \
+         on PATH.",
         tried.join("; ")
     );
 }
