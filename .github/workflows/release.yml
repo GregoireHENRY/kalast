@@ -154,6 +154,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
+          # The hosted wrapper builds kalast a second time into a target
+          # directory of its own -- deliberately, so a `python`-featured
+          # guest cannot land beside a plain one -- and without this that
+          # second build starts from nothing every run.
+          cache-directories: target/kalast-hosted
 
       # winit and wgpu link X11, Wayland and Vulkan at build time; the runner
       # image carries none of the -dev packages.
@@ -191,17 +196,26 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "dist/${{ env.name }}"
           base="cpython-${PBS_PYTHON}+${PBS_RELEASE}-${{ matrix.pbs }}-install_only_stripped.tar.gz"
           curl -sSfL -o python.tar.gz \
             "https://github.com/astral-sh/python-build-standalone/releases/download/${PBS_RELEASE}/${base}"
-          # Unpacks as `python/`, which is where `bundled_python_dir` looks.
-          tar -xzf python.tar.gz -C "dist/${{ env.name }}"
+          # Into `runtime/python`, a path with **no version and no commit in
+          # it**, and only moved into the bundle once the build is done.
+          #
+          # This is not tidiness. The executable is linked with
+          # `-L native=<here>/lib`, and cargo fingerprints every crate on
+          # `RUSTFLAGS` -- so while this path was `dist/kalast-dev-<sha>-…`
+          # it changed on every push, nothing was ever reused from
+          # `Swatinem/rust-cache`, and all ~200 dependencies rebuilt every
+          # run. That is what took `executable macos-x86_64` from 4 minutes
+          # to 24.
+          rm -rf runtime && mkdir -p runtime
+          tar -xzf python.tar.gz -C runtime
 
           if [ "${{ runner.os }}" = "Windows" ]; then
-            py="dist/${{ env.name }}/python/python.exe"
+            py="runtime/python/python.exe"
           else
-            py="dist/${{ env.name }}/python/bin/python3"
+            py="runtime/python/bin/python3"
           fi
           "$py" -V
 
@@ -215,8 +229,8 @@ jobs:
           "$py" -m pip -q install -r tools/bundle-requirements.txt
           "$py" -m pip -q install --no-deps wheel/*.whl
 
-          find "dist/${{ env.name }}/python" -name '__pycache__' -type d -prune -exec rm -rf {} + || true
-          find "dist/${{ env.name }}/python" -type d \( -name tests -o -name test \) -prune \
+          find runtime/python -name '__pycache__' -type d -prune -exec rm -rf {} + || true
+          find runtime/python -type d \( -name tests -o -name test \) -prune \
             -exec rm -rf {} + || true
 
       # **With** the `python` feature, linked against the interpreter above.
@@ -236,7 +250,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          root="$PWD/dist/${{ env.name }}/python"
+          root="$PWD/runtime/python"
           case "${{ runner.os }}" in
             Windows)
               export PYO3_PYTHON="$root/python.exe"
@@ -264,10 +278,13 @@ jobs:
 
       # Into the bundle before it is run at all: it finds its libpython
       # beside itself, so from `target/release` it would not start.
-      - name: Put the executable in the bundle
+      - name: Put the interpreter and the executable in the bundle
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p "dist/${{ env.name }}"
+          # Moved, not copied: it is 400 MB and nothing needs it twice.
+          mv runtime/python "dist/${{ env.name }}/python"
           if [ "${{ runner.os }}" = "Windows" ]; then
             cp target/release/kalast.exe "dist/${{ env.name }}/"
             # Windows resolves a DLL by name, searching the executable's own

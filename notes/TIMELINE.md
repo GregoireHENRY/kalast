@@ -2762,3 +2762,37 @@ interpreter and dies -- which it did, and the rehearsal reported success
 anyway because `is_current` is a timestamp check and the bundle had been
 handed dylibs from 9 September. Details in
 `2026-09-21_the_editor_stopped_respawning_itself.md`.
+
+## 2026-09-21 — v0.5.2, and a CI bill that was self-inflicted
+
+Run 35610973139 green in every job. Verified on the **published** archive,
+which is the point: launching `./kalast examples/crater_self_shadow/step.py`
+leaves the process it started running, prints no `-m kalast` line, and opens
+one window. On v0.5.1 that process exited and a second one replaced it.
+
+Two rehearsals were needed. The first (35604620915) failed on Windows with
+`exit code 127` and no output at all -- Git Bash's way of saying a
+**dependency** could not be loaded, not the file itself. `abi3-py314` makes
+pyo3 link `python3.dll`, the stable-ABI forwarder, and only
+`python314.dll` had been copied beside the executable; `vcruntime140.dll`
+and `vcruntime140_1.dll` were needed too. Every DLL at `python/`'s root goes
+beside it now, and the step lists the directory on failure so the next one
+is a single log read.
+
+**And the release took 28 minutes when v0.5.1 took 9.** Not the price of
+publishing -- the publish jobs are about two minutes between them. The
+executable is linked with `-L native=<path>/lib`, that path was
+`dist/kalast-dev-<sha>-<target>/python/lib`, and cargo fingerprints every
+crate on `RUSTFLAGS`: a new commit meant a new path meant all ~200
+dependencies rebuilding, every run. `executable macos-x86_64` went from 4
+minutes to 24. The interpreter is now unpacked to `runtime/python`, a path
+with no version or commit in it, and moved into the bundle once the build is
+done; `target/kalast-hosted` is cached as well, since the hosted wrapper
+compiles kalast a second time into a target directory of its own.
+
+Two things still worth doing. **Bump before rehearsing**, so the tagged
+commit is the one that was rehearsed -- today's tag pointed at a commit
+whose pipeline had never run, and while the delta was three version strings
+that is the same shape of gap that let v0.5.0 out. And artefact reuse across
+runs, which is only worth its complexity once the above is measured, because
+it buys those last two minutes and nothing more.
