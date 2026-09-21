@@ -35,7 +35,7 @@ per platform. Unpack it and run it from inside the folder:
 
 .. code:: sh
 
-    ./kalast                                   # the editor
+    ./kalast                                   # the kalast UI app
     ./kalast examples/two_spheres/main.py      # a Python example
     ./kalast examples/crater_self_shadow/step.rs   # a Rust one
     ./kalast some/shape.obj                    # a mesh
@@ -43,8 +43,8 @@ per platform. Unpack it and run it from inside the folder:
 There is nothing to install and nothing is written outside the folder. The
 archive carries its own Python, with kalast and its dependencies already in
 it, and the ``.rs`` examples come compiled. Editing one, or opening a ``.rs``
-of your own, means compiling it: if the machine has no cargo the editor
-fetches a minimal toolchain into ``toolchain/`` beside the executable and
+of your own, means compiling it: if the machine has no cargo the kalast UI
+app fetches a minimal toolchain into ``toolchain/`` beside the executable and
 reuses it afterwards. On macOS that also wants Apple's command line tools for
 the linker (``xcode-select --install``).
 
