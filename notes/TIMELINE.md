@@ -2820,3 +2820,28 @@ is why two rehearsals and a release never saw it: a GitHub workspace is
 `/home/runner/work/…` or `D:\a\…` and never contains a space. **The runtime
 path is the user's; the CI path is not.** Worth remembering the next time
 something passes CI and fails on a download.
+
+## 2026-09-21 — `import kalast` stopped loading the plotting stack
+
+`kalast/plot` and `kalast/tpm` imported all their submodules eagerly, so a
+script that only rendered a mesh loaded matplotlib, scipy and pyarrow --
+229 of the bundle's 283 MB of site-packages. Both defer through PEP 562
+now; `import kalast` reaches numpy and spiceypy and nothing else, every old
+spelling still resolves, and `tests/test_lazy_imports.py` pins both halves
+in fresh interpreters.
+
+Deferring alone saves nothing -- it makes the packages optional, and the
+bundle shrinks only if they stop being shipped. **pyarrow goes: 120 MB, and
+only `kalast.plot.tool` wants it, which no shipped example calls.** scipy
+and matplotlib stay, because three examples in the bundle plot and two of
+them solve. Also corrected: `tpm/implicit` is not dead code, whatever its
+docstring's historical note says -- `analytical/sinusoidal.py` calls it.
+
+Stripping takes another 14 MB, verified to keep `kalast_abi` and
+`kalast_example` exported and the libraries loadable, which the workflow
+now checks on every build. Together about 134 MB off every archive.
+
+Not done, and recorded in the note: one shared `libkalast.dylib` would save
+54 MB more and is the wrong trade, because Rust's dylib ABI is unstable and
+a user rebuilding a `.rs` uses their own rustc -- which is the whole reason
+the host/guest boundary is a C ABI with a fingerprint.

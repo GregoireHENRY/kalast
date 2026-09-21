@@ -385,6 +385,44 @@ jobs:
           # first -- an ordering nothing else in this file depends on.
           touch "dist/$name/$hosted"/*."$ext"
 
+      # 3 MB off the executable, 3.7 off the extension module and 3.5 off
+      # each hosted library -- about 14 MB, for symbol names in a crash
+      # backtrace. Done before the checks below, so what they exercise is
+      # exactly what ships.
+      #
+      # Windows keeps its symbols in `.pdb` files that are not shipped, so
+      # there is nothing there to strip.
+      - name: Strip what we ship
+        if: runner.os != 'Windows'
+        shell: bash
+        working-directory: dist/${{ env.name }}
+        run: |
+          set -euo pipefail
+          if [ "${{ runner.os }}" = "macOS" ]; then ext=dylib; flags="-x"
+          else ext=so; flags="--strip-unneeded"; fi
+
+          hosted=target/kalast-hosted/python/release
+          before=$(du -sm . | cut -f1)
+          # shellcheck disable=SC2086
+          strip $flags kalast python/lib/python*/site-packages/kalast/_rs.abi3.so "$hosted"/*."$ext"
+          echo "bundle $before MB -> $(du -sm . | cut -f1) MB"
+
+          # `strip -x` and `--strip-unneeded` both keep exported symbols --
+          # but a library that lost `kalast_abi` would still *load*, and the
+          # editor would report "exports no kalast_abi" to a user rather
+          # than to this job. Cheap to be sure.
+          for lib in "$hosted"/*."$ext"; do
+            for want in kalast_abi kalast_example; do
+              if [ "${{ runner.os }}" = "macOS" ]; then found=$(nm -gU "$lib" | grep -c "_$want" || true)
+              else found=$(nm -D "$lib" | grep -c " $want" || true); fi
+              [ "$found" -ge 1 ] || {
+                echo "::error::$lib no longer exports $want after stripping"
+                exit 1
+              }
+            done
+          done
+          echo "the hosted libraries still export what the loader checks"
+
       # Nothing in this workflow used to run what it published, and all
       # three faults a user hit in v0.5.0 would have shown up here.
       - name: Import kalast from the bundle

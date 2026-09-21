@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Re-derive `tools/bundle-requirements.txt`.
+"""Re-derive the *import closure* half of `tools/bundle-requirements.txt`.
 
 A release bundle carries its own interpreter, and what has to be installed in
 it is not `pyproject.toml`'s dependency list -- that is what a *developer*
@@ -15,7 +15,11 @@ names, until the import returns.
 
 Prints the packages in the order they were demanded, and the size of the
 result. Writing the file is left to a human, because the pinned lower bounds
-in it are a judgement rather than a measurement.
+in it are a judgement rather than a measurement -- and because the closure
+is only half the list. The other half is what the *shipped examples* call,
+which no import of `kalast` reveals: `kalast.plot` and `kalast.tpm` defer
+their submodules, so matplotlib and scipy do not appear here even though
+three examples in the bundle need them.
 """
 
 import argparse
