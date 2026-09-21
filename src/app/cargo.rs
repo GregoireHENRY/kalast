@@ -463,6 +463,76 @@ pub fn build_hosted(example: &std::path::Path, release: bool, busy: Arc<AtomicBo
     });
 }
 
+/// Point a hosted build at the interpreter a release bundle carries.
+///
+/// A bundle's executable is linked against the interpreter in the bundle, so
+/// it has the `python` feature -- and `abi_fingerprint` hashes that, so the
+/// guest must have it too, so the guest links libpython as well. Three
+/// things it cannot work out on its own:
+///
+/// - **Which interpreter.** pyo3's build script introspects whatever
+///   `python3` it finds on `PATH` unless told otherwise, and a guest
+///   configured against a different one is a guest the host may refuse.
+/// - **Where the library is.** python-build-standalone reports its `LIBDIR`
+///   as `/install/lib`, the path inside the container it was built in, so
+///   pyo3 emits `-lpython3.14` against a search path that does not exist
+///   and the link fails with `library 'python3.14' not found`.
+/// - **Where to find it at run time.** Its install name is
+///   `@rpath/libpython3.14.dylib`, and the guest resolves that with its own
+///   rpath rather than the host's. Counted back from
+///   `target/kalast-hosted/python/release/`, the bundle's interpreter is
+///   four directories up -- relative to the library rather than absolute,
+///   so the libraries a release ships keep working when the bundle is
+///   moved, which a path baked in on a release runner would not.
+///
+/// And one thing it must *not* inherit. `PYTHONHOME` is set in this process
+/// so that the interpreter linked into *it* finds its standard library; a
+/// child that runs a different interpreter is broken by it, which is
+/// exactly what happened -- pyo3's build script died with "Python script
+/// failed" and the whole precompile step reported `2 failed`.
+///
+/// Does nothing from a clone, where the developer's own Python is
+/// configured correctly and none of this applies.
+fn configure_for_bundled_python(cmd: &mut std::process::Command) {
+    let Some(python) = crate::app::bundled_python_dir() else {
+        return;
+    };
+    let interpreter = if cfg!(windows) {
+        python.join("python.exe")
+    } else {
+        python.join("bin").join("python3")
+    };
+    cmd.env("PYO3_PYTHON", &interpreter);
+    cmd.env_remove("PYTHONHOME");
+
+    // Windows keeps the import library in `libs` and resolves DLLs by name
+    // rather than by path, and the host has already loaded this one by the
+    // time it opens the guest -- so there is no rpath to add.
+    let flags = if cfg!(windows) {
+        format!("-L native={}", python.join("libs").display())
+    } else {
+        let origin = if cfg!(target_os = "macos") {
+            "@loader_path"
+        } else {
+            "$ORIGIN"
+        };
+        format!(
+            "-L native={} -C link-arg=-Wl,-rpath,{origin}/../../../../python/lib",
+            python.join("lib").display(),
+        )
+    };
+    // Appended rather than assigned: someone may have their own, and this
+    // returns early from a clone anyway.
+    let mut all = std::env::var("RUSTFLAGS").unwrap_or_default();
+    if !all.is_empty() {
+        all.push(' ');
+    }
+    all.push_str(&flags);
+    println!("  PYO3_PYTHON={}", interpreter.display());
+    println!("  RUSTFLAGS={all}");
+    cmd.env("RUSTFLAGS", all);
+}
+
 /// The same build, run here rather than on a thread, for a caller with no
 /// window: `kalast --precompile`, which is how a release bundle arrives with
 /// its `.rs` examples already built.
@@ -505,6 +575,7 @@ pub fn build_hosted_blocking(
     if release {
         cmd.arg("--release");
     }
+    configure_for_bundled_python(&mut cmd);
     println!("$ {}", show(&cmd));
     match cmd.status() {
         Ok(s) if s.success() => Ok(dylib_path_for(&package_name(example), release)),

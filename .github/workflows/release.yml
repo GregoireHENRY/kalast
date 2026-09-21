@@ -166,36 +166,9 @@ jobs:
             libxkbcommon-dev libwayland-dev wayland-protocols \
             libgl1-mesa-dev libvulkan-dev
 
-      - name: Build the editor
-        run: cargo build --release --bin kalast --no-default-features
-
-      # The shape the executable is built in, so a break in it fails the tag
-      # rather than the download. One platform: the same code three times
-      # buys minutes, not coverage.
-      - name: Engine tests
-        if: runner.os == 'Linux'
-        run: cargo test --release --lib --no-default-features
-
-      # Built by the executable that is about to ship, not by a recipe
-      # written here: `--precompile` runs the editor's own `write_wrapper`
-      # and `build_hosted_blocking`, so the libraries land in the directory
-      # `is_current` looks in, with the feature set it expects. A second
-      # recipe in YAML would drift, and the way it would show up is the
-      # editor silently recompiling everything the bundle shipped.
-      #
-      # `examples/old/` is skipped. README calls those superseded and not
-      # user-facing, and five of the seven `.rs` files under `examples/`
-      # are there -- none of them compiles against the current API.
-      - name: Precompile the Rust examples
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ "${{ runner.os }}" = "Windows" ]; then exe=target/release/kalast.exe
-          else exe=target/release/kalast; fi
-          find examples -name '*.rs' -not -path 'examples/old/*' -print0 \
-            | xargs -0 "$exe" --precompile
-
-      - name: Assemble the bundle
+      # Named first: the interpreter goes into the bundle *before* the
+      # executable is built, and everything after this refers to it.
+      - name: Name the bundle
         shell: bash
         run: |
           set -euo pipefail
@@ -204,38 +177,7 @@ jobs:
           else
             version="dev-${GITHUB_SHA:0:7}"
           fi
-          name="kalast-${version}-${{ matrix.target }}"
-          mkdir -p "dist/$name"
-
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            cp target/release/kalast.exe "dist/$name/"
-          else
-            cp target/release/kalast "dist/$name/"
-          fi
-
-          # `res/` is read at runtime. `examples/` and `notes/` are to read
-          # and to run. `shaders/` is *not* shipped: every one of them is
-          # compiled into the binary by `include_wgsl!`, so a copy in the
-          # bundle can be edited all day and change nothing -- which is worse
-          # than not having it.
-          cp -r res examples notes "dist/$name/"
-          # The README here is reStructuredText, not Markdown.
-          cp README.rst pyproject.toml "dist/$name/"
-
-          # The hosted libraries, at the one path the editor looks for them.
-          # `dylib_path_for` builds it from `build_dir()`, so a library
-          # anywhere else is one the editor ignores and recompiles -- which
-          # is the whole point of shipping them. `plain` because the
-          # executable is built `--no-default-features`.
-          case "${{ runner.os }}" in
-            Windows) ext=dll ;;
-            macOS)   ext=dylib ;;
-            *)       ext=so ;;
-          esac
-          hosted=target/kalast-hosted/plain/release
-          mkdir -p "dist/$name/$hosted"
-          cp "$hosted"/*."$ext" "dist/$name/$hosted/"
-          echo "name=$name" >> "$GITHUB_ENV"
+          echo "name=kalast-${version}-${{ matrix.target }}" >> "$GITHUB_ENV"
 
       # The wheel built by this run, for this platform, rather than whatever
       # PyPI happens to hold: on a first tag PyPI does not have it yet, and
@@ -249,10 +191,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p "dist/${{ env.name }}"
           base="cpython-${PBS_PYTHON}+${PBS_RELEASE}-${{ matrix.pbs }}-install_only_stripped.tar.gz"
           curl -sSfL -o python.tar.gz \
             "https://github.com/astral-sh/python-build-standalone/releases/download/${PBS_RELEASE}/${base}"
-          # Unpacks as `python/`, which is where `python_beside` looks.
+          # Unpacks as `python/`, which is where `bundled_python_dir` looks.
           tar -xzf python.tar.gz -C "dist/${{ env.name }}"
 
           if [ "${{ runner.os }}" = "Windows" ]; then
@@ -276,10 +219,138 @@ jobs:
           find "dist/${{ env.name }}/python" -type d \( -name tests -o -name test \) -prune \
             -exec rm -rf {} + || true
 
-      # Nothing in this workflow used to run what it published, and all three
-      # faults a user hit in v0.5.0 would have shown up here. A window cannot
-      # be opened on a runner, so this is the import -- which is exactly what
-      # failed -- and not the render.
+      # **With** the `python` feature, linked against the interpreter above.
+      # That is what lets a `.py` run in the window already open. Without it
+      # the executable had no interpreter, handed the script to a second
+      # process, and closed its own window to make way for it -- which is
+      # what users saw, and is the opposite of the rule in CLAUDE.md that
+      # Rust owns the loop and calls Python for the interpreter.
+      #
+      # Neither flag is optional. python-build-standalone reports its
+      # `LIBDIR` as `/install/lib`, the path inside the container it was
+      # built in, so pyo3 emits `-lpython3.14` against a search path that
+      # does not exist -- hence `-L native=`. And libpython's install name
+      # is `@rpath/libpython3.14.dylib`, so the rpath is what makes the
+      # result look beside itself instead of at a directory on this runner.
+      - name: Build the editor
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$PWD/dist/${{ env.name }}/python"
+          case "${{ runner.os }}" in
+            Windows)
+              export PYO3_PYTHON="$root/python.exe"
+              export RUSTFLAGS="-L native=$root/libs"
+              ;;
+            macOS)
+              export PYO3_PYTHON="$root/bin/python3"
+              export RUSTFLAGS="-L native=$root/lib -C link-arg=-Wl,-rpath,@executable_path/python/lib"
+              ;;
+            *)
+              export PYO3_PYTHON="$root/bin/python3"
+              export RUSTFLAGS="-L native=$root/lib -C link-arg=-Wl,-rpath,\$ORIGIN/python/lib"
+              ;;
+          esac
+          echo "PYO3_PYTHON=$PYO3_PYTHON"
+          echo "RUSTFLAGS=$RUSTFLAGS"
+          cargo build --release --bin kalast
+
+      # The engine alone, which is still a supported build and the shape the
+      # audit was written for. One platform: the same code three times buys
+      # minutes, not coverage.
+      - name: Engine tests
+        if: runner.os == 'Linux'
+        run: cargo test --release --lib --no-default-features
+
+      # Into the bundle before it is run at all: it finds its libpython
+      # beside itself, so from `target/release` it would not start.
+      - name: Put the executable in the bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp target/release/kalast.exe "dist/${{ env.name }}/"
+            # Windows resolves a DLL by name and searches the executable's
+            # own directory, but not `python/`, so libpython has to sit
+            # beside it. Same file, loaded once.
+            v="${PBS_PYTHON%.*}"
+            cp "dist/${{ env.name }}/python/python${v//./}.dll" "dist/${{ env.name }}/"
+          else
+            cp target/release/kalast "dist/${{ env.name }}/"
+          fi
+
+      # A window cannot be opened on a runner, so this is how we find out
+      # whether the interpreter linked into the executable actually works.
+      # Worth checking on every platform: it is a relocated CPython reached
+      # through `PYTHONHOME`, and every way it can fail -- wrong prefix, a
+      # library the loader cannot find, an abi3 mismatch -- looks like a
+      # bundle that opens fine and then does nothing with a script.
+      - name: The embedded interpreter works
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ runner.os }}" = "Windows" ]; then exe=kalast.exe; else exe=kalast; fi
+          "./dist/${{ env.name }}/$exe" --python-check
+
+      # Built by the executable that is about to ship, not by a recipe
+      # written here: `--precompile` runs the editor's own `write_wrapper`
+      # and `build_hosted_blocking`, so the libraries land in the directory
+      # `is_current` looks in, with the feature set it expects. A second
+      # recipe in YAML would drift, and the way it would show up is the
+      # editor silently recompiling everything the bundle shipped.
+      #
+      # Run from the checkout, so the wrapper takes kalast as a path
+      # dependency rather than from crates.io -- which at tag time does not
+      # yet carry this version.
+      #
+      # `examples/old/` is skipped. README calls those superseded and not
+      # user-facing, and five of the seven `.rs` files under `examples/`
+      # are there -- none of them compiles against the current API.
+      - name: Precompile the Rust examples
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ runner.os }}" = "Windows" ]; then exe="$PWD/dist/${{ env.name }}/kalast.exe"
+          else exe="$PWD/dist/${{ env.name }}/kalast"; fi
+          find examples -name '*.rs' -not -path 'examples/old/*' -print0 \
+            | xargs -0 "$exe" --precompile
+
+      - name: Assemble the rest of the bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="${{ env.name }}"
+
+          # `res/` is read at runtime. `examples/` and `notes/` are to read
+          # and to run. `shaders/` is *not* shipped: every one of them is
+          # compiled into the binary by `include_wgsl!`, so a copy in the
+          # bundle can be edited all day and change nothing -- which is worse
+          # than not having it.
+          cp -r res examples notes "dist/$name/"
+          # The README here is reStructuredText, not Markdown.
+          cp README.rst pyproject.toml "dist/$name/"
+
+          # The hosted libraries, at the one path the editor looks for them.
+          # `dylib_path_for` builds it from `build_dir()`, so a library
+          # anywhere else is one the editor ignores and recompiles -- which
+          # is the whole point of shipping them. `python`, not `plain`,
+          # because the executable now carries an interpreter.
+          case "${{ runner.os }}" in
+            Windows) ext=dll ;;
+            macOS)   ext=dylib ;;
+            *)       ext=so ;;
+          esac
+          hosted=target/kalast-hosted/python/release
+          mkdir -p "dist/$name/$hosted"
+          cp "$hosted"/*."$ext" "dist/$name/$hosted/"
+          # Explicitly newer than the examples just copied beside them.
+          # `is_current` compares the two, and without this the libraries
+          # are current only by the accident of `cp -r examples` running
+          # first -- an ordering nothing else in this file depends on.
+          touch "dist/$name/$hosted"/*."$ext"
+
+      # Nothing in this workflow used to run what it published, and all
+      # three faults a user hit in v0.5.0 would have shown up here.
       - name: Import kalast from the bundle
         shell: bash
         working-directory: dist/${{ env.name }}
@@ -289,7 +360,17 @@ jobs:
           # Run from inside the bundle, never from the checkout: a clone has
           # its own `kalast/` package whose extension is linked against the
           # developer's libpython, and importing that one segfaults.
-          "$py" -c "import kalast, sys; print('kalast', kalast.__version__ if hasattr(kalast, '__version__') else '', 'from', kalast.__file__)"
+          #
+          # The version, not just the import: this is the only place the
+          # wheel actually in the bundle is compared with the one this tag
+          # is publishing.
+          want=$(sed -n '/^\[project\]/,/^\[/p' pyproject.toml | sed -n 's/^version *= *"\(.*\)"/\1/p' | head -1)
+          got=$("$py" -c "import importlib.metadata as m; print(m.version('kalast'))")
+          "$py" -c "import kalast; print('kalast', '$got', 'from', kalast.__file__)"
+          [ "$got" = "$want" ] || {
+            echo "::error::the bundle carries kalast $got but this build is $want"
+            exit 1
+          }
           du -sm . | awk '{print "bundle unpacked: " $1 " MB"}'
 
       # Run in the bundle, where there is no source tree: `--precompile`

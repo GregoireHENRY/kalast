@@ -30,10 +30,19 @@ use std::rc::Rc;
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
-    // Before anything opens a window or asks for an adapter: this mode has
-    // neither, and it runs on release runners that have no display.
+    // Before the interpreter is started, which the first `Python::attach`
+    // does and cannot be undone.
+    #[cfg(feature = "python")]
+    point_at_the_bundled_interpreter();
+
+    // Before anything opens a window or asks for an adapter: these modes
+    // have neither, and they run on release runners with no display.
     if args.iter().any(|a| a == "--precompile") {
         std::process::exit(precompile(&args));
+    }
+    #[cfg(feature = "python")]
+    if args.iter().any(|a| a == "--python-check") {
+        std::process::exit(python_check());
     }
 
     // An `Rc` rather than a plain `App`, because a Python script is handed a
@@ -52,6 +61,79 @@ fn main() {
             kalast::app::EditorTick::Run { path, source } => {
                 run_script(&app, &path, &source)
             }
+        }
+    }
+}
+
+/// Tell the interpreter linked into this binary where its standard library
+/// is, when this binary is one a release bundle shipped.
+///
+/// A bundle carries its own CPython, and the executable is linked against
+/// *that* one -- which is what lets a `.py` run in the window already open
+/// instead of being handed to some interpreter found on `PATH`. But a linked
+/// interpreter finds its standard library from a prefix compiled into it,
+/// and the prefix compiled in is wherever the release runner unpacked it.
+/// `PYTHONHOME` is the only thing that can say otherwise, and it has to be
+/// set before `Py_Initialize`, which pyo3 runs at the first
+/// `Python::attach`.
+///
+/// Only when the bundle's interpreter is actually there: set from a clone,
+/// where the linked interpreter is the developer's own and correctly
+/// configured already, it would send it looking in a directory that does
+/// not exist.
+#[cfg(feature = "python")]
+fn point_at_the_bundled_interpreter() {
+    let Some(home) = kalast::app::bundled_python_dir() else {
+        return;
+    };
+    // SAFETY: single-threaded here -- this is the first statement of `main`
+    // and nothing has been spawned.
+    unsafe { std::env::set_var("PYTHONHOME", &home) };
+}
+
+/// Start the embedded interpreter, import kalast through it, print what was
+/// imported, and exit. No window, no adapter.
+///
+/// It exists for the release workflow, which cannot open a window on a
+/// runner and so cannot otherwise tell whether the interpreter linked into
+/// the executable actually works. That is worth checking on every platform:
+/// it is a relocated CPython reached through `PYTHONHOME`, and the ways it
+/// can fail -- wrong prefix, a library the loader cannot find, an
+/// `abi3` mismatch -- all look like a bundle that opens fine and then does
+/// nothing when handed a script.
+#[cfg(feature = "python")]
+fn python_check() -> i32 {
+    use pyo3::prelude::*;
+
+    static READY: std::sync::Once = std::sync::Once::new();
+    READY.call_once(|| {
+        use kalast::py::python_module;
+        pyo3::append_to_inittab!(python_module);
+    });
+
+    let result = Python::attach(|py| -> PyResult<String> {
+        let sys = py.import("sys")?;
+        let modules = sys.getattr("modules")?;
+        if !modules.contains("kalast._rs")? {
+            modules.set_item("kalast._rs", py.import("_rs")?)?;
+        }
+        let kalast = py.import("kalast")?;
+        let version: String = py
+            .import("importlib.metadata")?
+            .call_method1("version", ("kalast",))?
+            .extract()?;
+        let prefix: String = sys.getattr("prefix")?.extract()?;
+        let file: String = kalast.getattr("__file__")?.extract()?;
+        Ok(format!("kalast {version}\n  sys.prefix {prefix}\n  package   {file}"))
+    });
+    match result {
+        Ok(what) => {
+            println!("embedded interpreter OK: {what}");
+            0
+        }
+        Err(e) => {
+            eprintln!("embedded interpreter failed: {e}");
+            1
         }
     }
 }
@@ -176,7 +258,7 @@ fn run_script(app: &Rc<RefCell<kalast::app::App>>, path: &str, source: &str) {
 /// **A release bundle carries its own interpreter**, with kalast and the
 /// packages the examples import already installed in it, so there is nothing
 /// for the user to install and nothing written to their machine on first run
-/// -- see `python_beside`. The `python` on `PATH` is for a build that is not
+/// -- see `kalast::app::bundled_python_dir`. The `python` on `PATH` is for a build that is not
 /// in a bundle, and `KALAST_PYTHON` overrides both.
 #[cfg(not(feature = "python"))]
 fn run_script(app: &Rc<RefCell<kalast::app::App>>, path: &str, _source: &str) {
@@ -191,9 +273,13 @@ fn run_script(app: &Rc<RefCell<kalast::app::App>>, path: &str, _source: &str) {
         // run that silently used something else.
         Ok(p) if !p.is_empty() => interpreters.push(p),
         _ => {
-            let bundled = std::env::current_exe()
-                .ok()
-                .and_then(|exe| exe.parent().and_then(python_beside));
+            let bundled = kalast::app::bundled_python_dir().map(|dir| {
+                if cfg!(windows) {
+                    dir.join("python.exe")
+                } else {
+                    dir.join("bin").join("python3")
+                }
+            });
             interpreters.extend(bundled.map(|p| p.to_string_lossy().into_owned()));
             interpreters.push("python".to_string());
             interpreters.push("python3".to_string());
@@ -259,77 +345,4 @@ fn run_script(app: &Rc<RefCell<kalast::app::App>>, path: &str, _source: &str) {
          the `python` on PATH.",
         tried.join("; ")
     );
-}
-
-/// The interpreter a release bundle ships, given the directory it sits in.
-///
-/// A bundle is laid out
-///
-/// ```text
-/// kalast-v0.5.1-macos-arm64/
-///   kalast                 <- this program
-///   python/bin/python3     <- with kalast and its runtime deps installed
-///   examples/  res/  notes/
-/// ```
-///
-/// which is why this looks beside `current_exe` rather than in the working
-/// directory: a bundle is unpacked wherever the user likes and usually run
-/// through a path, not from inside it.
-///
-/// Not `#[cfg]`-gated, unlike its caller, so that the test below runs in an
-/// ordinary `cargo test` -- the default build has the `python` feature, and a
-/// guard compiled out is a guard nobody checks. Which is also why it is dead
-/// code in that build, and says so rather than warning every time.
-#[cfg_attr(feature = "python", allow(dead_code))]
-fn python_beside(dir: &std::path::Path) -> Option<std::path::PathBuf> {
-    let candidate = if cfg!(windows) {
-        dir.join("python").join("python.exe")
-    } else {
-        dir.join("python").join("bin").join("python3")
-    };
-    candidate.is_file().then_some(candidate)
-}
-
-#[cfg(test)]
-mod bundled_python_tests {
-    use super::python_beside;
-
-    fn tmp(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("kalast-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    #[test]
-    fn a_bare_directory_has_no_bundled_interpreter() {
-        let dir = tmp("bare");
-        assert_eq!(python_beside(&dir), None);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn a_bundle_layout_is_found() {
-        let dir = tmp("bundle");
-        let (sub, exe) = if cfg!(windows) {
-            (dir.join("python"), "python.exe")
-        } else {
-            (dir.join("python").join("bin"), "python3")
-        };
-        std::fs::create_dir_all(&sub).unwrap();
-        std::fs::write(sub.join(exe), b"").unwrap();
-        assert_eq!(python_beside(&dir), Some(sub.join(exe)));
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// A directory where the interpreter *should* be but is not -- an
-    /// interrupted unpack -- must not be reported as a bundle, or the run
-    /// fails later with a spawn error instead of falling through to `python`.
-    #[test]
-    fn an_empty_python_directory_is_not_a_bundle() {
-        let dir = tmp("empty");
-        std::fs::create_dir_all(dir.join("python").join("bin")).unwrap();
-        assert_eq!(python_beside(&dir), None);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
 }

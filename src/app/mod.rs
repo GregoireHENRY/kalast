@@ -377,6 +377,79 @@ impl Realised {
     }
 }
 
+/// The interpreter a release bundle ships, beside the executable.
+///
+/// The *directory*, `<exe_dir>/python`, because three callers want three
+/// different parts of it: `PYTHONHOME` for the interpreter linked into the
+/// editor, `lib/` for the linker when a hosted `.rs` is rebuilt, and
+/// `bin/python3` for a build that has no interpreter of its own.
+///
+/// From `current_exe` and not the working directory: a bundle is unpacked
+/// wherever the user likes and usually run through a path, not from inside
+/// it. `None` from a clone, where there is no such directory and the
+/// developer's own Python is the right one.
+pub fn bundled_python_dir() -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    bundled_python_beside(exe.parent()?)
+}
+
+/// Split from `bundled_python_dir` so it can be tested against a directory
+/// that is not the one this test binary happens to live in.
+pub fn bundled_python_beside(dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    let python = dir.join("python");
+    // The interpreter itself, not just the directory: an interrupted unpack
+    // leaves the second without the first, and reporting that as a bundle
+    // turns a clear "not found" into a spawn error much later.
+    let interpreter = if cfg!(windows) {
+        python.join("python.exe")
+    } else {
+        python.join("bin").join("python3")
+    };
+    interpreter.is_file().then_some(python)
+}
+
+#[cfg(test)]
+mod bundled_python_tests {
+    use super::bundled_python_beside;
+
+    fn tmp(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("kalast-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_bare_directory_is_not_a_bundle() {
+        let dir = tmp("bare");
+        assert_eq!(bundled_python_beside(&dir), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_bundle_layout_is_found() {
+        let dir = tmp("bundle");
+        let (sub, exe) = if cfg!(windows) {
+            (dir.join("python"), "python.exe")
+        } else {
+            (dir.join("python").join("bin"), "python3")
+        };
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(sub.join(exe), b"").unwrap();
+        assert_eq!(bundled_python_beside(&dir), Some(dir.join("python")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An interrupted unpack: the directory without the interpreter in it.
+    #[test]
+    fn an_empty_python_directory_is_not_a_bundle() {
+        let dir = tmp("empty");
+        std::fs::create_dir_all(dir.join("python").join("bin")).unwrap();
+        assert_eq!(bundled_python_beside(&dir), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
 /// A number the host and a loaded example must agree on.
 ///
 /// Passing an `&mut App` across a dynamic library boundary is sound only

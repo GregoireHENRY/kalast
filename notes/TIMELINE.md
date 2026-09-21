@@ -2737,3 +2737,28 @@ distinction worth being relaxed about.
 
 Sizes as published: 149 MB macos-arm64, 157 macos-x86_64, 159
 windows-x86_64, 217 linux-x86_64.
+
+## 2026-09-21 — the editor stopped closing itself to run a script
+
+Reported from the installed v0.5.1 bundle: `kalast step.py` opened the UI,
+closed it, and reopened by spawning `python -m kalast`. The executable was
+built `--no-default-features`, so it had no interpreter and could only hand
+the script to one -- a decision whose reason (pyo3 links libpython by
+absolute path) expired the moment the bundle started carrying its own
+interpreter, earlier the same day. I improved the spawn's error messages
+instead of asking whether it should still exist.
+
+The bundled executable is now built **with** the `python` feature against
+the interpreter in the bundle: `PYO3_PYTHON`, `-L native=<python>/lib`
+(python-build-standalone reports `LIBDIR` as `/install/lib`, its build
+container), an rpath relative to the executable, and `PYTHONHOME` set before
+`Py_Initialize`. A `.py` now runs in the window already open.
+
+Two consequences worth knowing. `abi_fingerprint` hashes the `python`
+feature, so a rebuilt `.rs` links libpython too and
+`build_hosted_blocking` configures that itself. And `PYTHONHOME` must be
+stripped from the cargo child, or pyo3's build script runs a different
+interpreter and dies -- which it did, and the rehearsal reported success
+anyway because `is_current` is a timestamp check and the bundle had been
+handed dylibs from 9 September. Details in
+`2026-09-21_the_editor_stopped_respawning_itself.md`.
