@@ -2666,3 +2666,48 @@ rendered to iteration 10000 with no cargo, no toolchain and no network.
 32 MB added to the archive. "All the Rust examples" is two of seven --
 `--precompile` over all seven gives *2 of 7 built*, the other five being the
 `examples/old/` versions that do not compile against the current API.
+
+## 2026-09-21 — v0.5.1, rehearsed before it was tagged
+
+`workflow_dispatch` run 35597536132 on `9da3555`, green end to end: four
+wheels, four executables, sdist, with the publish jobs correctly skipped
+because they are tag-only. **That is what `workflow_dispatch` is in this
+workflow for**, and it is the first time it has been used -- v0.5.0 was
+tagged blind and half the run was red.
+
+Everything new was exercised. From `executable macos-arm64`:
+
+```
+precompiled: 0 up to date, 2 built, 0 failed
+Python 3.14.7
+kalast from .../dist/kalast-dev-9da3555-macos-arm64/python/lib/python3.14/site-packages/kalast/__init__.py
+bundle unpacked: 428 MB
+precompiled: 2 up to date, 0 built, 0 failed
+```
+
+The last line is the one that matters: run inside the assembled bundle,
+`is_current` accepts the shipped libraries. Windows agreed, which was the
+real question -- `find -print0 | xargs -0`, `find -prune -exec rm -rf` and
+the `*.dll` glob all went through Git Bash, and the DLLs came out with no
+`lib` prefix on both sides because `dylib_path_for` and the copy derive it
+the same way.
+
+| | compressed | unpacked |
+|---|---|---|
+| macos-arm64 | 149 MB | 428 MB |
+| macos-x86_64 | 157 MB | 446 MB |
+| windows-x86_64 | 157 MB | 431 MB |
+| **linux-x86_64** | **216 MB** | **630 MB** |
+
+Linux is the outlier and nothing about it is kalast: a bigger standalone
+CPython and fatter manylinux wheels for scipy and pyarrow. Which sharpens
+the case for the deferred `kalast.plot` import -- scipy and pyarrow are
+reached only through it, and they are the largest things in every one of
+these.
+
+**Two small things deliberately not folded in before the tag**, so that what
+was tagged is exactly what was rehearsed: a `touch` on the copied libraries
+(they are current today only because `cp -r examples` runs before the
+library copy, and the in-bundle check is what would catch a reordering), and
+making the import check assert the wheel's version instead of printing an
+empty `kalast.__version__` that does not exist.
