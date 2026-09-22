@@ -7,10 +7,11 @@ belong here. The version gate refuses a tag whose section is missing or has
 no entries, and the section is approved by a person before the tag is
 pushed.
 
-## v0.5.4 — unreleased
+## v0.5.4
 
 - Rust examples compile from the editor's buffer: edit a `.rs` in the UI app and hit Play or Compile, no Save needed — the same as a `.py` has always worked.
-- `examples/hera_didymos/afc.py` and `afc_eclip_didy.py` load the full-resolution shape models under their shorter names, `g_01165mm_spc_didy_v003.obj` and `g_00243mm_spc_dimo_v004.obj` — the same renaming the `_100k` meshes already had in `examples/didymos/main.py`. If yours are still `g_01165mm_spc_obj_didy_0000n00000_v003.obj` and `g_00243mm_spc_obj_dimo_0000n00000_v004.obj`, rename them or point the two scripts at them.
+- `res/README.md` explains how to get ESA's Hera SPICE dataset (HERA.zip, 1.1 GB), which holds the kernels and the shape models, and how to set `PATH_VALUES` in a meta-kernel so it loads from any working directory.
+- `examples/didymos/main.py` loads the full-resolution Didymos and Dimorphos models; `examples/hera_didymos/afc.py` and `afc_eclip_didy.py` load the `_100k` ones. The files are named `g_01165mm_spc_didy_v003[_100k].obj` and `g_00243mm_spc_dimo_v004[_100k].obj`; if yours still carry the dataset's long names (`g_01165mm_spc_obj_didy_0000n00000_v003.obj`, …), rename them or point the scripts at them.
 
 ## v0.5.3
 
