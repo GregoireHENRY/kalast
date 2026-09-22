@@ -3111,3 +3111,11 @@ window, which is covered and never presents, so none of them could see it;
 a first change to `start()` measured against those was reverted.
 `notes/2026-09-22_present_paced_by_the_display.md`, which also corrects the
 2026-09-08 note's "pinned Rust binary" reading.
+
+Reverted the same evening: on the adaptive-refresh built-in panel a present
+every 8 ms let it fall to an idle refresh and every acquisition then blocked
+130-220 ms -- 6 frames a second on screen at 100 it/s. Presenting every frame
+again; the display still paces the loop (this example's own work is ~1 ms a
+frame, the other ~9 ms is the acquisition). The `debug.window` line now
+prints presents/s, frames/s, refused acquisitions, the longest gap and the
+longest acquire. Next: acquire on a helper thread so the loop never waits.

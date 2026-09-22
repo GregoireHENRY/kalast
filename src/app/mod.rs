@@ -258,6 +258,9 @@ pub struct App {
     /// redraw handler for what presenting more often than that costs.
     last_present: std::time::Instant,
     present_interval: Option<std::time::Duration>,
+    /// Presents, frames, refused acquisitions and the longest gap between
+    /// two presents (ms) since the last `debug.window` report.
+    present_count: (u32, u32, u32, f64, std::time::Instant, f64),
     /// Whether this app has already handed its scene to a host. Once only:
     /// the second hand-over would replace the simulation the host is midway
     /// through rendering with an identical one.
@@ -728,6 +731,7 @@ impl App {
             frame_drawn: false,
             last_present: std::time::Instant::now(),
             present_interval: None,
+            present_count: (0, 0, 0, 0.0, std::time::Instant::now(), 0.0),
             gave_scene: false,
             stepping: false,
             loaded_example: None,
@@ -951,10 +955,19 @@ impl App {
     /// screen changes the answer; `None` where the platform does not say,
     /// which presents every frame as before.
     fn refresh_present_interval(&mut self) {
-        self.present_interval = self.window.as_ref().and_then(|w| {
-            let mhz = w.window.current_monitor()?.refresh_rate_millihertz()?;
-            (mhz > 0).then(|| std::time::Duration::from_secs_f64(1000.0 / mhz as f64))
-        });
+        let mhz = self
+            .window
+            .as_ref()
+            .and_then(|w| w.window.current_monitor()?.refresh_rate_millihertz());
+        self.present_interval = mhz
+            .filter(|&mhz| mhz > 0)
+            .map(|mhz| std::time::Duration::from_secs_f64(1000.0 / mhz as f64));
+        if self.sim_config().borrow().debug.window {
+            println!(
+                "[WINDOW] display refresh {:?} mHz, present interval {:?}",
+                mhz, self.present_interval
+            );
+        }
     }
 
     /// Realise any option that changed since the window was built.
@@ -2381,26 +2394,34 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     // rather than just not drawing it. The frame runs either
                     // way; only the present is skipped.
                     //
-                    // And acquired only when the display can take another
-                    // frame. The pool is three drawables, and the window
-                    // server hands them back at the pace of the display the
-                    // window is on -- two per refresh, measured: a light
-                    // scene ran at 300 it/s on the 120 Hz panel and at 120
-                    // exactly, both loops, once dragged onto a 60 Hz
-                    // monitor. Presenting at most once per refresh never
-                    // waits for one, and the frames in between run as an
-                    // occluded window's do: rendered, stepped, not shown.
-                    let present_due = match self.present_interval {
-                        Some(interval) => self.last_present.elapsed() >= interval,
-                        None => true,
-                    };
-                    let surface_texture = if present_due {
-                        win.get_surface_texture(&sim_cfg.borrow())
-                    } else {
-                        None
-                    };
+                    // Every frame. Presenting only once per refresh interval
+                    // of the display was tried on 22 September and reverted
+                    // the same evening: on the adaptive-refresh built-in
+                    // panel a present every 8 ms was not enough to keep it
+                    // awake, each acquisition then waited 130-220 ms for the
+                    // panel's idle refresh, and the picture fell to 6 frames
+                    // a second at 100 it/s. See
+                    // `notes/2026-09-22_present_paced_by_the_display.md`.
+                    let present_due = true;
+                    let acquire_started = std::time::Instant::now();
+                    let surface_texture = win.get_surface_texture(&sim_cfg.borrow());
+                    let acquire_ms = acquire_started.elapsed().as_secs_f64() * 1000.0;
+                    self.present_count.5 = self.present_count.5.max(acquire_ms);
                     if surface_texture.is_some() {
+                        let gap = self.last_present.elapsed().as_secs_f64() * 1000.0;
+                        self.present_count.3 = self.present_count.3.max(gap);
                         self.last_present = std::time::Instant::now();
+                        self.present_count.0 += 1;
+                    } else if present_due {
+                        self.present_count.2 += 1;
+                    }
+                    self.present_count.1 += 1;
+                    if sim_cfg.borrow().debug.window && self.present_count.4.elapsed().as_secs_f64() >= 1.0 {
+                        println!(
+                            "[WINDOW] {} presents/s, {} frames/s, {} refused, longest gap {:.1} ms, longest acquire {:.1} ms",
+                            self.present_count.0, self.present_count.1, self.present_count.2, self.present_count.3, self.present_count.5
+                        );
+                        self.present_count = (0, 0, 0, 0.0, std::time::Instant::now(), 0.0);
                     }
                     if self.editor.is_some() {
                         // The scene goes offscreen and the swapchain is left

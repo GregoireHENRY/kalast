@@ -51,3 +51,28 @@ found a Rust binary "pinned at 121 it/s exactly" and the Python module not,
 and put it down to the two loops. It was this: the binary's window was on
 screen and presented every frame, the Python one was measured covered. The
 two front doors compare end to end now.
+
+---
+
+**Reverted the same evening.** On the built-in panel the user saw 100 it/s
+with a picture like 5 frames a second, and it reproduced here in the
+foreground (the counters below are `debug.window` prints added for it):
+
+    [WINDOW] 6 presents/s, 112 frames/s, 0 refused, longest gap 220 ms, longest acquire 211 ms
+
+Every presenting frame blocked 130-220 ms *inside `get_current_texture`*.
+The built-in panel is adaptive-refresh: after the loading gap it had dropped
+to an idle rate, one present every 8 ms was not enough to wake it, each
+acquisition then waited for its slow refresh, and the presents stayed rare
+-- a feedback loop that presenting every frame never enters (the panel sees
+frames as fast as it releases drawables and ramps up). With the gate removed
+the same run reads 105 presents/s, 105 frames/s, longest acquire 10-21 ms.
+
+Which also says what this example's 100 it/s is: the loop's own work is
+about 1 ms a frame (with the gate, 100 frames/s went by between 6 presents),
+and the rest is the acquisition waiting for the display. The loop is paced
+by the display on both screens; the second one only makes it obvious.
+
+The fix that is right on both kinds of display is to take the blocking call
+off the loop's thread: acquire the drawable on a helper thread, present
+whatever frame is current when one is ready, and never wait. Next.
