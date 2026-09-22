@@ -214,7 +214,7 @@ pub struct Editor {
     /// a build changes -- not every frame, since answering it means reading
     /// `Cargo.toml` and stat-ing a file.
     pub rust_built: bool,
-    pub rust_key: (String, bool),
+    pub rust_key: (String, bool, bool),
     pub was_building: bool,
     /// A build the editor started itself, after a load found the library
     /// stale. Load again when it finishes.
@@ -294,7 +294,7 @@ impl Editor {
             build_request: false,
             launch_request: false,
             rust_built: false,
-            rust_key: (String::new(), false),
+            rust_key: (String::new(), false, false),
             was_building: false,
             load_after_build: false,
             building: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),

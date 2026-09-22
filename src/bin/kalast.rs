@@ -161,20 +161,33 @@ fn precompile(args: &[String]) -> i32 {
         eprintln!("--precompile: name at least one .rs example to build");
         return 2;
     }
+    // `--force` builds whether or not the library looks current. The release
+    // workflow passes it: with the target directory restored from cache, a
+    // library from a *previous* run can carry a matching fingerprint and a
+    // newer mtime while the engine underneath it has moved on.
+    let force = args.iter().any(|a| a == "--force");
     let (mut built, mut current, mut failed) = (0, 0, 0);
     for example in &examples {
+        let source = match std::fs::read_to_string(example) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("cannot read {example}: {e}");
+                failed += 1;
+                continue;
+            }
+        };
         // `is_current` first, which makes this idempotent and makes it the
         // check as well as the build: run in an assembled bundle it must
         // report everything up to date and compile nothing, and if it does
         // compile something then what was shipped is something the editor
         // would have ignored.
-        if kalast::app::cargo::is_current(true, example) {
+        if !force && kalast::app::cargo::is_current(true, example, &source) {
             println!("up to date {example}");
             current += 1;
             continue;
         }
         println!("--- {example}");
-        match kalast::app::cargo::build_hosted_blocking(std::path::Path::new(example), true) {
+        match kalast::app::cargo::build_hosted_blocking(std::path::Path::new(example), &source, true) {
             Ok(path) => {
                 println!("built {}", path.display());
                 built += 1;

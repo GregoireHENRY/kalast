@@ -2938,3 +2938,27 @@ the thing to look for is `wheels`/`executable` skipped and `release` logging
 `-L` path from `current_exe` has backslashes and does not match the host's
 -- and with reuse in place that is the long pole of a rehearsal, not of a
 release.
+
+## 2026-09-22 — a Rust example compiles from the buffer, unsaved, like a Python one
+
+Reported: editing a `.py` in the UI app and hitting Restart applied the
+change; editing a `.rs` needed Save before Compile took it. The asymmetry
+was exact: the Python path hands `run_toplevel` the buffer, while
+`write_wrapper` did `read_to_string(file)` and `is_current` compared the
+library's mtime with the *file's*, so an unsaved edit was neither built nor
+seen as stale.
+
+`write_wrapper`, `build_hosted` and `is_current` take the source text now,
+and the editor passes `editor.script`. Staleness follows the text: a
+library keeps a fingerprint of what it was built from beside it
+(`<lib>.source-hash`, SipHash with fixed keys so a runner and a user's
+machine agree), and a buffer that differs is stale -- so Play on an edited
+`.rs` rebuilds then loads, as Restart re-runs an edited `.py`. A library
+with no fingerprint falls back to the old mtime rule. `--precompile` passes
+the file's text and gained `--force`, which the workflow uses in place of
+the `touch` hack; the fingerprint ships beside each prebuilt library so the
+in-bundle check reads it. Pinned by three tests: the wrapper is built from
+the buffer and not the file, staleness follows the text, and the hash is
+stable. And run for real: first `--precompile` builds and writes the
+sidecar, the second reads it back as current, an edited file is stale,
+`--force` builds regardless.

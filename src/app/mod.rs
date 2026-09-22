@@ -1106,12 +1106,16 @@ impl App {
             let key = (
                 editor.script_path.trim_end().to_string(),
                 editor.rust_release,
+                // And when the buffer's dirty state flips: an unsaved edit
+                // makes the library stale, and the panel should say so
+                // before Play finds out.
+                editor.script_dirty,
             );
             let busy = editor.building.load(std::sync::atomic::Ordering::SeqCst);
             let finished = editor.was_building && !busy;
             if editor.rust_key != key || finished {
                 editor.rust_key = key.clone();
-                editor.rust_built = crate::app::cargo::is_current(key.1, &key.0);
+                editor.rust_built = crate::app::cargo::is_current(key.1, &key.0, &editor.script);
             }
             editor.was_building = busy;
             // A build started because a load failed: take it up again now
@@ -1133,12 +1137,13 @@ impl App {
                 // A load of a library that is out of date would run code
                 // the panel is not showing -- and, worse, an old `hosted`
                 // against a new host. Build first and load when it lands.
-                let stale = launch && !crate::app::cargo::is_current(release, &path);
+                let stale = launch && !crate::app::cargo::is_current(release, &path, &editor.script);
                 let retry = std::mem::take(&mut retry_build) || stale;
                 if build || retry {
                     busy.store(true, std::sync::atomic::Ordering::SeqCst);
                     crate::app::cargo::build_hosted(
                         std::path::Path::new(&path),
+                        &editor.script,
                         release,
                         busy.clone(),
                     );

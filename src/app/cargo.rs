@@ -140,7 +140,13 @@ fn kalast_dependency(root: &std::path::Path) -> String {
 /// generated crate rather than a target in this manifest because a declared
 /// target whose file is missing breaks every cargo command in the repo,
 /// including for someone who never opens the editor.
-pub fn write_wrapper(example: &std::path::Path) -> Result<(), String> {
+/// `source` is the text to build -- **the editor's buffer**, not the file.
+/// A `.py` has always run from the buffer, so an edit followed by Restart
+/// took effect unsaved; a `.rs` read the file from disk here, so the same
+/// edit did nothing until Save. Now both front doors see what the panel
+/// shows. `--precompile` passes the file's contents, which is the same thing
+/// when nothing is being edited.
+pub fn write_wrapper(example: &std::path::Path, source: &str) -> Result<(), String> {
     let dir = wrapper_dir();
     let src = dir.join("src");
     std::fs::create_dir_all(&src).map_err(|e| format!("cannot create {}: {e}", src.display()))?;
@@ -198,8 +204,6 @@ pub fn write_wrapper(example: &std::path::Path) -> Result<(), String> {
     // Copying costs a rewrite of those header lines to `//`, and buys a file
     // where `main` is an ordinary private function of the same module as the
     // exports below.
-    let source = std::fs::read_to_string(&example_path)
-        .map_err(|e| format!("cannot read {}: {e}", example_path.display()))?;
     let source: String = source
         .lines()
         .map(|l| match l.strip_prefix("//!") {
@@ -480,13 +484,14 @@ fn linker_hint() -> Option<String> {
 /// `Tick`, so a guest built without it and handed an `App` from a host with
 /// it reads the wrong bytes. The host is the only thing that knows which it
 /// is, so it says so on the command line.
-pub fn build_hosted(example: &std::path::Path, release: bool, busy: Arc<AtomicBool>) {
+pub fn build_hosted(example: &std::path::Path, source: &str, release: bool, busy: Arc<AtomicBool>) {
     let example = example.to_path_buf();
+    let source = source.to_string();
     std::thread::spawn(move || {
         // On a thread because from a bundle with no Rust on the machine the
         // first of these downloads a toolchain, and the render loop is not
         // waiting for that.
-        match build_hosted_blocking(&example, release) {
+        match build_hosted_blocking(&example, &source, release) {
             Ok(built) => println!("built {}", built.display()),
             Err(e) => println!("build failed: {e}"),
         }
@@ -732,13 +737,14 @@ mod rustflag_tests {
 /// the editor ignores.
 pub fn build_hosted_blocking(
     example: &std::path::Path,
+    source: &str,
     release: bool,
 ) -> Result<std::path::PathBuf, String> {
     // The feature set the wrapper is given is this build's own, decided in
     // `kalast_dependency`: `python` changes the layout of `Shared` and
     // `Tick`, and a guest that disagrees is handed an `App` whose fields are
     // somewhere else.
-    write_wrapper(example)?;
+    write_wrapper(example, source)?;
 
     // The linker first, because it is the one thing a toolchain cannot
     // supply and checking it costs nothing -- whereas finding out after
@@ -767,10 +773,36 @@ pub fn build_hosted_blocking(
     configure_guest_link(&mut cmd)?;
     println!("$ {}", show(&cmd));
     match cmd.status() {
-        Ok(s) if s.success() => Ok(dylib_path_for(&package_name(example), release)),
+        Ok(s) if s.success() => {
+            let built = dylib_path_for(&package_name(example), release);
+            // What this library was built from, for `is_current`. Written
+            // after the build so a failed one leaves the previous answer.
+            let _ = std::fs::write(source_hash_path(&built), source_hash(source));
+            Ok(built)
+        }
         Ok(s) => Err(format!("cargo exited with {s}")),
         Err(e) => Err(format!("could not run cargo: {e}")),
     }
+}
+
+/// A fingerprint of an example's text, kept beside its library.
+///
+/// `DefaultHasher::new()` is SipHash with fixed keys, so the value is the
+/// same on every machine and every run -- which the release depends on: the
+/// workflow computes it from the file, and the editor in a bundle recomputes
+/// it from the same file and has to agree.
+pub fn source_hash(source: &str) -> String {
+    use std::hash::{Hash as _, Hasher as _};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    source.hash(&mut h);
+    format!("{:016x}", h.finish())
+}
+
+/// Where that fingerprint lives: beside the library, `<lib>.source-hash`.
+pub fn source_hash_path(library: &std::path::Path) -> std::path::PathBuf {
+    let mut name = library.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+    name.push(".source-hash");
+    library.with_file_name(name)
 }
 
 /// Load a built example into this process and run its `scene`.
@@ -843,23 +875,36 @@ fn show(cmd: &std::process::Command) -> String {
     out
 }
 
-/// Whether the hosted library is built *and* newer than the example.
+/// Whether the hosted library was built from `source` *and* after the engine.
 ///
-/// "Built" is not enough on its own: loading a library older than the file
-/// shown in the panel would run code the panel is not displaying, which is a
-/// worse lie than an empty viewport. The wrapper is generic, so one library
-/// stands for whichever example was built last -- hence comparing against
-/// the file that is open rather than against a target name.
-pub fn is_current(release: bool, source: &str) -> bool {
+/// `source` is the editor's buffer. The library keeps a fingerprint of the
+/// text it was built from, and a buffer that differs -- an edit, saved or
+/// not -- is stale, so Play rebuilds it the way Restart re-runs an edited
+/// `.py`. Loading a library older than the text in the panel would run code
+/// the panel is not showing, which is a worse lie than an empty viewport.
+///
+/// A library with no fingerprint beside it -- built before there were
+/// fingerprints -- is judged the old way, by the file's modification time.
+pub fn is_current(release: bool, source_path: &str, source: &str) -> bool {
     let modified = |p: &std::path::Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
-    let example = std::path::Path::new(source);
-    let Some(built) = modified(&dylib_path_for(&package_name(example), release)) else {
+    let example = std::path::Path::new(source_path);
+    let library = dylib_path_for(&package_name(example), release);
+    let Some(built) = modified(&library) else {
         return false;
     };
 
-    if let Some(edited) = modified(std::path::Path::new(source)) {
-        if built < edited {
-            return false;
+    match std::fs::read_to_string(source_hash_path(&library)) {
+        Ok(recorded) => {
+            if recorded.trim() != source_hash(source) {
+                return false;
+            }
+        }
+        Err(_) => {
+            if let Some(edited) = modified(example) {
+                if built < edited {
+                    return false;
+                }
+            }
         }
     }
 
@@ -937,7 +982,7 @@ mod tests {
 
         // `write_wrapper` writes under `target/`, relative to the working
         // directory, which for a test is the crate root.
-        write_wrapper(&example).unwrap();
+        write_wrapper(&example, "//! A plain example.\nfn main() {}\n").unwrap();
 
         let lib = std::fs::read_to_string(wrapper_dir().join("src/lib.rs")).unwrap();
         assert!(lib.contains("plain.rs"), "it says where it came from");
@@ -1038,5 +1083,65 @@ mod dependency_tests {
             std::env::consts::OS,
             std::env::consts::ARCH
         );
+    }
+}
+
+#[cfg(test)]
+mod buffer_tests {
+    use super::*;
+
+    /// The parity a `.py` always had: what compiles is what the panel shows,
+    /// saved or not.
+    #[test]
+    fn the_wrapper_is_built_from_the_buffer_not_the_file() {
+        let dir = std::env::temp_dir().join(format!("kalast-buffer-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let example = dir.join("edited.rs");
+        std::fs::write(&example, "fn main() { let on_disk = 1; }\n").unwrap();
+
+        write_wrapper(&example, "fn main() { let in_the_panel = 2; }\n").unwrap();
+
+        let lib = std::fs::read_to_string(wrapper_dir().join("src/lib.rs")).unwrap();
+        assert!(lib.contains("in_the_panel"), "the buffer is what was written");
+        assert!(!lib.contains("on_disk"), "and the file on disk was not consulted");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An edited buffer is stale even though the file it came from has not
+    /// changed, and the same text is current again however old the file is.
+    #[test]
+    fn staleness_follows_the_text_not_the_file() {
+        let dir = std::env::temp_dir().join(format!("kalast-stale-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let example = dir.join("judged.rs");
+        std::fs::write(&example, "fn main() {}\n").unwrap();
+        let path = example.to_string_lossy().into_owned();
+
+        // A "library", freshly built from one text.
+        let library = dylib_path_for(&package_name(&example), true);
+        std::fs::create_dir_all(library.parent().unwrap()).unwrap();
+        std::fs::write(&library, b"not really a library").unwrap();
+        std::fs::write(source_hash_path(&library), source_hash("fn main() {}\n")).unwrap();
+
+        assert!(is_current(true, &path, "fn main() {}\n"), "the text it was built from");
+        assert!(!is_current(true, &path, "fn main() { edited(); }\n"), "an unsaved edit is stale");
+
+        // No fingerprint at all: the old rule, by the file's mtime.
+        std::fs::remove_file(source_hash_path(&library)).unwrap();
+        assert!(is_current(true, &path, "anything"), "older file than library: current");
+
+        let _ = std::fs::remove_file(&library);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_hash_is_the_same_everywhere() {
+        // The release computes it on a runner and the bundle recomputes it
+        // on the user's machine; SipHash with fixed keys makes them agree.
+        assert_eq!(source_hash("fn main() {}"), source_hash("fn main() {}"));
+        assert_ne!(source_hash("fn main() {}"), source_hash("fn main() { }"));
+        assert_eq!(source_hash("").len(), 16);
     }
 }

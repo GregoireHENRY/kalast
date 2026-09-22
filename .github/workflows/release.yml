@@ -387,11 +387,11 @@ jobs:
       # backslashes and does not match the host's, so it rebuilds there.
       # Correct, just slower.)
       #
-      # The examples are touched first. With the target directory restored
-      # from cache, a library from a *previous* run can be newer than the
-      # checkout and `is_current` would keep it -- shipping a guest built
-      # from last week's engine, which the fingerprint only catches if a
-      # layout changed.
+      # `--force`, because with the target directory restored from cache a
+      # library from a *previous* run can carry a matching source fingerprint
+      # and a newer mtime while the engine underneath it has moved on --
+      # shipping a guest built from last week's engine, which the ABI
+      # fingerprint only catches if a layout changed.
       #
       # `examples/old/` is skipped: superseded, and none of it compiles.
       - name: Precompile the Rust examples
@@ -405,9 +405,8 @@ jobs:
             exe="$PWD/${{ env.stage }}/kalast"
             export KALAST_HOSTED_TARGET_DIR="$PWD/target"
           fi
-          find examples -name '*.rs' -not -path 'examples/old/*' -exec touch {} +
           find examples -name '*.rs' -not -path 'examples/old/*' -print0 \
-            | xargs -0 "$exe" --precompile 2>&1 | tee hosted-build.log
+            | xargs -0 "$exe" --precompile --force 2>&1 | tee hosted-build.log
           grep '^built ' hosted-build.log | awk '{print $2}' > hosted-libs.txt
           [ -s hosted-libs.txt ] || { echo "::error::no hosted library was built"; exit 1; }
 
@@ -431,7 +430,9 @@ jobs:
           # and recompiles, which is the whole point of shipping them.
           hosted="$stage/target/kalast-hosted/python/release"
           mkdir -p "$hosted"
-          while read -r lib; do cp "$lib" "$hosted/"; done < hosted-libs.txt
+          # The library and the fingerprint of the text it was built from:
+          # `is_current` in a user's editor compares that against the file.
+          while read -r lib; do cp "$lib" "$lib.source-hash" "$hosted/"; done < hosted-libs.txt
           # Explicitly newer than the examples copied beside them, since
           # `is_current` compares the two.
           touch "$hosted"/*
