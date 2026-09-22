@@ -19,10 +19,11 @@ The Hera SPICE kernel dataset, maintained by ESA:
     https://spiftp.esac.esa.int/data/SPICE/HERA/misc/skd/HERA.zip
 
 About 1.1 GB. Unpack it anywhere; the directory should then contain
-`kernels/` and `misc/`. From a clone of this repository, one command does the
-download, the unpacking and the step below:
+`kernels/` and `misc/`:
 
-    python tools/hera_data.py ~/data/spice/hera --download
+    mkdir -p ~/data/spice && cd ~/data/spice
+    curl -O https://spiftp.esac.esa.int/data/SPICE/HERA/misc/skd/HERA.zip
+    unzip HERA.zip -d hera
 
 Inside it, what the examples use:
 
@@ -46,13 +47,15 @@ and SPICE resolves that `'..'` against the **working directory of your
 process**, not against the file. Loaded from anywhere but `kernels/mk/`
 itself, the first kernel in the list is not found and `furnsh` fails with an
 error that does not name the cause. The examples therefore load a
-`*_local.tm` twin of each meta-kernel with the absolute path in it, which
-`tools/hera_data.py` writes for every `.tm` in `kernels/mk/`. By hand, for
-one file (POSIX shell; on Windows edit the line in a text editor, forward
-slashes are fine):
+`*_local.tm` twin of each meta-kernel, with the absolute path of `kernels/`
+in place of `'..'`. Make one for each meta-kernel you use -- `hera_plan.tm`
+for the Didymos scripts, `hera_ops.tm` for the Mars swing-by -- either by
+copying the file and editing that one line in a text editor (forward slashes
+are fine on Windows too), or in a POSIX shell:
 
-    cd $KALAST_HERA/kernels/mk
-    sed "s|PATH_VALUES *= *( *'\.\.' *)|PATH_VALUES = ( '$KALAST_HERA/kernels' )|" hera_plan.tm > hera_plan_local.tm
+    cd ~/data/spice/hera/kernels/mk
+    sed "s|PATH_VALUES *= *( *'\.\.' *)|PATH_VALUES = ( '$HOME/data/spice/hera/kernels' )|" hera_plan.tm > hera_plan_local.tm
+    sed "s|PATH_VALUES *= *( *'\.\.' *)|PATH_VALUES = ( '$HOME/data/spice/hera/kernels' )|" hera_ops.tm  > hera_ops_local.tm
 
 Leave the pristine `.tm` alone; the dataset is versioned and a later zip
 replaces it.

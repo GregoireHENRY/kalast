@@ -10,7 +10,7 @@ pushed.
 ## v0.5.4 — unreleased
 
 - Rust examples compile from the editor's buffer: edit a `.rs` in the UI app and hit Play or Compile, no Save needed — the same as a `.py` has always worked.
-- The examples find their data through three environment variables instead of paths written into each script: `KALAST_HERA` (HERA.zip, unpacked), `KALAST_MESH` (decimated and other meshes), `KALAST_TIRI` (TIRI response and images). `res/README.md` says where to get HERA.zip and how to make its meta-kernels loadable; `tools/hera_data.py` does it in one command. `hera_didymos/afc.py` and `afc_eclip_didy.py` load the full-resolution Didymos and Dimorphos models from the zip's own `kernels/dsk/`, under the names it ships them with.
+- The examples find their data through three environment variables instead of paths written into each script: `KALAST_HERA` (HERA.zip, unpacked), `KALAST_MESH` (decimated and other meshes), `KALAST_TIRI` (TIRI response and images). `res/README.md` says where to get HERA.zip and how to make its meta-kernels loadable. `hera_didymos/afc.py` and `afc_eclip_didy.py` load the full-resolution Didymos and Dimorphos models from the zip's own `kernels/dsk/`, under the names it ships them with.
 
 ## v0.5.3
 

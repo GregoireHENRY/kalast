@@ -84,13 +84,13 @@ and what is in each set. Walk a new user through it, and **ask rather than
 guess** where things are -- these are large downloads that live wherever the
 user put them.
 
-1. **HERA.zip.** `python tools/hera_data.py <dir> --download` fetches it
-   (1.1 GB), unpacks it and writes a `*_local.tm` twin of every meta-kernel
-   with `PATH_VALUES` set to the absolute `kernels/` path. That last step is
-   not optional: the pristine files say `'..'`, which SPICE resolves against
-   the working directory, and a `furnsh` from anywhere else fails with an
-   error that does not name the cause. The examples load the `_local` twins.
-   Leave the pristine `.tm` alone.
+1. **HERA.zip.** Download it (1.1 GB, the link is in `res/README.md`),
+   unpack it, and make a `*_local.tm` twin of each meta-kernel used with
+   `PATH_VALUES` set to the absolute `kernels/` path -- the README has the
+   one-line `sed`. That step is not optional: the pristine files say `'..'`,
+   which SPICE resolves against the working directory, and a `furnsh` from
+   anywhere else fails with an error that does not name the cause. The
+   examples load the `_local` twins. Leave the pristine `.tm` alone.
 2. **Decimated meshes.** Not in the zip. `examples/mesh/decimate.py` makes
    them from the full-resolution OBJs in `kernels/dsk/`; several examples
    want both a `_100k` render mesh and a `_10k` `shadow_path` proxy.

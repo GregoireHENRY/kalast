@@ -2985,7 +2985,6 @@ resolved paths are present on this machine.
 `res/README.md` is the user-facing account: the download, what is in the
 zip, why every meta-kernel needs a `_local.tm` twin with an absolute
 `PATH_VALUES` (SPICE resolves `'..'` against the working directory, not the
-file), and what the other two roots hold. `tools/hera_data.py` does the
-download, the unpacking and the twins in one command, standard library
-only; tested against a fake root built from the pristine `hera_plan.tm`,
-which it leaves untouched.
+file), and what the other two roots hold, with the one-line `sed` that
+makes a twin. A script that did the download and the twins was written
+alongside and removed the same day: it was not asked for.
