@@ -673,6 +673,13 @@ jobs:
           && (needs.executable.result == 'success'
               || (needs.executable.result == 'skipped' && needs.reuse.outputs.run_id != '')) }}
     steps:
+      # **First**, before anything is downloaded into `dist/`. Checkout cleans
+      # the workspace -- "Deleting the contents of /home/runner/work/..." --
+      # and placed after the download it wiped the four archives, so v0.5.4
+      # was created with a body and no assets while every step reported
+      # success. The archives were uploaded by hand from the rehearsal run.
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -696,9 +703,6 @@ jobs:
               echo "::error::$f is not a ${GITHUB_REF_NAME} archive"; exit 1 ;; esac
           done
 
-      # The changelog is in the repository, not in the artefacts.
-      - uses: actions/checkout@v4
-
       # The release body is this version's section of CHANGELOG.md, verbatim
       # -- a list of what changed, reviewed before the tag was pushed, and
       # no prose around it. The gate already refused a tag without one.
@@ -717,6 +721,10 @@ jobs:
             dist/*.tar.gz
             dist/*.zip
           body_path: release-notes.md
+          # The upload step warned "Pattern 'dist/*.tar.gz' does not match
+          # any files" and went green. A release without its archives is
+          # not a release; make that a failure.
+          fail_on_unmatched_files: true
 
   pypi:
     name: publish to PyPI
