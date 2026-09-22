@@ -767,8 +767,16 @@ impl App {
         // leaves the window ordered in without the app coming forward.
         #[cfg(target_os = "macos")]
         if self.config.borrow().open_in_background {
-            use winit::platform::macos::EventLoopBuilderExtMacOS;
+            use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
             builder.with_activate_ignoring_other_apps(false);
+            // Not enough on its own since macOS 14: `activateIgnoringOtherApps:
+            // NO` goes through cooperative activation, and a process launched
+            // from the *active* application -- the terminal the user is
+            // reading -- is let through, so the run took the keyboard anyway.
+            // An accessory application is never activated at launch; the cost
+            // is no Dock tile and no Cmd-Tab entry while a background run is
+            // up, which is what "background" asked for.
+            builder.with_activation_policy(ActivationPolicy::Accessory);
         }
         self.event_loop = Some(builder.build().unwrap());
     }
@@ -2010,9 +2018,20 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
         // half of it -- see `ensure_event_loop`, which stops the application
         // itself activating.
         let background = self.config.borrow().open_in_background;
+        // `with_active(false)` still orders the window *in front* -- winit
+        // calls `orderFront` rather than `makeKeyAndOrderFront` -- so it
+        // covered whatever the user was reading and took the next click.
+        // Below every normal window it covers nothing; it is still there to
+        // look at, behind.
+        let level = if background {
+            winit::window::WindowLevel::AlwaysOnBottom
+        } else {
+            winit::window::WindowLevel::Normal
+        };
         let mut attrs = winit::window::Window::default_attributes()
             .with_inner_size(size)
             .with_active(!background)
+            .with_window_level(level)
             .with_title(&self.config.borrow().title);
 
         // Centre on *one* monitor, not on the desktop. Left to the window

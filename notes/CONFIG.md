@@ -83,9 +83,20 @@ app.config.open_in_background = True   # before start() or the first step()
 A render window normally comes up *key* and pulls the keyboard away from
 whatever was in front of it. That is fine once and not fine for a script that
 opens a window per case, or for a long run started while you are doing
-something else. With this set the window is ordered in behind the active
-application instead: drawn, animating and interactive, but it has to be clicked
-before it takes the keyboard.
+something else. With this set the window is kept **below every normal window**
+(`WindowLevel::AlwaysOnBottom`) and is not made key: drawn, animating and
+interactive, but it covers nothing and has to be found and clicked before it
+takes the keyboard. On macOS the process also runs as an *accessory*
+application for the run -- no Dock tile, no Cmd-Tab entry -- because that is
+the only thing that stops it activating at launch.
+
+Until 22 September it was only "not key": winit still ordered the window in
+*front* (`orderFront`), so it covered the terminal and took the next click,
+and on macOS 14+ `activateIgnoringOtherApps:NO` goes through cooperative
+activation, which lets a process launched from the *active* application --
+the terminal you are reading -- activate anyway. Both fixed together; the
+frontmost application sampled every 0.5 s through a 6 s background run stayed
+the one that was in front, 11 samples of 11.
 
 Measured on macOS, sampling the frontmost application every 400 ms through a
 3.5 s run, three runs each:
