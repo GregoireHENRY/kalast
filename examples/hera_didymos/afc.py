@@ -21,10 +21,10 @@ app.simulation.camera.dir = [0.0, 0.0, 1.0]
 app.simulation.camera.projection.fovy = 5.5 * RPD
 
 app.simulation.load_mesh(
-    path="/Users/gregoireh/data/mesh/didymos/g_01165mm_spc_didy_v003.obj"
+    path="/Users/gregoireh/data/mesh/didymos/g_01165mm_spc_didy_v003_100k.obj"
 )
 app.simulation.load_mesh(
-    path="/Users/gregoireh/data/mesh/dimorphos/g_00243mm_spc_dimo_v004.obj",
+    path="/Users/gregoireh/data/mesh/dimorphos/g_00243mm_spc_dimo_v004_100k.obj",
 )
 
 spice.kclear()

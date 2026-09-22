@@ -16,8 +16,7 @@ contains `kernels/` and `misc/`. For example:
 
 What the examples use from it:
 
-- `kernels/mk/*.tm` — the meta-kernels: `hera_plan.tm` for the Didymos
-  proximity phase, `hera_ops.tm` for the Mars swing-by.
+- `kernels/mk/*.tm` — the meta-kernels: `hera_ops.tm` for the operational telemetry and measured attitude, `hera_plan.tm` for the predicted trajectory and default attitude. 
 - `kernels/dsk/*.obj` — the shape models as OBJ, beside their DSKs:
   `g_01165mm_spc_obj_didy_0000n00000_v003.obj` (Didymos, 3.1 M facets),
   `g_00243mm_spc_obj_dimo_0000n00000_v004.obj` (Dimorphos),
@@ -47,7 +46,7 @@ Windows), or in a POSIX shell:
 Leave the pristine `.tm` alone; the dataset is versioned and a later zip
 replaces it. The examples load the `_local` twins.
 
-## Pointing the examples at it
+## Pointing the examples at it + Decimated mesh
 
 Each example names its kernel and mesh paths near the top of the script.
 Edit them to where you unpacked the zip. Several scripts also load decimated
