@@ -3119,3 +3119,16 @@ again; the display still paces the loop (this example's own work is ~1 ms a
 frame, the other ~9 ms is the acquisition). The `debug.window` line now
 prints presents/s, frames/s, refused acquisitions, the longest gap and the
 longest acquire. Next: acquire on a helper thread so the loop never waits.
+
+Three more attempts the same night, all measured in the foreground and none
+kept: a gate at twice the refresh rate (9 presents/s -- any gap between
+presents makes the next `nextDrawable` cost ~100 ms on this panel; only
+asking continuously is cheap); acquiring on a thread and presenting on the
+loop's (deadlocks in wgpu-core, which holds `surface.presentation` across
+the blocking acquire and takes it again to present); and acquiring, copying
+and presenting on a thread (hangs in `queue.present` on the device's
+exclusive snatch lock). `main` presents every frame as before; the loop stays
+paced by the display for light scenes (about two iterations per refresh),
+and a covered window runs free. The proper fix is the simulation on its own
+thread with the winit thread presenting -- a plan, not an evening.
+`notes/2026-09-22_present_paced_by_the_display.md`.

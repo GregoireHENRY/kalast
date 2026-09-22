@@ -76,3 +76,61 @@ by the display on both screens; the second one only makes it obvious.
 The fix that is right on both kinds of display is to take the blocking call
 off the loop's thread: acquire the drawable on a helper thread, present
 whatever frame is current when one is ready, and never wait. Next.
+
+---
+
+## Three more attempts, all measured in the foreground, none kept
+
+The counters are the `debug.window` line (`presents/s, frames/s, longest
+acquire`), the scene `examples/didymos/main.py` on the `_10k` meshes, the
+window visible on the 120 Hz built-in panel.
+
+**Present at just under twice the refresh rate** (0.55 × interval, ~218/s
+allowed). 9 presents/s, 100 frames/s, every acquisition 90-140 ms. Same
+picture as the once-per-refresh gate. So it is not the spacing: with a
+present every frame, presents are 10 ms apart and acquisitions take 10-20 ms.
+The difference is *where the app is between presents*: presenting every
+frame means calling `nextDrawable` again immediately and waiting inside it;
+any gate means presenting, computing for a few milliseconds, and asking
+then -- and that ask costs ~100 ms every time. Consistent with the layer
+recycling its drawables the moment none is requested and paying an IOSurface
+allocation on the next request. Whatever the cause, on this panel the pool
+is cheap only while continuously asked for.
+
+**Acquire on a thread, present on the loop's thread.** Worked for eight
+frames, then acquisitions took 208 ms, 37, 1010, then never returned. It is
+wgpu-core: `Surface::get_current_texture` holds `surface.presentation` (a
+mutex) for the whole blocking wait, and `Queue::present` takes the same
+mutex first thing (`wgpu-core/src/present.rs`, `Queue::present`). So the
+loop's present waits for the thread's acquire, the acquire waits for the
+display to release a drawable, and the display releases one when the *next
+presented* drawable is shown -- which is the present that is waiting. A
+three-drawable pool hides it for three frames.
+
+**Acquire, copy and present all on the thread**, the loop handing over its
+finished `render_texture` (or the editor's UI texture, drawn at most 120
+times a second) through a mutex and a serial. The thread acquired its first
+drawable in 1.5 ms, encoded and submitted the copy, and then never returned
+from `queue.present`: that path takes `device.snatchable_lock.write()` after
+`prepare_surface_texture_for_present`, and something the loop's thread holds
+across its frames keeps the writer out -- not identified. `Device`, `Queue`,
+`Surface`, `SurfaceTexture` and `Texture` are all `Send + Sync`, so the API
+permits it; wgpu-core's locking does not, as of 30.0.1.
+
+## Where it stands
+
+`main` presents every frame, as it did before today: correct picture,
+and the loop paced by the display for scenes lighter than the display's
+refresh -- at most about two iterations per refresh of the display the
+window is on (~240 on the built-in panel, 120 on a 60 Hz monitor), the
+rest of each frame spent in `get_current_texture`. A full-resolution run at
+100 it/s barely notices; a `_10k` run notices a lot. A covered window
+(`open_in_background`, or any window behind another) never presents and runs
+at the loop's own rate, which is why every background probe here was fast.
+
+What would fix it properly is the classic split: the simulation and its
+rendering on a thread of their own, the winit thread doing events and
+presentation only -- the acquire blocks there and nobody cares. That is a
+change to how `App` runs a script (Python callbacks off the main thread, the
+GIL, the editor's tick), and it wants a plan, not an evening. The cheaper
+things tried above are exhausted by the measurements here.
