@@ -37,6 +37,13 @@ import kalast.tpm.properties as properties
 import kalast.tpm.routine as routine
 from kalast.util import AU, SOLAR_CONSTANT, STEFAN_BOLTZMANN
 
+import os
+
+# Where the data is. Set the variables to your own locations, or keep the
+# defaults; res/README.md says how to get each set.
+HERA = Path(os.environ.get("KALAST_HERA", "~/data/spice/hera")).expanduser()  # HERA.zip, unpacked
+MESH_ROOT = Path(os.environ.get("KALAST_MESH", "~/data/mesh")).expanduser()  # meshes not in HERA.zip
+
 # ---------------------------------------------------------------- settings
 # Which body's column to spin up. Both orbit the Sun on the same heliocentric
 # ellipse, so the seasonal forcing is identical; what differs is the rotation
@@ -74,26 +81,26 @@ DT_SAFETY = 0.4  # fraction of the stability limit
 
 MESH_BY_BODY = {
     "DIDYMOS": (
-        "/Users/gregoireh/data/mesh/didymos/"
-        "g_01165mm_spc_obj_didy_0000n00000_v003_decimated_10k.obj"
+        f"{MESH_ROOT}/didymos/"
+        "g_01165mm_spc_didy_v003_10k.obj"
     ),
     "DIMORPHOS": (
-        "/Users/gregoireh/data/mesh/dimorphos/"
-        "g_00243mm_spc_obj_dimo_0000n00000_v004_decimated_10k.obj"
+        f"{MESH_ROOT}/dimorphos/"
+        "g_00243mm_spc_dimo_v004_10k.obj"
     ),
 }
 _UNUSED_MESH = (
-    "/Users/gregoireh/data/mesh/didymos/"
-    "g_01165mm_spc_obj_didy_0000n00000_v003_decimated_10k.obj"
+    f"{MESH_ROOT}/didymos/"
+    "g_01165mm_spc_didy_v003_10k.obj"
 )
-KERNEL = "/Users/gregoireh/data/spice/hera/kernels/mk/hera_plan_local.tm"
+KERNEL = f"{HERA}/kernels/mk/hera_plan_local.tm"
 # The meta-kernel's Didymos SPK is the Hera proximity phase only
 # (2026-07-01 -> 2027-07-01), which cannot reach a two-orbit spin-up. This
 # Horizons ephemeris spans 1999-2050. Loaded after the meta-kernel so it wins
 # for Didymos throughout, which also avoids a discontinuity where the spin-up
 # would otherwise cross from one ephemeris into another.
 KERNEL_LONG = (
-    "/Users/gregoireh/data/spice/hera/kernels/spk/"
+    f"{HERA}/kernels/spk/"
     "didymos_hor_000101_500101_v01.bsp"
 )
 OUT = f"out/hera_didymos/{BODY.lower()}_tpm"

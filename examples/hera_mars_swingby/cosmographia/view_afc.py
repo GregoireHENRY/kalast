@@ -19,13 +19,18 @@
 import os
 
 import cosmoscripting
+from pathlib import Path
+
+# Where the data is. Set the variables to your own locations, or keep the
+# defaults; res/README.md says how to get each set.
+HERA = Path(os.environ.get("KALAST_HERA", "~/data/spice/hera")).expanduser()  # HERA.zip, unpacked
 
 cosmo = cosmoscripting.Cosmo()
 
 
 FOLDER      = "/Users/gregoireh/projects/kalast/examples/hera_mars_swingby/cosmographia"
 SENSOR_NAME = "sensor_HERA_AFC-1-MARS.json"
-SCENARIO    = "/Users/gregoireh/data/spice/hera/misc/cosmo/scenarios/load_hera_ops_001.json"
+SCENARIO    = f"{HERA}/misc/cosmo/scenarios/load_hera_ops_001.json"
 
 
 def sensor_catalog():

@@ -32,7 +32,13 @@ from astropy.io import fits
 import kalast
 import kalast.tiri_alignment as tiri_align
 
-KERNEL = "/Users/gregoireh/data/spice/hera/kernels/mk/hera_ops_local.tm"
+import os
+
+# Where the data is. Set the variables to your own locations, or keep the
+# defaults; res/README.md says how to get each set.
+HERA = Path(os.environ.get("KALAST_HERA", "~/data/spice/hera")).expanduser()  # HERA.zip, unpacked
+
+KERNEL = f"{HERA}/kernels/mk/hera_ops_local.tm"
 SIM = Path("out/hera_mars_swingby/tiri_deimos_fits")
 OUT = Path("out/hera_mars_swingby/tiri_deimos_png")
 R_MARS = 3396.2

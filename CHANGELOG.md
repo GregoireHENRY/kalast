@@ -10,7 +10,7 @@ pushed.
 ## v0.5.4 — unreleased
 
 - Rust examples compile from the editor's buffer: edit a `.rs` in the UI app and hit Play or Compile, no Save needed — the same as a `.py` has always worked.
-- `examples/hera_didymos/afc.py` and `afc_eclip_didy.py` load the full-resolution shape models under their shorter names, `g_01165mm_spc_didy_v003.obj` and `g_00243mm_spc_dimo_v004.obj` — the same renaming the `_100k` meshes already had in `examples/didymos/main.py`. If yours are still `g_01165mm_spc_obj_didy_0000n00000_v003.obj` and `g_00243mm_spc_obj_dimo_0000n00000_v004.obj`, rename them or point the two scripts at them.
+- The examples find their data through three environment variables instead of paths written into each script: `KALAST_HERA` (HERA.zip, unpacked), `KALAST_MESH` (decimated and other meshes), `KALAST_TIRI` (TIRI response and images). `res/README.md` says where to get HERA.zip and how to make its meta-kernels loadable; `tools/hera_data.py` does it in one command. `hera_didymos/afc.py` and `afc_eclip_didy.py` load the full-resolution Didymos and Dimorphos models from the zip's own `kernels/dsk/`, under the names it ships them with.
 
 ## v0.5.3
 

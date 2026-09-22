@@ -64,6 +64,13 @@ import kalast.tpm.properties as properties
 import kalast.tpm.routine as routine
 from kalast.util import AU, RPD, SOLAR_CONSTANT, STEFAN_BOLTZMANN
 
+import os
+
+# Where the data is. Set the variables to your own locations, or keep the
+# defaults; res/README.md says how to get each set.
+HERA = Path(os.environ.get("KALAST_HERA", "~/data/spice/hera")).expanduser()  # HERA.zip, unpacked
+MESH_ROOT = Path(os.environ.get("KALAST_MESH", "~/data/mesh")).expanduser()  # meshes not in HERA.zip
+
 # ---------------------------------------------------------------- settings
 SHADOW_MODE = "mutual"  # "none" | "self" | "mutual"
 SHADOWING = SHADOW_MODE != "none"
@@ -222,20 +229,20 @@ BODIES = ("DIDYMOS", "DIMORPHOS")
 # mesh is already coarse.
 PROXY = {
     "DIDYMOS": (
-        "/Users/gregoireh/data/mesh/didymos/"
-        "g_01165mm_spc_obj_didy_0000n00000_v003_decimated_10k.obj"
+        f"{MESH_ROOT}/didymos/"
+        "g_01165mm_spc_didy_v003_10k.obj"
     ),
     "DIMORPHOS": None,
 }
 
 MESH = {
     "DIDYMOS": (
-        "/Users/gregoireh/data/mesh/didymos/"
-        "g_01165mm_spc_obj_didy_0000n00000_v003_decimated_100k.obj"
+        f"{MESH_ROOT}/didymos/"
+        "g_01165mm_spc_didy_v003_100k.obj"
     ),
     "DIMORPHOS": (
-        "/Users/gregoireh/data/mesh/dimorphos/"
-        "g_00243mm_spc_obj_dimo_0000n00000_v004_decimated_10k.obj"
+        f"{MESH_ROOT}/dimorphos/"
+        "g_00243mm_spc_dimo_v004_10k.obj"
     ),
 }
 RESTART = {
@@ -243,7 +250,7 @@ RESTART = {
     "DIMORPHOS": "out/hera_didymos/dimorphos_tpm_v2",
 }
 
-KERNEL = "/Users/gregoireh/data/spice/hera/kernels/mk/hera_plan_local.tm"
+KERNEL = f"{HERA}/kernels/mk/hera_plan_local.tm"
 
 # Deliberately NOT the Horizons ephemeris that `tpm.py` furnishes. It carries
 # the same body id (-658030) as the mission's `didymos_flp_*.bsp`, and SPICE

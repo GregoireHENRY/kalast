@@ -2962,3 +2962,30 @@ the buffer and not the file, staleness follows the text, and the hash is
 stable. And run for real: first `--precompile` builds and writes the
 sidecar, the second reads it back as current, an edited file is stale,
 `--force` builds regardless.
+
+## 2026-09-22 — the examples find their data through three variables
+
+Twelve maintained scripts carried 42 absolute paths under one person's home
+directory, across three roots, and `CLAUDE.md` asked every new machine to
+edit them by hand and record the edits in `local_paths.toml`. They read
+`KALAST_HERA`, `KALAST_MESH` and `KALAST_TIRI` now, each with the old layout
+as its default, so a machine that matches it changes nothing and one that
+does not sets three variables and edits no tracked file.
+
+Two facts from looking at HERA.zip itself. The full-resolution OBJ shape
+models are *in* it, under `kernels/dsk/` beside their DSKs and under the
+dataset's own names, so `afc.py` and `afc_eclip_didy.py` load them from
+there -- reversing the day-old switch to shorter names for those two files.
+And the decimated `_10k`/`_100k` meshes are not in it: they are made locally
+with `examples/mesh/decimate.py`, and five TPM/TIRI scripts had been naming
+them by a convention this machine's files no longer used, so those five were
+already broken here before today. They name what exists now; 59 of 59
+resolved paths are present on this machine.
+
+`res/README.md` is the user-facing account: the download, what is in the
+zip, why every meta-kernel needs a `_local.tm` twin with an absolute
+`PATH_VALUES` (SPICE resolves `'..'` against the working directory, not the
+file), and what the other two roots hold. `tools/hera_data.py` does the
+download, the unpacking and the twins in one command, standard library
+only; tested against a fake root built from the pristine `hera_plan.tm`,
+which it leaves untouched.

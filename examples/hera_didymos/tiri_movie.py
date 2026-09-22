@@ -36,6 +36,14 @@ import kalast
 from kalast.app import Simulation
 import kalast.tpm.radiance as radiance
 
+import os
+
+# Where the data is. Set the variables to your own locations, or keep the
+# defaults; res/README.md says how to get each set.
+HERA = Path(os.environ.get("KALAST_HERA", "~/data/spice/hera")).expanduser()  # HERA.zip, unpacked
+MESH_ROOT = Path(os.environ.get("KALAST_MESH", "~/data/mesh")).expanduser()  # meshes not in HERA.zip
+TIRI = Path(os.environ.get("KALAST_TIRI", "~/data/hera/tiri")).expanduser()  # TIRI response and images
+
 # ---------------------------------------------------------------- settings
 EPOCH = "2027-01-21 05:36:00 UTC"
 HALF_WINDOW_H = 6.5
@@ -49,17 +57,17 @@ T_RANGE = (80.0, 370.0)
 L_RANGE = (0.0, 60.0)
 CMAP = "inferno"
 
-RESPONSE = "/Users/gregoireh/data/hera/tiri/response.csv"
-KERNEL = "/Users/gregoireh/data/spice/hera/kernels/mk/hera_plan_local.tm"
+RESPONSE = f"{TIRI}/response.csv"
+KERNEL = f"{HERA}/kernels/mk/hera_plan_local.tm"
 BODIES = ("DIDYMOS", "DIMORPHOS")
 MESH = {
     "DIDYMOS": (
-        "/Users/gregoireh/data/mesh/didymos/"
-        "g_01165mm_spc_obj_didy_0000n00000_v003_decimated_10k.obj"
+        f"{MESH_ROOT}/didymos/"
+        "g_01165mm_spc_didy_v003_10k.obj"
     ),
     "DIMORPHOS": (
-        "/Users/gregoireh/data/mesh/dimorphos/"
-        "g_00243mm_spc_obj_dimo_0000n00000_v004_decimated_10k.obj"
+        f"{MESH_ROOT}/dimorphos/"
+        "g_00243mm_spc_dimo_v004_10k.obj"
     ),
 }
 R_DIDY, R_DIMO = 0.390, 0.085

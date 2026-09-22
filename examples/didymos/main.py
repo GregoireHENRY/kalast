@@ -6,6 +6,14 @@ import spiceypy as spice
 import kalast  # noqa
 from kalast.app import App
 
+import os
+from pathlib import Path
+
+# Where the data is. Set the variables to your own locations, or keep the
+# defaults; res/README.md says how to get each set.
+HERA = Path(os.environ.get("KALAST_HERA", "~/data/spice/hera")).expanduser()  # HERA.zip, unpacked
+MESH_ROOT = Path(os.environ.get("KALAST_MESH", "~/data/mesh")).expanduser()  # meshes not in HERA.zip
+
 
 app = App()
 app.simulation.config.wireframe.mode = 0
@@ -17,14 +25,14 @@ app.simulation.camera.up = [0.18536071, 0.50638384, 0.8421501]
 app.simulation.camera.dir = [0.2894826, 0.7908329, -0.53924316]
 
 app.simulation.load_mesh(
-    path="/Users/gregoireh/data/mesh/didymos/g_01165mm_spc_didy_v003_100k.obj"
+    path=f"{MESH_ROOT}/didymos/g_01165mm_spc_didy_v003_100k.obj"
 )
 app.simulation.load_mesh(
-    path="/Users/gregoireh/data/mesh/dimorphos/g_00243mm_spc_dimo_v004_100k.obj",
+    path=f"{MESH_ROOT}/dimorphos/g_00243mm_spc_dimo_v004_100k.obj",
 )
 
 spice.kclear()
-spice.furnsh("/Users/gregoireh/data/spice/hera/kernels/mk/hera_plan_local.tm")
+spice.furnsh(f"{HERA}/kernels/mk/hera_plan_local.tm")
 et0 = spice.str2et("2027-03-01 12:00:00 UTC")
 
 while app.running:

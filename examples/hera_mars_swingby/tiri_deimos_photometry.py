@@ -46,9 +46,14 @@ import kalast.tpm.radiance as radiance
 import kalast.tpm.routine as routine
 from kalast._rs.tpm.roughness import Crater, rms_slope_deg
 from kalast.util import AU, SOLAR_CONSTANT, STEFAN_BOLTZMANN
+import os
 
-KERNEL = "/Users/gregoireh/data/spice/hera/kernels/mk/hera_ops_local.tm"
-MESH = "/Users/gregoireh/data/mesh/deimos/deimos_k005_tho_v02.obj"
+# Where the data is. Set the variables to your own locations, or keep the
+# defaults; res/README.md says how to get each set.
+HERA = Path(os.environ.get("KALAST_HERA", "~/data/spice/hera")).expanduser()  # HERA.zip, unpacked
+
+KERNEL = f"{HERA}/kernels/mk/hera_ops_local.tm"
+MESH = f"{HERA}/kernels/dsk/deimos_k005_tho_v02.obj"
 RESTART = "out/hera_mars_swingby/deimos_tpm"
 OUT = Path("out/hera_mars_swingby/photometry")
 STATE = OUT / "prerolled_state.csv"
@@ -62,6 +67,8 @@ EPOCHS = [("115603", "2025-03-12T11:56:03", 3.2944e-05),
           ("120403", "2025-03-12T12:04:03", 1.5520e-04)]
 
 import os as _os
+
+TIRI = Path(os.environ.get("KALAST_TIRI", "~/data/hera/tiri")).expanduser()  # TIRI response and images
 PREROLL_ROT = float(_os.environ.get("PREROLL_ROT", "2.0"))
 # Sized against the conduction stability limit, but the surface Newton step is
 # the stiffer constraint in practice -- see the dt convergence check in
@@ -78,7 +85,7 @@ prop = kalast.tpm.properties.DEIMOS
 prop.se = STEFAN_BOLTZMANN * prop.emissivity
 prop.compute_conductivity_diffusivity()
 D = prop.diffusivity
-g = radiance.tiri_bands("/Users/gregoireh/data/hera/tiri/response.csv",
+g = radiance.tiri_bands(f"{TIRI}/response.csv",
                         emissivity=prop.emissivity)["g"]
 z = nonuniform.column(
     properties.skin_depth_1(D, body.spin_period), m=4, n=5,

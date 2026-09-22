@@ -38,9 +38,16 @@ from matplotlib.lines import Line2D
 import kalast
 import kalast.tiri_alignment as tiri_align  # 0.60 deg alignment the FK lacks
 
-KERNEL = "/Users/gregoireh/data/spice/hera/kernels/mk/hera_ops_local.tm"
-IMAGES = "/Users/gregoireh/data/hera/tiri/tiri_images_mars_swing-by_deimos.csv"
-REAL = Path("/Users/gregoireh/data/hera/tiri/JAXA-VITO-ROB radiances comparison/"
+import os
+
+# Where the data is. Set the variables to your own locations, or keep the
+# defaults; res/README.md says how to get each set.
+HERA = Path(os.environ.get("KALAST_HERA", "~/data/spice/hera")).expanduser()  # HERA.zip, unpacked
+TIRI = Path(os.environ.get("KALAST_TIRI", "~/data/hera/tiri")).expanduser()  # TIRI response and images
+
+KERNEL = f"{HERA}/kernels/mk/hera_ops_local.tm"
+IMAGES = f"{TIRI}/tiri_images_mars_swing-by_deimos.csv"
+REAL = Path(f"{TIRI}/JAXA-VITO-ROB radiances comparison/"
             "Deimos radiances")
 SIM = Path("out/hera_mars_swingby/tiri_deimos_fits")
 OUT = Path("out/hera_mars_swingby/deimos_real_vs_sim.png")
