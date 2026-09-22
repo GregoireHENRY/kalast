@@ -85,7 +85,7 @@ these files are large downloads that live wherever the user put them.
 2. **Shape models.** Ask where the `.obj` meshes live, full-resolution and any
    decimated versions. Several examples want both — a full-res render mesh and
    a 100k `shadow_path` proxy.
-3. **`res/`.** Ships with the repo. If it is missing, `README.rst` says to get
+3. **`res/`.** Ships with the repo. If it is missing, `README.md` says to get
    it from cloud-as.oma.be.
 4. **Verify, do not assume.** A path existing is not enough. Confirm the
    kernels actually cover the epoch a script uses: `spice.furnsh` then a

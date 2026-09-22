@@ -14,7 +14,7 @@ license = "MIT OR Apache-2.0"
 # `examples/`, `notes/` and the rest of `res/` ship in the release bundle
 # instead, which is where a user of the *program* looks for them.
 # Leading slashes anchor to the package root: these are gitignore-style
-# globs, so a bare `README.rst` matched five of them inside `.venv/`.
+# globs, so a bare `README.md` matched five of them inside `.venv/`.
 include = [
     "/src/**/*.rs",
     "/shaders/*.wgsl",
@@ -24,7 +24,7 @@ include = [
     "/res/DejaVuSans.ttf",
     "/res/happy-tree.png",
     "/Cargo.toml",
-    "/README.rst",
+    "/README.md",
 ]
 edition = "2024"
 # keywords = []
