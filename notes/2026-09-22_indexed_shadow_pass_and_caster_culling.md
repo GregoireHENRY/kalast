@@ -91,6 +91,30 @@ biases in `mesh_shadow.wgsl` are calibrated against the front
 (`notes/2026-09-08_shadow_bias.md`); the culled-back-face map is identical
 to the unculled one, so there is nothing to buy by changing the sense.
 
+## 3. A body is not drawn into a layer it cannot reach
+
+Every body was drawn into every layer -- right, since anything between the
+Sun and a body has to cast into that body's layer -- but a per-body layer is
+sized laterally to its own body, and for most of an orbit the other body
+projects wholly beside it. `Window::update` now keeps, per layer, the bodies
+whose world AABB can rasterise under the layer's matrix
+(`aabb_may_hit_frustum`: all eight corners beyond one clip plane means every
+fragment would have been clipped, so skipping the draw leaves the map bit
+for bit as it was; a box astride a plane is kept). Unit-tested for the six
+cases; the five shadow tests pass unchanged.
+
+| | indexed + culled | + caster skip |
+|---|---|---|
+| shadow | 8.71 | **7.57** (7.57 / 7.56 / 8.71) |
+| render | 12.76 | 13.14 |
+| span | 17.10 | 15.46 |
+| it/s | 64.2 | 62.5 (64.1 / 62.5 / 62.1) |
+
+The shadow pass lost 13 % and the frame did not move: the shadow pass now
+overlaps the render pass completely, and the frame is the render pass plus
+the text pass. Kept anyway -- it is free per frame, output-identical, and it
+pays again the moment the render pass shrinks or a scene has more bodies.
+
 ## Where it stands
 
 **41.6 → 64.2 it/s, +54 %**, no proxies, and no change to any shadow a
@@ -98,19 +122,16 @@ closed mesh casts. `test_pcf_filters`, `test_far_sun`, `test_shadow_layers`,
 `test_facet_shadow`, `test_polygon_shadow` pass; `cargo test --release` with
 and without the `python` feature.
 
-The frame is now render 12.8 + shadow 8.7, overlapped into 15.6 ms; 100 it/s
-is 10 ms. What is left, roughly by expected return, none of it started:
+The frame is now render 12.8-13.8 ms with shadow 7.6 fully overlapped, plus
+2.2 of text; 100 it/s is 10 ms. What is left, roughly by expected return:
 
 - **The render pass, 12.8 ms, is the largest item now.** 6.3 M facets
   through the shaded vertex stage, non-indexed, then PCF per pixel. It is
   non-indexed *for* the `vertex_index / 3` lookup, and a shared vertex
   belongs to about six facets, so drawing it indexed needs the facet id from
   somewhere else -- a shader design question, not a one-line change.
-- **The shadow pass still draws every body into every layer.** A body
-  wholly outside a layer's light frustum, or wholly behind the body the
-  layer is aimed at, cannot cast into it; an AABB test per (layer, body)
-  before the draw would skip those. Cheap, and on the Didymos pair it would
-  drop two of the four draws in most geometries.
+- ~~The shadow pass still draws every body into every layer.~~ Done above;
+  it no longer shows in the frame because the render pass is the frame.
 - **Layer resolution.** 8192² per body; 4096 quarters the fill. Whether the
   shadow on the smaller body holds at that is a measurement not yet made.
 - Shadow proxies (`shadow_path`), ruled out for this round.

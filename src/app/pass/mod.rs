@@ -65,13 +65,15 @@ impl Passes {
     }
 
     /// One shadow layer. Called once per body, each with its own matrix
-    /// already written and submitted; see `shadow::Pass::render`.
+    /// already written and submitted; see `shadow::Pass::render`. `casters`
+    /// is which of `meshes` to draw into it, or every body when `None`.
     pub fn render_shadow_layer(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
         meshes: &[super::gpu::MeshBuffer],
         shadow_meshes: &[Option<super::gpu::MeshBuffer>],
+        casters: Option<&[usize]>,
         layer: u32,
         timer: Option<&super::gpu_timing::GpuTimer>,
     ) {
@@ -80,6 +82,7 @@ impl Passes {
             target,
             meshes,
             shadow_meshes,
+            casters,
             &self.bindings,
             layer,
             timer.and_then(|t| t.scope(super::gpu_timing::Scope::Shadow)),

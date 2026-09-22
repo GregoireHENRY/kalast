@@ -3035,9 +3035,11 @@ The five shadow tests pass, `cargo test --release` passes with and without
 the `python` feature (one unrelated flaky test in `app::cargo::buffer_tests`,
 two tests sharing `wrapper_dir()` in parallel; passes alone).
 
-**Where it stands / what is left**, in the note's last section: the render
-pass at 12.8 ms is now the largest item (non-indexed for the attribute
-lookup -- a shader design question); skipping a body's draw into a layer it
-cannot cast into (AABB against the layer's frustum) is the cheap next step;
-layer resolution below 8192 is unmeasured; proxies stay ruled out for this
-round. 100 it/s is 10 ms; the frame is 15.6.
+Then the cheap third step: a body whose world AABB cannot rasterise under a
+layer's matrix is not drawn into it (`aabb_may_hit_frustum`, conservative,
+output-identical, unit-tested). Shadow 8.71 → 7.57 ms and the frame did not
+move (62.5 it/s, within noise of 64.2): the shadow pass now overlaps the
+render pass completely, so **the render pass is the frame** -- 12.8-13.8 ms,
+non-indexed for the `vertex_index / 3` attribute lookup, a shader design
+question. Layer resolution below 8192 is unmeasured; proxies stay ruled out
+for this round. 100 it/s is 10 ms; the frame is 15.6.

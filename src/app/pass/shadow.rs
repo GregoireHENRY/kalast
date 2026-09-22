@@ -60,13 +60,18 @@ impl Pass {
     ///
     /// Every body is drawn into every layer, not just the layer's own body.
     /// That is what keeps mutual shadowing: the layer is *aimed* at one body,
-    /// but anything between the Sun and it still has to cast.
+    /// but anything between the Sun and it still has to cast. `casters`
+    /// narrows that to the bodies whose bounds reach this layer's frustum
+    /// (`Window::update`, `aabb_may_hit_frustum`); a body it leaves out would
+    /// have had every fragment clipped, so the map comes out the same. `None`
+    /// draws every body, indices 1.. of `meshes` (0 is the light cube).
     pub fn render(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
         meshes: &[gpu::MeshBuffer],
         shadow_meshes: &[Option<gpu::MeshBuffer>],
+        casters: Option<&[usize]>,
         bindings: &super::Bindings,
         layer: u32,
         timestamps: Option<wgpu::RenderPassTimestampWrites<'_>>,
@@ -89,7 +94,18 @@ impl Pass {
 
         bindings.for_shadow(&mut render_pass, layer);
 
-        for (ii, mesh) in meshes.iter().enumerate().skip(1) {
+        let everything;
+        let casters = match casters {
+            Some(c) => c,
+            None => {
+                everything = (1..meshes.len()).collect::<Vec<_>>();
+                &everything
+            }
+        };
+        for &ii in casters {
+            let Some(mesh) = meshes.get(ii) else {
+                continue;
+            };
             let occluder = shadow_meshes
                 .get(ii)
                 .and_then(|m| m.as_ref())

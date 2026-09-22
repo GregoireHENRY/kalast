@@ -142,6 +142,41 @@ pub fn fit_light_view_proj(
     }
 }
 
+/// Whether anything inside `aabb` can rasterise under `view_proj`, an
+/// orthographic light projection.
+///
+/// `false` only when all eight corners lie beyond the same clip plane -- x
+/// or y outside [-1, 1], z outside [0, 1] -- which is when every fragment of
+/// the body would have been clipped anyway. A box that straddles a plane is
+/// kept even if it misses the frustum, so the test is conservative and
+/// skipping a draw it rejects leaves the depth map bit for bit as it was.
+/// The margin keeps a corner that sits on a plane to within float noise on
+/// the drawn side.
+///
+/// What it buys: a per-body layer is sized laterally to its own body, so
+/// for most of an orbit the other body projects wholly beside it and its
+/// 3.1 M facets need not be drawn into that layer at all. When it does
+/// stand between the Sun and the layer's body -- an eclipse -- it is inside
+/// and drawn, which is the whole point of drawing every body into every
+/// layer in the first place.
+pub fn aabb_may_hit_frustum(aabb: &crate::mesh::Aabb, view_proj: &Mat4) -> bool {
+    if aabb.is_empty() {
+        return false;
+    }
+    const MARGIN: Float = 1e-3;
+    let mut outside = [true; 6];
+    for c in aabb.corners() {
+        let p = view_proj.project_point3(c);
+        outside[0] &= p.x < -1.0 - MARGIN;
+        outside[1] &= p.x > 1.0 + MARGIN;
+        outside[2] &= p.y < -1.0 - MARGIN;
+        outside[3] &= p.y > 1.0 + MARGIN;
+        outside[4] &= p.z < 0.0 - MARGIN;
+        outside[5] &= p.z > 1.0 + MARGIN;
+    }
+    !outside.iter().any(|&o| o)
+}
+
 
 /// Screen position and alignment for one HUD.
 ///
@@ -613,6 +648,11 @@ pub struct Window {
     // per body without a second lookup.
     pub shadow_meshes: Vec<Option<super::gpu::MeshBuffer>>,
 
+    // Per shadow layer, the indices into `meshes` drawn into it this frame:
+    // the bodies whose bounds can reach the layer's frustum at all. Filled
+    // in `update` beside the layer's fit; see `aabb_may_hit_frustum`.
+    pub shadow_casters: Vec<Vec<usize>>,
+
     pub uniforms: super::uniform::Uniforms,
     pub passes: super::pass::Passes,
 
@@ -973,6 +1013,7 @@ impl Window {
 
             meshes,
             shadow_meshes,
+            shadow_casters: Vec::new(),
             uniforms,
             passes,
             present_modes: caps.present_modes.clone(),
@@ -1663,8 +1704,14 @@ impl Window {
             self.rebuild_shadow(config, wanted as u32);
         }
 
+        self.shadow_casters.resize_with(n_layers, Vec::new);
         if let Some(scene) = simulation.scene_bounds() {
             for i in 0..n_layers {
+                // Cleared first: a layer whose body has no mesh this frame is
+                // sampled by nothing, so it gets no casters rather than last
+                // frame's.
+                self.shadow_casters[i].clear();
+
                 // With per-body off, the single layer is fitted to the scene,
                 // which is the pre-layer behaviour.
                 let body = if config.shadows.per_body {
@@ -1682,6 +1729,18 @@ impl Window {
                     simulation.sun.up_world,
                 );
                 self.uniforms.view.uniform.light.view_proj_layers[i] = layer.view_proj;
+
+                // Which bodies to draw into this layer: those whose bounds
+                // can reach its frustum. Body `j` is `meshes[1 + j]`; the
+                // light cube at 0 never casts.
+                let casters = (0..simulation.bodies.len())
+                    .filter(|&j| {
+                        simulation
+                            .body_bounds(j)
+                            .is_some_and(|b| aabb_may_hit_frustum(&b, &layer.view_proj))
+                    })
+                    .map(|j| 1 + j);
+                self.shadow_casters[i].extend(casters);
 
                 // Bias from this layer's own extent, so each body gets the
                 // bias its texel size actually needs. Taken from the fit
@@ -2288,6 +2347,7 @@ impl Window {
                     &self.uniforms.shadow.layer_views[i],
                     &self.meshes,
                     &self.shadow_meshes,
+                    self.shadow_casters.get(i).map(Vec::as_slice),
                     i as u32,
                     self.timer.as_ref().filter(|_| config.debug.gpu_timing),
                 );
@@ -2655,6 +2715,55 @@ mod tests {
     /// `f32::EPSILON` and a `1.0` fallback took over, so Mars was biased as a
     /// 1 km body instead of a 3,788 km one and the whole disc rendered with
     /// self-shadow acne no automatic setting could clear.
+    /// The caster test rejects a body only when the GPU would have clipped
+    /// every fragment of it: beside the frustum, out; astride its edge, in;
+    /// inside, in; beyond the far plane, out.
+    #[test]
+    fn a_body_beside_the_layer_is_skipped_and_one_astride_it_is_not() {
+        let unit = crate::mesh::Aabb {
+            min: Vec3::splat(-1.0),
+            max: Vec3::splat(1.0),
+        };
+        let at = |x: Float, y: Float, z: Float| crate::mesh::Aabb {
+            min: unit.min + Vec3::new(x, y, z),
+            max: unit.max + Vec3::new(x, y, z),
+        };
+        // Light along -z, from z = +10 towards the origin, a scene 20 wide.
+        let scene = at(0.0, 0.0, 0.0);
+        let scene = crate::mesh::Aabb {
+            min: scene.min * 10.0,
+            max: scene.max * 10.0,
+        };
+        let fit = fit_light_view_proj(Vec3::new(0.0, 0.0, 100.0), &unit, &scene, Vec3::Y);
+        let vp = &fit.view_proj;
+
+        assert!(aabb_may_hit_frustum(&unit, vp), "the layer's own body is inside");
+        assert!(
+            aabb_may_hit_frustum(&at(0.0, 0.0, 5.0), vp),
+            "a body between the Sun and it casts"
+        );
+        assert!(
+            !aabb_may_hit_frustum(&at(5.0, 0.0, 0.0), vp),
+            "a body wholly beside the frustum cannot"
+        );
+        assert!(
+            !aabb_may_hit_frustum(&at(0.0, -5.0, 3.0), vp),
+            "nor one beside it in y, whatever its depth"
+        );
+        assert!(
+            aabb_may_hit_frustum(&at(2.0, 0.0, 0.0), vp),
+            "one astride the frustum's edge is kept"
+        );
+        assert!(
+            !aabb_may_hit_frustum(&at(0.0, 0.0, -40.0), vp),
+            "one beyond the far plane is not"
+        );
+        assert!(
+            !aabb_may_hit_frustum(&crate::mesh::Aabb::empty(), vp),
+            "an empty box draws nothing"
+        );
+    }
+
     #[test]
     fn light_fit_reports_its_own_extent_from_every_direction() {
         let r = 3396.0;
