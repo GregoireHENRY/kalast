@@ -2903,3 +2903,38 @@ Measured through the readback: 48 % of `ico1.obj` lit, a sphere from one
 side, where it had been 0. Exposed as `app.simulation.frame_all()`; stubs
 and `API.md` updated; the command-line path itself is pinned by a headless
 editor test.
+
+## 2026-09-22 — v0.5.3 shipped, and a tag now publishes its rehearsal
+
+**v0.5.3.** Bumped first, rehearsed (run 35630477424, green in every job on
+the first try), tagged the same commit, released (run 35720751821, 10
+minutes -- half the rehearsal's 20, because with stable paths the tag build
+hit the cache the rehearsal had warmed). Archives 90 / 96 / 119 / 134 MB,
+from 149 / 157 / 159 / 217 at v0.5.2. Then the downloaded macos-arm64
+archive was run: embedded interpreter, prebuilt `.rs` loading, a `.py` in
+the app's own process with no respawn -- and the one check no rehearsal
+could reach, **a `.rs` edited in the bundle and rebuilt against crates.io**
+through the shipped `pyo3-config.txt` with no interpreter binary present:
+263 crates in 91 s, and the rebuilt library loaded. That was the command
+that failed the day before for want of an `embed` feature on the registry.
+
+**Artefact reuse.** The tag run rebuilt everything the rehearsal had just
+built, on the same commit. It now asks the API for a successful
+`workflow_dispatch` run with the same `head_sha` and all nine artefacts
+unexpired; if there is one, `wheels`, `sdist` and `executable` are skipped
+and `release` and `pypi` download from that run. Two things made that
+possible: bundles are named from the manifest version on every path, so a
+rehearsal's archive is byte for byte the release's down to the directory
+inside it; and `github.sha` on an annotated-tag push is the commit, not the
+tag object -- checked against the v0.5.3 runs. The step's shell was
+exercised as written against the live API for the v0.5.3 commit, a dispatch
+and an unrehearsed commit, and the name guards on both publish jobs against
+the real v0.5.3 asset names. A tag nobody rehearsed builds as before.
+
+**Not yet proven end to end**: a tag run actually skipping the builds and
+publishing another run's artefacts. That is 0.5.4's dispatch-then-tag, and
+the thing to look for is `wheels`/`executable` skipped and `release` logging
+`reusing run <id>`. The Windows guest still recompiles 278 crates -- its
+`-L` path from `current_exe` has backslashes and does not match the host's
+-- and with reuse in place that is the long pole of a rehearsal, not of a
+release.

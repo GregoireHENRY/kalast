@@ -30,6 +30,11 @@
 # `toolchain/` beside the executable -- the first time a `.rs` is actually
 # compiled, not at first launch, because most people never open one and a
 # toolchain is a few hundred megabytes.
+# **How to release.** Bump the three manifests, push, run this workflow by
+# hand (`gh workflow run release.yml`), and if it is green, tag that same
+# commit. The tag run then finds the rehearsal by commit and **publishes its
+# artefacts instead of building them again** -- a few minutes rather than
+# twenty. A tag nobody rehearsed builds from scratch, exactly as before.
 name: release
 
 on:
@@ -126,6 +131,44 @@ jobs:
 
           exit $fail
 
+  # A tag that was rehearsed publishes the rehearsal's artefacts. The match
+  # is on the exact commit: same source, same manifests, same names (see
+  # "Name the bundle"), so the bytes are the ones that would be built again.
+  # Anything short of a successful rehearsal of *this* commit with all nine
+  # artefacts still present falls through to building, exactly as before --
+  # the one failure this must never have is publishing another commit's
+  # bytes, and a SHA equality is a hard guarantee against that.
+  #
+  # Runs on every event so the build jobs can depend on it; on a dispatch it
+  # simply answers "nothing".
+  reuse:
+    name: a rehearsal of this commit
+    runs-on: ubuntu-latest
+    outputs:
+      run_id: ${{ steps.find.outputs.run_id }}
+    steps:
+      - id: find
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          none() { echo "$1 -- building"; echo "run_id=" >> "$GITHUB_OUTPUT"; exit 0; }
+          [ "${GITHUB_REF_TYPE:-}" = "tag" ] || none "not a tag"
+          runs="repos/${{ github.repository }}/actions/workflows/release.yml/runs"
+          id=$(gh api "$runs?head_sha=${{ github.sha }}&event=workflow_dispatch&status=success&per_page=1" \
+                 --jq '.workflow_runs[0].id // empty')
+          [ -n "$id" ] || none "no successful rehearsal of ${{ github.sha }}"
+          want="bundle-linux-x86_64 bundle-macos-arm64 bundle-macos-x86_64 bundle-windows-x86_64 \
+                pypi-sdist pypi-wheel-linux-x86_64 pypi-wheel-macos-arm64 pypi-wheel-macos-x86_64 pypi-wheel-windows-x86_64"
+          have=" $(gh api "repos/${{ github.repository }}/actions/runs/$id/artifacts" \
+                    --jq '.artifacts[] | select(.expired | not) | .name' | tr '\n' ' ') "
+          for a in $want; do
+            case "$have" in *" $a "*) ;; *) none "rehearsal $id has no $a" ;; esac
+          done
+          echo "reusing run $id, rehearsed on this exact commit"
+          echo "run_id=$id" >> "$GITHUB_OUTPUT"
+
   # macOS x86_64 runs on `macos-15-intel`, not `macos-13`. The macOS 13 image
   # was retired in December 2025, and a job asking for it does not fail -- it
   # sits "queued" until the run times out, which is what happened to both
@@ -139,7 +182,8 @@ jobs:
     # ships, so the two cannot disagree about what this version is. It also
     # means a broken wheel now stops the executable, which is right: a bundle
     # whose Python half is missing is not one we want to publish.
-    needs: wheels
+    needs: [reuse, wheels]
+    if: needs.reuse.outputs.run_id == ''
     strategy:
       fail-fast: false
       matrix:
@@ -172,11 +216,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
-            version="${GITHUB_REF_NAME}"
-          else
-            version="dev-${GITHUB_SHA:0:7}"
-          fi
+          # From the manifest, not the ref -- on a rehearsal as much as on a
+          # tag. That is what makes a rehearsal's archive, down to the
+          # directory name inside it, byte for byte the release's, so the tag
+          # run can publish it instead of building again. The version gate
+          # guarantees manifest and tag agree when it matters.
+          version="v$(sed -n '/^\[project\]/,/^\[/p' pyproject.toml | sed -n 's/^version *= *"\(.*\)"/\1/p' | head -1)"
           echo "name=kalast-${version}-${{ matrix.target }}" >> "$GITHUB_ENV"
           # Built under a name with **no version and no commit in it**, and
           # renamed to `name` only at the end. The executable is linked with
@@ -527,6 +572,8 @@ jobs:
   wheels:
     name: wheel ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
+    needs: reuse
+    if: needs.reuse.outputs.run_id == ''
     strategy:
       fail-fast: false
       matrix:
@@ -582,6 +629,8 @@ jobs:
   sdist:
     name: sdist
     runs-on: ubuntu-latest
+    needs: reuse
+    if: needs.reuse.outputs.run_id == ''
     steps:
       - uses: actions/checkout@v4
       - uses: PyO3/maturin-action@v1
@@ -602,15 +651,40 @@ jobs:
     # archive whose Rust half cannot work. Waiting costs a few minutes. If
     # crates.io ever has to be skipped, drop it from here in the same commit
     # and know what the bundles lose.
-    needs: [version, executable, crates]
+    needs: [reuse, version, executable, crates]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    # `executable` is skipped when a rehearsal is reused, and a skipped
+    # dependency would skip this job too under the implicit `success()`;
+    # hence the spelled-out condition. `crates` is never skipped: it
+    # publishes from the checkout and a bundle's `.rs` rebuild depends on it.
+    if: >-
+      ${{ !cancelled() && startsWith(github.ref, 'refs/tags/')
+          && needs.version.result == 'success' && needs.crates.result == 'success'
+          && (needs.executable.result == 'success'
+              || (needs.executable.result == 'skipped' && needs.reuse.outputs.run_id != '')) }}
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: dist
           pattern: bundle-*
           merge-multiple: true
+          # This run's, or the rehearsal's. The token is required for the
+          # latter and harmless for the former.
+          run-id: ${{ needs.reuse.outputs.run_id || github.run_id }}
+          github-token: ${{ github.token }}
+
+      # Belt to the SHA match's braces: every archive about to be published
+      # is named for this tag. A rehearsal of another commit could never be
+      # selected, but a wrongly named artefact would be visible here first.
+      - name: The archives are this tag's
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -l dist
+          for f in dist/*.tar.gz dist/*.zip; do
+            case "$(basename "$f")" in kalast-${GITHUB_REF_NAME}-*) ;; *)
+              echo "::error::$f is not a ${GITHUB_REF_NAME} archive"; exit 1 ;; esac
+          done
 
       - uses: softprops/action-gh-release@v2
         with:
@@ -669,9 +743,14 @@ jobs:
 
   pypi:
     name: publish to PyPI
-    needs: [version, wheels, sdist]
+    needs: [reuse, version, wheels, sdist]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    if: >-
+      ${{ !cancelled() && startsWith(github.ref, 'refs/tags/')
+          && needs.version.result == 'success'
+          && ((needs.wheels.result == 'success' && needs.sdist.result == 'success')
+              || (needs.wheels.result == 'skipped' && needs.sdist.result == 'skipped'
+                  && needs.reuse.outputs.run_id != '')) }}
     environment: pypi
     permissions:
       # Trusted publishing: PyPI verifies this workflow's identity, so there
@@ -686,7 +765,18 @@ jobs:
           # glob, and `{a,b}` is not one.
           pattern: pypi-*
           merge-multiple: true
-      - run: ls -l dist
+          run-id: ${{ needs.reuse.outputs.run_id || github.run_id }}
+          github-token: ${{ github.token }}
+      - name: The wheels are this tag's
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -l dist
+          v="${GITHUB_REF_NAME#v}"
+          for f in dist/*; do
+            case "$(basename "$f")" in kalast-${v}-*|kalast-${v}.tar.gz) ;; *)
+              echo "::error::$f is not a ${v} distribution"; exit 1 ;; esac
+          done
       - uses: pypa/gh-action-pypi-publish@release/v1
 
   crates:
