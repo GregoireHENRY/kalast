@@ -95,13 +95,31 @@ physics or to any shadow.
 
 ## Where it stands
 
-The frame is 10.7 ms; 100 it/s is 10.0. What is on the critical path now:
+The frame is 10.7 ms; 100 it/s is 10.0. Two more single-run variants to
+find the critical path:
 
-- **The text pass, 3.0 ms**, drawn after the render pass and before the
-  present; it was 2.2 when it had a slower neighbour to hide behind. At
-  msaa 1 it was 1.1 and at 400 × 300 it was 0.36, so it is fill: it renders
-  into the multisampled target. Glyphs are already antialiased; drawing
-  them after the resolve, into the single-sample target, would cost a
-  fraction of that.
-- The render pass, 8.2 ms: 6.3 M facets, with about 2.3 ms of that MSAA.
-- The shadow pass overlaps everything and is not on the path.
+| | shadow | render | frame | it/s |
+|---|---|---|---|---|
+| as committed (8192, Blender axes) | 7.5 | 8.2 | 10.70 | 93.4 |
+| no text pass at all (`axes.style = "off"`, no HUD) | 8.1 | 8.1 | 10.69 | 93.6 |
+| `shadows.resolution = 4096` | 4.9 | 7.6 | 9.42 | **106.2** |
+| `shadows.resolution = 2048` | 4.4 | 7.4 | 9.10 | 109.9 |
+
+- **The text pass costs nothing.** Its 3.0 ms figure is waiting: a pass's
+  number runs from its vertex stage starting to its fragment stage ending,
+  and the text pass is queued behind the blit, which waits for the main
+  pass. With no text pass the frame is the same to 0.01 ms. Not a lever.
+- **The shadow pass is on the critical path after all**: the main pass's
+  fragment stage samples the map, so it cannot start until the layers are
+  stored, and at 8192 a layer is 268 MB of `Depth32Float` to store. Halving
+  the resolution takes 2.6 ms off the shadow pass and 1.3 ms off the frame;
+  2048 barely improves on 4096, so ~4.4 ms of the pass is the geometry
+  (1.6 M vertices and 3.1 M triangles per body per layer), not the store.
+- The physics query is unmoved by 4096: `test_facet_shadow` at 4096 gives
+  the same counts as at 8192 (48/14724 lit-but-blocked, 52 dark-but-lit,
+  worst angle 1.39 %). With per-body layers the texel on Didymos goes from
+  10 cm to 21 cm and on Dimorphos from 2 to 4 cm, against ~1.5 m facets on
+  the 3M models; and a layer drops from 268 to 67 MB. The bias follows the
+  fit (`fit_shadow(…, resolution)`), so nothing else moves. Whether 4096
+  becomes the default is a decision about users' outputs, not taken here.
+- The render pass, 7.6-8.2 ms: 6.3 M facets, about 2.3 ms of it MSAA.

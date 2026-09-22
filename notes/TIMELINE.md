@@ -3078,5 +3078,10 @@ A device without the feature falls back to the corners draw with the facet
 passed as a flat varying, exercised by forcing it for one build: identical
 frames, 52.5 it/s.
 
-**Open:** the text pass, 3.0 ms of the 10.7 ms frame, renders into the
-multisampled target and is now the largest item on the critical path.
+Then two single-run variants: no text pass at all leaves the frame at
+10.69 ms (the text figure was waiting behind the blit, not work); and
+`shadows.resolution = 4096` gives **106 it/s** (2048: 110), because the
+main pass's fragment stage waits for the 268 MB layers to be stored. The
+physics query at 4096 gives the same counts as at 8192. **Open:** whether
+4096 becomes the default -- the user's call, it changes the texel on their
+outputs (10 → 21 cm on Didymos).
