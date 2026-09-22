@@ -2995,6 +2995,19 @@ rehearsed on this exact commit` -- skipped `wheels`, `sdist` and all four
 passed. The release body is `CHANGELOG.md`'s `## v0.5.4` section verbatim,
 which the gate had checked for and the user had reviewed before the tag.
 
-So the release procedure in rule 33 has now been run once end to end as
-written: bump, section, push, rehearse, review, tag, and a tag that costs
-minutes because the bytes were built and checked before it existed.
+**Except that the release had no assets.** Every job green, the release
+page carrying the changelog body -- and zero archives on it. The release job
+had downloaded all four into `dist/` and the name guard had passed on them;
+then `actions/checkout`, which I had placed *after* the download so the
+changelog could be read, cleaned the workspace ("Deleting the contents of
+/home/runner/work/kalast/kalast"), and the upload step found nothing, said
+`Pattern 'dist/*.tar.gz' does not match any files`, and went green. Found
+only because the post-release check listed the assets rather than trusting
+the job status. Repaired by hand within the hour: the four archives
+downloaded from the rehearsal run -- the bytes the job would have published
+-- and uploaded to the release; the arm64 one then unpacked and run
+(`embedded interpreter OK: kalast 0.5.4`, `2 up to date, 0 built`). The job
+now checks out first and fails on an unmatched upload glob.
+
+So the release procedure in rule 33 has been run once end to end as written,
+and its first outing found the one step whose failure mode was silence.
