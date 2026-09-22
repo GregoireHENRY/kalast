@@ -3043,3 +3043,17 @@ render pass completely, so **the render pass is the frame** -- 12.8-13.8 ms,
 non-indexed for the `vertex_index / 3` attribute lookup, a shader design
 question. Layer resolution below 8192 is unmeasured; proxies stay ruled out
 for this round. 100 it/s is 10 ms; the frame is 15.6.
+
+## 2026-09-22 — `open_in_background` was only "not key"
+
+A benchmark run took the user's mouse in the middle of their work, flag set.
+Two halves, both in winit's macOS path: an inactive window is still ordered
+*in front* (`orderFront`), so it covered the terminal and took the next
+click; and on macOS 14+ `activateIgnoringOtherApps:NO` goes through
+cooperative activation, which lets a process launched from the *active*
+application -- the terminal being read -- activate anyway. Fixed together:
+`WindowLevel::AlwaysOnBottom` on every platform, and on macOS
+`ActivationPolicy::Accessory` for a background run (no Dock tile, no Cmd-Tab
+entry while it is up). Frontmost application sampled every 0.5 s through a
+6 s background run: the one that was in front, 11 of 11. CONFIG.md's entry
+says so.
