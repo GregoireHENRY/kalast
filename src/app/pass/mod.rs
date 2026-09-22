@@ -42,7 +42,7 @@ impl Passes {
         let samples = render::resolve_samples(device, format, config.shading.msaa);
 
         Self {
-            shadow: shadow::Pass::new(device, &uniforms.layouts_for_shadow()),
+            shadow: shadow::Pass::new(device, config, &uniforms.layouts_for_shadow()),
 
             render: render::Pass::new(device, format, config, &uniforms.layouts_shaded(), size),
             light_cube: light_cube::Pass::new(device, format, &layouts_all, samples),

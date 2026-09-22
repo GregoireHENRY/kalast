@@ -481,8 +481,13 @@ Set it `true` for geometry that is *not* closed -- open craters, clipped
 sections, single-sided surfaces -- where the inside of the shell has to be
 visible from outside. Otherwise those faces vanish.
 
-The shadow pass deliberately stays unculled regardless, so non-closed geometry
-still casts correctly from whichever side faces the light.
+The shadow pass reads the same flag. `false` culls back faces there too: on
+closed geometry the nearest surface along any ray from the light is a front
+face, so the depth map is identical and the pass is 20 % cheaper (10.9 to
+8.7 ms a frame on the Didymos pair at 3M facets). `true` leaves both passes
+unculled, so non-closed geometry is seen, and casts, from whichever side
+faces the camera or the light. Since 22 September; before that the shadow
+pass was unculled regardless (`notes/2026-09-22_indexed_shadow_pass_and_caster_culling.md`).
 
 **This option previously did nothing.** Every pipeline passed `cull_mode:
 None` (no culling at all, equivalent to `render_back_face = true`), with the

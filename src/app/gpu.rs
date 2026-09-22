@@ -485,12 +485,18 @@ fn extract_geometry(mesh: &crate::mesh::Mesh, range: std::ops::Range<usize>) -> 
             })
             .collect()
     } else {
-        range
-            .map(|v| GeometryVertex {
-                pos: f32x3(mesh.positions[v]),
-            })
-            .collect()
+        extract_positions(mesh, range)
     }
+}
+
+/// The shared vertices `range`, as loaded: a smooth mesh's geometry, and a
+/// flat mesh's `shared_positions`.
+fn extract_positions(mesh: &crate::mesh::Mesh, range: std::ops::Range<usize>) -> Vec<GeometryVertex> {
+    range
+        .map(|v| GeometryVertex {
+            pos: f32x3(mesh.positions[v]),
+        })
+        .collect()
 }
 
 /// How many vertices the GPU draws: one per corner for a flat mesh, one per
@@ -649,6 +655,15 @@ pub struct MeshBuffer {
     pub attrib_buffer: wgpu::Buffer,
     pub attr_bind_group: wgpu::BindGroup,
     pub index_buffer: wgpu::Buffer,
+    // A flat mesh's shared vertices -- `positions` as loaded -- for the
+    // passes that draw depth alone. `geometry_buffer` holds the corners
+    // expanded, three per facet, because the shaded pass finds a facet's
+    // attributes by `vertex_index / 3`; a depth-only pass has no attributes
+    // to find and draws the shared vertices through `index_buffer` instead,
+    // which shades 1.6 M vertices per pass on a 3M-facet model rather than
+    // 9.4 M corners. `None` for a smooth mesh, whose `geometry_buffer`
+    // already is the shared vertices.
+    pub shared_positions: Option<wgpu::Buffer>,
 
     // Dynamic: the body's transform, changes every frame it moves.
     // Persistent buffer, updated in place via write_buffer.
@@ -691,6 +706,18 @@ impl MeshBuffer {
         );
         upload_chunked(queue, &geometry_buffer, n, |r| extract_geometry(mesh, r));
 
+        let shared_positions = mesh.flat.then(|| {
+            let nv = mesh.positions.len();
+            let buffer = empty_buffer::<GeometryVertex>(
+                device,
+                nv,
+                wgpu::BufferUsages::VERTEX,
+                "mesh shared positions",
+            );
+            upload_chunked(queue, &buffer, nv, |r| extract_positions(mesh, r));
+            buffer
+        });
+
         let na = n_attrs(mesh);
         let attrib_buffer =
             empty_buffer::<MeshAttr>(device, na, wgpu::BufferUsages::STORAGE, "mesh attributes");
@@ -701,6 +728,7 @@ impl MeshBuffer {
             attrs_layout,
             geometry_buffer,
             attrib_buffer,
+            shared_positions,
             n,
             &mesh.indices,
             instance,
@@ -747,6 +775,7 @@ impl MeshBuffer {
             attrs_layout,
             geometry_buffer,
             attrib_buffer,
+            None,
             positions.len(),
             indices,
             instance,
@@ -759,6 +788,7 @@ impl MeshBuffer {
         attrs_layout: &wgpu::BindGroupLayout,
         geometry_buffer: wgpu::Buffer,
         attrib_buffer: wgpu::Buffer,
+        shared_positions: Option<wgpu::Buffer>,
         n_vertices: usize,
         indices: &[u32],
         instance: &InstanceInput,
@@ -793,6 +823,7 @@ impl MeshBuffer {
             attrib_buffer,
             attr_bind_group,
             index_buffer,
+            shared_positions,
 
             instance_buffer,
         }
@@ -831,8 +862,11 @@ impl MeshBuffer {
         queue.write_buffer(&self.instance_buffer, 0, bytemuck::bytes_of(instance));
     }
 
-    /// Draw it with positions alone -- what the shadow, facet-id, hemicube
-    /// and light-cube passes want, none of which shade.
+    /// Draw it with positions alone -- what the facet-id, hemicube and
+    /// light-cube passes want, none of which shade. A flat mesh goes
+    /// non-indexed, one vertex per corner, because those passes still name
+    /// the facet by `vertex_index / 3`; a pass that wants depth and nothing
+    /// else should call `render_depth`.
     pub fn render(&self, pass: &mut wgpu::RenderPass) {
         pass.set_vertex_buffer(0, self.geometry_buffer.slice(..));
         pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
@@ -843,6 +877,21 @@ impl MeshBuffer {
         } else {
             pass.draw_indexed(0..self.n_indices, 0, 0..1);
         }
+    }
+
+    /// Draw it for its depth alone -- the shadow pass. Same triangles as
+    /// `render`, but a flat mesh is drawn indexed over its shared vertices
+    /// (`shared_positions`), so the vertex stage runs once per vertex rather
+    /// than once per corner. Nothing downstream of a depth-only pass reads
+    /// `vertex_index`, which is what makes the indexed draw equivalent.
+    pub fn render_depth(&self, pass: &mut wgpu::RenderPass) {
+        let Some(shared) = &self.shared_positions else {
+            return self.render(pass);
+        };
+        pass.set_vertex_buffer(0, shared.slice(..));
+        pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+        pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        pass.draw_indexed(0..self.n_indices, 0, 0..1);
     }
 
     /// Draw it shaded: the same, plus the attribute buffer at group

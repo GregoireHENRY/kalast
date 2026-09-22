@@ -119,9 +119,10 @@ impl Pass {
         // the window, so the real size has to be handed in.
         size: (u32, u32),
     ) -> Self {
-        // Culling is a main-pass-only decision: the shadow pass deliberately
-        // stays unculled so non-closed geometry still casts from whichever
-        // side faces the light.
+        // The shadow pass reads the same flag (`shadow::Pass::new`): closed
+        // geometry culls its back faces in both, and `render_back_face` turns
+        // it off in both so non-closed geometry is seen -- and casts -- from
+        // whichever side faces the camera or the light.
         let cull_mode = if config.shading.render_back_face {
             None
         } else {

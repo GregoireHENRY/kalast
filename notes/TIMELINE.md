@@ -3011,3 +3011,33 @@ now checks out first and fails on an unmatched upload glob.
 
 So the release procedure in rule 33 has been run once end to end as written,
 and its first outing found the one step whose failure mode was silence.
+
+## 2026-09-22 — the shadow pass draws shared vertices and culls: 41.6 → 64.2 it/s
+
+`examples/didymos/main.py` on the full pair (2 × 3.1 M facets) was GPU-bound
+at 41.6 it/s with the shadow pass at 19.65 ms of a 24.5 ms span: two 8192²
+layers, every body into every layer, and each flat mesh drawn non-indexed --
+9.4 M corners through a vertex stage that reads a position and a matrix.
+Two changes, no shadow proxies, no change to any shadow a closed mesh casts
+(`notes/2026-09-22_indexed_shadow_pass_and_caster_culling.md`):
+
+- `MeshBuffer::shared_positions` (19 MB per 3M model) and `render_depth`:
+  the shadow pass draws a flat mesh indexed over its 1.6 M shared vertices
+  through the index buffer it already had. Shadow 19.65 → 10.96 ms,
+  **54.6 it/s**. The facet-id and hemicube passes keep the non-indexed draw
+  they need for `vertex_index / 3`.
+- The shadow pipeline culls back faces when `shading.render_back_face` is
+  `false`, the flag that already meant "closed geometry" for the main pass;
+  `true` leaves both passes unculled as before. Shadow 10.96 → 8.71 ms,
+  **64.2 it/s** (64.2 / 67.4 / 59.6), frame 15.6 ms wall.
+
+The five shadow tests pass, `cargo test --release` passes with and without
+the `python` feature (one unrelated flaky test in `app::cargo::buffer_tests`,
+two tests sharing `wrapper_dir()` in parallel; passes alone).
+
+**Where it stands / what is left**, in the note's last section: the render
+pass at 12.8 ms is now the largest item (non-indexed for the attribute
+lookup -- a shader design question); skipping a body's draw into a layer it
+cannot cast into (AABB against the layer's frustum) is the cheap next step;
+layer resolution below 8192 is unmeasured; proxies stay ruled out for this
+round. 100 it/s is 10 ms; the frame is 15.6.

@@ -5,11 +5,29 @@ pub struct Pass {
 }
 
 impl Pass {
-    pub fn new(device: &wgpu::Device, layouts: &[Option<&wgpu::BindGroupLayout>]) -> Self {
+    pub fn new(
+        device: &wgpu::Device,
+        config: &crate::app::config::Config,
+        layouts: &[Option<&wgpu::BindGroupLayout>],
+    ) -> Self {
+        // On closed geometry the nearest surface along any ray from the light
+        // is a front face, so culling the back faces leaves the depth map
+        // identical and halves what the rasteriser is handed: 10.9 -> 8.7 ms
+        // a frame on the Didymos pair at 3M facets. `render_back_face` is how
+        // a script says its geometry is *not* closed -- open craters, clipped
+        // sections, single-sided surfaces -- and then both faces cast, as
+        // they always did. Same flag as the main pass, same meaning; a
+        // toggle rebuilds both (`Window::rebuild_passes`).
+        let cull_mode = if config.shading.render_back_face {
+            None
+        } else {
+            Some(wgpu::Face::Back)
+        };
+
         let pipeline = gpu::RenderPipeline::new(
             &device,
             gpu::DEPTH_FORMAT,
-            None, // Some(wgpu::Face::Front),
+            cull_mode,
             gpu::SHADER_SHADOW,
             &layouts,
             true,
@@ -76,7 +94,7 @@ impl Pass {
                 .get(ii)
                 .and_then(|m| m.as_ref())
                 .unwrap_or(mesh);
-            occluder.render(&mut render_pass);
+            occluder.render_depth(&mut render_pass);
         }
     }
 }
