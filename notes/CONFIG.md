@@ -1139,7 +1139,7 @@ not wrong. Setting it to `False` restores the old single scene-fitted map,
 which is worth doing only to reproduce older output, or when every body is a
 similar size.
 
-### `shadows.resolution: u32` — default `8192` *(live, reallocates the shadow map)*
+### `shadows.resolution: u32` — default `4096` *(live, reallocates the shadow map)*
 Side length of the square shadow map, in texels. Used **twice** at
 `src/app/window.rs:239,240` (width and height) and also passed into `Globals`
 at `src/app/window.rs:202`, where the shader uses it to compute
@@ -1149,9 +1149,19 @@ powers of two are the sane choice. Each layer is `resolution^2 x 4 bytes` --
 268 MB at `8192`, 67 MB at `4096`, 17 MB at `2048` -- and the array holds
 **one layer per body** (one in all with `shadows.per_body` off), grown as
 bodies are loaded. It used to hold the cap of eight for every scene, 2.1 GB at
-`8192` before a mesh was loaded; a two-body scene now takes 0.54 GB. Lowering
-to `4096` is the first thing to try if you are tight on memory. Measured in
+`8192` before a mesh was loaded; a two-body scene at `8192` takes 0.54 GB,
+at the default 0.13 GB. Measured in
 `notes/2026-09-18_memory_meshes_and_shadow_maps.md`.
+
+The default was `8192` until 22 September. Every layer is stored every frame
+and the main pass cannot start its fragment stage until it is, so the store
+is on the critical path: on the Didymos pair at 3M facets, `4096` took the
+frame from 93 to 106 it/s (`2048` 110, so the rest of the pass is geometry).
+The per-facet shadow query the thermophysical model runs on gave the same
+counts at `4096` as at `8192` in `test_facet_shadow`; with a layer per body
+the texel is 21 cm on Didymos and 4 cm on Dimorphos, against ~1.5 m facets.
+The bias follows the fit, so nothing else moves. Set `8192` back on a script
+that wants the finer texel. `notes/2026-09-22_indexed_main_pass_primitive_index.md`.
 
 ### `shadows.pcf: u32` — default `0` *(live)*
 Percentage-closer-filtering kernel *radius*.

@@ -507,10 +507,13 @@ pub struct Shadows {
     /// Side length of each square shadow map, in texels.
     ///
     /// One layer per body (one in all with `per_body` off), each
-    /// `resolution^2 x 4 bytes`: 268 MB a layer at the default 8192, 1.07 GB at
-    /// 16384, 17 MB at 2048. Dropping to 4096 is the first thing to try when
-    /// memory is tight or interactive frame times matter. See
-    /// `notes/2026-09-18_memory_meshes_and_shadow_maps.md`.
+    /// `resolution^2 x 4 bytes`: 67 MB a layer at the default 4096, 268 MB at
+    /// 8192, 17 MB at 2048. The default was 8192 until 22 September; every
+    /// layer is stored every frame and the main pass waits for it, and at
+    /// 4096 the Didymos pair went from 93 to 106 it/s with the per-facet
+    /// shadow query unchanged (texel 21 cm on Didymos, 4 cm on Dimorphos,
+    /// with a layer per body). See
+    /// `notes/2026-09-22_indexed_main_pass_primitive_index.md`.
     ///
     /// It also feeds the automatic bias, which is expressed relative to one texel,
     /// so changing it changes the shadow bias with it.
@@ -593,7 +596,7 @@ pub struct Shadows {
 impl Default for Shadows {
     fn default() -> Self {
         Self {
-            resolution: 8192,
+            resolution: 4096,
             pcf: 0,
             normal_offset_scale: None,
             bias_scale: None,

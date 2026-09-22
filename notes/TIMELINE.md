@@ -3085,3 +3085,14 @@ main pass's fragment stage waits for the 268 MB layers to be stored. The
 physics query at 4096 gives the same counts as at 8192. **Open:** whether
 4096 becomes the default -- the user's call, it changes the texel on their
 outputs (10 → 21 cm on Didymos).
+
+## 2026-09-22 — `shadows.resolution` defaults to 4096
+
+Decided by the user on the measurement above: the layers are stored every
+frame and the main pass waits for them, and at 4096 the Didymos pair crosses
+100 it/s (106 in the single run) with the per-facet shadow query giving the
+same counts as at 8192. Texel 21 cm on Didymos, 4 cm on Dimorphos, with a
+layer per body; 67 MB a layer instead of 268. No example pinned its own
+resolution, so all of them take it; `test_pcf_filters` and
+`test_shadow_layers` pin 1024 and `test_mesh_attrs` 2048, as before. A
+script that wants the finer texel sets 8192 back. CONFIG.md's entry says so.
