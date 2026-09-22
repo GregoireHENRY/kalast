@@ -2967,7 +2967,7 @@ sidecar, the second reads it back as current, an edited file is stale,
 
 Twelve maintained scripts carried 42 absolute paths under one person's home
 directory, across three roots, and `CLAUDE.md` asked every new machine to
-edit them by hand and record the edits in `local_paths.toml`. They read
+edit them by hand and record the edits in a per-machine file, which the user has since deleted -- they do not want one. They read
 `KALAST_HERA`, `KALAST_MESH` and `KALAST_TIRI` now, each with the old layout
 as its default, so a machine that matches it changes nothing and one that
 does not sets three variables and edits no tracked file.

@@ -107,12 +107,10 @@ user put them.
 
 Set the variables in the shell profile, or in the editor's terminal for a
 session. A machine whose layout differs from the defaults needs nothing else
--- no edits to tracked files, nothing for `git pull` to undo. If a variable
-is wrong, the failure is immediate and names the missing file.
-
-`local_paths.toml` at the repo root, gitignored, is where a machine can still
-record gotchas that are not a path -- a meta-kernel edited by hand, a mesh
-kept under another name. Read it at the start of a session if it exists.
+-- no edits to tracked files, nothing for `git pull` to undo, and **no
+per-machine file in the repository**: there is no `local_paths.toml` and
+there should not be one. If a variable is wrong, the failure is immediate
+and names the missing file.
 
 ## Building
 
