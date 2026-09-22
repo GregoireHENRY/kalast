@@ -431,7 +431,7 @@ jobs:
           # system that cannot run from an archive and 766 MB of
           # dependencies the bundle does not have.
           cp -r res examples notes "$stage/"
-          cp README.rst "$stage/"
+          cp README.md "$stage/"
 
           # The hosted libraries, at the one path the editor looks for them:
           # `dylib_path_for` without `KALAST_HOSTED_TARGET_DIR` set, which is
