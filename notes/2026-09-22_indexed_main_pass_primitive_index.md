@@ -120,6 +120,9 @@ find the critical path:
   worst angle 1.39 %). With per-body layers the texel on Didymos goes from
   10 cm to 21 cm and on Dimorphos from 2 to 4 cm, against ~1.5 m facets on
   the 3M models; and a layer drops from 268 to 67 MB. The bias follows the
-  fit (`fit_shadow(…, resolution)`), so nothing else moves. Whether 4096
-  becomes the default is a decision about users' outputs, not taken here.
+  fit (`fit_shadow(…, resolution)`), so nothing else moves. **4096 is the
+  default since this evening**, the user's decision on these numbers; at
+  it, three runs: 105.3 / 106.6 / 97.3 it/s (shadow 4.9-5.8 ms, render
+  7.5), and the seven tests -- config panel, bindings, stubs, facet shadow,
+  far Sun, PCF, layers -- pass. From 41.6 it/s this morning: **2.5×**.
 - The render pass, 7.6-8.2 ms: 6.3 M facets, about 2.3 ms of it MSAA.
