@@ -13,6 +13,7 @@ renames it.
 - Rendering is about 2.5× faster on full-resolution meshes: the Didymos pair at 3.1 M facets each runs `examples/didymos/main.py` at 105 it/s, from 42. The shadow and main passes draw shared vertices instead of expanded corners, closed meshes cull their back faces in the shadow map, and a body is only drawn into the shadow layers it can reach. Nothing in the physics or the shadows changes.
 - `shadows.resolution` defaults to 4096 (was 8192): a quarter of the memory per shadow layer and a faster frame, with the per-facet shadowing the thermophysical model runs on unchanged. Set 8192 in a script that wants the finer texel.
 - A window opened with `app.config.open_in_background = True` now stays behind your other windows and never takes the keyboard or the mouse; on macOS the process runs without a Dock icon for that run.
+- The screen no longer paces the loop. A visible window was presented every frame, which capped the loop at twice the refresh rate of whichever display it was on (120 it/s exactly on a 60 Hz monitor) and cost up to 10× on a light scene. The window is now shown at its display's refresh rate and the simulation steps as fast as the GPU allows: 3,000 it/s on either screen where it was 300 and 120.
 
 ## v0.5.4
 

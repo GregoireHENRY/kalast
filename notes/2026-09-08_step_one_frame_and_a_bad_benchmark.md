@@ -75,3 +75,11 @@ and an unconditional warning when `vsync = false` does not get `Immediate`.
 
 Why the example binary syncs to the display and the extension module does not.
 Worth an answer before any cross-language timing is published.
+
+---
+
+**Update 2026-09-22.** The pin was not the loop. The binary's window was on
+screen and presented every frame, and presenting paces the loop at twice the
+display's refresh rate; the Python process was measured covered, where no
+present happens. Presents are now at most one per refresh and the two
+compare end to end. `2026-09-22_present_paced_by_the_display.md`.

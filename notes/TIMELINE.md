@@ -3096,3 +3096,18 @@ layer per body; 67 MB a layer instead of 268. No example pinned its own
 resolution, so all of them take it; `test_pcf_filters` and
 `test_shadow_layers` pin 1024 and `test_mesh_attrs` 2048, as before. A
 script that wants the finer texel sets 8192 back. CONFIG.md's entry says so.
+
+## 2026-09-22 — the display paced the loop
+
+"Moving kalast to the second screen halves the it/s." A visible window was
+presented every frame, and the window server hands drawables back at the
+pace of the display the window is on: measured by the user on a light
+scene, 300 it/s on the 120 Hz panel and **120 exactly** on a 60 Hz monitor,
+both loop shapes. The swapchain is now acquired at most once per refresh of
+the window's current display (winit's monitor refresh rate, re-read on move
+and resize), and the frames between run as an occluded window's do. After:
+~3,000 it/s on either screen. Every probe run from here used a background
+window, which is covered and never presents, so none of them could see it;
+a first change to `start()` measured against those was reverted.
+`notes/2026-09-22_present_paced_by_the_display.md`, which also corrects the
+2026-09-08 note's "pinned Rust binary" reading.

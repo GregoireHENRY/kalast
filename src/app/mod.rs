@@ -252,6 +252,12 @@ pub struct App {
     /// pumps until it flips, which is what makes one call mean one frame
     /// rather than one batch of events.
     frame_drawn: bool,
+
+    /// When the swapchain last took a frame, and how often it may: once per
+    /// refresh of the display the window is on. See the acquisition in the
+    /// redraw handler for what presenting more often than that costs.
+    last_present: std::time::Instant,
+    present_interval: Option<std::time::Duration>,
     /// Whether this app has already handed its scene to a host. Once only:
     /// the second hand-over would replace the simulation the host is midway
     /// through rendering with an identical one.
@@ -720,6 +726,8 @@ impl App {
 
             event_loop: None,
             frame_drawn: false,
+            last_present: std::time::Instant::now(),
+            present_interval: None,
             gave_scene: false,
             stepping: false,
             loaded_example: None,
@@ -936,6 +944,17 @@ impl App {
 
         self.event_loop = Some(ev);
         self.shared.borrow().running
+    }
+
+    /// One present per refresh of the display the window is on. Read again
+    /// whenever the window moves or resizes, since dragging it to another
+    /// screen changes the answer; `None` where the platform does not say,
+    /// which presents every frame as before.
+    fn refresh_present_interval(&mut self) {
+        self.present_interval = self.window.as_ref().and_then(|w| {
+            let mhz = w.window.current_monitor()?.refresh_rate_millihertz()?;
+            (mhz > 0).then(|| std::time::Duration::from_secs_f64(1000.0 / mhz as f64))
+        });
     }
 
     /// Realise any option that changed since the window was built.
@@ -2071,6 +2090,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
             &self.config.borrow(),
             &self.simulation.borrow(),
         )));
+        self.refresh_present_interval();
 
         if self.want_editor || self.config.borrow().editor {
             let w = self.window.as_ref().unwrap();
@@ -2183,7 +2203,9 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     _ => self.exit(ev),
                 }
             }
+            winit::event::WindowEvent::Moved(_) => self.refresh_present_interval(),
             winit::event::WindowEvent::Resized(size) => {
+                self.refresh_present_interval();
                 let win = self.window.as_mut().unwrap();
                 win.resize(size.width, size.height, &sim_cfg.borrow());
             }
@@ -2358,7 +2380,28 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     // frame on that basis halted the simulation outright
                     // rather than just not drawing it. The frame runs either
                     // way; only the present is skipped.
-                    let surface_texture = win.get_surface_texture(&sim_cfg.borrow());
+                    //
+                    // And acquired only when the display can take another
+                    // frame. The pool is three drawables, and the window
+                    // server hands them back at the pace of the display the
+                    // window is on -- two per refresh, measured: a light
+                    // scene ran at 300 it/s on the 120 Hz panel and at 120
+                    // exactly, both loops, once dragged onto a 60 Hz
+                    // monitor. Presenting at most once per refresh never
+                    // waits for one, and the frames in between run as an
+                    // occluded window's do: rendered, stepped, not shown.
+                    let present_due = match self.present_interval {
+                        Some(interval) => self.last_present.elapsed() >= interval,
+                        None => true,
+                    };
+                    let surface_texture = if present_due {
+                        win.get_surface_texture(&sim_cfg.borrow())
+                    } else {
+                        None
+                    };
+                    if surface_texture.is_some() {
+                        self.last_present = std::time::Instant::now();
+                    }
                     if self.editor.is_some() {
                         // The scene goes offscreen and the swapchain is left
                         // to the UI. `render(None, ..)` is exactly that, and
