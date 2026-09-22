@@ -360,3 +360,17 @@ purpose**, because they are living documents rather than a record of one day:
 - `API.md` — the Python API outside the config: `App`, `sim.state`,
   `sim.huds`, bodies, camera and Sun, and the GPU-result queries. Same rule
   again: add to it whenever something is exposed to Python.
+
+## Releasing
+
+The GitHub release text is `CHANGELOG.md`'s section for that version,
+verbatim, and nothing else: a list of what changed, no prose. The version
+gate refuses a tag whose section is missing or has no `- ` entry.
+
+The order is: bump the three manifests, write the section, push, rehearse
+(`gh workflow run release.yml`), and if green, **show the section to the
+user and get it approved before pushing the tag** -- every tag, not just the
+first. A green rehearsal is the tag's technical go; the changelog review is
+its editorial one, and it is the user's, not yours. A tag whose commit was
+rehearsed publishes the rehearsal's artefacts, so the tag run is minutes.
+

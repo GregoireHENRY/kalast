@@ -30,9 +30,10 @@
 # `toolchain/` beside the executable -- the first time a `.rs` is actually
 # compiled, not at first launch, because most people never open one and a
 # toolchain is a few hundred megabytes.
-# **How to release.** Bump the three manifests, push, run this workflow by
-# hand (`gh workflow run release.yml`), and if it is green, tag that same
-# commit. The tag run then finds the rehearsal by commit and **publishes its
+# **How to release.** Bump the three manifests, write the version's section
+# in CHANGELOG.md, push, run this workflow by hand
+# (`gh workflow run release.yml`), and if it is green, **have the changelog
+# section reviewed**, then tag that same commit. The tag run then finds the rehearsal by commit and **publishes its
 # artefacts instead of building them again** -- a few minutes rather than
 # twenty. A tag nobody rehearsed builds from scratch, exactly as before.
 name: release
@@ -100,7 +101,15 @@ jobs:
             *) note "kalast_macros = \"$macros_req\" does not admit $tag -- set it to the version being published" ;;
           esac
 
-          # 3. Neither registry lets a version be published twice, and both
+          # 3. CHANGELOG.md has a `## v<tag>` section with at least one entry.
+          #    The GitHub release is that section verbatim and nothing else,
+          #    and a person reviews it before the tag is pushed; this is what
+          #    makes forgetting impossible rather than merely unlikely.
+          if ! awk -v v="v$tag" '$0 ~ "^## "v"([^0-9.]|$)"{f=1;next} /^## /{f=0} f&&/^- /{n++} END{exit !(n>0)}' CHANGELOG.md; then
+            note "CHANGELOG.md has no '## v$tag' section with a '- ' entry -- write it, have it reviewed, then tag"
+          fi
+
+          # 4. Neither registry lets a version be published twice, and both
           #    already carry this project. Better to find out here than after
           #    the GitHub release exists and half the publishing is done.
           ua="User-Agent: kalast release workflow"
@@ -114,7 +123,7 @@ jobs:
             note "PyPI already has kalast $tag"
           fi
 
-          # 4. A warning, not an error: publishing below the registry's
+          # 5. A warning, not an error: publishing below the registry's
           #    highest version is legal and occasionally deliberate, but
           #    `cargo add kalast` and `pip install kalast` would go on
           #    resolving to the older, higher one, so the release would be
@@ -687,60 +696,27 @@ jobs:
               echo "::error::$f is not a ${GITHUB_REF_NAME} archive"; exit 1 ;; esac
           done
 
+      # The changelog is in the repository, not in the artefacts.
+      - uses: actions/checkout@v4
+
+      # The release body is this version's section of CHANGELOG.md, verbatim
+      # -- a list of what changed, reviewed before the tag was pushed, and
+      # no prose around it. The gate already refused a tag without one.
+      - name: The release notes are this version's changelog section
+        shell: bash
+        run: |
+          set -euo pipefail
+          awk -v v="${GITHUB_REF_NAME}" '$0 ~ "^## "v"([^0-9.]|$)"{f=1;next} /^## /{f=0} f' CHANGELOG.md \
+            | sed -e '/./,$!d' | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' > release-notes.md
+          [ -s release-notes.md ] || { echo "::error::empty changelog section for ${GITHUB_REF_NAME}"; exit 1; }
+          echo "--- release body ---"; cat release-notes.md
+
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/*.tar.gz
             dist/*.zip
-          generate_release_notes: true
-          body: |
-            **Unpack it and run it. There is nothing to install.**
-
-            ```
-            ./kalast                                   # the kalast UI app
-            ./kalast examples/two_spheres/main.py      # an example
-            ./kalast some/shape.obj                    # a mesh
-            ```
-
-            | | |
-            |---|---|
-            | `kalast` / `kalast.exe` | the kalast UI app. Open it on its own, or give it a `.obj`, a `.py` or a `.rs` |
-            | `python/` | the interpreter the `.py` examples run in, with kalast and its dependencies already in it. Nothing is installed on your machine and nothing is written outside this folder |
-            | `res/` | the meshes and colour maps the examples load |
-            | `target/` | the `.rs` examples, already compiled. Delete it and they are rebuilt from source instead |
-            | `examples/`, `notes/`, `README.rst` | to read and to run |
-
-            Run it from inside the unpacked folder — the examples load `res/`
-            by a relative path.
-
-            **`pip install kalast` is a different way in, not a prerequisite**
-            — for putting kalast in your own environment, the way `cargo add`
-            does. This release publishes it too.
-
-            `examples/two_spheres` and `examples/cube` need nothing but the
-            bundled `res/`. The Hera and Didymos examples carry absolute paths
-            to shape models and SPICE kernels that are not shipped here — see
-            "First-time setup" in `CLAUDE.md`.
-
-            **The `.rs` examples come compiled**, so opening one loads it and
-            runs, with no cargo and no toolchain involved. `examples/old/` is
-            the exception — those are superseded and do not build against the
-            current API; they are shipped to read, not to run.
-
-            **Editing a `.rs`, or opening one of your own, means compiling
-            it**, and that needs cargo. If the machine has none, the kalast
-            UI app fetches a minimal toolchain into `toolchain/` beside the
-            executable and reuses it after that — nothing goes into your
-            `$HOME`, and deleting the folder removes it. Your example is
-            compiled against the crates.io release of this same version, so
-            no clone is needed either. On macOS it also wants Apple's command
-            line tools for the linker (`xcode-select --install`); the kalast
-            UI app says so up front rather than failing at the link step.
-
-            That first build is a few minutes, and the Log panel shows cargo
-            working through it; later ones are seconds. It is not small
-            either — about 460 MB of toolchain and 600 MB of build directory,
-            both inside this folder, both reclaimed by deleting it.
+          body_path: release-notes.md
 
   pypi:
     name: publish to PyPI
