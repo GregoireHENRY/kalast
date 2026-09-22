@@ -30,12 +30,6 @@ import kalast.tpm.properties as properties
 import kalast.tpm.routine as routine
 from kalast.util import AU, SOLAR_CONSTANT, STEFAN_BOLTZMANN
 
-import os
-
-# Where the data is. Set the variables to your own locations, or keep the
-# defaults; res/README.md says how to get each set.
-HERA = Path(os.environ.get("KALAST_HERA", "~/data/spice/hera")).expanduser()  # HERA.zip, unpacked
-
 BACKEND = "gpu"          # "gpu" | "cpu"
 BENCHMARK = False
 N_ORBITS_SPINUP = 4.7    # x 687 d = 8.8 years, and the most the kernels allow.
@@ -63,8 +57,8 @@ DEPTH_IN_SEASONAL = 1.0
 DT_SAFETY = 0.4
 T_INIT = 200.0
 
-MESH = f"{HERA}/kernels/dsk/deimos_k005_tho_v02.obj"
-KERNEL = f"{HERA}/kernels/mk/hera_ops_local.tm"
+MESH = "/Users/gregoireh/data/mesh/deimos/deimos_k005_tho_v02.obj"
+KERNEL = "/Users/gregoireh/data/spice/hera/kernels/mk/hera_ops_local.tm"
 OUT = "out/hera_mars_swingby/deimos_tpm"
 EPOCH = "2025-03-12 12:00:00 UTC"
 

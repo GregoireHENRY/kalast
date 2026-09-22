@@ -8,13 +8,6 @@ from kalast.app import App, Hud
 from kalast.util import AU, AU_KM, RPD, DPR, PI  # noqa
 from kalast.entity import MARS, DIDYMOS, DIMORPHOS  # noqa
 
-import os
-from pathlib import Path
-
-# Where the data is. Set the variables to your own locations, or keep the
-# defaults; res/README.md says how to get each set.
-HERA = Path(os.environ.get("KALAST_HERA", "~/data/spice/hera")).expanduser()  # HERA.zip, unpacked
-
 
 app = App()
 app.config.width = 1020
@@ -28,14 +21,14 @@ app.simulation.camera.dir = [0.0, 0.0, 1.0]
 app.simulation.camera.projection.fovy = 5.5 * RPD
 
 app.simulation.load_mesh(
-    path=f"{HERA}/kernels/dsk/g_01165mm_spc_obj_didy_0000n00000_v003.obj"
+    path="/Users/gregoireh/data/mesh/didymos/g_01165mm_spc_didy_v003.obj"
 )
 app.simulation.load_mesh(
-    path=f"{HERA}/kernels/dsk/g_00243mm_spc_obj_dimo_0000n00000_v004.obj",
+    path="/Users/gregoireh/data/mesh/dimorphos/g_00243mm_spc_dimo_v004.obj",
 )
 
 spice.kclear()
-spice.furnsh(f"{HERA}/kernels/mk/hera_plan_local.tm")
+spice.furnsh("/Users/gregoireh/data/spice/hera/kernels/mk/hera_plan_local.tm")
 et0 = spice.str2et("2026-11-05 00:00:00 UTC")
 etf = spice.str2et("2027-04-30 00:00:00 UTC")
 dur = etf - et0

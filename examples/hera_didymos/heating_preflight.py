@@ -33,21 +33,14 @@ from kalast.app import Simulation
 from kalast.tpm import heating, properties, routine
 from kalast.util import AU, SOLAR_CONSTANT, STEFAN_BOLTZMANN
 
-import os
-
-# Where the data is. Set the variables to your own locations, or keep the
-# defaults; res/README.md says how to get each set.
-HERA = Path(os.environ.get("KALAST_HERA", "~/data/spice/hera")).expanduser()  # HERA.zip, unpacked
-MESH_ROOT = Path(os.environ.get("KALAST_MESH", "~/data/mesh")).expanduser()  # meshes not in HERA.zip
-
 EPOCH = "2027-01-21 05:36:00 UTC"
-KERNEL = f"{HERA}/kernels/mk/hera_plan_local.tm"
+KERNEL = "/Users/gregoireh/data/spice/hera/kernels/mk/hera_plan_local.tm"
 BODIES = ("DIDYMOS", "DIMORPHOS")
 MESH = {
-    "DIDYMOS": (f"{MESH_ROOT}/didymos/"
-                "g_01165mm_spc_didy_v003_10k.obj"),
-    "DIMORPHOS": (f"{MESH_ROOT}/dimorphos/"
-                  "g_00243mm_spc_dimo_v004_10k.obj"),
+    "DIDYMOS": ("/Users/gregoireh/data/mesh/didymos/"
+                "g_01165mm_spc_obj_didy_0000n00000_v003_decimated_10k.obj"),
+    "DIMORPHOS": ("/Users/gregoireh/data/mesh/dimorphos/"
+                  "g_00243mm_spc_obj_dimo_0000n00000_v004_decimated_10k.obj"),
 }
 RESTART = {
     "DIDYMOS": "out/hera_didymos/didymos_tpm_3orbit",

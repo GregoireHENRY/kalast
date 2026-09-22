@@ -33,20 +33,12 @@ import kalast.tpm.radiance as radiance
 import kalast.tpm.routine as routine
 from kalast.util import AU, SOLAR_CONSTANT, STEFAN_BOLTZMANN
 
-import os
-
-# Where the data is. Set the variables to your own locations, or keep the
-# defaults; res/README.md says how to get each set.
-HERA = Path(os.environ.get("KALAST_HERA", "~/data/spice/hera")).expanduser()  # HERA.zip, unpacked
-MESH_ROOT = Path(os.environ.get("KALAST_MESH", "~/data/mesh")).expanduser()  # meshes not in HERA.zip
-TIRI = Path(os.environ.get("KALAST_TIRI", "~/data/hera/tiri")).expanduser()  # TIRI response and images
-
 ET = 795053385.2                       # 2025-03-12T12:08:36
-KERNEL = f"{HERA}/kernels/mk/hera_ops_local.tm"
-MESH = f"{HERA}/kernels/dsk/deimos_k005_tho_v02.obj"
-SPHERE = f"{MESH_ROOT}/sphere4.obj"
+KERNEL = "/Users/gregoireh/data/spice/hera/kernels/mk/hera_ops_local.tm"
+MESH = "/Users/gregoireh/data/mesh/deimos/deimos_k005_tho_v02.obj"
+SPHERE = "/Users/gregoireh/data/mesh/sphere4.obj"
 RESTART = "out/hera_mars_swingby/deimos_tpm"
-OBS = Path(f"{TIRI}/JAXA-VITO-ROB radiances comparison/"
+OBS = Path("/Users/gregoireh/data/hera/tiri/JAXA-VITO-ROB radiances comparison/"
            "Deimos radiances/tiri_rad_20250312_120836_31_0.fit")
 OUT = Path("out/hera_mars_swingby/frame_120836")
 # On. The 0.73 deg version of this was rightly held off -- it was fitting the
@@ -68,7 +60,7 @@ prop = kalast.tpm.properties.DEIMOS
 prop.se = STEFAN_BOLTZMANN * prop.emissivity
 prop.compute_conductivity_diffusivity()
 D = prop.diffusivity
-g = radiance.tiri_bands(f"{TIRI}/response.csv",
+g = radiance.tiri_bands("/Users/gregoireh/data/hera/tiri/response.csv",
                         emissivity=prop.emissivity)["g"]
 z = nonuniform.column(
     properties.skin_depth_1(D, body.spin_period), m=4, n=5,

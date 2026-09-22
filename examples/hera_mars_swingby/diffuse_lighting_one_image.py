@@ -20,13 +20,6 @@ import kalast
 from kalast.app import Simulation
 from kalast.util import DPR, RPD, AU, SOLAR_CONSTANT  # noqa
 
-import os
-
-# Where the data is. Set the variables to your own locations, or keep the
-# defaults; res/README.md says how to get each set.
-HERA = Path(os.environ.get("KALAST_HERA", "~/data/spice/hera")).expanduser()  # HERA.zip, unpacked
-MESH_ROOT = Path(os.environ.get("KALAST_MESH", "~/data/mesh")).expanduser()  # meshes not in HERA.zip
-
 # Phobos is drawn 10x oversized, deliberately. All three meshes are already in
 # km at true scale -- the mesh here has a mean radius of 11.4 km, which is
 # Phobos -- so this is a visibility hack, not a unit conversion. **Nothing in
@@ -54,7 +47,7 @@ def after_render(sim: Simulation, _dt: float) -> None:
 
 
 spice.kclear()
-spice.furnsh(f"{HERA}/kernels/mk/hera_ops_local.tm")
+spice.furnsh("/Users/gregoireh/data/spice/hera/kernels/mk/hera_ops_local.tm")
 et0 = spice.str2et("2025-03-12 08:10:50 UTC")
 
 app = kalast.app.App()
@@ -65,15 +58,15 @@ app.simulation.camera.dir = [0.0, 0.0, 1.0]
 app.simulation.camera.up = [0.0, 1.0, 0.0]
 app.simulation.camera.projection.fovy = 10.0 * RPD
 app.simulation.load_mesh(
-    path=f"{MESH_ROOT}/mars/mars_dtm_10x.obj",
+    path="/Users/gregoireh/data/mesh/mars/mars_dtm_10x.obj",
     mat=numpy.eye(4),
 )
 app.simulation.load_mesh(
-    path=f"{MESH_ROOT}/phobos/phobos_m003_gas_v01_10k.obj",
+    path="/Users/gregoireh/data/mesh/phobos/phobos_m003_gas_v01_10k.obj",
     mat=numpy.eye(4),
 )
 app.simulation.load_mesh(
-    path=f"{MESH_ROOT}/deimos/deimos_10k.obj",
+    path="/Users/gregoireh/data/mesh/deimos/deimos_10k.obj",
     mat=numpy.eye(4),
 )
 app.simulation.bodies[0].mat = pos_mat("MARS", "IAU_MARS", et0)

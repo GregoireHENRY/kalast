@@ -29,15 +29,9 @@ from kalast.tpm import nonuniform, properties, radiance, routine
 from kalast._rs.tpm.gpu import GpuContext, GpuRadiance, GpuTpm
 from kalast.util import SOLAR_CONSTANT, STEFAN_BOLTZMANN
 
-import os
-
-# Where the data is. Set the variables to your own locations, or keep the
-# defaults; res/README.md says how to get each set.
-TIRI = Path(os.environ.get("KALAST_TIRI", "~/data/hera/tiri")).expanduser()  # TIRI response and images
-
 N_FACETS = int(sys.argv[1]) if len(sys.argv) > 1 else 100000
 N_STEPS = int(sys.argv[2]) if len(sys.argv) > 2 else 300
-RESPONSE = Path(f"{TIRI}/response.csv")
+RESPONSE = Path("/Users/gregoireh/data/hera/tiri/response.csv")
 SPIN = 8136.0
 
 prop = properties.DIDYMOS

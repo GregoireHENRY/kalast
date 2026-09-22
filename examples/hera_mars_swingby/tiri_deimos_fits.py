@@ -68,18 +68,11 @@ import kalast.tpm.radiance as radiance
 import kalast.tpm.routine as routine
 from kalast.util import AU, RPD, SOLAR_CONSTANT, STEFAN_BOLTZMANN
 
-import os
-
-# Where the data is. Set the variables to your own locations, or keep the
-# defaults; res/README.md says how to get each set.
-HERA = Path(os.environ.get("KALAST_HERA", "~/data/spice/hera")).expanduser()  # HERA.zip, unpacked
-TIRI = Path(os.environ.get("KALAST_TIRI", "~/data/hera/tiri")).expanduser()  # TIRI response and images
-
 # ---------------------------------------------------------------- settings
-KERNEL = f"{HERA}/kernels/mk/hera_ops_local.tm"
-MESH = f"{HERA}/kernels/dsk/deimos_k005_tho_v02.obj"
-RESPONSE = f"{TIRI}/response.csv"
-IMAGES = f"{TIRI}/tiri_images_mars_swing-by_deimos.csv"
+KERNEL = "/Users/gregoireh/data/spice/hera/kernels/mk/hera_ops_local.tm"
+MESH = "/Users/gregoireh/data/mesh/deimos/deimos_k005_tho_v02.obj"
+RESPONSE = "/Users/gregoireh/data/hera/tiri/response.csv"
+IMAGES = "/Users/gregoireh/data/hera/tiri/tiri_images_mars_swing-by_deimos.csv"
 RESTART = "out/hera_mars_swingby/deimos_tpm"
 OUT = Path("out/hera_mars_swingby/tiri_deimos_fits")
 

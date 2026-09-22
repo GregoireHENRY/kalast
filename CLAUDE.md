@@ -70,47 +70,64 @@ looked like it had done nothing.
 
 ## First-time setup, for a new user or a new machine
 
-The examples find their data through three environment variables, each a
-root directory, each with a default that is one person's layout:
+Examples hardcode absolute data paths — twelve of them, under three roots
+(`.../spice`, `.../mesh`, `.../hera`) — written for the author's machine. So a
+fresh clone will not run until the paths are pointed somewhere real. Walk the
+user through this before trying to run anything, and **ask rather than guess**:
+these files are large downloads that live wherever the user put them.
 
-| variable | default | what lives there |
-|---|---|---|
-| `KALAST_HERA` | `~/data/spice/hera` | HERA.zip unpacked: kernels, meta-kernels, the full-resolution shape models |
-| `KALAST_MESH` | `~/data/mesh` | meshes not in the zip: the `_10k`/`_100k` decimations, `sphere4.obj`, Mars, Phobos |
-| `KALAST_TIRI` | `~/data/hera/tiri` | the TIRI response function and image lists |
-
-`res/README.md` is the user-facing version of this, with the download link
-and what is in each set. Walk a new user through it, and **ask rather than
-guess** where things are -- these are large downloads that live wherever the
-user put them.
-
-1. **HERA.zip.** Download it (1.1 GB, the link is in `res/README.md`),
-   unpack it, and make a `*_local.tm` twin of each meta-kernel used with
-   `PATH_VALUES` set to the absolute `kernels/` path -- the README has the
-   one-line `sed`. That step is not optional: the pristine files say `'..'`,
-   which SPICE resolves against the working directory, and a `furnsh` from
-   anywhere else fails with an error that does not name the cause. The
-   examples load the `_local` twins. Leave the pristine `.tm` alone.
-2. **Decimated meshes.** Not in the zip. `examples/mesh/decimate.py` makes
-   them from the full-resolution OBJs in `kernels/dsk/`; several examples
-   want both a `_100k` render mesh and a `_10k` `shadow_path` proxy.
+1. **SPICE kernels.** Ask for the kernel tree, and which meta-kernel (`.tm`)
+   to use. Then **open the `.tm` and check its `PATH_VALUES`** — it is usually
+   `'..'`, relative to the `mk/` directory, and if it does not resolve on this
+   machine every `furnsh` fails with an error that does not name the real
+   cause. Set it to the absolute kernel root; forward slashes work on Windows.
+   Keep the pristine original alongside if you edit one.
+2. **Shape models.** Ask where the `.obj` meshes live, full-resolution and any
+   decimated versions. Several examples want both — a full-res render mesh and
+   a 100k `shadow_path` proxy.
 3. **`res/`.** Ships with the repo. If it is missing, `README.rst` says to get
    it from cloud-as.oma.be.
 4. **Verify, do not assume.** A path existing is not enough. Confirm the
-   kernels cover the epoch a script uses: `spice.furnsh` then a
+   kernels actually cover the epoch a script uses: `spice.furnsh` then a
    `spkpos`/`pxform` at that time. Coverage gaps surface as `SPKINSUFFDATA`
-   much later, mid-run. `python tests/test_stubs.py` needs no external data
-   and is the right first check that the build works; then
-   `examples/cube/light.py` and `examples/two_spheres/main.py`, which need
-   only `res/`; then `examples/hera_didymos/afc.py`, which needs only
-   `KALAST_HERA`.
+   much later, mid-run. Then run one example end to end before calling setup
+   done.
 
-Set the variables in the shell profile, or in the editor's terminal for a
-session. A machine whose layout differs from the defaults needs nothing else
--- no edits to tracked files, nothing for `git pull` to undo, and **no
-per-machine file in the repository**: there is no `local_paths.toml` and
-there should not be one. If a variable is wrong, the failure is immediate
-and names the missing file.
+### Then point the examples at their data — do it for them
+
+Twelve example scripts carry the author's absolute paths, 42 of them across
+three roots. Do not hand a new user a list and leave them to it; make the
+edits, then show what changed.
+
+```sh
+grep -rl "/Users/gregoireh/data" examples --include=*.py | grep -v /old/
+```
+
+The three roots and what lives under each:
+
+| Root | Used for | Occurrences |
+|---|---|---|
+| `.../spice` | meta-kernels (`mk/*.tm`) and DSK shape models | 18 |
+| `.../mesh` | `.obj` shape models, full-res and decimated | 21 |
+| `.../hera` | TIRI image lists and instrument response CSVs | 3 |
+
+Work one root at a time and re-run the grep after each, so nothing is missed.
+A path may not map one-to-one: the same mesh can sit under a different
+filename, or under `spice/.../dsk/` on one machine and `mesh/` on another.
+Ask when a target is ambiguous instead of picking one.
+
+After editing, **run the script**. A wrong path fails immediately and clearly;
+a path that exists but points at the wrong file, or at kernels that do not
+cover the epoch, fails much later and confusingly. `python tests/test_stubs.py`
+needs no external data, so it is the right first check that the build itself
+works, before anything data-dependent: it builds a mesh from scratch and
+compares the compiled module against its stubs. It does want a GPU adapter,
+since it constructs an `App`.
+
+Start the user on an example that needs the least: `examples/cube/light.py` and
+`examples/two_spheres/main.py` use only `res/`, so they run on a fresh clone
+with no data paths at all. Use those to confirm the renderer works before
+touching a Hera script.
 
 ## Building
 
