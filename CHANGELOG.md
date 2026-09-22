@@ -10,6 +10,7 @@ pushed.
 ## v0.5.4 — unreleased
 
 - Rust examples compile from the editor's buffer: edit a `.rs` in the UI app and hit Play or Compile, no Save needed — the same as a `.py` has always worked.
+- `examples/hera_didymos/afc.py` and `afc_eclip_didy.py` load the full-resolution shape models under their shorter names, `g_01165mm_spc_didy_v003.obj` and `g_00243mm_spc_dimo_v004.obj` — the same renaming the `_100k` meshes already had in `examples/didymos/main.py`. If yours are still `g_01165mm_spc_obj_didy_0000n00000_v003.obj` and `g_00243mm_spc_obj_dimo_0000n00000_v004.obj`, rename them or point the two scripts at them.
 
 ## v0.5.3
 
