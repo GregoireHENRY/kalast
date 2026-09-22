@@ -2983,3 +2983,18 @@ environment variables, a `tools/hera_data.py` download script, and a
 per-machine `local_paths.toml` (which the user deleted). The examples are
 byte for byte as they were before; there is no per-machine file and the
 user does not want one.
+
+## 2026-09-22 — v0.5.4, the first tag that published its rehearsal
+
+Bump, changelog section approved by the user, push, rehearse (run
+35743729082, 19 min, green in every job), tag the same commit. The tag run
+(35746071162) found the rehearsal by commit -- `reusing run 35743729082,
+rehearsed on this exact commit` -- skipped `wheels`, `sdist` and all four
+`executable` jobs, downloaded the nine artefacts from it, and published:
+**3 minutes**, against 10 for v0.5.3 and 28 for v0.5.2. Both name guards
+passed. The release body is `CHANGELOG.md`'s `## v0.5.4` section verbatim,
+which the gate had checked for and the user had reviewed before the tag.
+
+So the release procedure in rule 33 has now been run once end to end as
+written: bump, section, push, rehearse, review, tag, and a tag that costs
+minutes because the bytes were built and checked before it existed.
