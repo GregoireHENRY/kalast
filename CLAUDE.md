@@ -364,7 +364,9 @@ purpose**, because they are living documents rather than a record of one day:
 ## Releasing
 
 The GitHub release text is `CHANGELOG.md`'s section for that version,
-verbatim, and nothing else: a list of what changed, no prose. The version
+verbatim, and nothing else: a list of what changed **for the people who use
+kalast**, no prose. Release engineering, CI, caching, and refactors that
+change nothing a user sees do not go in it -- those belong in `notes/`. The version
 gate refuses a tag whose section is missing or has no `- ` entry.
 
 The order is: bump the three manifests, write the section, push, rehearse
