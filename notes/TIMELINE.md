@@ -3057,3 +3057,26 @@ application -- the terminal being read -- activate anyway. Fixed together:
 entry while it is up). Frontmost application sampled every 0.5 s through a
 6 s background run: the one that was in front, 11 of 11. CONFIG.md's entry
 says so.
+
+## 2026-09-22 — the main pass draws a flat mesh over its shared vertices: 93.4 it/s
+
+The render pass was the frame (12.8-13.8 ms) and it was geometry: twelve
+times fewer pixels took 3.4 ms off it. It shaded 18.9 M vertices a frame
+because a flat mesh was drawn as expanded corners so the shader could find
+the facet by `vertex_index / 3`. wgpu 30 has `PRIMITIVE_INDEX` as a WebGPU
+feature, and this adapter has it: the fragment stage now reads a flat
+mesh's attributes by `attrs[primitive_index]`, the vertex stage does the
+position only, and the draw goes indexed over the shared vertices the
+shadow pass already had -- except while the wireframe is on, whose
+barycentrics need the corners (`INSTANCE_FLAG_CORNERS`). Render pass
+13.1 → 8.2 ms, **93.4 it/s** (93.4 / 93.4 / 92.6), from 41.6 in the
+morning. Seven tests, both cargo feature sets, and four looked-at frames
+(flat, wireframe, smooth, a per-facet colormap ramp).
+`notes/2026-09-22_indexed_main_pass_primitive_index.md`.
+
+A device without the feature falls back to the corners draw with the facet
+passed as a flat varying, exercised by forcing it for one build: identical
+frames, 52.5 it/s.
+
+**Open:** the text pass, 3.0 ms of the 10.7 ms frame, renders into the
+multisampled target and is now the largest item on the critical path.

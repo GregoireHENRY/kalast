@@ -107,6 +107,53 @@ pub struct Pipelines {
     pub main: RenderPipeline,
     pub more: Vec<RenderPipeline>,
 }
+
+/// Whether the fragment stage can name its facet (`@builtin(primitive_index)`),
+/// which is what lets a flat mesh be drawn indexed over its shared vertices.
+/// Asked once at pipeline creation and once per draw, so the shader built
+/// and the draw issued agree; without it the shader's fallback wants the
+/// corners (`vertex_index / 3`), and the main pass draws them.
+pub fn has_primitive_index(device: &wgpu::Device) -> bool {
+    device
+        .features()
+        .contains(wgpu::Features::from(wgpu::FeaturesWebGPU::PRIMITIVE_INDEX))
+}
+
+/// One shader source, two builds. A line ending in `//@prim` is kept only
+/// when the device has `PRIMITIVE_INDEX`, one ending in `//@noprim` only
+/// when it does not; every other line is kept. The fallback thereby lives in
+/// the same file as the path it falls back from, three tagged lines apart,
+/// rather than in a second copy of four hundred.
+pub fn shader_for(
+    device: &wgpu::Device,
+    desc: &wgpu::ShaderModuleDescriptor<'static>,
+) -> wgpu::ShaderModuleDescriptor<'static> {
+    let prim = has_primitive_index(device);
+    let wgpu::ShaderSource::Wgsl(src) = &desc.source else {
+        unreachable!("every shader here is WGSL");
+    };
+    let mut out = String::with_capacity(src.len());
+    for line in src.lines() {
+        let t = line.trim_end();
+        let keep = if t.ends_with("//@prim") {
+            prim
+        } else if t.ends_with("//@noprim") {
+            !prim
+        } else {
+            true
+        };
+        if keep {
+            out.push_str(line);
+        }
+        // An empty line stands in for a dropped one, so the compiler's line
+        // numbers still point into the file.
+        out.push('\n');
+    }
+    wgpu::ShaderModuleDescriptor {
+        label: desc.label,
+        source: wgpu::ShaderSource::Wgsl(out.into()),
+    }
+}
 pub struct RenderPipeline {
     pub inner: wgpu::RenderPipeline,
 }
@@ -396,13 +443,15 @@ pub fn n_attrs(mesh: &crate::mesh::Mesh) -> usize {
 pub const ATTRS_GROUP: u32 = 5;
 
 /// The bind group layout the attribute buffer is bound through: one read-only
-/// storage buffer, visible to the vertex stage.
+/// storage buffer, visible to both stages.
 pub fn mesh_attrs_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("mesh attrs"),
         entries: &[wgpu::BindGroupLayoutEntry {
             binding: 0,
-            visibility: wgpu::ShaderStages::VERTEX,
+            // The vertex stage reads it for a smooth mesh, the fragment
+            // stage for a flat one (by primitive index).
+            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
             ty: wgpu::BindingType::Buffer {
                 ty: wgpu::BufferBindingType::Storage { read_only: true },
                 has_dynamic_offset: false,
@@ -591,6 +640,9 @@ pub struct InstanceInput {
     // pub color_mode: u32,
 }
 
+/// The mesh is flat: its attributes are per facet, and the fragment stage
+/// reads them by primitive index (`mesh_shadow.wgsl`). Says nothing about
+/// how it is drawn; see `INSTANCE_FLAG_CORNERS`.
 pub const INSTANCE_FLAG_FLAT: u32 = 1;
 
 /// The mesh carries per-facet `values`, so `color_mode == 1` shows the data
@@ -599,6 +651,14 @@ pub const INSTANCE_FLAG_FLAT: u32 = 1;
 /// Needed because an empty `values` array uploads as zeros, which the shader
 /// cannot tell from real zeros.
 pub const INSTANCE_FLAG_HAS_VALUES: u32 = 2;
+
+/// The mesh is drawn non-indexed, one vertex per triangle corner, so
+/// `vertex_index % 3` is the corner and the shader can recover barycentric
+/// coordinates for the wireframe. A flat mesh is drawn that way only while
+/// the wireframe is on; otherwise it goes indexed over its shared vertices,
+/// a sixth of the vertex work, and this bit is clear. Set in
+/// `Window::update` from the same config the draw path reads.
+pub const INSTANCE_FLAG_CORNERS: u32 = 4;
 
 impl Default for InstanceInput {
     fn default() -> Self {
@@ -894,12 +954,24 @@ impl MeshBuffer {
         pass.draw_indexed(0..self.n_indices, 0, 0..1);
     }
 
-    /// Draw it shaded: the same, plus the attribute buffer at group
-    /// `ATTRS_GROUP`. Only the main pass's pipeline declares that group, so
-    /// only the main pass may call this.
-    pub fn render_shaded(&self, pass: &mut wgpu::RenderPass) {
+    /// Draw it shaded: with the attribute buffer at group `ATTRS_GROUP`,
+    /// which only the main pass's pipeline declares, so only the main pass
+    /// may call this.
+    ///
+    /// A flat mesh is drawn indexed over its shared vertices, like
+    /// `render_depth`: the fragment stage finds the facet by primitive index
+    /// (`mesh_shadow.wgsl`), so the corners need not be expanded. Except
+    /// with `corners`, which the wireframe needs -- its barycentrics come
+    /// from `vertex_index % 3`, which only a non-indexed draw has -- and
+    /// which `Window::update` announces to the shader as
+    /// `INSTANCE_FLAG_CORNERS` from the same config.
+    pub fn render_shaded(&self, pass: &mut wgpu::RenderPass, corners: bool) {
         pass.set_bind_group(ATTRS_GROUP, Some(&self.attr_bind_group), &[]);
-        self.render(pass);
+        if corners {
+            self.render(pass);
+        } else {
+            self.render_depth(pass);
+        }
     }
 
     pub fn desc() -> wgpu::VertexBufferLayout<'static> {

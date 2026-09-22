@@ -1,3 +1,10 @@
+// Lines tagged `//@prim` are kept only on a device with PRIMITIVE_INDEX,
+// lines tagged `//@noprim` only without it -- see `gpu::shader_for`. With
+// it, a flat mesh is drawn indexed over its shared vertices and the
+// fragment stage finds the facet by the primitive index; without it, the
+// old non-indexed draw, where `vertex_index / 3` is the facet.
+enable primitive_index; //@prim
+
 struct Globals {
     color: vec3<f32>,
     color_mode: u32,
@@ -126,6 +133,14 @@ struct VertexOutput {
     // Per-vertex colour mode, overriding the global one for this facet alone.
     // Flat, like the others: a mode must not be blended across a triangle.
     @location(8) @interpolate(flat) color_mode: u32,
+    // The instance's normal matrix, for a flat mesh whose facet normal is
+    // only known in the fragment stage (see `fs_main`). Flat: one per body.
+    @location(9) @interpolate(flat) normal_row_0: vec3<f32>,
+    @location(10) @interpolate(flat) normal_row_1: vec3<f32>,
+    @location(11) @interpolate(flat) normal_row_2: vec3<f32>,
+    // The facet, on a device without `primitive_index`: `vertex_index / 3`
+    // of a non-indexed flat draw. Unused (zero) where the builtin exists.
+    @location(12) @interpolate(flat) facet: u32,
 };
 
 fn srgb_to_linear(color: vec3<f32>, gamma: f32) -> vec3<f32> {
@@ -153,29 +168,35 @@ fn vs_main(
 
     var out: VertexOutput;
 
-    // A flat mesh is drawn non-indexed and triangle-major, so three
-    // consecutive vertex indices are one facet and `vertex_index / 3` is it.
-    // A smooth mesh is drawn indexed, where `vertex_index` is the vertex's
-    // own id and its attributes are its own. One buffer, one shader; the
-    // instance's flat flag says which.
-    let attr_index = select(vertex_index, vertex_index / 3u, (instance.flags & 1u) != 0u);
-    let attr = attrs[attr_index];
-
-    out.color = attr.color;
-    out.color_mode = attr.mode;
-
-    out.world_normal = normalize(normal_matrix * attr.normal);
+    // A smooth mesh is drawn indexed, `vertex_index` is the vertex's own id
+    // and its attributes are its own, read here and interpolated. A flat
+    // mesh's attributes are per facet, and a facet is only known in the
+    // fragment stage (`fs_main`), so its vertex stage does the position and
+    // nothing else: on a 3M-facet model that is 1.6 M invocations of this
+    // instead of 9.4 M, drawn indexed over the shared vertices.
+    let flat = (instance.flags & 1u) != 0u;
+    if !flat {
+        let attr = attrs[vertex_index];
+        out.color = attr.color;
+        out.color_mode = attr.mode;
+        out.world_normal = normalize(normal_matrix * attr.normal);
+        out.value = attr.value;
+    }
+    out.normal_row_0 = normal_matrix[0];
+    out.normal_row_1 = normal_matrix[1];
+    out.normal_row_2 = normal_matrix[2];
+    out.facet = vertex_index / 3u; //@noprim
 
     var world_pos = model_matrix * vec4<f32>(vertex.pos, 1.0);
     out.world_pos = world_pos.xyz;
 
     out.clip_position = view.camera.view_proj * world_pos;
 
-    // Flattened meshes store one vertex per triangle corner and are drawn
-    // non-indexed, so vertex_index modulo 3 *is* the corner index -- giving
-    // barycentric coordinates for free, with no extra vertex attribute.
-    // Indexed (smooth) meshes share vertices, so this is meaningless for
-    // them; the CPU side falls back to a line-mode pass there.
+    // A flat mesh drawn non-indexed -- one vertex per triangle corner, which
+    // is how it is drawn whenever the wireframe is on (flag bit 2) -- has
+    // vertex_index modulo 3 *as* the corner index, giving barycentric
+    // coordinates for free. Meaningless for a shared-vertex draw, indexed
+    // flat or smooth, and the fragment stage does not read it then.
     let corner = vertex_index % 3u;
     out.bary = vec3<f32>(
         f32(corner == 0u),
@@ -184,7 +205,6 @@ fn vs_main(
     );
     out.flags = instance.flags;
     out.shadow_layer = instance.shadow_layer;
-    out.value = attr.value;
 
     return out;
 }
@@ -324,11 +344,27 @@ var t_shadow: texture_depth_2d_array;
 var s_shadow: sampler_comparison;
 
 @fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    // Indexed meshes share vertices, so vertex_index is not a triangle
-    // corner and the barycentrics above are meaningless -- draw them shaded
-    // rather than covered in noise. The CPU side warns once when this hits.
-    let can_wireframe = (in.flags & 1u) != 0u;
+fn fs_main(vertex: VertexOutput, @builtin(primitive_index) prim: u32) -> @location(0) vec4<f32> { //@prim
+fn fs_main(vertex: VertexOutput) -> @location(0) vec4<f32> { //@noprim
+    let prim = vertex.facet; //@noprim
+    // A flat mesh's surface is the facet's, not the corners': its normal,
+    // colour, mode and value are read here by facet, which is what lets the
+    // vertex stage skip them and the draw be indexed over shared vertices.
+    var in = vertex;
+    if (in.flags & 1u) != 0u {
+        let attr = attrs[prim];
+        let normal_matrix = mat3x3<f32>(in.normal_row_0, in.normal_row_1, in.normal_row_2);
+        in.color = attr.color;
+        in.color_mode = attr.mode;
+        in.value = attr.value;
+        in.world_normal = normalize(normal_matrix * attr.normal);
+    }
+
+    // The barycentrics are corners' coordinates, which only a non-indexed
+    // draw has (flag bit 2): a shared-vertex draw would be covered in noise,
+    // so it is drawn shaded instead. The CPU side warns once for a smooth
+    // mesh, and draws a flat one non-indexed whenever the wireframe is on.
+    let can_wireframe = (in.flags & 4u) != 0u;
 
     // Wireframe-only: keep just the edge fragments, so the mesh reads as a
     // pure line drawing with the geometry still depth-tested behind it.

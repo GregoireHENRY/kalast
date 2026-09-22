@@ -125,11 +125,9 @@ and without the `python` feature.
 The frame is now render 12.8-13.8 ms with shadow 7.6 fully overlapped, plus
 2.2 of text; 100 it/s is 10 ms. What is left, roughly by expected return:
 
-- **The render pass, 12.8 ms, is the largest item now.** 6.3 M facets
-  through the shaded vertex stage, non-indexed, then PCF per pixel. It is
-  non-indexed *for* the `vertex_index / 3` lookup, and a shared vertex
-  belongs to about six facets, so drawing it indexed needs the facet id from
-  somewhere else -- a shader design question, not a one-line change.
+- ~~The render pass, 12.8 ms, is the largest item now.~~ Done the same
+  evening, by `primitive_index` in the fragment stage:
+  `2026-09-22_indexed_main_pass_primitive_index.md`. 93.4 it/s.
 - ~~The shadow pass still draws every body into every layer.~~ Done above;
   it no longer shows in the frame because the render pass is the frame.
 - **Layer resolution.** 8192² per body; 4096 quarters the fill. Whether the

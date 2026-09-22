@@ -771,6 +771,16 @@ impl Window {
             features_webgpu.insert(wgpu::FeaturesWebGPU::TIMESTAMP_QUERY);
         }
 
+        // The facet of a fragment, for drawing a flat mesh indexed over its
+        // shared vertices (`mesh_shadow.wgsl`). Same policy: taken when
+        // offered, and the shader has a non-indexed fallback without it.
+        if adapter
+            .features()
+            .contains(wgpu::Features::from(wgpu::FeaturesWebGPU::PRIMITIVE_INDEX))
+        {
+            features_webgpu.insert(wgpu::FeaturesWebGPU::PRIMITIVE_INDEX);
+        }
+
         // Features::NON_FILL_POLYGON_MODE
         // Features::POLYGON_MODE_LINE
         // Features::POLYGON_MODE_POINT
@@ -2013,6 +2023,12 @@ impl Window {
             } else {
                 0
             };
+            // Drawn non-indexed, corners and all, only while the wireframe
+            // wants its barycentrics; `render::Pass::render` reads the same
+            // field to pick the draw.
+            if self.meshes[1 + ii].is_flat && config.wireframe.mode != 0 {
+                flags |= super::gpu::INSTANCE_FLAG_CORNERS;
+            }
             let has_values = simulation.bodies[ii]
                 .mesh
                 .as_ref()

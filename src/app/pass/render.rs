@@ -103,6 +103,10 @@ impl Msaa {
 
 pub struct Pass {
     pub pipeline: gpu::RenderPipeline,
+    /// Whether `pipeline` was built with `@builtin(primitive_index)`; see
+    /// `gpu::has_primitive_index`. Read per draw to pick the corners path
+    /// where the shader needs it.
+    primitive_index: bool,
     pub render_texture: wgpu::Texture,
     pub render_view: wgpu::TextureView,
     pub samples: u32,
@@ -141,7 +145,7 @@ impl Pass {
             &device,
             format,
             cull_mode,
-            gpu::SHADER_MESH_SHADOW,
+            gpu::shader_for(device, &gpu::SHADER_MESH_SHADOW),
             layouts,
             true,
             true,
@@ -163,6 +167,7 @@ impl Pass {
 
         Self {
             pipeline,
+            primitive_index: gpu::has_primitive_index(device),
             render_texture,
             render_view,
             samples,
@@ -247,8 +252,12 @@ impl Pass {
 
         bindings.all(&mut render_pass);
 
+        // Non-indexed only while the wireframe is on (`Window::update` sets
+        // `INSTANCE_FLAG_CORNERS` from the same field), or on a device whose
+        // shader cannot name the facet any other way.
+        let corners = config.wireframe.mode != 0 || !self.primitive_index;
         for mesh in &meshes[1..] {
-            mesh.render_shaded(&mut render_pass);
+            mesh.render_shaded(&mut render_pass, corners);
         }
 
         // The light cube is a debug marker, not geometry: it must never
