@@ -3149,3 +3149,15 @@ scene 2,850 it/s with 118 presents/s (was 300 here, 120 on the 60 Hz
 monitor); `_10k` Didymos ~100 it/s, SPICE-bound, 74 presents/s; covered
 ceiling 3,060 unchanged. `step()` is at most two frames ahead of the GPU
 now, which every benchmark note wanted. `notes/2026-09-23_presenter_thread.md`.
+
+## 2026-09-23 — v0.5.5 shipped
+
+Bump, section reviewed by the user, push, rehearsal (run 35864527228:
+every job green, including the first Linux bundle with `rfd`/GTK and the
+first Windows bundle whose exe is a windows-subsystem program), tag on the
+same commit. The tag run (35866707936) reused the rehearsal, published to
+crates.io and PyPI, and the release carries its four archives -- checked on
+the release page, not trusted from the job: linux 138 MB, macos-arm64 90,
+macos-x86_64 96, windows 120. The section is the day's list: the 2.5×
+rendering, the 4096 default, the background window, the unpaced loop, the
+file picker, the Windows console, the fps cap, the toolbar.
