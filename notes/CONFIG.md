@@ -60,16 +60,39 @@ nothing else. Set both for an immersive fullscreen.
 
 
 ### `app.config.panels_folded: bool` — default `False` *(live)*
-Fold the editor's three resizable panels — script, simulation, log — to their
-window edges, or bring them all back. What the `N` key toggles; set it before
-`start()` to open the editor folded. Each folded panel keeps egui's thin
-handle at its edge and can be dragged or double-clicked back out on its own,
-and the field follows the panels: it reads `True` only while all three are
-folded, so dragging one out clears it and `N` then folds everything again.
+Fold the editor's four docked panels — toolbar, script, simulation, log — to
+their window edges, or bring them all back. What the `N` key toggles; set it
+before `start()` to open the editor folded. Each folded panel keeps egui's
+thin handle at its edge and can be dragged or double-clicked back out on its
+own, an arrow key folds or unfolds the one on that edge, and the field
+follows the panels: it reads `True` only while all four are folded, so
+bringing one out clears it and `N` then folds everything again.
 
 The halfway house between the full layout and `app.config.focus`: the space
 is the renderer's, but nothing appears or disappears on hover. Docked layout
 only; in focus mode there are no docked panels to fold.
+Accepted: `True` / `False`.
+
+### `app.config.toolbar_folded: bool` — default `False` *(live)*
+Fold the toolbar, the top panel, or bring it back: what `↑` toggles. Written
+back every frame, so it reads `True` while the toolbar is folded however it
+got there -- this field, the key, a drag on its edge, or `panels_folded`.
+One field per panel; `panels_folded` is all four at once.
+Accepted: `True` / `False`.
+
+### `app.config.log_folded: bool` — default `False` *(live)*
+The log, the bottom panel: what `↓` toggles. Live and written back, like
+`toolbar_folded`.
+Accepted: `True` / `False`.
+
+### `app.config.script_folded: bool` — default `False` *(live)*
+The script panel, on the left: what `←` toggles. Live and written back, like
+`toolbar_folded`.
+Accepted: `True` / `False`.
+
+### `app.config.simulation_folded: bool` — default `False` *(live)*
+The simulation panel, on the right: what `→` toggles. Live and written back,
+like `toolbar_folded`.
 Accepted: `True` / `False`.
 
 ### `app.config.open_in_background: bool` — default `False` *(startup only)*

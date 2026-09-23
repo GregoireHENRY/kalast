@@ -3216,3 +3216,35 @@ fullscreen or on the way in or out now. Same commit: the focus-mode toolbar
 takes its row's height instead of a fixed 30 points that looked like two rows.
 Write-up: `2026-09-23_fullscreen_second_screen.md`. Open: the user confirms
 `F` on the second screen; the window cannot be placed there from a script.
+
+## 2026-09-23 — every panel folds, one at a time too (for v0.5.7)
+
+Asked for after the toolbar-height fix: the toolbar folds with `N`, folds
+with the mouse, and each panel has a key of its own. The docked toolbar is
+`show_collapsible` and `resizable` now -- resizable only for the handle, since
+a panel is the size of its content and one row of buttons does not stretch to
+fill a drag -- so its lower edge drags up or double-clicks shut like the other
+three, and egui's handle at the top edge brings it back. `toggle_panels`,
+the config fold and the read-back cover all four, so `panels_folded` means all
+four. The arrow keys fold the panel on their edge (`Editor::toggle_panel`);
+they were free, and egui keeps them while a text field has the focus. And
+from a script, one field per panel -- `toolbar_folded`, `log_folded`,
+`script_folded`, `simulation_folded` -- live and written back like
+`panels_folded`. Write-up: `2026-09-23_fold_any_panel.md`.
+
+## 2026-09-23 — applying to the SignPath Foundation
+
+The Windows bundle is unsigned, so SmartScreen warns at first launch and
+every release starts with no reputation. Signing options were weighed: the
+SignPath Foundation signs open-source releases for free through an HSM and
+a GitHub Actions step, Azure Artifact Signing takes organisations in the EU
+but individuals only in the US and Canada, and an EV certificate no longer
+buys instant reputation. The user applied to SignPath with the releases page
+as the download page. Their conditions want a *Code signing policy* on the
+home page and the release pages -- attribution line, team roles, privacy
+statement -- so the README has the section and every release body carries
+the attribution line under its changelog section (the workflow appends it;
+v0.5.6's body was edited by hand to match). The privacy statement discloses
+the UI app's update check, which contacts GitHub's API on open; the verbatim
+SignPath sentence alone would not have been true. Open: the signing step in
+`release.yml` once the project is approved and the SignPath project set up.

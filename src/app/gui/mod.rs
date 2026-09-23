@@ -142,13 +142,18 @@ pub struct Editor {
     /// drags it back, as does a double click. The state has to live somewhere
     /// that outlasts a frame, which is here.
     ///
-    /// The toolbar is not resizable and is always open.
+    /// The toolbar too. It is one row and cannot be made taller, but its
+    /// lower edge folds it like the others: dragged up, or double-clicked.
     docked_open: [bool; 4],
     /// What `AppConfig::panels_folded` said last frame. The config's word for
-    /// "all three shut" is applied to the panels when it changes, and written
+    /// "all four shut" is applied to the panels when it changes, and written
     /// back from them every frame, so a script, the checkbox, `N` and a drag
     /// all agree.
     last_folded: bool,
+    /// What the four per-panel fields -- `toolbar_folded`, `log_folded`,
+    /// `script_folded`, `simulation_folded` -- said last frame, in
+    /// `docked_open`'s order, for the same reason.
+    last_each: [bool; 4],
 
     /// How big each floating panel is: top, bottom, left, right.
     ///
@@ -232,16 +237,23 @@ pub struct Editor {
 }
 
 impl Editor {
-    /// Fold the three resizable panels to the window edges, or bring them
-    /// all back. Each folded panel keeps egui's thin handle at its edge, so
-    /// one can be dragged or double-clicked back out on its own -- the
-    /// halfway house between the full layout and focus mode, which hides
-    /// everything and reveals on hover. The toolbar is not resizable and
-    /// stays.
+    /// Fold the four docked panels to the window edges, or bring them all
+    /// back. Each folded panel keeps egui's thin handle at its edge, so one
+    /// can be dragged or double-clicked back out on its own -- the halfway
+    /// house between the full layout and focus mode, which hides everything
+    /// and reveals on hover.
     pub fn toggle_panels(&mut self) {
-        let any_open = self.docked_open[1..].iter().any(|&open| open);
-        for open in &mut self.docked_open[1..] {
+        let any_open = self.docked_open.iter().any(|&open| open);
+        for open in &mut self.docked_open {
             *open = !any_open;
+        }
+    }
+
+    /// Fold one docked panel or bring it back: `0` top, `1` bottom, `2`
+    /// left, `3` right -- the order of `docked_open`. The arrow keys.
+    pub fn toggle_panel(&mut self, side: usize) {
+        if let Some(open) = self.docked_open.get_mut(side) {
+            *open = !*open;
         }
     }
 
@@ -280,6 +292,7 @@ impl Editor {
             panels: [egui::Rect::NOTHING; 4],
             docked_open: [true; 4],
             last_folded: false,
+            last_each: [false; 4],
             float_sizes: FLOAT_DEFAULTS,
             resizing: None,
             viewport_rect: egui::Rect::NOTHING,
@@ -406,11 +419,24 @@ impl Editor {
         let mut out_resizing = self.resizing;
         let was_shown = self.panels.map(|r| r.is_positive());
         // A change on the config side -- a script before `start()`, the
-        // Window header's checkbox -- folds or unfolds all three. The
+        // Window header's checkbox -- folds or unfolds all four. The
         // per-panel state stays the editor's, since egui moves it by drag.
         if app_config.panels_folded != self.last_folded {
-            for open in &mut self.docked_open[1..] {
+            for open in &mut self.docked_open {
                 *open = !app_config.panels_folded;
+            }
+        }
+        // One panel from the config side -- `app.config.log_folded = True`
+        // in a script, or its checkbox -- the same way.
+        let folded_each = [
+            app_config.toolbar_folded,
+            app_config.log_folded,
+            app_config.script_folded,
+            app_config.simulation_folded,
+        ];
+        for i in 0..4 {
+            if folded_each[i] != self.last_each[i] {
+                self.docked_open[i] = !folded_each[i];
             }
         }
         let open_docked = self.docked_open;
@@ -975,7 +1001,19 @@ impl Editor {
                 out_sizes = sizes;
                 out_resizing = resizing;
             } else {
-                rects[0] = egui::Panel::top("toolbar").show(ui_root, toolbar_ui).response.rect;
+                // The toolbar folds like the others, from its lower edge:
+                // dragged up past egui's 20-point minimum, or double-clicked,
+                // and the handle left at the top edge brings it back. It is
+                // `resizable` only because that is what gives a panel its
+                // handle. It cannot actually be made taller: a panel is the
+                // size of its content, and one row of buttons does not
+                // stretch to fill a drag the way a scroll area does.
+                let mut open = open_docked;
+                rects[0] = egui::Panel::top("toolbar")
+                    .resizable(true)
+                    .show_collapsible(ui_root, &mut open[0], toolbar_ui)
+                    .map(|r| r.response.rect)
+                    .unwrap_or(egui::Rect::NOTHING);
                 // `show_collapsible`, not `show`: dragging a resize handle
                 // past the minimum shuts the panel, and a thin handle stays at
                 // the window edge to drag it back -- the way an editor's side
@@ -996,7 +1034,6 @@ impl Editor {
                 // the same question: those are summoned and dismissed by the
                 // pointer already, so shrinking one is about the size it will
                 // have next time, not about getting rid of it.
-                let mut open = open_docked;
                 rects[1] = egui::Panel::bottom("log")
                     .resizable(true)
                     .default_size(bottom_h)
@@ -1060,11 +1097,19 @@ impl Editor {
         self.float_sizes = out_sizes;
         self.resizing = out_resizing;
         self.docked_open = out_open;
-        // Written back from the panels: folded means all three are, so
+        // Written back from the panels: folded means all four are, so
         // dragging one out clears it and `N` then folds everything again.
-        let folded = !self.docked_open[1..].iter().any(|&open| open);
+        let folded = !self.docked_open.iter().any(|&open| open);
         app_config.panels_folded = folded;
         self.last_folded = folded;
+        let each = self.docked_open.map(|open| !open);
+        [
+            app_config.toolbar_folded,
+            app_config.log_folded,
+            app_config.script_folded,
+            app_config.simulation_folded,
+        ] = each;
+        self.last_each = each;
         self.run_request |= run_request;
         self.restart_request |= restart_request;
         if save_and_quit {

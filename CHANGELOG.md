@@ -10,6 +10,8 @@ renames it.
 
 ## Unreleased
 
+- The toolbar folds with the other panels: `N` folds all four, its lower edge can be dragged up or double-clicked like theirs, and the handle it leaves brings it back. `app.config.panels_folded` now means all four.
+- Arrow keys fold or unfold one panel each, the one on the edge the arrow points to: `↑` toolbar, `↓` log, `←` script, `→` simulation. From a script: `app.config.toolbar_folded`, `log_folded`, `script_folded`, `simulation_folded`, live, and reading back what a key or a drag did.
 - `F` (and the green button) on an external monitor: the window went fullscreen and came straight back out. It stays fullscreen now.
 - Focus mode's toolbar, summoned at the top edge, is one row tall like the docked toolbar instead of a fixed height with an empty band under the buttons.
 - The UI app's `open` button takes a `.obj` as well as a script: the mesh is shown the way `kalast some.obj` shows it -- the scene emptied, the camera and Sun placed from it, Blender axes and wireframe on.

@@ -2851,12 +2851,38 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     }
 
                     // Fold the editor's panels to the edges, or unfold them.
-                    // Blender's sidebar key; here it is all three. Not `Tab`,
+                    // Blender's sidebar key; here it is all four. Not `Tab`,
                     // which egui takes to focus the first text field, so the
                     // next keystroke would have gone into the script.
                     (winit::keyboard::KeyCode::KeyN, true) => {
                         if let Some(editor) = self.editor.as_mut() {
                             editor.toggle_panels();
+                        }
+                    }
+
+                    // One panel at a time, by the edge it sits on: up is the
+                    // toolbar, down the log, left the script, right the
+                    // config. Free keys -- nothing else reads the arrows, and
+                    // egui keeps them for itself while a text field has the
+                    // focus, so typing in the script does not fold anything.
+                    (winit::keyboard::KeyCode::ArrowUp, true) => {
+                        if let Some(editor) = self.editor.as_mut() {
+                            editor.toggle_panel(0);
+                        }
+                    }
+                    (winit::keyboard::KeyCode::ArrowDown, true) => {
+                        if let Some(editor) = self.editor.as_mut() {
+                            editor.toggle_panel(1);
+                        }
+                    }
+                    (winit::keyboard::KeyCode::ArrowLeft, true) => {
+                        if let Some(editor) = self.editor.as_mut() {
+                            editor.toggle_panel(2);
+                        }
+                    }
+                    (winit::keyboard::KeyCode::ArrowRight, true) => {
+                        if let Some(editor) = self.editor.as_mut() {
+                            editor.toggle_panel(3);
                         }
                     }
 

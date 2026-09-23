@@ -1241,18 +1241,50 @@ impl super::config::AppConfig {
     fn focus(&self) -> bool { self.config.borrow().focus }
     #[setter]
     fn set_focus(&mut self, v: bool) { self.config.borrow_mut().focus = v; }
-    /// Fold the editor's resizable panels to the window edges; `N` toggles it.
+    /// Fold the editor's panels to the window edges; `N` toggles it.
     ///
-    /// Script, simulation and log fold to their edges and come back together;
-    /// each keeps egui's thin handle, so one can be dragged or double-clicked
-    /// back out on its own. Reads `true` only while all three are folded, so
-    /// dragging one out clears it. The halfway house between the full layout
-    /// and `focus`, which hides everything and reveals on hover. Set before
-    /// `start()` to open the editor folded.
+    /// Toolbar, script, simulation and log fold to their edges and come back
+    /// together; each keeps egui's thin handle, so one can be dragged or
+    /// double-clicked back out on its own, and an arrow key folds or unfolds
+    /// the panel on that edge. Reads `true` only while all four are folded,
+    /// so bringing one out clears it. The halfway house between the full
+    /// layout and `focus`, which hides everything and reveals on hover. Set
+    /// before `start()` to open the editor folded.
     #[getter]
     fn panels_folded(&self) -> bool { self.config.borrow().panels_folded }
     #[setter]
     fn set_panels_folded(&mut self, v: bool) { self.config.borrow_mut().panels_folded = v; }
+    /// Fold the toolbar, the top panel, or bring it back; `↑` toggles it.
+    ///
+    /// Live, and written back: reads `true` while the toolbar is folded,
+    /// however it got there -- this field, the key, a drag on its edge, or
+    /// `panels_folded`. One per panel; `panels_folded` is all four at once.
+    #[getter]
+    fn toolbar_folded(&self) -> bool { self.config.borrow().toolbar_folded }
+    #[setter]
+    fn set_toolbar_folded(&mut self, v: bool) { self.config.borrow_mut().toolbar_folded = v; }
+    /// Fold the log, the bottom panel, or bring it back; `↓` toggles it.
+    ///
+    /// Live and written back, like `toolbar_folded`.
+    #[getter]
+    fn log_folded(&self) -> bool { self.config.borrow().log_folded }
+    #[setter]
+    fn set_log_folded(&mut self, v: bool) { self.config.borrow_mut().log_folded = v; }
+    /// Fold the script panel, on the left, or bring it back; `←` toggles it.
+    ///
+    /// Live and written back, like `toolbar_folded`.
+    #[getter]
+    fn script_folded(&self) -> bool { self.config.borrow().script_folded }
+    #[setter]
+    fn set_script_folded(&mut self, v: bool) { self.config.borrow_mut().script_folded = v; }
+    /// Fold the simulation panel, on the right, or bring it back; `→`
+    /// toggles it.
+    ///
+    /// Live and written back, like `toolbar_folded`.
+    #[getter]
+    fn simulation_folded(&self) -> bool { self.config.borrow().simulation_folded }
+    #[setter]
+    fn set_simulation_folded(&mut self, v: bool) { self.config.borrow_mut().simulation_folded = v; }
     /// Open the window without taking focus, so a run can go on beside
     /// other work.
     ///

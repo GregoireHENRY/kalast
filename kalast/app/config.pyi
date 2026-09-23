@@ -84,14 +84,38 @@ class AppConfig:
     alone and the window stays where it is.
     """
     panels_folded: bool
-    """Fold the editor's resizable panels to the window edges; `N` toggles it.
+    """Fold the editor's panels to the window edges; `N` toggles it.
 
-    Script, simulation and log fold to their edges and come back together;
-    each keeps egui's thin handle, so one can be dragged or double-clicked
-    back out on its own. Reads `true` only while all three are folded, so
-    dragging one out clears it. The halfway house between the full layout
-    and `focus`, which hides everything and reveals on hover. Set before
-    `start()` to open the editor folded.
+    Toolbar, script, simulation and log fold to their edges and come back
+    together; each keeps egui's thin handle, so one can be dragged or
+    double-clicked back out on its own, and an arrow key folds or unfolds
+    the panel on that edge. Reads `true` only while all four are folded,
+    so bringing one out clears it. The halfway house between the full
+    layout and `focus`, which hides everything and reveals on hover. Set
+    before `start()` to open the editor folded.
+    """
+    toolbar_folded: bool
+    """Fold the toolbar, the top panel, or bring it back; `↑` toggles it.
+
+    Live, and written back: reads `true` while the toolbar is folded,
+    however it got there -- this field, the key, a drag on its edge, or
+    `panels_folded`. One per panel; `panels_folded` is all four at once.
+    """
+    log_folded: bool
+    """Fold the log, the bottom panel, or bring it back; `↓` toggles it.
+
+    Live and written back, like `toolbar_folded`.
+    """
+    script_folded: bool
+    """Fold the script panel, on the left, or bring it back; `←` toggles it.
+
+    Live and written back, like `toolbar_folded`.
+    """
+    simulation_folded: bool
+    """Fold the simulation panel, on the right, or bring it back; `→`
+    toggles it.
+
+    Live and written back, like `toolbar_folded`.
     """
     open_in_background: bool
     """Open the window without taking focus, so a run can go on beside

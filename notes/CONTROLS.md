@@ -17,7 +17,8 @@ Handled in `src/app/mod.rs` (`window_event` / `device_event`) and
 | `K` | any | Advance one iteration and hold — the editor's Step button |
 | `F` | any | Toggle fullscreen — the same thing the green button does |
 | `Shift`+`F` | any | Toggle focus mode — give the window to the renderer |
-| `N` | any | Fold the editor's panels to the window edges, or bring them back — see below |
+| `N` | any | Fold the editor's four panels to the window edges, or bring them all back — see below |
+| `↑` `↓` `←` `→` | any | Fold or unfold the one panel on that edge: toolbar, log, script, simulation — see below |
 | `T` | any | Toggle camera control, Arcball ⇄ WASD |
 | `W` `A` `S` `D` | WASD | Move forward / left / back / right |
 | `Space` | WASD | Move up |
@@ -55,20 +56,38 @@ nothing else.
 
 ### `N` — fold the panels
 
-The three resizable panels — script, simulation, log — fold to their window
-edges, or all come back. Each folded panel keeps egui's thin handle at its
-edge, so one can be dragged or double-clicked back out on its own; and
+The four docked panels — toolbar, script, simulation, log — fold to their
+window edges, or all come back. Each folded panel keeps egui's thin handle at
+its edge, so one can be dragged or double-clicked back out on its own; and
 dragging an open panel past its minimum folds it alone, the same way. The
-halfway house between the full layout and focus mode: the space is the
-renderer's, but nothing moves on its own. Blender's `N` toggles its sidebar;
-here it is all three, since the toolbar is not resizable and stays.
+toolbar folds from its lower edge like the rest, dragged up or double-clicked,
+though it cannot be made taller: it is one row of buttons and stays that
+height. The halfway house between the full layout and focus mode: the space
+is the renderer's, but nothing moves on its own. Blender's `N` toggles its
+sidebar; here it is all four.
 
 Docked layout only — focus mode has no docked panels to fold, so there it
 does nothing visible until focus mode is left.
 
 The same state is `app.config.panels_folded`: set it before `start()` to open
 the editor folded, tick it in the Window header, or read it -- it says `True`
-only while all three are folded, so a drag that brings one out clears it.
+only while all four are folded, so bringing one out clears it.
+
+### Arrow keys — fold one panel
+
+Each arrow folds or unfolds the panel on the edge it points to: `↑` the
+toolbar, `↓` the log, `←` the script, `→` the simulation panel. The same fold
+a drag or a double click on the panel's edge gives, so a folded panel keeps
+its handle and any of the three ways brings it back. Docked layout only, like
+`N`.
+
+The arrows were free: nothing else reads them, and egui keeps them for itself
+while a text field has the focus, so moving the caret in the script folds
+nothing.
+
+From a script the same four are `app.config.toolbar_folded`, `log_folded`,
+`script_folded` and `simulation_folded`, live and written back, so each reads
+what the key or a drag did; see `CONFIG.md`.
 
 ### `K` — one iteration
 
