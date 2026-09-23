@@ -10,6 +10,7 @@ renames it.
 
 ## Unreleased
 
+- The UI app's `open` button takes a `.obj` as well as a script: the mesh is shown the way `kalast some.obj` shows it -- the scene emptied, the camera and Sun placed from it, Blender axes and wireframe on.
 - Windows: a pre-compiled `.rs` example that panicked while loading -- a mesh path it could not find, say -- took the UI app down with it. The panic is caught at the example's edge now and reported in the log panel, and `kalast.exe` runs with a 16 MB stack instead of Windows' 1 MB, since a hosted example's `main` drives a frame from inside a frame.
 
 ## v0.5.6

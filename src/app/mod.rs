@@ -1050,6 +1050,27 @@ impl App {
         }
     }
 
+    /// Show a mesh on its own: the scene emptied and this one loaded,
+    /// framed and dressed the way Blender opens a file -- camera and Sun
+    /// placed from it, Blender axes, wireframe. What `kalast some.obj` does,
+    /// and what the editor's open button does for a `.obj`.
+    ///
+    /// A mesh alone used to be a black window: camera and Sun both at the
+    /// origin, inside it.
+    pub fn open_mesh(&mut self, path: &std::path::Path) {
+        {
+            let mut sim = self.simulation.borrow_mut();
+            sim.reset();
+            sim.load_mesh(path, crate::Mat4::IDENTITY, false);
+            sim.frame_all();
+        }
+        let config = self.sim_config();
+        let mut c = config.borrow_mut();
+        c.axes.style = crate::app::axes::AxesStyle::Blender;
+        c.wireframe.mode = 2;
+        c.wireframe.color = wgpu::Color { r: 0.05, g: 0.05, b: 0.05, a: 1.0 };
+    }
+
     /// Realise any option that changed since the window was built.
     ///
     /// Runs at the top of each frame, so a change made between two `step()`s,
@@ -1313,7 +1334,14 @@ impl App {
         // A file just read is not what is running.
         let mut fresh = false;
 
-        if open {
+        if open && path.trim_end().ends_with(".obj") {
+            // Not a script to read into the panel: a mesh to show, the way
+            // `kalast some.obj` shows it. The panel keeps its text; only the
+            // path field names the mesh, and Play stays greyed with no
+            // script to run.
+            self.open_mesh(std::path::Path::new(path.trim_end()));
+            messages.push(format!("opened {}", path.trim_end()));
+        } else if open {
             match std::fs::read_to_string(&path) {
                 Ok(text) => {
                     messages.push(format!("opened {path}"));
@@ -1487,21 +1515,7 @@ impl App {
                     }
                     Err(e) => eprintln!("cannot read {arg}: {e}"),
                 },
-                Some("obj") => {
-                    self.simulation
-                        .borrow_mut()
-                        .load_mesh(path, crate::Mat4::IDENTITY, false);
-                    // A mesh alone was a black window: camera and Sun both
-                    // at the origin, inside it. Frame it the way Blender
-                    // opens a file, with the grid, the gizmo and the
-                    // wireframe that give a bare shape its scale.
-                    self.simulation.borrow_mut().frame_all();
-                    let config = self.sim_config();
-                    let mut c = config.borrow_mut();
-                    c.axes.style = crate::app::axes::AxesStyle::Blender;
-                    c.wireframe.mode = 2;
-                    c.wireframe.color = wgpu::Color { r: 0.05, g: 0.05, b: 0.05, a: 1.0 };
-                }
+                Some("obj") => self.open_mesh(path),
                 _ => eprintln!("don't know what to do with {arg}: expected .py, .rs or .obj"),
             }
         }

@@ -675,8 +675,9 @@ impl Editor {
                         // The platform's own file picker, starting where
                         // the current script is or else in `examples/`
                         // (beside the executable in a bundle, in the
-                        // working directory in a checkout), showing `.py`
-                        // and `.rs`. Cancel changes nothing.
+                        // working directory in a checkout), showing `.py`,
+                        // `.rs` and `.obj` -- a mesh opens the way
+                        // `kalast some.obj` does. Cancel changes nothing.
                         if ui.small_button("open").clicked() {
                             let start = std::path::Path::new(script_path.trim())
                                 .parent()
@@ -684,7 +685,7 @@ impl Editor {
                                 .map(std::path::Path::to_path_buf)
                                 .or_else(examples_dir);
                             let mut dialog = rfd::FileDialog::new()
-                                .add_filter("kalast script", &["py", "rs"])
+                                .add_filter("kalast script or mesh", &["py", "rs", "obj"])
                                 .add_filter("all files", &["*"]);
                             if let Some(dir) = start {
                                 dialog = dialog.set_directory(dir);
