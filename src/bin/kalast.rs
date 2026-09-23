@@ -24,10 +24,32 @@
 //! in one process -- the script's `App` in one, this window in the other --
 //! and the script would configure a simulation nothing draws.
 
+// No console window on Windows: double-clicking `kalast.exe` opened one
+// beside the UI app, and the UI app has its own log panel. A run started
+// *from* a terminal still prints there -- `attach_parent_console` below.
+#![windows_subsystem = "windows"]
+
 use std::cell::RefCell;
 use std::rc::Rc;
 
+/// Windows only: a program built for the windows subsystem has no console,
+/// so from a terminal its output would vanish. Attaching to the parent's
+/// console, when there is one, puts `kalast.exe script.py` back on the
+/// terminal; double-clicked from Explorer there is none, and nothing opens.
+#[cfg(windows)]
+fn attach_parent_console() {
+    use windows_sys::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
+    // Before any use of stdout/stderr, so their handles are looked up on
+    // the attached console.
+    unsafe {
+        AttachConsole(ATTACH_PARENT_PROCESS);
+    }
+}
+#[cfg(not(windows))]
+fn attach_parent_console() {}
+
 fn main() {
+    attach_parent_console();
     let args: Vec<String> = std::env::args().skip(1).collect();
 
     // Before the interpreter is started, which the first `Python::attach`
