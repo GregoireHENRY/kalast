@@ -590,6 +590,15 @@ pub(crate) fn expand_hud(
                 out.push_str(&format!("{ms:.prec$}"));
             }
             "paused" => out.push_str(if state.is_paused { "PAUSED" } else { "" }),
+            // The iteration rate, only while a cap makes it differ from the
+            // frame rate: the toolbar's default shows `{fps}` alone, since
+            // one step is one frame, and this is what says so when it is
+            // not. Empty otherwise, spacing included.
+            "limit" => {
+                if state.rate_limited {
+                    out.push_str(&format!("    {its:.0} it/s, capped at {}", state.rate_limit));
+                }
+            }
 
             // Scene diagnostics. `{bodies}` is the one to reach for: it reads
             // "2/3" and only mentions a reason when something is missing.
@@ -2909,6 +2918,20 @@ mod hud_tests {
         assert_eq!(
             expand_hud("{it}/{nit} ({its} it/s)", &s, 60.4, &Default::default(), s.iteration),
             "42/500 (60 it/s)"
+        );
+    }
+
+    /// `{limit}` is empty until a cap makes it/s differ from fps, and then
+    /// it says both the rate and the cap.
+    #[test]
+    fn limit_shows_only_under_a_rate_cap() {
+        let mut s = state(42, false, None);
+        assert_eq!(expand_hud("{fps} fps{limit}", &s, 300.0, &Default::default(), 41), "300 fps");
+        s.rate_limited = true;
+        s.rate_limit = 120.0;
+        assert_eq!(
+            expand_hud("{fps} fps{limit}", &s, 300.0, &Default::default(), 41),
+            "300 fps    120 it/s, capped at 120"
         );
     }
 

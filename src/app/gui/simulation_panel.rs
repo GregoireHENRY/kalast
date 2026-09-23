@@ -482,7 +482,7 @@ fn huds_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
                             .font(egui::TextStyle::Monospace),
                     )
                     .on_hover_text(
-                        "Template. {it} {drawn} {nit} {its} {fps} {ms} {bodies} {paused} {warn} {gpu}, \
+                        "Template. {it} {drawn} {nit} {its} {fps} {ms} {limit} {bodies} {paused} {warn} {gpu}, \
                          with an optional precision as {fps:.1}. Typing takes this HUD \
                          off the script.",
                     )
@@ -730,15 +730,6 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config, a: &mut AppCon
     let selection_color = crate::Vec3::new(sel.r as Float, sel.g as Float, sel.b as Float);
 
     group(ui, "Run", |ui| {
-        // Named as the field is, because that is what a script writes --
-        // and it is one ahead of the toolbar's counter on purpose: the
-        // toolbar says which frame you are looking at, this says how many
-        // have been started.
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("iteration").weak());
-            ui.label(egui::RichText::new(sim.state.iteration.to_string()).monospace())
-                .on_hover_text("sim.state.iteration -- iterations begun, so one ahead of the frame on screen");
-        });
         ui.checkbox(&mut sim.state.is_paused, "is_paused");
         // A cap on iterations per second, for watching something that
         // otherwise flashes past. The slider stays put while the cap is off
