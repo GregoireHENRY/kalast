@@ -72,6 +72,9 @@ embed = ["python", "pyo3/auto-initialize"]
 ext = ["python", "pyo3/extension-module"]
 
 [dependencies]
+# The editor's Open button: the platform's own file picker (NSOpenPanel,
+# IFileDialog, GTK on Linux -- `libgtk-3-dev` at build time there).
+rfd = "0.15"
 kalast_macros = { path = "macros", version = "0.5" }
 
 # Generic

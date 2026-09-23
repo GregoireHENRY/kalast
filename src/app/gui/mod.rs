@@ -629,8 +629,27 @@ impl Editor {
             let script_ui = |ui: &mut egui::Ui| {
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new(if native { "Running" } else { "Script" }).strong());
+                        // The platform's own file picker, starting where
+                        // the current script is or else in `examples/`
+                        // (beside the executable in a bundle, in the
+                        // working directory in a checkout), showing `.py`
+                        // and `.rs`. Cancel changes nothing.
                         if ui.small_button("open").clicked() {
-                            open_request = true;
+                            let start = std::path::Path::new(script_path.trim())
+                                .parent()
+                                .filter(|d| !d.as_os_str().is_empty() && d.is_dir())
+                                .map(std::path::Path::to_path_buf)
+                                .or_else(examples_dir);
+                            let mut dialog = rfd::FileDialog::new()
+                                .add_filter("kalast script", &["py", "rs"])
+                                .add_filter("all files", &["*"]);
+                            if let Some(dir) = start {
+                                dialog = dialog.set_directory(dir);
+                            }
+                            if let Some(picked) = dialog.pick_file() {
+                                *script_path = picked.display().to_string();
+                                open_request = true;
+                            }
                         }
                         if ui.add_enabled(script_dirty, egui::Button::new("save").small()).clicked() {
                             save_request = true;
@@ -1327,4 +1346,15 @@ impl Drop for StdioCapture {
     fn drop(&mut self) {
         self.restore();
     }
+}
+
+/// The `examples/` folder, if one is where a run would expect it: beside
+/// the executable (a release bundle) or in the working directory (a
+/// checkout run as `python -m kalast`).
+fn examples_dir() -> Option<std::path::PathBuf> {
+    let beside_exe = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|d| d.join("examples")));
+    let in_cwd = std::env::current_dir().ok().map(|d| d.join("examples"));
+    [beside_exe, in_cwd].into_iter().flatten().find(|d| d.is_dir())
 }
