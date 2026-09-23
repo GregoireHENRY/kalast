@@ -1334,7 +1334,7 @@ impl Default for AppConfig {
             open_in_background: false,
             width: 0,
             height: 0,
-            toolbar: "iteration {drawn}    {its} it/s    {fps} fps".to_string(),
+            toolbar: "iteration {drawn}    {fps} fps".to_string(),
             title: "kalast".to_string(),
             fullscreen: false,
             vsync: false,

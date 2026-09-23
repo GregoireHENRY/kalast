@@ -14,6 +14,7 @@ renames it.
 - `shadows.resolution` defaults to 4096 (was 8192): a quarter of the memory per shadow layer and a faster frame, with the per-facet shadowing the thermophysical model runs on unchanged. Set 8192 in a script that wants the finer texel.
 - A window opened with `app.config.open_in_background = True` now stays behind your other windows and never takes the keyboard or the mouse; on macOS the process runs without a Dock icon for that run.
 - The screen no longer paces the loop. A visible window used to cap the simulation at about two iterations per refresh of whichever display it was on -- 120 it/s exactly on a 60 Hz monitor, 300 on the laptop panel for a light scene. The window is now shown at its display's refresh rate while the simulation runs as fast as the CPU and GPU allow: the same light scene reads 2,850 it/s with 120 frames a second on screen. `step()` also no longer runs ahead of the GPU by more than two frames, so the iteration it returns from is at most two frames from what is drawn.
+- The UI app's toolbar shows the iteration and the frame rate; the `it/s` figure, which was the same number in any unpaused run, is gone from the default. `app.config.toolbar` still accepts `{its}` for anyone who wants it back.
 
 ## v0.5.4
 

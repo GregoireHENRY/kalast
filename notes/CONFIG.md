@@ -136,7 +136,7 @@ from inside the UI leaves nothing to switch it back on with.
 
 ### `app.config.toolbar: str` *(live)*
 What the editor's toolbar says beside Play, Restart and Step. Default
-`"iteration {drawn}    {its} it/s    {fps} fps"`; empty for a bare toolbar.
+`"iteration {drawn}    {fps} fps"`; empty for a bare toolbar.
 
 The same template as a HUD, so every placeholder below works here too --
 including a precision, as `{fps:.1}`. It reads `{drawn}` rather than `{it}` by
