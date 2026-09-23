@@ -3248,3 +3248,14 @@ v0.5.6's body was edited by hand to match). The privacy statement discloses
 the UI app's update check, which contacts GitHub's API on open; the verbatim
 SignPath sentence alone would not have been true. Open: the signing step in
 `release.yml` once the project is approved and the SignPath project set up.
+
+## 2026-09-23 — v0.5.7 shipped
+
+Bump 97c7f21, rehearsal 35896345968 green in every job, tag on the same
+commit, the tag run (35898045779) reusing its artefacts: crates.io, PyPI, and
+the release with its four archives checked on the page (linux 141 MB,
+macos-arm64 93, macos-x86_64 99, windows 123). The first release whose body
+ends with the SignPath attribution line under the changelog section. In it:
+every panel folds (toolbar with `N`, arrows, four config fields), fullscreen
+on a second screen, the focus-mode toolbar's height, the `.obj` open button,
+and the Windows hosted-example panic fix.
