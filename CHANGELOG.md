@@ -8,7 +8,7 @@ no entries, and the section is approved by a person before the tag is
 pushed. `## Unreleased` collects the entries between versions; the bump
 renames it.
 
-## Unreleased
+## v0.5.6
 
 - The UI app checks for a newer release when it opens -- on a thread, never in a script's run, off with `app.config.check_updates = False` -- and if there is one, the log shows this version and its release date, the new version and its, and its notes, and the toolbar gets an **update** button that installs it in place (a bundle folder by folder, a pip install with `pip install --upgrade`) and then a **restart** button. `kalast --update` does the same from a terminal.
 - The cube examples draw their wireframe two pixels wide, `cube/light.py` turns its Sun ten times slower so it reads at the frame rates the window now reaches, and `cube/color_map.py` names its colormap.
