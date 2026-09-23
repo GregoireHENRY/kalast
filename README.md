@@ -98,6 +98,27 @@ pip install kalast          # Python
 cargo add kalast            # Rust
 ```
 
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io),
+certificate by [SignPath Foundation](https://signpath.org).
+
+The release bundles are signed from the first release after the SignPath
+Foundation approved the project; bundles before that are unsigned, and Windows
+warns about them once, at the first launch.
+
+**Team.** Committers and reviewers: Grégoire Henry
+([@GregoireHENRY](https://github.com/GregoireHENRY)). Approvers: Grégoire
+Henry.
+
+**Privacy.** When the kalast UI app opens it asks GitHub's API once whether a
+newer release exists; the request carries nothing about you or your machine,
+and `app.config.check_updates = False` turns it off. Compiling a `.rs` example
+on a machine without cargo fetches a Rust toolchain, when you ask for it.
+Beyond these, this program will not transfer any information to other
+networked systems unless specifically requested by the user or the person
+installing or operating it.
+
 ## Repo structure
 
 - `src/`: Rust core. Written to be usable standalone by Rust users, independent
