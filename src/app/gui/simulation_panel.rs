@@ -731,21 +731,20 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config, a: &mut AppCon
 
     group(ui, "Run", |ui| {
         ui.checkbox(&mut sim.state.is_paused, "is_paused");
-        // A cap on iterations per second, for watching something that
-        // otherwise flashes past. The slider stays put while the cap is off
-        // -- greyed, its value kept -- so toggling is a comparison, not a
-        // reset. Logarithmic: the useful range runs from one iteration every
-        // few seconds to a few hundred a second.
+        // A cap on the frame rate, for watching something that otherwise
+        // flashes past. The slider is live whether or not the cap is on, so
+        // the value can be set first and the cap switched on to it; off, the
+        // value is kept and does nothing. Logarithmic: the useful range runs
+        // from one frame every few seconds to a few hundred a second.
         ui.horizontal(|ui| {
             ui.checkbox(&mut sim.state.rate_limited, "rate_limited")
                 .on_hover_text("sim.state.rate_limited -- cap the frame rate at rate_limit; one step is one frame, so the run slows with it. Off runs as fast as it can");
-            ui.add_enabled(
-                sim.state.rate_limited,
+            ui.add(
                 egui::Slider::new(&mut sim.state.rate_limit, 0.1..=1000.0)
                     .logarithmic(true)
                     .suffix(" fps"),
             )
-            .on_hover_text("sim.state.rate_limit -- kept while the cap is off");
+            .on_hover_text("sim.state.rate_limit -- set it before or after switching the cap on; kept, and idle, while the cap is off");
         });
         ui.horizontal(|ui| {
             let mut on = sim.state.pause_at.is_some();
