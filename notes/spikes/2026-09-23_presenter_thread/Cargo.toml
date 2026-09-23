@@ -1,0 +1,9 @@
+[package]
+name = "spike"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+wgpu = "30"
+winit = "0.30"
+pollster = "0.4"
