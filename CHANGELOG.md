@@ -8,6 +8,10 @@ no entries, and the section is approved by a person before the tag is
 pushed. `## Unreleased` collects the entries between versions; the bump
 renames it.
 
+## Unreleased
+
+- `examples/didymos/main.py` loads the `_100k` Didymos and Dimorphos models (the pair the `hera_didymos` scripts use) rather than the full-resolution ones; the cube examples draw their wireframe two pixels wide, and `cube/light.py` turns its Sun ten times slower, so it reads at the frame rates the window now reaches.
+
 ## v0.5.5
 
 - Rendering is about 2.5× faster on full-resolution meshes: the Didymos pair at 3.1 M facets each runs `examples/didymos/main.py` at 105 it/s, from 42. The shadow and main passes draw shared vertices instead of expanded corners, closed meshes cull their back faces in the shadow map, and a body is only drawn into the shadow layers it can reach. Nothing in the physics or the shadows changes.
