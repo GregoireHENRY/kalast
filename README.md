@@ -103,9 +103,9 @@ cargo add kalast            # Rust
 Free code signing provided by [SignPath.io](https://about.signpath.io),
 certificate by [SignPath Foundation](https://signpath.org).
 
-The release bundles are signed from the first release after the SignPath
-Foundation approved the project; bundles before that are unsigned, and Windows
-warns about them once, at the first launch.
+The project has applied to the SignPath Foundation and the application is
+pending. Bundles are unsigned until the first release after it is approved,
+and Windows warns about an unsigned bundle once, at its first launch.
 
 **Team.** Committers and reviewers: Grégoire Henry
 ([@GregoireHENRY](https://github.com/GregoireHENRY)). Approvers: Grégoire
