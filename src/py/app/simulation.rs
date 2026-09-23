@@ -630,7 +630,8 @@ impl State {
         self.simulation.borrow_mut().state.pause_at = pause_at;
     }
 
-    /// Cap the iteration rate at `rate_limit`; off runs as fast as the frame does.
+    /// Cap the frame rate at `rate_limit`; off runs as fast as it can. One step
+    /// is one frame, so the iteration rate follows.
     ///
     /// The frame keeps its full rate -- the camera stays live -- while the
     /// counter and both callbacks wait, exactly as under pause.
@@ -644,7 +645,7 @@ impl State {
         self.simulation.borrow_mut().state.rate_limited = on;
     }
 
-    /// Iterations per second while `rate_limited`. Kept while the cap is off.
+    /// Frames per second while `rate_limited`. Kept while the cap is off.
     #[getter]
     fn rate_limit(&self) -> Float {
         self.simulation.borrow().state.rate_limit

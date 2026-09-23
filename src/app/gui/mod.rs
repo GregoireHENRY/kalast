@@ -606,7 +606,7 @@ impl Editor {
                             drawn,
                         ))
                         .on_hover_text(
-                            "app.config.toolbar -- {drawn} {it} {its} {fps} {ms} {limit} {bodies} {paused} {warn} {gpu}",
+                            "app.config.toolbar -- {drawn} {it} {its} {fps} {ms} {bodies} {paused} {warn} {gpu}",
                         );
                     }
                 });

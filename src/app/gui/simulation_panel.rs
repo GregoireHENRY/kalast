@@ -482,7 +482,7 @@ fn huds_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
                             .font(egui::TextStyle::Monospace),
                     )
                     .on_hover_text(
-                        "Template. {it} {drawn} {nit} {its} {fps} {ms} {limit} {bodies} {paused} {warn} {gpu}, \
+                        "Template. {it} {drawn} {nit} {its} {fps} {ms} {bodies} {paused} {warn} {gpu}, \
                          with an optional precision as {fps:.1}. Typing takes this HUD \
                          off the script.",
                     )
@@ -738,12 +738,12 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config, a: &mut AppCon
         // few seconds to a few hundred a second.
         ui.horizontal(|ui| {
             ui.checkbox(&mut sim.state.rate_limited, "rate_limited")
-                .on_hover_text("sim.state.rate_limited -- cap iterations per second at rate_limit; off runs as fast as the frame does");
+                .on_hover_text("sim.state.rate_limited -- cap the frame rate at rate_limit; one step is one frame, so the run slows with it. Off runs as fast as it can");
             ui.add_enabled(
                 sim.state.rate_limited,
                 egui::Slider::new(&mut sim.state.rate_limit, 0.1..=1000.0)
                     .logarithmic(true)
-                    .suffix(" it/s"),
+                    .suffix(" fps"),
             )
             .on_hover_text("sim.state.rate_limit -- kept while the cap is off");
         });

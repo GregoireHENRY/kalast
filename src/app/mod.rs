@@ -535,15 +535,9 @@ pub(crate) fn expand_hud(
     diag: &crate::app::simulation::Diagnostics,
     drawn: usize,
 ) -> String {
-    // Under a rate cap the counter moves at the cap, or at the frame rate
-    // if that is slower -- not at the frame rate the estimator measured.
-    let its = if state.is_paused {
-        0.0
-    } else if state.rate_limited {
-        state.rate_limit.min(rate)
-    } else {
-        rate
-    };
+    // One step is one frame, so the iteration rate is the frame rate --
+    // under the cap too, which paces the frame itself -- and zero paused.
+    let its = if state.is_paused { 0.0 } else { rate };
     let nit = match state.pause_at {
         Some(n) => n.to_string(),
         None => "?".to_string(),
@@ -590,15 +584,6 @@ pub(crate) fn expand_hud(
                 out.push_str(&format!("{ms:.prec$}"));
             }
             "paused" => out.push_str(if state.is_paused { "PAUSED" } else { "" }),
-            // The iteration rate, only while a cap makes it differ from the
-            // frame rate: the toolbar's default shows `{fps}` alone, since
-            // one step is one frame, and this is what says so when it is
-            // not. Empty otherwise, spacing included.
-            "limit" => {
-                if state.rate_limited {
-                    out.push_str(&format!("    {its:.0} it/s, capped at {}", state.rate_limit));
-                }
-            }
 
             // Scene diagnostics. `{bodies}` is the one to reach for: it reads
             // "2/3" and only mentions a reason when something is missing.
@@ -2302,8 +2287,20 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 // The frame itself still runs and still presents, so the
                 // window keeps drawing the paused scene and stays responsive
                 // to input; only the simulation stops advancing.
-                // Also a frame the rate cap holds: same treatment, the
-                // counter and the callbacks wait while the frame draws.
+                //
+                // Under `rate_limited` the frame itself waits for its turn
+                // first, so the loop -- and the counter with it, one step
+                // being one frame -- runs at `rate_limit` frames a second.
+                // Holding the counter while the frame ran free gave an
+                // `it/s` beside an `fps`; now there is one rate.
+                let wait = self
+                    .simulation
+                    .borrow_mut()
+                    .state
+                    .frame_wait(std::time::Instant::now());
+                if let Some(wait) = wait {
+                    std::thread::sleep(wait);
+                }
                 let paused = !self
                     .simulation
                     .borrow_mut()
@@ -2918,20 +2915,6 @@ mod hud_tests {
         assert_eq!(
             expand_hud("{it}/{nit} ({its} it/s)", &s, 60.4, &Default::default(), s.iteration),
             "42/500 (60 it/s)"
-        );
-    }
-
-    /// `{limit}` is empty until a cap makes it/s differ from fps, and then
-    /// it says both the rate and the cap.
-    #[test]
-    fn limit_shows_only_under_a_rate_cap() {
-        let mut s = state(42, false, None);
-        assert_eq!(expand_hud("{fps} fps{limit}", &s, 300.0, &Default::default(), 41), "300 fps");
-        s.rate_limited = true;
-        s.rate_limit = 120.0;
-        assert_eq!(
-            expand_hud("{fps} fps{limit}", &s, 300.0, &Default::default(), 41),
-            "300 fps    120 it/s, capped at 120"
         );
     }
 

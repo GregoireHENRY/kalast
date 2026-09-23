@@ -136,7 +136,7 @@ from inside the UI leaves nothing to switch it back on with.
 
 ### `app.config.toolbar: str` *(live)*
 What the editor's toolbar says beside Play, Restart and Step. Default
-`"iteration {drawn}    {fps} fps{limit}"`; empty for a bare toolbar.
+`"iteration {drawn}    {fps} fps"`; empty for a bare toolbar.
 
 The same template as a HUD, so every placeholder below works here too --
 including a precision, as `{fps:.1}`. It reads `{drawn}` rather than `{it}` by
@@ -717,7 +717,6 @@ is there.
 | `{fps}` | frames per second |
 | `{ms}` | **frame time in milliseconds**, i.e. `1000 / fps` |
 | `{paused}` | `PAUSED` when paused, empty otherwise |
-| `{limit}` | `    120 it/s, capped at 120` while `rate_limited` -- the one time it/s differs from fps -- empty otherwise, spacing included |
 | `{gpu}` | GPU time for the frame, first timestamp to last |
 | `{gpu_shadow}` `{gpu_render}` `{gpu_depth}` `{gpu_text}` `{gpu_gui}` | one pass each |
 

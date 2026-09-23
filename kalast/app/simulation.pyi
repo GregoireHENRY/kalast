@@ -322,13 +322,14 @@ class State:
     tells the engine how long a run is meant to be.
     """
     rate_limited: bool
-    """Cap the iteration rate at `rate_limit`; off runs as fast as the frame does.
+    """Cap the frame rate at `rate_limit`; off runs as fast as it can. One step
+    is one frame, so the iteration rate follows.
 
     The frame keeps its full rate -- the camera stays live -- while the
     counter and both callbacks wait, exactly as under pause.
     """
     rate_limit: float
-    """Iterations per second while `rate_limited`. Kept while the cap is off."""
+    """Frames per second while `rate_limited`. Kept while the cap is off."""
     def toggle_pause(self) -> bool:
         """Flip the pause state, returning the new value."""
         ...

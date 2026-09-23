@@ -1287,8 +1287,7 @@ pub struct AppConfig {
     ///
     /// The same template as `huds`, so every placeholder works here too --
     /// `{drawn}` for the iteration on screen, `{it}` for how many have been
-    /// begun, `{its}`, `{fps}`, `{ms}`, `{limit}` (the capped it/s while
-    /// `rate_limited`, empty otherwise), `{bodies}`, `{paused}`, `{warn}`,
+    /// begun, `{its}`, `{fps}`, `{ms}`, `{bodies}`, `{paused}`, `{warn}`,
     /// `{gpu}` and its per-pass forms -- and a precision may be attached, as
     /// `{fps:.1}`.
     ///
@@ -1335,7 +1334,7 @@ impl Default for AppConfig {
             open_in_background: false,
             width: 0,
             height: 0,
-            toolbar: "iteration {drawn}    {fps} fps{limit}".to_string(),
+            toolbar: "iteration {drawn}    {fps} fps".to_string(),
             title: "kalast".to_string(),
             fullscreen: false,
             vsync: false,
