@@ -3204,3 +3204,15 @@ four archives checked on the page (linux 141 MB, macos-arm64 93, macos-x86_64
 offered in its toolbar. New standing rule from the user the same day: when
 a rehearsal is all green, push the tag -- the section is shown as the
 rehearsal starts, no approval step after.
+
+## 2026-09-23 — fullscreen on the second screen (for v0.5.7)
+
+`F` on the external monitor went fullscreen and came straight back out. The
+green-button heuristic reads `isZoomed` every frame, and in simple fullscreen
+that compares the screen's frame with its visible frame: unequal on the
+laptop (the notch's 32 points), equal on a monitor with no notch and no Dock,
+so there it read as a press one frame after `F` and undid it. Not read while
+fullscreen or on the way in or out now. Same commit: the focus-mode toolbar
+takes its row's height instead of a fixed 30 points that looked like two rows.
+Write-up: `2026-09-23_fullscreen_second_screen.md`. Open: the user confirms
+`F` on the second screen; the window cannot be placed there from a script.

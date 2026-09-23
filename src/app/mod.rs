@@ -1083,16 +1083,29 @@ impl App {
         // taken to mean fullscreen was asked for. The zoom is undone before
         // the simple fullscreen replaces it, so the window remembers the size
         // it had and `is_zoomed` stops reporting the same press for ever.
+        //
+        // Not read while the window is fullscreen, or on its way in or out.
+        // `isZoomed` compares the frame with the screen's visible frame, and
+        // in simple fullscreen the frame *is* the screen. On the laptop's
+        // screen the two still differ -- the notch keeps 32 points, the Dock
+        // its strip -- so this never fired there. An external monitor has
+        // neither, the two are equal, and it read as a press one frame after
+        // `F`: the fullscreen `F` had just given was undone at once. The
+        // realised side covers the frame after the way out is asked for,
+        // when the config already says "out" but the window is still the
+        // size of the screen.
         #[cfg(target_os = "macos")]
         if let Some(win) = self.window.as_ref() {
-            let zoomed = crate::app::macos::is_zoomed(&win.window);
-            if zoomed && !self.zoomed {
-                crate::app::macos::unzoom(&win.window);
-                let cfg = self.config.clone();
-                let want = !cfg.borrow().fullscreen;
-                cfg.borrow_mut().fullscreen = want;
+            let fullscreen = self.config.borrow().fullscreen
+                || self.realised.as_ref().is_some_and(|r| r.fullscreen);
+            if !fullscreen {
+                let zoomed = crate::app::macos::is_zoomed(&win.window);
+                if zoomed && !self.zoomed {
+                    crate::app::macos::unzoom(&win.window);
+                    self.config.borrow_mut().fullscreen = true;
+                }
+                self.zoomed = zoomed;
             }
-            self.zoomed = zoomed;
         }
 
         // Cheap enough to copy unconditionally -- plain scalars into a struct

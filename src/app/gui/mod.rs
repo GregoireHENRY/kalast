@@ -54,6 +54,10 @@ const EDGE: f32 = 24.0;
 
 /// How big each floating panel is when it has not been dragged: top, bottom,
 /// left, right.
+///
+/// The top entry is the toolbar's and is not read: one row of buttons takes
+/// that row's height, and nothing about it is dragged. It keeps its place so
+/// the four panels index alike.
 const FLOAT_DEFAULTS: [f32; 4] = [30.0, 160.0, 300.0, 240.0];
 
 /// A *floating* panel smaller than this counts as put away rather than merely
@@ -814,11 +818,30 @@ impl Editor {
                     .order(egui::Order::Foreground)
                     .fixed_pos(rect.min)
                     .show(ctx, |ui| {
-                        ui.set_max_size(rect.size());
+                        // The toolbar is one row and takes that row's height.
+                        // Given `FLOAT_DEFAULTS[0]` and made to fill it, it
+                        // wore a band of empty frame under the buttons, and a
+                        // bar half again as tall as its docked self read as
+                        // two rows. Only its width is pinned, so it spans the
+                        // window like the docked one. The other three fill
+                        // the rect they are given, and can be dragged.
+                        let toolbar = side == 0;
+                        if toolbar {
+                            ui.set_max_width(rect.width());
+                        } else {
+                            ui.set_max_size(rect.size());
+                        }
                         let framed = egui::Frame::popup(ui.style()).show(ui, |ui| {
-                            ui.set_min_size(rect.size());
+                            if toolbar {
+                                ui.set_min_width(rect.width());
+                            } else {
+                                ui.set_min_size(rect.size());
+                            }
                             add(ui);
                         });
+                        if toolbar {
+                            return;
+                        }
 
                         // A grab strip on the inner edge, standing in for the
                         // resize handle a docked panel has and an `Area` does
@@ -832,10 +855,6 @@ impl Editor {
                         let actual = framed.response.rect;
                         const GRAB: f32 = 6.0;
                         let strip = match side {
-                            0 => egui::Rect::from_min_max(
-                                egui::pos2(actual.left(), actual.bottom() - GRAB),
-                                actual.max,
-                            ),
                             1 => egui::Rect::from_min_max(
                                 actual.min,
                                 egui::pos2(actual.right(), actual.top() + GRAB),
@@ -864,7 +883,6 @@ impl Editor {
                         if grab.dragged() {
                             let d = grab.drag_delta();
                             *size += match side {
-                                0 => d.y,
                                 1 => -d.y,
                                 2 => d.x,
                                 _ => -d.x,
