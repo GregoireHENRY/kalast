@@ -2299,7 +2299,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     .state
                     .frame_wait(std::time::Instant::now());
                 if let Some(wait) = wait {
-                    std::thread::sleep(wait);
+                    crate::app::simulation::State::wait_out(wait);
                 }
                 let paused = !self
                     .simulation

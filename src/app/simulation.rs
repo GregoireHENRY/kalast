@@ -521,9 +521,33 @@ impl State {
         }
         let period = std::time::Duration::from_secs_f64(1.0 / self.rate_limit as f64);
         let wait = self.due.filter(|due| *due > now).map(|due| due - now);
-        let start = now + wait.unwrap_or_default();
-        self.due = Some(start + period);
+        // One period on from when this frame was due -- also when it came a
+        // little late, so a sleep that overshot by 100 us (macOS coalesces
+        // timers; it does) is made up on the next wait rather than shifting
+        // the whole schedule: measured, resetting to `now` on every late
+        // frame read 480 fps under a cap of 500. Only a frame more than a
+        // period late -- a real stall, or a pause -- resyncs to `now`, so
+        // the slow stretch banks no burst.
+        self.due = Some(match self.due {
+            Some(due) if due + period > now => due + period,
+            _ => now + period,
+        });
         wait
+    }
+
+    /// Sleep `wait` out to within a few microseconds. `std::thread::sleep`
+    /// alone wakes late by up to a millisecond on macOS, which under a cap
+    /// of 500 fps is half the period and made the rate wander; so it sleeps
+    /// to just short of the deadline and yields the rest of the way.
+    pub fn wait_out(wait: std::time::Duration) {
+        let deadline = std::time::Instant::now() + wait;
+        const SLACK: std::time::Duration = std::time::Duration::from_micros(400);
+        if wait > SLACK {
+            std::thread::sleep(wait - SLACK);
+        }
+        while std::time::Instant::now() < deadline {
+            std::thread::yield_now();
+        }
     }
 
     /// One frame's decision: does the simulation advance this frame?
@@ -570,8 +594,9 @@ mod pause_tests {
     use super::*;
 
     /// The cap paces the frame itself: one that comes early waits for its
-    /// turn, one that comes late goes at once and banks nothing, and a
-    /// paused run is not paced at all.
+    /// turn; one a little late goes at once and the schedule holds, so the
+    /// next wait is shorter by the lateness; one more than a period late
+    /// resyncs, banking nothing; and a paused run is not paced at all.
     #[test]
     fn rate_limit_paces_the_frames() {
         use std::time::{Duration, Instant};
@@ -586,11 +611,17 @@ mod pause_tests {
             Some(Duration::from_millis(990)),
             "10 ms into a 1 s period waits out the rest of it"
         );
-        assert_eq!(s.frame_wait(t0 + Duration::from_millis(2500)), None, "late: no wait");
+        assert_eq!(s.frame_wait(t0 + Duration::from_millis(2500)), None, "500 ms late: no wait");
         assert_eq!(
             s.frame_wait(t0 + Duration::from_millis(2600)),
+            Some(Duration::from_millis(400)),
+            "less than a period late, the schedule holds: the next is still due at 3 s"
+        );
+        assert_eq!(s.frame_wait(t0 + Duration::from_millis(5000)), None, "two periods late: a stall");
+        assert_eq!(
+            s.frame_wait(t0 + Duration::from_millis(5100)),
             Some(Duration::from_millis(900)),
-            "and the next is due one period after the late one, not two"
+            "and a stall resyncs to now, banking nothing"
         );
 
         s.rate_limited = false;
