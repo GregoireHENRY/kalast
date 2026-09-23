@@ -3194,3 +3194,13 @@ drives another frame from inside it, two frames of egui and wgpu on one
 stack, which on Windows' default 1 MB is the one crash that would be
 Windows-only. Tried here with an example whose `main` panics: the window
 stays, the log says why. After the v0.5.6 tag, so it ships in v0.5.7.
+
+## 2026-09-23 — v0.5.6 shipped
+
+Bump, rehearsal 35881224098 green in every job, tag on the same commit, the
+tag run (35884182981) reusing it: crates.io, PyPI, and the release with its
+four archives checked on the page (linux 141 MB, macos-arm64 93, macos-x86_64
+99, windows 123). From this version on the UI app sees the next release
+offered in its toolbar. New standing rule from the user the same day: when
+a rehearsal is all green, push the tag -- the section is shown as the
+rehearsal starts, no approval step after.
