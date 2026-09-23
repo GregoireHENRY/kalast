@@ -4,7 +4,7 @@ Kalast is a thermophysical model (TPM) for binary asteroids; it applies to
 other airless bodies as well. Kalast is also an image simulator for spacecraft
 cameras, in the visible and in the infrared. Its renderer serves several other
 uses — viewing and interacting with meshes, generating lightcurves — see the
-`examples/` folder.
+[`examples/`](examples/) folder.
 
 ## TPM
 
