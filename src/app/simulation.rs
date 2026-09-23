@@ -521,15 +521,19 @@ impl State {
         }
         let period = std::time::Duration::from_secs_f64(1.0 / self.rate_limit as f64);
         let wait = self.due.filter(|due| *due > now).map(|due| due - now);
-        // One period on from when this frame was due -- also when it came a
-        // little late, so a sleep that overshot by 100 us (macOS coalesces
-        // timers; it does) is made up on the next wait rather than shifting
-        // the whole schedule: measured, resetting to `now` on every late
-        // frame read 480 fps under a cap of 500. Only a frame more than a
-        // period late -- a real stall, or a pause -- resyncs to `now`, so
-        // the slow stretch banks no burst.
+        // One period on from when this frame was due -- also when it came
+        // late, up to `CATCH_UP`, so the lateness is made up by the next
+        // frames going at once rather than shifting the whole schedule. A
+        // sleep overshoots by 100 us (macOS coalesces timers) and a swapchain
+        // acquisition blocks 10-16 ms now and then; resetting to `now` on
+        // any late frame read 480 fps under a cap of 500, and resetting
+        // beyond one period still dropped those 5-8 frames from the second
+        // they fell in (491, 494 on the toolbar). Beyond `CATCH_UP` -- a
+        // window dragged, a real stall -- it resyncs and banks nothing, so a
+        // stretch of frames slower than the cap releases no burst.
+        const CATCH_UP: std::time::Duration = std::time::Duration::from_millis(50);
         self.due = Some(match self.due {
-            Some(due) if due + period > now => due + period,
+            Some(due) if now.saturating_duration_since(due) < CATCH_UP => due + period,
             _ => now + period,
         });
         wait
@@ -611,13 +615,13 @@ mod pause_tests {
             Some(Duration::from_millis(990)),
             "10 ms into a 1 s period waits out the rest of it"
         );
-        assert_eq!(s.frame_wait(t0 + Duration::from_millis(2500)), None, "500 ms late: no wait");
+        assert_eq!(s.frame_wait(t0 + Duration::from_millis(2020)), None, "20 ms late: no wait");
         assert_eq!(
-            s.frame_wait(t0 + Duration::from_millis(2600)),
-            Some(Duration::from_millis(400)),
-            "less than a period late, the schedule holds: the next is still due at 3 s"
+            s.frame_wait(t0 + Duration::from_millis(2100)),
+            Some(Duration::from_millis(900)),
+            "a little late, the schedule holds: the next is still due at 3 s"
         );
-        assert_eq!(s.frame_wait(t0 + Duration::from_millis(5000)), None, "two periods late: a stall");
+        assert_eq!(s.frame_wait(t0 + Duration::from_millis(5000)), None, "two seconds late: a stall");
         assert_eq!(
             s.frame_wait(t0 + Duration::from_millis(5100)),
             Some(Duration::from_millis(900)),
@@ -667,14 +671,24 @@ mod pause_tests {
             "slower than the cap, no frame waits"
         );
 
-        // Then frames a millisecond apart: the slow stretch banked nothing,
-        // so after the first they are paced at the period, not let through.
-        let t2 = t1 + Duration::from_millis(20 * 50);
-        assert_eq!(s.frame_wait(t2 + Duration::from_millis(1)), None);
-        let w = s.frame_wait(t2 + Duration::from_millis(2)).unwrap_or_default();
+        // Then frames a millisecond apart: the slow stretch banked at most
+        // `CATCH_UP` of lateness -- five periods here -- so a handful go at
+        // once and the rest are paced at the period, not let through.
+        // The loop sleeps each wait out, so the clock here does too.
+        let mut t = t1 + Duration::from_millis(20 * 50);
+        let mut at_once = 0;
+        let mut last = Duration::ZERO;
+        for _ in 0..20 {
+            last = s.frame_wait(t).unwrap_or_default();
+            if last.is_zero() {
+                at_once += 1;
+            }
+            t += last + Duration::from_millis(1);
+        }
+        assert!(at_once <= 6, "a burst after a slow stretch: {at_once} of 20 frames went at once");
         assert!(
-            w >= Duration::from_millis(8) && w <= Duration::from_millis(10),
-            "a fast frame after a slow stretch waits a period: {w:?}"
+            last >= Duration::from_millis(8) && last <= Duration::from_millis(10),
+            "and then it is paced again: {last:?}"
         );
     }
 
