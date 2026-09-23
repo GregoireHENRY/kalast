@@ -134,6 +134,28 @@ Draw in the editor layout. `start_editor()` is this plus `start()`, and
 Deliberately **not** in the config panel: a checkbox that switches the UI off
 from inside the UI leaves nothing to switch it back on with.
 
+### `app.config.check_updates: bool` — default `True` *(startup only)*
+Ask GitHub for a newer release when the UI app opens, and offer it in the
+toolbar.
+
+The check runs on a thread of its own the moment the UI app opens -- the frame
+only reads its answer off a channel -- and never when a script runs its own
+window, so a run's loop never waits on the network. Set it `False` and kalast
+touches the network at no point.
+
+What it does when a newer release exists: the log panel gets this version and
+its release date, the new version and its release date, and the release's
+notes; the toolbar gets an **update** button. That button downloads the
+release for this machine and installs it in place -- a bundle is replaced
+folder by folder, a pip install runs `pip install --upgrade`, a source
+checkout is told to pull -- then becomes **restart**, which starts kalast
+again on the new version with the same command line. Nothing restarts on its
+own. Up to date, the log says so in one line; unreachable, it says nothing.
+
+`kalast --update` (or `python -m kalast --update`) does the same from a
+terminal. `KALAST_UPDATE_PRETEND=0.5.4` makes this copy claim that version,
+to try the path without waiting for a release. `src/app/update.rs`.
+
 ### `app.config.toolbar: str` *(live)*
 What the editor's toolbar says beside Play, Restart and Step. Default
 `"iteration {drawn}    {fps} fps"`; empty for a bare toolbar.

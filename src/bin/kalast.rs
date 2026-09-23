@@ -66,6 +66,11 @@ fn main() {
     if args.iter().any(|a| a == "--python-check") {
         std::process::exit(python_check());
     }
+    // Check for a newer release and install it, printing what the log
+    // panel would show. No window either.
+    if args.iter().any(|a| a == "--update") {
+        std::process::exit(kalast::app::update::run_now());
+    }
 
     // An `Rc` rather than a plain `App`, because a Python script is handed a
     // handle onto this same app and `py::App` is built from one.

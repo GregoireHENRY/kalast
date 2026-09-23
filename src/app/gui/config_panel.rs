@@ -329,6 +329,7 @@ pub fn group_app(ui: &mut egui::Ui, a: &mut AppConfig) {
         ui.label("toolbar text").on_hover_text("What the editor's toolbar says beside the transport buttons.");
         ui.add(egui::TextEdit::singleline(&mut a.toolbar).desired_width(120.0));
     });
+    ui.checkbox(&mut a.check_updates, "check for updates").on_hover_text("Ask GitHub for a newer release when the UI app opens, and offer it in the toolbar. On a thread, so nothing waits on it; never when a script runs its own window. Off, kalast touches the network at no point.");
     ui.horizontal(|ui| {
         ui.label("title").on_hover_text("The OS window title.");
         ui.add(egui::TextEdit::singleline(&mut a.title).desired_width(120.0));

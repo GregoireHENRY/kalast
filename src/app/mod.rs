@@ -8,6 +8,7 @@ pub mod frame;
 pub mod gizmo;
 pub mod gui;
 pub mod hosted;
+pub mod update;
 #[cfg(target_os = "macos")]
 pub mod macos;
 pub mod hemicube;
@@ -85,6 +86,8 @@ pub struct Shared {
     /// False once the window has closed. `step()` returns it, so
     /// `while app.step():` ends on its own.
     pub running: bool,
+    /// Where the UI app is with a newer release; see `update`.
+    pub update: crate::app::update::State,
     /// `close()` cannot call `exit()` itself -- that needs the
     /// `ActiveEventLoop`, which only exists inside a handler -- so it raises
     /// this and the next pump acts on it.
@@ -182,6 +185,7 @@ impl Shared {
             #[cfg(feature = "python")]
             script_runner: None,
             running: true,
+            update: Default::default(),
             exit_requested: false,
             pending_script: None,
             pointer: None,
@@ -252,6 +256,8 @@ pub struct App {
     /// pumps until it flips, which is what makes one call mean one frame
     /// rather than one batch of events.
     frame_drawn: bool,
+    /// What the update check and install threads send back; read each frame.
+    update_rx: Option<std::sync::mpsc::Receiver<crate::app::update::Msg>>,
 
     /// When the swapchain last took a frame, and how often it may: once per
     /// refresh of the display the window is on. See the acquisition in the
@@ -723,6 +729,7 @@ impl App {
 
             event_loop: None,
             frame_drawn: false,
+            update_rx: None,
             last_present: std::time::Instant::now(),
             present_interval: None,
             present_count: (0, 0, 0, 0.0, std::time::Instant::now(), 0.0),
@@ -964,6 +971,85 @@ impl App {
         }
     }
 
+    /// The update threads' answers, and the toolbar's update and restart
+    /// buttons. Every frame the editor exists; `try_recv` costs nothing.
+    fn serve_update(&mut self) {
+        use crate::app::update::{self, Msg, State};
+        let mut lines: Vec<String> = Vec::new();
+        if let Some(rx) = self.update_rx.as_ref() {
+            while let Ok(msg) = rx.try_recv() {
+                let mut shared = self.shared.borrow_mut();
+                match msg {
+                    Msg::Checked(Ok(u)) => {
+                        lines.extend(update::message(&u));
+                        shared.update = if u.newer() { State::Available(u) } else { State::UpToDate };
+                    }
+                    // Offline, or GitHub is: not worth a line every start.
+                    Msg::Checked(Err(_)) => shared.update = State::Unchecked,
+                    Msg::Line(l) => lines.push(l),
+                    Msg::Installed(Ok(())) => {
+                        lines.push("installed; the toolbar's \"restart\" button runs it".to_string());
+                        shared.update = State::Ready;
+                    }
+                    Msg::Installed(Err(e)) => {
+                        lines.push(format!("update failed: {e}"));
+                        shared.update = State::Failed(e);
+                    }
+                }
+            }
+        }
+        let (update_request, relaunch_request) = {
+            let editor = self.editor.as_mut().unwrap();
+            (
+                std::mem::take(&mut editor.update_request),
+                std::mem::take(&mut editor.relaunch_request),
+            )
+        };
+        if update_request {
+            let taken = {
+                let mut shared = self.shared.borrow_mut();
+                match std::mem::take(&mut shared.update) {
+                    State::Available(u) => {
+                        shared.update = State::Installing;
+                        Some(u)
+                    }
+                    other => {
+                        shared.update = other;
+                        None
+                    }
+                }
+            };
+            if let Some(u) = taken {
+                lines.push(format!("updating to v{}", u.latest.version));
+                let (tx, rx) = std::sync::mpsc::channel();
+                self.update_rx = Some(rx);
+                let kind = update::kind();
+                std::thread::Builder::new()
+                    .name("kalast-update".into())
+                    .spawn(move || {
+                        let progress = tx.clone();
+                        let result = update::install(&u, &kind, &|line| {
+                            let _ = progress.send(Msg::Line(line));
+                        });
+                        let _ = tx.send(Msg::Installed(result));
+                    })
+                    .expect("spawn the update");
+            }
+        }
+        if relaunch_request {
+            match update::relaunch() {
+                Ok(()) => self.shared.borrow_mut().exit_requested = true,
+                Err(e) => lines.push(e),
+            }
+        }
+        if !lines.is_empty() {
+            let mut shared = self.shared.borrow_mut();
+            for line in lines {
+                shared.log.push(line);
+            }
+        }
+    }
+
     /// Realise any option that changed since the window was built.
     ///
     /// Runs at the top of each frame, so a change made between two `step()`s,
@@ -1115,6 +1201,8 @@ impl App {
         if self.editor.is_none() {
             return;
         }
+
+        self.serve_update();
 
         let (asked, asked_restart, asked_open, asked_launch, retry_build) = {
             let mut s = self.shared.borrow_mut();
@@ -1339,6 +1427,9 @@ impl App {
     where
         F: FnMut(&mut Self, &str, &str),
     {
+        if args.iter().any(|a| a == "--update") {
+            std::process::exit(crate::app::update::run_now());
+        }
         self.editor_start(args);
         loop {
             match self.editor_tick() {
@@ -1359,6 +1450,24 @@ impl App {
     pub fn editor_start(&mut self, args: &[String]) {
         self.config.borrow_mut().editor = true;
         self.config.borrow_mut().title = "kalast".to_string();
+        // A newer release? Asked here, when the UI app opens -- never when a
+        // script runs its own window -- and on a thread: the frame reads the
+        // answer off `update_rx` when it comes (`serve_editor_requests`).
+        if self.config.borrow().check_updates {
+            if let crate::app::update::Kind::Bundle(dir) = crate::app::update::kind() {
+                crate::app::update::clean_previous(&dir);
+            }
+            self.shared.borrow_mut().update = crate::app::update::State::Checking;
+            let (tx, rx) = std::sync::mpsc::channel();
+            self.update_rx = Some(rx);
+            let current = crate::app::update::current();
+            std::thread::Builder::new()
+                .name("kalast-update-check".into())
+                .spawn(move || {
+                    let _ = tx.send(crate::app::update::Msg::Checked(crate::app::update::check(&current)));
+                })
+                .expect("spawn the update check");
+        }
 
         let mut opened_python = false;
         let mut opened_rust: Option<String> = None;

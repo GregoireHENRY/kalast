@@ -1295,6 +1295,11 @@ pub struct AppConfig {
     ///
     /// :label: toolbar text
     pub toolbar: String,
+    /// Ask GitHub for a newer release when the UI app opens, and offer it in
+    /// the toolbar. On a thread, so nothing waits on it; never when a script
+    /// runs its own window. Off, kalast touches the network at no point.
+    /// :label: check for updates
+    pub check_updates: bool,
     /// The OS window title.
     pub title: String,
     /// Open the window in native fullscreen (borderless, current monitor).
@@ -1335,6 +1340,7 @@ impl Default for AppConfig {
             width: 0,
             height: 0,
             toolbar: "iteration {drawn}    {fps} fps".to_string(),
+            check_updates: true,
             title: "kalast".to_string(),
             fullscreen: false,
             vsync: false,

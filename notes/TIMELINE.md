@@ -3161,3 +3161,19 @@ the release page, not trusted from the job: linux 138 MB, macos-arm64 90,
 macos-x86_64 96, windows 120. The section is the day's list: the 2.5×
 rendering, the 4096 default, the background window, the unpaced loop, the
 file picker, the Windows console, the fps cap, the toolbar.
+
+## 2026-09-23 — the UI app offers a newer release
+
+Asked of GitHub on a thread when the UI app opens (`app.config.check_updates`,
+default on; never when a script runs its own window), answered through a
+channel the frame reads with `try_recv`: the log gets this version and its
+date, the newer one and its date, and its notes; the toolbar gets an
+**update** button. Installing runs on a thread too, by how this copy was
+installed (`update::Kind`): a bundle downloads its archive into the bundle
+folder, unpacks it with `tar` and swaps every entry in place, what it
+replaced parked in `.previous` for the next start to delete (Windows cannot
+delete a running exe, but can rename it); a pip install runs `pip install
+--upgrade`; a checkout is told to pull. Then a **restart** button relaunches
+the same command line; nothing restarts on its own. `kalast --update` from a
+terminal; `KALAST_UPDATE_PRETEND` to try the path. Tried end to end on a
+copy of the v0.5.5 bundle claiming to be 0.5.4. `src/app/update.rs`.

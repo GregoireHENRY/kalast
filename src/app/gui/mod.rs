@@ -191,6 +191,9 @@ pub struct Editor {
     /// is rebuilt either way; this says whether it then runs.
     pub restart_request: bool,
     pub open_request: bool,
+    /// The toolbar's update and relaunch buttons; see `app::update`.
+    pub update_request: bool,
+    pub relaunch_request: bool,
     pub save_request: bool,
     /// The window was asked to close over an edited script. The editor puts
     /// the question; the answer comes back as one of the two below, or as
@@ -289,6 +292,8 @@ impl Editor {
             quit_request: false,
             exit_after_save: false,
             open_request: false,
+            update_request: false,
+            relaunch_request: false,
             save_request: false,
             rust_release: true,
             build_request: false,
@@ -425,10 +430,12 @@ impl Editor {
         let script_dirty = self.script_dirty;
         let script_ran = shared.script_ran;
         let drawn = shared.drawn_iteration;
+        let update_state = shared.update.clone();
         let log = &mut shared.log;
         let dirty = &mut self.script_dirty;
         let ran = &mut shared.script_ran;
         let (mut run_request, mut open_request, mut save_request) = (false, false, false);
+        let (mut update_request, mut relaunch_request) = (false, false);
         let (mut save_and_quit, mut quit_now, mut cancel_exit) = (false, false, false);
         // A Rust example is built and launched rather than run in this
         // process, so the transport buttons do not apply to one.
@@ -608,6 +615,42 @@ impl Editor {
                         .on_hover_text(
                             "app.config.toolbar -- {drawn} {it} {its} {fps} {ms} {bodies} {paused} {warn} {gpu}",
                         );
+                    }
+                    // A newer release, when the check that ran as the UI app
+                    // opened found one: its notes are in the log.
+                    {
+                        use crate::app::update::State;
+                        match &update_state {
+                            State::Available(u) => {
+                                ui.separator();
+                                if ui
+                                    .button(format!("\u{2b06} update to v{}", u.latest.version))
+                                    .on_hover_text("Download this release for this machine and install it in place; its notes are in the log")
+                                    .clicked()
+                                {
+                                    update_request = true;
+                                }
+                            }
+                            State::Installing => {
+                                ui.separator();
+                                ui.label("updating\u{2026}");
+                            }
+                            State::Ready => {
+                                ui.separator();
+                                if ui
+                                    .button("\u{21bb} restart")
+                                    .on_hover_text("Start kalast again, on the new version, with this command line")
+                                    .clicked()
+                                {
+                                    relaunch_request = true;
+                                }
+                            }
+                            State::Failed(_) => {
+                                ui.separator();
+                                ui.label("update failed, see the log");
+                            }
+                            State::Unchecked | State::Checking | State::UpToDate => {}
+                        }
                     }
                 });
             };
@@ -1015,6 +1058,8 @@ impl Editor {
         }
         self.open_request |= open_request;
         self.save_request |= save_request;
+        self.update_request |= update_request;
+        self.relaunch_request |= relaunch_request;
         self.build_request |= build_request;
         self.launch_request |= launch_request;
         self.state
