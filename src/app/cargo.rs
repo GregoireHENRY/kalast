@@ -238,16 +238,31 @@ pub extern "C" fn kalast_abi() -> u64 {{
     kalast::app::abi_fingerprint()
 }}
 
-/// Run the example's own `main`, with the host reachable from it.
+/// Run the example's own `main`, with the host reachable from it. `0` when
+/// it returned, `1` when it panicked -- a panic must not cross this
+/// boundary, where it would abort the process and take the window with it,
+/// so it is caught here and said into the host's log instead.
 ///
 /// # Safety
 ///
 /// `host` must outlive the call.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn kalast_example(host: *const kalast::app::hosted::HostApi) {{
+pub unsafe extern "C" fn kalast_example(host: *const kalast::app::hosted::HostApi) -> u32 {{
     unsafe {{ kalast::app::hosted::set_host(host) }};
-    main();
+    let code = match std::panic::catch_unwind(main) {{
+        Ok(()) => 0,
+        Err(payload) => {{
+            let what = payload
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "a panic with no message".to_string());
+            kalast::app::hosted::log_to_host(&format!("the example panicked: {{what}}"));
+            1
+        }}
+    }};
     kalast::app::hosted::clear_host();
+    code
 }}
 "#
         ),
@@ -845,7 +860,7 @@ pub fn load_example(
         }
 
         let run: libloading::Symbol<
-            unsafe extern "C" fn(*const crate::app::hosted::HostApi),
+            unsafe extern "C" fn(*const crate::app::hosted::HostApi) -> u32,
         > = library
             .get(b"kalast_example")
             .map_err(|_| format!("{} exports no kalast_example", path.display()))?;
@@ -855,7 +870,12 @@ pub fn load_example(
         // The example's `main` runs inside it: it builds an `App` of its own,
         // and every call that would own a loop crosses back through here.
         let api = crate::app::hosted::host::api(app as *mut _);
-        run(&api as *const _);
+        if run(&api as *const _) != 0 {
+            // Said into the log by the wrapper. The library stays loaded:
+            // whatever the example installed before it panicked -- a scene,
+            // a callback -- points into it.
+            app.log(&format!("{} stopped at that panic", path.display()));
+        }
 
         // Dropped by the caller, not here: the symbols are gone from scope but
         // the callbacks the example just installed are not.
@@ -992,7 +1012,10 @@ mod tests {
         );
         assert!(lib.contains("// A plain example."));
         assert!(lib.contains("fn main() {}"), "the example is copied in whole");
-        assert!(lib.contains("main();"), "its own main is called");
+        assert!(
+            lib.contains("catch_unwind(main)"),
+            "its own main is called, under a panic guard"
+        );
         assert!(lib.contains("set_host"), "with the host reachable from it");
         assert!(lib.contains("kalast_abi"), "and the ABI check exported");
 

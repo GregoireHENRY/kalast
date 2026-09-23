@@ -8,6 +8,10 @@ no entries, and the section is approved by a person before the tag is
 pushed. `## Unreleased` collects the entries between versions; the bump
 renames it.
 
+## Unreleased
+
+- Windows: a pre-compiled `.rs` example that panicked while loading -- a mesh path it could not find, say -- took the UI app down with it. The panic is caught at the example's edge now and reported in the log panel, and `kalast.exe` runs with a 16 MB stack instead of Windows' 1 MB, since a hosted example's `main` drives a frame from inside a frame.
+
 ## v0.5.6
 
 - The UI app checks for a newer release when it opens -- on a thread, never in a script's run, off with `app.config.check_updates = False` -- and if there is one, the log shows this version and its release date, the new version and its, and its notes, and the toolbar gets an **update** button that installs it in place (a bundle folder by folder, a pip install with `pip install --upgrade`) and then a **restart** button. `kalast --update` does the same from a terminal.

@@ -63,6 +63,9 @@ pub struct HostApi {
     /// Python raises through its script instead, because a `while True:`
     /// there has nothing to consult. A Rust loop reads one of these two.
     pub superseded: extern "C" fn(*mut crate::app::App) -> bool,
+    /// A line for the host's log panel: what a guest whose `main` panicked
+    /// says before it returns, since its own stderr reaches no panel.
+    pub log: extern "C" fn(*mut crate::app::App, *const u8, usize),
 }
 
 
@@ -89,6 +92,11 @@ pub unsafe fn set_host(api: *const HostApi) {
 /// Forget it again, so a later `App` in this process is an ordinary one.
 pub fn clear_host() {
     HOST.with(|h| *h.borrow_mut() = None);
+}
+
+/// A line into the host's log panel, when there is a host.
+pub fn log_to_host(line: &str) -> bool {
+    with_host(|host| (host.log)(host.app, line.as_ptr(), line.len())).is_some()
 }
 
 /// Whether this copy of the crate is running inside a host.
@@ -175,6 +183,12 @@ pub mod host {
         unsafe { &mut *app }.adopt_scene(simulation, shared);
     }
 
+    extern "C" fn log(app: *mut crate::app::App, ptr: *const u8, len: usize) {
+        // The guest's bytes, copied before anything of the guest can go.
+        let line = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(ptr, len) }).into_owned();
+        unsafe { &mut *app }.log(&line);
+    }
+
     /// The table handed to a guest for the length of its `main`.
     pub fn api(app: *mut crate::app::App) -> HostApi {
         HostApi {
@@ -184,6 +198,7 @@ pub mod host {
             close,
             adopt,
             superseded,
+            log,
         }
     }
 }

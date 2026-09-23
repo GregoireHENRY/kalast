@@ -3177,3 +3177,20 @@ delete a running exe, but can rename it); a pip install runs `pip install
 the same command line; nothing restarts on its own. `kalast --update` from a
 terminal; `KALAST_UPDATE_PRETEND` to try the path. Tried end to end on a
 copy of the v0.5.5 bundle claiming to be 0.5.4. `src/app/update.rs`.
+
+## 2026-09-23 — a hosted example's panic no longer takes the window (for v0.5.7)
+
+Reported from Windows: opening a pre-compiled `.rs` example crashes the UI
+app. Not reproducible here, so the two causes the code allows are closed
+blind. A panic in the example's `main` unwound into the wrapper's
+`extern "C" fn`, which aborts the process on every platform -- and on
+Windows, with stderr going nowhere since v0.5.6, without a word. The
+wrapper's `kalast_example` now runs `main` under `catch_unwind`, says the
+panic into the host's log through a new `HostApi::log`, and returns `1`;
+the host keeps the library loaded (its scene and callbacks point into it)
+and logs that it stopped there. And `kalast.exe` links with a 16 MB stack
+(`build.rs`, msvc only): a hosted `main` runs inside the host's frame and
+drives another frame from inside it, two frames of egui and wgpu on one
+stack, which on Windows' default 1 MB is the one crash that would be
+Windows-only. Tried here with an example whose `main` panics: the window
+stays, the log says why. After the v0.5.6 tag, so it ships in v0.5.7.
