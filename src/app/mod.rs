@@ -2394,17 +2394,28 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     // rather than just not drawing it. The frame runs either
                     // way; only the present is skipped.
                     //
-                    // Every frame. Presenting only once per refresh interval
-                    // of the display was tried on 22 September and reverted
-                    // the same evening: on the adaptive-refresh built-in
-                    // panel a present every 8 ms was not enough to keep it
-                    // awake, each acquisition then waited 130-220 ms for the
-                    // panel's idle refresh, and the picture fell to 6 frames
-                    // a second at 100 it/s. See
-                    // `notes/2026-09-22_present_paced_by_the_display.md`.
-                    let present_due = true;
+                    // And once per refresh interval of the display the window
+                    // is on (`present_interval`), not every frame: the
+                    // acquisition blocks until the window server hands a
+                    // drawable back, which it does at the display's pace --
+                    // presenting every frame paced the loop at two
+                    // iterations per refresh, 120 it/s exactly on a 60 Hz
+                    // monitor. The frames in between run as an occluded
+                    // window's do, rendered and stepped and not shown. This
+                    // was tried on 22 September and looked like the panel
+                    // dozing between sparse presents; it was the GPU backlog
+                    // `Window::render` now bounds
+                    // (`notes/2026-09-23_presenter_thread.md`).
+                    let present_due = match self.present_interval {
+                        Some(interval) => self.last_present.elapsed() >= interval,
+                        None => true,
+                    };
                     let acquire_started = std::time::Instant::now();
-                    let surface_texture = win.get_surface_texture(&sim_cfg.borrow());
+                    let surface_texture = if present_due {
+                        win.get_surface_texture(&sim_cfg.borrow())
+                    } else {
+                        None
+                    };
                     let acquire_ms = acquire_started.elapsed().as_secs_f64() * 1000.0;
                     self.present_count.5 = self.present_count.5.max(acquire_ms);
                     if surface_texture.is_some() {

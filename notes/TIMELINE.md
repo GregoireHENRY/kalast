@@ -3132,3 +3132,20 @@ paced by the display for light scenes (about two iterations per refresh),
 and a covered window runs free. The proper fix is the simulation on its own
 thread with the winit thread presenting -- a plan, not an evening.
 `notes/2026-09-22_present_paced_by_the_display.md`.
+
+## 2026-09-23 — the screen no longer paces the loop: 2,850 it/s at 120 fps on screen
+
+The presenter thread is dead on macOS with wgpu-hal 30 (its `acquire_texture`
+hops to the main thread for the occlusion check), but the spike's *main-thread*
+gate -- present only once per refresh interval -- ran free, and the same gate
+in kalast had stalled for a reason that was never the display: with
+presenting no longer throttling the loop, the CPU ran ahead of the GPU to
+Metal's 64 in-flight command buffers, and the presenting frame's drawable
+copy queued behind them (submit-to-completion latency measured at 250-780 ms
+on a 0.94 ms GPU frame). `Window::render` now waits for the frame before
+last, keeping two in flight; the redraw handler acquires the swapchain once
+per refresh interval of the window's current display. Visible window: light
+scene 2,850 it/s with 118 presents/s (was 300 here, 120 on the 60 Hz
+monitor); `_10k` Didymos ~100 it/s, SPICE-bound, 74 presents/s; covered
+ceiling 3,060 unchanged. `step()` is at most two frames ahead of the GPU
+now, which every benchmark note wanted. `notes/2026-09-23_presenter_thread.md`.

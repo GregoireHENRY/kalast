@@ -119,3 +119,65 @@ runs free.
    is the UI app being watched; nothing a run cares about.
 
 Recommendation: 1, filed with the reproduction, and 3 meanwhile.
+
+## The morning after: it was the GPU queue, and the fix is on the main thread
+
+The presenter thread is dead on macOS with wgpu-hal 30 (above), but the
+spike had one more thing to say. Its **main-thread** gate -- present from
+the redraw handler only once per refresh interval, nothing on any other
+thread -- gives 2,300 frames/s, 116 presents/s, acquisitions under 1 ms,
+under `run_app` *and* under a pumped loop (1,120 frames/s, 110 presents/s).
+The same gate in kalast: 6-10 presents/s and 130-240 ms acquisitions, text
+pass or not, `COPY_SRC` or not, kalast's window size or not, frame latency
+1, 2 or 3 -- every surface setting was copied into the spike and none of it
+moved.
+
+What did: measuring submit-to-completion latency inside kalast with
+`Queue::on_submitted_work_done`. In the gated, visible run it climbed from
+250 ms to 780 ms with 57-60 command buffers in flight -- Metal's limit is
+64, which is the blocked `-[MTLCommandQueue commandBuffer]` the stack
+sample had shown -- on a scene whose GPU frame is 0.94 ms (`gpu_timing`:
+shadow 0.56, render 0.87, text 0.85, overlapped). The loop, no longer
+throttled by presenting every frame, submits frames the GPU has not started
+and a presenting frame's copy into the drawable queues behind all of them;
+the next acquisition then waits for that drawable chain. Force the CPU to
+wait for the GPU after each frame (`device.poll(Wait)` on the frame's
+submission) and the same run reads 95 presents/s at 95 frames/s, longest
+acquire 0-2.6 ms, no backlog. The "panel dozing" reading of 22 September
+was this.
+
+Why the queue backs up at all when the GPU has 9 ms of slack per frame is
+not established -- a command buffer that writes a drawable is scheduled
+only when the drawable is ready, and in-order queues wait behind it, is the
+shape of it -- but bounding the depth removes it regardless, and the bound
+is right on its own terms: `step()` used to return with the GPU up to 64
+frames behind, which is the queueing that
+`feedback: benchmarks need a sync` warned every timing about.
+
+**The change.** `Window::render` keeps the last two frames' submission
+indices and, before letting a third in, waits for the oldest
+(`device.poll(PollType::Wait { submission_index })`): CPU and GPU stay
+overlapped, the queue stays two deep. The redraw handler acquires the
+swapchain only once per refresh interval of the window's current display
+(winit's `refresh_rate_millihertz`, read at creation and on every move and
+resize); the frames between run as an occluded window's do. Nothing on any
+other thread. `start()` and `step()` alike.
+
+## Measured, visible window, built-in 120 Hz panel
+
+| | frames/s (= it/s) | presents/s | longest acquire |
+|---|---|---|---|
+| light scene, `app.start()` + callback | 2,850 | 118 | 1.1 ms |
+| light scene, UI app, `step()` script | 2,878 | -- | -- |
+| `_10k` Didymos, plain `step()` loop | 106 | 74 | 14 ms |
+| `_10k` Didymos, UI app | 93 | 71 | 15 ms |
+| 20-facet mesh, covered window (the loop's ceiling) | 3,060 | 0 | -- |
+
+Before, the same visible light scene read 300 it/s here and 120 exactly on
+the 60 Hz monitor. The `_10k` example is bound by its four SPICE calls per
+iteration, ~10 ms, and presents on most frames; the `_10k` GPU frame is
+under a millisecond. On a 60 Hz display the gate presents ~60 times a
+second and the loop does not change -- the interval is re-read on every
+move. `test_editor_startup` (one `step()` is one frame), stubs, bindings,
+far Sun, PCF, shadow layers and facet shadow pass; `cargo test --release`
+both feature sets.

@@ -611,6 +611,9 @@ pub struct Window {
     pub window: Arc<winit::window::Window>,
     pub instance: wgpu::Instance,
     pub surface: wgpu::Surface<'static>,
+    /// The last frames' submissions, so the loop can wait for the GPU to be
+    /// at most two frames behind; see `render`.
+    frame_submissions: std::collections::VecDeque<wgpu::SubmissionIndex>,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub surface_config: wgpu::SurfaceConfiguration,
@@ -1011,6 +1014,7 @@ impl Window {
             window,
             instance,
             surface,
+            frame_submissions: std::collections::VecDeque::new(),
             device,
             queue,
             surface_config,
@@ -2423,7 +2427,25 @@ impl Window {
             );
         }
 
-        self.queue.submit([encoder.finish()]);
+        let frame_submission = self.queue.submit([encoder.finish()]);
+
+        // At most two frames in flight behind this one. Without a bound the
+        // loop, once it stopped presenting every frame, ran ahead of the GPU
+        // to Metal's limit of 64 in-flight command buffers, and a presenting
+        // frame's copy into the drawable queued behind all of them: acquisitions
+        // of 130-240 ms and six presents a second, on a scene the GPU draws
+        // in 0.94 ms. Two keeps the CPU and the GPU overlapped and the queue
+        // shallow, and it makes `step()` honest -- the iteration it returns
+        // from is at most two frames ahead of what has been drawn
+        // (`notes/2026-09-23_presenter_thread.md`).
+        self.frame_submissions.push_back(frame_submission);
+        if self.frame_submissions.len() > 2 {
+            let oldest = self.frame_submissions.pop_front().unwrap();
+            let _ = self.device.poll(wgpu::PollType::Wait {
+                submission_index: Some(oldest),
+                timeout: None,
+            });
+        }
 
         // Non-blocking: drains any exports whose GPU->CPU copy finished
         // since the last frame. Runs every frame (not just when exporting)
