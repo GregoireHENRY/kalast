@@ -8,7 +8,7 @@ no entries, and the section is approved by a person before the tag is
 pushed. `## Unreleased` collects the entries between versions; the bump
 renames it.
 
-## Unreleased
+## v0.5.7
 
 - The toolbar folds with the other panels: `N` folds all four, its lower edge can be dragged up or double-clicked like theirs, and the handle it leaves brings it back. `app.config.panels_folded` now means all four.
 - Arrow keys fold or unfold one panel each, the one on the edge the arrow points to: `↑` toolbar, `↓` log, `←` script, `→` simulation. From a script: `app.config.toolbar_folded`, `log_folded`, `script_folded`, `simulation_folded`, live, and reading back what a key or a drag did.
