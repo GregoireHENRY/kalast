@@ -17,6 +17,7 @@ app.simulation.load_mesh(path="res/cube.obj")
 mesh = app.simulation.bodies[0].mesh
 nface = len(mesh.facets)
 mesh.values = numpy.arange(nface, dtype=float)
+app.simulation.config.data.colormap = "grey"
 
 while app.running:
     app.step()
