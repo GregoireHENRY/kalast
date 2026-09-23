@@ -11,7 +11,7 @@ renames it.
 ## Unreleased
 
 - The UI app checks for a newer release when it opens -- on a thread, never in a script's run, off with `app.config.check_updates = False` -- and if there is one, the log shows this version and its release date, the new version and its, and its notes, and the toolbar gets an **update** button that installs it in place (a bundle folder by folder, a pip install with `pip install --upgrade`) and then a **restart** button. `kalast --update` does the same from a terminal.
-- `examples/didymos/main.py` loads the `_100k` Didymos and Dimorphos models (the pair the `hera_didymos` scripts use) rather than the full-resolution ones; the cube examples draw their wireframe two pixels wide, and `cube/light.py` turns its Sun ten times slower, so it reads at the frame rates the window now reaches.
+- The cube examples draw their wireframe two pixels wide, `cube/light.py` turns its Sun ten times slower so it reads at the frame rates the window now reaches, and `cube/color_map.py` names its colormap.
 
 ## v0.5.5
 

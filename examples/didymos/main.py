@@ -17,10 +17,10 @@ app.simulation.camera.up = [0.18536071, 0.50638384, 0.8421501]
 app.simulation.camera.dir = [0.2894826, 0.7908329, -0.53924316]
 
 app.simulation.load_mesh(
-    path="/Users/gregoireh/data/mesh/didymos/g_01165mm_spc_didy_v003_100k.obj"
+    path="/Users/gregoireh/data/mesh/didymos/g_01165mm_spc_didy_v003.obj"
 )
 app.simulation.load_mesh(
-    path="/Users/gregoireh/data/mesh/dimorphos/g_00243mm_spc_dimo_v004_100k.obj",
+    path="/Users/gregoireh/data/mesh/dimorphos/g_00243mm_spc_dimo_v004.obj",
 )
 
 spice.kclear()
