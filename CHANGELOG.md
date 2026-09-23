@@ -8,7 +8,7 @@ no entries, and the section is approved by a person before the tag is
 pushed. `## Unreleased` collects the entries between versions; the bump
 renames it.
 
-## Unreleased
+## v0.5.5
 
 - Rendering is about 2.5× faster on full-resolution meshes: the Didymos pair at 3.1 M facets each runs `examples/didymos/main.py` at 105 it/s, from 42. The shadow and main passes draw shared vertices instead of expanded corners, closed meshes cull their back faces in the shadow map, and a body is only drawn into the shadow layers it can reach. Nothing in the physics or the shadows changes.
 - `shadows.resolution` defaults to 4096 (was 8192): a quarter of the memory per shadow layer and a faster frame, with the per-facet shadowing the thermophysical model runs on unchanged. Set 8192 in a script that wants the finer texel.
