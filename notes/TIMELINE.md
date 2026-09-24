@@ -3259,3 +3259,16 @@ ends with the SignPath attribution line under the changelog section. In it:
 every panel folds (toolbar with `N`, arrows, four config fields), fullscreen
 on a second screen, the focus-mode toolbar's height, the `.obj` open button,
 and the Windows hosted-example panic fix.
+
+## 2026-09-24 — the SignPath Foundation declined
+
+Their reply: the Foundation program wants public-trust signals first --
+stars, forks, contributors, articles, institutional backing -- and kalast
+does not show enough of them yet; reapply later, or pay for a subscription.
+The user will not pay. So the code signing policy is gone from the README,
+the attribution line is gone from the release job and was removed from the
+v0.5.6 and v0.5.7 release bodies, and rule 33 is back to "verbatim and
+nothing else". The README's Getting started says instead that the bundles
+are unsigned, that Windows warns once and how to get past it, and that
+`pip install kalast` never sees the warning. The bundles stay unsigned; a
+reapplication is possible once the project is more visible.

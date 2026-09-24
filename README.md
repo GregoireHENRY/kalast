@@ -88,6 +88,10 @@ app fetches a minimal toolchain into `toolchain/` beside the executable and
 reuses it afterwards. On macOS that also wants Apple's command line tools for
 the linker (`xcode-select --install`).
 
+The bundles are not code-signed, so Windows warns once at the first launch of
+`kalast.exe`: *More info*, then *Run anyway*. `pip install kalast` never sees
+that warning.
+
 ## Packages
 
 You can also install kalast as a package, in a Python virtual environment or a
@@ -97,27 +101,6 @@ Rust project:
 pip install kalast          # Python
 cargo add kalast            # Rust
 ```
-
-## Code signing policy
-
-Free code signing provided by [SignPath.io](https://about.signpath.io),
-certificate by [SignPath Foundation](https://signpath.org).
-
-The project has applied to the SignPath Foundation and the application is
-pending. Bundles are unsigned until the first release after it is approved,
-and Windows warns about an unsigned bundle once, at its first launch.
-
-**Team.** Committers and reviewers: Grégoire Henry
-([@GregoireHENRY](https://github.com/GregoireHENRY)). Approvers: Grégoire
-Henry.
-
-**Privacy.** When the kalast UI app opens it asks GitHub's API once whether a
-newer release exists; the request carries nothing about you or your machine,
-and `app.config.check_updates = False` turns it off. Compiling a `.rs` example
-on a machine without cargo fetches a Rust toolchain, when you ask for it.
-Beyond these, this program will not transfer any information to other
-networked systems unless specifically requested by the user or the person
-installing or operating it.
 
 ## Repo structure
 

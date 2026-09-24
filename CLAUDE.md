@@ -134,9 +134,8 @@
       `sim.huds`, bodies, camera and Sun, and the GPU-result queries. Same rule
       again: add to it whenever something is exposed to Python.
 33. Releasing. The GitHub release text is `CHANGELOG.md`'s section for that
-    version, verbatim, plus the one-line code signing attribution the release
-    job appends, and nothing else: a list of what changed for the people who
-    use kalast, no prose. Release engineering, CI, caching, and refactors
+    version, verbatim, and nothing else: a list of what changed for the people
+    who use kalast, no prose. Release engineering, CI, caching, and refactors
     that change nothing a user sees do not go in it -- those belong in `notes/`.
     The version gate refuses a tag whose section is missing or has no `- `
     entry. The order is: bump the three manifests, write the section, push,

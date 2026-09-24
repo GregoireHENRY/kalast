@@ -102,8 +102,7 @@ jobs:
           esac
 
           # 3. CHANGELOG.md has a `## v<tag>` section with at least one entry.
-          #    The GitHub release is that section verbatim, plus the one-line
-          #    code signing attribution the release job appends,
+          #    The GitHub release is that section verbatim and nothing else,
           #    and a person reviews it before the tag is pushed; this is what
           #    makes forgetting impossible rather than merely unlikely.
           if ! awk -v v="v$tag" '$0 ~ "^## "v"([^0-9.]|$)"{f=1;next} /^## /{f=0} f&&/^- /{n++} END{exit !(n>0)}' CHANGELOG.md; then
@@ -706,10 +705,7 @@ jobs:
 
       # The release body is this version's section of CHANGELOG.md, verbatim
       # -- a list of what changed, reviewed before the tag was pushed, and
-      # no prose around it -- plus one fixed line under it: the code signing
-      # attribution the SignPath Foundation asks for on every download page,
-      # linking to the policy in the README. The gate already refused a tag
-      # without a section.
+      # no prose around it. The gate already refused a tag without one.
       - name: The release notes are this version's changelog section
         shell: bash
         run: |
@@ -717,7 +713,6 @@ jobs:
           awk -v v="${GITHUB_REF_NAME}" '$0 ~ "^## "v"([^0-9.]|$)"{f=1;next} /^## /{f=0} f' CHANGELOG.md \
             | sed -e '/./,$!d' | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' > release-notes.md
           [ -s release-notes.md ] || { echo "::error::empty changelog section for ${GITHUB_REF_NAME}"; exit 1; }
-          printf '\n[Code signing policy](https://github.com/GregoireHENRY/kalast#code-signing-policy): free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).\n' >> release-notes.md
           echo "--- release body ---"; cat release-notes.md
 
       - uses: softprops/action-gh-release@v2
