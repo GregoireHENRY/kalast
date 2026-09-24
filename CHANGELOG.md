@@ -11,6 +11,7 @@ renames it.
 ## Unreleased
 
 - `app.simulation.project(point)`, `project_body(body)` and `project_facet(body, facet)` give where a point, a body's centre or a facet's centre lands in the image: `(x, y)` in pixels from its top-left corner, x right and y down, up to `app.simulation.image_size`. `examples/hera_didymos/afc.py` writes the bodies' and the selected facets' positions to `out/hera_didymos/afc/screen.csv` at every frame.
+- `examples/landmark_tracking/main.py` follows 3000 facets of a Dimorphos shape model through a sequence of camera and Sun positions: it exports every frame and writes each facet's position, its pixel in the image and the cosine of its viewing angle to `track.csv`. Its input data is linked from the folder's README.
 
 ## v0.5.7
 

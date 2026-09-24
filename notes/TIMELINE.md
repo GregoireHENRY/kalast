@@ -3291,3 +3291,24 @@ Write-up: `2026-09-24_image_positions.md`. Open: no visibility flag -- a
 facet turned away still gets a position; and a pinned `image.width`/`height`
 set before the window opens is ignored, the render taking the window's size
 (found here, not fixed).
+
+## 2026-09-24 — the landmark tracking example, and what it turned up
+
+`examples/landmark_tracking/main.py`, the user's adaptation of a
+collaborator's script: 3000 random facets of a Dimorphos model tracked
+through a sequence of camera and Sun positions, every frame exported, each
+facet's position, pixel (`project_facet`, read after `step()`) and view
+cosine written to `track.csv`. Inputs and outputs are on the OMA cloud share
+its README links. Its markers are unlit through `color_modes = 1`: a facet
+on mode 0 follows the global mode, and in the lit mode `mesh.colors` is the
+diffuse albedo -- `light.color × colour × (ambient + cos i × shadow)`, used
+linearly, measured 74/255 for 0.15 at cos i 0.457 (the PNG is sRGB-encoded).
+Open, found here, not fixed: the `P` and `K` keys change the pause state as
+the event arrives, before that pump's frame, so a driven loop's paused
+branch can draw a frame it never set up -- the user saw iteration 1 skipped
+after the UI app's hold at 1, which this script now clears with
+`pause_at = None`; from the code, the Pause button, clicked in the UI pass
+before `update()`, stops the counter counting the frame it ran, so resuming
+with Play repeats it; and `shading.srgb_mode`'s doc says 0 decodes colours
+before shading, which the lit path does not do. A first-class albedo was
+offered, separate from the display colour.
