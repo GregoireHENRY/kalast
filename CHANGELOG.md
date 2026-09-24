@@ -8,6 +8,13 @@ no entries, and the section is approved by a person before the tag is
 pushed. `## Unreleased` collects the entries between versions; the bump
 renames it.
 
+## Unreleased
+
+- Double-clicking `kalast` works: started with nothing to open from outside its folder -- which is how the macOS Finder starts it, from the home folder -- it moves into its own folder first, so the examples find `res/` and their pre-compiled Rust libraries. Before, every example stopped on its first mesh.
+- The Linux bundle runs on Ubuntu 22.04: v0.5.8 was built against glibc 2.39 and refused to start there with `GLIBC_2.39 not found`. It needs glibc 2.35 or newer now.
+- The Linux wheel on PyPI is built for glibc 2.35 or newer, like the bundle, instead of 2.17: it uses the newer versions of glibc's `expf`, `logf`, `powf`, `exp`, `log`, `pow` and `hypot`, not their compatibility versions. On an older system `pip install kalast` builds from source, which needs Rust.
+- The README says how to run a bundle downloaded on a Mac -- `xattr -cr` on the unpacked folder, once -- and which Linux systems the bundle runs on, and what else it needs there.
+
 ## v0.5.8
 
 - `app.simulation.project(point)`, `project_body(body)` and `project_facet(body, facet)` give where a point, a body's centre or a facet's centre lands in the image: `(x, y)` in pixels from its top-left corner, x right and y down, up to `app.simulation.image_size`. `examples/hera_didymos/afc.py` writes the bodies' and the selected facets' positions to `out/hera_didymos/afc/screen.csv` at every frame.

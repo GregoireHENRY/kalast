@@ -3322,3 +3322,34 @@ its four archives checked on the page (linux 141 MB, macos-arm64 93,
 macos-x86_64 99, windows 123), its body the changelog section alone. In it:
 `sim.project`, `project_body`, `project_facet` and `image_size`, the AFC
 example's CSV of image positions, and the landmark tracking example.
+
+## 2026-09-24 — a bundle that double-clicks, and a Linux bundle for 22.04
+
+Two reports from colleagues. On a Mac, once the download flag was cleared
+(the README now says `xattr -cr` on the folder: all 3,629 files of an
+unpacked browser download are quarantined, 192 of them native), the crater
+example stopped on its first mesh: the Finder starts a program in the home
+folder, and `res/` is found from the working directory, as are the
+precompiled `.rs` libraries and the file picker's `examples/`.
+`kalast::app::bundle_working_dir` decides and the binary's first step acts:
+a bundle started with nothing to open from anywhere else moves into its own
+folder and says so on the terminal; a file named on the command line keeps
+its directory. Tried on the built binary in a fake bundle with
+`--precompile`, no window: from elsewhere it moves, named a file it stays,
+inside it says nothing. On Ubuntu, `GLIBC_2.39 not found`: v0.5.8's
+executable and its hosted `.so` ask for 2.39, for `pidfd_spawnp` and
+`pidfd_getpid`, which std's process spawning picks up on 24.04; the bundled
+libpython asks for 2.17. The Linux executable job runs on `ubuntu-22.04`
+now, under its own cache key, so the bundle needs 2.35 -- exactly, since
+`hypot`/`hypotf` bind at 2.35 -- and 2.35 is not slower than 2.39: every
+faster maths entry point glibc added is in it (`expf`/`logf`/`powf` 2.27,
+`exp`/`log`/`pow` 2.29, `hypot` 2.35). Older costs in steps: below 2.35
+`hypot` (the interface only), below 2.29 the f64 trio (the roughness model),
+below 2.27 the f32 trio (every CPU photometry and TPM path, `Float` being
+f32). The v0.5.8 wheel, manylinux2014 from `manylinux: auto`, had all of them
+on the old compatibility versions, so the user moved it to 2.35 as well:
+built on the 22.04 host with `container: off` and `--manylinux 2_35`, there
+being no standard 2_35 image. Older systems now get the sdist and build from
+source. Open: the rehearsal that shows both build on 22.04 and what their
+binaries ask for. A manylinux_2_28 container would reach RHEL 8, 9 and Ubuntu
+20.04, for the f64 trio and `hypot`, if that is ever wanted.

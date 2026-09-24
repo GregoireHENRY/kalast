@@ -89,8 +89,50 @@ reuses it afterwards. On macOS that also wants Apple's command line tools for
 the linker (`xcode-select --install`).
 
 The bundles are not code-signed, so Windows warns once at the first launch of
-`kalast.exe`: *More info*, then *Run anyway*. `pip install kalast` never sees
-that warning.
+`kalast.exe`: *More info*, then *Run anyway*. macOS refuses to run a bundle
+downloaded with a browser -- the executable and every library in it -- until
+the download flag is cleared, once, on the unpacked folder (`-macos-x86_64`
+on an Intel Mac):
+
+```sh
+xattr -cr ~/Downloads/kalast-v0.5.8-macos-arm64
+```
+
+`pip install kalast` never sees either of these.
+
+Double-clicking `kalast` works too.
+
+## Linux requirements
+
+The Linux bundle runs on 64-bit Intel and AMD processors (x86_64) with glibc
+2.35 or newer. `ldd --version` prints the one a system has.
+
+| Works | glibc |
+|---|---|
+| Ubuntu 22.04, 24.04 and later (Mint 21+, Pop!_OS 22.04+) | 2.35+ |
+| Debian 12, 13 | 2.36, 2.41 |
+| Fedora 36 and later | 2.35+ |
+| RHEL, Rocky, Alma 10 | 2.39 |
+| Arch, Manjaro, openSUSE Tumbleweed | current |
+
+| Does not work | glibc |
+|---|---|
+| RHEL, Rocky, Alma 9 | 2.34 |
+| RHEL, Rocky, Alma 8 | 2.28 |
+| Ubuntu 20.04, Mint 20 | 2.31 |
+| Debian 11 | 2.31 |
+| openSUSE Leap 15, SLES 15 | 2.31 |
+| CentOS 7 | 2.17 |
+
+On those, and on ARM Linux, `pip install kalast` (Python 3.14) builds kalast
+from source instead, which needs Rust (https://rustup.rs) and a C compiler.
+
+It also needs:
+
+- a graphical session, X11 or Wayland;
+- a GPU driver with Vulkan: Mesa for Intel and AMD, or NVIDIA's own;
+- for the file dialog, the desktop portal (`xdg-desktop-portal`), which GNOME
+  and KDE have. Without it, type the path.
 
 ## Packages
 

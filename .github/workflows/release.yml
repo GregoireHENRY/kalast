@@ -184,6 +184,16 @@ jobs:
   # macos-x86_64 jobs in run 35374536810 and why that run never completed or
   # served a log. `macos-15-intel` is the last x86_64 macOS image and is
   # available until August 2027; after that this target goes.
+  #
+  # Linux builds on `ubuntu-22.04`, not `ubuntu-latest`. A binary asks for the
+  # glibc it was linked against, and on 24.04 that is 2.39: v0.5.8's
+  # executable and its precompiled examples refused to start on Ubuntu 22.04
+  # with "GLIBC_2.39 not found", for two symbols std's process spawning picks
+  # up when they exist (`pidfd_spawnp`, `pidfd_getpid`). Nothing else ties the
+  # bundle to the build machine -- X11, Wayland and Vulkan are dlopened and
+  # the file picker talks to the desktop portal -- so an older runner is the
+  # whole fix. Its own cache key: 24.04's proc macros are linked against 2.39
+  # too, and rustc on 22.04 could not load them.
   executable:
     name: executable ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
@@ -197,7 +207,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest,   target: linux-x86_64,   archive: tar, pbs: x86_64-unknown-linux-gnu }
+          - { os: ubuntu-22.04,    target: linux-x86_64,   archive: tar, pbs: x86_64-unknown-linux-gnu, cache: linux-x86_64-ubuntu-22.04 }
           - { os: macos-14,        target: macos-arm64,    archive: tar, pbs: aarch64-apple-darwin }
           - { os: macos-15-intel,  target: macos-x86_64,   archive: tar, pbs: x86_64-apple-darwin }
           - { os: windows-latest,  target: windows-x86_64, archive: zip, pbs: x86_64-pc-windows-msvc }
@@ -206,7 +216,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}
+          key: ${{ matrix.cache || matrix.target }}
 
       # winit and wgpu link X11, Wayland and Vulkan at build time; the runner
       # image carries none of the -dev packages.
@@ -588,7 +598,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest,  target: linux-x86_64,   manylinux: "auto" }
+          - { os: ubuntu-22.04,   target: linux-x86_64,   manylinux: "2_35", container: "off" }
           - { os: macos-14,       target: macos-arm64,    manylinux: "" }
           - { os: macos-15-intel, target: macos-x86_64,   manylinux: "" }
           - { os: windows-latest, target: windows-x86_64, manylinux: "" }
@@ -613,19 +623,29 @@ jobs:
           #
           #     E: Could not open lock file /var/lib/apt/lists/lock (13: Permission denied)
           #
-          # As the action's input it selects the manylinux image and runs the
-          # build inside it, which is also what makes the wheel's tag a
-          # manylinux one rather than a bare `linux_x86_64` that PyPI refuses.
+          # As the action's input it becomes `--manylinux` for maturin, which
+          # audits the wheel against that policy and tags it -- a manylinux
+          # tag rather than a bare `linux_x86_64` that PyPI refuses.
+          #
+          # 2_35, built on the ubuntu-22.04 host (`container: off`), the glibc
+          # the bundle is built on. It was `auto`, which is manylinux2014,
+          # glibc 2.17 -- and a library bound against 2.17 gets glibc's old
+          # entry points for `expf`/`logf`/`powf`, `exp`/`log`/`pow` and
+          # `hypot`: the same algorithms behind a legacy error-handling
+          # wrapper, on every machine including new ones. 2.35 has all the
+          # newer ones (2.27, 2.29, 2.35). There is no standard 2_35 image,
+          # hence the host.
           manylinux: ${{ matrix.manylinux }}
+          container: ${{ matrix.container }}
 
           # There is deliberately no `before-script-linux`. Every Linux system
           # library this project touches is loaded at *runtime*, not linked at
           # build time: `x11-dl` dlopens libX11, `wayland-sys` dlopens
           # libwayland through winit's default `wayland-dlopen`, and `ash`
-          # dlopens libvulkan. So the container needs no -devel packages, and
-          # installing them was solving a problem the build does not have --
-          # while adding one, since a CentOS-7-based image has dead yum
-          # mirrors unless its vault repos are pinned.
+          # dlopens libvulkan. So the build needs no -devel packages, and
+          # installing them was solving a problem it does not have -- while
+          # adding one, back when it ran in a CentOS-7-based image with dead
+          # yum mirrors unless its vault repos were pinned.
           #
           # If a header does turn out to be needed, maturin will name it,
           # which is a better failure than apt dying before maturin runs.
