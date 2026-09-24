@@ -3312,3 +3312,13 @@ before `update()`, stops the counter counting the frame it ran, so resuming
 with Play repeats it; and `shading.srgb_mode`'s doc says 0 decodes colours
 before shading, which the lit path does not do. A first-class albedo was
 offered, separate from the display colour.
+
+## 2026-09-24 — v0.5.8 shipped
+
+Bump 434298e, rehearsal 36002305192 green in every job, tag on the same
+commit, the tag run (36004270473) reusing its artefacts: crates.io (kalast
+and kalast_macros), PyPI (four wheels and the sdist), and the release with
+its four archives checked on the page (linux 141 MB, macos-arm64 93,
+macos-x86_64 99, windows 123), its body the changelog section alone. In it:
+`sim.project`, `project_body`, `project_facet` and `image_size`, the AFC
+example's CSV of image positions, and the landmark tracking example.
