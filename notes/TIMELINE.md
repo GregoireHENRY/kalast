@@ -3353,3 +3353,19 @@ being no standard 2_35 image. Older systems now get the sdist and build from
 source. Open: the rehearsal that shows both build on 22.04 and what their
 binaries ask for. A manylinux_2_28 container would reach RHEL 8, 9 and Ubuntu
 20.04, for the f64 trio and `hypot`, if that is ever wanted.
+
+## 2026-09-24 — v0.5.9 shipped
+
+Bump b3ed5ab, rehearsal 36026031454 green in every job (18 minutes, the
+Linux build cold on ubuntu-22.04), tag on the same commit, the tag run
+(36028380323) reusing its artefacts: crates.io (kalast and kalast_macros),
+PyPI (four wheels, the Linux one `manylinux_2_35`, and the sdist), and the
+release with its four archives checked on the page (linux 141 MB,
+macos-arm64 93, macos-x86_64 99, windows 123), its body the changelog
+section alone. Checked on the rehearsal's own artefacts before tagging: the
+bundle's executable, its hosted `.so` and the wheel's `_rs.abi3.so` ask for
+glibc 2.35 at most, with `expf`/`logf`/`powf` at 2.27, `exp`/`log`/`pow` at
+2.29 and `hypot` at 2.35. The two `pidfd` symbols are left weak and
+unversioned by a 2.35 link, so the loader requires nothing newer, and on a
+2.39 system they still bind. In it: the double-clicked bundle, the Linux
+bundle and wheel on glibc 2.35, and the README's Mac and Linux notes.
