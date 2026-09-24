@@ -284,6 +284,14 @@ not enough on its own: launching a binary older than the file in the panel
 would run code the panel is not displaying, which is a worse lie than an empty
 viewport.
 
+**Named nothing, a release bundle works from its own folder.** Its examples,
+`res/` and precompiled `.rs` libraries are all found from the working
+directory, and a double-click does not start it there -- the macOS Finder
+starts a program in the home folder -- so a bundle started with no file from
+anywhere else moves into its folder first and says so on the terminal
+(`kalast::app::bundle_working_dir`). A file named on the command line keeps
+the directory it was named from.
+
 "Current" is checked against the **dylib**, which is what gets loaded.
 
 ### Rust examples

@@ -430,9 +430,32 @@ pub fn bundled_python_beside(dir: &std::path::Path) -> Option<std::path::PathBuf
     site_packages.is_dir().then_some(python)
 }
 
+/// The folder a release bundle has to work from, when it was started with
+/// nothing to open from anywhere else; `None` when it should stay put.
+///
+/// Everything a bundle ships is found from the working directory -- the
+/// examples' `res/`, the precompiled Rust examples under `target/`, the file
+/// picker's `examples/` -- and a double-click does not start it there: the
+/// macOS Finder runs a program from the home folder, so every example failed
+/// on its first mesh. A file named on the command line keeps the directory
+/// it was named from, since its paths are relative to that one. Flags name
+/// nothing, so they do not count.
+pub fn bundle_working_dir(
+    args: &[String],
+    exe_dir: &std::path::Path,
+    cwd: &std::path::Path,
+) -> Option<std::path::PathBuf> {
+    if args.iter().any(|a| !a.starts_with("--")) {
+        return None;
+    }
+    bundled_python_beside(exe_dir)?;
+    let resolved = |p: &std::path::Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    (resolved(cwd) != resolved(exe_dir)).then(|| exe_dir.to_path_buf())
+}
+
 #[cfg(test)]
 mod bundled_python_tests {
-    use super::bundled_python_beside;
+    use super::{bundle_working_dir, bundled_python_beside};
 
     fn tmp(name: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("kalast-{name}-{}", std::process::id()));
@@ -468,6 +491,33 @@ mod bundled_python_tests {
         std::fs::create_dir_all(dir.join("python").join("lib")).unwrap();
         assert_eq!(bundled_python_beside(&dir), None);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A double-click: nothing to open, started from the home folder. The
+    /// bundle moves into its own folder; named a file, or started inside it
+    /// already, or not a bundle at all, it stays where it is.
+    #[test]
+    fn a_bundle_started_with_nothing_to_open_works_from_its_own_folder() {
+        let bundle = tmp("double-click");
+        let site = if cfg!(windows) {
+            bundle.join("python").join("Lib").join("site-packages")
+        } else {
+            bundle.join("python").join("lib").join("python3.14").join("site-packages")
+        };
+        std::fs::create_dir_all(&site).unwrap();
+        let home = tmp("double-click-home");
+        let none: Vec<String> = Vec::new();
+        let flag = vec!["--python-check".to_string()];
+        let file = vec!["my/script.py".to_string()];
+
+        assert_eq!(bundle_working_dir(&none, &bundle, &home), Some(bundle.clone()));
+        assert_eq!(bundle_working_dir(&flag, &bundle, &home), Some(bundle.clone()));
+        assert_eq!(bundle_working_dir(&file, &bundle, &home), None, "named a file");
+        assert_eq!(bundle_working_dir(&none, &bundle, &bundle), None, "already there");
+        assert_eq!(bundle_working_dir(&none, &home, &bundle), None, "not a bundle");
+
+        let _ = std::fs::remove_dir_all(&bundle);
+        let _ = std::fs::remove_dir_all(&home);
     }
 }
 

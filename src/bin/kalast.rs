@@ -52,6 +52,9 @@ fn main() {
     attach_parent_console();
     let args: Vec<String> = std::env::args().skip(1).collect();
 
+    // Before anything resolves a relative path.
+    move_into_the_bundle(&args);
+
     // Before the interpreter is started, which the first `Python::attach`
     // does and cannot be undone.
     #[cfg(feature = "embed")]
@@ -89,6 +92,24 @@ fn main() {
                 run_script(&app, &path, &source)
             }
         }
+    }
+}
+
+/// Work from the bundle's own folder when it was double-clicked -- see
+/// `kalast::app::bundle_working_dir`, which decides. Said on the terminal,
+/// since a script opened afterwards has its relative paths read from here.
+fn move_into_the_bundle(args: &[String]) {
+    let (Ok(exe), Ok(cwd)) = (std::env::current_exe(), std::env::current_dir()) else {
+        return;
+    };
+    let Some(dir) = exe
+        .parent()
+        .and_then(|exe_dir| kalast::app::bundle_working_dir(args, exe_dir, &cwd))
+    else {
+        return;
+    };
+    if std::env::set_current_dir(&dir).is_ok() {
+        println!("started in {}, working in {}", cwd.display(), dir.display());
     }
 }
 
