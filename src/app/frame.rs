@@ -1,4 +1,4 @@
-use crate::{Float, Mat3, Mat4, Vec3};
+use crate::{Float, Mat3, Mat4, Vec2, Vec3};
 
 pub const SENSITIVITY_MOVE: Float = 0.5;
 pub const SENSITIVITY_LOOK: Float = 0.1;
@@ -400,6 +400,39 @@ impl Eye {
         let far = inverse.project_point3(Vec3::new(x, y, 0.0));
         let dir = (far - near).normalize_or_zero();
         (dir != Vec3::ZERO).then_some((near, dir))
+    }
+
+    /// Where a world point lands in an image of `size` pixels seen through
+    /// this eye: `x` to the right and `y` down from the image's top-left
+    /// corner, so the image spans `(0, 0)` to `(width, height)`.
+    ///
+    /// Pixel `(i, j)` covers `i..i + 1` by `j..j + 1`: its centre is at
+    /// `(i + 0.5, j + 0.5)`, and a point lies in pixel `(x.floor(),
+    /// y.floor())` -- the indexing of `facet_id_map` and of an exported
+    /// frame, and the inverse of the pixel-centre ray `facet_pick` casts
+    /// through `ray_through_ndc`.
+    ///
+    /// A point outside the field of view still gets a position, outside
+    /// `0..width` or `0..height`. `None` only where there is no answer: a
+    /// point behind a perspective eye, which the projection would mirror
+    /// into the frame, a degenerate basis, or an empty image.
+    pub fn project(&self, point: Vec3, size: (u32, u32)) -> Option<Vec2> {
+        if size.0 == 0 || size.1 == 0 {
+            return None;
+        }
+        let (width, height) = (size.0 as Float, size.1 as Float);
+        let clip = self.view_proj(width / height).ok()? * point.extend(1.0);
+        // `w` is the distance in front of a perspective eye, so nothing at or
+        // below zero is in the image. An orthographic eye has `w = 1`
+        // everywhere: it sees behind its own position, as the fitted near
+        // plane allows.
+        if clip.w <= 0.0 {
+            return None;
+        }
+        let ndc = clip.truncate() / clip.w;
+        // NDC y is up, image y is down.
+        let pixel = Vec2::new((ndc.x * 0.5 + 0.5) * width, (0.5 - ndc.y * 0.5) * height);
+        pixel.is_finite().then_some(pixel)
     }
 
     pub fn mat(&self) -> Mat3 {
@@ -1216,6 +1249,83 @@ mod tests {
         // Dead centre it is the view axis exactly, which pins the sign.
         let (_, dir) = eye.ray_through_ndc(0.0, 0.0, 1.5).expect("a ray");
         assert!(dir.dot(eye.dir) > 0.999, "centre ray off-axis: {dir:?}");
+    }
+
+    /// A point on the ray `facet_pick` casts through a pixel's centre must
+    /// project back onto that centre, in both projections.
+    ///
+    /// Half a pixel is the error this catches: a projection that took
+    /// `(0, 0)` to be the centre of the first pixel rather than its corner
+    /// puts every point in the neighbouring pixel half the time. The
+    /// orthographic box is fitted off the view axis, so its offset is in
+    /// play too.
+    #[test]
+    fn project_inverts_the_picking_ray_through_a_pixel_centre() {
+        let size = (1020, 680);
+        let (w, h) = (size.0 as Float, size.1 as Float);
+
+        for mode in [ProjectionMode::Perspective, ProjectionMode::Orthographic] {
+            let mut eye = eye_at_distance(5.0);
+            eye.projection.mode = mode;
+            eye.fit_projection(&aabb([0.5, -1.0, -1.0], [2.5, 1.0, 1.0]), None, None);
+
+            for (i, j) in [(0, 0), (509, 339), (1019, 679), (17, 600)] {
+                let x = 2.0 * (i as Float + 0.5) / w - 1.0;
+                let y = 1.0 - 2.0 * (j as Float + 0.5) / h;
+                let (origin, dir) = eye.ray_through_ndc(x, y, w / h).expect("a ray");
+
+                let pixel = eye.project(origin + dir * 5.0, size).expect("in front");
+                let want = Vec2::new(i as Float + 0.5, j as Float + 0.5);
+                assert!(
+                    (pixel - want).length() < 1e-2,
+                    "{mode:?}: pixel ({i}, {j}) came back as {pixel:?}"
+                );
+            }
+        }
+    }
+
+    /// `x` runs right and `y` down, and the field of view reaches the edges
+    /// of the image exactly -- the vertical one through `fovy`, the
+    /// horizontal one through the aspect ratio.
+    #[test]
+    fn project_measures_x_right_and_y_down_from_the_top_left() {
+        let size = (800, 400);
+        let mut eye = eye_at_distance(5.0);
+        eye.fit_projection(&aabb([-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]), None, None);
+        let (up, right) = (eye.up, eye.right());
+        let half = 5.0 * (eye.projection.fovy / 2.0).tan();
+
+        let centre = eye.project(Vec3::ZERO, size).expect("in front");
+        let top = eye.project(up * half, size).expect("in front");
+        let edge = eye.project(right * half * 2.0, size).expect("in front");
+
+        for (name, got, want) in [
+            ("centre", centre, Vec2::new(400.0, 200.0)),
+            ("top edge", top, Vec2::new(400.0, 0.0)),
+            ("right edge", edge, Vec2::new(800.0, 200.0)),
+        ] {
+            assert!(
+                (got - want).length() < 1e-2,
+                "{name}: {got:?}, expected {want:?}"
+            );
+        }
+    }
+
+    /// Behind a perspective eye there is no position to give: the divide by
+    /// `w` would mirror the point into the frame. An orthographic eye sees
+    /// behind its own position, and answers there.
+    #[test]
+    fn project_has_no_answer_behind_a_perspective_eye() {
+        let behind = Vec3::new(0.3, -10.0, 0.2);
+
+        let mut eye = eye_at_distance(5.0);
+        eye.fit_projection(&aabb([-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]), None, None);
+        assert_eq!(eye.project(behind, (100, 100)), None);
+        assert_eq!(eye.project(Vec3::ZERO, (0, 100)), None, "an empty image");
+
+        eye.projection.mode = ProjectionMode::Orthographic;
+        eye.fit_projection(&aabb([-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]), None, None);
+        assert!(eye.project(behind, (100, 100)).is_some());
     }
 
     /// The bug this guards: arcball input used to be multiplied by frame

@@ -3272,3 +3272,22 @@ nothing else". The README's Getting started says instead that the bundles
 are unsigned, that Windows warns once and how to get past it, and that
 `pip install kalast` never sees the warning. The bundles stay unsigned; a
 reapplication is possible once the project is more visible.
+
+## 2026-09-24 — where a point lands in the image
+
+Asked for: the pixel position of each body's centre and each selected
+facet's centre, `(0, 0)` to the camera's resolution, exported from an
+example. `Eye::project` is the inverse of the picking ray -- top-left
+origin, `x` right, `y` down, pixel `(i, j)` covering `i..i+1` -- and
+`Simulation::project`/`project_body`/`project_facet` compose it with the
+body's matrix, at `Simulation::image_size`, which the window now writes
+every frame since only it knows the size drawn. Python: `sim.project(point)`,
+`sim.project_body(b)`, `sim.project_facet(b, f)`, `sim.image_size`.
+`examples/hera_didymos/afc.py` writes them to
+`out/hera_didymos/afc/screen.csv`. Checked against the rasteriser's facet-id
+map (no half-pixel bias, mean offset under 0.05 px) and, on a scratch copy of
+the AFC example, against a pinhole model from the SPICE vectors (1e-4 px).
+Write-up: `2026-09-24_image_positions.md`. Open: no visibility flag -- a
+facet turned away still gets a position; and a pinned `image.width`/`height`
+set before the window opens is ignored, the render taking the window's size
+(found here, not fixed).

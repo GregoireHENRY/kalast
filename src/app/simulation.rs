@@ -90,6 +90,15 @@ pub struct Simulation {
     /// What the last rendered frame could actually see. Written by the
     /// renderer after the frustums are fitted, read by the HUD placeholders.
     pub diagnostics: Diagnostics,
+
+    /// The size in pixels of the image the last frame was drawn at: what
+    /// `project` measures in, and what an exported frame measures. `(0, 0)`
+    /// until a frame has been drawn.
+    ///
+    /// Written by the renderer, the only thing that knows it: `config.image`
+    /// is a request whose `(0, 0)` means "follow the window", and the
+    /// editor's viewport overrides it with its own size.
+    pub image_size: (u32, u32),
 }
 
 /// Which bodies the camera frustum contains, and why the others are missing.
@@ -152,6 +161,7 @@ impl Simulation {
             selected_facets: Vec::new(),
             meshes_dirty: false,
             diagnostics: Diagnostics::default(),
+            image_size: (0, 0),
         }
     }
 
@@ -448,6 +458,42 @@ impl Simulation {
                 })
                 .collect(),
         )
+    }
+
+    /// Where a world point lands in the last frame drawn: `x` right and `y`
+    /// down, in pixels from the image's top-left corner. See `Eye::project`
+    /// for the pixel convention and for when there is no answer.
+    ///
+    /// Read once the frame is drawn -- `after_render`, or after `step()`
+    /// returns -- and before anything moves. The camera, the bodies and the
+    /// size are taken as they stand, and they describe the frame on screen
+    /// only until the next one is set up: the pointer's orbit and the
+    /// orthographic fit are applied at the start of a frame, after
+    /// `before_render`.
+    pub fn project(&self, point: crate::Vec3) -> Option<crate::Vec2> {
+        self.camera.project(point, self.image_size)
+    }
+
+    /// Where `body`'s centre lands in the last frame drawn: the origin of its
+    /// own frame, which is where `mat` puts it -- the SPICE position, for a
+    /// body placed from SPICE. `None` for a body that does not exist, as well
+    /// as for a centre `project` has no answer for.
+    pub fn project_body(&self, body: usize) -> Option<crate::Vec2> {
+        let b = self.bodies.get(body)?;
+        self.project(b.mat.transform_point3(crate::Vec3::ZERO))
+    }
+
+    /// Where the centre of one of `body`'s facets lands in the last frame
+    /// drawn -- the mean of its three corners, where `selection.labels`
+    /// writes its index.
+    ///
+    /// A projection, not a visibility test: a facet on the far side of the
+    /// body, or behind the other one, lands on the disc that hides it.
+    /// `facet_id_map` says which facets were actually drawn.
+    pub fn project_facet(&self, body: usize, facet: usize) -> Option<crate::Vec2> {
+        let b = self.bodies.get(body)?;
+        let centre = b.mesh.as_ref()?.borrow().facets.get(facet)?.pos;
+        self.project(b.mat.transform_point3(centre))
     }
 }
 
@@ -1184,5 +1230,55 @@ mod frame_all_tests {
         let (pos, sun) = (sim.camera.pos, sim.sun.pos);
         sim.frame_all();
         assert_eq!((sim.camera.pos, sim.sun.pos), (pos, sun));
+    }
+}
+
+#[cfg(test)]
+mod project_tests {
+    use super::*;
+
+    /// The inverse of a click: the ray through the point a visible facet's
+    /// centre projects to has to pick that facet. `pick_facet` carries the
+    /// ray into the body's frame by itself, so a matrix applied wrongly on
+    /// either side -- or not at all -- comes back as a different facet.
+    #[test]
+    fn a_ray_through_a_projected_facet_centre_picks_that_facet() {
+        let at = crate::Vec3::new(1.5, 0.5, -0.5);
+        let mat =
+            Mat4::from_translation(at) * Mat4::from_rotation_z(0.6) * Mat4::from_rotation_x(0.3);
+        let mut sim = Simulation::new();
+        sim.load_mesh("res/cube.obj", mat, false);
+        sim.camera.pos = crate::Vec3::new(0.0, -10.0, 0.0);
+        sim.camera.dir = crate::Vec3::Y;
+        sim.camera.up = crate::Vec3::Z;
+        let bounds = sim.scene_bounds().unwrap();
+        sim.camera.fit_projection(&bounds, None, None);
+        sim.image_size = (640, 480);
+        let (w, h) = (640.0, 480.0);
+
+        let facets = sim.bodies[0].mesh.as_ref().unwrap().borrow().facets.clone();
+        let rotation = crate::Mat3::from_mat4(mat);
+        let mut seen = 0;
+        for (i, f) in facets.iter().enumerate() {
+            // Turned away, a facet projects onto the ones in front of it.
+            let centre = mat.transform_point3(f.pos);
+            if (rotation * f.normal).dot(sim.camera.pos - centre) <= 1e-3 {
+                continue;
+            }
+            let p = sim.project_facet(0, i).expect("in front of the camera");
+            let (x, y) = (2.0 * p.x / w - 1.0, 1.0 - 2.0 * p.y / h);
+            let (origin, dir) = sim.camera.ray_through_ndc(x, y, w / h).unwrap();
+            let (body, facet, ..) = sim.pick_facet(origin, dir).expect("a hit");
+            assert_eq!((body, facet), (0, i), "facet {i} projected to {p:?}");
+            seen += 1;
+        }
+        assert!(seen >= 3, "only {seen} facets faced the camera");
+
+        assert_eq!(sim.project_body(0), sim.camera.project(at, (640, 480)));
+        assert_eq!(sim.project_body(1), None, "no such body");
+        assert_eq!(sim.project_facet(0, facets.len()), None, "no such facet");
+
+        sim.image_size = (0, 0);
+        assert_eq!(sim.project_body(0), None, "no frame drawn yet");
     }
 }

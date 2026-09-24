@@ -1584,6 +1584,9 @@ impl Window {
         self.sync_meshes(simulation);
 
         let (width, height) = self.render_size;
+        // What `Simulation::project` measures in. Only the window knows the
+        // size a frame is actually drawn at.
+        simulation.image_size = self.render_size;
 
         // Resolve body-tracking anchors before anything reads them, so an
         // orbiting camera follows a moving body instead of the place it was

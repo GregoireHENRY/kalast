@@ -374,7 +374,9 @@ covered:
 program entry points (`start`, `start_editor`, `tick`), the editor's own
 plumbing (`set_script`, `take_script_request`, `script_runner`, `pointer`,
 `ui_size`, `panels_shown`, `flush_output`), matrices derived from state the
-panel already shows (`mat`, `view_proj`, `right`), and the bulk per-vertex
+panel already shows (`mat`, `view_proj`, `right`) and the image positions
+computed from them (`project`, `project_body`, `project_facet`,
+`image_size`), and the bulk per-vertex
 arrays -- 3.1M rows is not something to put in a side panel.
 
 ### Who wins, the panel or the script
@@ -1100,6 +1102,47 @@ the rest, and is why this is per *click* and not per frame.
 
 The render window's own click-to-select uses this automatically when every
 body is flattened, and falls back to `pick_facet` otherwise.
+
+### Where a point lands in the image — the inverse of a pick
+
+```python
+sim.image_size                  # (width, height) of the last frame drawn
+sim.project(point)              # a world point -> (x, y), or None
+sim.project_body(body)          # the body's centre
+sim.project_facet(body, facet)  # the facet's centre
+```
+
+Pixels from the image's top-left corner, `x` right and `y` down, through the
+camera, at the size the last frame was drawn at: the image spans `(0, 0)` to
+`image_size`, which is also what an exported frame measures. Pixel `(i, j)`
+covers `i..i+1` by `j..j+1`, so `int(x), int(y)` is the pixel a point falls in
+-- `png[int(y), int(x)]`, `ids[int(y), int(x)]` for `facet_id_map` -- and the
+top-left pixel's centre is `(0.5, 0.5)`. Subtract 0.5 for the convention where
+pixel centres are integers.
+
+- A body's centre is the origin of its own frame, where `mat` puts it: the
+  SPICE position, for a body placed from SPICE.
+- A facet's centre is the mean of its three corners, where `selection.labels`
+  writes its index.
+- A point outside the field of view still gets a position, outside that range.
+  `None` means behind the camera; a bad index raises `IndexError`.
+
+**A projection, not a visibility test.** A facet on the far side of the body,
+or behind the other one, lands on the disc that hides it. `facet_id_map` says
+what was drawn.
+
+No request: it is geometry, computed on the CPU when asked and free
+otherwise. Read it after the frame is drawn -- `after_render`, or after
+`step()` returns -- and before moving anything, since the camera and the
+bodies are taken as they stand. `image_size` is the size actually drawn, not
+`config.image`: in the editor that is the viewport's.
+
+Checked against the rasteriser's facet-id map (facet centres fall on their own
+pixel, mean offset under 0.05 px) and, in the AFC example, against a pinhole
+model built from the SPICE vectors (body centres within 1e-4 px).
+`examples/hera_didymos/afc.py` writes both kinds to
+`out/hera_didymos/afc/screen.csv`, one row per point per frame. See
+`2026-09-24_image_positions.md`.
 
 ### View factors — a precompute, not a per-frame query
 

@@ -380,6 +380,77 @@ impl Simulation {
         self.inner.borrow_mut().clear_selection();
     }
 
+    /// `(width, height)` in pixels of the image the last frame was drawn at:
+    /// what `project` measures in, and what an exported frame measures.
+    /// `(0, 0)` until a frame has been drawn.
+    #[getter]
+    fn image_size(&self) -> (u32, u32) {
+        self.inner.borrow().image_size
+    }
+
+    /// `(x, y)` where a world point lands in the last frame drawn, or `None`
+    /// behind the camera.
+    ///
+    /// Pixels from the image's top-left corner, `x` right and `y` down, so
+    /// the image spans `(0, 0)` to `image_size`. Pixel `(i, j)` covers
+    /// `i..i + 1` by `j..j + 1`: `int(x), int(y)` is the pixel a point falls
+    /// in, indexing an exported frame and `facet_id_map` as `[int(y),
+    /// int(x)]`. A point outside the field of view still gets a position,
+    /// outside that range.
+    ///
+    /// Read after the frame is drawn -- `after_render`, or after `step()`
+    /// returns -- and before moving anything: the camera and the bodies are
+    /// taken as they stand.
+    fn project(&self, point: [Float; 3]) -> Option<(Float, Float)> {
+        let p = self.inner.borrow().project(crate::Vec3::from(point))?;
+        Some((p.x, p.y))
+    }
+
+    /// `(x, y)` where `body`'s centre lands in the last frame drawn, or
+    /// `None` behind the camera. See `project`.
+    ///
+    /// The centre is the origin of the body's own frame, which is where its
+    /// `mat` puts it -- the SPICE position, for a body placed from SPICE.
+    fn project_body(&self, body: usize) -> PyResult<Option<(Float, Float)>> {
+        let sim = self.inner.borrow();
+        if body >= sim.bodies.len() {
+            return Err(pyo3::exceptions::PyIndexError::new_err(format!(
+                "body index {body} out of range: {} loaded",
+                sim.bodies.len()
+            )));
+        }
+        Ok(sim.project_body(body).map(|p| (p.x, p.y)))
+    }
+
+    /// `(x, y)` where the centre of `facet` of `body` lands in the last frame
+    /// drawn, or `None` behind the camera. See `project`.
+    ///
+    /// The centre is the mean of its three corners, where `selection.labels`
+    /// writes its index. A projection, not a visibility test: a facet on the
+    /// far side of the body, or behind the other one, lands on the disc that
+    /// hides it. `facet_id_map` says which facets were actually drawn.
+    fn project_facet(&self, body: usize, facet: usize) -> PyResult<Option<(Float, Float)>> {
+        let sim = self.inner.borrow();
+        let n = sim
+            .bodies
+            .get(body)
+            .ok_or_else(|| {
+                pyo3::exceptions::PyIndexError::new_err(format!(
+                    "body index {body} out of range: {} loaded",
+                    sim.bodies.len()
+                ))
+            })?
+            .mesh
+            .as_ref()
+            .map_or(0, |m| m.borrow().facets.len());
+        if facet >= n {
+            return Err(pyo3::exceptions::PyIndexError::new_err(format!(
+                "facet index {facet} out of range: body {body} has {n}"
+            )));
+        }
+        Ok(sim.project_facet(body, facet).map(|p| (p.x, p.y)))
+    }
+
     /// The nearest facet a ray hits, across every body.
     ///
     /// `(body, facet, world_point, body_point)`, or `None`. The body point is

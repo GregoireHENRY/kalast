@@ -186,6 +186,45 @@ class Simulation:
     def clear_selection(self) -> None:
         """Put every selected facet back to the colour it had, and empty the list."""
         ...
+    image_size: tuple[int, int]
+    """`(width, height)` in pixels of the image the last frame was drawn at:
+    what `project` measures in, and what an exported frame measures.
+    `(0, 0)` until a frame has been drawn.
+    """
+    def project(self, point: list[float]) -> tuple[float, float] | None:
+        """`(x, y)` where a world point lands in the last frame drawn, or `None`
+        behind the camera.
+
+        Pixels from the image's top-left corner, `x` right and `y` down, so
+        the image spans `(0, 0)` to `image_size`. Pixel `(i, j)` covers
+        `i..i + 1` by `j..j + 1`: `int(x), int(y)` is the pixel a point falls
+        in, indexing an exported frame and `facet_id_map` as `[int(y),
+        int(x)]`. A point outside the field of view still gets a position,
+        outside that range.
+
+        Read after the frame is drawn -- `after_render`, or after `step()`
+        returns -- and before moving anything: the camera and the bodies are
+        taken as they stand.
+        """
+        ...
+    def project_body(self, body: int) -> tuple[float, float] | None:
+        """`(x, y)` where `body`'s centre lands in the last frame drawn, or
+        `None` behind the camera. See `project`.
+
+        The centre is the origin of the body's own frame, which is where its
+        `mat` puts it -- the SPICE position, for a body placed from SPICE.
+        """
+        ...
+    def project_facet(self, body: int, facet: int) -> tuple[float, float] | None:
+        """`(x, y)` where the centre of `facet` of `body` lands in the last frame
+        drawn, or `None` behind the camera. See `project`.
+
+        The centre is the mean of its three corners, where `selection.labels`
+        writes its index. A projection, not a visibility test: a facet on the
+        far side of the body, or behind the other one, lands on the disc that
+        hides it. `facet_id_map` says which facets were actually drawn.
+        """
+        ...
     def pick_facet(self, origin: list[float], direction: list[float]) -> tuple[int, int, list[float], list[float]] | None:
         """The nearest facet a ray hits, across every body.
 
