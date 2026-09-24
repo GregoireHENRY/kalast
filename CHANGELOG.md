@@ -8,7 +8,7 @@ no entries, and the section is approved by a person before the tag is
 pushed. `## Unreleased` collects the entries between versions; the bump
 renames it.
 
-## Unreleased
+## v0.5.9
 
 - Double-clicking `kalast` works: started with nothing to open from outside its folder -- which is how the macOS Finder starts it, from the home folder -- it moves into its own folder first, so the examples find `res/` and their pre-compiled Rust libraries. Before, every example stopped on its first mesh.
 - The Linux bundle runs on Ubuntu 22.04: v0.5.8 was built against glibc 2.39 and refused to start there with `GLIBC_2.39 not found`. It needs glibc 2.35 or newer now.
