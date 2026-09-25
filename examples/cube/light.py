@@ -7,6 +7,7 @@ import kalast
 
 app = kalast.app.App()
 app.simulation.config.light.cube_show = True
+app.simulation.config.axes.style = "gizmo"
 app.simulation.config.wireframe.mode = 2
 app.simulation.config.wireframe.width = 2.0
 app.simulation.config.wireframe.color = [0.05, 0.05, 0.05, 1.0]

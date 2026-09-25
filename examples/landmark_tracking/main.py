@@ -18,7 +18,7 @@ app = App()
 app.config.width = 1020
 app.config.height = 1020
 app.config.panels_folded = True
-app.simulation.state.pause_at = None
+app.simulation.state.pause_after_iteration = None
 # app.simulation.config.light.ambient = 0.05
 
 position_body = "examples/landmark_tracking/synthetic_spacecraft_data_data4kalast_ddid2555_ddim1700_rab1.2_rbc1.4_Stable.csv"

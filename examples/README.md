@@ -22,6 +22,12 @@ Examples that work directly:
           to show per-facet data.
           You can change it to smooth.
         - `app.simulation.config.light.cube_show` shows the light source.
+        - `app.simulation.config.axes.style = "gizmo"` shows XYZ 3D frame gizmo
+          top right.
+          You can change it's location and size too.
+          You can also click on individual X, Y or Z and negative to select view
+          plane toggling orthographic view.
+          There are also other axes style options like `blender`.
         - Using wireframe `2` to show mesh + wireframe.
           Default is `0` with just mesh.
           Use `1` if you want wireframe only.
@@ -115,10 +121,6 @@ Examples that work directly:
           you are free to update and re-compile them.
 - [two_spheres/main.py](two_spheres/main.py):
     - Showcase with two bodies and mutual shadows.
-    - `app.simulation.config.axes.style = "blender"` shows blender plane, axes
-      and frame gizmo X/Y/Z.
-      You can also click on individual X/Y/Z to select view plane toggling
-      orthographic view.
     - The second body is loaded with a custom 4D model matrix to change its
       position and size.
     - Before the main loop starts, a rotating matrix is created around the Z

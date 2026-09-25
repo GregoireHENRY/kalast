@@ -25,6 +25,7 @@ def after_render(sim: Simulation, dt: float) -> None:
 
 
 app = App()
+app.simulation.config.axes.style = "gizmo"
 app.simulation.config.light.cube_show = True
 app.simulation.config.shading.render_back_face = True
 app.simulation.config.shadows.access_shadow_map = True

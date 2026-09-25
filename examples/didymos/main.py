@@ -10,7 +10,7 @@ from kalast.app import App
 app = App()
 # app.simulation.config.wireframe.mode = 2
 app.simulation.config.wireframe.color = [0.05, 0.05, 0.05, 1.0]
-app.simulation.config.axes.style = "blender"
+app.simulation.config.axes.style = "gizmo"
 
 app.simulation.camera.pos = [-1.0, -3.0, 1.0]
 app.simulation.camera.look_anchor()
