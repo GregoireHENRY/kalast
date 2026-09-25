@@ -762,7 +762,7 @@ impl Editor {
                     // then having to find a button is a step nobody wants.
                     let path_edit = ui.add(
                         egui::TextEdit::singleline(script_path)
-                            .hint_text("examples/crater_self_shadow/step.py")
+                            .hint_text("examples/crater_self_shadow/main.py")
                             .desired_width(f32::INFINITY),
                     );
                     if path_edit.lost_focus()

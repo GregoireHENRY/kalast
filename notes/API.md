@@ -191,7 +191,7 @@ from a terminal exactly as before.
 
 The editor compiles it into a dynamic library through a wrapper it generates
 under `target/kalast-hosted/`, loads that, and calls the example's `main`. The
-library is named after the example -- `libcrater_self_shadow_step.dylib` -- so
+library is named after the example -- `libcrater_self_shadow_main.dylib` -- so
 the log says which one is loaded, and so two examples both called `main.rs`
 cannot be mistaken for each other's build.
 
@@ -355,9 +355,9 @@ output arrives in the Log beside everything else, and the command is echoed
 there as it was run:
 
 ```
-$ cargo build --color=never --example crater_step --release
-built target/release/examples/crater_step
-$ target/release/examples/crater_step
+$ cargo build --color=never --example crater_main --release
+built target/release/examples/crater_main
+$ target/release/examples/crater_main
 ```
 
 Examples are named explicitly in `Cargo.toml` rather than auto-discovered,
@@ -368,8 +368,8 @@ saying to add one:
 
 ```toml
 [[example]]
-name = "crater_step"
-path = "examples/crater_self_shadow/step.rs"
+name = "crater_main"
+path = "examples/crater_self_shadow/main.rs"
 ```
 
 Release by default, because a debug build of this renderer is 2-15x slower
@@ -501,8 +501,8 @@ while app.running:
         app.close()
 ```
 
-`examples/crater_self_shadow/step.py` is a complete one — the same scene as
-that example's `main.py`, run the other way round — on `res/` data only.
+`examples/crater_self_shadow/main.py` is a complete one — the same scene as
+that example's `fn.py`, run the other way round — on `res/` data only.
 
 **Where the code goes.** Work written *before* `step()` is what
 `before_render` did — it lands in the frame about to be drawn. Work written

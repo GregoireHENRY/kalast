@@ -194,7 +194,7 @@ fn python_check() -> i32 {
 /// Build the hosted library for each `.rs` named, then exit.
 ///
 /// ```sh
-/// kalast --precompile examples/crater_self_shadow/step.rs
+/// kalast --precompile examples/crater_self_shadow/main.rs
 /// ```
 ///
 /// **This is how a release bundle arrives with its Rust examples already

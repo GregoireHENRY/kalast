@@ -189,7 +189,7 @@ def test_no_script_does_not_advance() -> None:
 
 
 def test_a_script_is_built_and_held_at_iteration_zero() -> None:
-    it, paused, bodies, drawn = probe("examples/crater_self_shadow/main.py")
+    it, paused, bodies, drawn = probe("examples/crater_self_shadow/fn.py")
     assert bodies == 1, "the script's mesh should be loaded"
     assert it == 1, f"exactly one iteration should have run, got {it}"
     assert paused, "and then it should hold"
@@ -206,7 +206,7 @@ def test_step_advances_exactly_one_rendered_iteration() -> None:
     flag, counted an iteration that never ran. `pause_at` fired straight
     afterwards, so the counter moved, nothing was drawn, and it looked stuck.
     """
-    _, paused, _, drawn = probe("examples/crater_self_shadow/main.py", steps=3)
+    _, paused, _, drawn = probe("examples/crater_self_shadow/fn.py", steps=3)
     assert drawn == 3, f"three Steps should show iteration 3, got {drawn}"
     assert paused, "and it should be held again afterwards"
 
