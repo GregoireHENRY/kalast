@@ -173,12 +173,12 @@ Examples that are on-going work not ready for users:
 
 - [analytical](analytical)
 - [hera_didymos](hera_didymos):
-    - [hera_didymos/heating_preflight.py](hera_didymos/heating_preflight.py):
-    - [hera_didymos/tiri_fits.py](hera_didymos/tiri_fits.py):
-    - [hera_didymos/tiri_movie_compose.py](hera_didymos/tiri_movie_compose.py):
-    - [hera_didymos/tiri_movie.py](hera_didymos/tiri_movie.py):
-    - [hera_didymos/tpm_phase2.py](hera_didymos/tpm_phase2.py):
-    - [hera_didymos/tpm.py](hera_didymos/tpm.py):
+    - [hera_didymos/heating_preflight.py](hera_didymos/heating_preflight.py)
+    - [hera_didymos/tiri_fits.py](hera_didymos/tiri_fits.py)
+    - [hera_didymos/tiri_movie_compose.py](hera_didymos/tiri_movie_compose.py)
+    - [hera_didymos/tiri_movie.py](hera_didymos/tiri_movie.py)
+    - [hera_didymos/tpm_phase2.py](hera_didymos/tpm_phase2.py)
+    - [hera_didymos/tpm.py](hera_didymos/tpm.py)
 - [hera_mars_swingby](hera_mars_swingby)
 - [lightcurve](lightcurve)
 
