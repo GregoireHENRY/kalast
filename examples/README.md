@@ -136,48 +136,50 @@ Examples that work directly:
       
 Examples where full data is not shipped and you have to get your hands on the
 data:
-    - Look at [res/README.md](res/README.md) to get Hera data.
-    - [didymos/main.py](didymos/main.py):
-        - Load Didymos and Dimorphos shape models.
-        - Showcase kalast loading and rendering speed with 2x 3M+ facets meshes.
-        - Use SPICE to set Didymos/Dimorphos and Sun positions/orientations.
-        - You should run with decimated mesh `10k` or `100k` and compare speed.
-    - [hera_didymos](hera_didymos):
-        - [hera_didymos/afc.py](hera_didymos/afc.py):
-            - Load Didymos/Dimorphos/Sun/Earth in AFC FOV frame centered on AFC
-              using camera dir and up vectors from the kernels.
-              The camera can't really be moved manually between the steps to
-              inspect around but you can always change camera pos/anchor point.
-            - Window is set at AFC resolution so it's 1 to 1 pixel simulation of
-              what AFC will see at the corresponding dates.
-            - If you want to export frames and then compile later yourself into
-              a movie, you use `app.simulation.export_once()` in the main loop.
-              This requests kalast to export the rendering to a 1 to 1 pixels
-              PNG in `out/frames` folder.
-              Images are numbered automatically, you need to clear the folder
-              yourself before a future execution or you can also change the 
-              folder where kalast exports.
-        - [hera_didymos/afc_eclip_didy.py](hera_didymos/afc_eclip_didy.py):
-            - Same as [hera_didymos/afc.py](hera_didymos/afc.py) but everything
-              is simulated in ECLIPJ2000 frame centered on Didymos.
-              This way it is easier to rotate around the camera to inspect.
-              Both scripts produce the same output.
-    - [landmark_tracking/main.py](landmark_tracking/main.py):
-        - Load camera/sun and bodies info positions/orientations from a CSV file
-          provided by GUBAS instead of SPICE kernels.
-        - Create random landmarks locations by selecting facets.
-        - Export landmarks screen-space X/Y positions in CSV file.
+
+- Look at [res/README.md](res/README.md) to get Hera data.
+- [didymos/main.py](didymos/main.py):
+    - Load Didymos and Dimorphos shape models.
+    - Showcase kalast loading and rendering speed with 2x 3M+ facets meshes.
+    - Use SPICE to set Didymos/Dimorphos and Sun positions/orientations.
+    - You should run with decimated mesh `10k` or `100k` and compare speed.
+- [hera_didymos](hera_didymos):
+    - [hera_didymos/afc.py](hera_didymos/afc.py):
+        - Load Didymos/Dimorphos/Sun/Earth in AFC FOV frame centered on AFC
+          using camera dir and up vectors from the kernels.
+          The camera can't really be moved manually between the steps to
+          inspect around but you can always change camera pos/anchor point.
+        - Window is set at AFC resolution so it's 1 to 1 pixel simulation of
+          what AFC will see at the corresponding dates.
+        - If you want to export frames and then compile later yourself into
+          a movie, you use `app.simulation.export_once()` in the main loop.
+          This requests kalast to export the rendering to a 1 to 1 pixels
+          PNG in `out/frames` folder.
+          Images are numbered automatically, you need to clear the folder
+          yourself before a future execution or you can also change the 
+          folder where kalast exports.
+    - [hera_didymos/afc_eclip_didy.py](hera_didymos/afc_eclip_didy.py):
+        - Same as [hera_didymos/afc.py](hera_didymos/afc.py) but everything
+          is simulated in ECLIPJ2000 frame centered on Didymos.
+          This way it is easier to rotate around the camera to inspect.
+          Both scripts produce the same output.
+- [landmark_tracking/main.py](landmark_tracking/main.py):
+    - Load camera/sun and bodies info positions/orientations from a CSV file
+      provided by GUBAS instead of SPICE kernels.
+    - Create random landmarks locations by selecting facets.
+    - Export landmarks screen-space X/Y positions in CSV file.
 
 Examples that are on-going work not ready for users:
-    - [analytical](analytical)
-    - [hera_didymos](hera_didymos):
-        - [hera_didymos/heating_preflight.py](hera_didymos/heating_preflight.py):
-        - [hera_didymos/tiri_fits.py](hera_didymos/tiri_fits.py):
-        - [hera_didymos/tiri_movie_compose.py](hera_didymos/tiri_movie_compose.py):
-        - [hera_didymos/tiri_movie.py](hera_didymos/tiri_movie.py):
-        - [hera_didymos/tpm_phase2.py](hera_didymos/tpm_phase2.py):
-        - [hera_didymos/tpm.py](hera_didymos/tpm.py):
-    - [hera_mars_swingby](hera_mars_swingby)
-    - [lightcurve](lightcurve)
+
+- [analytical](analytical)
+- [hera_didymos](hera_didymos):
+    - [hera_didymos/heating_preflight.py](hera_didymos/heating_preflight.py):
+    - [hera_didymos/tiri_fits.py](hera_didymos/tiri_fits.py):
+    - [hera_didymos/tiri_movie_compose.py](hera_didymos/tiri_movie_compose.py):
+    - [hera_didymos/tiri_movie.py](hera_didymos/tiri_movie.py):
+    - [hera_didymos/tpm_phase2.py](hera_didymos/tpm_phase2.py):
+    - [hera_didymos/tpm.py](hera_didymos/tpm.py):
+- [hera_mars_swingby](hera_mars_swingby)
+- [lightcurve](lightcurve)
 
 Legacy examples in [old](old).
