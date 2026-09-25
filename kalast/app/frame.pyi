@@ -103,9 +103,9 @@ class Eye:
         this kind are orthographic. Pass `orthographic=False` to keep
         perspective and just get the viewpoint.
 
-        Framing is left to the automatic frustum fit, so the eye's distance is
-        not something to tune. Stops the anchor following a body, if it was:
-        a plane view is about the scene, not about one body.
+        Frames the whole scene as it is at the call, and the view then holds
+        still while the bodies move. Stops the anchor following a body, if it
+        was: a plane view is about the scene, not about one body.
 
         Does nothing if there is no geometry loaded yet -- call it after the
         meshes.
@@ -146,6 +146,10 @@ class Projection:
     """Far plane, or `None` for automatic. See `near`."""
     side: float | None
     """Half-extent of an orthographic frustum, or `None` for automatic.
+
+    Automatic is, for a camera, the half-height its perspective view has at
+    the anchor, so switching between the two keeps the scale; for the Sun,
+    the scene's bounding radius.
 
     For the Sun with per-body shadow layers, pinning this applies one extent to
     every layer, which defeats the per-body sizing those layers exist to provide.

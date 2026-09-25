@@ -19,6 +19,55 @@ pub fn script_write(text: &str) {
     crate::app::gui::script_write(text);
 }
 
+/// Queue a line for the console, as Enter in the log's python tab does --
+/// for tests, which cannot type into it.
+#[pyfunction]
+pub fn console_submit(line: String) {
+    crate::app::gui::console_submit(line);
+}
+
+/// The next line typed at the log's python tab, or `None`.
+///
+/// For `kalast.editor`, which runs them between frames -- not something a
+/// script calls itself.
+#[pyfunction]
+pub fn console_take() -> Option<String> {
+    crate::app::gui::console_take()
+}
+
+/// Ask for completions of `line`, as Tab in the python tab does -- for
+/// tests, which cannot press it.
+#[pyfunction]
+pub fn console_ask_completion(line: String) {
+    crate::app::gui::console_ask_completion(line);
+}
+
+/// The line Tab asked Python to complete, if one is waiting.
+#[pyfunction]
+pub fn console_take_completion() -> Option<String> {
+    crate::app::gui::console_take_completion()
+}
+
+/// Python's answer to a Tab: the line asked about, the part before the word
+/// being completed, and the word's completions.
+#[pyfunction]
+pub fn console_offer(line: String, head: String, matches: Vec<String>) {
+    crate::app::gui::console_offer(line, head, matches);
+}
+
+/// What running a console line printed, for the python tab.
+#[pyfunction]
+pub fn console_write(text: &str) {
+    crate::app::gui::console_write(text);
+}
+
+/// Whether the console waits for the rest of a block -- a `for`, a `def` --
+/// so the next line is typed at `...`.
+#[pyfunction]
+pub fn console_set_more(more: bool) {
+    crate::app::gui::console_set_more(more);
+}
+
 #[pyclass(from_py_object, unsendable)]
 #[derive(Clone)]
 pub struct App {
@@ -232,6 +281,16 @@ impl App {
                 // `inner` -- and it runs to completion before the next turn.
                 crate::app::EditorTick::Run { path, source } => {
                     run_script.call1(py, (this.clone(), source, path))?;
+                }
+                // The log's python tab: lines typed, a Tab. Its own errors
+                // are the console's to show; one reaching here is shown there.
+                crate::app::EditorTick::Console => {
+                    let served = py
+                        .import("kalast.editor")
+                        .and_then(|m| m.call_method1("serve_console", (this.clone(),)));
+                    if let Err(e) = served {
+                        crate::app::gui::console_write(&format!("{e}\n"));
+                    }
                 }
             }
         }

@@ -598,8 +598,17 @@ impl Mesh {
             .map(|(i, x)| (i, x.into()))
     }
 
+    /// A summary, not the data: the full `Debug` listed every position and
+    /// facet -- 16 MB of text at 100k facets -- and printing a full-resolution
+    /// model froze the UI app's console.
     fn __repr__(&self) -> String {
-        format!("{:?}", self.inner.borrow())
+        let m = self.inner.borrow();
+        format!(
+            "Mesh({} facets, {} vertices, {})",
+            m.facets.len(),
+            m.positions.len(),
+            if m.is_flat() { "flat" } else { "shared vertices" },
+        )
     }
 }
 

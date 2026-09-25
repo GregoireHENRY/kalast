@@ -40,8 +40,12 @@
 # **Betas.** `gh workflow run release.yml -f beta=true` rehearses and also
 # puts the bundles on the pre-release v<version>-beta, which each later beta
 # replaces. The manifests and the changelog section carry the version being
-# worked towards. Tagging v<version> on the last beta's commit -- its release
-# body names it -- releases that beta's bundles and deletes the pre-release.
+# worked towards, the section headed `## v<version>-beta` while betas go out
+# and renamed `## v<version>` for the release, which the tag's gate checks.
+# Tagging v<version> on the last beta's commit -- its release body names it
+# -- releases that beta's bundles and deletes the pre-release.
+# A beta bundle knows its commit and its date, and its update check offers
+# the newer beta, then the release, when either comes from another commit.
 name: release
 
 on:
@@ -119,8 +123,10 @@ jobs:
           #    The GitHub release is that section verbatim and nothing else,
           #    and a person reviews it before the tag is pushed; this is what
           #    makes forgetting impossible rather than merely unlikely.
-          if ! awk -v v="v$tag" '$0 ~ "^## "v"([^0-9.]|$)"{f=1;next} /^## /{f=0} f&&/^- /{n++} END{exit !(n>0)}' CHANGELOG.md; then
-            note "CHANGELOG.md has no '## v$tag' section with a '- ' entry -- write it, have it reviewed, then tag"
+          #    Exactly `## v<tag>`: a `## v<tag>-beta` still open is not a
+          #    release, and a hyphen is not taken for the end of the version.
+          if ! awk -v v="v$tag" '$0 ~ "^## "v"([^0-9.-]|$)"{f=1;next} /^## /{f=0} f&&/^- /{n++} END{exit !(n>0)}' CHANGELOG.md; then
+            note "CHANGELOG.md has no '## v$tag' section with a '- ' entry -- rename '## v$tag-beta' or write it, have it reviewed, then tag"
           fi
 
           # 4. Neither registry lets a version be published twice, and both
@@ -169,7 +175,21 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       run_id: ${{ steps.find.outputs.run_id }}
+      commit_date: ${{ steps.when.outputs.date }}
     steps:
+      # When this commit was made, as GitHub writes dates, for the executable
+      # to carry: here once, on Linux, rather than by `git log` on four
+      # platforms with four ideas of a time zone. See `KALAST_COMMIT_DATE`.
+      - id: when
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          date=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}" --jq .commit.committer.date)
+          echo "commit ${{ github.sha }} made $date"
+          echo "date=$date" >> "$GITHUB_OUTPUT"
+
       - id: find
         shell: bash
         env:
@@ -324,6 +344,12 @@ jobs:
       # only its 30-line wrapper, instead of the whole thing a second time.
       - name: Build the kalast UI app
         shell: bash
+        # Which commit the executable is, and when it was made: how a beta
+        # bundle's update check tells a newer beta, or its version's release,
+        # from itself, the three all being v<version> (`src/app/update.rs`).
+        env:
+          KALAST_COMMIT: ${{ github.sha }}
+          KALAST_COMMIT_DATE: ${{ needs.reuse.outputs.commit_date }}
         run: |
           set -euo pipefail
           root="$PWD/${{ env.stage }}/python"
@@ -744,7 +770,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          awk -v v="${GITHUB_REF_NAME}" '$0 ~ "^## "v"([^0-9.]|$)"{f=1;next} /^## /{f=0} f' CHANGELOG.md \
+          awk -v v="${GITHUB_REF_NAME}" '$0 ~ "^## "v"([^0-9.-]|$)"{f=1;next} /^## /{f=0} f' CHANGELOG.md \
             | sed -e '/./,$!d' | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' > release-notes.md
           [ -s release-notes.md ] || { echo "::error::empty changelog section for ${GITHUB_REF_NAME}"; exit 1; }
           echo "--- release body ---"; cat release-notes.md
@@ -755,6 +781,9 @@ jobs:
             dist/*.tar.gz
             dist/*.zip
           body_path: release-notes.md
+          # The commit, not the branch: a beta bundle of this version compares
+          # it with its own to know whether it is this release or older.
+          target_commitish: ${{ github.sha }}
           # The upload step warned "Pattern 'dist/*.tar.gz' does not match
           # any files" and went green. A release without its archives is
           # not a release; make that a failure.
@@ -771,11 +800,11 @@ jobs:
 
   # A rehearsal run with `-f beta=true` also publishes its bundles as the
   # pre-release v<version>-beta, one per version, which the next beta
-  # replaces: its tag moved to the new commit and its archives overwritten,
-  # the names being the version's. A pre-release, so neither GitHub's latest
-  # release nor the UI app's update check offers it, and nothing goes to PyPI
-  # or crates.io, where a version cannot be replaced. Tagging v<version> on
-  # the beta's commit then publishes these same artefacts and removes it.
+  # replaces, made afresh on its own commit. A pre-release, so GitHub's
+  # latest release is not it and the UI app offers it only to a beta bundle
+  # of the same version, built from an older commit; nothing goes to PyPI or
+  # crates.io, where a version cannot be replaced. Tagging v<version> on the
+  # beta's commit then publishes these same artefacts and removes it.
   beta:
     name: beta pre-release
     needs: [executable]
@@ -809,19 +838,16 @@ jobs:
           {
             echo "Pre-release of v${version}, built from ${GITHUB_SHA::7}. The next beta replaces it."
             echo
-            awk -v v="v${version}" '$0 ~ "^## "v"([^0-9.]|$)"{f=1;next} /^## /{f=0} f' CHANGELOG.md | sed -e '/./,$!d'
+            awk -v v="v${version}" '$0 ~ "^## "v"(-beta)?([^0-9.-]|$)"{f=1;next} /^## /{f=0} f' CHANGELOG.md | sed -e '/./,$!d'
           } > notes.md
           cat notes.md
 
-          if gh release view "$tag" >/dev/null 2>&1; then
-            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/${tag}" \
-              -f sha="${GITHUB_SHA}" -F force=true >/dev/null
-            gh release upload "$tag" dist/*.tar.gz dist/*.zip --clobber
-            gh release edit "$tag" --title "$tag" --notes-file notes.md --prerelease
-          else
-            gh release create "$tag" dist/*.tar.gz dist/*.zip --target "${GITHUB_SHA}" \
-              --title "$tag" --notes-file notes.md --prerelease
-          fi
+          # Made afresh, not edited: a release keeps the date and the commit
+          # it was first published with, and a beta bundle's update check
+          # compares its own with exactly those.
+          gh release delete "$tag" --cleanup-tag --yes 2>/dev/null || echo "no $tag yet"
+          gh release create "$tag" dist/*.tar.gz dist/*.zip --target "${GITHUB_SHA}" \
+            --title "$tag" --notes-file notes.md --prerelease
 
   pypi:
     name: publish to PyPI

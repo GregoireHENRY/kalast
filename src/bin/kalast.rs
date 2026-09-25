@@ -91,6 +91,7 @@ fn main() {
             kalast::app::EditorTick::Run { path, source } => {
                 run_script(&app, &path, &source)
             }
+            kalast::app::EditorTick::Console => console_serve(&app),
         }
     }
 
@@ -255,66 +256,80 @@ fn precompile(args: &[String]) -> i32 {
     i32::from(failed > 0)
 }
 
-/// Execute a `.py` against the app already on screen.
+/// Before the embedded interpreter starts, and only once: `kalast._rs` has
+/// to be in the inittab by then -- an entry added afterwards is never seen.
+/// `Python::attach` starts it, through pyo3's `auto-initialize`.
 #[cfg(feature = "embed")]
-fn run_script(app: &Rc<RefCell<kalast::app::App>>, path: &str, source: &str) {
-    use pyo3::prelude::*;
-
-    // Before the interpreter starts, and only once: an inittab entry added
-    // afterwards is never seen. `Python::attach` starts it, through pyo3's
-    // `auto-initialize`.
+fn start_python() {
     static READY: std::sync::Once = std::sync::Once::new();
     READY.call_once(|| {
         use kalast::py::python_module;
         pyo3::append_to_inittab!(python_module);
     });
+}
 
+/// Make `import kalast` work in the embedded interpreter and point its
+/// `sys.stdout` at the log, for whichever comes first: a script, or a line
+/// typed at the console. Each step is skipped once it is done.
+#[cfg(feature = "embed")]
+fn prepare_python(py: pyo3::Python<'_>, app: &Rc<RefCell<kalast::app::App>>) -> pyo3::PyResult<()> {
+    use pyo3::prelude::*;
+
+    // `import kalast._rs` looks for a submodule of the package, which
+    // inittab's flat name is not -- so it is placed there by hand, before
+    // anything imports `kalast`. The package's own `.so` is then never
+    // reached, which is the point.
+    let sys = py.import("sys")?;
+
+    // The interpreter embedded here is the one pyo3 linked against, not
+    // whatever virtualenv is active, so its `sys.path` has neither this
+    // repository nor the environment kalast's dependencies live in.
+    // Without both, `import kalast` fails on the package, and then on
+    // numpy.
+    let sys_path = sys.getattr("path")?;
+    let mut roots: Vec<String> = vec![".".to_string()];
+    if let Ok(venv) = std::env::var("VIRTUAL_ENV") {
+        // `version_info` is a five-field named tuple; take the two
+        // that name the directory.
+        let info = sys.getattr("version_info")?;
+        let (major, minor): (u8, u8) =
+            (info.get_item(0)?.extract()?, info.get_item(1)?.extract()?);
+        roots.push(format!("{venv}/lib/python{major}.{minor}/site-packages"));
+    }
+    for root in roots {
+        if !sys_path.contains(&root)? {
+            sys_path.call_method1("insert", (0, root))?;
+        }
+    }
+
+    let modules = sys.getattr("modules")?;
+    if !modules.contains("kalast._rs")? {
+        let bindings = py.import("_rs")?;
+        modules.set_item("kalast._rs", bindings)?;
+    }
+
+    // `sys.stdout` and `sys.stderr` to the log's script tab, as
+    // `python -m kalast` sets them: at once, where a pipe -- stdout by
+    // the time this interpreter starts -- is block-buffered, and apart
+    // from the engine's own output. Once: it also registers an exit hook.
+    static LINE_BUFFERED: std::sync::atomic::AtomicBool =
+        std::sync::atomic::AtomicBool::new(false);
+    if !LINE_BUFFERED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        py.import("kalast.editor")?
+            .call_method1("capture_output", (kalast::py::app::App::wrap(app.clone()),))?;
+    }
+    Ok(())
+}
+
+/// Execute a `.py` against the app already on screen.
+#[cfg(feature = "embed")]
+fn run_script(app: &Rc<RefCell<kalast::app::App>>, path: &str, source: &str) {
+    use pyo3::prelude::*;
+
+    start_python();
     let handle = kalast::py::app::App::wrap(app.clone());
     let result = Python::attach(|py| -> PyResult<()> {
-        // `import kalast._rs` looks for a submodule of the package, which
-        // inittab's flat name is not -- so it is placed there by hand, before
-        // anything imports `kalast`. The package's own `.so` is then never
-        // reached, which is the point.
-        let sys = py.import("sys")?;
-
-        // The interpreter embedded here is the one pyo3 linked against, not
-        // whatever virtualenv is active, so its `sys.path` has neither this
-        // repository nor the environment kalast's dependencies live in.
-        // Without both, `import kalast` fails on the package, and then on
-        // numpy.
-        let sys_path = sys.getattr("path")?;
-        let mut roots: Vec<String> = vec![".".to_string()];
-        if let Ok(venv) = std::env::var("VIRTUAL_ENV") {
-            // `version_info` is a five-field named tuple; take the two
-            // that name the directory.
-            let info = sys.getattr("version_info")?;
-            let (major, minor): (u8, u8) =
-                (info.get_item(0)?.extract()?, info.get_item(1)?.extract()?);
-            roots.push(format!("{venv}/lib/python{major}.{minor}/site-packages"));
-        }
-        for root in roots {
-            if !sys_path.contains(&root)? {
-                sys_path.call_method1("insert", (0, root))?;
-            }
-        }
-
-        let modules = sys.getattr("modules")?;
-        if !modules.contains("kalast._rs")? {
-            let bindings = py.import("_rs")?;
-            modules.set_item("kalast._rs", bindings)?;
-        }
-
-        // `sys.stdout` and `sys.stderr` to the log's script tab, as
-        // `python -m kalast` sets them: at once, where a pipe -- stdout by
-        // the time this interpreter starts -- is block-buffered, and apart
-        // from the engine's own output. Once: it also registers an exit hook.
-        static LINE_BUFFERED: std::sync::atomic::AtomicBool =
-            std::sync::atomic::AtomicBool::new(false);
-        if !LINE_BUFFERED.swap(true, std::sync::atomic::Ordering::Relaxed) {
-            py.import("kalast.editor")?
-                .call_method1("capture_output", (kalast::py::app::App::wrap(app.clone()),))?;
-        }
-
+        prepare_python(py, app)?;
         // The same call `python -m kalast` makes: the script runs against
         // this app, with `start()` and `close()` neutralised, because the
         // editor owns the loop it is already inside.
@@ -326,6 +341,34 @@ fn run_script(app: &Rc<RefCell<kalast::app::App>>, path: &str, source: &str) {
     if let Err(e) = result {
         eprintln!("cannot run {path}: {e}");
     }
+}
+
+/// The log's python tab -- lines typed, a Tab -- served by the embedded
+/// interpreter among the running script's variables; see
+/// `kalast.editor.serve_console`.
+#[cfg(feature = "embed")]
+fn console_serve(app: &Rc<RefCell<kalast::app::App>>) {
+    use pyo3::prelude::*;
+
+    start_python();
+    let handle = kalast::py::app::App::wrap(app.clone());
+    let result = Python::attach(|py| -> PyResult<()> {
+        prepare_python(py, app)?;
+        py.import("kalast.editor")?.call_method1("serve_console", (handle,))?;
+        Ok(())
+    });
+    if let Err(e) = result {
+        kalast::app::gui::console_write(&format!("{e}\n"));
+    }
+}
+
+/// Without an interpreter there is nothing to run a line with.
+#[cfg(not(feature = "embed"))]
+fn console_serve(_app: &Rc<RefCell<kalast::app::App>>) {
+    while kalast::app::gui::console_take().is_some() {
+        kalast::app::gui::console_write("this build of kalast has no Python to run the line with\n");
+    }
+    let _ = kalast::app::gui::console_take_completion();
 }
 
 /// Without an interpreter, hand the script to one.

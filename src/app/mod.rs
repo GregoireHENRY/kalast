@@ -1,6 +1,8 @@
 pub mod axes;
 pub mod body;
 pub mod cargo;
+pub mod clock;
+pub mod settings;
 pub mod config;
 pub mod facet_id;
 pub mod facet_shadow;
@@ -133,6 +135,12 @@ pub struct Shared {
     /// The log's kalast tab: everything else on stdout and stderr -- the
     /// engine's own messages, the update check, cargo, C libraries.
     pub kalast_log: crate::app::gui::Log,
+    /// The log's python tab: the lines typed at its console, and what running
+    /// them printed.
+    pub console_log: crate::app::gui::Log,
+    /// The script or example last run, so running another starts from a new
+    /// app's renderer rather than inheriting this one's.
+    pub last_script: Option<String>,
     /// A run asked for from outside the UI -- `app.run_script()`. Here
     /// rather than on the editor because it can be raised before the window
     /// exists.
@@ -199,6 +207,8 @@ impl Shared {
             native: false,
             log: crate::app::gui::Log::new(2000),
             kalast_log: crate::app::gui::Log::new(2000),
+            console_log: crate::app::gui::Log::new(2000),
+            last_script: None,
             run_requested: false,
             restart_requested: false,
             open_requested: false,
@@ -243,6 +253,11 @@ pub struct App {
     /// as long as the plane view lasts rather than left behind as a mode the
     /// user has to notice and undo.
     snap: Option<(frame::Axis, bool, frame::ProjectionMode)>,
+
+    /// Whether the last frame was held, so a pause or a resume is logged
+    /// once, as it happens. `None` before the first frame: how a run starts
+    /// -- held, as the UI app opens, or running -- is not a change.
+    was_paused: Option<bool>,
 
     /// Frames per second for the HUDs, averaged over a fixed window rather
     /// than smoothed per frame. An exponential average still moves every
@@ -577,6 +592,10 @@ pub enum EditorTick {
     Frame,
     /// Play or Restart asked for this script. Run it, then carry on ticking.
     Run { path: String, source: String },
+    /// The log's python tab has something for Python: lines typed, or a Tab
+    /// to complete. Serve it -- `kalast.editor.serve_console` -- then carry
+    /// on ticking.
+    Console,
 }
 
 /// Fills one HUD's template in for this frame.
@@ -599,8 +618,9 @@ pub(crate) fn expand_hud(
     // One step is one frame, so the iteration rate is the frame rate --
     // under the cap too, which paces the frame itself -- and zero paused.
     let its = if state.is_paused { 0.0 } else { rate };
-    let nit = match state.pause_at {
-        Some(n) => n.to_string(),
+    // The run's length: up to and including the iteration it pauses after.
+    let nit = match state.pause_after_iteration {
+        Some(n) => (n + 1).to_string(),
         None => "?".to_string(),
     };
 
@@ -778,6 +798,7 @@ impl App {
 
             controller,
             snap: None,
+            was_paused: None,
             fps_shown: 0.0,
             fps_window_secs: 0.0,
             fps_window_frames: 0,
@@ -828,6 +849,16 @@ impl App {
         // process that may already have run one app.
         let _ = env_logger::try_init();
         let mut builder = winit::event_loop::EventLoop::with_user_event();
+        // No default menu: its Quit caught `Cmd`-`Q` before the window, and
+        // `terminate:` from it was lost more often than not in the loop the
+        // UI app pumps -- measured with the keys sent to a running script:
+        // nothing until `F` had been pressed. The window takes `Cmd`-`Q`
+        // itself instead (`window_event`), by the close button's path.
+        #[cfg(target_os = "macos")]
+        {
+            use winit::platform::macos::EventLoopBuilderExtMacOS;
+            builder.with_default_menu(false);
+        }
         // `with_active(false)` on the window is only half of not stealing
         // focus on macOS: the *application* activates at launch on its own,
         // and winit asks it to do so ignoring whatever else is in front
@@ -878,6 +909,26 @@ impl App {
                 editor.script_dirty = false;
             }
             None => self.shared.borrow_mut().pending_script = Some((path, source)),
+        }
+    }
+
+    /// Close the window, as its close button does: over an edited script it
+    /// asks first. The dialog is the editor's; its answer comes back as a
+    /// request, and `serve_editor_requests` turns it into the exit.
+    fn request_close(&mut self, ev: &winit::event_loop::ActiveEventLoop) {
+        match self.editor.as_mut() {
+            Some(editor) if editor.script_dirty => editor.confirm_exit = true,
+            _ => self.exit(ev),
+        }
+    }
+
+    /// Remember the theme and the window mode for the next time the UI app
+    /// opens -- after a change made in the app, never one a script made. See
+    /// `settings`.
+    pub fn remember_settings(&self) {
+        let config = self.config.borrow();
+        if config.editor && !cfg!(test) {
+            settings::save(settings::Remembered::of(&config));
         }
     }
 
@@ -1115,9 +1166,18 @@ impl App {
     /// A mesh alone used to be a black window: camera and Sun both at the
     /// origin, inside it.
     pub fn open_mesh(&mut self, path: &std::path::Path) {
+        // A mesh opened on its own starts from a new app's renderer, as
+        // another script does: the last one's config, camera and callbacks
+        // were still in force around it.
+        {
+            let mut shared = self.shared.borrow_mut();
+            shared.before_render = None;
+            shared.after_render = None;
+            shared.last_script = Some(path.display().to_string());
+        }
         {
             let mut sim = self.simulation.borrow_mut();
-            sim.reset();
+            sim.renew();
             sim.load_mesh(path, crate::Mat4::IDENTITY, false);
             sim.frame_all();
         }
@@ -1160,6 +1220,7 @@ impl App {
                 if zoomed && !self.zoomed {
                     crate::app::macos::unzoom(&win.window);
                     self.config.borrow_mut().fullscreen = true;
+                    self.remember_settings();
                 }
                 self.zoomed = zoomed;
             }
@@ -1537,6 +1598,16 @@ impl App {
                 // here rather than inside the frame, and runs to completion
                 // before this loop resumes.
                 EditorTick::Run { path, source } => run_script(self, &path, &source),
+                // Nothing here runs Python; the front doors that can,
+                // `python -m kalast` and the bundle, serve it themselves.
+                EditorTick::Console => {
+                    while crate::app::gui::console_take().is_some() {
+                        crate::app::gui::console_write(
+                            "this loop has no Python to run the line with: open kalast with `python -m kalast` or the bundle\n",
+                        );
+                    }
+                    let _ = crate::app::gui::console_take_completion();
+                }
             }
         }
     }
@@ -1548,6 +1619,14 @@ impl App {
     pub fn editor_start(&mut self, args: &[String]) {
         self.config.borrow_mut().editor = true;
         self.config.borrow_mut().title = "kalast".to_string();
+        // What the app was left with last time -- before a script runs, so
+        // one that sets either still has the last word. Not in the unit
+        // tests, which would otherwise read whoever runs them.
+        if !cfg!(test) {
+            if let Some(remembered) = settings::load() {
+                remembered.apply(&mut self.config.borrow_mut());
+            }
+        }
         // Here, not when the window opens: a script named on the command
         // line runs before the window exists, and what it prints at its top
         // level belongs in the log as much as anything a frame prints later.
@@ -1560,6 +1639,15 @@ impl App {
         // tested in a child process of its own, `stdio_tests`.
         if self.stdio.is_none() && !cfg!(test) {
             self.stdio = crate::app::gui::StdioCapture::new();
+        }
+        // Each tab opens on when the UI app started, the kalast tab with the
+        // version as well -- read already: a tab's dot is for news.
+        {
+            let mut shared = self.shared.borrow_mut();
+            shared.kalast_log.push(format!("kalast v{} started", crate::app::update::CURRENT));
+            shared.log.push("script log started");
+            shared.kalast_log.mark_read();
+            shared.log.mark_read();
         }
         // A newer release? Asked here, when the UI app opens -- never when a
         // script runs its own window -- and on a thread: the frame reads the
@@ -1662,14 +1750,40 @@ impl App {
             return EditorTick::Frame;
         }
         let Some((path, source, paused)) = self.take_script_request() else {
-            return EditorTick::Frame;
+            // The console, between frames like a script: one that drives its
+            // own loop serves it from its `step()` instead.
+            return if crate::app::gui::console_pending() {
+                EditorTick::Console
+            } else {
+                EditorTick::Frame
+            };
         };
+        self.renew_for(&path);
         self.begin_script(paused);
         EditorTick::Run { path, source }
     }
 
+    /// A renderer as a new app has it, when `script` is not the one last run
+    /// -- see `Simulation::renew`. Running the same one again keeps the
+    /// config, which is also what the panel edits by hand.
+    fn renew_for(&mut self, script: &str) {
+        let mut shared = self.shared.borrow_mut();
+        if shared.last_script.as_deref() != Some(script) {
+            shared.last_script = Some(script.to_string());
+            drop(shared);
+            self.simulation.borrow_mut().renew();
+        }
+    }
+
     /// Clear the scene and set the clock for a script about to run.
     pub fn begin_script(&mut self, paused: bool) {
+        // The last run's callbacks go with its scene: armed by a script that
+        // is no longer running, they went on moving the next one's bodies.
+        {
+            let mut shared = self.shared.borrow_mut();
+            shared.before_render = None;
+            shared.after_render = None;
+        }
         // `load_mesh` appends, so a run without this stacks the scene: two
         // craters, and Restart looking like it did nothing.
         self.simulation.borrow_mut().reset();
@@ -1679,7 +1793,7 @@ impl App {
         // that places its bodies per iteration shows them where iteration 0
         // puts them rather than at the origin.
         if paused {
-            self.simulation.borrow_mut().state.pause_at = Some(1);
+            self.simulation.borrow_mut().state.pause_after_iteration = Some(0);
         }
         self.simulation.borrow_mut().state.is_paused = false;
         self.shared.borrow_mut().script_ran = true;
@@ -1732,7 +1846,7 @@ impl App {
         // loop ends. Anything set afterwards would be set when the run was
         // already over, which is why it played straight through.
         let mut sim = self.simulation.borrow_mut();
-        sim.state.pause_at = Some(sim.state.iteration + 1);
+        sim.state.pause_after_iteration = Some(sim.state.iteration);
         sim.state.is_paused = false;
     }
 
@@ -1753,6 +1867,7 @@ impl App {
             shared.after_render = None;
         }
         self.simulation.borrow_mut().reset();
+        self.renew_for(example);
         drop(self.loaded_example.take());
 
         match crate::app::cargo::load_example(std::path::Path::new(example), release, self) {
@@ -2290,7 +2405,14 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
         // Before anything else can press it.
         #[cfg(target_os = "macos")]
         crate::app::macos::disable_native_fullscreen(&win);
+        #[cfg(target_os = "macos")]
+        crate::app::macos::watch_quit_keys();
 
+        // A window asked not to disturb does not take the screen either,
+        // whatever the app remembers.
+        if self.config.borrow().open_in_background {
+            self.config.borrow_mut().fullscreen = false;
+        }
         if self.config.borrow().fullscreen {
             set_window_fullscreen(&win, true);
         }
@@ -2361,6 +2483,41 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
         // the scene -- but obtaining it cannot, since it reads the field.
         let sim_cfg = self.sim_config();
 
+        // `Cmd`-`Q` on macOS, seen by the AppKit monitor -- see `macos`.
+        #[cfg(target_os = "macos")]
+        if crate::app::macos::take_quit_keys() {
+            self.request_close(ev);
+            return;
+        }
+        // `Ctrl`-`Q` elsewhere (and `Cmd`-`Q` should the monitor miss it)
+        // quits, by the close button's path, so an edited script asks
+        // first; before the UI, which keeps every key while a text field has
+        // the focus.
+        // The character, as the monitor matches it: the key under `Q`
+        // depends on the keyboard's layout.
+        if let winit::event::WindowEvent::KeyboardInput {
+            event:
+                winit::event::KeyEvent {
+                    logical_key: winit::keyboard::Key::Character(c),
+                    state: winit::event::ElementState::Pressed,
+                    repeat: false,
+                    ..
+                },
+            ..
+        } = &event
+            && c.eq_ignore_ascii_case("q")
+        {
+            let command = if cfg!(target_os = "macos") {
+                self.controller.super_pressed
+            } else {
+                self.controller.ctrl_pressed
+            };
+            if command {
+                self.request_close(ev);
+                return;
+            }
+        }
+
         // The UI gets first refusal. Without this a drag on a slider would
         // also orbit the camera behind the panel.
         if let (Some(editor), Some(win)) = (self.editor.as_mut(), self.window.as_ref()) {
@@ -2411,15 +2568,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
         }
 
         match event {
-            winit::event::WindowEvent::CloseRequested => {
-                // Over an edited script the window asks first. The dialog
-                // is the editor's; its answer comes back as a request, and
-                // `serve_editor_requests` turns it into the exit.
-                match self.editor.as_mut() {
-                    Some(editor) if editor.script_dirty => editor.confirm_exit = true,
-                    _ => self.exit(ev),
-                }
-            }
+            winit::event::WindowEvent::CloseRequested => self.request_close(ev),
             winit::event::WindowEvent::Moved(_) => self.refresh_present_interval(),
             winit::event::WindowEvent::Resized(size) => {
                 self.refresh_present_interval();
@@ -2477,6 +2626,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 // Without a capture too: the script's own writer does not
                 // need one, which is how Windows gets its script tab.
                 crate::app::gui::drain_script_output(&mut self.shared.borrow_mut().log);
+                crate::app::gui::drain_console_output(&mut self.shared.borrow_mut().console_log);
 
                 self.apply_live_config();
 
@@ -2519,6 +2669,16 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     .borrow_mut()
                     .state
                     .begin_frame(std::time::Instant::now());
+                let line = pause_line(
+                    self.was_paused,
+                    paused,
+                    self.shared.borrow().drawn_iteration,
+                    &self.simulation.borrow().state,
+                );
+                if let Some(line) = line {
+                    self.shared.borrow_mut().kalast_log.push(line);
+                }
+                self.was_paused = Some(paused);
 
                 // Held across the borrow below: the editor draws after it,
                 // because the UI needs `&mut Simulation::state` for its
@@ -2806,7 +2966,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 // pressing Step unpauses after the callbacks have already
                 // been skipped and nothing new has been rendered -- and
                 // `update()` re-reading the flag would then count an
-                // iteration that never ran. `pause_at` fired immediately
+                // iteration that never ran. The pause mark fired immediately
                 // afterwards, so Step advanced the counter, drew nothing, and
                 // looked stuck.
                 //
@@ -2840,7 +3000,9 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     // `Escape` is deliberately not bound. It quit, which is a
                     // long run thrown away by the key most often pressed to
                     // mean "stop what you are doing" -- and quitting is
-                    // already the window's close button, and Cmd-Q.
+                    // already the window's close button, and Cmd-Q. (Cmd-
+                    // Escape was tried as well: macOS keeps it, and no app
+                    // sees it, not even through an AppKit event monitor.)
                     (winit::keyboard::KeyCode::Space, true) => {
                         // let win = self.window.as_mut().unwrap();
                         // win.toggle_color_xy = !win.toggle_color_xy;
@@ -2874,6 +3036,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         let cfg = self.config.clone();
                         let want = !cfg.borrow().fullscreen;
                         cfg.borrow_mut().fullscreen = want;
+                        self.remember_settings();
                     }
 
                     // One iteration, then hold: exactly what the editor's
@@ -2884,7 +3047,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     // by a keystroke -- worth having to aim for.
                     (winit::keyboard::KeyCode::KeyK, true) => {
                         let mut sim = self.simulation.borrow_mut();
-                        sim.state.pause_at = Some(sim.state.iteration + 1);
+                        sim.state.pause_after_iteration = Some(sim.state.iteration);
                         sim.state.is_paused = false;
                     }
 
@@ -2928,7 +3091,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     }
 
                     // Fold the editor's panels to the edges, or unfold them.
-                    // Blender's sidebar key; here it is all four. Not `Tab`,
+                    // Blender's sidebar key; here it is all three. Not `Tab`,
                     // which egui takes to focus the first text field, so the
                     // next keystroke would have gone into the script.
                     (winit::keyboard::KeyCode::KeyN, true) => {
@@ -2938,8 +3101,9 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     }
 
                     // One panel at a time, by the edge it sits on: up is the
-                    // toolbar, down the log, left the script, right the
-                    // config. Free keys -- nothing else reads the arrows, and
+                    // toolbar, down the log, right the side panel. Left has
+                    // nothing since the script became the middle's editor
+                    // tab. Free keys -- nothing else reads the arrows, and
                     // egui keeps them for itself while a text field has the
                     // focus, so typing in the script does not fold anything.
                     (winit::keyboard::KeyCode::ArrowUp, true) => {
@@ -2950,11 +3114,6 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     (winit::keyboard::KeyCode::ArrowDown, true) => {
                         if let Some(editor) = self.editor.as_mut() {
                             editor.toggle_panel(1);
-                        }
-                    }
-                    (winit::keyboard::KeyCode::ArrowLeft, true) => {
-                        if let Some(editor) = self.editor.as_mut() {
-                            editor.toggle_panel(2);
                         }
                     }
                     (winit::keyboard::KeyCode::ArrowRight, true) => {
@@ -3036,6 +3195,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 self.controller.shift_pressed = modifiers.state().shift_key();
                 self.controller.alt_pressed = modifiers.state().alt_key();
                 self.controller.ctrl_pressed = modifiers.state().control_key();
+                self.controller.super_pressed = modifiers.state().super_key();
             }
 
             _ => {}
@@ -3128,11 +3288,11 @@ mod hud_tests {
     use super::*;
     use crate::app::simulation::State;
 
-    fn state(iteration: usize, paused: bool, pause_at: Option<usize>) -> State {
+    fn state(iteration: usize, paused: bool, pause_after: Option<usize>) -> State {
         let mut s = State::new();
         s.iteration = iteration;
         s.is_paused = paused;
-        s.pause_at = pause_at;
+        s.pause_after_iteration = pause_after;
         s
     }
 
@@ -3150,7 +3310,7 @@ mod hud_tests {
 
     #[test]
     fn expands_the_documented_placeholders() {
-        let s = state(42, false, Some(500));
+        let s = state(42, false, Some(499));
         assert_eq!(
             expand_hud("{it}/{nit} ({its} it/s)", &s, 60.4, &Default::default(), s.iteration),
             "42/500 (60 it/s)"
@@ -3229,6 +3389,66 @@ mod hud_tests {
 
 }
 
+/// What the kalast tab says when a frame is held and the last was not, or
+/// the other way round -- whoever did it: `P`, the buttons,
+/// `pause_after_iteration`, a script. `was` is the last frame's decision, `None` before the first
+/// frame, since how a run starts is not a change.
+///
+/// Paused *after* the iteration on screen, the toolbar's, and resumed *at*
+/// the one run next -- 41 then 42 is not a skip -- which after a Restart is
+/// 0, not the old run's number still on screen. A step -- Step, `K`, the one
+/// iteration a Restart or an opened script shows -- is a resume set to pause
+/// after the iteration it runs, and says only where it stopped.
+fn pause_line(
+    was: Option<bool>,
+    paused: bool,
+    drawn: usize,
+    state: &crate::app::simulation::State,
+) -> Option<String> {
+    if was? == paused {
+        return None;
+    }
+    if paused {
+        return Some(format!("paused after iteration {drawn}"));
+    }
+    let next = state.iteration;
+    (state.pause_after_iteration != Some(next)).then(|| format!("resumed at iteration {next}"))
+}
+
+#[cfg(test)]
+mod pause_line_tests {
+    use super::pause_line;
+    use crate::app::simulation::State;
+
+    #[test]
+    fn pauses_and_resumes_are_told_once_and_a_step_only_where_it_stops() {
+        let mut state = State::new();
+        state.iteration = 42;
+
+        assert_eq!(pause_line(None, true, 41, &state), None, "the first frame is no change");
+        assert_eq!(pause_line(Some(true), true, 41, &state), None, "still held");
+        assert_eq!(
+            pause_line(Some(false), true, 41, &state).as_deref(),
+            Some("paused after iteration 41"),
+            "held with 41 on screen, the counter on 42"
+        );
+        assert_eq!(
+            pause_line(Some(true), false, 41, &state).as_deref(),
+            Some("resumed at iteration 42")
+        );
+
+        state.pause_after_iteration = Some(42);
+        assert_eq!(pause_line(Some(true), false, 41, &state), None, "a step");
+
+        // Play after the mark fired: it stays on the iteration it fired after.
+        state.pause_after_iteration = Some(41);
+        assert_eq!(
+            pause_line(Some(true), false, 41, &state).as_deref(),
+            Some("resumed at iteration 42")
+        );
+    }
+}
+
 #[cfg(test)]
 mod editor_tests {
     use super::*;
@@ -3251,6 +3471,17 @@ mod editor_tests {
 
         assert!(handed_over, "the first tick must hand the script over, not draw");
         assert!(app.window.is_none(), "no window may exist before the script has run");
+    }
+
+    /// A mesh opened after a script starts from a new app's renderer: the
+    /// script's settings were still in force around it.
+    #[test]
+    fn opening_a_mesh_forgets_the_last_scripts_settings() {
+        let mut app = App::new();
+        app.sim_config().borrow_mut().shading.color_mode = 1;
+        app.open_mesh(std::path::Path::new("res/ico1.obj"));
+        let fresh = crate::app::config::Config::default();
+        assert_eq!(app.sim_config().borrow().shading.color_mode, fresh.shading.color_mode);
     }
 
     /// `./kalast some.obj` was a black window: the mesh loaded, and camera

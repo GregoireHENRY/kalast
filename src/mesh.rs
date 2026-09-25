@@ -1063,9 +1063,13 @@ pub fn intersect_triangle_moller_trumbore(
     // println!("det={} p={} u={} n={}", det, p, u, n);
     // println!("p={} u={} n={}", p, u, n);
 
-    // test ray parallel to triangle
-    if det > -crate::util::EPSILON && det < crate::util::EPSILON {
-        // println!("PARALLEL det={}", det);
+    // Parallel to the triangle, or a degenerate one: nothing to divide by.
+    // Relative to the edges, because `det` is twice the area times a cosine,
+    // and so scales with the mesh. Tested against f32's epsilon outright, it
+    // rejected every facet of a finely resolved shape model in kilometres --
+    // Dimorphos at 0.24 m has a `det` of 6e-8 -- and a click on it went
+    // through to Didymos behind.
+    if det.abs() <= crate::util::EPSILON * e1.length() * e2.length() {
         return None;
     }
     // println!("NOT PARALLEL det={}", det);
@@ -1447,6 +1451,24 @@ pub fn distribution_slope_angles(theta: Float, a: Float, b: Float) -> Float {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A finely resolved shape model in kilometres has facets whose `det` is
+    /// below f32's epsilon -- Dimorphos at 0.24 m -- and all of them were taken
+    /// for parallel to the ray: a click went through Dimorphos to Didymos.
+    #[test]
+    fn a_small_facet_in_kilometres_is_hit() {
+        let e = 2.43e-4;
+        let (a, b, c) = (Vec3::ZERO, Vec3::new(e, 0.0, 0.0), Vec3::new(0.0, e, 0.0));
+        let p = Vec3::new(e / 4.0, e / 4.0, 1.8);
+        assert!(
+            intersect_triangle_moller_trumbore(&p, &Vec3::NEG_Z, &a, &b, &c).is_some(),
+            "a 0.24 m facet seen from 1.8 km"
+        );
+        assert!(
+            intersect_triangle_moller_trumbore(&p, &Vec3::X, &a, &b, &c).is_none(),
+            "a ray along the triangle's plane is still no hit"
+        );
+    }
 
     /// A unit square split along its diagonal: four shared corners, two
     /// facets. Small enough that "which row is which" is checkable by eye,

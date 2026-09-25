@@ -29,31 +29,55 @@ use std::path::{Path, PathBuf};
 const REPO: &str = "GregoireHENRY/kalast";
 pub const CURRENT: &str = env!("CARGO_PKG_VERSION");
 
+/// Which commit this build is, and when that commit was made, in UTC as
+/// GitHub writes its dates. Set by the release workflow for the bundle's
+/// executable, absent from any other build. It is what tells a beta from the
+/// release of the same version, which both call themselves v<version>.
+const BUILD_COMMIT: Option<&str> = option_env!("KALAST_COMMIT");
+const BUILD_DATE: Option<&str> = option_env!("KALAST_COMMIT_DATE");
+
 /// One release as GitHub lists it.
 #[derive(Debug, Clone)]
 pub struct Release {
-    /// Without the `v`.
+    /// Without the `v`, and without a beta's `-beta`: what its archives are
+    /// named for.
     pub version: String,
+    /// As GitHub has it: `v0.5.10`, or `v0.5.10-beta`.
+    pub tag: String,
     /// `YYYY-MM-DD`, or empty.
     pub date: String,
+    /// `YYYY-MM-DDTHH:MM:SSZ`, or empty.
+    pub published: String,
+    /// The commit it was made from, when GitHub names one.
+    pub commit: String,
     /// The release body: the changelog section.
     pub notes: String,
     /// `(file name, download url)`.
     pub assets: Vec<(String, String)>,
 }
 
-/// The latest release, beside the version this is.
+/// The release to offer, beside the version this is.
 #[derive(Debug, Clone)]
 pub struct Update {
     pub current: String,
     /// When this version was released, if GitHub still lists it.
     pub current_date: Option<String>,
     pub latest: Release,
+    /// This build is a beta: it knows its commit, and its version has no
+    /// release yet.
+    pub beta: bool,
+    /// When this build's commit was made, for a beta.
+    pub built: Option<String>,
+    /// `latest` is a newer build of this same version: a newer beta, or the
+    /// release this beta's version became.
+    pub rebuilt: bool,
 }
 
 impl Update {
+    /// Whether `latest` is worth installing: a newer version, or a newer
+    /// build of this one.
     pub fn newer(&self) -> bool {
-        newer(&self.latest.version, &self.current)
+        self.rebuilt || newer(&self.latest.version, &self.current)
     }
 }
 
@@ -156,63 +180,127 @@ pub fn check(current: &str) -> Result<Update, String> {
     parse(&body, current)
 }
 
-/// The releases list as GitHub returns it, against `current`.
+/// The releases list as GitHub returns it, against `current` and this build.
 pub fn parse(json: &str, current: &str) -> Result<Update, String> {
+    parse_for(json, current, BUILD_COMMIT.zip(BUILD_DATE))
+}
+
+/// `parse`, for a build that is `(commit, commit date)` -- or, `None`, for
+/// one that does not know, which is every build but a release bundle's.
+///
+/// A newer version is offered as it always was. Beyond that, a build that
+/// knows its commit is offered a newer build of its own version, which is
+/// how a beta is kept current: while the version has no release, the beta
+/// on GitHub, `v<version>-beta`, when it was built from another commit and
+/// published after this one's commit; once it has one, that release, when it
+/// was made from another commit -- this one being an older beta of it.
+pub fn parse_for(json: &str, current: &str, build: Option<(&str, &str)>) -> Result<Update, String> {
     let value: serde_json::Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
     let list = value.as_array().ok_or("not a list of releases")?;
-    let date = |r: &serde_json::Value| -> String {
-        r["published_at"].as_str().unwrap_or("").chars().take(10).collect()
-    };
-    let latest = list
-        .iter()
-        .filter(|r| !r["draft"].as_bool().unwrap_or(false) && !r["prerelease"].as_bool().unwrap_or(false))
-        .find_map(|r| {
-            let tag = r["tag_name"].as_str()?;
-            Some(Release {
-                version: tag.trim_start_matches('v').to_string(),
-                date: date(r),
-                notes: r["body"].as_str().unwrap_or("").trim().to_string(),
-                assets: r["assets"]
-                    .as_array()
-                    .map(|a| {
-                        a.iter()
-                            .filter_map(|x| {
-                                Some((
-                                    x["name"].as_str()?.to_string(),
-                                    x["browser_download_url"].as_str()?.to_string(),
-                                ))
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default(),
-            })
+    let release = |r: &serde_json::Value| -> Option<Release> {
+        let tag = r["tag_name"].as_str()?;
+        let published = r["published_at"].as_str().unwrap_or("").to_string();
+        Some(Release {
+            version: tag.trim_start_matches('v').trim_end_matches("-beta").to_string(),
+            tag: tag.to_string(),
+            date: published.chars().take(10).collect(),
+            published,
+            commit: r["target_commitish"].as_str().unwrap_or("").to_string(),
+            notes: r["body"].as_str().unwrap_or("").trim().to_string(),
+            assets: r["assets"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| {
+                            Some((
+                                x["name"].as_str()?.to_string(),
+                                x["browser_download_url"].as_str()?.to_string(),
+                            ))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
         })
-        .ok_or("no published release")?;
-    let tag = format!("v{}", current.trim_start_matches('v'));
-    let current_date = list
+    };
+    // Newest first, as GitHub lists them; `true` for a pre-release.
+    let releases: Vec<(bool, Release)> = list
         .iter()
-        .find(|r| r["tag_name"].as_str() == Some(tag.as_str()))
-        .map(date)
-        .filter(|d| !d.is_empty());
+        .filter(|r| !r["draft"].as_bool().unwrap_or(false))
+        .filter_map(|r| Some((r["prerelease"].as_bool().unwrap_or(false), release(r)?)))
+        .collect();
+    let stable = releases
+        .iter()
+        .find(|(pre, _)| !pre)
+        .map(|(_, r)| r.clone())
+        .ok_or("no published release")?;
+
+    let current = current.trim_start_matches('v').to_string();
+    let released = releases.iter().find(|(pre, r)| !pre && r.version == current).map(|(_, r)| r);
+    let beta_tag = format!("v{current}-beta");
+    let beta = releases.iter().find(|(pre, r)| *pre && r.tag == beta_tag).map(|(_, r)| r);
+
+    let mut latest = stable.clone();
+    let mut rebuilt = false;
+    let mut is_beta = false;
+    if let Some((commit, built)) = build {
+        match released {
+            // A release names its commit only since betas existed; before,
+            // it named the branch, and nothing can be said.
+            Some(r) if is_commit(&r.commit) && r.commit != commit => {
+                latest = r.clone();
+                rebuilt = true;
+                is_beta = true;
+            }
+            Some(_) => {}
+            None => {
+                is_beta = true;
+                if let Some(b) = beta.filter(|b| b.commit != commit && b.published.as_str() > built) {
+                    latest = b.clone();
+                    rebuilt = true;
+                }
+            }
+        }
+    }
+    // A newer version wins over any build of this one.
+    if newer(&stable.version, &current) {
+        latest = stable;
+        rebuilt = false;
+    }
+
     Ok(Update {
-        current: current.trim_start_matches('v').to_string(),
-        current_date,
+        current_date: released.map(|r| r.date.clone()).filter(|d| !d.is_empty()),
+        current,
         latest,
+        beta: is_beta,
+        built: build.filter(|_| is_beta).map(|(_, d)| d.chars().take(10).collect()),
+        rebuilt,
     })
+}
+
+/// A full commit hash, which is what a release made since betas names.
+fn is_commit(s: &str) -> bool {
+    s.len() == 40 && s.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 /// What the log says, one entry per line.
 pub fn message(u: &Update) -> Vec<String> {
-    let this = match &u.current_date {
-        Some(d) => format!("kalast v{} (released {d})", u.current),
-        None => format!("kalast v{}", u.current),
+    let this = match (&u.built, &u.current_date) {
+        (Some(d), _) => format!("kalast v{} beta (built {d})", u.current),
+        (None, Some(d)) => format!("kalast v{} (released {d})", u.current),
+        (None, None) if u.beta => format!("kalast v{} beta", u.current),
+        (None, None) => format!("kalast v{}", u.current),
     };
     if !u.newer() {
-        return vec![format!("{this} is the latest release.")];
+        let what = if u.beta { "beta" } else { "release" };
+        return vec![format!("{this} is the latest {what}.")];
     }
+    let available = if u.latest.tag.ends_with("-beta") {
+        format!("a newer beta of v{} (published {})", u.latest.version, u.latest.date)
+    } else {
+        format!("v{} available (released {})", u.latest.version, u.latest.date)
+    };
     let mut lines = vec![format!(
-        "{this} -> v{} available (released {}). The toolbar's \"update\" button installs it.",
-        u.latest.version, u.latest.date
+        "{this} -> {available}. The toolbar's \"update\" button installs it."
     )];
     lines.extend(u.latest.notes.lines().map(|l| format!("  {l}")));
     lines
@@ -408,6 +496,95 @@ mod tests {
         let u = parse(LIST, "0.1.0").unwrap();
         assert_eq!(u.current_date, None);
         assert_eq!(message(&u)[0].split(" ->").next().unwrap(), "kalast v0.1.0");
+    }
+
+    const A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    /// The beta of 0.5.10 built from B and published on the 26th; 0.5.9, made
+    /// before betas, the latest release and naming its branch.
+    const BETA: &str = r#"[
+      {"tag_name":"v0.5.10-beta","published_at":"2026-09-26T10:00:00Z","draft":false,"prerelease":true,
+       "target_commitish":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","body":"Pre-release of v0.5.10.",
+       "assets":[{"name":"kalast-v0.5.10-macos-arm64.tar.gz","browser_download_url":"https://x/b.tar.gz"}]},
+      {"tag_name":"v0.5.9","published_at":"2026-09-24T16:39:00Z","draft":false,"prerelease":false,
+       "target_commitish":"main","body":"- older","assets":[]}
+    ]"#;
+
+    /// 0.5.10 released from B on the 28th -- what the beta became.
+    const RELEASED: &str = r#"[
+      {"tag_name":"v0.5.10","published_at":"2026-09-28T09:00:00Z","draft":false,"prerelease":false,
+       "target_commitish":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","body":"- new","assets":[]},
+      {"tag_name":"v0.5.9","published_at":"2026-09-24T16:39:00Z","draft":false,"prerelease":false,
+       "target_commitish":"main","body":"- older","assets":[]}
+    ]"#;
+
+    #[test]
+    fn a_beta_is_offered_the_newer_beta_of_its_version() {
+        let u = parse_for(BETA, "0.5.10", Some((A, "2026-09-25T14:00:00Z"))).unwrap();
+        assert!(u.beta && u.rebuilt && u.newer());
+        assert_eq!(u.latest.tag, "v0.5.10-beta");
+        assert_eq!(u.latest.version, "0.5.10", "its archives are named for the version");
+        assert_eq!(
+            message(&u)[0],
+            "kalast v0.5.10 beta (built 2026-09-25) -> a newer beta of v0.5.10 (published 2026-09-26). The toolbar's \"update\" button installs it."
+        );
+    }
+
+    #[test]
+    fn the_beta_it_is_is_not_offered() {
+        let u = parse_for(BETA, "0.5.10", Some((B, "2026-09-26T09:40:00Z"))).unwrap();
+        assert!(u.beta && !u.newer());
+        assert_eq!(message(&u), vec!["kalast v0.5.10 beta (built 2026-09-26) is the latest beta."]);
+    }
+
+    /// Another commit, but made after that beta was published: not newer.
+    #[test]
+    fn a_beta_published_before_this_build_is_not_offered() {
+        let u = parse_for(BETA, "0.5.10", Some((A, "2026-09-27T08:00:00Z"))).unwrap();
+        assert!(u.beta && !u.newer());
+    }
+
+    #[test]
+    fn a_beta_is_offered_the_release_its_version_became() {
+        let u = parse_for(RELEASED, "0.5.10", Some((A, "2026-09-25T14:00:00Z"))).unwrap();
+        assert!(u.beta && u.rebuilt && u.newer());
+        assert_eq!(u.latest.tag, "v0.5.10");
+        assert_eq!(
+            message(&u)[0],
+            "kalast v0.5.10 beta (built 2026-09-25) -> v0.5.10 available (released 2026-09-28). The toolbar's \"update\" button installs it."
+        );
+    }
+
+    /// The last beta's bundle is the release's: same commit, nothing to do.
+    #[test]
+    fn the_release_is_not_offered_to_the_beta_it_was_made_from() {
+        let u = parse_for(RELEASED, "0.5.10", Some((B, "2026-09-26T09:40:00Z"))).unwrap();
+        assert!(!u.beta && !u.newer());
+        assert_eq!(message(&u), vec!["kalast v0.5.10 (released 2026-09-28) is the latest release."]);
+    }
+
+    #[test]
+    fn a_newer_version_wins_over_a_newer_beta() {
+        let list = BETA.replacen(
+            "[",
+            r#"[{"tag_name":"v0.5.11","published_at":"2026-10-01T09:00:00Z","draft":false,"prerelease":false,
+                "target_commitish":"cccccccccccccccccccccccccccccccccccccccc","body":"- newer","assets":[]},"#,
+            1,
+        );
+        let u = parse_for(&list, "0.5.10", Some((A, "2026-09-25T14:00:00Z"))).unwrap();
+        assert!(u.newer() && !u.rebuilt);
+        assert_eq!(u.latest.tag, "v0.5.11");
+    }
+
+    /// Every build but a release bundle's, and every other version: the
+    /// betas are not there for them.
+    #[test]
+    fn betas_are_offered_to_no_one_else() {
+        assert!(!parse_for(BETA, "0.5.10", None).unwrap().newer(), "a build that knows no commit");
+        let old = parse_for(BETA, "0.5.9", Some((A, "2026-09-20T00:00:00Z"))).unwrap();
+        assert!(!old.newer() && !old.beta, "0.5.9 is its release, named for a branch");
+        assert_eq!(old.latest.tag, "v0.5.9");
     }
 
     #[test]

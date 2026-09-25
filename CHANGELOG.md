@@ -5,16 +5,34 @@ nothing else, and it is written for the people who *use* kalast: what
 changed for them. Release engineering, CI and internal refactors do not
 belong here. The version gate refuses a tag whose section is missing or has
 no entries, and the section is approved by a person before the tag is
-pushed. `## Unreleased` collects the entries between versions; the bump
-renames it.
+pushed. While betas of a version go out, its section is headed
+`## v<version>-beta`; it becomes `## v<version>` when the version is
+released, and the gate refuses the tag until it has.
 
-## v0.5.10
+## v0.5.10-beta
 
-- The UI app's log panel has two tabs: **script**, with what the script prints -- `print`, tracebacks, `app.log` -- and **kalast**, with what kalast says about itself -- loading, the update check, builds -- so the second no longer lands in the middle of the first. Everything still goes on to the terminal.
+- The UI app's log panel has two tabs: **kalast**, shown first, with what kalast says about itself -- loading, the update check, builds -- and **script**, with what the script prints -- `print`, tracebacks, `app.log` -- so the first no longer lands in the middle of the second. Everything still goes on to the terminal.
+- A plane view from the navigation gizmo -- or any orthographic camera -- holds still while the bodies move, as the perspective view does: on the Didymos pair it panned and zoomed with Dimorphos's orbit. Switching between perspective and orthographic keeps the size of what is at the camera's anchor.
+- The log's kalast tab says when the simulation pauses and when it runs again, and at which iteration, whether by `P`, the Play, Pause and Step buttons, `pause_after_iteration` or the script.
+- `app.simulation.state.pause_at` is now `pause_after_iteration`, one less: `pause_after_iteration = 0` pauses once iteration 0 has run, as the log says. `pause_at` still works in this version, with a deprecation warning.
+- The deprecation warnings for old names -- `load_mesh(flatten=...)` and the flat config names such as `config.debug_window` -- now show, on the script's line. Python hid them by default, so a script using an old name was never told.
+- A log tab you are not looking at shows a small dot when new lines come into it.
+- The log panel keeps its height when switching tabs, and can be dragged taller than the text in it.
+- The UI app is laid out like VS Code, its panels in rounded cards. The middle shows the **renderer** or the **editor** (the script), chosen with two buttons at the start of the toolbar, so folding the toolbar with `↑` leaves the scene alone; Play or Restart switch back to the renderer. A panel's edge lights up when it can be dragged. The side panel on the right has three: **app** (the app's settings), **simulation** and **files**, the folder kalast was started in as a tree, which is where a script or a mesh is opened now, with a click -- over unsaved edits it asks first. The toolbar names the open file, with **save** beside it, and the editor fills the middle. The script panel on the left is gone, with its open button and path field, and with it what `←` and `app.config.script_folded` did.
+- The log has a **python** tab: a Python console whose lines run between frames among the running script's variables, `app` included, so a paused scene can be inspected and changed -- while a script runs its own loop too. `Tab` completes names and attributes, and `↑` and `↓` recall earlier lines.
+- `help(body)` explains a body's `mat` and `mesh`.
+- Printing `app.simulation` or a mesh shows a one-line summary -- bodies, facets, iteration -- instead of every vertex, which froze the UI app on a full-resolution model.
+- `Cmd` + `Q` quits the UI app whatever it is doing -- it did nothing while a script was loaded -- and asks first over an edited script.
+- Running another script, or opening a mesh, in the UI app starts from a new renderer. The last script's meshes were still drawn for the new bodies when there were as many, its `before_render`/`after_render` kept running, and its config, camera, selection and export carried over. Playing the same script again keeps the config, so changes made in the panel stay.
+- The UI app's panels are drawn in Catppuccin Mocha; `app.config.theme = "dark"` gives egui's dark theme instead. The scene and its background are not affected.
+- The theme and fullscreen are remembered between sessions when changed in the UI app -- the app tab, `F`, the green button -- in `settings.toml` in your user configuration folder. A script that sets them changes nothing remembered.
+- Clicking a facet of a finely resolved shape model in kilometres -- Dimorphos at full resolution -- selects it: the click went through to Didymos behind. The same fix applies to `kalast.mesh.intersect_mesh` and `pick_facet`.
+- Each line in the log panel shows the time it was printed, to the millisecond, and each tab opens with a line saying when the UI app started, with kalast's version in the kalast tab.
 - What a script prints reaches the log from its first line, a script named on the command line included: those ran before the log was listening, and their `print` only reached the terminal. Printing a lot before the first frame no longer hangs the UI app.
 - `examples/crater_self_shadow/main.py` and `main.rs` drive their own loop, as `step.py` and `step.rs` did; the callback versions are now `fn.py` and `fn.rs`.
 - `examples/hera_didymos/afc.py` and `afc_eclip_didy.py` pause at the end of their date range instead of starting over, and `afc.py` no longer writes image positions: `examples/landmark_tracking/main.py` is the example for those.
 - `examples/README.md` describes every example, and the README links it beside the Python API, config and controls references.
+- Betas: between releases, the next version's bundles are published as the pre-release `v<version>-beta`, each replacing the last. A beta bundle's update button offers the newer beta, and then the release; nothing else is offered a beta.
 
 ## v0.5.9
 

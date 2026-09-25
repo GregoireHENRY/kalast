@@ -297,8 +297,15 @@ impl Simulation {
     pub fn reset(&mut self) {
         self.bodies.clear();
         self.huds.clear();
+        // The selection names facets of the bodies just cleared.
+        self.selected_facets.clear();
+        // And the window's buffers are theirs, to rebuild from the next
+        // bodies whatever their count. It went by the count alone, so a
+        // script loading as many bodies as the last was drawn with the last
+        // one's meshes, moved to its own bodies' places.
+        self.meshes_dirty = true;
         self.state.iteration = 0;
-        self.state.pause_at = None;
+        self.state.pause_after_iteration = None;
 
         self.export_once = false;
         self.facet_shadow_request = None;
@@ -309,6 +316,21 @@ impl Simulation {
         self.facet_pick_result = None;
         self.hemicube_request = None;
         self.hemicube_result = None;
+    }
+
+    /// The scene cleared as `reset` clears it, and the rest back to how a
+    /// new app has it: config, camera, Sun, clock, export. For a script other
+    /// than the last, which should not inherit its wireframe, its light cube
+    /// or its view. The config keeps its cell -- the panel and a script's
+    /// `app.simulation.config` hold it -- and is refilled.
+    pub fn renew(&mut self) {
+        self.reset();
+        let fresh = Self::new();
+        *self.config.borrow_mut() = fresh.config.borrow().clone();
+        self.camera = fresh.camera;
+        self.sun = fresh.sun;
+        self.state = fresh.state;
+        self.export = false;
     }
 
     pub fn update(&mut self) {
@@ -508,11 +530,13 @@ pub struct State {
     /// still moves -- but `before_render` and `after_render` are both skipped, so a
     /// script does not need its own check.
     pub is_paused: bool,
-    /// Pause automatically on reaching this iteration.
+    /// Pause automatically once this iteration has run: `Some(0)` holds the
+    /// run after its first, which the log says as "paused after iteration 0".
     ///
-    /// Also what `{nit}` reads in a HUD template, since it is the only thing that
-    /// tells the engine how long a run is meant to be.
-    pub pause_at: Option<usize>,
+    /// Plus one, also what `{nit}` reads in a HUD template -- the number of
+    /// iterations in the run -- since it is the only thing that tells the
+    /// engine how long a run is meant to be.
+    pub pause_after_iteration: Option<usize>,
     /// Cap the frame rate at `rate_limit`. Off, the loop runs as fast as it can.
     ///
     /// For watching something that otherwise flashes past -- a mutual event at
@@ -543,7 +567,7 @@ impl State {
         Self {
             iteration: 0,
             is_paused: false,
-            pause_at: None,
+            pause_after_iteration: None,
             rate_limited: false,
             rate_limit: 10.0,
             held: false,
@@ -617,17 +641,22 @@ impl State {
             return;
         }
 
+        let done = self.iteration;
         self.iteration += 1;
 
-        // `pause_at` was set in three places and enforced in none: the Step
+        // The mark was set in three places and enforced in none: the Step
         // button raised it and unpaused, and nothing ever paused again, so
         // Step ran on like Play. A HUD's `{nit}` read it the whole time.
         //
         // `==`, not `>=`: the counter moves one at a time, so exact is
         // enough, and it means Play after an automatic pause advances past
-        // the mark instead of stopping on it again. `pause_at` is left set,
-        // because `{nit}` uses it as the length of the run.
-        if self.pause_at == Some(self.iteration) {
+        // the mark instead of stopping on it again. It is left set, because
+        // `{nit}` uses it for the length of the run.
+        //
+        // Compared with the iteration that has just run, not the counter. It
+        // was `pause_at`, the counter to stop on, which read one ahead of the
+        // log: `pause_at = 1` was "paused after iteration 0".
+        if self.pause_after_iteration == Some(done) {
             self.is_paused = true;
         }
     }
@@ -642,6 +671,39 @@ impl State {
 #[cfg(test)]
 mod pause_tests {
     use super::*;
+
+    /// A reset leaves nothing of the last scene for the next to be drawn
+    /// with: the window rebuilds every body's buffers, whatever the count,
+    /// and no facet of the old bodies stays selected.
+    #[test]
+    fn a_reset_rebuilds_the_meshes_and_drops_the_selection() {
+        let mut sim = Simulation::new();
+        sim.load_mesh("res/cube.obj", crate::Mat4::IDENTITY, false);
+        sim.meshes_dirty = false;
+        sim.toggle_facet(0, 3, crate::Vec3::X);
+        sim.reset();
+        assert!(sim.meshes_dirty, "the window keeps the old meshes");
+        assert!(sim.selected_facets.is_empty(), "the old bodies' facets stay selected");
+    }
+
+    /// Another script starts from a new app's renderer: its config, camera,
+    /// Sun, clock and export -- the config refilled in its own cell, which
+    /// the panel and a script both hold.
+    #[test]
+    fn renew_is_a_new_apps_renderer() {
+        let mut sim = Simulation::new();
+        let held = sim.config.clone();
+        held.borrow_mut().wireframe.mode = 2;
+        sim.camera.pos = crate::Vec3::new(9.0, 9.0, 9.0);
+        sim.state.rate_limited = true;
+        sim.export = true;
+        sim.renew();
+        let fresh = Simulation::new();
+        assert_eq!(held.borrow().wireframe.mode, fresh.config.borrow().wireframe.mode, "config");
+        assert_eq!(sim.camera.pos, fresh.camera.pos, "camera");
+        assert!(!sim.state.rate_limited && !sim.export, "clock and export");
+        assert!(std::rc::Rc::ptr_eq(&held, &sim.config), "the same cell, refilled");
+    }
 
     /// The cap paces the frame itself: one that comes early waits for its
     /// turn; one a little late goes at once and the schedule holds, so the
@@ -738,22 +800,22 @@ mod pause_tests {
         );
     }
 
-    /// `pause_at` used to be set and never acted on, which made Step behave
-    /// as Play.
+    /// The pause mark used to be set and never acted on, which made Step
+    /// behave as Play.
     #[test]
-    fn pause_at_stops_the_counter_and_step_advances_exactly_one() {
+    fn pause_after_iteration_stops_the_counter_and_step_advances_exactly_one() {
         let mut sim = Simulation::new();
-        sim.state.pause_at = Some(3);
+        sim.state.pause_after_iteration = Some(2);
 
         for _ in 0..10 {
             sim.update();
         }
-        assert_eq!(sim.state.iteration, 3, "must stop on the mark");
+        assert_eq!(sim.state.iteration, 3, "must stop once iteration 2 has run");
         assert!(sim.state.is_paused);
 
         // What the Step button does: one more iteration, then hold again.
         sim.state.is_paused = false;
-        sim.state.pause_at = Some(sim.state.iteration + 1);
+        sim.state.pause_after_iteration = Some(sim.state.iteration);
         for _ in 0..10 {
             sim.update();
         }
@@ -765,7 +827,7 @@ mod pause_tests {
     #[test]
     fn resuming_advances_past_the_mark() {
         let mut sim = Simulation::new();
-        sim.state.pause_at = Some(2);
+        sim.state.pause_after_iteration = Some(1);
         for _ in 0..5 {
             sim.update();
         }
@@ -775,7 +837,7 @@ mod pause_tests {
         for _ in 0..5 {
             sim.update();
         }
-        assert_eq!(sim.state.iteration, 7, "Play carries on past `pause_at`");
+        assert_eq!(sim.state.iteration, 7, "Play carries on past the mark");
         assert!(!sim.state.is_paused);
     }
 }

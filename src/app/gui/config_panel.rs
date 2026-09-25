@@ -325,8 +325,16 @@ pub fn group_app(ui: &mut egui::Ui, a: &mut AppConfig) {
     ui.checkbox(&mut a.panels_folded, "panels_folded").on_hover_text("Fold the editor's panels to the window edges; `N` toggles it.");
     ui.checkbox(&mut a.toolbar_folded, "toolbar_folded").on_hover_text("Fold the toolbar, the top panel, or bring it back; `↑` toggles it.");
     ui.checkbox(&mut a.log_folded, "log_folded").on_hover_text("Fold the log, the bottom panel, or bring it back; `↓` toggles it.");
-    ui.checkbox(&mut a.script_folded, "script_folded").on_hover_text("Fold the script panel, on the left, or bring it back; `←` toggles it.");
-    ui.checkbox(&mut a.simulation_folded, "simulation_folded").on_hover_text("Fold the simulation panel, on the right, or bring it back; `→` toggles it.");
+    ui.checkbox(&mut a.simulation_folded, "simulation_folded").on_hover_text("Fold the side panel, on the right -- app, simulation and files -- or bring it back; `→` toggles it.");
+    ui.horizontal(|ui| {
+        ui.label("theme").on_hover_text("The colours of the UI app's panels: `\"catppuccin-mocha\"`, the default, or `\"dark\"`, egui's own.");
+        egui::ComboBox::from_id_salt("a.theme")
+            .selected_text(format!("{:?}", a.theme))
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut a.theme, crate::app::config::UiTheme::CatppuccinMocha, "CatppuccinMocha");
+                ui.selectable_value(&mut a.theme, crate::app::config::UiTheme::Dark, "Dark");
+            });
+    });
     ui.add(egui::DragValue::new(&mut a.width).speed(1.0).prefix("window width  ")).on_hover_text("Window size in physical pixels.");
     ui.add(egui::DragValue::new(&mut a.height).speed(1.0).prefix("window height  "));
     ui.horizontal(|ui| {

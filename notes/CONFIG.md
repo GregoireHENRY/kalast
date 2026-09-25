@@ -21,14 +21,16 @@ and writes the same config as every other view, so
 did. The old flat names still work for one release, with a `DeprecationWarning`
 naming the new path; `tools/config_renames.py` is the table.
 
-**Every option in this document has a widget in the editor's right-hand
-panel, under its topic**,
+**Every option in this document has a widget in the editor's side panel,
+under its topic** -- `app.config` in its app tab, the rest in its simulation
+tab --
 and that is guaranteed rather than kept up by hand: `src/app/gui/config_panel.rs`
 is generated from `src/app/config.rs`, and `tests/test_config_panel.py` fails
-if a field has no widget. Add an option and it appears in the panel. The two
+if a field has no widget. Add an option and it appears in the panel. The
 exceptions are marked `:skip:` in the Rust and say why in their entry here --
-`data.colormap`, which is an array a script passes, and `app.config.editor`, a
-checkbox that would switch the UI off from inside the UI.
+`data.colormap`, which is an array a script passes; `app.config.editor`, a
+checkbox that would switch the UI off from inside the UI; and
+`app.config.script_folded`, which no longer does anything.
 
 The reverse is not true of the rest of the API: see **What the panel reaches**
 in `API.md` for what the editor does *not* get to.
@@ -60,12 +62,12 @@ nothing else. Set both for an immersive fullscreen.
 
 
 ### `app.config.panels_folded: bool` — default `False` *(live)*
-Fold the editor's four docked panels — toolbar, script, simulation, log — to
-their window edges, or bring them all back. What the `N` key toggles; set it
+Fold the editor's three docked panels — toolbar, side panel, log — to their
+window edges, or bring them all back. What the `N` key toggles; set it
 before `start()` to open the editor folded. Each folded panel keeps egui's
 thin handle at its edge and can be dragged or double-clicked back out on its
 own, an arrow key folds or unfolds the one on that edge, and the field
-follows the panels: it reads `True` only while all four are folded, so
+follows the panels: it reads `True` only while all three are folded, so
 bringing one out clears it and `N` then folds everything again.
 
 The halfway house between the full layout and `app.config.focus`: the space
@@ -77,7 +79,7 @@ Accepted: `True` / `False`.
 Fold the toolbar, the top panel, or bring it back: what `↑` toggles. Written
 back every frame, so it reads `True` while the toolbar is folded however it
 got there -- this field, the key, a drag on its edge, or `panels_folded`.
-One field per panel; `panels_folded` is all four at once.
+One field per panel; `panels_folded` is all three at once.
 Accepted: `True` / `False`.
 
 ### `app.config.log_folded: bool` — default `False` *(live)*
@@ -85,15 +87,23 @@ The log, the bottom panel: what `↓` toggles. Live and written back, like
 `toolbar_folded`.
 Accepted: `True` / `False`.
 
-### `app.config.script_folded: bool` — default `False` *(live)*
-The script panel, on the left: what `←` toggles. Live and written back, like
-`toolbar_folded`.
+### `app.config.script_folded: bool` — default `False`
+Does nothing now: the script is the middle's editor tab, and the left edge has
+no panel. Kept so a script that sets it still runs; no widget.
 Accepted: `True` / `False`.
 
 ### `app.config.simulation_folded: bool` — default `False` *(live)*
-The simulation panel, on the right: what `→` toggles. Live and written back,
-like `toolbar_folded`.
+The side panel, on the right -- app, simulation and files tabs: what `→`
+toggles. Live and written back, like `toolbar_folded`.
 Accepted: `True` / `False`.
+
+### `app.config.theme: str` — default `"catppuccin-mocha"` *(live, remembered)*
+The colours of the UI app's panels: `"catppuccin-mocha"`, the default, or
+`"dark"`, egui's own dark theme, whatever the system's appearance. The panels only: the scene,
+its background included, is drawn by the renderer and shown as an image no
+theme tints, so a frame looks the same under either, on screen and exported.
+Accepted: `"catppuccin-mocha"` (also `"mocha"`), `"dark"`; the app tab's
+combo box. Remembered by the UI app when changed there, as `fullscreen` is.
 
 ### `app.config.open_in_background: bool` — default `False` *(startup only)*
 Open the window **without taking focus**, so a run can go on beside other work.
@@ -174,6 +184,14 @@ folder by folder, a pip install runs `pip install --upgrade`, a source
 checkout is told to pull -- then becomes **restart**, which starts kalast
 again on the new version with the same command line. Nothing restarts on its
 own. Up to date, the log says so in one line; unreachable, it says nothing.
+The lines go to the log's kalast tab.
+
+A beta bundle -- one from the pre-release `v<version>-beta` -- is offered the
+newer beta of its version, and then that version's release. It knows which
+commit it was built from and when, and a beta on GitHub is newer when it was
+built from another commit and published after that date; the release, when
+it was made from another commit. The last beta's bundle is the release's, so
+it is offered nothing. Pre-releases are offered to nothing else.
 
 `kalast --update` (or `python -m kalast --update`) does the same from a
 terminal. `KALAST_UPDATE_PRETEND=0.5.4` makes this copy claim that version,
@@ -463,8 +481,17 @@ texel copy; the export still gets the full pinned frame. Export buffers are
 pooled by byte size, and stale-sized ones are discarded when this changes
 (`src/app/gpu.rs`, the `pool_rx.try_recv()` loop in `export_frame`).
 
-### `app.config.fullscreen: bool` — default `false` *(live)*
+### `app.config.fullscreen: bool` — default `false` *(live, remembered)*
 Fill the screen. Accepted: `True` / `False`.
+
+**The UI app remembers it**, with `theme`: a change made in the app -- `F`,
+the green button, the app tab's checkbox -- is saved to `settings.toml` in the
+user's configuration folder (`~/Library/Application Support/kalast/` on macOS,
+`~/.config/kalast/` on Linux, `%APPDATA%\kalast\` on Windows; or wherever
+`KALAST_SETTINGS` names), and the next UI app opens with it. Read before a
+script runs, so a script that sets it still has the last word, and a script's
+change is never saved. A window opened with `open_in_background` does not go
+fullscreen, whatever is remembered.
 
 On macOS this is the **simple** fullscreen — the pre-Lion kind, the one
 Electron gives VS Code. The window grows to cover the screen, menu bar
@@ -757,7 +784,7 @@ is there.
 |---|---|
 | `{it}` | iteration count, `sim.state.iteration` |
 | `{drawn}` | the iteration the frame **on screen** was drawn for |
-| `{nit}` | `sim.state.pause_at` if set, else `?` |
+| `{nit}` | the run's length, `sim.state.pause_after_iteration + 1`, if set, else `?` |
 | `{its}` | iterations per second; `0` while paused |
 | `{fps}` | frames per second |
 | `{ms}` | **frame time in milliseconds**, i.e. `1000 / fps` |
@@ -793,7 +820,7 @@ iterations have been *begun* and `{drawn}` is the one you are looking at. While
 paused they differ too -- the counter has already stepped past what is on
 screen, and `{drawn}` stays on the last frame that advanced.
 
-`{nit}` reads `?` rather than a number when nothing has set `pause_at`, because
+`{nit}` reads `?` rather than a number when nothing has set `pause_after_iteration`, because
 the engine genuinely does not know how long your run is. `{its}` and `{fps}`
 differ **only** while paused: `P` stops the iteration counter but not the
 render loop, so reporting the frame rate as an iteration rate would be false.

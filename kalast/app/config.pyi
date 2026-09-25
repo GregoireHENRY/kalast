@@ -77,7 +77,7 @@ class AppConfig:
     to size, by double clicking its title bar or dragging a corner -- but
     on what is inside it. A focused renderer looks like a plain render
     window, with the panels a pointer-flick away: top for the toolbar,
-    left for the script, right for the config, bottom for the log.
+    right for the side panel, bottom for the log.
 
     Independent of `simulation.config.fullscreen`, which is the OS window
     and nothing else. Set both to be rid of everything at once; set this
@@ -86,10 +86,10 @@ class AppConfig:
     panels_folded: bool
     """Fold the editor's panels to the window edges; `N` toggles it.
 
-    Toolbar, script, simulation and log fold to their edges and come back
+    Toolbar, side panel and log fold to their edges and come back
     together; each keeps egui's thin handle, so one can be dragged or
     double-clicked back out on its own, and an arrow key folds or unfolds
-    the panel on that edge. Reads `true` only while all four are folded,
+    the panel on that edge. Reads `true` only while all three are folded,
     so bringing one out clears it. The halfway house between the full
     layout and `focus`, which hides everything and reveals on hover. Set
     before `start()` to open the editor folded.
@@ -99,7 +99,7 @@ class AppConfig:
 
     Live, and written back: reads `true` while the toolbar is folded,
     however it got there -- this field, the key, a drag on its edge, or
-    `panels_folded`. One per panel; `panels_folded` is all four at once.
+    `panels_folded`. One per panel; `panels_folded` is all three at once.
     """
     log_folded: bool
     """Fold the log, the bottom panel, or bring it back; `↓` toggles it.
@@ -107,15 +107,25 @@ class AppConfig:
     Live and written back, like `toolbar_folded`.
     """
     script_folded: bool
-    """Fold the script panel, on the left, or bring it back; `←` toggles it.
+    """Does nothing now: the script is the middle's editor tab, and the left
+    edge has no panel to fold. Kept so a script that sets it still runs.
+
+    No widget: a checkbox that does nothing is worse than none.
+    """
+    simulation_folded: bool
+    """Fold the side panel, on the right -- app, simulation and files -- or
+    bring it back; `→` toggles it.
 
     Live and written back, like `toolbar_folded`.
     """
-    simulation_folded: bool
-    """Fold the simulation panel, on the right, or bring it back; `→`
-    toggles it.
+    theme: str
+    """The colours of the UI app's panels: `"catppuccin-mocha"`, the default,
+    or `"dark"`, egui's own.
 
-    Live and written back, like `toolbar_folded`.
+    The panels only. The scene -- its background included -- is drawn by
+    the renderer from `app.simulation.config` and shown as an image no
+    theme tints, so a frame looks the same under either, on screen and
+    exported.
     """
     open_in_background: bool
     """Open the window without taking focus, so a run can go on beside

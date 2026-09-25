@@ -65,12 +65,13 @@ app.start()                   # blocks until the window closes
 | `app.running` | whether the window is still open |
 
 **`print` reaches the log panel, in its own tab.** In the UI app the log has
-two tabs, and everything also goes on to the terminal:
+two tabs, kalast's shown first, and everything also goes on to the terminal:
 
 | tab | what |
 |---|---|
+| kalast | everything on stdout and stderr that is not the script's: loading, the update check, cargo builds, `debug_*` output, C libraries -- and `paused after iteration N` and `resumed at iteration N` whenever the simulation pauses or runs again |
 | script | the script's `print` and tracebacks -- `sys.stdout` and `sys.stderr` -- and `app.log(line)`, which writes to the panel alone |
-| kalast | everything else on stdout and stderr: loading, the update check, cargo builds, `debug_*` output, C libraries |
+| python | a Python console: each line runs between frames among the running script's variables, and what it prints lands here -- see `CONTROLS.md` |
 
 They are split a level up: the engine's output and a script's `print` are
 the same bytes on descriptor 1, so the UI app replaces `sys.stdout` and
@@ -81,7 +82,15 @@ thread empties the descriptors' pipe, so printing a lot before the first
 frame does not block. A Rust example's `println!` is indistinguishable from
 the engine's and lands in the kalast tab -- `app.log` reaches the script tab
 from Rust. Windows has no descriptor capture, so its kalast tab shows only
-what kalast writes to the panel itself, the update check.
+what kalast writes to the panel itself, the update check and the pauses.
+
+Each line shows the local time it was written, to the millisecond,
+`17:42:10.123`, dimmed in front of it -- the time it was printed, not the
+frame that showed it. Each tab opens on a line saying when the UI app
+started: `17:42:10.123 kalast v0.5.10 started` in the kalast tab,
+`17:42:10.123 script log started` in the script tab. The terminal's copy has
+no stamps. The tab not shown gets a small dot while lines have come into it
+that it has not shown.
 
 Two configs, and `width`/`height` exist on both without meaning the same
 thing: `app.config.width` is the OS window, `app.simulation.config.image.width` is
@@ -439,7 +448,7 @@ are what that loop is built from, and what a custom launcher would use:
 | `set_script(path, source)` | load a script into the panel without running it |
 | `run_script()` | Play: build the scene and start |
 | `restart_script()` | Restart: rebuild and hold at the start |
-| `open_script()` | read the file named in the panel's path field |
+| `open_script()` | read the file at `script_path`, as a click in the files tab does |
 | `take_script_request()` | `(path, source, paused)` when a button asked for a run, else `None`; clears it |
 | `script_requested` | the same, as a peek that does not clear |
 | `script_runner` | the callable the launcher installs to execute a script |
@@ -449,7 +458,7 @@ are what that loop is built from, and what a custom launcher would use:
 | `flush_output` | push buffered output into it; `atexit` calls this |
 | `pointer` | where the UI last saw the pointer, in egui points, or `None` |
 | `ui_size` | the size that is measured against |
-| `panels_shown` | `(top, bottom, left, right)` — all four normally, only the summoned ones in `focus` |
+| `panels_shown` | `(top, bottom, left, right)` — all but `left` normally, which has held nothing since the script became the editor tab; only the summoned ones in `focus` |
 
 `pointer` is `None` for an unfocused window on macOS, which delivers
 mouse-moved events only to the front application.
@@ -588,13 +597,14 @@ the callback returns.
 |---|---|
 | `iteration` | frames advanced so far; readable and writable |
 | `is_paused` | `P` toggles it; readable and writable |
-| `pause_at` | `int` or `None` — stop at this iteration |
+| `pause_after_iteration` | `int` or `None` — pause once this iteration has run: `0` holds the run after its first, which the log calls "paused after iteration 0". `pause_at`, one more, is the old name, accepted for a release with a `DeprecationWarning` |
 | `rate_limited` | `bool` — cap the frame rate at `rate_limit`: the frame waits for its turn, and since one step is one frame the iteration rate is the same number. A paused run is not paced. The Run header's checkbox |
 | `rate_limit` | `float`, frames per second while `rate_limited`; kept while the cap is off. The Run header's slider |
 | `toggle_pause()` | flips `is_paused`, returns the new value |
 
-`pause_at` is also what `{nit}` reads in a HUD template, since it is the only
-thing that tells the engine how long a run is meant to be.
+`pause_after_iteration` plus one is also what `{nit}` reads in a HUD
+template -- the number of iterations in the run -- since it is the only thing
+that tells the engine how long a run is meant to be.
 
 ## `sim.huds`
 

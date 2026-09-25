@@ -6,6 +6,21 @@ import numpy  # noqa: F401
 from kalast.mesh import Mesh
 
 class Body:
+    """One body of the scene: where it is, `mat`, and its shape model, `mesh`.
+
+    A handle onto the live scene rather than a copy, so what is written
+    through it moves the body from the next frame. The mesh has the rest --
+    facets, positions, colours, per-facet data: `help(body.mesh)`.
+    """
     mat: numpy.ndarray
+    """The model matrix, 4x4, from the body's own frame to the world's.
+
+    A view onto the live matrix, so `body.mat[:3, 3] = p` moves the body
+    and `body.mat[:3, :3] = r` turns it; a whole 4x4 can be assigned too.
+    """
     mesh: Mesh | None
+    """The shape model the renderer draws, or `None` for a body without
+    one: facets, positions, colours and per-facet data --
+    `help(body.mesh)` for all of it.
+    """
 

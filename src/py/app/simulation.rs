@@ -27,7 +27,9 @@ impl Simulation {
     /// twice.
     ///
     /// The config survives, deliberately: it is what the script sets on its
-    /// way through *and* what the panel edits by hand.
+    /// way through *and* what the panel edits by hand. Running a *different*
+    /// script in the UI app starts from a new app's config, camera and Sun
+    /// as well.
     fn reset(&self) {
         self.inner.borrow_mut().reset();
     }
@@ -135,7 +137,8 @@ impl Simulation {
                     &py.get_type::<pyo3::exceptions::PyDeprecationWarning>(),
                     c"load_mesh(flatten=...) is deprecated: meshes load flat by default; \
                       pass smooth=True to keep the file's shared vertices",
-                    2,
+                    // The script's line; see `warn_pause_at`.
+                    1,
                 )?;
                 !flat
             }
@@ -659,14 +662,41 @@ impl Simulation {
         Some((arr, numpy::PyArray1::from_slice(py, offsets)))
     }
 
+    /// A summary, not the scene: the full `Debug` carried every mesh, and
+    /// printing `app.simulation` froze the UI app on a full-resolution model.
     fn __repr__(&self) -> String {
-        format!("{:?}", self.inner.borrow())
+        let sim = self.inner.borrow();
+        let facets: usize = sim
+            .bodies
+            .iter()
+            .filter_map(|b| b.mesh.as_ref().map(|m| m.borrow().facets.len()))
+            .sum();
+        format!(
+            "Simulation({} bodies, {} facets, iteration {}{})",
+            sim.bodies.len(),
+            facets,
+            sim.state.iteration,
+            if sim.state.is_paused { ", paused" } else { "" },
+        )
     }
 }
 
 #[pyclass(unsendable)]
 pub struct State {
     pub simulation: Rc<RefCell<crate::app::simulation::Simulation>>,
+}
+
+/// `state.pause_at` became `pause_after_iteration`, one less, on 25 September.
+fn warn_pause_at(py: Python<'_>) -> PyResult<()> {
+    PyErr::warn(
+        py,
+        &py.get_type::<pyo3::exceptions::PyDeprecationWarning>(),
+        c"state.pause_at is deprecated: use state.pause_after_iteration, which is one less",
+        // The script's line: a Rust call has no frame of its own, so 2 is the
+        // caller's caller -- `<sys>` for a script's top level, which the
+        // default filters then hide.
+        1,
+    )
 }
 
 #[pymethods]
@@ -691,14 +721,35 @@ impl State {
         self.simulation.borrow_mut().state.is_paused = is_paused;
     }
 
+    /// Pause once this iteration has run, or `None` to run on: `0` holds the
+    /// run after its first. Plus one, it is what `{nit}` in a HUD reads, the
+    /// length of the run.
     #[getter]
-    fn pause_at(&self) -> Option<usize> {
-        self.simulation.borrow().state.pause_at
+    fn pause_after_iteration(&self) -> Option<usize> {
+        self.simulation.borrow().state.pause_after_iteration
     }
 
     #[setter]
-    fn set_pause_at(&mut self, pause_at: Option<usize>) {
-        self.simulation.borrow_mut().state.pause_at = pause_at;
+    fn set_pause_after_iteration(&mut self, iteration: Option<usize>) {
+        self.simulation.borrow_mut().state.pause_after_iteration = iteration;
+    }
+
+    /// The old spelling, one more: `pause_at = n` is `pause_after_iteration
+    /// = n - 1`. Accepted for a release with a `DeprecationWarning`.
+    #[getter]
+    fn pause_at(&self, py: Python<'_>) -> PyResult<Option<usize>> {
+        warn_pause_at(py)?;
+        Ok(self.simulation.borrow().state.pause_after_iteration.map(|n| n + 1))
+    }
+
+    #[setter]
+    fn set_pause_at(&mut self, py: Python<'_>, pause_at: Option<usize>) -> PyResult<()> {
+        warn_pause_at(py)?;
+        // `pause_at = 0` never fired: the counter had left 0 before it was
+        // compared.
+        self.simulation.borrow_mut().state.pause_after_iteration =
+            pause_at.and_then(|n| n.checked_sub(1));
+        Ok(())
     }
 
     /// Cap the frame rate at `rate_limit`; off runs as fast as it can. One step

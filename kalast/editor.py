@@ -17,7 +17,12 @@ frames, so its loop nests inside the editor's rather than fighting it.
 """
 
 import atexit
+import builtins
+import code
+import inspect
 import io
+import keyword
+import re
 import sys
 import traceback
 import types
@@ -25,7 +30,20 @@ from typing import Any, Callable
 
 import kalast
 import kalast.app
+from kalast._rs.app._core import console_offer as _console_offer
+from kalast._rs.app._core import console_set_more as _console_set_more
+from kalast._rs.app._core import console_take as _console_take
+from kalast._rs.app._core import console_take_completion as _console_take_completion
+from kalast._rs.app._core import console_write as _console_write
 from kalast._rs.app._core import script_write as _script_write
+
+# The namespace of the script running now, for the console to read and write:
+# `app` and whatever the script defined. `None` until a script has run.
+_script_globals: dict[str, Any] | None = None
+# The console's namespace before any script has run.
+_idle_globals: dict[str, Any] | None = None
+# Its interpreter, made again when the namespace changes.
+_console: code.InteractiveConsole | None = None
 
 
 class _EditorApp:
@@ -56,10 +74,18 @@ class _EditorApp:
     def close(self) -> None:
         pass
 
-    # `step` is deliberately *not* overridden: a driven script keeps its own
-    # loop here, exactly as it has from a terminal.
-    #
-    # It briefly could not. The engine's loop used to be entered through
+    def step(self) -> bool:
+        # A driven script keeps its own loop here, exactly as it has from a
+        # terminal; this only adds what the editor's loop would have done
+        # between two frames, and cannot while the script holds it: run the
+        # lines typed at the console. Without it the python tab did nothing
+        # for as long as a script like `didymos/main.py` was looping.
+        app = object.__getattribute__(self, "_app")
+        alive = app.step()
+        serve_console(app)
+        return alive
+
+    # A driven script briefly could not step here at all. The engine's loop used to be entered through
     # `inner.borrow_mut()` held for the whole session, so a script calling
     # back into the app hit an already-borrowed `RefCell`; this class raised
     # instead, blaming the frame. The frame was never the problem -- a script
@@ -161,6 +187,9 @@ class _ScriptApp:
         alive = app.step()
         if app.script_requested:
             raise _Restart
+        # The editor's loop is waiting on this one, so lines typed at the
+        # console are run here, between this script's frames.
+        serve_console(app)
         return alive
 
     def start(self) -> None:
@@ -184,10 +213,12 @@ def run_toplevel(app: Any, source: str, path: str) -> None:
     `App()` still hands back the live app, so the script does not build a
     second one and lose the editor settings already applied to this one.
     """
+    global _script_globals
     module = types.ModuleType("__kalast_script__")
     module.__file__ = path or "<script>"
     module.__name__ = "__main__"
     module.__dict__["kalast"] = kalast
+    _script_globals = module.__dict__
 
     proxy = _ScriptApp(app)
 
@@ -226,10 +257,12 @@ def make_runner() -> Callable[[Any, str, str], None]:
         # Its own module, so the script gets a clean namespace that does not
         # leak into the next run, and `__name__ == "__main__"` holds -- which
         # is what an example guards on, and unmodified examples are the point.
+        global _script_globals
         module = types.ModuleType("__kalast_script__")
         module.__file__ = path or "<editor>"
         module.__name__ = "__main__"
         module.__dict__["kalast"] = kalast
+        _script_globals = module.__dict__
 
         # Patched on the real module, so both `from kalast.app import App` and
         # `kalast.app.App()` resolve to the live app. Restored afterwards:
@@ -246,3 +279,125 @@ def make_runner() -> Callable[[Any, str, str], None]:
             kalast.app.App = real_app_cls
 
     return run
+
+
+class _ConsoleStream(io.TextIOBase):
+    """`sys.stdout` and `sys.stderr` while a console line runs: the python tab."""
+
+    def write(self, text: str) -> int:
+        _console_write(text)
+        return len(text)
+
+    def writable(self) -> bool:
+        return True
+
+
+def console_push(app: Any, line: str) -> None:
+    """Run one line typed at the log's python tab, as `python` itself would.
+
+    Between frames, so what it changes is drawn by the next one -- which is
+    how a paused scene is looked at and moved about. Among the running
+    script's variables, `app` one of them; before any script, `app` and
+    `kalast`. An expression's value is printed, a line opening a block waits
+    for the rest of it, and an empty line closes it: `code.InteractiveConsole`.
+
+    Not something a script calls: the loop does, for each line typed.
+    """
+    global _console
+    namespace = _console_namespace(app)
+    if _console is None or _console.locals is not namespace:
+        _console = code.InteractiveConsole(locals=namespace)
+
+    _console_write(("... " if _console.buffer else ">>> ") + line + "\n")
+    out, err = sys.stdout, sys.stderr
+    sys.stdout = sys.stderr = _ConsoleStream()
+    try:
+        more = _console.push(line)
+    except SystemExit:
+        # `exit()` would take the window with it, mid-frame.
+        _console.resetbuffer()
+        more = False
+        _console_write("exit() does not apply here: close the window to quit\n")
+    finally:
+        sys.stdout, sys.stderr = out, err
+    _console_set_more(more)
+
+
+def _console_namespace(app: Any) -> dict[str, Any]:
+    """The running script's variables, or before any script `app` and `kalast`."""
+    global _idle_globals
+    if _script_globals is not None:
+        return _script_globals
+    if _idle_globals is None:
+        _idle_globals = {"app": app, "kalast": kalast, "__name__": "__console__"}
+    return _idle_globals
+
+
+# What ends the word Tab completes -- readline's delimiters. Not `.`, so
+# `m.me` is one word: an attribute of `m`.
+_DELIMS = " \t\n`~!@#$%^&*()-=+[{]}\\|;:'\",<>/?"
+_DOTTED = re.compile(r"([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\.(\w*)$")
+
+
+def console_complete(namespace: dict[str, Any], line: str) -> tuple[str, list[str]]:
+    """What Tab offers for `line`: the part before the word being typed, and
+    that word's completions, as Python's own `rlcompleter` would give them.
+
+    Two differences. An attribute's value is not fetched to see whether it
+    is callable -- `inspect.getattr_static` says so from the class -- so a
+    property is never run: `m.` on a 3.1M-facet mesh would otherwise copy
+    its arrays to decide a `(`. And as there, only a dotted name is looked
+    into -- `a.b.` but not `f().` -- so a Tab never calls anything.
+    """
+    start = max(line.rfind(d) for d in _DELIMS) + 1
+    head, word = line[:start], line[start:]
+
+    dotted = _DOTTED.match(word)
+    if dotted:
+        path, prefix = dotted.group(1), dotted.group(2)
+        first, *rest = path.split(".")
+        try:
+            obj = namespace[first] if first in namespace else getattr(builtins, first)
+            for name in rest:
+                obj = getattr(obj, name)
+        except Exception:
+            return head, []
+        hide = not prefix.startswith("_")
+        # The UI app's `app` is a proxy: its own few methods, and the app's.
+        names = set(dir(obj))
+        if isinstance(obj, (_ScriptApp, _EditorApp)):
+            names |= set(dir(object.__getattribute__(obj, "_app")))
+        matches = []
+        for name in sorted(names):
+            if not name.startswith(prefix) or (hide and name.startswith("_")):
+                continue
+            static = inspect.getattr_static(obj, name, None)
+            if static is None and isinstance(obj, (_ScriptApp, _EditorApp)):
+                static = inspect.getattr_static(object.__getattribute__(obj, "_app"), name, None)
+            call = callable(static) and not inspect.isdatadescriptor(static)
+            matches.append(f"{path}.{name}" + ("(" if call else ""))
+        return head, sorted(matches)
+
+    if not word or not (word[0].isalpha() or word[0] == "_"):
+        return head, []
+    hide = not word.startswith("_")
+    matches = set()
+    for name in [*namespace, *dir(builtins), *keyword.kwlist]:
+        if not name.startswith(word) or (hide and name.startswith("_")):
+            continue
+        value = namespace.get(name, getattr(builtins, name, None))
+        call = callable(value) and name not in keyword.kwlist
+        matches.add(name + ("(" if call else ""))
+    return head, sorted(matches)
+
+
+def serve_console(app: Any) -> None:
+    """Run the lines typed at the console since the last frame, and answer
+    a Tab. The loop calls this between frames -- the editor's, or a script's
+    own through `step()`."""
+    while (line := _console_take()) is not None:
+        console_push(app, line)
+    if (line := _console_take_completion()) is not None:
+        head, matches = console_complete(_console_namespace(app), line)
+        _console_offer(line, head, matches)
+

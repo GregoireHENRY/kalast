@@ -7,7 +7,7 @@
 //! transform's sixteen numbers.
 
 use crate::app::simulation::Simulation;
-use crate::app::config::{AppConfig, Config};
+use crate::app::config::Config;
 use crate::Float;
 use super::config_panel::*;
 
@@ -415,21 +415,28 @@ fn eye_ui(ui: &mut egui::Ui, eye: &mut crate::app::frame::Eye, bodies: &[String]
     }
 
     // Each plane is either pinned to a number or fitted to the scene every
-    // frame. The tick is which of the two, and the value beside it is what
-    // is actually in the matrix either way -- untick and it goes back to
-    // following the geometry, from the number it was last fitted to.
+    // frame -- but for a camera's `side`, which follows where the camera
+    // stands (`Eye::fit_projection`). The tick is which of the two, and the
+    // value beside it is what is actually in the matrix either way -- untick
+    // and it goes back to following, from the number it was last fitted to.
     let fitted = p.resolved();
-    for (name, field, value) in [
-        ("near", &mut p.near, fitted.near),
-        ("far", &mut p.far, fitted.far),
-        ("side", &mut p.side, fitted.side),
+    let fitted_to_scene = "Pin this plane. Unticked, it is fitted to the scene every frame.";
+    let side_hover = if is_sun {
+        fitted_to_scene
+    } else {
+        "Pin the orthographic half-height. Unticked, it is the perspective view's at the anchor."
+    };
+    for (name, field, value, hover) in [
+        ("near", &mut p.near, fitted.near, fitted_to_scene),
+        ("far", &mut p.far, fitted.far, fitted_to_scene),
+        ("side", &mut p.side, fitted.side, side_hover),
     ] {
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new(name).weak());
             let mut pinned = field.is_some();
             if ui
                 .checkbox(&mut pinned, "")
-                .on_hover_text("Pin this plane. Unticked, it is fitted to the scene every frame.")
+                .on_hover_text(hover)
                 .changed()
             {
                 *field = pinned.then_some(value);
@@ -720,12 +727,11 @@ pub fn simulation_panel(
     ui: &mut egui::Ui,
     sim: &mut Simulation,
     config: &mut Config,
-    app: &mut AppConfig,
 ) {
-    ui.push_id("simulation", |ui| panel(ui, sim, config, app));
+    ui.push_id("simulation", |ui| panel(ui, sim, config));
 }
 
-fn panel(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config, a: &mut AppConfig) {
+fn panel(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config) {
     let sel = c.selection.color;
     let selection_color = crate::Vec3::new(sel.r as Float, sel.g as Float, sel.b as Float);
 
@@ -747,11 +753,15 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config, a: &mut AppCon
             .on_hover_text("sim.state.rate_limit -- set it before or after switching the cap on; kept, and idle, while the cap is off");
         });
         ui.horizontal(|ui| {
-            let mut on = sim.state.pause_at.is_some();
-            if ui.checkbox(&mut on, "pause_at").changed() {
-                sim.state.pause_at = on.then_some(sim.state.iteration + 1);
+            let mut on = sim.state.pause_after_iteration.is_some();
+            if ui
+                .checkbox(&mut on, "pause_after_iteration")
+                .on_hover_text("sim.state.pause_after_iteration -- pause once this iteration has run")
+                .changed()
+            {
+                sim.state.pause_after_iteration = on.then_some(sim.state.iteration);
             }
-            if let Some(n) = sim.state.pause_at.as_mut() {
+            if let Some(n) = sim.state.pause_after_iteration.as_mut() {
                 ui.add(egui::DragValue::new(n).speed(1.0));
             }
         });
@@ -801,12 +811,10 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config, a: &mut AppCon
         group_hud(ui, c);
     });
 
-    // The OS window, then the image drawn into it: two sizes since the editor
-    // made them two different things, so the second is namespaced -- its
-    // `width` and `height` widgets would otherwise share ids with the first.
-    group(ui, "Window", |ui| {
-        group_app(ui, a);
-        sub(ui, "image  (0 = follow the window)");
+    // The image drawn into the window. The window itself is the app's, in the
+    // side panel's app tab; namespaced all the same, since the two have
+    // `width` and `height` widgets of their own.
+    group(ui, "Image  (0 = follow the window)", |ui| {
         ui.push_id("image", |ui| group_image(ui, c));
     });
 

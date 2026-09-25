@@ -1201,7 +1201,10 @@ fn deprecated(py: Python<'_>, old: &str, group: &str, new: &str) -> PyResult<()>
         py,
         &py.get_type::<pyo3::exceptions::PyDeprecationWarning>(),
         msg.as_c_str(),
-        2,
+        // The script's line: a Rust call has no frame of its own, so 2
+        // was the caller's caller -- `<sys>` for a script's top level,
+        // which the default filters hide. Nobody saw these.
+        1,
     )
 }
 
@@ -1232,7 +1235,7 @@ impl super::config::AppConfig {
     /// to size, by double clicking its title bar or dragging a corner -- but
     /// on what is inside it. A focused renderer looks like a plain render
     /// window, with the panels a pointer-flick away: top for the toolbar,
-    /// left for the script, right for the config, bottom for the log.
+    /// right for the side panel, bottom for the log.
     ///
     /// Independent of `simulation.config.fullscreen`, which is the OS window
     /// and nothing else. Set both to be rid of everything at once; set this
@@ -1243,10 +1246,10 @@ impl super::config::AppConfig {
     fn set_focus(&mut self, v: bool) { self.config.borrow_mut().focus = v; }
     /// Fold the editor's panels to the window edges; `N` toggles it.
     ///
-    /// Toolbar, script, simulation and log fold to their edges and come back
+    /// Toolbar, side panel and log fold to their edges and come back
     /// together; each keeps egui's thin handle, so one can be dragged or
     /// double-clicked back out on its own, and an arrow key folds or unfolds
-    /// the panel on that edge. Reads `true` only while all four are folded,
+    /// the panel on that edge. Reads `true` only while all three are folded,
     /// so bringing one out clears it. The halfway house between the full
     /// layout and `focus`, which hides everything and reveals on hover. Set
     /// before `start()` to open the editor folded.
@@ -1258,7 +1261,7 @@ impl super::config::AppConfig {
     ///
     /// Live, and written back: reads `true` while the toolbar is folded,
     /// however it got there -- this field, the key, a drag on its edge, or
-    /// `panels_folded`. One per panel; `panels_folded` is all four at once.
+    /// `panels_folded`. One per panel; `panels_folded` is all three at once.
     #[getter]
     fn toolbar_folded(&self) -> bool { self.config.borrow().toolbar_folded }
     #[setter]
@@ -1270,21 +1273,41 @@ impl super::config::AppConfig {
     fn log_folded(&self) -> bool { self.config.borrow().log_folded }
     #[setter]
     fn set_log_folded(&mut self, v: bool) { self.config.borrow_mut().log_folded = v; }
-    /// Fold the script panel, on the left, or bring it back; `←` toggles it.
+    /// Does nothing now: the script is the middle's editor tab, and the left
+    /// edge has no panel to fold. Kept so a script that sets it still runs.
     ///
-    /// Live and written back, like `toolbar_folded`.
+    /// No widget: a checkbox that does nothing is worse than none.
     #[getter]
     fn script_folded(&self) -> bool { self.config.borrow().script_folded }
     #[setter]
     fn set_script_folded(&mut self, v: bool) { self.config.borrow_mut().script_folded = v; }
-    /// Fold the simulation panel, on the right, or bring it back; `→`
-    /// toggles it.
+    /// Fold the side panel, on the right -- app, simulation and files -- or
+    /// bring it back; `→` toggles it.
     ///
     /// Live and written back, like `toolbar_folded`.
     #[getter]
     fn simulation_folded(&self) -> bool { self.config.borrow().simulation_folded }
     #[setter]
     fn set_simulation_folded(&mut self, v: bool) { self.config.borrow_mut().simulation_folded = v; }
+    /// The colours of the UI app's panels: `"catppuccin-mocha"`, the default,
+    /// or `"dark"`, egui's own.
+    ///
+    /// The panels only. The scene -- its background included -- is drawn by
+    /// the renderer from `app.simulation.config` and shown as an image no
+    /// theme tints, so a frame looks the same under either, on screen and
+    /// exported.
+    #[getter]
+    fn theme(&self) -> String { self.config.borrow().theme.name().to_string() }
+    #[setter]
+    fn set_theme(&mut self, v: &str) -> PyResult<()> {
+        let t = crate::app::config::UiTheme::parse(v).ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "unknown theme {v:?}: expected catppuccin-mocha or dark"
+            ))
+        })?;
+        self.config.borrow_mut().theme = t;
+        Ok(())
+    }
     /// Open the window without taking focus, so a run can go on beside
     /// other work.
     ///

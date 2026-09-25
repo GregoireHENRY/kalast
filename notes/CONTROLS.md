@@ -17,8 +17,9 @@ Handled in `src/app/mod.rs` (`window_event` / `device_event`) and
 | `K` | any | Advance one iteration and hold — the editor's Step button |
 | `F` | any | Toggle fullscreen — the same thing the green button does |
 | `Shift`+`F` | any | Toggle focus mode — give the window to the renderer |
-| `N` | any | Fold the editor's four panels to the window edges, or bring them all back — see below |
-| `↑` `↓` `←` `→` | any | Fold or unfold the one panel on that edge: toolbar, log, script, simulation — see below |
+| `Cmd` + `Q` | any | Quit, as the close button does -- an edited script asks first; the way out of fullscreen too. `Ctrl` + `Q` off macOS |
+| `N` | any | Fold the editor's three panels to the window edges, or bring them all back — see below |
+| `↑` `↓` `→` | any | Fold or unfold the one panel on that edge: toolbar, log, side panel — see below |
 | `T` | any | Toggle camera control, Arcball ⇄ WASD |
 | `W` `A` `S` `D` | WASD | Move forward / left / back / right |
 | `Space` | WASD | Move up |
@@ -56,27 +57,28 @@ nothing else.
 
 ### `N` — fold the panels
 
-The four docked panels — toolbar, script, simulation, log — fold to their
-window edges, or all come back. Each folded panel keeps egui's thin handle at
+The three docked panels — toolbar, side panel, log — fold to their window
+edges, or all come back. Each folded panel keeps egui's thin handle at
 its edge, so one can be dragged or double-clicked back out on its own; and
 dragging an open panel past its minimum folds it alone, the same way. The
 toolbar folds from its lower edge like the rest, dragged up or double-clicked,
 though it cannot be made taller: it is one row of buttons and stays that
 height. The halfway house between the full layout and focus mode: the space
 is the renderer's, but nothing moves on its own. Blender's `N` toggles its
-sidebar; here it is all four.
+sidebar; here it is all three.
 
 Docked layout only — focus mode has no docked panels to fold, so there it
 does nothing visible until focus mode is left.
 
 The same state is `app.config.panels_folded`: set it before `start()` to open
-the editor folded, tick it in the Window header, or read it -- it says `True`
-only while all four are folded, so bringing one out clears it.
+the editor folded, tick it in the app tab, or read it -- it says `True` only
+while all three are folded, so bringing one out clears it.
 
 ### Arrow keys — fold one panel
 
 Each arrow folds or unfolds the panel on the edge it points to: `↑` the
-toolbar, `↓` the log, `←` the script, `→` the simulation panel. The same fold
+toolbar, `↓` the log, `→` the side panel. `←` does nothing: the script is the
+middle's editor tab, and the left edge has no panel. The same fold
 a drag or a double click on the panel's edge gives, so a folded panel keeps
 its handle and any of the three ways brings it back. Docked layout only, like
 `N`.
@@ -91,9 +93,10 @@ what the key or a drag did; see `CONFIG.md`.
 
 ### `K` — one iteration
 
-The two lines the editor's Step button runs: set `state.pause_at` one ahead
-and clear `is_paused`, so the next frame advances and `Simulation::update`
-holds it again on the mark. Same code, so the key and the button cannot drift
+The two lines the editor's Step button runs: set
+`state.pause_after_iteration` to the iteration about to run and clear
+`is_paused`, so the next frame runs it and `Simulation::update` holds it again
+after it. Same code, so the key and the button cannot drift
 apart.
 
 Nothing happens while a script has not run — there is no iteration to take.
@@ -212,8 +215,16 @@ that memory, so the way back is still the projection you started from. Kept in
 **The wheel works there too**, which it did not before. Zoom moved the eye
 along its own view direction, and a parallel projection does not care where
 along that line the eye sits — so scrolling in a plane view was simply dead.
-It now scales the projection *extent*, pinning it on the first notch (it is
-fitted to the scene until then) and releasing it again on the way out.
+It now scales the projection *extent*, pinning it on the first notch (it
+follows the camera's distance to its anchor until then) and releasing it
+again on the way out.
+
+**The view holds still while the bodies move**, as the perspective one does.
+The orthographic box is the half-height the perspective view has at the
+anchor, on the view axis, so only its depth range follows the scene -- and
+switching between the two keeps the scale of what is at the anchor, Blender's
+rule. Fitted to the scene, as the Sun's box is, it slid and grew with a
+binary's orbit.
 
 **And the ground grid turns to face you.** The shaded grid is on whichever of
 the three planes the view is down: XY looking along Z, YZ along X, XZ along Y.
@@ -377,3 +388,46 @@ and all startup-only. See `CONFIG.md`.
   W/A/S/D are not available for other bindings.
 - **Changing a binding means editing the `match`** in `src/app/mod.rs`; there
   is no configuration path.
+
+## The layout, and the python console
+
+The middle shows the **renderer** -- the scene -- or the **editor** -- the
+script, marked `●` while it has unsaved changes -- as the two buttons at the
+start of the toolbar choose, so `↑`, folding the toolbar, leaves the scene
+alone. Play, Restart and loading a Rust example switch back to the renderer,
+since running something is for watching it; clicks and keys reach the scene
+only while it is shown. The scene fills the middle to its edges, with no card
+around it, so with every panel folded it is the whole window.
+
+The panels are cards, 4 points apart with a faint outline, as VS Code's are.
+An edge that can be dragged is lit in the theme's accent -- mauve in Mocha --
+once the pointer has rested on it 300 ms, and at once while it is dragged.
+
+The side panel, on the right, has three: **app** (`app.config`; the theme and
+fullscreen are remembered), **simulation** (`app.simulation.config` and the
+scene) and **files**, the folder kalast was started in as a tree. That is
+where a script is opened: a click on a `.py` or `.rs` reads it into the
+editor -- a `.rs` is loaded too -- and a `.obj` is shown in the scene, while
+the middle stays on whichever of the two it was showing. Other files are shown
+dimmed. Folders are re-read every two seconds while shown, so a file a script
+writes turns up. Over unsaved edits a script asks first -- save and open, open
+without saving, or cancel -- as quitting does. The toolbar names the file the
+editor holds, and its **save** writes it back; the code fills the middle.
+
+Opening another script and pressing Play starts from a new renderer --
+config, camera, Sun, clock, export as a new app has them, nothing selected,
+the last script's callbacks gone. Play or Restart on the same script keeps
+the config, so what was changed in the panel stays.
+
+The log's **python** tab is a Python console. `Enter` runs the line between
+two frames, among the running script's variables -- `app` one of them -- so a
+paused scene can be inspected and moved about; a line opening a block waits at
+`...` for the rest, and an empty one closes it. `↑` and `↓` recall earlier
+lines. `Tab` completes the word being typed -- a name, or an attribute of a
+dotted one, `m.` -- as Python's terminal does: one completion goes in whole,
+several put in what they share and are listed above. Asked of Python between
+frames, so the answer lands a frame or two after the key; an attribute is
+never run to find out whether it is callable, and nothing is called. `exit()` is refused: close the window to quit. Lines run while a script
+drives its own loop as well, between its frames. The line is a terminal's:
+the prompt and what is typed, no box around it.
+

@@ -57,7 +57,7 @@ PROBE = textwrap.dedent("""
             path, source, paused = asked
             app.simulation.reset()
             if paused:
-                app.simulation.state.pause_at = 1
+                app.simulation.state.pause_after_iteration = 0
             app.simulation.state.is_paused = False
             app.script_ran = True
             editor.run_toplevel(app, source, path)
@@ -65,7 +65,7 @@ PROBE = textwrap.dedent("""
             for _ in range(steps):
                 # Exactly what the Step button does.
                 st = app.simulation.state
-                st.pause_at = st.iteration + 1
+                st.pause_after_iteration = st.iteration
                 st.is_paused = False
                 for _ in range(15):
                     app.step()
@@ -139,7 +139,7 @@ RESTART_PROBE = textwrap.dedent("""
             path, source, paused = asked
             app.simulation.reset()
             if paused:
-                app.simulation.state.pause_at = 1
+                app.simulation.state.pause_after_iteration = 0
             app.simulation.state.is_paused = False
             app.script_ran = True
             editor.run_toplevel(app, source, path)
@@ -203,7 +203,7 @@ def test_step_advances_exactly_one_rendered_iteration() -> None:
 
     The UI is drawn near the end of a frame, so Step unpaused after that
     frame had already skipped its callbacks -- and `update()`, re-reading the
-    flag, counted an iteration that never ran. `pause_at` fired straight
+    flag, counted an iteration that never ran. The pause mark fired straight
     afterwards, so the counter moved, nothing was drawn, and it looked stuck.
     """
     _, paused, _, drawn = probe("examples/crater_self_shadow/fn.py", steps=3)
@@ -269,8 +269,8 @@ def test_a_driven_script_keeps_its_own_loop_in_the_editor() -> None:
         app.config.open_in_background = True
         app.config.vsync = False
         # A script named on the command line is shown and then *held* --
-        # `pause_at = 1`. A driven script that wants to run says so.
-        app.simulation.state.pause_at = None
+        # `pause_after_iteration = 0`. A driven script that wants to run says so.
+        app.simulation.state.pause_after_iteration = None
         app.simulation.state.is_paused = False
 
         n = 0

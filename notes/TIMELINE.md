@@ -3447,6 +3447,309 @@ it, and nothing goes to PyPI or crates.io, where a version is final.
 Tagging v<version> on the beta's commit reuses the beta's run -- `reuse`
 matches any successful dispatch of that commit -- so the release is the
 beta's bytes, and the release job then deletes the pre-release and its tag.
-`v*-beta` tags are excluded from the tag trigger. Open: a beta's bundle says
-v<version>, like the release, so a tester on an older beta of the same
-version is not offered the newer one or the release; they download it.
+`v*-beta` tags are excluded from the tag trigger. The first beta, on
+db05247, went out green.
+
+Then asked for: the update check should suggest a newer beta by its date. A
+beta and the release of its version both say v<version>, so the executable
+now carries the commit it was built from and that commit's date
+(`KALAST_COMMIT`, `KALAST_COMMIT_DATE`, the date asked of GitHub's API once,
+in `reuse`, so all four platforms write it as GitHub does). A build that
+knows them, and whose version has no release, is a beta: it is offered
+`v<version>-beta` when that was built from another commit and published after
+its own date. Once the version is released, from another commit, it is
+offered the release; the last beta's bundle is the release's, same commit,
+and is offered nothing. A newer version wins over both, and a build without
+the two -- local, pip -- sees no betas. For this the beta is recreated each
+time rather than edited, since a release keeps the date and commit it was
+first published with, and the release job names its commit
+(`target_commitish`) instead of the branch. Checked live with a binary built
+as an older beta and as the beta itself.
+
+## 2026-09-25 — times in the log
+
+Asked for: a time on every line of both log tabs, and a first stamped line
+in each. A line is stamped where it is caught, not by the frame that moves
+it into the panel: the pipe's reader once per read, `script_write` when a
+line is whole, `Log::push` for the rest -- so what a script prints before the
+first frame keeps its own time. Local `hh:mm:ss.mmm` -- the milliseconds
+asked for after -- from `localtime_r` on the seconds of one `SystemTime`
+reading, or `GetLocalTime` (`src/app/clock.rs`): the standard library knows
+no time zone, and no dependency was added for one. The panel draws the stamp dimmed
+in the same galley as the line, so a copied line keeps it; the terminal's
+copy is unchanged. `editor_start` opens the kalast tab on `kalast
+v<version> started` and the script tab on `script log started`, stamped
+like the rest -- the time only, as asked; a first version put the date on
+those two -- before any script has run. A cleared tab starts empty.
+
+## 2026-09-25 — an orthographic view that holds still
+
+Reported: clicking a gizmo ball in `examples/didymos/main.py` gave a side
+view that moved, where the perspective view had held still. The camera's
+orthographic box was fitted to the scene every frame -- `side` from the
+bounds' radius, `offset` onto the bounds' centre -- the Sun's fit, whose
+shadow map has to cover the scene. With Dimorphos orbiting, the union box
+moves and grows, and the view panned and zoomed with it: over an orbit of a
+test pair in a 640×480 window, the primary's centre wandered 200 px and
+`side` went 2.67 to 2.75. A camera now frames from where it stands: `side`
+is the half-height its perspective view has at the anchor, `distance ×
+tan(fovy/2)`, and the box sits on the view axis, so only near and far follow
+the scene. The same run: `side` constant, the centre on one pixel.
+Switching projection keeps the anchor plane in place, Blender's rule, and
+the gizmo's snap still backs off four radii, which at the default 30° frames
+the scene as before (1.07 R, against the fit's 1.05 R). The Sun's fit is
+unchanged. `an_orthographic_camera_holds_still_while_the_bodies_move`,
+`switching_projection_keeps_the_anchor_plane_in_place`.
+
+## 2026-09-25 — the log: pauses, unread tabs, a panel that keeps its height
+
+Asked for, three at once, and then the resume. The kalast tab logs `paused
+after iteration N`, N being `drawn_iteration`, the toolbar's number, and
+`resumed at iteration N`, N being `state.iteration`, the one run next: the
+frame compares its `begin_frame` decision with the last frame's
+(`App::was_paused`, `pause_line`, tested on its own), whoever made the
+change -- `P`, the buttons, the pause mark, a script. "After" and "at" so
+that 41 then 42 does not read as a skip; and not `drawn_iteration` for the
+resume, which after a Restart is the old run's number until the first frame
+of the new one. A step -- Step, `K`, the one iteration a Restart or an
+opened script shows -- is a resume with the mark on the iteration it runs,
+and logs only its pause. `was_paused` is `None` before the first frame,
+since how a run starts is not a change.
+
+A tab not shown gets a dot while lines have come in that it has not shown:
+`Log` counts pushes since `mark_read`, which the panel calls on the tab it
+draws, only when the log panel is drawn at all. Painted on the tab's corner
+in the hyperlink colour rather than added to the label, so the row does not
+shift. The two first lines are read already, so a dot is for news.
+
+The docked log panel shrank on switching to a shorter tab, and a drag
+taller than its text snapped back on release: egui stores a panel's size as
+the rect its content used, and the log's `ScrollArea` shrank to its lines.
+`auto_shrink([false, false])` makes it fill the panel. The floating panel in
+focus mode was not affected, as it fills the rect kalast keeps for it.
+
+## 2026-09-25 — `pause_after_iteration`, and the kalast tab first
+
+Reported confusing: a script opened in the UI app showed `pause_at = 1` in
+the state and the log said "paused after iteration 0". `pause_at` was the
+counter to stop on, compared after the increment, so it read one ahead of
+the iteration that had run. Renamed `pause_after_iteration` and compared
+with the iteration just run: `0` holds after the first, as the log says.
+Every writer moved by one -- Step, `K`, Restart's one shown iteration, a
+loaded Rust example, the Run header's checkbox -- and `{nit}` reads it plus
+one, the run's length, so a HUD shows what it did. In Python `pause_at` stays
+for a release as a deprecated alias doing the conversion, like
+`load_mesh(flatten=)`; `pause_at = 0`, which never fired, becomes `None`.
+The Rust field is renamed outright. Updated `examples/landmark_tracking/`
+`main.py`, the debug print in `examples/didymos/main.py`, and
+`tests/test_editor_startup.py`.
+
+And asked for: the kalast tab first and shown when the UI app opens,
+`LogTab::Kalast` the default.
+
+Found on the way: the deprecation warnings never showed. `PyErr::warn` was
+given stacklevel 2, but a call into Rust has no Python frame of its own, so
+2 is the caller's caller -- `<sys>`, line 0, for a script's top level -- and
+the default filters show a `DeprecationWarning` only when it is attributed
+to `__main__`. `load_mesh(flatten=)` and the old flat config names (the
+shim `tools/gen_bindings.py` writes) had been silent since they were added;
+all three use 1 now, which names the script's line, top level or inside a
+function, and in the UI app too, whose scripts run as `__main__`.
+
+## 2026-09-25 — Catppuccin Mocha for the panels
+
+Asked for: Catppuccin Mocha as a theme, chosen from the Window config, and
+touching the UI only. `app.config.theme`, a `UiTheme` -- `Default`,
+`CatppuccinMocha` -- through the generators like `HudAnchor`: a combo box
+under Window, `"default"` / `"catppuccin-mocha"` from Python.
+`src/app/gui/theme.rs` writes Mocha over egui's dark visuals with the roles
+Catppuccin's own egui port gives each colour (panels on base, fields on
+crust, widgets on the surfaces, links in rosewater), written out here rather
+than taken from `catppuccin-egui`, whose releases trail egui's. It goes in
+both of egui's slots, dark and light, since egui follows the system between
+them and a change of appearance would otherwise drop it; applied when the
+field changes, not per frame. The scene is untouched by construction: it is
+an untinted image in a frameless central panel, over a pass cleared to
+black, and HUDs, labels and the gizmo are the renderer's.
+
+## 2026-09-25 — a VS Code layout, remembered settings, a python console, and a pick through Dimorphos
+
+**The pick.** A click on Dimorphos in `examples/didymos/main.py` selected
+Didymos behind it. The full-resolution models are indexed, so the click takes
+the CPU ray, and Möller–Trumbore refused every Dimorphos facet as parallel:
+its `det` is twice the area times a cosine, 6e-8 for a 0.24 m facet in km,
+and was compared with f32's epsilon, 1.2e-7. Didymos's 1.2 m facets passed.
+Relative to the edges now; regression test with a 0.24 m facet at 1.8 km.
+Reproduced first with the pair at the example's epoch, the eye behind
+Dimorphos: the ray through its centre returned body 0, then body 1. Only
+picking and the Python ray helpers use the test; the physics does not.
+
+**Asked for, in several messages:** Mocha as the default theme and the other
+called "dark" (egui's dark in both of egui's slots, so the system's
+appearance does not swap it); the theme and fullscreen remembered, as app
+settings and not the simulation's; the layout of the VS Code window in a
+screenshot -- code in the middle, a tabbed side panel on the right, the log
+below, rounded panels; a Python console in the bottom panel; and the
+changelog headed `-beta` while betas go out.
+
+- `src/app/settings.rs`: `theme` and `fullscreen` in `settings.toml` in the
+  OS's configuration folder (or `KALAST_SETTINGS`), a two-key TOML written
+  by hand. Loaded in `editor_start`, before a script, and saved only from the
+  app -- the app tab's widgets, `F`, the green button -- so a script dressing
+  a figure does not change the app for next time. `open_in_background` wins
+  over a remembered fullscreen, so test windows stay out of the way. The
+  earlier worry about a Space was wrong: kalast's fullscreen on macOS is the
+  simple kind, and stays on its Space.
+- The layout: the middle a card with `renderer` and `editor` tabs; the side
+  panel a card with `app` (`group_app`, moved out of the simulation panel's
+  Window header, whose image size stays there as "Image"), `simulation` and
+  `files` -- the working directory, listed as folders open, each listing
+  kept two seconds; the log a card below. The cards sit 6 px apart over the
+  theme's `extreme_bg_color`, the toolbar straight on it. The scene image
+  takes the card's rounding; the render itself is untouched. The left panel
+  is gone: `←` does nothing, `app.config.script_folded` is a no-op kept for
+  old scripts, and the four-slot arrays keep their shape with slot 2 empty
+  (`DOCKED`). Play, Restart and a Rust load switch to the renderer; the scene
+  is measured, and takes clicks, only while its tab is shown.
+  Then: no idle separator line along the panels' edges
+  (`show_separator_line(false)`) -- in the gap it read as a pale border
+  between the cards -- only egui's highlight while an edge is hovered or
+  dragged; and VS Code's grip, three dots in the middle of the side panel's
+  and the log's drag gaps, in the weak text colour.
+  Then, from the screenshot's details: the cards 4 points apart (2 each)
+  with a 1 px outline barely lighter than the card; the renderer in no card
+  at all, so `N` leaves the scene as the whole window; the renderer/editor
+  choice moved to two buttons at the toolbar's start, so `↑` hides them --
+  a `Cell` shared by the toolbar and the middle, written back after the
+  frame; and egui's own edge line, 1 px against the card in the text colour,
+  replaced by VS Code's sash -- 4 px in the theme's accent (mauve), down the
+  middle of the gap, lit after a 300 ms rest or at once while dragged. egui
+  reads that line's strokes from the style the panel is shown in, so the
+  panels are shown with them at no width and their contents given the style
+  back. Beside the scene, which has no margin, the gap's middle is half a
+  margin into the panel, and the sash sits there. The three dots were then
+  taken out again, asked for: they looked out of place; dragging never
+  depended on them.
+- `Cmd`-`Escape` quits, `Ctrl`-`Escape` off macOS: the way out of simple
+  fullscreen, which takes the title bar and its close button with it. Taken
+  before egui, which keeps every key while a text field has the focus, and
+  sent down the close button's path (`request_close`), so an edited script
+  still asks. `Controller` tracks `super` now.
+- The console: the log's third tab. A line typed goes to a queue; the loop
+  hands it out as `EditorTick::Console` between frames, and a script driving
+  its own loop takes them in its `step()` wrapper (`serve_console`). Python's
+  `code.InteractiveConsole` runs it among the running script's globals --
+  recorded by `run_toplevel` and `make_runner` -- with `sys.stdout` pointed
+  at the tab. Both front doors handle it: `python -m kalast` through
+  `run_editor`, the bundle through `console_line`, its interpreter setup
+  split out of `run_script` (`prepare_python`) so a line can come before any
+  script. Checked through `console_push`: a value, a block, a traceback,
+  `exit()` refused, a script's variables; the queue has a Rust test.
+- The changelog's section is `## v0.5.10-beta`; the tag's gate and release
+  notes now match `## v<tag>` exactly, so a tag is refused until the heading
+  is renamed, and the beta's body takes either.
+
+Later the same day, asked for: **save** moved into the toolbar beside the
+renderer/editor buttons; the editor's open button, its path field with the
+example hint, and the file dialog behind them (`rfd`, `examples_dir`) taken
+out -- the files tab is how a script is opened now -- with a breadcrumb at
+the editor's top naming the file; and a click in the tree no longer switches
+the middle, which stays on the renderer or the editor. The "Log" label left
+the bottom panel, which holds the logs and the console. And the python tab
+grew the panel a point a frame to its maximum: its prompt's row started at
+egui's 18-point interaction height while the field in it, a monospace line
+and its 2-point margins, is 20 and a bit, so the centred field stuck out
+past the panel and egui kept the taller size. The row is allocated at the
+field's own height now, the tab laid out bottom up, prompt first;
+`the_console_does_not_grow_its_panel` runs six frames of the tab in a card
+and holds the height. Reproduced before the fix, 1.125 points a frame, and
+narrowed by variants: a scroll area with a plain row held, the row with a
+text field did not.
+
+Then, asked for and reported, in a run of messages:
+
+- **Object persistency between scripts.** Reproduced: a cube, `reset()`, a
+  sphere -- the GPU drew facet ids up to 7 of the sphere's 1280. The window
+  rebuilt body buffers only on a change of count or `meshes_dirty`, and
+  `reset()` set neither, so a script loading as many bodies as the last was
+  drawn with its meshes. `reset()` marks the meshes dirty and clears the
+  selection now (ids up to 1200 after); `begin_script` drops the callbacks,
+  which a Python script left armed for the next; and a script other than the
+  last runs on `Simulation::renew` -- config refilled in its own cell, camera,
+  Sun, clock, export as `Simulation::new` has them -- tracked by
+  `Shared::last_script`. The same script again keeps its config, which the
+  panel edits, as the Python `reset()` doc has always said. Tests:
+  `a_reset_rebuilds_the_meshes_and_drops_the_selection`,
+  `renew_is_a_new_apps_renderer`.
+- **The console did nothing** while a script looped under `python -m
+  kalast`: its proxy there, `_EditorApp`, did not serve the queue from
+  `step()`, only `_ScriptApp` did. Both do; checked with a line queued before
+  a driven script ran (`console_submit`, bound for tests), which found it in
+  the script's namespace. And the prompt lost its box and its hint
+  (`Frame::NONE`), a terminal's line.
+- **`Cmd`-`Escape` did not quit.** Not reproducible from here, no key can be
+  sent to the window; the check depended on winit's modifier events, so it
+  also asks AppKit now (`NSEvent::modifierFlags`, `macos::command_down`).
+- The editor fills the middle (no frame of its own, the field the size of
+  the view), the open file is named in the toolbar beside save, and a file
+  clicked over unsaved edits asks first -- save and open, open anyway,
+  cancel -- the open waiting on the save and dropped if it fails.
+
+- **Tab completion in the console**, asked for. The input line cannot see
+  Python's namespace, so Tab queues the line (`console_ask_completion`)
+  beside the queued lines, `EditorTick::Console` now just says "serve the
+  console", and `kalast.editor.serve_console` runs lines and answers the Tab
+  (`console_complete`, `console_offer`); the prompt applies the answer if
+  the line has not changed since -- one match whole, several their common
+  part and a listing -- cursor to the end, as `↑`/`↓` now do too. The field
+  locks the focus and the Tab is consumed before it, so it neither moves
+  the focus nor types a tab. `console_complete` is `rlcompleter` with two
+  changes: `inspect.getattr_static` decides the `(`, so no getter runs --
+  `m.` on a 3.1M-facet mesh would have copied its arrays -- and only a
+  dotted name is looked into, so a Tab calls nothing. The console tests take
+  turns (`CONSOLE_TESTS`), the state being one per process.
+- `help(m)` "truncated": it was all there -- `m` was a `Body`, whose class
+  had two getters and no docs. Documented now, pointing at `help(body.mesh)`.
+- The editor lost the separator above its code.
+- **The console froze on Didymos**, not on the cube: evaluating `app.simulation`
+  or `m.mesh` printed their `repr`, which was the full `Debug` -- every
+  position and facet, 16 MB of text at 100k facets, half a gigabyte at 3.1M --
+  then split and laid out in the python tab. Both are one-line summaries now
+  (`Simulation(1 bodies, 3145728 facets, iteration 0)`, `Mesh(... flat)`,
+  0.1 ms on Didymos), and the tab keeps at most 4096 bytes of one line, with
+  a count of the rest. Tab itself was measured innocent: the completer takes
+  2 ms at most on numpy and spiceypy, the prompt ran twelve Tab frames
+  headlessly, and a driven script took five Tab requests in its loop.
+  `app.` now completes the app's attributes through the UI app's proxy.
+- **`Cmd`-`Escape` taken out again.** Tested with the UI app in front and keys
+  sent through System Events: `P` and `Cmd`-`K` reached the window, `Cmd`-`Q`
+  quit through the app menu, and `Cmd`-`Escape` produced a modifier change and
+  nothing else -- not even in an AppKit local event monitor, which sees key
+  events before the window does. macOS keeps it system-wide. The shortcut,
+  its AppKit Command check (`macos::command_down`), the monitor and the
+  `NSEvent`/`block2` dependencies are gone; `request_close` stays, the close
+  button's path. `Cmd`-`Q` is the way out of fullscreen.
+- Opening a mesh from the files tab now starts from a fresh renderer too
+  (`open_mesh` renews, drops the callbacks and records itself as the last
+  run): a cube example's settings were still in force around the mesh.
+- **`Cmd`-`Q` did nothing either**, with a script loaded: sent to a UI app
+  running `two_spheres/main.py`, held or playing, it was lost, and worked
+  only once `F` had been pressed; on an empty UI app it quit. It came from
+  winit's default menu, whose `terminate:` the pumped loop loses. The menu is
+  off (`with_default_menu(false)`) and the window takes `Cmd`-`Q` itself,
+  before egui, through `request_close` -- so an edited script asks, which the
+  menu never did. Held, playing, fullscreen, empty: all four quit.
+- **`Cmd`-`Q` still did nothing for the user**, where it had quit in the test:
+  the user had been typing. With a text field focused -- editor, console --
+  egui turns text input on, winit hands every key to the system's text
+  handling, and none came back as a key: reproduced with the console focused,
+  no key event at all, `x` or `Cmd`-`Q`. An AppKit local monitor on key-down
+  (`macos::watch_quit_keys`, `block2` back as a dependency) takes `Cmd`-`Q`
+  ahead of all of it and the window quits by `request_close`. Focused and
+  unfocused: both quit.
+  And matched by the character, not the key: the monitor and the window both
+  looked for key 12, which is Q on a QWERTY layout only; with the keyboard set
+  to another layout `Cmd`-`Q` stayed dead for the user. `charactersIgnoringModifiers`
+  in the monitor, `logical_key` in the window, so it follows the layout macOS
+  is set to, as other apps do. `objc2-foundation` (`NSString`) for the former.
+

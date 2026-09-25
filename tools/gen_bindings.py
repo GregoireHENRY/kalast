@@ -130,6 +130,21 @@ def accessor(path: str, name: str, rust: str, doc):
             "        Ok(())",
             "    }",
         ]
+    elif rust == "UiTheme":
+        lines += [
+            "    #[getter]",
+            f"    fn {name}(&self) -> String {{ {cfg}.{g}.name().to_string() }}",
+            "    #[setter]",
+            f"    fn set_{name}(&mut self, v: &str) -> PyResult<()> {{",
+            "        let t = crate::app::config::UiTheme::parse(v).ok_or_else(|| {",
+            "            pyo3::exceptions::PyValueError::new_err(format!(",
+            '                "unknown theme {v:?}: expected catppuccin-mocha or dark"',
+            "            ))",
+            "        })?;",
+            f"        {cfg_mut}.{g} = t;",
+            "        Ok(())",
+            "    }",
+        ]
     elif rust in ("crate::app::axes::AxesStyle", "AxesStyle"):
         lines += [
             "    #[getter]",
@@ -290,7 +305,10 @@ def main() -> int:
         "        py,",
         "        &py.get_type::<pyo3::exceptions::PyDeprecationWarning>(),",
         "        msg.as_c_str(),",
-        "        2,",
+        "        // The script's line: a Rust call has no frame of its own, so 2",
+        "        // was the caller's caller -- `<sys>` for a script's top level,",
+        "        // which the default filters hide. Nobody saw these.",
+        "        1,",
         "    )",
         "}",
         "",

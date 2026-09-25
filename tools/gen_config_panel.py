@@ -38,6 +38,7 @@ ENUMS = {
     "crate::app::axes::AxesStyle": ("src/app/axes.rs", "AxesStyle"),
     "AxesStyle": ("src/app/axes.rs", "AxesStyle"),
     "HudAnchor": ("src/app/config.rs", "HudAnchor"),
+    "UiTheme": ("src/app/config.rs", "UiTheme"),
 }
 SOURCE = ROOT / "src/app/config.rs"
 TARGET = ROOT / "src/app/gui/config_panel.rs"

@@ -68,9 +68,10 @@ pub struct Resolved {
     pub side: Float,
 
     /// Where the orthographic box sits, in view-space x/y, relative to the
-    /// view axis. Zero for a scene centred on what the frame looks at;
-    /// non-zero when it is not, which is the normal case for a binary --
-    /// see the note in `fit_projection`. Unused by the perspective path.
+    /// view axis. Zero for a camera, whose box is on its view axis; for the
+    /// Sun, wherever the geometry is, which need not be on the axis -- the
+    /// normal case for a binary, see the note in `fit_projection`. Unused by
+    /// the perspective path.
     pub offset: [Float; 2],
 }
 
@@ -79,10 +80,11 @@ pub struct Projection {
     pub mode: ProjectionMode,
     pub fovy: Float, // radian
 
-    // None means "fit to the scene automatically" (the default). Setting one
-    // of these pins that single plane and leaves the others automatic, so
-    // manual control stays available for debugging without forcing the user
-    // to supply all of them.
+    // None means "fit to the scene automatically" (the default) -- except a
+    // camera's `side`, which follows where the camera stands; see
+    // `fit_projection`. Setting one of these pins that single plane and
+    // leaves the others automatic, so manual control stays available for
+    // debugging without forcing the user to supply all of them.
     pub near: Option<Float>,
     pub far: Option<Float>,
     pub side: Option<Float>,
@@ -545,9 +547,10 @@ impl Eye {
     /// Looks straight down one axis at `bounds`, the way a plot does.
     ///
     /// `axis` is the axis looked *along*, so `Z` gives the XY plane face-on.
-    /// The eye is placed on the positive side and backed off far enough for
-    /// the frustum fit to have something to work with; the fit then sizes the
-    /// projection, so the distance itself does not set the framing.
+    /// The eye is placed on the positive side, backed off four radii of the
+    /// scene's bounding sphere, which also sets the scale of an orthographic
+    /// view (see `fit_projection`): at the default field of view the sphere
+    /// fills it with 7 % to spare.
     ///
     /// `orthographic` is the reason this exists. A crater profile read off a
     /// perspective view is not measurable -- near rim and far rim are at
@@ -593,8 +596,7 @@ impl Eye {
         orthographic: bool,
     ) {
         let centre = bounds.center();
-        // Any offset works; the projection is fitted afterwards. Tie it to the
-        // scene so it is never inside the geometry.
+        // Tied to the scene, so the eye is never inside the geometry.
         let back = (bounds.radius() * 4.0).max(Float::EPSILON);
 
         let (eye_dir, up) = match axis {
@@ -631,10 +633,12 @@ impl Eye {
     /// Both modes work in eye space, where the eye looks down -Z, so a point's
     /// distance in front of the eye is `-z`.
     ///
-    /// `shadow_texels`, when given, snaps an orthographic fit to whole
-    /// shadow-map texels. Without that the fitted box slides continuously as
-    /// the light moves and the shadow edge crawls between texels from frame to
-    /// frame -- the stabilisation step from the standard shadow-map recipe.
+    /// `shadow_texels` is given for the Sun, whose orthographic box covers
+    /// the scene for the shadow map, and snaps that box to whole shadow-map
+    /// texels. Without that the fitted box slides continuously as the light
+    /// moves and the shadow edge crawls between texels from frame to frame --
+    /// the stabilisation step from the standard shadow-map recipe. A camera
+    /// passes `None`: only its depth range follows the scene.
     pub fn fit_projection(
         &mut self,
         bounds: &crate::mesh::Aabb,
@@ -688,6 +692,28 @@ impl Eye {
         let margin = 1.05;
 
         let fit = match self.projection.mode {
+            // A camera's box is framed from where it stands, as its
+            // perspective view is: `side` is the half-height that view has
+            // at the anchor, so switching between the two keeps the scale of
+            // what is looked at -- Blender's rule -- and the box sits on the
+            // view axis. Fitted to the scene like the Sun's below, the box
+            // slid and grew with the bodies: a gizmo plane view of the
+            // Didymos pair panned and zoomed with Dimorphos's orbit, where
+            // the perspective view it came from held still.
+            ProjectionMode::Orthographic if shadow_texels.is_none() => {
+                let side = self.distance_anchor() * (self.projection.fovy * 0.5).tan();
+                Resolved {
+                    near: min_d - bounds.radius() * margin,
+                    far: max_d + bounds.radius() * margin,
+                    // An eye on its anchor has no scale to take.
+                    side: if side > 0.0 && side.is_finite() {
+                        side
+                    } else {
+                        bounds.radius() * margin
+                    },
+                    offset: [0.0, 0.0],
+                }
+            }
             ProjectionMode::Orthographic => {
                 // Size from the bounding sphere, not the projected extent:
                 // the sphere radius does not change as the light rotates, so
@@ -930,6 +956,8 @@ pub struct Controller {
     pub left_pressed: bool,
     pub alt_pressed: bool,
     pub ctrl_pressed: bool,
+    /// Command on macOS, the Windows key elsewhere: `super` to winit.
+    pub super_pressed: bool,
 
     /// A left-drag that began on the navigation gizmo, which orbits wherever
     /// the pointer then goes. Blender's gizmo behaves the same way, and the
@@ -975,6 +1003,7 @@ impl Controller {
             left_pressed: false,
             alt_pressed: false,
             ctrl_pressed: false,
+            super_pressed: false,
             gizmo_pressed: false,
             emulate_middle_button: cfg!(target_os = "macos"),
             trackpad_orbit: true,
@@ -1257,8 +1286,8 @@ mod tests {
     /// Half a pixel is the error this catches: a projection that took
     /// `(0, 0)` to be the centre of the first pixel rather than its corner
     /// puts every point in the neighbouring pixel half the time. The
-    /// orthographic box is fitted off the view axis, so its offset is in
-    /// play too.
+    /// orthographic box is put off the view axis, as the Sun's is, so its
+    /// offset is in play too.
     #[test]
     fn project_inverts_the_picking_ray_through_a_pixel_centre() {
         let size = (1020, 680);
@@ -1268,6 +1297,10 @@ mod tests {
             let mut eye = eye_at_distance(5.0);
             eye.projection.mode = mode;
             eye.fit_projection(&aabb([0.5, -1.0, -1.0], [2.5, 1.0, 1.0]), None, None);
+            if mode == ProjectionMode::Orthographic {
+                let fitted = eye.projection.resolved();
+                eye.projection.resolve_with(Resolved { offset: [1.5, -0.25], ..fitted });
+            }
 
             for (i, j) in [(0, 0), (509, 339), (1019, 679), (17, 600)] {
                 let x = 2.0 * (i as Float + 0.5) / w - 1.0;
@@ -1282,6 +1315,47 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// A camera's orthographic view holds still while the bodies move, as
+    /// its perspective view does: only the depth range follows them. Fitted
+    /// to the scene, the box slid and grew with Dimorphos's orbit.
+    #[test]
+    fn an_orthographic_camera_holds_still_while_the_bodies_move() {
+        let mut eye = eye_at_distance(5.0);
+        eye.projection.mode = ProjectionMode::Orthographic;
+        eye.fit_projection(&aabb([-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]), None, None);
+        let before = eye.projection.resolved();
+
+        // The secondary has moved off to one side and out of the old box.
+        eye.fit_projection(&aabb([-1.0, -1.0, -1.0], [3.0, 1.5, 1.0]), None, None);
+        let after = eye.projection.resolved();
+
+        assert_eq!(after.side, before.side, "the view zoomed");
+        assert_eq!(after.offset, [0.0, 0.0], "the view panned");
+        assert!(after.far > before.far, "the depth range still takes the bodies in");
+    }
+
+    /// Switching between the projections keeps what is at the anchor where
+    /// it was on screen, Blender's way: the orthographic box is the
+    /// perspective view's at the anchor's distance.
+    #[test]
+    fn switching_projection_keeps_the_anchor_plane_in_place() {
+        let size = (800, 400);
+        let bounds = aabb([-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]);
+        let mut eye = eye_at_distance(5.0);
+        let point = eye.anchor + eye.up * 0.8 - eye.right() * 1.3;
+
+        eye.fit_projection(&bounds, None, None);
+        let perspective = eye.project(point, size).expect("in front");
+        eye.projection.mode = ProjectionMode::Orthographic;
+        eye.fit_projection(&bounds, None, None);
+        let orthographic = eye.project(point, size).expect("in front");
+
+        assert!(
+            (perspective - orthographic).length() < 1e-3,
+            "{perspective:?} in perspective, {orthographic:?} in orthographic"
+        );
     }
 
     /// `x` runs right and `y` down, and the field of view reaches the edges

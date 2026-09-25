@@ -20,6 +20,52 @@ fn ns_window(window: &winit::window::Window) -> Option<Retained<NSWindow>> {
     view.window()
 }
 
+/// Set by the key monitor when `Cmd`-`Q` is pressed; taken by the window.
+static QUIT_KEYS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Watch for `Cmd`-`Q` ahead of the window. While a text field has the focus
+/// -- the editor, the console -- egui turns text input on, winit hands every
+/// key to the system's text handling, and `Cmd`-`Q` never came back as a key:
+/// sent to a UI app with the console focused, it did nothing. A local
+/// monitor sees the event before any of that. Once per process; the monitor
+/// lives as long as it does.
+pub fn watch_quit_keys() {
+    use objc2_app_kit::{NSEvent, NSEventMask, NSEventModifierFlags};
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let block = block2::RcBlock::new(|event: std::ptr::NonNull<NSEvent>| -> *mut NSEvent {
+            // SAFETY: AppKit hands the monitor a live event for the length
+            // of the call.
+            let e = unsafe { event.as_ref() };
+            // The character, not the key: `Q` is key 12 on a QWERTY board
+            // and key 0 on an AZERTY one, and matching 12 left `Cmd`-`Q`
+            // dead on the French keyboard it was reported from.
+            let q = e
+                .charactersIgnoringModifiers()
+                .is_some_and(|c| c.to_string().eq_ignore_ascii_case("q"));
+            let flags = e.modifierFlags();
+            let chord = NSEventModifierFlags::Command
+                | NSEventModifierFlags::Shift
+                | NSEventModifierFlags::Option
+                | NSEventModifierFlags::Control;
+            if q && (flags & chord) == NSEventModifierFlags::Command {
+                QUIT_KEYS.store(true, std::sync::atomic::Ordering::SeqCst);
+                // Swallowed: it is ours, and nothing else should see it.
+                return std::ptr::null_mut();
+            }
+            event.as_ptr()
+        });
+        // SAFETY: the block returns the event it was given, or null.
+        let monitor = unsafe { NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown, &block) };
+        std::mem::forget(monitor);
+    });
+}
+
+/// Whether `Cmd`-`Q` was pressed since the last call.
+pub fn take_quit_keys() -> bool {
+    QUIT_KEYS.swap(false, std::sync::atomic::Ordering::SeqCst)
+}
+
 /// Stop the green button offering *native* fullscreen.
 ///
 /// Native fullscreen moves the window to a Space of its own, which is the

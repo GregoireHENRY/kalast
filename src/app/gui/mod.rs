@@ -13,6 +13,7 @@
 
 mod config_panel;
 mod simulation_panel;
+mod theme;
 
 use std::collections::VecDeque;
 
@@ -21,45 +22,327 @@ use std::collections::VecDeque;
 /// Bounded rather than growing: a run that prints per frame would otherwise
 /// hold every line it ever wrote for as long as the window is open.
 pub struct Log {
-    lines: VecDeque<String>,
+    entries: VecDeque<Entry>,
     limit: usize,
+    /// Lines pushed since the panel last showed this log: its tab has a dot
+    /// while there are any.
+    unread: usize,
 }
 
-/// The log panel's two tabs: what the script prints, and what kalast prints
-/// about itself, so the second never lands in the middle of the first.
+/// One line of the log, and when it was written: `17:42:10.123`, the local
+/// clock to the millisecond.
+pub struct Entry {
+    pub time: String,
+    pub text: String,
+}
+
+/// The log panel's two tabs: what kalast prints about itself, shown first,
+/// and what the script prints, so the first never lands in the middle of the
+/// second.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum LogTab {
     #[default]
-    Script,
     Kalast,
+    Script,
+    /// A Python console: lines run between frames, among the script's
+    /// variables.
+    Python,
+}
+
+/// What the middle of the window shows: the scene, or the script.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CentralTab {
+    #[default]
+    Renderer,
+    Editor,
+}
+
+/// The side panel's tabs: the app's own settings, the simulation's, and the
+/// folder the app was started in.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum SideTab {
+    App,
+    #[default]
+    Simulation,
+    Files,
+}
+
+/// The files tab: the working directory as a tree, listed as it is opened.
+#[derive(Default)]
+struct FileTree {
+    /// Each opened folder's entries -- folders first, then files, by name --
+    /// and when they were read. Re-read when older than `FRESH`, so a file a
+    /// script writes turns up without the folder being read every frame.
+    listings: std::collections::HashMap<std::path::PathBuf, (std::time::Instant, Vec<(String, bool)>)>,
+}
+
+impl FileTree {
+    const FRESH: std::time::Duration = std::time::Duration::from_secs(2);
+
+    /// `dir`'s entries, hidden ones and `__pycache__` left out. `dir` is
+    /// relative to the working directory, the empty path being the root, so
+    /// a path clicked reads the way a script's path is usually typed.
+    fn list(&mut self, dir: &std::path::Path) -> Vec<(String, bool)> {
+        if let Some((at, entries)) = self.listings.get(dir) {
+            if at.elapsed() < Self::FRESH {
+                return entries.clone();
+            }
+        }
+        let read = if dir.as_os_str().is_empty() { std::path::Path::new(".") } else { dir };
+        let mut entries: Vec<(String, bool)> = std::fs::read_dir(read)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|e| {
+                let name = e.file_name().to_string_lossy().into_owned();
+                let hidden = name.starts_with('.') || name == "__pycache__";
+                (!hidden).then(|| (name, e.file_type().is_ok_and(|t| t.is_dir())))
+            })
+            .collect();
+        entries.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.to_lowercase().cmp(&b.0.to_lowercase())));
+        self.listings.insert(dir.to_path_buf(), (std::time::Instant::now(), entries.clone()));
+        entries
+    }
+
+    /// Draw `dir` as a tree, returning the file clicked. Scripts and meshes
+    /// open; anything else is shown dimmed, for finding one's way.
+    fn show(&mut self, ui: &mut egui::Ui, dir: &std::path::Path, current: &std::path::Path) -> Option<std::path::PathBuf> {
+        let mut clicked = None;
+        for (name, is_dir) in self.list(dir) {
+            let path = dir.join(&name);
+            if is_dir {
+                egui::CollapsingHeader::new(&name).id_salt(&path).show(ui, |ui| {
+                    if let Some(p) = self.show(ui, &path, current) {
+                        clicked = Some(p);
+                    }
+                });
+            } else {
+                let opens = matches!(path.extension().and_then(|e| e.to_str()), Some("py" | "rs" | "obj"));
+                let text = if opens {
+                    egui::RichText::new(&name)
+                } else {
+                    egui::RichText::new(&name).weak()
+                };
+                if ui.selectable_label(path == current, text).clicked() && opens {
+                    clicked = Some(path);
+                }
+            }
+        }
+        clicked
+    }
 }
 
 impl Log {
     pub fn new(limit: usize) -> Self {
         Self {
-            lines: VecDeque::new(),
+            entries: VecDeque::new(),
             limit,
+            unread: 0,
         }
     }
 
+    /// A line written now.
     pub fn push(&mut self, line: impl Into<String>) {
-        if self.lines.len() == self.limit {
-            self.lines.pop_front();
-        }
-        self.lines.push_back(line.into());
+        self.push_at(crate::app::clock::now().time(), line);
     }
 
+    /// A line written at `time`: when it reached the capture, which is
+    /// earlier than the frame that moves it here.
+    pub fn push_at(&mut self, time: String, line: impl Into<String>) {
+        if self.entries.len() == self.limit {
+            self.entries.pop_front();
+        }
+        self.entries.push_back(Entry { time, text: line.into() });
+        self.unread = self.unread.saturating_add(1);
+    }
+
+    /// Whether lines have come in since `mark_read`.
+    pub fn has_unread(&self) -> bool {
+        self.unread > 0
+    }
+
+    /// The panel has shown everything in this log.
+    pub fn mark_read(&mut self) {
+        self.unread = 0;
+    }
+
+    /// The lines' text.
     pub fn lines(&self) -> impl Iterator<Item = &String> {
-        self.lines.iter()
+        self.entries.iter().map(|e| &e.text)
+    }
+
+    /// The lines with their stamps, for the panel.
+    pub fn entries(&self) -> impl Iterator<Item = &Entry> {
+        self.entries.iter()
     }
 
     pub fn clear(&mut self) {
-        self.lines.clear();
+        self.entries.clear();
+        self.unread = 0;
+    }
+}
+
+#[cfg(test)]
+mod log_tests {
+    use super::Log;
+
+    /// The console's state is one per process, so its tests take turns: two
+    /// at once read each other's output, and took each other's Tab answers.
+    static CONSOLE_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn console_turn() -> std::sync::MutexGuard<'static, ()> {
+        CONSOLE_TESTS.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Tab's answer goes into the line: one completion whole, several as
+    /// what they have in common, listed above it by their last names.
+    #[test]
+    fn a_tab_answer_completes_the_line() {
+        let _turn = console_turn();
+        let ctx = egui::Context::default();
+        let (mut input, mut history, mut back) = ("x = m.".to_string(), Vec::new(), 0);
+        super::console_offer("x = m.".into(), "x = ".into(), vec!["m.mat".into(), "m.mesh".into()]);
+        let raw = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0))),
+            ..Default::default()
+        };
+        let mut output = ctx.run_ui(raw, |ui| super::console_prompt(ui, &mut input, &mut history, &mut back));
+        output.textures_delta.clear();
+        assert_eq!(input, "x = m.m", "what they have in common");
+        let mut log = Log::new(8);
+        super::drain_console_output(&mut log);
+        assert_eq!(log.lines().last().map(String::as_str), Some("mat  mesh"), "listed");
+
+        // An answer to a line since changed is dropped.
+        super::console_offer("x = m.".into(), "x = ".into(), vec!["m.mat".into()]);
+        let raw = egui::RawInput::default();
+        let mut output = ctx.run_ui(raw, |ui| super::console_prompt(ui, &mut input, &mut history, &mut back));
+        output.textures_delta.clear();
+        assert_eq!(input, "x = m.m", "a stale answer changed the line");
+    }
+
+    /// `17:42:10.123`.
+    pub(super) fn is_time(stamp: &str) -> bool {
+        let b = stamp.as_bytes();
+        b.len() == 12
+            && b[2] == b':'
+            && b[5] == b':'
+            && b[8] == b'.'
+            && [0, 1, 3, 4, 6, 7, 9, 10, 11].iter().all(|&i| b[i].is_ascii_digit())
+    }
+
+    /// Lines are unread from when they come in until the panel shows them,
+    /// which is what puts the dot on a tab; clearing a log leaves nothing to
+    /// read either.
+    #[test]
+    fn lines_are_unread_until_shown() {
+        let mut log = Log::new(2);
+        assert!(!log.has_unread(), "a new log has nothing to read");
+        log.push("one");
+        log.push("two");
+        log.push("three");
+        assert!(log.has_unread(), "lines came in");
+        log.mark_read();
+        assert!(!log.has_unread(), "the panel showed them");
+        log.push("four");
+        log.clear();
+        assert!(!log.has_unread(), "a cleared log has nothing to read");
+    }
+
+    /// The log panel on the python tab keeps its height from frame to
+    /// frame. The prompt's row was started at 18 points and its field was
+    /// taller: centred, it stuck out past the panel, egui kept the panel that
+    /// much taller, and it grew by a point every frame to its maximum.
+    #[test]
+    fn the_console_does_not_grow_its_panel() {
+        let _turn = console_turn();
+        let ctx = egui::Context::default();
+        let (mut input, mut history, mut back) = (String::new(), Vec::new(), 0);
+        let mut heights = Vec::new();
+        for _ in 0..6 {
+            let raw = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0))),
+                ..Default::default()
+            };
+            let mut output = ctx.run_ui(raw, |ui| {
+                // The log's own card: outline, margins, rounding.
+                let card = egui::Frame::new()
+                    .stroke(egui::Stroke::new(1.0, egui::Color32::GRAY))
+                    .corner_radius(egui::CornerRadius::same(6))
+                    .inner_margin(egui::Margin::same(8))
+                    .outer_margin(egui::Margin::same(super::CARD_MARGIN));
+                let panel = egui::Panel::bottom("log")
+                    .frame(card)
+                    .show_separator_line(false)
+                    .resizable(true)
+                    .default_size(160.0)
+                    .show(ui, |ui| {
+                    ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+                        super::console_prompt(ui, &mut input, &mut history, &mut back);
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| ui.vertical(|ui| ui.label("42")));
+                    });
+                });
+                heights.push(panel.response.rect.height());
+            });
+            // Nothing draws them here; egui checks they were seen to.
+            output.textures_delta.clear();
+        }
+        assert!(heights.windows(2).all(|w| (w[0] - w[1]).abs() < 0.01), "{heights:?}");
+    }
+
+    /// Lines typed at the console come out in the order typed, empty ones
+    /// included -- one closes a block -- and what running them printed
+    /// reaches the python tab a whole line at a time.
+    #[test]
+    fn the_console_keeps_order_and_whole_lines() {
+        let _turn = console_turn();
+        super::console_submit("for i in range(2):".into());
+        super::console_submit("".into());
+        assert_eq!(super::console_take().as_deref(), Some("for i in range(2):"));
+        assert_eq!(super::console_take().as_deref(), Some(""));
+        assert_eq!(super::console_take(), None);
+
+        super::console_write(">>> 6 * ");
+        super::console_write("7\n42\npartial");
+        let mut log = Log::new(8);
+        super::drain_console_output(&mut log);
+        assert_eq!(log.lines().collect::<Vec<_>>(), [">>> 6 * 7", "42"]);
+        super::console_write("\n");
+        super::drain_console_output(&mut log);
+        assert_eq!(log.lines().last().map(String::as_str), Some("partial"));
+    }
+
+    /// A line pushed now carries the time; one pushed with a time of its own
+    /// keeps it; and once the log is full the oldest goes.
+    #[test]
+    fn lines_carry_their_time() {
+        let mut log = Log::new(2);
+        log.push_at("07:04:03.250".to_string(), "caught");
+        log.push("one");
+        assert_eq!(log.entries().next().unwrap().time, "07:04:03.250");
+        log.push("two");
+        assert_eq!(log.lines().collect::<Vec<_>>(), ["one", "two"]);
+        assert!(log.entries().all(|e| is_time(&e.time)), "stamped hh:mm:ss.mmm");
     }
 }
 
 /// How close to an edge the pointer must come to summon a panel, in points.
 const EDGE: f32 = 24.0;
+
+/// A card's outer margin: half the gap between two, VS Code's 4 points.
+const CARD_MARGIN: i8 = 2;
+
+/// How long the pointer rests on a panel's edge before it is lit: VS Code's
+/// `workbench.sash.hoverDelay`.
+const SASH_DELAY: std::time::Duration = std::time::Duration::from_millis(300);
+
+/// The panels there are, by their index in the four-slot arrays: toolbar,
+/// log, side panel. Slot 2, the left edge, has held nothing since the script
+/// became the middle's editor tab; it is kept so `panels_shown` and the
+/// arrays keep their shape.
+const DOCKED: [usize; 3] = [0, 1, 3];
 
 /// How big each floating panel is when it has not been dragged: top, bottom,
 /// left, right.
@@ -197,6 +480,32 @@ pub struct Editor {
     /// Which of the log's two tabs is showing.
     pub log_tab: LogTab,
 
+    /// The theme the panels were last drawn in, so it is applied when
+    /// `app.config.theme` changes rather than every frame.
+    theme: Option<crate::app::config::UiTheme>,
+
+    /// The python tab's input line; what was typed at it before, for `↑`;
+    /// and how far back `↑` has gone, 0 being the line being typed.
+    console_input: String,
+    console_history: Vec<String>,
+    console_back: usize,
+
+    /// Which of the middle's two tabs is showing, the scene or the script.
+    pub central_tab: CentralTab,
+    /// Which of the side panel's three tabs is showing.
+    side_tab: SideTab,
+    /// The panel edge the pointer is resting on, and since when: lit once it
+    /// has rested there `SASH_DELAY`, as VS Code's are.
+    sash_hover: Option<(usize, std::time::Instant)>,
+    /// The panel edge being dragged, lit until the button comes up.
+    sash_drag: Option<usize>,
+    /// The files tab's listings.
+    files: FileTree,
+    /// A file clicked in the tree over unsaved edits, waiting on the prompt.
+    confirm_open: Option<std::path::PathBuf>,
+    /// One to open once the save the prompt asked for has landed.
+    open_after_save: Option<std::path::PathBuf>,
+
     /// The script buffer, so a simulation can be edited without leaving the
     /// window. Plain text, not a file handle: what is on screen is what
     /// `Run` executes, saved or not.
@@ -249,15 +558,22 @@ pub struct Editor {
 }
 
 impl Editor {
-    /// Fold the four docked panels to the window edges, or bring them all
+    /// Open `path` from the tree: as the path field used to, through
+    /// `open_request`.
+    fn open_path(&mut self, path: std::path::PathBuf) {
+        self.script_path = path.display().to_string();
+        self.open_request = true;
+    }
+
+    /// Fold the three docked panels to the window edges, or bring them all
     /// back. Each folded panel keeps egui's thin handle at its edge, so one
     /// can be dragged or double-clicked back out on its own -- the halfway
     /// house between the full layout and focus mode, which hides everything
     /// and reveals on hover.
     pub fn toggle_panels(&mut self) {
-        let any_open = self.docked_open.iter().any(|&open| open);
-        for open in &mut self.docked_open {
-            *open = !any_open;
+        let any_open = DOCKED.iter().any(|&i| self.docked_open[i]);
+        for i in DOCKED {
+            self.docked_open[i] = !any_open;
         }
     }
 
@@ -302,7 +618,8 @@ impl Editor {
             registered_size: (0, 0),
             registered_generation: u64::MAX,
             panels: [egui::Rect::NOTHING; 4],
-            docked_open: [true; 4],
+            // The left slot holds nothing; see `DOCKED`.
+            docked_open: [true, true, false, true],
             last_folded: false,
             last_each: [false; 4],
             float_sizes: FLOAT_DEFAULTS,
@@ -312,7 +629,18 @@ impl Editor {
                 window.inner_size().width.max(1),
                 window.inner_size().height.max(1),
             ),
-            log_tab: LogTab::Script,
+            log_tab: LogTab::Kalast,
+            theme: None,
+            console_input: String::new(),
+            console_history: Vec::new(),
+            console_back: 0,
+            central_tab: CentralTab::Renderer,
+            side_tab: SideTab::Simulation,
+            sash_hover: None,
+            sash_drag: None,
+            files: FileTree::default(),
+            confirm_open: None,
+            open_after_save: None,
             script: String::new(),
             script_path: String::new(),
             script_dirty: false,
@@ -401,6 +729,12 @@ impl Editor {
         // the borrow checker cannot see that, so the check moves to runtime.
         let sim = std::cell::RefCell::new(sim);
 
+        // The panels' colours, set when they change.
+        if self.theme != Some(app_config.theme) {
+            theme::apply(&self.ctx, app_config.theme);
+            self.theme = Some(app_config.theme);
+        }
+
         let mut raw = self.state.take_egui_input(window);
         // Lay out for what is being drawn into, not for the window.
         let ppp = self.ctx.pixels_per_point();
@@ -426,6 +760,8 @@ impl Editor {
         if let Some(i) = self.resizing {
             shows[i] = true;
         }
+        // The left edge summons nothing: the script is the editor tab.
+        shows[2] = false;
         let [show_top, show_bottom, show_left, show_right] = shows;
         let mut rects = [egui::Rect::NOTHING; 4];
         let mut out_sizes = self.float_sizes;
@@ -435,8 +771,8 @@ impl Editor {
         // Window header's checkbox -- folds or unfolds all four. The
         // per-panel state stays the editor's, since egui moves it by drag.
         if app_config.panels_folded != self.last_folded {
-            for open in &mut self.docked_open {
-                *open = !app_config.panels_folded;
+            for i in DOCKED {
+                self.docked_open[i] = !app_config.panels_folded;
             }
         }
         // One panel from the config side -- `app.config.log_folded = True`
@@ -447,7 +783,7 @@ impl Editor {
             app_config.script_folded,
             app_config.simulation_folded,
         ];
-        for i in 0..4 {
+        for i in DOCKED {
             if folded_each[i] != self.last_each[i] {
                 self.docked_open[i] = !folded_each[i];
             }
@@ -467,6 +803,38 @@ impl Editor {
         shared.pointer = pointer.map(|p| (p.x, p.y));
         shared.ui_size = (screen.width(), screen.height());
         let texture_id = self.viewport_texture;
+        // Read before the script's path is lent to the editor tab: the files
+        // tab marks the open file with it. Relative to the working directory
+        // when it is inside it, as the tree's paths are.
+        let current_script = {
+            let p = std::path::PathBuf::from(self.script_path.trim());
+            std::env::current_dir()
+                .ok()
+                .and_then(|cwd| p.strip_prefix(cwd).ok().map(std::path::Path::to_path_buf))
+                .unwrap_or(p)
+        };
+        // Chosen in the toolbar, read by the middle: two places at once, so a
+        // cell, written back after the frame.
+        let central_tab = std::cell::Cell::new(self.central_tab);
+        // Which file the editor holds, named in the toolbar beside save. It
+        // is opened from the files tab; the open button, its path field and
+        // their dialog went when the tree came.
+        let crumb = match self.script_path.trim() {
+            "" => String::new(),
+            p if shared.native => format!("{p}  (running)"),
+            p => p.to_string(),
+        };
+        let side_tab = &mut self.side_tab;
+        let files = &mut self.files;
+        let sash_hover = &mut self.sash_hover;
+        let sash_drag = &mut self.sash_drag;
+        let accent = theme::accent(app_config.theme);
+        let outline = theme::outline(app_config.theme);
+        let side_fill = theme::side_fill(app_config.theme);
+        let mut file_clicked: Option<std::path::PathBuf> = None;
+        let confirm_open = self.confirm_open.clone();
+        let (mut open_saving, mut open_anyway, mut keep_editing) = (false, false, false);
+        let mut remember = false;
         let script = &mut self.script;
         let script_path = &mut self.script_path;
         let is_rust = script_path.trim_end().ends_with(".rs");
@@ -476,10 +844,14 @@ impl Editor {
         let update_state = shared.update.clone();
         let log = &mut shared.log;
         let kalast_log = &mut shared.kalast_log;
+        let console_log = &mut shared.console_log;
+        let console_input = &mut self.console_input;
+        let console_history = &mut self.console_history;
+        let console_back = &mut self.console_back;
         let log_tab = &mut self.log_tab;
         let dirty = &mut self.script_dirty;
         let ran = &mut shared.script_ran;
-        let (mut run_request, mut open_request, mut save_request) = (false, false, false);
+        let (mut run_request, mut save_request) = (false, false);
         let (mut update_request, mut relaunch_request) = (false, false);
         let (mut save_and_quit, mut quit_now, mut cancel_exit) = (false, false, false);
         // A Rust example is built and launched rather than run in this
@@ -496,7 +868,7 @@ impl Editor {
 
             // The scene itself, drawn the same way in both layouts and
             // differing only in what it is given.
-            let scene_ui = |ui: &mut egui::Ui, into: egui::Rect| {
+            let scene_ui = |ui: &mut egui::Ui, into: egui::Rect, corner: u8| {
                 if let Some(id) = texture_id {
                     // Fit rather than fill: the scene was rendered at last
                     // frame's size, and stretching it to this frame's would
@@ -514,6 +886,7 @@ impl Editor {
                     // the scene in the bottom-right corner of the window,
                     // mostly out of view.
                     egui::Image::new(egui::load::SizedTexture::new(id, size))
+                        .corner_radius(egui::CornerRadius::same(corner))
                         .paint_at(ui, egui::Rect::from_center_size(into.center(), size));
                 }
             };
@@ -527,6 +900,41 @@ impl Editor {
                 let diagnostics = &sim.diagnostics;
                 let state = &mut sim.state;
                 ui.horizontal(|ui| {
+                    // What the middle shows, the scene or the script. Here
+                    // rather than on the middle, so folding the toolbar -- `↑`
+                    // -- leaves nothing but the scene.
+                    let tab = central_tab.get();
+                    if ui
+                        .selectable_label(tab == CentralTab::Renderer, "renderer")
+                        .on_hover_text("The scene")
+                        .clicked()
+                    {
+                        central_tab.set(CentralTab::Renderer);
+                    }
+                    if ui
+                        .selectable_label(
+                            tab == CentralTab::Editor,
+                            if script_dirty { "editor \u{25cf}" } else { "editor" },
+                        )
+                        .on_hover_text(if script_dirty {
+                            "The script, edited since it was saved"
+                        } else {
+                            "The script"
+                        })
+                        .clicked()
+                    {
+                        central_tab.set(CentralTab::Editor);
+                    }
+                    if ui
+                        .add_enabled(script_dirty, egui::Button::new("save"))
+                        .on_hover_text("Write the script back to its file")
+                        .clicked()
+                    {
+                        save_request = true;
+                    }
+                    if !crumb.is_empty() {
+                        ui.label(egui::RichText::new(&crumb).weak());
+                    }
                     // Play is the only way to start. A separate Run was the
                     // same button twice: both meant "go", and you had to press
                     // one then find the other.
@@ -641,9 +1049,8 @@ impl Editor {
                         .clicked()
                     {
                         state.is_paused = false;
-                        state.pause_at = Some(state.iteration + 1);
+                        state.pause_after_iteration = Some(state.iteration);
                     }
-                    ui.separator();
                     // The same template a HUD takes, so the toolbar says
                     // whatever this run wants it to -- and `{drawn}` rather
                     // than `{it}` by default, because once the frame for
@@ -669,7 +1076,7 @@ impl Editor {
                             State::Available(u) => {
                                 ui.separator();
                                 if ui
-                                    .button(format!("\u{2b06} update to v{}", u.latest.version))
+                                    .button(format!("\u{2b06} update to {}", u.latest.tag))
                                     .on_hover_text("Download this release for this machine and install it in place; its notes are in the log")
                                     .clicked()
                                 {
@@ -701,75 +1108,113 @@ impl Editor {
             };
             let log_ui = |ui: &mut egui::Ui| {
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("Log").strong());
-                        ui.selectable_value(&mut *log_tab, LogTab::Script, "script")
-                            .on_hover_text("What the script prints: print, tracebacks, app.log");
-                        ui.selectable_value(&mut *log_tab, LogTab::Kalast, "kalast")
-                            .on_hover_text("What kalast prints: loading, the update check, builds, debug output");
+                        // The tab not shown gets a dot while it has lines not
+                        // seen yet. Painted on its corner rather than added to
+                        // its label, so the row does not shift as it comes and
+                        // goes.
+                        let dot = ui.visuals().hyperlink_color;
+                        for (tab, name, hover, unread) in [
+                            (
+                                LogTab::Kalast,
+                                "kalast",
+                                "What kalast prints: loading, the update check, builds, pauses, debug output",
+                                kalast_log.has_unread(),
+                            ),
+                            (
+                                LogTab::Script,
+                                "script",
+                                "What the script prints: print, tracebacks, app.log",
+                                log.has_unread(),
+                            ),
+                            (
+                                LogTab::Python,
+                                "python",
+                                "A Python console: a line runs between frames, among the script's variables",
+                                console_log.has_unread(),
+                            ),
+                        ] {
+                            let tab_rect = ui.selectable_value(&mut *log_tab, tab, name).on_hover_text(hover).rect;
+                            if unread && *log_tab != tab {
+                                ui.painter().circle_filled(tab_rect.right_top() + egui::vec2(0.0, 3.0), 2.5, dot);
+                            }
+                        }
                         if ui.small_button("clear").clicked() {
                             match *log_tab {
                                 LogTab::Script => log.clear(),
                                 LogTab::Kalast => kalast_log.clear(),
+                                LogTab::Python => console_log.clear(),
                             }
                         }
                     });
-                    let shown = match *log_tab {
-                        LogTab::Script => &*log,
-                        LogTab::Kalast => &*kalast_log,
+                    // The console reads as a transcript, without stamps.
+                    let (shown, stamped) = match *log_tab {
+                        LogTab::Kalast => (&mut *kalast_log, true),
+                        LogTab::Script => (&mut *log, true),
+                        LogTab::Python => (&mut *console_log, false),
                     };
+                    // What the shown tab has, it has shown.
+                    shown.mark_read();
                     // A scroll position per tab, so switching does not drop
                     // one at the other's place.
-                    egui::ScrollArea::vertical()
-                        .id_salt(("log", *log_tab))
-                        .stick_to_bottom(true)
-                        .show(ui, |ui| {
-                            for line in shown.lines() {
-                                ui.label(egui::RichText::new(line).monospace());
-                            }
+                    //
+                    // Filling the panel, not shrunk to the lines: a docked
+                    // panel keeps the height its content used, so a tab with
+                    // fewer lines shrank it on switching, and a drag taller
+                    // than the text snapped back on release.
+                    let tab = *log_tab;
+                    let transcript = |ui: &mut egui::Ui| {
+                        egui::ScrollArea::vertical()
+                            .id_salt(("log", tab))
+                            .auto_shrink([false, false])
+                            .stick_to_bottom(true)
+                            .show(ui, |ui| {
+                                // Top down whatever the layout around it: the
+                                // console's is bottom up.
+                                ui.vertical(|ui| {
+                                    // Each line after its time, dimmed, in one
+                                    // piece: a copied line keeps its stamp.
+                                    let font = egui::TextStyle::Monospace.resolve(ui.style());
+                                    let valign = ui.text_valign();
+                                    let stamp = egui::TextFormat {
+                                        font_id: font.clone(),
+                                        color: ui.visuals().weak_text_color(),
+                                        valign,
+                                        ..Default::default()
+                                    };
+                                    let text = egui::TextFormat {
+                                        font_id: font,
+                                        color: egui::Color32::PLACEHOLDER,
+                                        valign,
+                                        ..Default::default()
+                                    };
+                                    for entry in shown.entries() {
+                                        let mut line = egui::text::LayoutJob::default();
+                                        if stamped {
+                                            line.append(&entry.time, 0.0, stamp.clone());
+                                            line.append(" ", 0.0, text.clone());
+                                        }
+                                        line.append(&entry.text, 0.0, text.clone());
+                                        ui.label(line);
+                                    }
+                                });
+                            });
+                    };
+                    if tab == LogTab::Python {
+                        // From the bottom up: the input line first, then the
+                        // transcript in exactly what is left. Sized from a
+                        // guess at the line's height instead, the content ran
+                        // a point past the panel whenever the guess was short,
+                        // egui kept the taller panel, and it grew every frame
+                        // to its maximum.
+                        ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+                            console_prompt(ui, console_input, console_history, console_back);
+                            transcript(ui);
                         });
+                    } else {
+                        transcript(ui);
+                    }
                 };
             let script_ui = |ui: &mut egui::Ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new(if native { "Running" } else { "Script" }).strong());
-                        // The platform's own file picker, starting where
-                        // the current script is or else in `examples/`
-                        // (beside the executable in a bundle, in the
-                        // working directory in a checkout), showing `.py`,
-                        // `.rs` and `.obj` -- a mesh opens the way
-                        // `kalast some.obj` does. Cancel changes nothing.
-                        if ui.small_button("open").clicked() {
-                            let start = std::path::Path::new(script_path.trim())
-                                .parent()
-                                .filter(|d| !d.as_os_str().is_empty() && d.is_dir())
-                                .map(std::path::Path::to_path_buf)
-                                .or_else(examples_dir);
-                            let mut dialog = rfd::FileDialog::new()
-                                .add_filter("kalast script or mesh", &["py", "rs", "obj"])
-                                .add_filter("all files", &["*"]);
-                            if let Some(dir) = start {
-                                dialog = dialog.set_directory(dir);
-                            }
-                            if let Some(picked) = dialog.pick_file() {
-                                *script_path = picked.display().to_string();
-                                open_request = true;
-                            }
-                        }
-                        if ui.add_enabled(script_dirty, egui::Button::new("save").small()).clicked() {
-                            save_request = true;
-                        }
-                    });
-                    // Enter in the path field opens it: typing a filename and
-                    // then having to find a button is a step nobody wants.
-                    let path_edit = ui.add(
-                        egui::TextEdit::singleline(script_path)
-                            .hint_text("examples/crater_self_shadow/main.py")
-                            .desired_width(f32::INFINITY),
-                    );
-                    if path_edit.lost_focus()
-                        && ui.input(|i| i.key_pressed(egui::Key::Enter))
-                    {
-                        open_request = true;
-                    }
                     // A Rust example is a separate program: it links kalast
                     // as a library and opens its own window, so it cannot be
                     // hosted in this one the way a script is. Build it and
@@ -803,7 +1248,6 @@ impl Editor {
                             }
                         });
                     }
-                    ui.separator();
                     // A layouter with no wrap width. Python read through a
                     // soft wrap is Python with its indentation destroyed, and
                     // `desired_width` alone does not prevent it: the default
@@ -819,13 +1263,16 @@ impl Editor {
                             job.wrap.max_width = f32::INFINITY;
                             ui.ctx().fonts_mut(|f| f.layout_job(job))
                         };
-                    egui::ScrollArea::both().show(ui, |ui| {
+                    // The code fills the middle, straight on its card: framed
+                    // and 24 rows tall, it was a panel inside the panel.
+                    egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
                         let edit = ui.add(
                             egui::TextEdit::multiline(script)
                                 .code_editor()
+                                .frame(egui::Frame::NONE)
                                 .layouter(&mut layouter)
                                 .desired_width(f32::INFINITY)
-                                .desired_rows(24),
+                                .min_size(ui.available_size()),
                         );
                         if edit.changed() {
                             *dirty = true;
@@ -835,18 +1282,51 @@ impl Editor {
                     });
                 };
             let config_ui = |ui: &mut egui::Ui| {
-                    ui.label(egui::RichText::new("Simulation").strong());
-                    ui.separator();
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        // By topic, each header holding the entity beside
-                        // its own settings -- the Sun beside its light, the
-                        // HUD list beside its font. See `simulation_panel`.
-                        let mut sim = sim.borrow_mut();
-                        // The config is passed in rather than read from
-                        // `sim.config`: that is the same RefCell this panel
-                        // is being drawn with open, and reading it here panics.
-                        simulation_panel::simulation_panel(ui, &mut sim, config, app_config);
+                    ui.horizontal(|ui| {
+                        ui.selectable_value(&mut *side_tab, SideTab::App, "app")
+                            .on_hover_text("The app's own settings; the theme and fullscreen are remembered");
+                        ui.selectable_value(&mut *side_tab, SideTab::Simulation, "simulation")
+                            .on_hover_text("app.simulation.config, and the scene's bodies, camera and Sun");
+                        ui.selectable_value(&mut *side_tab, SideTab::Files, "files")
+                            .on_hover_text("The folder the app was started in; a script or a mesh opens on a click");
                     });
+                    ui.separator();
+                    // A scroll position per tab, so switching does not drop
+                    // one at the other's place.
+                    egui::ScrollArea::vertical()
+                        .id_salt(("side", *side_tab))
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| match *side_tab {
+                            SideTab::App => {
+                                ui.label(
+                                    egui::RichText::new("The theme and fullscreen are remembered for next time.")
+                                        .weak()
+                                        .small(),
+                                );
+                                let before = crate::app::settings::Remembered::of(app_config);
+                                config_panel::group_app(ui, app_config);
+                                remember |= crate::app::settings::Remembered::of(app_config) != before;
+                            }
+                            // By topic, each header holding the entity beside
+                            // its own settings -- the Sun beside its light, the
+                            // HUD list beside its font. See `simulation_panel`.
+                            SideTab::Simulation => {
+                                let mut sim = sim.borrow_mut();
+                                // The config is passed in rather than read from
+                                // `sim.config`: that is the same RefCell this
+                                // panel is being drawn with open, and reading it
+                                // here panics.
+                                simulation_panel::simulation_panel(ui, &mut sim, config);
+                            }
+                            SideTab::Files => {
+                                let root = std::env::current_dir()
+                                    .ok()
+                                    .and_then(|d| d.file_name().map(|n| n.to_string_lossy().into_owned()))
+                                    .unwrap_or_else(|| ".".to_string());
+                                ui.label(egui::RichText::new(root).strong());
+                                file_clicked = files.show(ui, std::path::Path::new(""), &current_script);
+                            }
+                        });
                 };
 
             // Floating panels get their own layers, which egui paints *above*
@@ -978,7 +1458,7 @@ impl Editor {
                     sizes[i] = FLOAT_DEFAULTS[i];
                 }
             }
-            let [top_h, bottom_h, left_w, right_w] = sizes;
+            let [top_h, bottom_h, _, right_w] = sizes;
 
             let scene_panel = |ui_root: &mut egui::Ui,
                                vp_rect: &mut egui::Rect,
@@ -991,17 +1471,22 @@ impl Editor {
                             ((vp_rect.width() * ppp).round() as u32).max(1),
                             ((vp_rect.height() * ppp).round() as u32).max(1),
                         );
-                        scene_ui(ui, *vp_rect);
+                        scene_ui(ui, *vp_rect, 0);
                     });
             };
 
             if immersive {
-                scene_panel(ui_root, &mut vp_rect, &mut wanted);
+                // The scene, the whole window -- or the script, when the
+                // toolbar's editor button asked for it.
+                if central_tab.get() == CentralTab::Editor {
+                    egui::CentralPanel::default().show(ui_root, script_ui);
+                } else {
+                    scene_panel(ui_root, &mut vp_rect, &mut wanted);
+                }
 
                 let ctx = ui_root.ctx().clone();
                 let mut toolbar_ui = toolbar_ui;
                 let mut log_ui = log_ui;
-                let mut script_ui = script_ui;
                 let mut config_ui = config_ui;
                 if show_top {
                     let r =
@@ -1014,11 +1499,6 @@ impl Editor {
                         egui::vec2(screen.width(), bottom_h),
                     );
                     rects[1] = float(&ctx, "log", r, 1, &mut sizes[1], &mut resizing, &mut log_ui);
-                }
-                if show_left {
-                    let r =
-                        egui::Rect::from_min_size(screen.min, egui::vec2(left_w, screen.height()));
-                    rects[2] = float(&ctx, "script", r, 2, &mut sizes[2], &mut resizing, &mut script_ui);
                 }
                 if show_right {
                     let r = egui::Rect::from_min_size(
@@ -1037,10 +1517,44 @@ impl Editor {
                 // handle. It cannot actually be made taller: a panel is the
                 // size of its content, and one row of buttons does not
                 // stretch to fill a drag the way a scroll area does.
+                // VS Code's cards: the panels and the middle each a rounded
+                // card, apart from one another over the theme's darkest
+                // shade, and the toolbar straight on it, a title bar. No
+                // idle separator line along a panel's edge -- in the gap it
+                // read as a pale border between the cards -- only the
+                // highlight egui draws while the edge is hovered or dragged.
+                let visuals = ui_root.visuals().clone();
+                ui_root.painter().rect_filled(screen, 0.0, visuals.extreme_bg_color);
+                let card = egui::Frame::new()
+                    .fill(visuals.panel_fill)
+                    // One physical pixel, as VS Code's is: a point is two
+                    // of them on a Retina screen, and read twice as heavy.
+                    .stroke(egui::Stroke::new(1.0 / ppp, outline))
+                    .corner_radius(egui::CornerRadius::same(6))
+                    .inner_margin(egui::Margin::same(8))
+                    .outer_margin(egui::Margin::same(CARD_MARGIN));
+                // egui lights a panel's edge itself while it is hovered or
+                // dragged: 1 px against the card, in the text colour. It reads
+                // the strokes from the style the panel is shown in, so the
+                // panels are shown with those at no width, their contents
+                // given the style back, and VS Code's sash drawn instead.
+                let style = ui_root.style().clone();
+                {
+                    let w = &mut ui_root.style_mut().visuals.widgets;
+                    w.hovered.fg_stroke.width = 0.0;
+                    w.active.fg_stroke.width = 0.0;
+                }
+                let restyle = |ui: &mut egui::Ui| ui.set_style(style.clone());
+                let (mut toolbar_ui, mut config_ui, mut log_ui) = (toolbar_ui, config_ui, log_ui);
                 let mut open = open_docked;
                 rects[0] = egui::Panel::top("toolbar")
+                    .frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 4)))
+                    .show_separator_line(false)
                     .resizable(true)
-                    .show_collapsible(ui_root, &mut open[0], toolbar_ui)
+                    .show_collapsible(ui_root, &mut open[0], move |ui: &mut egui::Ui| {
+                        restyle(ui);
+                        toolbar_ui(ui)
+                    })
                     .map(|r| r.response.rect)
                     .unwrap_or(egui::Rect::NOTHING);
                 // `show_collapsible`, not `show`: dragging a resize handle
@@ -1063,29 +1577,130 @@ impl Editor {
                 // the same question: those are summoned and dismissed by the
                 // pointer already, so shrinking one is about the size it will
                 // have next time, not about getting rid of it.
-                rects[1] = egui::Panel::bottom("log")
-                    .resizable(true)
-                    .default_size(bottom_h)
-                    .min_size(120.0)
-                    .show_collapsible(ui_root, &mut open[1], log_ui)
-                    .map(|r| r.response.rect)
-                    .unwrap_or(egui::Rect::NOTHING);
-                rects[2] = egui::Panel::left("script")
-                    .resizable(true)
-                    .default_size(left_w)
-                    .min_size(180.0)
-                    .show_collapsible(ui_root, &mut open[2], script_ui)
-                    .map(|r| r.response.rect)
-                    .unwrap_or(egui::Rect::NOTHING);
                 rects[3] = egui::Panel::right("config")
+                    // A shade darker than the other cards, as VS Code's
+                    // sidebar is.
+                    .frame(card.fill(side_fill))
+                    .show_separator_line(false)
                     .resizable(true)
                     .default_size(right_w)
                     .min_size(180.0)
-                    .show_collapsible(ui_root, &mut open[3], config_ui)
+                    .show_collapsible(ui_root, &mut open[3], move |ui: &mut egui::Ui| {
+                        restyle(ui);
+                        config_ui(ui)
+                    })
+                    .map(|r| r.response.rect)
+                    .unwrap_or(egui::Rect::NOTHING);
+                // After the side panels, which then run the full height: a
+                // panel takes the whole edge of whatever is left when it is
+                // added, so the log sits between them, under the scene, the
+                // way VS Code lays out its side bars and its panel.
+                rects[1] = egui::Panel::bottom("log")
+                    .frame(card)
+                    .show_separator_line(false)
+                    .resizable(true)
+                    .default_size(bottom_h)
+                    .min_size(120.0)
+                    .show_collapsible(ui_root, &mut open[1], move |ui: &mut egui::Ui| {
+                        restyle(ui);
+                        log_ui(ui)
+                    })
                     .map(|r| r.response.rect)
                     .unwrap_or(egui::Rect::NOTHING);
                 out_open = open;
-                scene_panel(ui_root, &mut vp_rect, &mut wanted);
+                ui_root.set_style(style.clone());
+
+                // The middle: the scene or the script, as the toolbar's two
+                // buttons choose. The scene is measured only while it is the
+                // one shown, so the render keeps its size while the script
+                // is, and a click on the code is not a click on it.
+                // The scene in no card: it fills the middle to its edges, so
+                // with the panels folded it is the whole window, as a render
+                // window is. The script takes a card, like the panels.
+                let mut script_ui = script_ui;
+                let frame = match central_tab.get() {
+                    CentralTab::Renderer => egui::Frame::NONE,
+                    CentralTab::Editor => card,
+                };
+                egui::CentralPanel::default().frame(frame).show(ui_root, |ui| {
+                    match central_tab.get() {
+                        CentralTab::Renderer => {
+                            vp_rect = ui.available_rect_before_wrap();
+                            wanted = (
+                                ((vp_rect.width() * ppp).round() as u32).max(1),
+                                ((vp_rect.height() * ppp).round() as u32).max(1),
+                            );
+                            scene_ui(ui, vp_rect, 0);
+                        }
+                        CentralTab::Editor => script_ui(ui),
+                    }
+                });
+
+                // The middle of a gap, which is not always egui's edge: a
+                // card's gap is both cards' margins around the edge, but the
+                // scene has none, so beside it the gap is the panel's margin
+                // alone and its middle half of that into the panel. (VS Code's
+                // three-dot grip sat there too, and was taken out again: it
+                // looked out of place. The edges drag the same without it.)
+                let half = f32::from(CARD_MARGIN) / 2.0;
+                let inset = if central_tab.get() == CentralTab::Renderer { half } else { 0.0 };
+
+                // VS Code's sash: a draggable edge lit in the theme's accent,
+                // 4 px down the middle of the gap -- once the pointer has
+                // rested on it `SASH_DELAY`, and at once while it is dragged.
+                // egui's grab zone is 3 px either side of the edge, which
+                // takes in the gap; a folded panel's is the window's edge.
+                let top = if open[0] && rects[0].is_positive() { rects[0].bottom() } else { screen.top() };
+                let right = if open[3] && rects[3].is_positive() { rects[3].left() } else { screen.right() };
+                let sashes = [
+                    (0, if open[0] && rects[0].is_positive() {
+                        egui::Rect::from_center_size(
+                            egui::pos2(screen.center().x, rects[0].bottom() + half),
+                            egui::vec2(screen.width(), 4.0),
+                        )
+                    } else {
+                        egui::Rect::from_min_max(screen.left_top(), egui::pos2(screen.right(), screen.top() + 4.0))
+                    }),
+                    (1, if open[1] && rects[1].is_positive() {
+                        egui::Rect::from_center_size(
+                            egui::pos2(rects[1].center().x, rects[1].top() + inset),
+                            egui::vec2(rects[1].width(), 4.0),
+                        )
+                    } else {
+                        egui::Rect::from_min_max(egui::pos2(screen.left(), screen.bottom() - 4.0), egui::pos2(right, screen.bottom()))
+                    }),
+                    (3, if open[3] && rects[3].is_positive() {
+                        egui::Rect::from_center_size(
+                            egui::pos2(rects[3].left() + inset, rects[3].center().y),
+                            egui::vec2(4.0, rects[3].height()),
+                        )
+                    } else {
+                        egui::Rect::from_min_max(egui::pos2(screen.right() - 4.0, top), screen.right_bottom())
+                    }),
+                ];
+                let pointer = ui_root.ctx().pointer_latest_pos();
+                let (pressed, down) = ui_root.input(|i| (i.pointer.primary_pressed(), i.pointer.primary_down()));
+                let over = pointer.and_then(|p| {
+                    sashes.iter().find(|(_, r)| r.expand(1.0).contains(p)).map(|(i, _)| *i)
+                });
+                if pressed {
+                    *sash_drag = over;
+                }
+                if !down {
+                    *sash_drag = None;
+                }
+                match (over, *sash_hover) {
+                    (Some(i), Some((j, _))) if i == j => {}
+                    (Some(i), _) => *sash_hover = Some((i, std::time::Instant::now())),
+                    (None, _) => *sash_hover = None,
+                }
+                // Not while something else is being dragged across it.
+                let rested = sash_hover
+                    .filter(|(_, since)| !down && since.elapsed() >= SASH_DELAY)
+                    .map(|(i, _)| i);
+                if let Some((_, rect)) = sash_drag.or(rested).and_then(|lit| sashes.iter().find(|(i, _)| *i == lit)) {
+                    ui_root.painter().rect_filled(*rect, egui::CornerRadius::same(2), accent);
+                }
             }
 
             // Asked once, over everything: closing the window over an edited
@@ -1118,6 +1733,34 @@ impl Editor {
                     cancel_exit = true;
                 }
             }
+
+            // The same question before a file from the tree replaces edits
+            // not yet saved: the tree puts that one click away.
+            if let Some(next) = &confirm_open {
+                let modal = egui::Modal::new(egui::Id::new("confirm_open")).show(ui_root.ctx(), |ui| {
+                    ui.set_width(380.0);
+                    ui.heading("Unsaved changes");
+                    ui.label(format!(
+                        "{path_label} has been edited since it was last saved. Open {} in its place?",
+                        next.display()
+                    ));
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("Save and open").clicked() {
+                            open_saving = true;
+                        }
+                        if ui.button("Open without saving").clicked() {
+                            open_anyway = true;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            keep_editing = true;
+                        }
+                    });
+                });
+                if modal.should_close() {
+                    keep_editing = true;
+                }
+            }
         });
 
         self.viewport_size = wanted;
@@ -1126,21 +1769,58 @@ impl Editor {
         self.float_sizes = out_sizes;
         self.resizing = out_resizing;
         self.docked_open = out_open;
-        // Written back from the panels: folded means all four are, so
+        // Written back from the panels: folded means all three are, so
         // dragging one out clears it and `N` then folds everything again.
-        let folded = !self.docked_open.iter().any(|&open| open);
+        let folded = DOCKED.iter().all(|&i| !self.docked_open[i]);
         app_config.panels_folded = folded;
         self.last_folded = folded;
         let each = self.docked_open.map(|open| !open);
-        [
-            app_config.toolbar_folded,
-            app_config.log_folded,
-            app_config.script_folded,
-            app_config.simulation_folded,
-        ] = each;
+        app_config.toolbar_folded = each[0];
+        app_config.log_folded = each[1];
+        app_config.simulation_folded = each[3];
         self.last_each = each;
         self.run_request |= run_request;
         self.restart_request |= restart_request;
+        self.central_tab = central_tab.get();
+        // Running something is for watching it: back to the scene.
+        if run_request || restart_request || launch_request {
+            self.central_tab = CentralTab::Renderer;
+        }
+        // Opened from the files tab: a script into the editor, a mesh into
+        // the scene, whichever of the two the middle is showing. A script
+        // over unsaved edits asks first; a mesh leaves the editor as it is.
+        if let Some(path) = file_clicked {
+            let is_mesh = path.extension().is_some_and(|e| e == "obj");
+            if self.script_dirty && !is_mesh {
+                self.confirm_open = Some(path);
+            } else {
+                self.open_path(path);
+            }
+        }
+        if open_saving || open_anyway || keep_editing {
+            if let Some(path) = self.confirm_open.take() {
+                if open_saving {
+                    self.save_request = true;
+                    self.open_after_save = Some(path);
+                } else if open_anyway {
+                    self.open_path(path);
+                }
+            }
+        }
+        // Saved, then opened: the save is served between frames and the open
+        // waits for it. One that failed leaves the edits, and drops the open
+        // rather than leave it to spring later.
+        if !self.save_request {
+            if let Some(path) = self.open_after_save.take() {
+                if !self.script_dirty {
+                    self.open_path(path);
+                }
+            }
+        }
+        // Changed in the app tab: remembered. See `settings`.
+        if remember && !cfg!(test) {
+            crate::app::settings::save(crate::app::settings::Remembered::of(app_config));
+        }
         if save_and_quit {
             self.save_request = true;
             self.exit_after_save = true;
@@ -1149,7 +1829,6 @@ impl Editor {
         if save_and_quit || quit_now || cancel_exit {
             self.confirm_exit = false;
         }
-        self.open_request |= open_request;
         self.save_request |= save_request;
         self.update_request |= update_request;
         self.relaunch_request |= relaunch_request;
@@ -1342,8 +2021,9 @@ mod reveal_tests {
 pub struct StdioCapture {
     /// The original stdout, kept so output still reaches the terminal.
     tty: std::fs::File,
-    /// Whole lines the reader has taken off the pipe, waiting for a frame.
-    lines: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    /// Whole lines the reader has taken off the pipe, stamped then, waiting
+    /// for a frame.
+    lines: std::sync::Arc<std::sync::Mutex<Vec<Entry>>>,
     /// Signalled by the reader once the pipe has closed and everything in
     /// it has gone to the terminal.
     #[cfg_attr(not(unix), allow(dead_code))]
@@ -1470,7 +2150,7 @@ impl StdioCapture {
     pub fn drain(&mut self, log: &mut Log) {
         let lines = std::mem::take(&mut *self.lines.lock().unwrap_or_else(|e| e.into_inner()));
         for line in lines {
-            log.push(line);
+            log.push_at(line.time, line.text);
         }
     }
 }
@@ -1497,7 +2177,7 @@ static SCRIPT_OUTPUT: std::sync::Mutex<ScriptOutput> =
 
 struct ScriptOutput {
     partial: Vec<u8>,
-    lines: Vec<String>,
+    lines: Vec<Entry>,
     /// The terminal, while a capture holds stdout. The script's copy goes
     /// here and not to descriptor 1, which is the capture's pipe and would
     /// put the same lines in the kalast tab as well.
@@ -1522,10 +2202,15 @@ pub fn script_write(text: &str) {
         }
     }
     out.partial.extend_from_slice(text.as_bytes());
+    // Stamped here, when the script wrote it, not when a frame moves it: a
+    // script named on the command line prints before there is a frame.
+    let mut time = None;
     while let Some(i) = out.partial.iter().position(|&b| b == b'\n') {
         let line: Vec<u8> = out.partial.drain(..=i).collect();
-        let line = String::from_utf8_lossy(&line).trim_end_matches(['\n', '\r']).to_string();
-        out.lines.push(line);
+        out.lines.push(Entry {
+            time: time.get_or_insert_with(|| crate::app::clock::now().time()).clone(),
+            text: String::from_utf8_lossy(&line).trim_end_matches(['\n', '\r']).to_string(),
+        });
     }
 }
 
@@ -1533,8 +2218,205 @@ pub fn script_write(text: &str) {
 pub fn drain_script_output(log: &mut Log) {
     let lines = std::mem::take(&mut SCRIPT_OUTPUT.lock().unwrap_or_else(|e| e.into_inner()).lines);
     for line in lines {
-        log.push(line);
+        log.push_at(line.time, line.text);
     }
+}
+
+/// The log's python tab: the lines typed at it, waiting for the loop to run
+/// them between frames, and what running them printed.
+///
+/// Out here rather than on the app, as the script's output is: a line runs
+/// with the app borrowed by whatever it calls, and what it prints has to land
+/// where that borrow does not reach.
+static CONSOLE: std::sync::Mutex<Console> = std::sync::Mutex::new(Console {
+    input: std::collections::VecDeque::new(),
+    complete: None,
+    offer: None,
+    partial: Vec::new(),
+    lines: Vec::new(),
+    more: false,
+});
+
+struct Console {
+    input: std::collections::VecDeque<String>,
+    /// The line as it stood when Tab was pressed, for Python to complete:
+    /// only it knows the namespace.
+    complete: Option<String>,
+    /// Its answer: the line asked about, the part of it before the word being
+    /// completed, and the completions of that word.
+    offer: Option<(String, String, Vec<String>)>,
+    partial: Vec<u8>,
+    lines: Vec<Entry>,
+    /// The last line opened a block -- a `for`, a `def` -- so the next is
+    /// typed at `...`.
+    more: bool,
+}
+
+/// The most of one line the python tab keeps, in bytes.
+const CONSOLE_LINE: usize = 4096;
+
+fn console() -> std::sync::MutexGuard<'static, Console> {
+    CONSOLE.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// A line typed at the python tab, for the loop to run between frames.
+pub fn console_submit(line: String) {
+    console().input.push_back(line);
+}
+
+/// The next line typed, if any: `EditorTick::Console`, or a script's own
+/// `step()` through `kalast.editor.serve_console`.
+pub fn console_take() -> Option<String> {
+    console().input.pop_front()
+}
+
+/// Whether the console has something for Python: a line, or a Tab.
+pub fn console_pending() -> bool {
+    let c = console();
+    !c.input.is_empty() || c.complete.is_some()
+}
+
+/// Ask for completions of `line`, as Tab does. One at a time: a second Tab
+/// before the answer replaces the question.
+pub fn console_ask_completion(line: String) {
+    console().complete = Some(line);
+}
+
+/// The line Tab asked about, if it has not been answered.
+pub fn console_take_completion() -> Option<String> {
+    console().complete.take()
+}
+
+/// Python's answer to a Tab: see `Console::offer`.
+pub fn console_offer(line: String, head: String, matches: Vec<String>) {
+    console().offer = Some((line, head, matches));
+}
+
+fn console_take_offer() -> Option<(String, String, Vec<String>)> {
+    console().offer.take()
+}
+
+/// What running a line printed, into the python tab once a line is whole.
+pub fn console_write(text: &str) {
+    let mut c = console();
+    c.partial.extend_from_slice(text.as_bytes());
+    while let Some(i) = c.partial.iter().position(|&b| b == b'\n') {
+        let line: Vec<u8> = c.partial.drain(..=i).collect();
+        let mut text = String::from_utf8_lossy(&line).trim_end_matches(['\n', '\r']).to_string();
+        // A line that long is a dump, not something to read, and laying it
+        // out every frame stalled the window: its start, and how much is left.
+        if text.len() > CONSOLE_LINE {
+            let cut = (0..=CONSOLE_LINE).rev().find(|&i| text.is_char_boundary(i)).unwrap_or(0);
+            let rest = text.len() - cut;
+            text.truncate(cut);
+            text.push_str(&format!(" ... ({rest} more characters)"));
+        }
+        c.lines.push(Entry { time: crate::app::clock::now().time(), text });
+    }
+}
+
+/// Whether the console waits for the rest of a block.
+pub fn console_set_more(more: bool) {
+    console().more = more;
+}
+
+fn console_more() -> bool {
+    console().more
+}
+
+/// Move what the console printed since last time into its log.
+pub fn drain_console_output(log: &mut Log) {
+    let lines = std::mem::take(&mut console().lines);
+    for line in lines {
+        log.push_at(line.time, line.text);
+    }
+}
+
+/// The python tab's input line: Enter hands it to the loop, `↑` and `↓` walk
+/// back through what was typed before it, and Tab completes the word under
+/// the cursor -- asked of Python between frames, so the answer comes a
+/// frame or so later.
+fn console_prompt(ui: &mut egui::Ui, input: &mut String, history: &mut Vec<String>, back: &mut usize) {
+    let id = egui::Id::new("console_input");
+    // The cursor to the end of a line put in the field from outside it.
+    let to_end = |ui: &egui::Ui, text: &str| {
+        if let Some(mut state) = egui::text_edit::TextEditState::load(ui.ctx(), id) {
+            let end = egui::text::CCursor::new(text.chars().count());
+            state.cursor.set_char_range(Some(egui::text::CCursorRange::one(end)));
+            state.store(ui.ctx(), id);
+        }
+    };
+
+    // Tab's answer: one completion goes in whole; several put in what they
+    // have in common and are listed above, as a terminal lists them. Only if
+    // the line is still the one asked about.
+    if let Some((asked, head, matches)) = console_take_offer() {
+        if asked == *input && !matches.is_empty() {
+            let common = matches.iter().skip(1).fold(matches[0].clone(), |common, m| {
+                common.chars().zip(m.chars()).take_while(|(a, b)| a == b).map(|(a, _)| a).collect()
+            });
+            if common.len() > input.len() - head.len() {
+                *input = format!("{head}{common}");
+                to_end(ui, input);
+            }
+            if matches.len() > 1 {
+                let names: Vec<&str> = matches.iter().map(|m| m.rsplit('.').next().unwrap_or(m)).collect();
+                console_write(&format!("{}\n", names.join("  ")));
+            }
+        }
+    }
+    // Tab asks, rather than moving the focus on or typing a tab: taken
+    // before the field sees it, and only while the field has the focus.
+    if ui.memory(|m| m.has_focus(id)) && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Tab)) {
+        console_ask_completion(input.clone());
+    }
+
+    // A row as tall as what is in it. `horizontal` starts a row at the
+    // interaction height, 18 points, and the field used to be a line plus
+    // its margins, 20 and a bit: centred, it stuck out past the panel's
+    // bottom, egui kept the panel that much taller, and the panel grew every
+    // frame to its maximum.
+    let font = egui::TextStyle::Monospace.resolve(ui.style());
+    let line = ui.fonts_mut(|f| f.row_height(&font)) + ui.spacing().extra_text_line_spacing;
+    let height = line.max(ui.spacing().interact_size.y);
+    let row = egui::vec2(ui.available_width(), height);
+    ui.allocate_ui_with_layout(row, egui::Layout::left_to_right(egui::Align::Center), |ui| {
+        ui.label(egui::RichText::new(if console_more() { "..." } else { ">>>" }).monospace().weak());
+        let edit = ui.add(
+            // A terminal's line: the prompt, then what is typed, with no box
+            // around it and no hint in it.
+            egui::TextEdit::singleline(input)
+                .id(id)
+                .font(egui::TextStyle::Monospace)
+                .frame(egui::Frame::NONE)
+                .lock_focus(true)
+                .desired_width(f32::INFINITY),
+        );
+        if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+            let line = std::mem::take(input);
+            if !line.trim().is_empty() && history.last() != Some(&line) {
+                history.push(line.clone());
+            }
+            *back = 0;
+            // Empty too: it is what ends a block.
+            console_submit(line);
+            edit.request_focus();
+        } else if edit.has_focus() {
+            let (up, down) = ui.input(|i| (i.key_pressed(egui::Key::ArrowUp), i.key_pressed(egui::Key::ArrowDown)));
+            if up && *back < history.len() {
+                *back += 1;
+            } else if down && *back > 0 {
+                *back -= 1;
+            } else {
+                return;
+            }
+            *input = match *back {
+                0 => String::new(),
+                n => history[history.len() - n].clone(),
+            };
+            to_end(ui, input);
+        }
+    });
 }
 
 /// Where `script_write` sends the terminal's copy: the capture's saved
@@ -1545,12 +2427,13 @@ fn script_terminal(terminal: Option<std::fs::File>) {
 }
 
 /// The reader thread: everything written to stdout and stderr goes on to the
-/// terminal as it arrives, and each whole line is kept for the log.
+/// terminal as it arrives, and each whole line is kept for the log, stamped
+/// with the time it came off the pipe.
 #[cfg(unix)]
 fn pump(
     mut reader: std::io::PipeReader,
     mut tee: std::fs::File,
-    lines: &std::sync::Mutex<Vec<String>>,
+    lines: &std::sync::Mutex<Vec<Entry>>,
     finished: std::sync::mpsc::Sender<()>,
 ) {
     use std::io::{Read as _, Write as _};
@@ -1569,17 +2452,24 @@ fn pump(
         let _ = tee.write_all(&buf[..n]);
         let _ = tee.flush();
         partial.extend_from_slice(&buf[..n]);
+        let mut time = None;
         let mut whole = Vec::new();
         while let Some(i) = partial.iter().position(|&b| b == b'\n') {
             let line: Vec<u8> = partial.drain(..=i).collect();
-            whole.push(String::from_utf8_lossy(&line).trim_end_matches(['\n', '\r']).to_string());
+            whole.push(Entry {
+                time: time.get_or_insert_with(|| crate::app::clock::now().time()).clone(),
+                text: String::from_utf8_lossy(&line).trim_end_matches(['\n', '\r']).to_string(),
+            });
         }
         if !whole.is_empty() {
             lines.lock().unwrap_or_else(|e| e.into_inner()).extend(whole);
         }
     }
     if !partial.is_empty() {
-        let last = String::from_utf8_lossy(&partial).into_owned();
+        let last = Entry {
+            time: crate::app::clock::now().time(),
+            text: String::from_utf8_lossy(&partial).into_owned(),
+        };
         lines.lock().unwrap_or_else(|e| e.into_inner()).push(last);
     }
     let _ = finished.send(());
@@ -1587,7 +2477,7 @@ fn pump(
 
 #[cfg(all(test, unix))]
 mod stdio_tests {
-    use super::{Log, StdioCapture};
+    use super::{log_tests::is_time, Log, StdioCapture};
     use std::time::{Duration, Instant};
 
     const CHILD: &str = "KALAST_STDIO_CAPTURE_CHILD";
@@ -1663,6 +2553,7 @@ mod stdio_tests {
         for (i, line) in log.lines().enumerate() {
             assert!(line.starts_with(&format!("line {i:04} ")), "line {i} is {line:?}");
         }
+        assert!(log.entries().all(|e| is_time(&e.time)), "the pipe's lines are stamped");
         // The way a script's `print` arrives in the UI app: past the pipe, to
         // the terminal and the script tab, in pieces as Python writes it.
         // Only now, with every line above off the pipe and on the terminal,
@@ -1674,6 +2565,7 @@ mod stdio_tests {
         super::script_write("script\n");
         let mut script = Log::new(8);
         super::drain_script_output(&mut script);
+        assert!(script.entries().all(|e| is_time(&e.time)), "the script's lines are stamped");
         let script: Vec<&String> = script.lines().collect();
         assert_eq!(script, ["from the script"], "the script tab has the script's line, whole");
 
@@ -1697,13 +2589,3 @@ impl Drop for StdioCapture {
     }
 }
 
-/// The `examples/` folder, if one is where a run would expect it: beside
-/// the executable (a release bundle) or in the working directory (a
-/// checkout run as `python -m kalast`).
-fn examples_dir() -> Option<std::path::PathBuf> {
-    let beside_exe = std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().map(|d| d.join("examples")));
-    let in_cwd = std::env::current_dir().ok().map(|d| d.join("examples"));
-    [beside_exe, in_cwd].into_iter().flatten().find(|d| d.is_dir())
-}

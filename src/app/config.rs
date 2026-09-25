@@ -1192,6 +1192,35 @@ impl Default for Config {
     }
 }
 
+/// The colours the UI app's panels are drawn in -- the panels only: the
+/// scene is the renderer's, shown as an image no theme tints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UiTheme {
+    /// Catppuccin's Mocha, its darkest flavour. The default.
+    CatppuccinMocha,
+    /// egui's dark theme, whatever the system's appearance.
+    Dark,
+}
+
+impl UiTheme {
+    /// Parsed from Python, where these are plain strings. Hyphen, underscore
+    /// and space all work, since all three get typed.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().replace(['_', ' '], "-").as_str() {
+            "catppuccin-mocha" | "mocha" => Some(Self::CatppuccinMocha),
+            "dark" => Some(Self::Dark),
+            _ => None,
+        }
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::CatppuccinMocha => "catppuccin-mocha",
+            Self::Dark => "dark",
+        }
+    }
+}
+
 /// Settings for the **application**, not the simulation.
 ///
 /// Two configs, because they answer different questions. This one is about
@@ -1228,7 +1257,7 @@ pub struct AppConfig {
     /// to size, by double clicking its title bar or dragging a corner -- but
     /// on what is inside it. A focused renderer looks like a plain render
     /// window, with the panels a pointer-flick away: top for the toolbar,
-    /// left for the script, right for the config, bottom for the log.
+    /// right for the side panel, bottom for the log.
     ///
     /// Independent of `simulation.config.fullscreen`, which is the OS window
     /// and nothing else. Set both to be rid of everything at once; set this
@@ -1236,10 +1265,10 @@ pub struct AppConfig {
     pub focus: bool,
     /// Fold the editor's panels to the window edges; `N` toggles it.
     ///
-    /// Toolbar, script, simulation and log fold to their edges and come back
+    /// Toolbar, side panel and log fold to their edges and come back
     /// together; each keeps egui's thin handle, so one can be dragged or
     /// double-clicked back out on its own, and an arrow key folds or unfolds
-    /// the panel on that edge. Reads `true` only while all four are folded,
+    /// the panel on that edge. Reads `true` only while all three are folded,
     /// so bringing one out clears it. The halfway house between the full
     /// layout and `focus`, which hides everything and reveals on hover. Set
     /// before `start()` to open the editor folded.
@@ -1248,21 +1277,31 @@ pub struct AppConfig {
     ///
     /// Live, and written back: reads `true` while the toolbar is folded,
     /// however it got there -- this field, the key, a drag on its edge, or
-    /// `panels_folded`. One per panel; `panels_folded` is all four at once.
+    /// `panels_folded`. One per panel; `panels_folded` is all three at once.
     pub toolbar_folded: bool,
     /// Fold the log, the bottom panel, or bring it back; `↓` toggles it.
     ///
     /// Live and written back, like `toolbar_folded`.
     pub log_folded: bool,
-    /// Fold the script panel, on the left, or bring it back; `←` toggles it.
+    /// Does nothing now: the script is the middle's editor tab, and the left
+    /// edge has no panel to fold. Kept so a script that sets it still runs.
     ///
-    /// Live and written back, like `toolbar_folded`.
+    /// :skip:
+    /// No widget: a checkbox that does nothing is worse than none.
     pub script_folded: bool,
-    /// Fold the simulation panel, on the right, or bring it back; `→`
-    /// toggles it.
+    /// Fold the side panel, on the right -- app, simulation and files -- or
+    /// bring it back; `→` toggles it.
     ///
     /// Live and written back, like `toolbar_folded`.
     pub simulation_folded: bool,
+    /// The colours of the UI app's panels: `"catppuccin-mocha"`, the default,
+    /// or `"dark"`, egui's own.
+    ///
+    /// The panels only. The scene -- its background included -- is drawn by
+    /// the renderer from `app.simulation.config` and shown as an image no
+    /// theme tints, so a frame looks the same under either, on screen and
+    /// exported.
+    pub theme: UiTheme,
 
     /// Open the window without taking focus, so a run can go on beside
     /// other work.
@@ -1360,6 +1399,7 @@ impl Default for AppConfig {
             log_folded: false,
             script_folded: false,
             simulation_folded: false,
+            theme: UiTheme::CatppuccinMocha,
             open_in_background: false,
             width: 0,
             height: 0,

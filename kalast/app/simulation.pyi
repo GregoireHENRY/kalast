@@ -19,7 +19,9 @@ class Simulation:
         twice.
 
         The config survives, deliberately: it is what the script sets on its
-        way through *and* what the panel edits by hand.
+        way through *and* what the panel edits by hand. Running a *different*
+        script in the UI app starts from a new app's config, camera and Sun
+        as well.
         """
         ...
     def frame_all(self) -> None:
@@ -354,11 +356,14 @@ class State:
     still moves -- but `before_render` and `after_render` are both skipped, so a
     script does not need its own check.
     """
+    pause_after_iteration: int | None
+    """Pause once this iteration has run, or `None` to run on: `0` holds the
+    run after its first. Plus one, it is what `{nit}` in a HUD reads, the
+    length of the run.
+    """
     pause_at: int | None
-    """Pause automatically on reaching this iteration.
-
-    Also what `{nit}` reads in a HUD template, since it is the only thing that
-    tells the engine how long a run is meant to be.
+    """The old spelling, one more: `pause_at = n` is `pause_after_iteration
+    = n - 1`. Accepted for a release with a `DeprecationWarning`.
     """
     rate_limited: bool
     """Cap the frame rate at `rate_limit`; off runs as fast as it can. One step
