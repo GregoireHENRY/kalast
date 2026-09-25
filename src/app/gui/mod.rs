@@ -1377,8 +1377,23 @@ impl StdioCapture {
         None
     }
 
+    /// `None` while another capture is active: see `CAPTURING`.
     #[cfg(unix)]
     pub fn new() -> Option<Self> {
+        use std::sync::atomic::Ordering;
+
+        if CAPTURING.swap(true, Ordering::SeqCst) {
+            return None;
+        }
+        let capture = Self::redirect();
+        if capture.is_none() {
+            CAPTURING.store(false, Ordering::SeqCst);
+        }
+        capture
+    }
+
+    #[cfg(unix)]
+    fn redirect() -> Option<Self> {
         use std::os::fd::{AsRawFd as _, FromRawFd as _};
 
         let (reader, writer) = std::io::pipe().ok()?;
@@ -1448,6 +1463,7 @@ impl StdioCapture {
         // Bounded: a child that inherited the pipe, a cargo build still
         // running, holds it open, and closing the window must not wait on it.
         let _ = self.done.recv_timeout(std::time::Duration::from_millis(500));
+        CAPTURING.store(false, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Move the lines written since last time into the log.
@@ -1458,6 +1474,14 @@ impl StdioCapture {
         }
     }
 }
+
+/// One capture per process: stdout and stderr are the process's. A second one
+/// saved the first one's pipe as "the terminal", and released out of order
+/// left stdout on a pipe nobody read. Seen in the test binary, where several
+/// tests start the UI app side by side: output stopped mid-run, or the test
+/// harness died on a broken pipe.
+#[cfg(unix)]
+static CAPTURING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// What a script writes through Python's `sys.stdout` and `sys.stderr`, for
 /// the log's script tab.
@@ -1627,12 +1651,7 @@ mod stdio_tests {
         for i in 0..LINES {
             writeln!(out, "line {i:04} {}", "x".repeat(60)).unwrap();
         }
-        write!(out, "unterminated").unwrap();
         out.flush().unwrap();
-        // The way a script's `print` arrives in the UI app: past the pipe, to
-        // the terminal and the script tab, in pieces as Python writes it.
-        super::script_write("from the ");
-        super::script_write("script\n");
 
         let mut log = Log::new(2 * LINES);
         let deadline = Instant::now() + Duration::from_secs(10);
@@ -1644,10 +1663,27 @@ mod stdio_tests {
         for (i, line) in log.lines().enumerate() {
             assert!(line.starts_with(&format!("line {i:04} ")), "line {i} is {line:?}");
         }
+        // The way a script's `print` arrives in the UI app: past the pipe, to
+        // the terminal and the script tab, in pieces as Python writes it.
+        // Only now, with every line above off the pipe and on the terminal,
+        // so the reader is idle: two threads writing there cut into each
+        // other's lines -- the reader copies in chunks that end mid-line --
+        // which failed this test on the Linux runner, a script line cut in
+        // two, and here as a `line ` cut in two.
+        super::script_write("from the ");
+        super::script_write("script\n");
         let mut script = Log::new(8);
         super::drain_script_output(&mut script);
         let script: Vec<&String> = script.lines().collect();
         assert_eq!(script, ["from the script"], "the script tab has the script's line, whole");
+
+        // Last, a line with no end, which reaches the log only once the pipe
+        // closes; and nothing of the script's came through the pipe.
+        write!(out, "unterminated").unwrap();
+        out.flush().unwrap();
+        std::thread::sleep(Duration::from_millis(50));
+        capture.drain(&mut log);
+        assert!(log.lines().all(|l| !l.contains("from the script")), "it leaked into the pipe");
 
         // Puts stdout back; what follows goes straight to the terminal.
         drop(capture);

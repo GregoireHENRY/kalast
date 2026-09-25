@@ -1552,7 +1552,13 @@ impl App {
         // line runs before the window exists, and what it prints at its top
         // level belongs in the log as much as anything a frame prints later.
         // Measured, its stdout was still the terminal when it ran.
-        if self.stdio.is_none() {
+        //
+        // Not in the unit tests, which call this too: their process's stdout
+        // is also the test harness's, written from its own thread, and a
+        // capture made and released beside it broke the harness's pipe --
+        // 2 runs in 60 died on EPIPE, none in 100 without it. The capture is
+        // tested in a child process of its own, `stdio_tests`.
+        if self.stdio.is_none() && !cfg!(test) {
             self.stdio = crate::app::gui::StdioCapture::new();
         }
         // A newer release? Asked here, when the UI app opens -- never when a

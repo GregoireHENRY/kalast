@@ -3407,3 +3407,28 @@ not fixed: `app::cargo`'s `the_wrapper_calls_the_example_s_own_main` and
 `the_wrapper_is_built_from_the_buffer_not_the_file` write the same
 `target/kalast-hosted/.../src/lib.rs` in parallel and read each other's --
 about one run in two when only those run, and the release job runs them.
+
+## 2026-09-25 — the v0.5.10 rehearsal, and three tests that raced
+
+The rehearsal (36144304551, on 09f4c08) failed on Linux in the engine tests,
+on `stdio_tests` itself: the child wrote its script line to the terminal
+while the reader was still teeing the 280 KB there, in chunks that end
+mid-line, and one landed inside the script line (`left: 0`). Here the same
+race showed as a `line ` cut in two, once in 17 runs. The child now writes
+the script line once the reader is idle and the unterminated line last, so
+nothing overlaps. Two more, found on the way:
+
+- Since the capture moved into `editor_start`, the unit tests that call it
+  redirected the test process's own stdout, written by the harness from its
+  own thread. With output in a pipe, as in CI, the harness died on EPIPE, 2
+  runs in 60; with the capture off there, 100 in 100 were clean. No capture
+  in the unit-test build now (`cfg!(test)`), and one per process
+  (`CAPTURING`): a second one saved the first one's pipe as the terminal.
+- `app::cargo`'s two wrapper tests wrote the same `target/kalast-hosted`
+  crate in parallel and read each other's, 4 runs in 6 when only they ran.
+  They take turns through `WRAPPER_TESTS`: 0 in 20.
+
+After: the full suite 50 in 50 in release with piped output, the capture
+test 50 in 50 in debug and in release, the editor tests green. Not tagged:
+v0.5.10 goes out once the changelog has more in it; the manifests and the
+section already say 0.5.10.

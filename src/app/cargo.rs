@@ -968,6 +968,14 @@ fn newest_engine_source() -> Option<std::time::SystemTime> {
     newest
 }
 
+/// `write_wrapper` has one directory to write, `wrapper_dir()`, and the tests
+/// that write it read it back. Run side by side, one read the crate the other
+/// had just written over it: about one run in three failed on "it says where
+/// it came from" or "the buffer is what was written", and the release job
+/// runs these. They take turns through this.
+#[cfg(test)]
+static WRAPPER_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -992,6 +1000,7 @@ mod tests {
     /// own `main` called, and the host installed around that call.
     #[test]
     fn the_wrapper_calls_the_example_s_own_main() {
+        let _turn = WRAPPER_TESTS.lock().unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join("kalast-wrapper-test");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -1117,6 +1126,7 @@ mod buffer_tests {
     /// saved or not.
     #[test]
     fn the_wrapper_is_built_from_the_buffer_not_the_file() {
+        let _turn = WRAPPER_TESTS.lock().unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("kalast-buffer-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
