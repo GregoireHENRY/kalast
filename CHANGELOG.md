@@ -8,6 +8,11 @@ no entries, and the section is approved by a person before the tag is
 pushed. `## Unreleased` collects the entries between versions; the bump
 renames it.
 
+## Unreleased
+
+- The UI app's log panel has two tabs: **script**, with what the script prints -- `print`, tracebacks, `app.log` -- and **kalast**, with what kalast says about itself -- loading, the update check, builds -- so the second no longer lands in the middle of the first. Everything still goes on to the terminal.
+- What a script prints reaches the log from its first line, a script named on the command line included: those ran before the log was listening, and their `print` only reached the terminal. Printing a lot before the first frame no longer hangs the UI app.
+
 ## v0.5.9
 
 - Double-clicking `kalast` works: started with nothing to open from outside its folder -- which is how the macOS Finder starts it, from the home folder -- it moves into its own folder first, so the examples find `res/` and their pre-compiled Rust libraries. Before, every example stopped on its first mesh.

@@ -93,6 +93,11 @@ fn main() {
             }
         }
     }
+
+    // Not left to `Drop`, which does not run once a script has held the app:
+    // its globals keep it alive through Python. Hands stdout and stderr back
+    // and lets the log's reader put the last lines on the terminal.
+    app.borrow_mut().flush_output();
 }
 
 /// Work from the bundle's own folder when it was double-clicked -- see
@@ -297,6 +302,17 @@ fn run_script(app: &Rc<RefCell<kalast::app::App>>, path: &str, source: &str) {
         if !modules.contains("kalast._rs")? {
             let bindings = py.import("_rs")?;
             modules.set_item("kalast._rs", bindings)?;
+        }
+
+        // `sys.stdout` and `sys.stderr` to the log's script tab, as
+        // `python -m kalast` sets them: at once, where a pipe -- stdout by
+        // the time this interpreter starts -- is block-buffered, and apart
+        // from the engine's own output. Once: it also registers an exit hook.
+        static LINE_BUFFERED: std::sync::atomic::AtomicBool =
+            std::sync::atomic::AtomicBool::new(false);
+        if !LINE_BUFFERED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            py.import("kalast.editor")?
+                .call_method1("capture_output", (kalast::py::app::App::wrap(app.clone()),))?;
         }
 
         // The same call `python -m kalast` makes: the script runs against

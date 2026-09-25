@@ -126,9 +126,13 @@ pub struct Shared {
     /// *is* the script, and it is already running -- so the transport
     /// controls its simulation directly.
     pub native: bool,
-    /// Lines for the editor's log panel. Here rather than on the editor so
-    /// `app.log()` works before the window exists as well as during the run.
+    /// Lines for the editor's log panel, its script tab: what the script
+    /// prints, and `app.log()`. Here rather than on the editor so `app.log()`
+    /// works before the window exists as well as during the run.
     pub log: crate::app::gui::Log,
+    /// The log's kalast tab: everything else on stdout and stderr -- the
+    /// engine's own messages, the update check, cargo, C libraries.
+    pub kalast_log: crate::app::gui::Log,
     /// A run asked for from outside the UI -- `app.run_script()`. Here
     /// rather than on the editor because it can be raised before the window
     /// exists.
@@ -194,6 +198,7 @@ impl Shared {
             drawn_iteration: 0,
             native: false,
             log: crate::app::gui::Log::new(2000),
+            kalast_log: crate::app::gui::Log::new(2000),
             run_requested: false,
             restart_requested: false,
             open_requested: false,
@@ -1092,10 +1097,12 @@ impl App {
                 Err(e) => lines.push(e),
             }
         }
+        // The kalast tab: the check answers whenever the network does, which
+        // in the script tab was the middle of whatever the script printed.
         if !lines.is_empty() {
             let mut shared = self.shared.borrow_mut();
             for line in lines {
-                shared.log.push(line);
+                shared.kalast_log.push(line);
             }
         }
     }
@@ -1541,6 +1548,13 @@ impl App {
     pub fn editor_start(&mut self, args: &[String]) {
         self.config.borrow_mut().editor = true;
         self.config.borrow_mut().title = "kalast".to_string();
+        // Here, not when the window opens: a script named on the command
+        // line runs before the window exists, and what it prints at its top
+        // level belongs in the log as much as anything a frame prints later.
+        // Measured, its stdout was still the terminal when it ran.
+        if self.stdio.is_none() {
+            self.stdio = crate::app::gui::StdioCapture::new();
+        }
         // A newer release? Asked here, when the UI app opens -- never when a
         // script runs its own window -- and on a thread: the frame reads the
         // answer off `update_rx` when it comes (`serve_editor_requests`).
@@ -2293,9 +2307,13 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 editor.script = source;
             }
             self.editor = Some(editor);
-            // Only now, so a run that never opens an editor keeps its
-            // descriptors as they were.
-            self.stdio = crate::app::gui::StdioCapture::new();
+            // Only with an editor, so a run that never opens one keeps its
+            // descriptors as they were. `editor_start` has usually made it
+            // already; a second capture would take the first one's pipe for
+            // the terminal.
+            if self.stdio.is_none() {
+                self.stdio = crate::app::gui::StdioCapture::new();
+            }
         }
     }
 
@@ -2448,8 +2466,11 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 // changed between two `step()`s takes effect on this frame
                 // rather than the next.
                 if let Some(stdio) = self.stdio.as_mut() {
-                    stdio.drain(&mut self.shared.borrow_mut().log);
+                    stdio.drain(&mut self.shared.borrow_mut().kalast_log);
                 }
+                // Without a capture too: the script's own writer does not
+                // need one, which is how Windows gets its script tab.
+                crate::app::gui::drain_script_output(&mut self.shared.borrow_mut().log);
 
                 self.apply_live_config();
 

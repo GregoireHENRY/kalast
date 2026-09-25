@@ -9,6 +9,16 @@ use std::{cell::RefCell, rc::Rc};
 
 use pyo3::prelude::*;
 
+/// Write a script's output to the log's script tab, and on to the terminal.
+///
+/// What `sys.stdout` and `sys.stderr` call in the UI app -- see
+/// `kalast.editor.capture_output` -- not something a script calls itself:
+/// `print` already comes here.
+#[pyfunction]
+pub fn script_write(text: &str) {
+    crate::app::gui::script_write(text);
+}
+
 #[pyclass(from_py_object, unsendable)]
 #[derive(Clone)]
 pub struct App {

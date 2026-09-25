@@ -25,6 +25,15 @@ pub struct Log {
     limit: usize,
 }
 
+/// The log panel's two tabs: what the script prints, and what kalast prints
+/// about itself, so the second never lands in the middle of the first.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum LogTab {
+    #[default]
+    Script,
+    Kalast,
+}
+
 impl Log {
     pub fn new(limit: usize) -> Self {
         Self {
@@ -185,6 +194,9 @@ pub struct Editor {
     /// where "the scene" is so those events can be let through.
     pub viewport_rect: egui::Rect,
 
+    /// Which of the log's two tabs is showing.
+    pub log_tab: LogTab,
+
     /// The script buffer, so a simulation can be edited without leaving the
     /// window. Plain text, not a file handle: what is on screen is what
     /// `Run` executes, saved or not.
@@ -300,6 +312,7 @@ impl Editor {
                 window.inner_size().width.max(1),
                 window.inner_size().height.max(1),
             ),
+            log_tab: LogTab::Script,
             script: String::new(),
             script_path: String::new(),
             script_dirty: false,
@@ -462,6 +475,8 @@ impl Editor {
         let drawn = shared.drawn_iteration;
         let update_state = shared.update.clone();
         let log = &mut shared.log;
+        let kalast_log = &mut shared.kalast_log;
+        let log_tab = &mut self.log_tab;
         let dirty = &mut self.script_dirty;
         let ran = &mut shared.script_ran;
         let (mut run_request, mut open_request, mut save_request) = (false, false, false);
@@ -687,14 +702,28 @@ impl Editor {
             let log_ui = |ui: &mut egui::Ui| {
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new("Log").strong());
+                        ui.selectable_value(&mut *log_tab, LogTab::Script, "script")
+                            .on_hover_text("What the script prints: print, tracebacks, app.log");
+                        ui.selectable_value(&mut *log_tab, LogTab::Kalast, "kalast")
+                            .on_hover_text("What kalast prints: loading, the update check, builds, debug output");
                         if ui.small_button("clear").clicked() {
-                            log.clear();
+                            match *log_tab {
+                                LogTab::Script => log.clear(),
+                                LogTab::Kalast => kalast_log.clear(),
+                            }
                         }
                     });
+                    let shown = match *log_tab {
+                        LogTab::Script => &*log,
+                        LogTab::Kalast => &*kalast_log,
+                    };
+                    // A scroll position per tab, so switching does not drop
+                    // one at the other's place.
                     egui::ScrollArea::vertical()
+                        .id_salt(("log", *log_tab))
                         .stick_to_bottom(true)
                         .show(ui, |ui| {
-                            for line in log.lines() {
+                            for line in shown.lines() {
                                 ui.label(egui::RichText::new(line).monospace());
                             }
                         });
@@ -1302,14 +1331,23 @@ mod reveal_tests {
 /// like.
 ///
 /// So it is captured a level down, where both end up: the descriptors are
-/// pointed at a pipe, and each frame drains it into the log **and** writes it
-/// on to the real stdout, so a terminal still shows everything it did.
+/// pointed at a pipe, and a thread of its own reads it, writes it on to the
+/// real stdout -- so a terminal still shows everything it did -- and keeps
+/// the lines for the next frame to move into the log.
+///
+/// A thread, not the frame, because a pipe holds 64 KB. Emptied only by the
+/// frame, a script that printed more than that between two frames -- or
+/// before the first one, which is when a script named on the command line
+/// runs -- blocked in `write` with nothing left to read it, and hung.
 pub struct StdioCapture {
-    reader: std::fs::File,
     /// The original stdout, kept so output still reaches the terminal.
     tty: std::fs::File,
-    /// Bytes seen since the last newline.
-    partial: String,
+    /// Whole lines the reader has taken off the pipe, waiting for a frame.
+    lines: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    /// Signalled by the reader once the pipe has closed and everything in
+    /// it has gone to the terminal.
+    #[cfg_attr(not(unix), allow(dead_code))]
+    done: std::sync::mpsc::Receiver<()>,
 }
 
 impl StdioCapture {
@@ -1344,37 +1382,40 @@ impl StdioCapture {
         use std::os::fd::{AsRawFd as _, FromRawFd as _};
 
         let (reader, writer) = std::io::pipe().ok()?;
-        // SAFETY: plain descriptor calls. `dup` copies the current stdout so
-        // it can be written to afterwards; `dup2` points 1 and 2 at the pipe.
-        // A negative return means the redirect did not happen, and the
-        // original descriptors are untouched.
+        // SAFETY: `dup` copies the current stdout so it can be written to
+        // afterwards; a negative return means nothing was opened.
+        let saved = unsafe { libc::dup(libc::STDOUT_FILENO) };
+        if saved < 0 {
+            return None;
+        }
+        // SAFETY: `saved` was just opened here and nothing else owns it.
+        let tty = unsafe { std::fs::File::from_raw_fd(saved) };
+        let tee = tty.try_clone().ok()?;
+        let lines = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let (finished, done) = std::sync::mpsc::channel();
+
+        // Started before the redirect, so a failure leaves the descriptors
+        // as they were; the reader then sees the pipe close and returns.
+        let kept = lines.clone();
+        std::thread::Builder::new()
+            .name("kalast-stdio".into())
+            .spawn(move || pump(reader, tee, &kept, finished))
+            .ok()?;
+
+        // SAFETY: plain descriptor calls pointing 1 and 2 at the pipe. A
+        // negative return means that redirect did not happen; stdout is put
+        // back in case it was the second that failed.
         unsafe {
-            let saved = libc::dup(libc::STDOUT_FILENO);
-            if saved < 0 {
-                return None;
-            }
             if libc::dup2(writer.as_raw_fd(), libc::STDOUT_FILENO) < 0
                 || libc::dup2(writer.as_raw_fd(), libc::STDERR_FILENO) < 0
             {
-                libc::dup2(saved, libc::STDOUT_FILENO);
-                libc::close(saved);
+                libc::dup2(tty.as_raw_fd(), libc::STDOUT_FILENO);
                 return None;
             }
-            // Non-blocking, so draining never stalls a frame waiting for a
-            // line nobody is going to write.
-            let flags = libc::fcntl(reader.as_raw_fd(), libc::F_GETFL);
-            libc::fcntl(reader.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK);
-
-            Some(Self {
-                reader: std::fs::File::from_raw_fd({
-                    let fd = reader.as_raw_fd();
-                    std::mem::forget(reader);
-                    fd
-                }),
-                tty: std::fs::File::from_raw_fd(saved),
-                partial: String::new(),
-            })
         }
+        script_terminal(tty.try_clone().ok());
+
+        Some(Self { tty, lines, done })
     }
 
     /// Give stdout and stderr back, flushing whatever is still in the pipe.
@@ -1391,63 +1432,226 @@ impl StdioCapture {
 
     #[cfg(unix)]
     fn restore(&mut self) {
-        use std::io::{Read as _, Write as _};
         use std::os::fd::AsRawFd as _;
 
         // Descriptors first, so anything printed from here on goes straight
-        // out rather than into a pipe nobody will read again.
+        // out, and the pipe closes once nothing else holds it.
         // SAFETY: putting back the descriptor saved in `new`.
         unsafe {
             libc::dup2(self.tty.as_raw_fd(), libc::STDOUT_FILENO);
             libc::dup2(self.tty.as_raw_fd(), libc::STDERR_FILENO);
         }
+        script_terminal(None);
 
-        // Read in the same non-blocking loop `drain` uses. `read_to_end`
-        // gives up the moment the pipe would block, which on a pipe with no
-        // writer left is immediately -- so the last thing a script printed,
-        // the line it exists to report, went nowhere.
-        let mut buf = [0u8; 8192];
-        loop {
-            match self.reader.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    let _ = self.tty.write_all(&buf[..n]);
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
-                Err(_) => break,
-            }
-        }
-        if !self.partial.is_empty() {
-            let _ = self.tty.write_all(self.partial.as_bytes());
-            self.partial.clear();
-        }
-        let _ = self.tty.flush();
+        // Then give the reader the time to put the rest on the terminal --
+        // the last thing a script printed, the line it exists to report.
+        // Bounded: a child that inherited the pipe, a cargo build still
+        // running, holds it open, and closing the window must not wait on it.
+        let _ = self.done.recv_timeout(std::time::Duration::from_millis(500));
     }
 
-    /// Move whatever has been written since last time into the log.
+    /// Move the lines written since last time into the log.
     pub fn drain(&mut self, log: &mut Log) {
-        use std::io::{Read as _, Write as _};
-
-        let mut buf = [0u8; 8192];
-        loop {
-            match self.reader.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    // On to the real stdout as well: the terminal is what
-                    // survives the window closing.
-                    let _ = self.tty.write_all(&buf[..n]);
-                    let _ = self.tty.flush();
-                    self.partial.push_str(&String::from_utf8_lossy(&buf[..n]));
-                    while let Some(i) = self.partial.find('\n') {
-                        let line: String = self.partial.drain(..=i).collect();
-                        log.push(line.trim_end_matches(['\n', '\r']));
-                    }
-                }
-                // Nothing waiting, which is the usual case.
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
-                Err(_) => break,
-            }
+        let lines = std::mem::take(&mut *self.lines.lock().unwrap_or_else(|e| e.into_inner()));
+        for line in lines {
+            log.push(line);
         }
+    }
+}
+
+/// What a script writes through Python's `sys.stdout` and `sys.stderr`, for
+/// the log's script tab.
+///
+/// Apart from `StdioCapture`, which cannot tell a script's `print` from the
+/// engine's `println!`: both are bytes on descriptor 1 by the time the pipe
+/// has them. A level up they are not -- a script's output passes through
+/// `sys.stdout` first -- so the UI app swaps in a writer that lands here
+/// (`kalast.editor.capture_output`), and the pipe keeps the rest: the
+/// engine, the update check, cargo, C libraries.
+static SCRIPT_OUTPUT: std::sync::Mutex<ScriptOutput> =
+    std::sync::Mutex::new(ScriptOutput { partial: Vec::new(), lines: Vec::new(), terminal: None });
+
+struct ScriptOutput {
+    partial: Vec<u8>,
+    lines: Vec<String>,
+    /// The terminal, while a capture holds stdout. The script's copy goes
+    /// here and not to descriptor 1, which is the capture's pipe and would
+    /// put the same lines in the kalast tab as well.
+    terminal: Option<std::fs::File>,
+}
+
+/// Write a script's output: on to the terminal, and into the script tab once
+/// a line is whole.
+pub fn script_write(text: &str) {
+    use std::io::Write as _;
+
+    let mut out = SCRIPT_OUTPUT.lock().unwrap_or_else(|e| e.into_inner());
+    match out.terminal.as_mut() {
+        Some(terminal) => {
+            let _ = terminal.write_all(text.as_bytes());
+            let _ = terminal.flush();
+        }
+        None => {
+            let mut stdout = std::io::stdout();
+            let _ = stdout.write_all(text.as_bytes());
+            let _ = stdout.flush();
+        }
+    }
+    out.partial.extend_from_slice(text.as_bytes());
+    while let Some(i) = out.partial.iter().position(|&b| b == b'\n') {
+        let line: Vec<u8> = out.partial.drain(..=i).collect();
+        let line = String::from_utf8_lossy(&line).trim_end_matches(['\n', '\r']).to_string();
+        out.lines.push(line);
+    }
+}
+
+/// Move the lines a script has written since last time into its log.
+pub fn drain_script_output(log: &mut Log) {
+    let lines = std::mem::take(&mut SCRIPT_OUTPUT.lock().unwrap_or_else(|e| e.into_inner()).lines);
+    for line in lines {
+        log.push(line);
+    }
+}
+
+/// Where `script_write` sends the terminal's copy: the capture's saved
+/// stdout while there is one, descriptor 1 again once it is gone.
+#[cfg_attr(not(unix), allow(dead_code))]
+fn script_terminal(terminal: Option<std::fs::File>) {
+    SCRIPT_OUTPUT.lock().unwrap_or_else(|e| e.into_inner()).terminal = terminal;
+}
+
+/// The reader thread: everything written to stdout and stderr goes on to the
+/// terminal as it arrives, and each whole line is kept for the log.
+#[cfg(unix)]
+fn pump(
+    mut reader: std::io::PipeReader,
+    mut tee: std::fs::File,
+    lines: &std::sync::Mutex<Vec<String>>,
+    finished: std::sync::mpsc::Sender<()>,
+) {
+    use std::io::{Read as _, Write as _};
+
+    // Bytes until a line is whole: a read can end inside a multibyte
+    // character, which decoded on its own would print as garbage.
+    let mut partial: Vec<u8> = Vec::new();
+    let mut buf = [0u8; 8192];
+    loop {
+        let n = match reader.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => break,
+        };
+        let _ = tee.write_all(&buf[..n]);
+        let _ = tee.flush();
+        partial.extend_from_slice(&buf[..n]);
+        let mut whole = Vec::new();
+        while let Some(i) = partial.iter().position(|&b| b == b'\n') {
+            let line: Vec<u8> = partial.drain(..=i).collect();
+            whole.push(String::from_utf8_lossy(&line).trim_end_matches(['\n', '\r']).to_string());
+        }
+        if !whole.is_empty() {
+            lines.lock().unwrap_or_else(|e| e.into_inner()).extend(whole);
+        }
+    }
+    if !partial.is_empty() {
+        let last = String::from_utf8_lossy(&partial).into_owned();
+        lines.lock().unwrap_or_else(|e| e.into_inner()).push(last);
+    }
+    let _ = finished.send(());
+}
+
+#[cfg(all(test, unix))]
+mod stdio_tests {
+    use super::{Log, StdioCapture};
+    use std::time::{Duration, Instant};
+
+    const CHILD: &str = "KALAST_STDIO_CAPTURE_CHILD";
+    const NAME: &str =
+        "app::gui::stdio_tests::more_than_a_pipe_holds_reaches_the_log_and_the_terminal";
+    const LINES: usize = 4000;
+
+    /// 4,000 lines, 280 KB, written with no frame to drain them -- a script
+    /// named on the command line printing before the window exists. A pipe
+    /// holds 64 KB, so with the frame as its only reader the write blocked
+    /// for good. Every line has to reach the log, in order, and the terminal
+    /// as well, the unterminated last one included.
+    ///
+    /// In a child process: a capture points this process's descriptors at a
+    /// pipe, and every test running beside it would print into it.
+    #[test]
+    fn more_than_a_pipe_holds_reaches_the_log_and_the_terminal() {
+        if std::env::var_os(CHILD).is_some() {
+            return child();
+        }
+        let dir = std::env::temp_dir().join(format!("kalast-stdio-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("terminal.txt");
+        let file = std::fs::File::create(&path).unwrap();
+        let mut run = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", NAME, "--nocapture", "--test-threads=1"])
+            .env(CHILD, "1")
+            .stdout(file.try_clone().unwrap())
+            .stderr(file)
+            .spawn()
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(60);
+        let status = loop {
+            if let Some(status) = run.try_wait().unwrap() {
+                break status;
+            }
+            if Instant::now() > deadline {
+                let _ = run.kill();
+                panic!("the child hung: its output filled the pipe with nothing reading it");
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        let terminal = std::fs::read_to_string(&path).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert!(status.success(), "the child failed:\n{terminal}");
+        // `contains`, not `starts_with`: the harness has written `test ... `
+        // without a newline before the child's first line arrives.
+        let teed = terminal.lines().filter(|l| l.contains("line ")).count();
+        assert_eq!(teed, LINES, "lines on the terminal");
+        assert!(terminal.contains("unterminated"), "the last, unterminated line");
+        assert_eq!(terminal.matches("from the script").count(), 1, "the script's line, once");
+        assert!(terminal.contains("the log has them all"), "the child's verdict");
+    }
+
+    fn child() {
+        use std::io::Write as _;
+
+        let mut capture = StdioCapture::new().expect("a capture");
+        let mut out = std::io::stdout();
+        for i in 0..LINES {
+            writeln!(out, "line {i:04} {}", "x".repeat(60)).unwrap();
+        }
+        write!(out, "unterminated").unwrap();
+        out.flush().unwrap();
+        // The way a script's `print` arrives in the UI app: past the pipe, to
+        // the terminal and the script tab, in pieces as Python writes it.
+        super::script_write("from the ");
+        super::script_write("script\n");
+
+        let mut log = Log::new(2 * LINES);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while log.lines().count() < LINES {
+            assert!(Instant::now() < deadline, "{} lines reached the log", log.lines().count());
+            capture.drain(&mut log);
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        for (i, line) in log.lines().enumerate() {
+            assert!(line.starts_with(&format!("line {i:04} ")), "line {i} is {line:?}");
+        }
+        let mut script = Log::new(8);
+        super::drain_script_output(&mut script);
+        let script: Vec<&String> = script.lines().collect();
+        assert_eq!(script, ["from the script"], "the script tab has the script's line, whole");
+
+        // Puts stdout back; what follows goes straight to the terminal.
+        drop(capture);
+        println!("the log has them all");
     }
 }
 

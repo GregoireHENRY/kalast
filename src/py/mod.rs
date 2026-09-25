@@ -282,6 +282,7 @@ pub fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     let core = PyModule::new(app.py(), "_core")?;
     core.add_class::<app::App>()?;
+    pyadd_f!(core, app::script_write);
     app.add_submodule(&core)?;
     py.import("sys")?
         .getattr("modules")?

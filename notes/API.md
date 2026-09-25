@@ -64,6 +64,25 @@ app.start()                   # blocks until the window closes
 | `app.close()` | asks the window to close; acts on the next `step()` |
 | `app.running` | whether the window is still open |
 
+**`print` reaches the log panel, in its own tab.** In the UI app the log has
+two tabs, and everything also goes on to the terminal:
+
+| tab | what |
+|---|---|
+| script | the script's `print` and tracebacks -- `sys.stdout` and `sys.stderr` -- and `app.log(line)`, which writes to the panel alone |
+| kalast | everything else on stdout and stderr: loading, the update check, cargo builds, `debug_*` output, C libraries |
+
+They are split a level up: the engine's output and a script's `print` are
+the same bytes on descriptor 1, so the UI app replaces `sys.stdout` and
+`sys.stderr` with a writer of its own (`kalast.editor.capture_output`) and
+catches the descriptors for the rest. Both start with the UI app, before a
+script named on the command line runs, so its first line is caught too; a
+thread empties the descriptors' pipe, so printing a lot before the first
+frame does not block. A Rust example's `println!` is indistinguishable from
+the engine's and lands in the kalast tab -- `app.log` reaches the script tab
+from Rust. Windows has no descriptor capture, so its kalast tab shows only
+what kalast writes to the panel itself, the update check.
+
 Two configs, and `width`/`height` exist on both without meaning the same
 thing: `app.config.width` is the OS window, `app.simulation.config.image.width` is
 the image inside it and defaults to following the window. See the top of

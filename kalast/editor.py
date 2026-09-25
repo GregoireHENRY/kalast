@@ -17,6 +17,7 @@ frames, so its loop nests inside the editor's rather than fighting it.
 """
 
 import atexit
+import io
 import sys
 import traceback
 import types
@@ -24,6 +25,7 @@ from typing import Any, Callable
 
 import kalast
 import kalast.app
+from kalast._rs.app._core import script_write as _script_write
 
 
 class _EditorApp:
@@ -65,19 +67,54 @@ class _EditorApp:
     # step at a time so nothing is borrowed while it runs.
 
 
+class _ScriptStream(io.TextIOBase):
+    """`sys.stdout` or `sys.stderr` for a script in the UI app.
+
+    What it writes goes to the log's script tab and on to the terminal, at
+    once, with nothing held back in a buffer. Not through descriptor 1: the
+    UI app points that at a pipe to catch the engine's own output for the
+    kalast tab, and the pipe cannot tell a script's `print` from the engine's
+    `println!`. Here, a level up, it can.
+    """
+
+    def __init__(self, stream: Any) -> None:
+        self._stream = stream
+
+    def write(self, text: str) -> int:
+        _script_write(text)
+        return len(text)
+
+    def writable(self) -> bool:
+        return True
+
+    def isatty(self) -> bool:
+        return False
+
+    def fileno(self) -> int:
+        # The descriptor underneath, for code that asks: what it writes there
+        # lands in the kalast tab, which beats failing.
+        if self._stream is None:
+            raise io.UnsupportedOperation("fileno")
+        return self._stream.fileno()
+
+    @property
+    def encoding(self) -> str:
+        return getattr(self._stream, "encoding", None) or "utf-8"
+
+    @property
+    def buffer(self) -> Any:
+        # Bytes written straight to it skip this writer, like `fileno`.
+        return self._stream.buffer
+
+
 def capture_output(app: Any) -> None:
-    """Make Python's output reach the editor's log panel promptly.
+    """Send what a script prints to the log's script tab, and to the terminal.
 
-    The mirroring itself is done in Rust, a level below this: the editor
-    points stdout and stderr at a pipe and drains it into the panel each
-    frame, then writes it on to the real stdout. That catches the renderer's
-    own output as well -- `H` printing the camera, the mesh loader, the
-    `debug_*` flags -- which a Python-level tee never saw, since those are
-    `println!` straight to the file descriptor.
-
-    What is left to do here is buffering. Python block-buffers stdout when it
-    is not a terminal, and it is a pipe now, so `print` would arrive in
-    kilobyte lumps long after the fact. Line buffering puts it back.
+    Everything else on stdout and stderr -- `H` printing the camera, the mesh
+    loader, the `debug_*` flags, the update check, cargo -- is caught in Rust
+    a level below, where the UI app points the descriptors at a pipe, and goes
+    to the kalast tab. A script's `print` passes through `sys.stdout` before
+    it gets there, so it is taken here instead, and the two stay apart.
     """
     # The editor's capture cannot be left to Rust's `Drop`: a callback's
     # globals refer to the app, so the app refers to itself through Python and
@@ -85,12 +122,10 @@ def capture_output(app: Any) -> None:
     # with the pipe.
     atexit.register(app.flush_output)
 
-    for stream in (sys.stdout, sys.stderr):
-        try:
-            stream.reconfigure(line_buffering=True)
-        except (AttributeError, ValueError):
-            # Not a text stream, or already replaced by something else.
-            pass
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name)
+        if not isinstance(stream, _ScriptStream):
+            setattr(sys, name, _ScriptStream(stream))
 
 
 class _Restart(BaseException):

@@ -3369,3 +3369,41 @@ glibc 2.35 at most, with `expf`/`logf`/`powf` at 2.27, `exp`/`log`/`pow` at
 unversioned by a 2.35 link, so the loader requires nothing newer, and on a
 2.39 system they still bind. In it: the double-clicked bundle, the Linux
 bundle and wheel on glibc 2.35, and the README's Mac and Linux notes.
+
+## 2026-09-25 — `print` reaches the log from a script's first line
+
+Asked for: `examples/cube/color_map.py`'s `print` showed in the terminal and
+not in the log panel. The capture -- stdout and stderr pointed at a pipe,
+drained into the log and teed to the terminal -- was made when the window
+opened, and a script named on the command line runs before that: measured
+from inside one, its stdout was still the terminal (`S_ISFIFO` false). The
+capture starts in `editor_start` now, and a thread empties the pipe instead
+of the frame, since before the first frame nothing did and a pipe holds
+64 KB: a script printing more blocked in `write` for good. That was already
+true between frames. The bundle's embedded Python is line-buffered the way
+`python -m kalast` makes it, since it now starts on a pipe, and the binary
+hands the descriptors back at exit, `Drop` never running once a script holds
+the app. Measured through both front doors: a top-level `print` goes through
+the pipe, and 3,000 lines, 200 KB, reach the terminal with no hang, where
+1,709 did before. A test runs the capture in a child process -- 4,000 lines,
+no frame to drain them -- and, with the reader disabled, catches the hang.
+Windows still has no capture.
+
+Then, asked for after the update check's line landed between a script's
+`[0. 1. 2. ...]` and its next print: two tabs. The pipe cannot tell a
+script's `print` from the engine's `println!` -- both are bytes on
+descriptor 1 -- but a level up they differ: `capture_output` replaces
+`sys.stdout` and `sys.stderr` with `_ScriptStream`, which hands each write to
+`script_write` in Rust, for the script tab and the terminal's copy, written
+to the capture's saved stdout rather than descriptor 1 so it does not come
+back through the pipe. The pipe feeds the kalast tab, and the update check
+writes there too. `app.log` and the disconnected-callback notice stay in the
+script tab. Checked through both front doors: the writer is in place at a
+script's top level, and each line, a script's and the engine's, reaches the
+terminal once; the child-process test now also writes the way a script does
+and finds the line in the script tab, whole, and not in the kalast one. A
+Rust example's `println!` still lands in the kalast tab. Found on the way,
+not fixed: `app::cargo`'s `the_wrapper_calls_the_example_s_own_main` and
+`the_wrapper_is_built_from_the_buffer_not_the_file` write the same
+`target/kalast-hosted/.../src/lib.rs` in parallel and read each other's --
+about one run in two when only those run, and the release job runs them.
