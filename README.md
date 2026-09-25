@@ -6,6 +6,25 @@ cameras, in the visible and in the infrared. Its renderer serves several other
 uses — viewing and interacting with meshes, generating lightcurves — see the
 [`examples/`](examples/) folder.
 
+Download the [latest version of kalast here](https://github.com/GregoireHENRY/kalast/releases).
+You can directly run the executable and open an example script from the UI.
+You can also run it in your terminal:
+
+```sh
+./kalast                                        # starts the kalast UI app
+./kalast examples/crater_self_shadow/step.py    # load a Python example
+./kalast examples/crater_self_shadow/step.rs    # load a Rust example
+./kalast res/plane_crater_1024-5000_h=0.437.obj # load a mesh
+```
+
+More info on [Running kalast for the first time](#running-kalast-for-the-first-time).
+There are also additional resources to read:
+- [resources README.md to get data](res/README.md)
+- [kalast python API](notes/API.md)
+- [kalast config](notes/CONFIG.md)
+- [kalast UI controls](notes/CONTROLS.md)
+
+
 ## TPM
 
 Several solvers of the heat conduction equation are implemented, all on a
@@ -68,83 +87,36 @@ scene, in the spirit of Blender or Unity.
 Shape models represent a body's surface as triangular facets. Of the many
 formats, kalast reads Wavefront `.obj` only.
 
-## Getting started
+## Running kalast for the first time
 
-Grab a release from https://github.com/GregoireHENRY/kalast/releases, unpack
-it, and run it from inside the folder.
-
-```sh
-./kalast                                       # starts the kalast UI app
-./kalast examples/two_spheres/main.py          # loads a Python example
-./kalast examples/crater_self_shadow/step.rs   # a Rust one
-./kalast some/shape.obj                        # a mesh
-```
-
-There is nothing to install and nothing is written outside the folder. The
-archive carries its own Python, with kalast and its dependencies already in
-it, and the `.rs` examples come pre-compiled. Editing one, or opening a `.rs`
-of your own, means compiling it: if the machine has no cargo the kalast UI
-app fetches a minimal toolchain into `toolchain/` beside the executable and
-reuses it afterwards. On macOS that also wants Apple's command line tools for
-the linker (`xcode-select --install`).
+Kalast carries its own Python. Rust examples `.rs` come pre-compiled.
+Editing one, or opening a `.rs` of your own, means compiling it.
+If the machine has no cargo the kalast UI app fetches a minimal toolchain into
+`toolchain/` next to the executable. 
 
 The bundles are not code-signed, so Windows warns once at the first launch of
-`kalast.exe`: *More info*, then *Run anyway*. macOS refuses to run a bundle
-downloaded with a browser -- the executable and every library in it -- until
-the download flag is cleared, once, on the unpacked folder (`-macos-x86_64`
-on an Intel Mac):
+`kalast.exe`: *More info*, then *Run anyway*.
+
+macOS refuses to run a bundle downloaded with a browser until it is flagged
+cleared, use: 
 
 ```sh
-xattr -cr ~/Downloads/kalast-v0.5.8-macos-arm64
+xattr -cr /path/to/kalast-v*-*
 ```
 
-`pip install kalast` never sees either of these.
-
-Double-clicking `kalast` works too.
-
-## Linux requirements
-
-The Linux bundle runs on 64-bit Intel and AMD processors (x86_64) with glibc
-2.35 or newer. `ldd --version` prints the one a system has.
-
-| Works | glibc |
-|---|---|
-| Ubuntu 22.04, 24.04 and later (Mint 21+, Pop!_OS 22.04+) | 2.35+ |
-| Debian 12, 13 | 2.36, 2.41 |
-| Fedora 36 and later | 2.35+ |
-| RHEL, Rocky, Alma 10 | 2.39 |
-| Arch, Manjaro, openSUSE Tumbleweed | current |
-
-| Does not work | glibc |
-|---|---|
-| RHEL, Rocky, Alma 9 | 2.34 |
-| RHEL, Rocky, Alma 8 | 2.28 |
-| Ubuntu 20.04, Mint 20 | 2.31 |
-| Debian 11 | 2.31 |
-| openSUSE Leap 15, SLES 15 | 2.31 |
-| CentOS 7 | 2.17 |
-
-On those, and on ARM Linux, `pip install kalast` (Python 3.14) builds kalast
-from source instead, which needs Rust (https://rustup.rs) and a C compiler.
-
-It also needs:
-
-- a graphical session, X11 or Wayland;
-- a GPU driver with Vulkan: Mesa for Intel and AMD, or NVIDIA's own;
-- for the file dialog, the desktop portal (`xdg-desktop-portal`), which GNOME
-  and KDE have. Without it, type the path.
-
-## Packages
-
-You can also install kalast as a package, in a Python virtual environment or a
-Rust project:
+Kalast is also available as a [PyPI package](https://pypi.org/project/kalast)
+and as a [crate](https://crates.io/crates/kalast).
 
 ```sh
-pip install kalast          # Python
+pip install kalast          # Python -- do this in a venv, you can use astral uv
 cargo add kalast            # Rust
 ```
 
-## Repo structure
+## Linux requirements
+
+- `glibc >= 2.35`
+
+## If you want to clone and compile it yourself
 
 - `src/`: Rust core. Written to be usable standalone by Rust users, independent
   of Python — the Python wrapper must not compromise its speed.
@@ -152,23 +124,19 @@ cargo add kalast            # Rust
   references) for users less familiar with Rust. Built with maturin.
 - `shaders/`: wgpu shaders (`.wgsl`) used by the rendering pipeline.
 - `examples/`: Examples of usage of Kalast. Scripts under `examples/old/`
-  are earlier/superseded versions kept for reference, not maintained as
-  user-facing examples.
+  are earlier/superseded versions kept for reference, not maintained
 - `res/`: resources folder.
 - `out/`: default output directory for simulation results.
 
-## If you want to clone and compile it yourself
-
-Create a virtual environment for the dependencies and the build — I recommend
-Astral's `uv` for Python. Then, from within your venv, run the following.
-
-Build the kalast Rust extension, `kalast/_rs.abi3.so` (its name on macOS):
+Create a virtual environment for the dependencies and the build. I recommend
+Astral's `uv`. Then, from within your venv, run the following to build
+kalast DLL for python `kalast/_rs.abi3.so` (its name on macOS):
 
 ```sh
 maturin develop
 ```
 
-Build in debug (the default) while implementing features or fixing bugs. Use
+Build in debug (the default) while implementing features or fixing bugs. But use
 `--release` for benchmarks, and once a feature works.
 
 ```sh
@@ -177,17 +145,10 @@ maturin develop --release
 
 Beyond the default `opt-level = 3` there is nothing worth adding:
 `lto = "fat"` + `codegen-units = 1` were measured on this project and gave
-no improvement. Recorded in `Cargo.toml` so it is not retried blindly.
+no improvement.
 
-The UI app can also be started from the Python module, here loading an example:
+The UI app can also be started from the kalast python module:
 
 ```sh
 python -m kalast examples/two_spheres/main.py
-```
-
-Then import kalast from Python (or add the crate from Rust) and write your own
-scripts.
-
-```python
-import kalast
 ```
