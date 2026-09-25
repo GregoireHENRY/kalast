@@ -36,14 +36,28 @@
 # section reviewed**, then tag that same commit. The tag run then finds the rehearsal by commit and **publishes its
 # artefacts instead of building them again** -- a few minutes rather than
 # twenty. A tag nobody rehearsed builds from scratch, exactly as before.
+#
+# **Betas.** `gh workflow run release.yml -f beta=true` rehearses and also
+# puts the bundles on the pre-release v<version>-beta, which each later beta
+# replaces. The manifests and the changelog section carry the version being
+# worked towards. Tagging v<version> on the last beta's commit -- its release
+# body names it -- releases that beta's bundles and deletes the pre-release.
 name: release
 
 on:
   push:
-    tags: ["v*"]
+    # Not the betas' tags: those are moved by the `beta` job below, never
+    # pushed to release anything.
+    tags: ["v*", "!v*-beta"]
   # Builds the same artefacts without making a release, so the whole thing
-  # can be rehearsed before a tag is cut.
+  # can be rehearsed before a tag is cut. With `-f beta=true` it also
+  # publishes the bundles as the pre-release v<version>-beta; see `beta`.
   workflow_dispatch:
+    inputs:
+      beta:
+        description: Also publish the bundles as the pre-release v<version>-beta, replacing the last one
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -745,6 +759,69 @@ jobs:
           # any files" and went green. A release without its archives is
           # not a release; make that a failure.
           fail_on_unmatched_files: true
+
+      # The beta this version grew through, now that the version is out. On
+      # the beta's own commit its archives were these same bytes: `reuse`
+      # found the beta's run.
+      - name: The beta goes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release delete "${GITHUB_REF_NAME}-beta" --cleanup-tag --yes || echo "no ${GITHUB_REF_NAME}-beta to remove"
+
+  # A rehearsal run with `-f beta=true` also publishes its bundles as the
+  # pre-release v<version>-beta, one per version, which the next beta
+  # replaces: its tag moved to the new commit and its archives overwritten,
+  # the names being the version's. A pre-release, so neither GitHub's latest
+  # release nor the UI app's update check offers it, and nothing goes to PyPI
+  # or crates.io, where a version cannot be replaced. Tagging v<version> on
+  # the beta's commit then publishes these same artefacts and removes it.
+  beta:
+    name: beta pre-release
+    needs: [executable]
+    if: github.event_name == 'workflow_dispatch' && inputs.beta
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: bundle-*
+          merge-multiple: true
+
+      - name: Publish the bundles as v<version>-beta
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version=$(sed -n '/^\[project\]/,/^\[/p' pyproject.toml | sed -n 's/^version *= *"\(.*\)"/\1/p' | head -1)
+          tag="v${version}-beta"
+          ls -l dist
+          for f in dist/*.tar.gz dist/*.zip; do
+            case "$(basename "$f")" in kalast-v${version}-*) ;; *)
+              echo "::error::$f is not a v${version} archive"; exit 1 ;; esac
+          done
+
+          # This version's changelog section as it stands, under a line
+          # saying what this is and which commit it was built from.
+          {
+            echo "Pre-release of v${version}, built from ${GITHUB_SHA::7}. The next beta replaces it."
+            echo
+            awk -v v="v${version}" '$0 ~ "^## "v"([^0-9.]|$)"{f=1;next} /^## /{f=0} f' CHANGELOG.md | sed -e '/./,$!d'
+          } > notes.md
+          cat notes.md
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/${tag}" \
+              -f sha="${GITHUB_SHA}" -F force=true >/dev/null
+            gh release upload "$tag" dist/*.tar.gz dist/*.zip --clobber
+            gh release edit "$tag" --title "$tag" --notes-file notes.md --prerelease
+          else
+            gh release create "$tag" dist/*.tar.gz dist/*.zip --target "${GITHUB_SHA}" \
+              --title "$tag" --notes-file notes.md --prerelease
+          fi
 
   pypi:
     name: publish to PyPI

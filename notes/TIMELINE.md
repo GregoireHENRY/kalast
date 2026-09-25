@@ -3432,3 +3432,21 @@ After: the full suite 50 in 50 in release with piped output, the capture
 test 50 in 50 in debug and in release, the editor tests green. Not tagged:
 v0.5.10 goes out once the changelog has more in it; the manifests and the
 section already say 0.5.10.
+
+## 2026-09-25 — a rolling beta
+
+Asked for: bundles published between releases, each overwriting the last,
+and the release then made of the last one. `gh workflow run release.yml -f
+beta=true` rehearses as before and a `beta` job then puts the four bundles
+on the pre-release v<version>-beta: created the first time, afterwards its
+tag moved to the new commit through the refs API and the archives uploaded
+with `--clobber`, their names being the version's. The body is the
+version's changelog section as it stands, under a line naming the commit.
+A pre-release, so the UI app's update check, which skips them, never offers
+it, and nothing goes to PyPI or crates.io, where a version is final.
+Tagging v<version> on the beta's commit reuses the beta's run -- `reuse`
+matches any successful dispatch of that commit -- so the release is the
+beta's bytes, and the release job then deletes the pre-release and its tag.
+`v*-beta` tags are excluded from the tag trigger. Open: a beta's bundle says
+v<version>, like the release, so a tester on an older beta of the same
+version is not offered the newer one or the release; they download it.
