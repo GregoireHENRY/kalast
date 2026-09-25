@@ -3,19 +3,17 @@
 import numpy
 
 import kalast
-from kalast.app import App, Hud
+from kalast.app import App
 
 
 app = App()
 app.simulation.config.wireframe.mode = 2
 app.simulation.config.wireframe.color = [0.05, 0.05, 0.05, 1.0]
-app.simulation.huds = [Hud("", size=16)]
 app.simulation.config.axes.style = "blender"
 
 app.simulation.sun.pos = [10.0, 0.0, 0.0]
-app.simulation.camera.pos = [13.567162, -5.9675856, 4.814754]
-app.simulation.camera.up = [-0.2828058, 0.124393575, 0.9510768]
-app.simulation.camera.dir = [-0.87058145, 0.3829297, -0.3089545]
+app.simulation.camera.pos = [13.5, -6.0, 5.0]
+app.simulation.camera.look_anchor()
 
 mat = numpy.eye(4)
 mat[:3, 3] = [2.5, 0.0, 0.0]
@@ -27,8 +25,11 @@ mat = numpy.eye(4)
 mat[:3, :3] = kalast.util.mat_axis_angle(numpy.array([0.0, 0.0, 1.0]), 0.01)
 
 while app.running:
-    if not app.simulation.state.is_paused:
-        bod = app.simulation.bodies[1]
-        bod.mat = mat @ bod.mat
-        app.simulation.huds[0].text = f"it {app.simulation.state.iteration} %"
+    if app.simulation.state.is_paused:
+        app.step()
+        continue
+
+    bod = app.simulation.bodies[1]
+    bod.mat = mat @ bod.mat
+
     app.step()

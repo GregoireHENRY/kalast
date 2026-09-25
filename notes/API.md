@@ -1167,8 +1167,8 @@ bodies are taken as they stand. `image_size` is the size actually drawn, not
 Checked against the rasteriser's facet-id map (facet centres fall on their own
 pixel, mean offset under 0.05 px) and, in the AFC example, against a pinhole
 model built from the SPICE vectors (body centres within 1e-4 px).
-`examples/hera_didymos/afc.py` writes both kinds to
-`out/hera_didymos/afc/screen.csv`, one row per point per frame. See
+`examples/landmark_tracking/main.py` uses `project_facet` for 3000 facets
+and writes their pixels, beside their positions, to `track.csv`. See
 `2026-09-24_image_positions.md`.
 
 ### View factors — a precompute, not a per-frame query

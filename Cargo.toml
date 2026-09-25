@@ -173,8 +173,8 @@ objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponde
 # something to map an opened file back to -- it reads this table to work out
 # which `--example` to build.
 [[example]]
-name = "crater_step"
-path = "examples/crater_self_shadow/step.rs"
+name = "crater_fn"
+path = "examples/crater_self_shadow/fn.rs"
 
 [[example]]
 name = "crater_main"

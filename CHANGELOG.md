@@ -12,6 +12,9 @@ renames it.
 
 - The UI app's log panel has two tabs: **script**, with what the script prints -- `print`, tracebacks, `app.log` -- and **kalast**, with what kalast says about itself -- loading, the update check, builds -- so the second no longer lands in the middle of the first. Everything still goes on to the terminal.
 - What a script prints reaches the log from its first line, a script named on the command line included: those ran before the log was listening, and their `print` only reached the terminal. Printing a lot before the first frame no longer hangs the UI app.
+- `examples/crater_self_shadow/main.py` and `main.rs` drive their own loop, as `step.py` and `step.rs` did; the callback versions are now `fn.py` and `fn.rs`.
+- `examples/hera_didymos/afc.py` and `afc_eclip_didy.py` pause at the end of their date range instead of starting over, and `afc.py` no longer writes image positions: `examples/landmark_tracking/main.py` is the example for those.
+- `examples/README.md` describes every example, and the README links it beside the Python API, config and controls references.
 
 ## v0.5.9
 

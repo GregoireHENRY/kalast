@@ -10,14 +10,12 @@ app.simulation.config.shading.color_mode = 1
 app.simulation.config.wireframe.mode = 2
 app.simulation.config.wireframe.width = 2.0
 app.simulation.config.wireframe.color = [1.0, 0.0, 1.0, 1.0]
-app.simulation.camera.pos = [10.0, 0.0, 0.0]
-app.simulation.camera.dir = [-1.0, 0.0, 0.0]
+app.simulation.camera.pos = [18.0, 5.0, 10.0]
+app.simulation.camera.look_anchor()
 app.simulation.load_mesh(path="res/cube.obj")
 
+app.simulation.config.selection.labels = True
 mesh = app.simulation.bodies[0].mesh
-nface = len(mesh.facets)
-for iface in range(nface):
-    mesh.colors[iface, :] = numpy.array([1.0, 1.0, 1.0]) * iface / (nface - 1)
-
-while app.running:
-    app.step()
+nf = len(mesh.facets)
+for ii in range(nf):
+    mesh.colors[ii, :] = numpy.array([1.0, 1.0, 1.0]) * ii / (nf - 1)

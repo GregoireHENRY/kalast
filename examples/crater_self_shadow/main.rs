@@ -3,8 +3,7 @@ use std::rc::Rc;
 
 use kalast::app::App;
 use kalast::app::config::Hud;
-use kalast::app::simulation::Simulation;
-use kalast::{Float, Mat4, Vec3};
+use kalast::{Mat4, Vec3};
 
 fn main() {
     let mut app = App::new();
@@ -31,39 +30,39 @@ fn main() {
         hud.size = 16.0;
         sim.huds = vec![Rc::new(RefCell::new(hud))];
 
-        sim.camera.pos = Vec3::new(1.5778934, 1.9384689, 1.5082116);
-        sim.camera.dir = Vec3::new(-0.54051036, -0.6640262, -0.5166407);
-        sim.camera.up = Vec3::new(-0.3261482, -0.40068075, 0.85620236);
+        sim.camera.pos = Vec3::new(1.5, 2.0, 1.5);
+        sim.camera.look_anchor();
 
         sim.load_mesh(
             "res/plane_crater_1024-5000_h=0.437.obj",
             Mat4::IDENTITY,
-            false, // smooth: no -- flat, as every render wants
+            false,
         );
     }
 
-    // Using closures for before_ and after_render but can be written in plain
-    // separated functions like main.py could have been lambda function aswell.
+    while app.is_running() {
+        let it = app.simulation.borrow().state.iteration;
 
-    // Before the frame: where the Sun is for this iteration.
-    app.set_before_render(|sim: &mut Simulation, _dt: Float| {
-        let a = sim.state.iteration as Float * 0.005;
-        sim.sun.pos = Vec3::new(0.0, 20.0 * a.sin(), 20.0 * a.cos());
-    });
+        let a = it as f32 * 0.005;
+        app.simulation.borrow_mut().sun.pos = Vec3::new(0.0, 20.0 * a.sin(), 20.0 * a.cos());
 
-    // After it: read the shadow map back and say how much is lit. Insolation,
-    // not occlusion -- a facet with nothing between it and the Sun is still
-    // dark if it faces away, which on this crater is most of the far wall.
-    app.set_after_render(|sim: &mut Simulation, _dt: Float| {
-        let lit = match sim.facet_illumination(0) {
-            Some(illum) if !illum.is_empty() => {
-                illum.iter().filter(|&&i| i > 0.0).count() as Float / illum.len() as Float
+        app.step();
+
+        // The borrow is scoped, because writing the HUD needs it back.
+        let lit = {
+            let sim = app.simulation.borrow();
+            match sim.facet_illumination(0) {
+                Some(illum) => {
+                    let n = illum.iter().filter(|&&i| i > 0.0).count();
+                    n as f32 / illum.len() as f32
+                }
+                None => 0.0,
             }
-            _ => 0.0,
         };
-        let it = sim.state.iteration;
-        sim.huds[0].borrow_mut().text = format!("lit {:.1} %", lit * 100.0);
-    });
+        app.simulation.borrow().huds[0].borrow_mut().text = format!("lit {:.1} %", lit * 100.0);
 
-    app.start();
+        if it >= 10000 {
+            app.close();
+        }
+    }
 }

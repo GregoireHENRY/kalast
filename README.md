@@ -12,18 +12,21 @@ You can also run it in your terminal:
 
 ```sh
 ./kalast                                        # starts the kalast UI app
-./kalast examples/crater_self_shadow/step.py    # load a Python example
-./kalast examples/crater_self_shadow/step.rs    # load a Rust example
+./kalast examples/crater_self_shadow/main.py    # load a Python example
+./kalast examples/crater_self_shadow/main.rs    # load a Rust example
 ./kalast res/plane_crater_1024-5000_h=0.437.obj # load a mesh
 ```
 
 More info on [Running kalast for the first time](#running-kalast-for-the-first-time).
 There are also additional resources to read:
-- [resources README.md to get data](res/README.md)
-- [kalast python API](notes/API.md)
-- [kalast config](notes/CONFIG.md)
-- [kalast UI controls](notes/CONTROLS.md)
+- [res/README.md](res/README.md) to get data
+- [notes/API.md](notes/API.md) python API
+- [notes/CONFIG.md](notes/CONFIG.md) config options
+- [notes/CONTROLS.md](notes/CONTROLS.md) UI controls
+- [examples/README.md](examples/README.md) examples scripts
 
+You can also write me an email at [gregoireh@pm.me](mailto:gregoireh@pm.me) if
+you have any question or want any feature added.
 
 ## TPM
 

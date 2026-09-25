@@ -45,10 +45,14 @@ while app.running:
         app.step()
         continue
 
-    et = et0 + (app.simulation.state.iteration * dt) % dur
+    et = et0 + app.simulation.state.iteration * dt
     date = spice.timout(et, kalast.util.SPICE_PICTUR_3)
 
-    # sim.export_once()
+    if et > etf:
+        # last iteration then paused
+        app.simulation.state.toggle_pause()
+
+    # app.simulation.export_once()
 
     (p_sun, _lt) = spice.spkpos("sun", et, frame, "none", center)
     (p_dimorphos, _lt) = spice.spkpos("dimorphos", et, frame, "none", center)

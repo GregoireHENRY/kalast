@@ -1,7 +1,5 @@
 #!/usr/bin/env python
 
-from pathlib import Path
-
 import numpy
 import spiceypy as spice
 
@@ -37,20 +35,20 @@ dur = etf - et0
 dt = 15.0 * 60.0
 instr = "hera_afc-1"
 
-# Where each body's centre and each selected facet's centre land in the image:
-# pixels from its top-left corner, x right and y down, one row per point per
-# frame. Select facets by clicking them, or app.simulation.toggle_facet(b, f).
-out = Path("out/hera_didymos/afc")
-out.mkdir(parents=True, exist_ok=True)
-screen = open(out / "screen.csv", "w")
-screen.write("iteration,utc,body,facet,x,y\n")
-
 while app.running:
+    if app.simulation.state.is_paused:
+        app.step()
+        continue
+
     it = app.simulation.state.iteration
-    et = et0 + (it * dt) % dur
+    et = et0 + it * dt
     date = spice.timout(et, kalast.util.SPICE_PICTUR_3)
 
-    # sim.export_once()
+    if et > etf:
+        # last iteration then paused
+        app.simulation.state.toggle_pause()
+
+    # app.simulation.export_once()
 
     (p_sun, _lt) = spice.spkpos("sun", et, instr, "none", instr)
     (p_earth, _lt) = spice.spkpos("earth", et, instr, "none", instr)
@@ -72,18 +70,6 @@ while app.running:
         0
     ].text = f"{date} Earth={d_earth:.3e}km Didymos={d_didymos:.3e}km Dimorphos={d_dimorphos:.3e}km"
 
-    if not app.step():
-        break
-    if app.simulation.state.iteration == it:
-        continue  # paused: the same epoch again
+    app.step()
 
-    # After the step, so these are the positions in the frame just drawn.
-    sim = app.simulation
-    rows = [(b, "", sim.project_body(b)) for b in range(len(sim.bodies))]
-    rows += [(b, f, sim.project_facet(b, f)) for b, f in sim.selected_facets]
-    for b, f, xy in rows:
-        if xy is not None:  # None: behind the camera
-            screen.write(f"{it},{date},{b},{f},{xy[0]:.3f},{xy[1]:.3f}\n")
-
-screen.close()
 spice.kclear()
