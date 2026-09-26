@@ -4402,3 +4402,16 @@ the stub's -- `shading: ShadingConfig`, "How the surface is coloured and the
 image encoded." -- seen in the app with `shading` selected by typing; the
 pointer's part is in the completion test, since a background window has no
 pointer to move.
+
+## 2026-09-26 — `kalast/tpm/routine.pyi` removed
+
+The stub was one commented line and hid every name of `routine.py` from any
+type checker: each `routine.step_surface_newton`, `nonuniform_max_dt` and the
+rest was "not a known attribute of module". Removed, the user's call, the
+module is read from its source. basedpyright over the 42 examples outside
+`examples/old`: 318 errors before, 285 after -- the 54 unknown-attribute
+errors gone, and some twenty that they had hidden now showing, now that the
+calls into the module are checked. What is left is what was listed as open:
+floats passed to `column(b: int)`, `Properties.se`, uppercase constants
+reassigned, and optional values used unchecked -- the last a warning in the
+editor, which runs the server with them downgraded.
