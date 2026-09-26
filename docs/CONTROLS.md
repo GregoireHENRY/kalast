@@ -439,10 +439,10 @@ With nothing in the scene the renderer shows kalast's logo, faded, and the
 keys to start with under it, as VS Code's empty editor does. It fades away
 at the first orbit, pan or zoom -- a middle-drag, the wheel, the gizmo, a
 movement key with WASD -- as Neovim's intro goes at the first key, and comes
-back with **reset**. A new app's camera looks level at the origin from 11
-away, on the side Blender's default camera stands, so there is something to
-turn about before anything is loaded; its `up` is world up, so a script that
-places it with `pos` and `look_anchor()` gets a level view.
+back with **reset**. A new app's camera looks at the origin from
+`(8.14, -5.33, 5.67)`, so there is something to turn about before anything is
+loaded; its `up` is world up, so a script that places it with `pos` and
+`look_anchor()` gets a level view.
 
 The editor colours Python and Rust as VS Code does with Catppuccin, numbers
 its lines and lights the one the cursor is on, and draws a line at column 80

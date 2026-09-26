@@ -308,8 +308,12 @@ impl Control {
 
 /// Where Blender's default camera stands, looking at the origin: the bearing
 /// a mesh opened on its own is framed from -- the view everyone who has
-/// opened Blender knows -- and, brought down to the horizon, a new app's.
+/// opened Blender knows.
 pub const BLENDER_VIEW: Vec3 = Vec3::new(7.36, -6.93, 4.96);
+
+/// Where a new app's camera stands, looking at the origin: some 30 degrees up
+/// and 11 away, the view picked by eye from an orbit of the empty scene.
+pub const NEW_APP_VIEW: Vec3 = Vec3::new(8.139829, -5.325, 5.673052);
 
 // if unit vectors are not normalized, results are gonna be wrong
 #[derive(Debug, Clone)]
@@ -547,25 +551,27 @@ impl Eye {
         self.fix_up();
     }
 
-    /// A new app's camera: looking level at the origin, its anchor, from
-    /// Blender's default camera's side and distance -- `BLENDER_VIEW` brought
-    /// down to the horizon -- with `up` world up exactly.
+    /// A new app's camera: at `NEW_APP_VIEW`, looking at the origin, its
+    /// anchor, with `up` world up.
     ///
     /// Standing back from the anchor, not on it. `new` puts the eye on its
     /// anchor, where an orbit has no radius and leaves it alone -- so in a new
     /// app's empty scene a drag turned nothing, the gizmo included, and the
     /// welcome waiting for the camera to move stayed.
     ///
-    /// Level, not from Blender's height. A script places the camera with
-    /// `pos` and `look_anchor`, which keep the `up` they find, only made
-    /// perpendicular to the new view: world up comes out level, but from
-    /// Blender's height `up` leaned back toward the old view, and every
-    /// example that set no `up` of its own came out rolled.
+    /// `up` is world up exactly, not made perpendicular to the view here. A
+    /// script places the camera with `pos` and `look_anchor`, which keep the
+    /// `up` they find, only made perpendicular to the new view: world up
+    /// comes out level from anywhere, but an `up` leaning back from an
+    /// elevated view -- Blender's, the first default -- came out rolled in
+    /// every example that set none of its own. Nothing needs it
+    /// perpendicular before the first frame, which makes it so, as it does
+    /// any `up` a script leaves: the view matrix is `look_to_rh`, which
+    /// works from any `up` not along the view.
     pub fn standing_back() -> Self {
         let mut eye = Self::new();
-        let side = Vec3::new(BLENDER_VIEW.x, BLENDER_VIEW.y, 0.0);
-        eye.pos = side.normalize() * BLENDER_VIEW.length();
-        eye.look_anchor();
+        eye.pos = NEW_APP_VIEW;
+        eye.dir = (eye.anchor - eye.pos).normalize();
         eye
     }
 

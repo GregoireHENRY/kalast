@@ -4455,3 +4455,38 @@ expected Python's `lib` folder, which is the other platforms' layout; on
 Windows the flag rightly names `libs`, where Python keeps its import library.
 It expects the platform's folder now, and the library suite is whole on
 Windows.
+
+## 2026-09-26 — the default camera where the user put it
+
+The user picked the default view by orbiting: `(8.139829, -5.325, 5.673052)`,
+some 30 degrees up, 11 away, now `NEW_APP_VIEW`. Elevated, it would roll the
+examples again if its `up` leaned back with the view, as Blender's did -- so
+`standing_back` leaves `up` world up exactly, not perpendicular to the view:
+`look_anchor` from it is level from anywhere (the test holds), and the first
+frame's `sanitize_basis` makes it perpendicular before anything is drawn, as
+it does any `up` a script leaves. The view matrix is `look_to_rh`, which
+works from any `up` not along the view. One casualty, caught in a capture:
+the welcome took the first frame's straightening of `up` for a camera move
+and was gone as the app opened. Its camera state now holds the `up` the view
+is drawn with -- made perpendicular to it -- and compares to 1e-4 rather than
+1e-9, which single precision's rounding exceeded; the least a gesture turns
+is some 1e-3. Seen: the welcome at startup, gone after a script moves the
+camera, back after Reset.
+
+## 2026-09-27 — a screenshot in the README, and resources in `res/`
+
+The user's screenshot of the UI app, its window's title bar and one-pixel
+frame cropped off, is in the README under the download line:
+`res/kalast-ui.png`. The documentation tab draws Markdown images now: an
+image in a paragraph becomes a block under it, from pictures compiled in,
+fitted to the column. `every_link_leads_somewhere` checks that every image a
+page uses is compiled in and on disk -- it fails with the file moved away --
+and the page test that the screenshot is drawn at its fitted height.
+
+Asked for: resources in `res/`, not in `docs/images/` or beside the code.
+Moved there: the logo, `kalast.ico` and its resource script `kalast.rc`
+(`build.rs` compiles it from there; the built exe's icon checked), the
+Codicons font and its licence, and Catppuccin's file icons with theirs
+(`res/icons/`; `tools/gen_icons.py` writes there and the table's paths
+follow). `src/app/gui/assets/` is gone; `Cargo.toml`'s `include` lists the
+files from `res/` the build reads.

@@ -26,7 +26,7 @@ use std::collections::VecDeque;
 /// kalast's logo, 256 points square: the window's and the taskbar's icon,
 /// the empty scene's watermark, and the picture at the top of the README in
 /// the documentation tab. One copy for the three.
-pub(crate) static LOGO: &[u8] = include_bytes!("assets/kalast-256.png");
+pub(crate) static LOGO: &[u8] = include_bytes!("../../../res/kalast-256.png");
 
 /// Lines shown in the log panel.
 ///
@@ -551,19 +551,26 @@ fn watermark(ui: &egui::Ui, rect: egui::Rect, logo: egui::TextureId, alpha: f32)
 
 /// Where the camera is and how it sees, to tell whether it has moved: its
 /// frame, and the projection's shape.
+///
+/// The `up` the view is drawn with, made perpendicular to it as the view
+/// matrix makes it, rather than `up` as stored: a new app's is world up
+/// until the first frame makes it perpendicular, and that is no move --
+/// taken for one, it dismissed the welcome as the app opened.
 fn camera_state(eye: &crate::app::frame::Eye) -> [crate::Float; 15] {
     let p = &eye.projection;
     let ortho = if p.mode == crate::app::frame::ProjectionMode::Orthographic { 1.0 } else { 0.0 };
+    let dir = eye.dir.normalize_or_zero();
+    let up = (eye.up - dir * eye.up.dot(dir)).normalize_or_zero();
     [
         eye.pos.x,
         eye.pos.y,
         eye.pos.z,
-        eye.dir.x,
-        eye.dir.y,
-        eye.dir.z,
-        eye.up.x,
-        eye.up.y,
-        eye.up.z,
+        dir.x,
+        dir.y,
+        dir.z,
+        up.x,
+        up.y,
+        up.z,
         eye.anchor.x,
         eye.anchor.y,
         eye.anchor.z,
@@ -1136,8 +1143,10 @@ impl Editor {
                 self.welcome_camera = Some(now);
             } else if let Some(before) = self.welcome_camera {
                 // A turn, a pan, a zoom, the gizmo: any of it, beyond the
-                // rounding a frame's renormalising leaves.
-                let moved = before.iter().zip(now).any(|(a, b)| (a - b).abs() > 1e-9 * (1.0 + a.abs()));
+                // rounding a frame's renormalising leaves -- single
+                // precision's, some 1e-7, which a bound of 1e-9 took for a
+                // move. The least a gesture turns is some 1e-3.
+                let moved = before.iter().zip(now).any(|(a, b)| (a - b).abs() > 1e-4 * (1.0 + a.abs()));
                 self.welcome_gone |= moved;
             } else {
                 self.welcome_camera = Some(now);

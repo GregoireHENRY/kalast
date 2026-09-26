@@ -111,6 +111,9 @@ struct Page {
     blocks: Vec<Block>,
     /// Every link's destination, as written.
     links: Vec<String>,
+    /// Every Markdown image's path, as written: not drawn here, but checked
+    /// to exist, as GitHub shows them.
+    images: Vec<String>,
     headings: Vec<Heading>,
 }
 
@@ -136,6 +139,11 @@ struct Builder {
     style: u8,
     link: Option<usize>,
     links: Vec<String>,
+    images: Vec<String>,
+    /// Images met in the text being gathered, drawn as blocks of their own
+    /// once it ends: a Markdown image sits in a paragraph, and the tab shows
+    /// it under that paragraph's text.
+    pending: Vec<String>,
     /// Inside an image or an HTML block, whose text is not shown.
     skip: usize,
     headings: Vec<Heading>,
@@ -159,9 +167,17 @@ impl Builder {
     /// A tight item's text, made a paragraph before whatever comes next.
     fn settle(&mut self) {
         if std::mem::take(&mut self.implicit) {
-            if let Some(spans) = self.inline.take() {
+            if let Some(spans) = self.inline.take().filter(|s| !s.is_empty()) {
                 self.blocks().push(Block::Paragraph(spans));
             }
+            self.flush_images();
+        }
+    }
+
+    /// The images of the text just ended, each a block under it.
+    fn flush_images(&mut self) {
+        for src in std::mem::take(&mut self.pending) {
+            self.blocks().push(Block::Image { src, width: None, right: false });
         }
     }
 
@@ -241,10 +257,13 @@ fn attr(tag: &str, name: &str) -> Option<String> {
 }
 
 /// The pictures the pages show, by their path in the repository, compiled
-/// in as the pages are. The one there is: the logo at the top of the README.
+/// in as the pages are: the logo at the top of the README, and the UI app's
+/// screenshot under its first paragraph. A page's picture missing here is
+/// drawn as nothing, which `every_link_leads_somewhere` does not let pass.
 fn picture(path: &str) -> Option<&'static [u8]> {
     match path {
-        "src/app/gui/assets/kalast-256.png" => Some(super::LOGO),
+        "res/kalast-256.png" => Some(super::LOGO),
+        "res/kalast-ui.png" => Some(include_bytes!("../../../res/kalast-ui.png")),
         _ => None,
     }
 }
@@ -283,6 +302,8 @@ fn parse(text: &str) -> Page {
         style: 0,
         link: None,
         links: Vec::new(),
+        images: Vec::new(),
+        pending: Vec::new(),
         skip: 0,
         headings: Vec::new(),
         anchors: HashMap::new(),
@@ -325,14 +346,23 @@ fn parse(text: &str) -> Page {
                     b.links.push(dest_url.into_string());
                     b.link = Some(b.links.len() - 1);
                 }
-                Tag::Image { .. } | Tag::HtmlBlock => b.skip += 1,
+                Tag::Image { dest_url, .. } => {
+                    b.images.push(dest_url.to_string());
+                    b.pending.push(dest_url.into_string());
+                    // Its alt text is not shown: the image is.
+                    b.skip += 1;
+                }
+                Tag::HtmlBlock => b.skip += 1,
                 _ => {}
             },
             Event::End(tag) => match tag {
                 TagEnd::Paragraph => {
-                    if let Some(spans) = b.inline.take() {
+                    // Nothing in it but an image -- the README's screenshot
+                    // -- is no paragraph, and no blank line over the image.
+                    if let Some(spans) = b.inline.take().filter(|s| !s.is_empty()) {
                         b.blocks().push(Block::Paragraph(spans));
                     }
+                    b.flush_images();
                 }
                 TagEnd::Heading(level) => b.heading(level as u8),
                 TagEnd::BlockQuote(_) => {
@@ -419,7 +449,7 @@ fn parse(text: &str) -> Page {
         Some(Open::Page(blocks)) => blocks,
         _ => Vec::new(),
     };
-    Page { title, blocks, links: b.links, headings: b.headings }
+    Page { title, blocks, links: b.links, images: b.images, headings: b.headings }
 }
 
 /// `link`, read from the page at `here`, as the path from the repository's
@@ -1472,6 +1502,13 @@ mod tests {
                     broken.push(format!("{}: picture {src}", source.path));
                 }
             }
+            // And every Markdown image, which GitHub shows, is in the
+            // repository -- the README's screenshot.
+            for src in &page.images {
+                if !src.contains("://") && !root.join(resolve(source.path, src)).is_file() {
+                    broken.push(format!("{}: image {src}", source.path));
+                }
+            }
         }
         assert!(broken.is_empty(), "{broken:#?}");
         // Forty today, most of them the examples' README's scripts and
@@ -1506,6 +1543,19 @@ mod tests {
                 assert!(heights.of.iter().all(|h| h.is_some_and(|h| h >= 0.0)), "{}", SOURCES[page].path);
             }
         }
+        // The README draws its screenshot -- 719 by 671 pixels, a point each
+        // at this scale -- no wider than the column, to scale, and its gap.
+        let readme = SOURCES.iter().position(|s| s.path == "README.md").unwrap();
+        let shot = docs.pages[readme]
+            .blocks
+            .iter()
+            .position(|b| matches!(b, Block::Image { src, .. } if src == "res/kalast-ui.png"))
+            .expect("the screenshot is a block");
+        let drawn = docs.heights[readme].of[shot].expect("measured");
+        let wide = docs.heights[readme].width.min(719.0);
+        let tall = wide * 671.0 / 719.0 + 10.0;
+        assert!((drawn - tall).abs() < 1.0, "the screenshot drawn {drawn} tall, {tall} expected");
+
         // The config's "Shadows", far down its page.
         let config = SOURCES.iter().position(|s| s.path == "docs/CONFIG.md").unwrap();
         docs.current = config;

@@ -1,4 +1,4 @@
-<img src="src/app/gui/assets/kalast-256.png" alt="" width="120" align="right">
+<img src="res/kalast-256.png" alt="" width="120" align="right">
 
 # kalast
 
@@ -9,6 +9,9 @@ uses — viewing and interacting with meshes, generating lightcurves — see the
 [`examples/`](examples/) folder.
 
 Download the [latest version of kalast here](https://github.com/GregoireHENRY/kalast/releases).
+
+![The kalast UI app](res/kalast-ui.png)
+
 You can directly run the executable and open an example script from the UI.
 You can also run it in your terminal:
 

@@ -10,15 +10,15 @@
 //! build goes on, with Windows' default icon.
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=src/app/gui/assets/kalast.rc");
-    println!("cargo:rerun-if-changed=src/app/gui/assets/kalast.ico");
+    println!("cargo:rerun-if-changed=res/kalast.rc");
+    println!("cargo:rerun-if-changed=res/kalast.ico");
     let windows = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows");
     let msvc = std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
     if windows && msvc {
         println!("cargo:rustc-link-arg-bins=/STACK:16777216");
     }
     if windows {
-        let icon = embed_resource::compile_for("src/app/gui/assets/kalast.rc", ["kalast"], embed_resource::NONE);
+        let icon = embed_resource::compile_for("res/kalast.rc", ["kalast"], embed_resource::NONE);
         if let Err(e) = icon.manifest_optional() {
             println!("cargo:warning=kalast.exe keeps the default icon: {e}");
         }

@@ -1,13 +1,13 @@
 //! Icons: VS Code's own for buttons, Catppuccin's for files.
 //!
 //! Buttons use the Codicons font (microsoft/vscode-codicons, CC BY 4.0,
-//! `assets/LICENSE-codicons`; `codicon.ttf` from the `@vscode/codicons` npm
+//! `res/LICENSE-codicons`; `codicon.ttf` from the `@vscode/codicons` npm
 //! package, 0.0.46-24, unchanged) -- the icons VS Code draws its run, debug
 //! and explorer actions with. It is a fallback in both of egui's font families,
 //! so a codepoint below draws inside any text, beside a label or alone.
 //!
 //! Files use Catppuccin's icon theme for VS Code (catppuccin/vscode-icons,
-//! MIT, `assets/icons/LICENSE`), Mocha: SVGs drawn through egui_extras'
+//! MIT, `res/icons/LICENSE`), Mocha: SVGs drawn through egui_extras'
 //! loader, picked by `icon_table.rs`, which `tools/gen_icons.py` generates
 //! from the extension's own associations.
 
@@ -62,7 +62,7 @@ pub fn install(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
     fonts.font_data.insert(
         "codicon".to_owned(),
-        std::sync::Arc::new(egui::FontData::from_static(include_bytes!("assets/codicon.ttf"))),
+        std::sync::Arc::new(egui::FontData::from_static(include_bytes!("../../../res/codicon.ttf"))),
     );
     fonts.font_data.insert(
         "dejavu".to_owned(),
