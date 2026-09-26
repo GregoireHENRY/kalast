@@ -785,6 +785,12 @@ pub fn build_hosted_blocking(
     if release {
         cmd.arg("--release");
     }
+    // The log's pipe itself, not whatever stdout is when cargo starts: in the
+    // UI app that is something anything in the process can move -- see
+    // `gui::engine_write` -- and inherited NULL, the build said nothing.
+    if let Some((out, err)) = crate::app::gui::engine_stdio() {
+        cmd.stdout(out).stderr(err);
+    }
     configure_guest_link(&mut cmd)?;
     println!("$ {}", show(&cmd));
     match cmd.status() {

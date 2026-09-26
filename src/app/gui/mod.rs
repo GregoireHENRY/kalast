@@ -2026,8 +2026,27 @@ pub struct StdioCapture {
     lines: std::sync::Arc<std::sync::Mutex<Vec<Entry>>>,
     /// Signalled by the reader once the pipe has closed and everything in
     /// it has gone to the terminal.
-    #[cfg_attr(not(unix), allow(dead_code))]
+    #[cfg_attr(not(any(unix, windows)), allow(dead_code))]
     done: std::sync::mpsc::Receiver<()>,
+    /// What `restore` puts back on Windows.
+    #[cfg(windows)]
+    saved: WindowsHandles,
+}
+
+/// The standard handles a Windows capture replaced, and the pipe it put in
+/// their place. As integers, not `HANDLE`s: a raw pointer would make the
+/// capture `!Send` for no reason.
+#[cfg(windows)]
+struct WindowsHandles {
+    out: isize,
+    err: isize,
+    /// The pipe's write end. `SetStdHandle` does not keep a handle open, so
+    /// this is what does -- dropped, stdout would name a closed handle -- and
+    /// closing it in `restore` is what lets the reader see the pipe end.
+    writer: Option<std::os::windows::io::OwnedHandle>,
+    /// Whether the capture cleared the shell's `STARTF_HASSHELLDATA`, for
+    /// `restore` to set it again.
+    shell_data: bool,
 }
 
 impl StdioCapture {
@@ -2045,20 +2064,20 @@ impl StdioCapture {
     /// Redirect stdout and stderr into a pipe. `None` if that fails, in which
     /// case output keeps going to the terminal and the panel stays empty --
     /// worth nobody's run failing over.
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     pub fn new() -> Option<Self> {
-        // Windows has no `dup2` on descriptor 1, and the equivalent
-        // (`SetStdHandle` plus a CRT `_dup2`) does not redirect what Rust's
-        // `println!` already holds, nor what a Python extension writes
-        // through its own CRT. Capture is therefore unavailable here, which
-        // is a supported outcome rather than a failure: output keeps going to
-        // the terminal and the editor's log panel stays empty. Everything
-        // downstream already takes `Option` and handles `None`.
         None
     }
 
+    /// Whether a capture holds stdout in this process now -- this app's, or
+    /// another's -- as against none having been set up.
+    #[cfg(any(unix, windows))]
+    pub fn active() -> bool {
+        CAPTURING.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     /// `None` while another capture is active: see `CAPTURING`.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub fn new() -> Option<Self> {
         use std::sync::atomic::Ordering;
 
@@ -2094,7 +2113,7 @@ impl StdioCapture {
         let kept = lines.clone();
         std::thread::Builder::new()
             .name("kalast-stdio".into())
-            .spawn(move || pump(reader, tee, &kept, finished))
+            .spawn(move || pump(reader, Terminal::new(tee), &kept, finished))
             .ok()?;
 
         // SAFETY: plain descriptor calls pointing 1 and 2 at the pipe. A
@@ -2109,8 +2128,87 @@ impl StdioCapture {
             }
         }
         script_terminal(tty.try_clone().ok());
+        engine_out(writer.try_clone().ok().map(|w| std::fs::File::from(std::os::fd::OwnedFd::from(w))));
 
         Some(Self { tty, lines, done })
+    }
+
+    /// Windows has no descriptor 1 to `dup2` over, but it has the process's
+    /// standard handles, and those are what the engine writes to: `println!`
+    /// asks `GetStdHandle` on every write (`std/src/sys/stdio/windows.rs`),
+    /// and a child spawned with inherited output is handed them at spawn. So
+    /// the pipe goes in with `SetStdHandle`, and what the engine and cargo
+    /// print reaches the kalast tab as it does on macOS and Linux. This used
+    /// to be `None` on the belief that `println!` held its handle; it asks
+    /// each time.
+    ///
+    /// Not redirected: the C runtime's own descriptors 1 and 2, set up from
+    /// the handles the process started with. Only C code calling `printf`
+    /// writes there, which nothing kalast runs does -- Python's output has
+    /// its own route, `capture_output`. Moving them would mean `_dup2` on
+    /// descriptors a double-clicked executable does not have, and the MSVC
+    /// runtime answers an invalid descriptor by ending the process unless its
+    /// invalid-parameter handler is replaced first.
+    ///
+    /// Double-clicked there is no terminal, and stdout reads as NULL -- the
+    /// shell's monitor is in its slot (`STARTF_HASSHELLDATA`) -- so the
+    /// terminal's copy goes to `NUL` and the lines still reach the log, the
+    /// only place anyone is reading them.
+    #[cfg(windows)]
+    fn redirect() -> Option<Self> {
+        use std::os::windows::io::{AsRawHandle as _, BorrowedHandle, OwnedHandle};
+        use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+        use windows_sys::Win32::System::Console::{GetStdHandle, SetStdHandle, STD_ERROR_HANDLE, STD_OUTPUT_HANDLE};
+
+        let (reader, writer) = std::io::pipe().ok()?;
+        // SAFETY: plain queries of this process's standard handles.
+        let (out, err) = unsafe { (GetStdHandle(STD_OUTPUT_HANDLE), GetStdHandle(STD_ERROR_HANDLE)) };
+        let tty = if out.is_null() || out == INVALID_HANDLE_VALUE {
+            std::fs::OpenOptions::new().write(true).open("NUL").ok()?
+        } else {
+            // SAFETY: `out` is this process's stdout, open for as long as the
+            // process is. It is duplicated here, not taken.
+            std::fs::File::from(unsafe { BorrowedHandle::borrow_raw(out) }.try_clone_to_owned().ok()?)
+        };
+        let tee = tty.try_clone().ok()?;
+        let lines = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let (finished, done) = std::sync::mpsc::channel();
+
+        // As on Unix: started first, so a failure below leaves stdout alone
+        // and the reader sees the pipe close.
+        let kept = lines.clone();
+        std::thread::Builder::new()
+            .name("kalast-stdio".into())
+            .spawn(move || pump(reader, Terminal::new(tee), &kept, finished))
+            .ok()?;
+
+        let writer = OwnedHandle::from(writer);
+        // The slot is about to hold a handle, so the shell's word that it
+        // holds a monitor stops being true here. Without it the slot reads
+        // as what it holds, the monitor, which is what `restore` puts back.
+        let shell_data = take_shell_data();
+        // SAFETY: a plain query, as above.
+        let out = if shell_data { unsafe { GetStdHandle(STD_OUTPUT_HANDLE) } } else { out };
+        // SAFETY: both standard handles pointed at the pipe, which `writer`
+        // keeps open until `restore` has put these two back. A failure puts
+        // them back at once.
+        unsafe {
+            if SetStdHandle(STD_OUTPUT_HANDLE, writer.as_raw_handle()) == 0
+                || SetStdHandle(STD_ERROR_HANDLE, writer.as_raw_handle()) == 0
+            {
+                SetStdHandle(STD_OUTPUT_HANDLE, out);
+                SetStdHandle(STD_ERROR_HANDLE, err);
+                if shell_data {
+                    give_back_shell_data();
+                }
+                return None;
+            }
+        }
+        script_terminal(tty.try_clone().ok());
+        engine_out(writer.try_clone().ok().map(std::fs::File::from));
+
+        let saved = WindowsHandles { out: out as isize, err: err as isize, writer: Some(writer), shell_data };
+        Some(Self { tty, lines, done, saved })
     }
 
     /// Give stdout and stderr back, flushing whatever is still in the pipe.
@@ -2119,16 +2217,46 @@ impl StdioCapture {
     /// anything written after the last frame -- which includes everything a
     /// script prints on its way out -- would be swallowed with the pipe. A
     /// test that printed its result and stopped saw nothing at all.
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     fn restore(&mut self) {
-        // Unreachable: `new` returns `None` on Windows, so no instance
-        // exists to drop. Present so the type compiles.
+        // Unreachable: `new` returns `None` here, so no instance exists to
+        // drop. Present so the type compiles.
+    }
+
+    #[cfg(windows)]
+    fn restore(&mut self) {
+        use windows_sys::Win32::System::Console::{SetStdHandle, STD_ERROR_HANDLE, STD_OUTPUT_HANDLE};
+
+        // What `println!` still holds in its buffer belongs to the pipe.
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+        // Handles first, so anything printed from here on goes where it went
+        // before; then the write end closes, and the pipe with it once no
+        // child holds a copy.
+        // The shell's flag before its monitor, so stdout never reads as a
+        // monitor in between.
+        if std::mem::take(&mut self.saved.shell_data) {
+            give_back_shell_data();
+        }
+        // SAFETY: putting back the handles saved in `redirect`.
+        unsafe {
+            SetStdHandle(STD_OUTPUT_HANDLE, self.saved.out as _);
+            SetStdHandle(STD_ERROR_HANDLE, self.saved.err as _);
+        }
+        self.saved.writer = None;
+        engine_out(None);
+        script_terminal(None);
+
+        // Bounded, as on Unix: a child that inherited the pipe holds it open.
+        let _ = self.done.recv_timeout(std::time::Duration::from_millis(500));
+        CAPTURING.store(false, std::sync::atomic::Ordering::SeqCst);
     }
 
     #[cfg(unix)]
     fn restore(&mut self) {
         use std::os::fd::AsRawFd as _;
 
+        // What `println!` still holds in its buffer belongs to the pipe.
+        let _ = std::io::Write::flush(&mut std::io::stdout());
         // Descriptors first, so anything printed from here on goes straight
         // out, and the pipe closes once nothing else holds it.
         // SAFETY: putting back the descriptor saved in `new`.
@@ -2136,6 +2264,7 @@ impl StdioCapture {
             libc::dup2(self.tty.as_raw_fd(), libc::STDOUT_FILENO);
             libc::dup2(self.tty.as_raw_fd(), libc::STDERR_FILENO);
         }
+        engine_out(None);
         script_terminal(None);
 
         // Then give the reader the time to put the rest on the terminal --
@@ -2155,13 +2284,147 @@ impl StdioCapture {
     }
 }
 
+/// A program the Windows shell starts -- a double-click, the Start menu, the
+/// taskbar -- is told which monitor to open on through its stdout slot, with
+/// this flag in its start-up flags to say the slot holds a monitor and not a
+/// handle. While it is set, `GetStdHandle(STD_OUTPUT_HANDLE)` answers NULL
+/// whatever the slot holds: kernelbase tests the flag before reading the
+/// slot, and `SetStdHandle` writes the slot and leaves the flag. So in a
+/// double-clicked kalast.exe the capture's pipe went in and never came back
+/// out, and `println!`, which asks `GetStdHandle` on every write, dropped
+/// each line in silence. stderr has no such flag.
+///
+/// Not an overlay taking stdout, which is what it looked like for two days
+/// (`notes/TIMELINE.md`, 26 September), nor anything writing to stdout at
+/// all: read from outside, the slot held the pipe in 3.4 million reads of
+/// 3.4 million while `GetStdHandle` inside answered NULL. The user's kalast
+/// had started with flags 0xC01; the tests, started from a terminal or
+/// through `explorer.exe` on a shortcut, with 0x801, and never failed. A
+/// probe started with the flag and without it showed the flag alone decides.
+///
+/// A capture clears it while it holds stdout, and `restore` sets it again
+/// with the monitor back in the slot. The window still opens on the monitor
+/// the shell chose -- measured with the flag cleared at the top of `main`,
+/// before any window existed: Windows has taken it by then.
+#[cfg(windows)]
+const STARTF_HASSHELLDATA: u32 = 0x400;
+
+/// This process's start-up flags, the `dwFlags` it was started with, where
+/// `GetStdHandle` looks for `STARTF_HASSHELLDATA`. `None` if they cannot be
+/// reached, which leaves everything as it was.
+#[cfg(windows)]
+fn window_flags() -> Option<&'static std::sync::atomic::AtomicU32> {
+    use windows_sys::Wdk::System::Threading::{NtQueryInformationProcess, ProcessBasicInformation};
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, PROCESS_BASIC_INFORMATION};
+
+    // `WindowFlags`, past the part of RTL_USER_PROCESS_PARAMETERS that
+    // winternl.h names and where it has been since NT 4. 0xA4 is the offset
+    // kernelbase's `GetStdHandle` tests.
+    #[cfg(target_pointer_width = "64")]
+    const WINDOW_FLAGS: usize = 0xA4;
+    #[cfg(target_pointer_width = "32")]
+    const WINDOW_FLAGS: usize = 0x68;
+
+    // SAFETY: plain data, for the query to fill.
+    let mut info: PROCESS_BASIC_INFORMATION = unsafe { std::mem::zeroed() };
+    // SAFETY: a query about this process, into a buffer of the size given.
+    let status = unsafe {
+        NtQueryInformationProcess(
+            GetCurrentProcess(),
+            ProcessBasicInformation,
+            (&raw mut info).cast(),
+            std::mem::size_of::<PROCESS_BASIC_INFORMATION>() as u32,
+            std::ptr::null_mut(),
+        )
+    };
+    if status < 0 || info.PebBaseAddress.is_null() {
+        return None;
+    }
+    // SAFETY: this process's PEB and its parameters, which live as long as
+    // the process; the flags are a 4-aligned `u32`, as the atomic needs.
+    unsafe {
+        let params = (*info.PebBaseAddress).ProcessParameters;
+        if params.is_null() {
+            return None;
+        }
+        Some(std::sync::atomic::AtomicU32::from_ptr(params.cast::<u8>().add(WINDOW_FLAGS).cast()))
+    }
+}
+
+/// Clear `STARTF_HASSHELLDATA`, saying whether it was set.
+#[cfg(windows)]
+fn take_shell_data() -> bool {
+    use std::sync::atomic::Ordering;
+    window_flags().is_some_and(|flags| flags.fetch_and(!STARTF_HASSHELLDATA, Ordering::SeqCst) & STARTF_HASSHELLDATA != 0)
+}
+
+/// Set `STARTF_HASSHELLDATA`, as the shell left it.
+#[cfg(windows)]
+fn give_back_shell_data() {
+    if let Some(flags) = window_flags() {
+        flags.fetch_or(STARTF_HASSHELLDATA, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 /// One capture per process: stdout and stderr are the process's. A second one
 /// saved the first one's pipe as "the terminal", and released out of order
 /// left stdout on a pipe nobody read. Seen in the test binary, where several
 /// tests start the UI app side by side: output stopped mid-run, or the test
 /// harness died on a broken pipe.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 static CAPTURING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// A copy of the capture's pipe, for kalast's own output while one runs.
+static ENGINE_OUT: std::sync::Mutex<Option<std::fs::File>> = std::sync::Mutex::new(None);
+
+#[cfg_attr(not(any(unix, windows)), allow(dead_code))]
+fn engine_out(pipe: Option<std::fs::File>) {
+    *ENGINE_OUT.lock().unwrap_or_else(|e| e.into_inner()) = pipe;
+}
+
+/// kalast's `println!` and `eprintln!` (`src/lib.rs`): into the capture's
+/// pipe while one runs -- the kalast tab, and on to the terminal through the
+/// reader -- else as std prints them.
+///
+/// Not through stdout, because stdout is the process's, not kalast's, and
+/// on Windows it has gone missing under kalast twice: in a double-clicked
+/// kalast.exe it read as NULL for the whole session (`STARTF_HASSHELLDATA`),
+/// and a C runtime mirroring its descriptors made a script's file stdout
+/// once the script closed descriptor 1 (`gui_c_runtime` in
+/// `src/bin/kalast.rs`). Nothing else holds this copy of the pipe. A hosted
+/// Rust example is a crate of its own with no capture in it, so it hands its
+/// lines to the host (`HostApi::print`).
+#[doc(hidden)]
+pub fn engine_write(args: std::fmt::Arguments<'_>, err: bool) {
+    use std::io::Write as _;
+
+    // Formatted first and written once: `write_fmt` goes piece by piece,
+    // and another writer on the pipe could cut in between two pieces.
+    let text = args.to_string();
+    if let Some(pipe) = ENGINE_OUT.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        let _ = pipe.write_all(text.as_bytes());
+        return;
+    }
+    if crate::app::hosted::print_to_host(&text) {
+        return;
+    }
+    // std's own macros, so a test harness still captures it.
+    if err {
+        ::std::eprint!("{text}");
+    } else {
+        ::std::print!("{text}");
+    }
+}
+
+/// Stdout and stderr for a child whose output belongs in the kalast tab --
+/// cargo building a Rust example -- given the pipe itself rather than
+/// whatever stdout is at the moment it starts. `None` without a capture:
+/// the child then inherits, as before.
+pub fn engine_stdio() -> Option<(std::process::Stdio, std::process::Stdio)> {
+    let out = ENGINE_OUT.lock().unwrap_or_else(|e| e.into_inner());
+    let pipe = out.as_ref()?;
+    Some((pipe.try_clone().ok()?.into(), pipe.try_clone().ok()?.into()))
+}
 
 /// What a script writes through Python's `sys.stdout` and `sys.stderr`, for
 /// the log's script tab.
@@ -2181,7 +2444,95 @@ struct ScriptOutput {
     /// The terminal, while a capture holds stdout. The script's copy goes
     /// here and not to descriptor 1, which is the capture's pipe and would
     /// put the same lines in the kalast tab as well.
-    terminal: Option<std::fs::File>,
+    terminal: Option<Terminal>,
+}
+
+/// Where a capture's copies go: the stdout the process had before it.
+///
+/// The bytes as they are, except to a Windows console whose code page is
+/// not UTF-8: there, as `println!` writes one, UTF-16 through
+/// `WriteConsoleW`. Bytes through `WriteFile` come out in the code page and
+/// garble anything that is not ASCII -- a path with an accent in it. A read
+/// can end inside a character, so the start of a cut one waits for the rest.
+struct Terminal {
+    file: std::fs::File,
+    #[cfg(windows)]
+    pending: Vec<u8>,
+}
+
+impl Terminal {
+    fn new(file: std::fs::File) -> Self {
+        Self {
+            file,
+            #[cfg(windows)]
+            pending: Vec::new(),
+        }
+    }
+
+    /// Best effort: a terminal that has gone away is no reason to fail.
+    fn write(&mut self, bytes: &[u8]) {
+        use std::io::Write as _;
+
+        #[cfg(windows)]
+        if console_wants_utf16(&self.file) {
+            return self.write_utf16(bytes);
+        }
+        let _ = self.file.write_all(bytes);
+        let _ = self.file.flush();
+    }
+
+    #[cfg(windows)]
+    fn write_utf16(&mut self, bytes: &[u8]) {
+        use std::os::windows::io::AsRawHandle as _;
+        use windows_sys::Win32::System::Console::WriteConsoleW;
+
+        self.pending.extend_from_slice(bytes);
+        let whole = whole_utf8(&self.pending);
+        let wide: Vec<u16> = String::from_utf8_lossy(&self.pending[..whole]).encode_utf16().collect();
+        self.pending.drain(..whole);
+        let mut rest = &wide[..];
+        while !rest.is_empty() {
+            // It may take fewer units than it is given, and a surrogate pair
+            // is not split across two calls.
+            let mut n = rest.len().min(8192);
+            if n < rest.len() && (0xD800..0xDC00).contains(&rest[n - 1]) {
+                n -= 1;
+            }
+            let mut written = 0u32;
+            // SAFETY: `rest` holds at least `n` units; the handle is the
+            // console this terminal writes to.
+            let ok = unsafe {
+                WriteConsoleW(self.file.as_raw_handle(), rest.as_ptr(), n as u32, &mut written, std::ptr::null())
+            };
+            if ok == 0 || written == 0 {
+                break;
+            }
+            rest = &rest[written as usize..];
+        }
+    }
+}
+
+/// Whether `file` is a console that takes UTF-16: the test `println!` makes.
+#[cfg(windows)]
+fn console_wants_utf16(file: &std::fs::File) -> bool {
+    use std::os::windows::io::AsRawHandle as _;
+    use windows_sys::Win32::System::Console::{GetConsoleMode, GetConsoleOutputCP};
+
+    const CP_UTF8: u32 = 65001;
+    let mut mode = 0;
+    // SAFETY: queries on a handle `file` owns.
+    unsafe { GetConsoleMode(file.as_raw_handle(), &mut mode) != 0 && GetConsoleOutputCP() != CP_UTF8 }
+}
+
+/// How much of `bytes` is whole UTF-8: all of it, or up to a character cut
+/// off at the end. An invalid byte counts as whole -- it prints as U+FFFD --
+/// so nothing waits forever.
+#[cfg(any(windows, test))]
+fn whole_utf8(bytes: &[u8]) -> usize {
+    match std::str::from_utf8(bytes) {
+        Err(e) if e.error_len().is_none() => e.valid_up_to(),
+        _ => bytes.len(),
+    }
 }
 
 /// Write a script's output: on to the terminal, and into the script tab once
@@ -2191,10 +2542,7 @@ pub fn script_write(text: &str) {
 
     let mut out = SCRIPT_OUTPUT.lock().unwrap_or_else(|e| e.into_inner());
     match out.terminal.as_mut() {
-        Some(terminal) => {
-            let _ = terminal.write_all(text.as_bytes());
-            let _ = terminal.flush();
-        }
+        Some(terminal) => terminal.write(text.as_bytes()),
         None => {
             let mut stdout = std::io::stdout();
             let _ = stdout.write_all(text.as_bytes());
@@ -2421,22 +2769,22 @@ fn console_prompt(ui: &mut egui::Ui, input: &mut String, history: &mut Vec<Strin
 
 /// Where `script_write` sends the terminal's copy: the capture's saved
 /// stdout while there is one, descriptor 1 again once it is gone.
-#[cfg_attr(not(unix), allow(dead_code))]
+#[cfg_attr(not(any(unix, windows)), allow(dead_code))]
 fn script_terminal(terminal: Option<std::fs::File>) {
-    SCRIPT_OUTPUT.lock().unwrap_or_else(|e| e.into_inner()).terminal = terminal;
+    SCRIPT_OUTPUT.lock().unwrap_or_else(|e| e.into_inner()).terminal = terminal.map(Terminal::new);
 }
 
 /// The reader thread: everything written to stdout and stderr goes on to the
 /// terminal as it arrives, and each whole line is kept for the log, stamped
 /// with the time it came off the pipe.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn pump(
     mut reader: std::io::PipeReader,
-    mut tee: std::fs::File,
+    mut tee: Terminal,
     lines: &std::sync::Mutex<Vec<Entry>>,
     finished: std::sync::mpsc::Sender<()>,
 ) {
-    use std::io::{Read as _, Write as _};
+    use std::io::Read as _;
 
     // Bytes until a line is whole: a read can end inside a multibyte
     // character, which decoded on its own would print as garbage.
@@ -2449,8 +2797,7 @@ fn pump(
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(_) => break,
         };
-        let _ = tee.write_all(&buf[..n]);
-        let _ = tee.flush();
+        tee.write(&buf[..n]);
         partial.extend_from_slice(&buf[..n]);
         let mut time = None;
         let mut whole = Vec::new();
@@ -2475,7 +2822,22 @@ fn pump(
     let _ = finished.send(());
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
+mod terminal_tests {
+    /// A read that ends inside a character keeps its start for the next one:
+    /// decoded apart, an "é" cut in two printed as two replacement characters.
+    #[test]
+    fn a_character_cut_by_a_read_waits_for_its_end() {
+        let e = "é".as_bytes();
+        assert_eq!(super::whole_utf8(b"abc"), 3);
+        assert_eq!(super::whole_utf8(&[b'a', e[0]]), 1, "the cut start waits");
+        assert_eq!(super::whole_utf8(&[b'a', e[0], e[1]]), 3, "and goes once whole");
+        assert_eq!(super::whole_utf8(&[b'a', 0xFF, b'b']), 3, "an invalid byte does not wait");
+    }
+}
+
+// On Windows too since 26 September: the capture is `SetStdHandle` there.
+#[cfg(all(test, any(unix, windows)))]
 mod stdio_tests {
     use super::{log_tests::is_time, Log, StdioCapture};
     use std::time::{Duration, Instant};
@@ -2580,6 +2942,109 @@ mod stdio_tests {
         // Puts stdout back; what follows goes straight to the terminal.
         drop(capture);
         println!("the log has them all");
+    }
+
+    /// Runs the test named `name` again in a child process with `var` set,
+    /// and fails if the child does: what these tests do to stdout is
+    /// process-wide, and every test running beside them would print into it.
+    #[cfg(windows)]
+    fn in_a_child(name: &str, var: &str) {
+        let out = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", name, "--nocapture", "--test-threads=1"])
+            .env(var, "1")
+            .output()
+            .unwrap();
+        let text = String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "the child failed:\n{text}");
+    }
+
+    /// Windows: stdout is the process's, and whatever else runs in it can
+    /// point it elsewhere. kalast's own lines do not go through it
+    /// (`engine_write`), so they reach the log whatever stdout is.
+    #[cfg(windows)]
+    #[test]
+    fn a_moved_stdout_does_not_lose_the_engines_lines() {
+        const MOVED: &str = "KALAST_STDIO_MOVED_CHILD";
+        if std::env::var_os(MOVED).is_some() {
+            return moved_child();
+        }
+        in_a_child("app::gui::stdio_tests::a_moved_stdout_does_not_lose_the_engines_lines", MOVED);
+    }
+
+    #[cfg(windows)]
+    fn moved_child() {
+        use std::io::Write as _;
+        use std::os::windows::io::AsRawHandle as _;
+        use windows_sys::Win32::System::Console::{SetStdHandle, STD_OUTPUT_HANDLE};
+
+        let mut capture = StdioCapture::new().expect("a capture");
+        let nul = std::fs::OpenOptions::new().write(true).open("NUL").unwrap();
+        // SAFETY: `nul` outlives its use as stdout.
+        unsafe { SetStdHandle(STD_OUTPUT_HANDLE, nul.as_raw_handle()) };
+        writeln!(std::io::stdout(), "lost to NUL").unwrap();
+        std::io::stdout().flush().unwrap();
+        println!("the engine's line, stdout moved");
+
+        let mut log = Log::new(16);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !log.lines().any(|l| l == "the engine's line, stdout moved") {
+            assert!(Instant::now() < deadline, "the engine's line never arrived: {:?}", log.lines().collect::<Vec<_>>());
+            std::thread::sleep(Duration::from_millis(10));
+            capture.drain(&mut log);
+        }
+        assert!(!log.lines().any(|l| l.contains("lost to NUL")), "what went to NUL stays lost");
+        drop(capture);
+        drop(nul);
+    }
+
+    /// Windows: double-clicked, a program is handed the monitor to open on
+    /// in its stdout slot, and `STARTF_HASSHELLDATA` to say so, which makes
+    /// stdout read as NULL whatever the slot holds. What is printed to stdout
+    /// has to reach the log all the same, and the process get both back as
+    /// the shell left them. The child plays the shell's part on itself: the
+    /// flag is all `GetStdHandle` looks at.
+    #[cfg(windows)]
+    #[test]
+    fn a_double_clicked_stdout_reaches_the_log() {
+        const SHELL: &str = "KALAST_STDIO_SHELL_CHILD";
+        if std::env::var_os(SHELL).is_some() {
+            return double_clicked_child();
+        }
+        in_a_child("app::gui::stdio_tests::a_double_clicked_stdout_reaches_the_log", SHELL);
+    }
+
+    #[cfg(windows)]
+    fn double_clicked_child() {
+        use std::io::Write as _;
+        use windows_sys::Win32::System::Console::{GetStdHandle, SetStdHandle, STD_OUTPUT_HANDLE};
+
+        // SAFETY: plain queries and sets of this process's standard handles,
+        // here and below; nothing is written through the monitor, which
+        // stdout never reads as.
+        let harness = unsafe { GetStdHandle(STD_OUTPUT_HANDLE) };
+        // The monitor a user's double-clicked kalast.exe was handed.
+        let monitor = 0x10075usize as windows_sys::Win32::Foundation::HANDLE;
+        unsafe { SetStdHandle(STD_OUTPUT_HANDLE, monitor) };
+        super::give_back_shell_data();
+        assert!(unsafe { GetStdHandle(STD_OUTPUT_HANDLE) }.is_null(), "stdout reads as NULL, as double-clicked");
+
+        let mut capture = StdioCapture::new().expect("a capture");
+        writeln!(std::io::stdout(), "printed double-clicked").unwrap();
+        std::io::stdout().flush().unwrap();
+        let mut log = Log::new(16);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !log.lines().any(|l| l == "printed double-clicked") {
+            assert!(Instant::now() < deadline, "the line never reached the log: {:?}", log.lines().collect::<Vec<_>>());
+            std::thread::sleep(Duration::from_millis(10));
+            capture.drain(&mut log);
+        }
+
+        drop(capture);
+        assert!(unsafe { GetStdHandle(STD_OUTPUT_HANDLE) }.is_null(), "stdout reads as NULL again");
+        assert!(super::take_shell_data(), "because the flag is back");
+        assert_eq!(unsafe { GetStdHandle(STD_OUTPUT_HANDLE) }, monitor, "with the monitor in the slot");
+        // The harness's stdout back, for its verdict.
+        unsafe { SetStdHandle(STD_OUTPUT_HANDLE, harness) };
     }
 }
 

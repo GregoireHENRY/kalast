@@ -69,8 +69,8 @@ two tabs, kalast's shown first, and everything also goes on to the terminal:
 
 | tab | what |
 |---|---|
-| kalast | everything on stdout and stderr that is not the script's: loading, the update check, cargo builds, `debug_*` output, C libraries -- and `paused after iteration N` and `resumed at iteration N` whenever the simulation pauses or runs again |
-| script | the script's `print` and tracebacks -- `sys.stdout` and `sys.stderr` -- and `app.log(line)`, which writes to the panel alone |
+| kalast | everything on stdout and stderr that is not the script's: loading, the update check, cargo builds, `debug_*` output, C libraries -- and `paused after iteration N` and `resumed at iteration N` whenever the simulation pauses or runs again, and a file opened or saved in the UI app |
+| script | the script's `print` and tracebacks -- `sys.stdout` and `sys.stderr` -- and `app.log(line)`, which writes to the panel alone; each run starts with `script log started` |
 | python | a Python console: each line runs between frames among the running script's variables, and what it prints lands here -- see `CONTROLS.md` |
 
 They are split a level up: the engine's output and a script's `print` are
@@ -81,16 +81,29 @@ script named on the command line runs, so its first line is caught too; a
 thread empties the descriptors' pipe, so printing a lot before the first
 frame does not block. A Rust example's `println!` is indistinguishable from
 the engine's and lands in the kalast tab -- `app.log` reaches the script tab
-from Rust. Windows has no descriptor capture, so its kalast tab shows only
-what kalast writes to the panel itself, the update check and the pauses.
+from Rust. On Windows the catch is the process's standard handles
+(`SetStdHandle`) rather than its descriptors, which takes everything Rust
+and child processes print; C code writing through the C runtime's own
+`printf` is not caught there, and nothing kalast runs does that. kalast's
+own lines -- its `println!`, a hosted Rust example's, cargo's -- do not go
+through stdout at all while the UI app runs: they are written into the
+log's pipe directly, so nothing else in the process moving stdout can lose
+them. A double-clicked kalast.exe is handed the monitor to open on in place
+of stdout, and Windows then answers that it has no stdout
+(`STARTF_HASSHELLDATA`); the catch clears that while it holds stdout and
+puts it back after. If stdout cannot be caught at all, the kalast tab says
+so when it opens.
 
 Each line shows the local time it was written, to the millisecond,
 `17:42:10.123`, dimmed in front of it -- the time it was printed, not the
-frame that showed it. Each tab opens on a line saying when the UI app
-started: `17:42:10.123 kalast v0.5.10 started` in the kalast tab,
-`17:42:10.123 script log started` in the script tab. The terminal's copy has
-no stamps. The tab not shown gets a small dot while lines have come into it
-that it has not shown.
+frame that showed it. The kalast tab opens on a line saying when the UI app
+started, `17:42:10.123 kalast v0.5.10 started`. The script tab says
+`script log started` when a run starts -- Play, Restart, a script opened, a
+Rust example loaded -- and says it again at every run, since the log is not
+cleared between them, so one run's output reads apart from the last; opened
+with nothing to run, it stays empty. The terminal's copy has no stamps. The
+tab not shown gets a small dot while lines have come into it that it has not
+shown.
 
 Two configs, and `width`/`height` exist on both without meaning the same
 thing: `app.config.width` is the OS window, `app.simulation.config.image.width` is

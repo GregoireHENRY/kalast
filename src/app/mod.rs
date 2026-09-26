@@ -943,7 +943,7 @@ impl App {
         self.stdio = None; // `Drop` restores and flushes
     }
 
-    /// Append a line to the editor's log panel.
+    /// Append a line to the log's script tab: what `app.log` writes.
     ///
     /// A no-op without one, deliberately. The panel is fed by teeing
     /// `sys.stdout`, so a fallback to `println!` here would print every line
@@ -952,6 +952,23 @@ impl App {
     /// writes to the panel.
     pub fn log(&mut self, line: &str) {
         self.shared.borrow_mut().log.push(line);
+    }
+
+    /// A line kalast says about itself -- a file opened or saved -- for the
+    /// kalast tab. The script tab is the script's: its `print`, its
+    /// tracebacks, its `app.log`.
+    fn log_kalast(&mut self, line: &str) {
+        self.shared.borrow_mut().kalast_log.push(line);
+    }
+
+    /// A run is starting: the script tab says so, as it did when the UI app
+    /// opened, so one run's output reads apart from the last -- the log is
+    /// not cleared between runs. What the last run printed goes in first, or
+    /// its tail would land after the line.
+    fn mark_script_log(&mut self) {
+        let mut shared = self.shared.borrow_mut();
+        crate::app::gui::drain_script_output(&mut shared.log);
+        shared.log.push("script log started");
     }
 
     /// Run the loop to completion. **Blocks until the window closes.**
@@ -1430,7 +1447,7 @@ impl App {
         }
 
         for m in rust_messages.drain(..) {
-            self.log(&m);
+            self.log_kalast(&m);
         }
         // Recorded, not done: this is inside a frame, and an example's `main`
         // may call `step()`. `editor_tick` picks it up between two.
@@ -1456,7 +1473,7 @@ impl App {
         let source = editor.script.clone();
 
         // Nothing is borrowed across the work below. Messages are collected
-        // and flushed at the end, because `log` borrows `shared` and so does
+        // and flushed at the end, because `log_kalast` borrows `shared` and so does
         // reading the script runner -- holding one across the other panicked
         // with `RefCell already mutably borrowed`.
         let mut messages: Vec<String> = Vec::new();
@@ -1553,7 +1570,7 @@ impl App {
         }
 
         for m in messages {
-            self.log(&m);
+            self.log_kalast(&m);
         }
     }
 
@@ -1637,17 +1654,28 @@ impl App {
         // capture made and released beside it broke the harness's pipe --
         // 2 runs in 60 died on EPIPE, none in 100 without it. The capture is
         // tested in a child process of its own, `stdio_tests`.
+        let mut uncaptured = false;
         if self.stdio.is_none() && !cfg!(test) {
             self.stdio = crate::app::gui::StdioCapture::new();
+            // Said rather than silent: without a capture the kalast tab holds
+            // only what kalast pushes into it itself, and a missing line looks
+            // like nothing was printed. Not when another app in the process
+            // holds the capture, which is working, just not for this one.
+            #[cfg(any(unix, windows))]
+            {
+                uncaptured = self.stdio.is_none() && !crate::app::gui::StdioCapture::active();
+            }
         }
-        // Each tab opens on when the UI app started, the kalast tab with the
-        // version as well -- read already: a tab's dot is for news.
+        // The kalast tab opens on when the UI app started, with the version --
+        // read already: a tab's dot is for news. The script tab stays empty
+        // until a run starts it (`mark_script_log`).
         {
             let mut shared = self.shared.borrow_mut();
             shared.kalast_log.push(format!("kalast v{} started", crate::app::update::CURRENT));
-            shared.log.push("script log started");
+            if uncaptured {
+                shared.kalast_log.push("what kalast prints cannot reach this tab: stdout could not be redirected");
+            }
             shared.kalast_log.mark_read();
-            shared.log.mark_read();
         }
         // A newer release? Asked here, when the UI app opens -- never when a
         // script runs its own window -- and on a thread: the frame reads the
@@ -1746,6 +1774,7 @@ impl App {
         // rather than re-entering the frame that asked for it.
         let load = self.shared.borrow_mut().load_requested.take();
         if let Some((path, release)) = load {
+            self.mark_script_log();
             self.load_example(&path, release);
             return EditorTick::Frame;
         }
@@ -1760,6 +1789,7 @@ impl App {
         };
         self.renew_for(&path);
         self.begin_script(paused);
+        self.mark_script_log();
         EditorTick::Run { path, source }
     }
 
@@ -3471,6 +3501,38 @@ mod editor_tests {
 
         assert!(handed_over, "the first tick must hand the script over, not draw");
         assert!(app.window.is_none(), "no window may exist before the script has run");
+    }
+
+    /// Every run starts the script tab with `script log started`, so one
+    /// run's output reads apart from the last: the log is not cleared between
+    /// runs, and a Restart used to add nothing. Only runs: the UI app opened
+    /// with nothing to run has said nothing yet, and a line then read as a
+    /// run that never happened.
+    #[test]
+    fn each_run_starts_the_script_log() {
+        let dir = std::env::temp_dir().join(format!("kalast_script_log_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("quiet.py");
+        std::fs::write(&path, "pass\n").unwrap();
+        let path = path.to_string_lossy().into_owned();
+        let starts =
+            |app: &App| app.shared.borrow().log.lines().filter(|l| l.as_str() == "script log started").count();
+
+        let mut app = App::new();
+        app.editor_start(std::slice::from_ref(&path));
+        assert_eq!(starts(&app), 0, "nothing before the run: it brings its own");
+        assert!(matches!(app.editor_tick(), EditorTick::Run { .. }));
+        assert_eq!(starts(&app), 1, "the first run, once");
+
+        // Restart, as the button asks for it: the same script, held.
+        app.shared.borrow_mut().script_pending = Some((path.clone(), "pass\n".into(), true));
+        assert!(matches!(app.editor_tick(), EditorTick::Run { .. }));
+        assert_eq!(starts(&app), 2, "the restart says so");
+        std::fs::remove_dir_all(&dir).ok();
+
+        let mut idle = App::new();
+        idle.editor_start(&[]);
+        assert_eq!(starts(&idle), 0, "an empty UI app has no run to announce");
     }
 
     /// A mesh opened after a script starts from a new app's renderer: the

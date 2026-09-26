@@ -27,12 +27,16 @@ released, and the gate refuses the tag until it has.
 - The UI app's panels are drawn in Catppuccin Mocha; `app.config.theme = "dark"` gives egui's dark theme instead. The scene and its background are not affected.
 - The theme and fullscreen are remembered between sessions when changed in the UI app -- the app tab, `F`, the green button -- in `settings.toml` in your user configuration folder. A script that sets them changes nothing remembered.
 - Clicking a facet of a finely resolved shape model in kilometres -- Dimorphos at full resolution -- selects it: the click went through to Didymos behind. The same fix applies to `kalast.mesh.intersect_mesh` and `pick_facet`.
-- Each line in the log panel shows the time it was printed, to the millisecond, and each tab opens with a line saying when the UI app started, with kalast's version in the kalast tab.
+- Each line in the log panel shows the time it was printed, to the millisecond, and the kalast tab opens with a line saying when the UI app started and kalast's version.
 - What a script prints reaches the log from its first line, a script named on the command line included: those ran before the log was listening, and their `print` only reached the terminal. Printing a lot before the first frame no longer hangs the UI app.
 - `examples/crater_self_shadow/main.py` and `main.rs` drive their own loop, as `step.py` and `step.rs` did; the callback versions are now `fn.py` and `fn.rs`.
 - `examples/hera_didymos/afc.py` and `afc_eclip_didy.py` pause at the end of their date range instead of starting over, and `afc.py` no longer writes image positions: `examples/landmark_tracking/main.py` is the example for those.
 - `examples/README.md` describes every example, and the README links it beside the Python API, config and controls references.
 - Betas: between releases, the next version's bundles are published as the pre-release `v<version>-beta`, each replacing the last. A beta bundle's update button offers the newer beta, and then the release; nothing else is offered a beta.
+- On Windows, the log's kalast tab shows what kalast prints -- the meshes it loads, builds, debug output -- as it does on macOS and Linux, `kalast.exe` double-clicked included. It showed only the update check and the pauses.
+- On Windows, a script that closed its standard output and then opened a file could find kalast's own lines written into that file. What kalast prints, a Rust example's included, now goes straight into the log.
+- Each run of a script -- Play, Restart, a script opened -- starts the script tab with `script log started`, so one run's output reads apart from the last.
+- Opening and saving a file in the UI app is logged in the kalast tab, not the script tab.
 
 ## v0.5.9
 

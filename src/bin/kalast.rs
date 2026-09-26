@@ -48,7 +48,35 @@ fn attach_parent_console() {
 #[cfg(not(windows))]
 fn attach_parent_console() {}
 
+/// Windows only: tell the C runtime this is a windows-subsystem program.
+///
+/// Rust starts a Windows program through `mainCRTStartup`, the console entry
+/// point, whatever its subsystem -- so the C runtime took kalast.exe for a
+/// console program and mirrored its descriptors 0-2 into the process's
+/// standard handles: closing descriptor 1 set stdout to NULL, and the next
+/// file to land on descriptor 1 became stdout. Shown in the bundle: with
+/// descriptor 1 closed, the CSV a script opened next was stdout, and the
+/// engine's `loading model` line was written into it. (Suspected, then
+/// ruled out, as what emptied the kalast tab of a double-clicked kalast.exe:
+/// that was the shell's `STARTF_HASSHELLDATA` -- see `gui::StdioCapture`.) A
+/// windows-subsystem program's descriptors are the C runtime's own business,
+/// which is what `_crt_gui_app` says. Process-wide, so it covers the Python
+/// and the hosted examples running in here too.
+#[cfg(windows)]
+fn gui_c_runtime() {
+    unsafe extern "C" {
+        fn _set_app_type(app_type: i32);
+    }
+    const CRT_GUI_APP: i32 = 2;
+    // SAFETY: a setting the C runtime's own startup code makes; first thing
+    // in `main`, before anything else has touched a descriptor.
+    unsafe { _set_app_type(CRT_GUI_APP) };
+}
+#[cfg(not(windows))]
+fn gui_c_runtime() {}
+
 fn main() {
+    gui_c_runtime();
     attach_parent_console();
     let args: Vec<String> = std::env::args().skip(1).collect();
 
@@ -339,7 +367,10 @@ fn run_script(app: &Rc<RefCell<kalast::app::App>>, path: &str, source: &str) {
     });
 
     if let Err(e) = result {
-        eprintln!("cannot run {path}: {e}");
+        // The library's route, not std's `eprintln!`: in the UI app stdout
+        // is not kalast's alone, and this line is the one that says why a
+        // script did nothing.
+        kalast::app::gui::engine_write(format_args!("cannot run {path}: {e}\n"), true);
     }
 }
 

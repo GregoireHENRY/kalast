@@ -1,3 +1,24 @@
+// kalast's own `println!` and `eprintln!`, shadowing std's in every module
+// declared below them: straight into the UI app's log capture while one runs,
+// rather than through the process's stdout, which is not kalast's alone. See
+// `app::gui::engine_write`. Without a capture they print as std does.
+macro_rules! println {
+    () => {
+        $crate::app::gui::engine_write(::std::format_args!("\n"), false)
+    };
+    ($($arg:tt)*) => {
+        $crate::app::gui::engine_write(::std::format_args!("{}\n", ::std::format_args!($($arg)*)), false)
+    };
+}
+macro_rules! eprintln {
+    () => {
+        $crate::app::gui::engine_write(::std::format_args!("\n"), true)
+    };
+    ($($arg:tt)*) => {
+        $crate::app::gui::engine_write(::std::format_args!("{}\n", ::std::format_args!($($arg)*)), true)
+    };
+}
+
 pub mod astro;
 pub mod entity;
 pub mod gpu;

@@ -66,6 +66,11 @@ pub struct HostApi {
     /// A line for the host's log panel: what a guest whose `main` panicked
     /// says before it returns, since its own stderr reaches no panel.
     pub log: extern "C" fn(*mut crate::app::App, *const u8, usize),
+    /// kalast's own output from the guest's copy of the crate -- its
+    /// `println!`, the mesh loader's line -- for the host's kalast tab. The
+    /// guest's copy has no capture of its own to write it into
+    /// (`gui::engine_write`).
+    pub print: extern "C" fn(*const u8, usize),
 }
 
 
@@ -97,6 +102,11 @@ pub fn clear_host() {
 /// A line into the host's log panel, when there is a host.
 pub fn log_to_host(line: &str) -> bool {
     with_host(|host| (host.log)(host.app, line.as_ptr(), line.len())).is_some()
+}
+
+/// kalast's own output into the host's kalast tab, when there is a host.
+pub fn print_to_host(text: &str) -> bool {
+    with_host(|host| (host.print)(text.as_ptr(), text.len())).is_some()
 }
 
 /// Whether this copy of the crate is running inside a host.
@@ -189,6 +199,12 @@ pub mod host {
         unsafe { &mut *app }.log(&line);
     }
 
+    extern "C" fn print(ptr: *const u8, len: usize) {
+        // As `log`: copied first. The text carries its own newline.
+        let text = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(ptr, len) }).into_owned();
+        crate::app::gui::engine_write(format_args!("{text}"), false);
+    }
+
     /// The table handed to a guest for the length of its `main`.
     pub fn api(app: *mut crate::app::App) -> HostApi {
         HostApi {
@@ -199,6 +215,7 @@ pub mod host {
             adopt,
             superseded,
             log,
+            print,
         }
     }
 }

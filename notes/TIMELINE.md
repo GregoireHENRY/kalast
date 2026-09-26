@@ -3753,3 +3753,216 @@ Then, asked for and reported, in a run of messages:
   in the monitor, `logical_key` in the window, so it follows the layout macOS
   is set to, as other apps do. `objc2-foundation` (`NSString`) for the former.
 
+## 2026-09-26 — the log on Windows, and a line per run
+
+Reported from the Windows bundle, three at once: a restarted script said
+nothing in the script tab, the kalast tab never showed the meshes loading,
+and `opened` and `saved` landed in the script tab.
+
+**The kalast tab on Windows.** `StdioCapture::new` returned `None` there, on
+the belief -- written down, never measured -- that `println!` holds its
+handle, so the tab showed only what kalast pushed into it itself: the update
+check and the pauses. It holds nothing: std's Windows stdout calls
+`GetStdHandle` on every write (`std/src/sys/stdio/windows.rs`, read in the
+installed 1.98.1 source), and a child spawned with inherited output is handed
+the handles at spawn. So the capture is `SetStdHandle` onto the same pipe and
+reader thread as on Unix. `SetStdHandle` borrows the handle, so the capture
+keeps the write end open itself and closes it in `restore`, after putting
+the old handles back. The terminal's copy is written as `println!` writes
+one -- UTF-16 through `WriteConsoleW` to a console whose code page is not
+UTF-8, bytes to anything else -- and goes to `NUL` when double-clicked, there
+being no stdout at all. Left alone on purpose: the C runtime's descriptors 1
+and 2. Moving them means `_dup2` on descriptors a double-clicked executable
+does not have, which the MSVC runtime answers by ending the process unless
+its invalid-parameter handler is replaced, and nothing kalast runs writes
+through `printf`. `stdio_tests` runs on Windows now: 25 in 25. The capture's
+new fields change `size_of::<App>()`, so the ABI fingerprint moved and
+hosted libraries built before this are rebuilt, as they should be.
+
+**A line per run.** The script tab opened on `script log started` and is
+never cleared, so a restart added nothing between one run's output and the
+next. `editor_tick` and the Rust example load now start every run with that
+line, after draining what the last run printed so its tail cannot land
+behind it. Only runs, asked for after a first version kept the line from
+the UI app's opening too: opened with nothing to run it read as a run that
+never happened. `each_run_starts_the_script_log`.
+
+**Opened, saved.** The editor's own lines went through `App::log`, which is
+`app.log`'s and so the script tab's. They go to the kalast tab now.
+
+Checked in the bundle's UI app, in a window kept behind everything and
+captured with `PrintWindow`: the kalast tab reads `loading model:
+"res/cube.obj"`, `opened examples/cube/light.py`, then light.py's own load.
+The script tab was not captured -- a posted click does not reach egui in an
+inactive window, and a real one would take the focus -- so the per-run line
+rests on the test.
+
+Found, not fixed: `app::cargo::rustflag_tests::the_search_path_is_two_arguments`
+fails on Windows. It expects Unix's `native=/p/python/lib` and Windows gives
+`native=/p/python\libs`; the test beside it is `cfg(not(windows))` and this
+one is not, and CI runs the engine tests on Linux only.
+
+Then reported from the user's own session, the new exe: the Didymos meshes
+loaded and not one `loading model` line reached the kalast tab. Not
+reproduced, in every launch that could be made without taking the screen --
+redirected, no redirect, a new Explorer on a shortcut, a hidden console,
+`python -m kalast`, `CreateProcess` with all three handles NULL (which is
+what the desktop Explorer passes: its own parameters were read, `in=0
+out=0 err=0`), and a scratch copy of `main` opening the script two seconds
+after the window, so Python starts after it as it does from the files tab.
+Each had stdout on the pipe when the script ran and the lines in the tab.
+Ruled out along the way: the capture being dropped (only `flush_output`
+does), the drain being skipped (it runs before the pause line that did
+appear), a stdout that stalls the reader's terminal copy (there is none to
+inherit), `NUL` failing to open. No dependency, Rust or bundled Python,
+calls `SetStdHandle`, `AllocConsole`, `AttachConsole` or `FreeConsole`.
+
+Left untried: a focused, fullscreen window -- the user's `settings.toml`
+remembers fullscreen, and `open_in_background`, which every test used to
+stay off the screen, overrides it. That is the window overlays inject into.
+So the capture stopped failing in silence: `drain` checks each frame that
+stdout and stderr still lead into the pipe, and if anything in the process
+has pointed them elsewhere the kalast tab names what they lead to now and
+kalast takes them back (`a_stolen_stdout_is_said_and_taken_back`); a
+capture that cannot be set up at all is said when the tab opens.
+
+The next report answered: the tab flooded, a line a frame, `stdout was
+pointed elsewhere by something in this process (no handle)`. Something kept
+setting stdout to NULL, and one thing does: the C runtime. Rust starts every
+Windows program through `mainCRTStartup`, the console entry point, so the C
+runtime takes kalast.exe for a console program and mirrors descriptors 0-2
+into the standard handles -- `_close(1)` sets stdout to NULL, and the next
+file to land on descriptor 1 becomes stdout. Done by hand in the bundle, a
+script closing descriptor 1 and then writing a CSV: stdout went pipe, NULL,
+the CSV's handle, NULL, and the CSV held `x,y` and then the engine's
+`loading model: "res/cube.obj"`. That was read then as the session's
+story -- descriptor 1 closed, then file opens flipping stdout a frame at a
+time -- and it was not: the next report, below, showed the same flood with
+no Python and no files, and this mirroring switched off. The hazard is real
+all the same, a script's CSV filled with the engine's lines, so the fix
+stays. The overlays running on that machine -- OBS's game capture, Discord,
+AMD's and NVIDIA's, Steam, Game Bar among them -- draw on a fullscreen
+window and not on the background ones every test used.
+
+The fix is kalast.exe saying what it is: `_set_app_type(_crt_gui_app)`,
+first thing in `main` (`gui_c_runtime`), after which descriptors are the C
+runtime's own business and never move the standard handles. The same test
+on it: stdout the pipe at every step, the CSV holding `x,y` only, the
+engine's line in the kalast tab. The guard stays -- python.exe, behind
+`python -m kalast`, is a console program and cannot opt out, and a
+`SetStdHandle` of anyone's own is not stopped by it -- but says it once and
+then at most every ten seconds with a count, the first version having
+flooded exactly as the thing it reported. And the script tab no longer opens
+on `script log started` with nothing run, asked for alongside.
+
+It was not all. With that exe the user opened the UI app with no script at
+all and read `stdout was pointed elsewhere ... (no handle)` 54,373 times in
+ten seconds -- about 5,400 a second, the idle frame rate, and 540 a second
+once Didymos was running at its own. Once a frame, from the first frame,
+with no Python in the process and the C runtime told it is a windows
+program: something outside kalast calls `SetStdHandle` itself on every frame
+of a focused fullscreen window, which is the shape of an overlay hooked into
+presentation. Taking stdout back each frame cannot win against that: the
+take-back is at the top of a frame, the NULL comes inside it, and a script
+loads its meshes between frames, so every engine line met NULL.
+
+So kalast's own output no longer goes through stdout. `println!` and
+`eprintln!` are the crate's own, shadowing std's in every module
+(`src/lib.rs`), and write into a copy of the capture's pipe that nothing
+else holds (`gui::engine_write`); without a capture they print as std does,
+so tests and plain scripts see no difference. A hosted Rust example is a
+crate of its own with no capture, so its lines go to the host through a new
+`HostApi::print` -- which moves the ABI fingerprint once more. cargo,
+building one, is handed the pipe rather than inheriting stdout, and the
+exe's own `cannot run` line takes the same route. The guard stays for what
+still writes through stdout, C libraries, and says it once. Checked in the
+bundle with a thread setting stdout to NULL every millisecond, harder than
+the overlay: the engine's `loading model` for a script's mesh and a hosted
+example's own, through the host, both in the kalast tab.
+`a_stolen_stdout_is_said_and_taken_back` has an engine line printed with
+stdout on `NUL` and finds it in the log; 20 in 20.
+
+Confirmed by the user with that exe: both Didymos `loading model` lines in
+the kalast tab, and the notice once. Their `kalast.exe`, left open, had four
+DLLs from outside Windows and the bundle loaded into it: OBS Studio's
+game-capture hook (`graphics-hook64.dll`) and Overwolf's overlay client,
+Vulkan layer and copy of that hook (`owclient.dll`, `ow-graphics-vulkan.dll`,
+`ow-graphics-hook64.dll`). All four import `SetStdHandle`, as any DLL with
+the C runtime linked in does, so which one sets it to NULL each frame was
+not isolated. Nothing in kalast depends on the answer any more.
+
+Overwolf was not even running: it and OBS register Vulkan implicit layers
+(`HKLM\SOFTWARE\Khronos\Vulkan\ImplicitLayers`, no enable variable), which
+the Vulkan loader puts into every program that creates a Vulkan instance --
+wgpu does, to list adapters. Each layer has a disable variable
+(`DISABLE_VULKAN_OW_OVERLAY_LAYER`, `DISABLE_VULKAN_OW_OBS_CAPTURE`,
+`DISABLE_VULKAN_OBS_CAPTURE`), checked to keep its DLL out. The user then
+found the real condition: the notice appears only when kalast.exe is
+double-clicked, never when started from a terminal, layers or not. Started
+from a terminal, `AttachConsole` in `main` attaches it to that console, so
+stdout begins as a console handle; double-clicked there is no console and
+stdout begins as nothing. Every test here had been launched from a
+PowerShell with a console, so none of them was a double-click. A true
+console-less launch -- a shortcut opened through a new Explorer,
+`GetConsoleWindow()` NULL from inside -- kept the pipe in all 1,607 samples
+over 4 s with the window behind everything: no console alone is not it; no
+console with the window in front is. That is the profile overlays key on,
+so a terminal launch cannot clear them, and Explorer rebuilds a child's
+environment from the registry, so the disable variables do not ride
+through it either. Next, if it matters: the full module lists, `C:\Windows`
+included, of a double-clicked and a terminal-launched kalast.exe side by
+side.
+
+The cause, found the same afternoon, was neither an overlay nor anything
+setting stdout. A program the shell starts -- a double-click, the Start
+menu, the taskbar -- is handed the monitor to open on in its stdout slot,
+with `STARTF_HASSHELLDATA` (0x400) in its start-up flags to say so, and
+kernelbase's `GetStdHandle(STD_OUTPUT_HANDLE)` tests that flag before it
+reads the slot: set, it answers NULL whatever the slot holds (disassembled,
+`test dword ptr [rcx+0A4h], 400h` on the process parameters; stdin has the
+same test on `STARTF_USEHOTKEY`, stderr none). `SetStdHandle` writes the
+slot and leaves the flag. So the capture's pipe went in and never came out:
+`println!` asks `GetStdHandle` on every write and dropped every line, and
+the guard, reading NULL every frame, "took back" a slot that had held the
+pipe all along. The user's double-clicked kalast.exe had started with flags
+0xC01 and its monitor, 0x10075, in the slot. One opened through `explorer.exe
+<shortcut>` from a terminal gets 0x801, which is why no test here failed;
+and a terminal launch loses the flag anyway, since a successful
+`AttachConsole` clears it -- a probe started with 0x401 read 0x1 after
+attaching to this PowerShell's console, and kept 0x401 with no console
+behind it.
+
+How it was found: a small debugger -- hardware write-watchpoints on the
+process parameters' standard-handle slots, in every thread, stacks through
+dbghelp -- attached to the user's running instance saw kalast's own guard
+rewrite stdout every frame and nothing else write it at all, while 3.4
+million reads of the slot from outside all found the pipe. NULL answered
+with no NULL written pointed at `GetStdHandle` itself, and the start-up
+flags read from the process parameters, 0xC01 against 0x801, named the
+difference. A probe started with the flag and without, nothing else
+different, showed the flag alone decides. OBS, Overwolf, the window in
+front, fullscreen: all beside the point. The OBS and Overwolf DLLs are
+loaded into every kalast all the same, as said above; they just do nothing
+to stdout.
+
+The fix: the capture clears `STARTF_HASSHELLDATA` as it puts the pipe in --
+the slot stops holding a monitor then, so the flag stops being true -- and
+`restore` sets it again with the monitor back in the slot. The flag sits
+past what winternl.h names of the process parameters, at 0xA4 where
+`GetStdHandle` tests it, and is reached through `NtQueryInformationProcess`
+and the PEB. Clearing it does not move the window: with it cleared at the
+top of `main`, before any window existed, a hidden window still went to the
+monitor the shell had named, the secondary one. The guard and its notice
+are gone. The flag was all it ever caught, and a guard undoing a phantom
+every frame would also have undone a script pointing stdout elsewhere on
+purpose. kalast's own lines keep going straight into the pipe
+(`engine_write`), which the CSV hazard alone justifies.
+
+Tested by `a_double_clicked_stdout_reaches_the_log`, a child that plays the
+shell's part on itself -- it fails without the fix, the line never arriving
+in 10 s -- and in the bundle, started exactly as the shell starts it: from a
+process with no console, flags 0x401 and a monitor. Before, stdout read NULL
+in 818 samples of 818 and the tab showed the notice; after, the pipe in 816
+of 816, a line written through `GetStdHandle(STD_OUTPUT_HANDLE)` in the
+kalast tab, and no notice.
+
