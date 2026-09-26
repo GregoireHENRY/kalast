@@ -111,9 +111,6 @@ struct Page {
     blocks: Vec<Block>,
     /// Every link's destination, as written.
     links: Vec<String>,
-    /// Every Markdown image's path, as written: not drawn here, but checked
-    /// to exist, as GitHub shows them.
-    images: Vec<String>,
     headings: Vec<Heading>,
 }
 
@@ -139,7 +136,6 @@ struct Builder {
     style: u8,
     link: Option<usize>,
     links: Vec<String>,
-    images: Vec<String>,
     /// Images met in the text being gathered, drawn as blocks of their own
     /// once it ends: a Markdown image sits in a paragraph, and the tab shows
     /// it under that paragraph's text.
@@ -302,7 +298,6 @@ fn parse(text: &str) -> Page {
         style: 0,
         link: None,
         links: Vec::new(),
-        images: Vec::new(),
         pending: Vec::new(),
         skip: 0,
         headings: Vec::new(),
@@ -347,7 +342,6 @@ fn parse(text: &str) -> Page {
                     b.link = Some(b.links.len() - 1);
                 }
                 Tag::Image { dest_url, .. } => {
-                    b.images.push(dest_url.to_string());
                     b.pending.push(dest_url.into_string());
                     // Its alt text is not shown: the image is.
                     b.skip += 1;
@@ -449,7 +443,7 @@ fn parse(text: &str) -> Page {
         Some(Open::Page(blocks)) => blocks,
         _ => Vec::new(),
     };
-    Page { title, blocks, links: b.links, images: b.images, headings: b.headings }
+    Page { title, blocks, links: b.links, headings: b.headings }
 }
 
 /// `link`, read from the page at `here`, as the path from the repository's
@@ -1494,19 +1488,14 @@ mod tests {
                     broken.push(format!("{}: {link}", source.path));
                 }
             }
-            // And every picture is one the tab has compiled in.
+            // And every picture is one the tab has compiled in, and one in
+            // the repository, where GitHub shows it from.
             let mut found = Vec::new();
             images(&page.blocks, &mut found);
             for src in found {
-                if picture(&resolve(source.path, src)).is_none() {
+                let path = resolve(source.path, src);
+                if picture(&path).is_none() || !root.join(&path).is_file() {
                     broken.push(format!("{}: picture {src}", source.path));
-                }
-            }
-            // And every Markdown image, which GitHub shows, is in the
-            // repository -- the README's screenshot.
-            for src in &page.images {
-                if !src.contains("://") && !root.join(resolve(source.path, src)).is_file() {
-                    broken.push(format!("{}: image {src}", source.path));
                 }
             }
         }

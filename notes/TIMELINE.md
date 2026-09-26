@@ -4502,3 +4502,35 @@ it in their frames: `hera_didymos/afc.py` and `afc_eclip_didy.py` (the date)
 and `tpm_phase2.py` (progress). The bindings' and stubs' docstrings are
 regenerated from the new doc; the panel's hover, its first sentence, did not
 change.
+
+## 2026-09-27 — Python's banner from the start, and Reset paused
+
+**The python tab's banner as the app opens.** Where `kalast` runs scripts
+itself -- a bundle, `cargo run --bin kalast` -- the interpreter linked in
+starts at the first script or console line, since starting it with the
+window would cost every launch an `import kalast`; the banner came with it,
+from `kalast.editor.capture_output`, so the tab showed a bare `>>>` until
+Enter. The binary greets as it starts now, from `Py_GetVersion` and
+`Py_GetPlatform` -- what `sys.version` and `sys.platform` are made from, and
+among the functions CPython lists as safe before initialization. The
+greeting, `gui::console_greet`, is given once, so Python's later -- the only
+one under `python -m kalast` -- adds nothing. The call comes before
+`--python-check`, so the release's check of the relocated interpreter, on
+each platform, also proves it safe; the local bundle's passed.
+`the_python_tab_is_greeted_once`.
+
+**Reset paused.** Reset renewed the clock to `State::new()`'s, which is a
+script's and runs from its first frame, while a new app holds it
+(`editor_start`): Reset on the empty start counted iterations as if Play had
+been pressed. `reset_scene` holds it again, and forgets the last frame's
+pause state, so the hold is not logged as "paused after iteration N" of the
+run just cleared. `reset_holds_the_clock_as_a_new_app_does` fails without
+it, for both a held and a running scene.
+
+The documentation tab's pages no longer keep a separate list of Markdown
+images, unread outside the tests since they are drawn: the test finds every
+picture among the drawn blocks, and checks each is compiled in and on disk.
+
+Not watched in a window: whether test windows took the user's focus is an
+open question, so none was opened for these two; the unit tests above cover
+the paths the buttons and the start take.

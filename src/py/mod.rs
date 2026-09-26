@@ -291,6 +291,7 @@ pub fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     pyadd_f!(core, app::editor_set_python);
     pyadd_f!(core, app::console_offer);
     pyadd_f!(core, app::console_write);
+    pyadd_f!(core, app::console_greet);
     pyadd_f!(core, app::console_set_more);
     app.add_submodule(&core)?;
     py.import("sys")?

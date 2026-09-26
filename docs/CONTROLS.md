@@ -430,7 +430,8 @@ at its right end with the iteration and frame rate before them: **play**
 (green) and **pause** (blue) -- one button, `P` --, **restart**, **step**
 (`K`) and **reset** (red), which clears the scene as if nothing had been
 loaded: no bodies, the settings a new app has, the running script stopped,
-its callbacks gone. The script stays in the editor for Play. It can always
+its callbacks gone, the simulation paused. The script stays in the editor
+for Play. It can always
 be pressed -- an empty scene included, where it brings back a new app's
 camera and the welcome after the camera has been turned. A newer release's
 **update** button is VS Code's primary one, filled in the accent.
@@ -468,10 +469,10 @@ never run to find out whether it is callable, and nothing is called. `exit()` is
 drives its own loop as well, between its frames. The line is a terminal's:
 the prompt and what is typed, no box around it.
 
-It reads as `python` in a terminal does: it opens on Python's own banner, the
-prompt follows the last line printed, `>>>` and `...` are in the prompt's
-colour and the code after them highlighted -- what is typed too, as it is
-typed -- and a traceback is red. `Ctrl`+`L` clears it; `Ctrl`+`C` with nothing
+It reads as `python` in a terminal does: it opens on Python's own banner,
+there as the app opens, the prompt follows the last line printed, `>>>` and
+`...` are in the prompt's colour and the code after them highlighted -- what
+is typed too, as it is typed -- and a traceback is red. `Ctrl`+`L` clears it; `Ctrl`+`C` with nothing
 selected drops the line being typed, and any block waiting at `...`, with
 `KeyboardInterrupt`, while with a selection it copies.
 

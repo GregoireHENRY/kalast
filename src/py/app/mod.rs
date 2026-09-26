@@ -75,6 +75,14 @@ pub fn console_write(text: &str) {
     crate::app::gui::console_write(text);
 }
 
+/// The python tab's greeting, once: `python`'s version line and where help
+/// is. The `kalast` binary gives it as it starts; this is Python's way in,
+/// when kalast runs under it.
+#[pyfunction]
+pub fn console_greet(version: &str, platform: &str) {
+    crate::app::gui::console_greet(version, platform);
+}
+
 /// Whether the console waits for the rest of a block -- a `for`, a `def` --
 /// so the next line is typed at `...`.
 #[pyfunction]

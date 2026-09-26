@@ -1860,6 +1860,13 @@ impl App {
             shared.script_ran = false;
         }
         self.simulation.borrow_mut().renew();
+        // Held, as a new app is -- see `editor_start`. The clock `renew` puts
+        // back is a script's, which runs from its first frame, and Reset on
+        // an empty scene started counting as if Play had been pressed.
+        self.simulation.borrow_mut().state.is_paused = true;
+        // A new start, like a new app's first frame, not a pause to log:
+        // "paused after iteration 537" would name the run just cleared.
+        self.was_paused = None;
         self.log_kalast("scene reset");
     }
 
@@ -3657,6 +3664,29 @@ mod editor_tests {
         assert!(shared.last_script.is_none() && !shared.script_ran, "nothing counted as run");
         assert!(!shared.reset_requested, "taken");
         assert!(shared.kalast_log.lines().any(|l| l == "scene reset"), "said in the kalast tab");
+    }
+
+    /// Reset holds the clock, as a new app does, whether it ran or not: the
+    /// clock put back with the rest was a script's, which runs from its first
+    /// frame, so Reset on the empty start counted iterations as if Play had
+    /// been pressed. And the hold is a new start, not a pause to log --
+    /// "paused after iteration 537" would name the run just cleared.
+    #[test]
+    fn reset_holds_the_clock_as_a_new_app_does() {
+        let mut app = App::new();
+        app.editor_start(&[]);
+        assert!(app.simulation.borrow().state.is_paused, "a new app is held");
+        for running in [false, true] {
+            app.simulation.borrow_mut().state.is_paused = !running;
+            app.was_paused = Some(!running);
+            app.shared.borrow_mut().reset_requested = true;
+            assert!(matches!(app.editor_tick(), EditorTick::Frame));
+            let mut sim = app.simulation.borrow_mut();
+            assert!(!sim.state.begin_frame(std::time::Instant::now()), "held after the reset (running before: {running})");
+            sim.state.advance();
+            assert_eq!(sim.state.iteration, 0, "the counter stays at the start (running before: {running})");
+            assert_eq!(app.was_paused, None, "no pause to log (running before: {running})");
+        }
     }
 
     /// A `.rs` never reaches the script runner, whoever asked for the run:

@@ -104,6 +104,10 @@ fn main() {
     // for the editor's language server to run. See `set_python`.
     #[cfg(feature = "embed")]
     kalast::app::gui::script::set_python_embedded();
+    // Before `--python-check`, which starts the interpreter after it: the
+    // release runs that, so it proves this is safe to call first.
+    #[cfg(feature = "embed")]
+    greet_python_tab();
 
     // Before anything opens a window or asks for an adapter: these modes
     // have neither, and they run on release runners with no display.
@@ -188,6 +192,26 @@ fn point_at_the_bundled_interpreter() {
     // SAFETY: single-threaded here -- this is the first statement of `main`
     // and nothing has been spawned.
     unsafe { std::env::set_var("PYTHONHOME", &home) };
+}
+
+/// The python tab's banner at once, as `python` greets in a terminal, not at
+/// the first line typed. The interpreter linked in starts with the first
+/// script or console line -- starting it with the window would cost every
+/// launch an `import kalast` -- and the banner came with it, so the tab
+/// showed a bare `>>>` until Enter. Its version and platform are strings
+/// built into the library: `Py_GetVersion` and `Py_GetPlatform` are among
+/// the functions CPython lists as safe to call before initialization.
+#[cfg(feature = "embed")]
+fn greet_python_tab() {
+    // SAFETY: both return static strings built into libpython, and may be
+    // called before `Py_Initialize`.
+    let (version, platform) = unsafe {
+        (
+            std::ffi::CStr::from_ptr(pyo3::ffi::Py_GetVersion()),
+            std::ffi::CStr::from_ptr(pyo3::ffi::Py_GetPlatform()),
+        )
+    };
+    kalast::app::gui::console_greet(&version.to_string_lossy(), &platform.to_string_lossy());
 }
 
 /// Start the embedded interpreter, import kalast through it, print what was

@@ -281,6 +281,20 @@ mod log_tests {
         CONSOLE_TESTS.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// The python tab is greeted once, whoever asks first: the binary as it
+    /// starts and Python after it both do.
+    #[test]
+    fn the_python_tab_is_greeted_once() {
+        let _turn = console_turn();
+        super::console_greet("3.14.7 (main)", "win32");
+        super::console_greet("3.14.7 (main)", "win32");
+        let mut log = Log::new(8);
+        super::drain_console_output(&mut log);
+        let lines: Vec<&String> = log.lines().collect();
+        assert_eq!(lines.iter().filter(|l| l.starts_with("Python 3.14.7 (main) on win32")).count(), 1, "{lines:?}");
+        assert!(lines.iter().any(|l| l.starts_with("Type \"help\"")), "{lines:?}");
+    }
+
     /// Tab's answer goes into the line: one completion whole, several as
     /// what they have in common, listed above it by their last names.
     #[test]
@@ -3119,6 +3133,19 @@ pub fn console_offer(line: String, head: String, matches: Vec<String>) {
 
 fn console_take_offer() -> Option<(String, String, Vec<String>)> {
     console().offer.take()
+}
+
+/// The python tab's greeting, `python`'s in a terminal: its version, then
+/// where help is. Once, whoever asks first -- the `kalast` binary as it
+/// starts, or Python itself when kalast runs under it.
+pub fn console_greet(version: &str, platform: &str) {
+    static GREETED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if !GREETED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        console_write(&format!(
+            "Python {version} on {platform}\n\
+             Type \"help\", \"copyright\", \"credits\" or \"license\" for more information.\n"
+        ));
+    }
 }
 
 /// What running a line printed, into the python tab once a line is whole.

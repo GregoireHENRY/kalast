@@ -30,6 +30,7 @@ from typing import Any, Callable
 
 import kalast
 import kalast.app
+from kalast._rs.app._core import console_greet as _console_greet
 from kalast._rs.app._core import console_offer as _console_offer
 from kalast._rs.app._core import console_set_more as _console_set_more
 from kalast._rs.app._core import console_take as _console_take
@@ -157,18 +158,16 @@ def capture_output(app: Any) -> None:
         if not isinstance(stream, _ScriptStream):
             setattr(sys, name, _ScriptStream(stream))
 
-    # The python tab opens as `python` in a terminal does. From here, where
-    # the interpreter's version is known, and once.
     global _greeted
     if not _greeted:
         _greeted = True
         # The script editor's language server resolves `import kalast` and
         # numpy against the interpreter the script will actually run in.
         _editor_set_python(sys.executable)
-        _console_write(
-            f"Python {sys.version} on {sys.platform}\n"
-            'Type "help", "copyright", "credits" or "license" for more information.\n'
-        )
+        # The python tab opens as `python` in a terminal does. Once: the
+        # `kalast` binary has greeted already, as it started, when it is
+        # what runs this.
+        _console_greet(sys.version, sys.platform)
 
 
 class _Restart(BaseException):
