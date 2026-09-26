@@ -9,10 +9,10 @@ uses — viewing and interacting with meshes, generating lightcurves — see the
 [`examples/`](examples/) folder.
 
 Download the [latest version of kalast here](https://github.com/GregoireHENRY/kalast/releases).
+You can directly run the executable and open an example script from the UI.
 
 ![The kalast UI app](res/kalast-ui.png)
 
-You can directly run the executable and open an example script from the UI.
 You can also run it in your terminal:
 
 ```sh
