@@ -52,12 +52,13 @@ released, and the gate refuses the tag until it has.
 - The editor's settings are remembered between sessions, with the theme.
 - The side panel's tabs are icons, and the app and simulation tabs are sections, each with its icon, closed until clicked; every setting is a row with its name on the left and its control on the right.
 - The toolbar's Play, Restart, Step and Reset are at its right end, with the iteration and frame rate before them.
-- kalast's logo is the icon of its window, of its taskbar button and of `kalast.exe`, and shows in the empty scene with the keys to start with.
+- kalast's logo is the icon of its window, of its taskbar button and of `kalast.exe`, starts the toolbar -- its version on hover -- and shows in the empty scene with the keys to start with.
 - The Python stubs describe kalast as it runs, so VS Code and the editor stop marking correct scripts as errors: optional arguments are optional (`load_mesh(path=...)`), array settings accept lists and tuples (`camera.pos = [...]`), `sim.bodies[0].mat` is known, `before_render` and `after_render` are called with the simulation, meshes' `vertices` and `facets` have a length and an index, and the modules' functions and constants -- `kalast.entity.DIDYMOS`, `kalast.tpm.properties.skin_depth_1` -- are declared.
 - A **documentation** tab beside renderer and editor shows kalast's documentation in the window -- the README, the Python API, the config and controls references, this changelog, and the READMEs of `res/` and `examples/` -- as they were when kalast was built, with an outline of the page. A link to a script opens it in the editor, and a link to a folder shows it in the files tab.
 - The Python API, config and controls references are in `docs/` instead of `notes/`.
 - The welcome in the empty scene goes at the first orbit, pan or zoom -- a middle-drag, the wheel, the gizmo -- and comes back with Reset. It points at the files tab by the tab's icon.
-- A new app's camera looks at the origin from where Blender's default camera stands, `(7.36, -6.93, 4.96)`, instead of from the origin itself, where it could not be turned: the empty scene orbits, and a script that never places the camera sees its bodies from outside.
+- A new app's camera looks level at the origin from 11 away, on the side where Blender's default camera stands, instead of from the origin itself, where it could not be turned: the empty scene orbits, and a script that never places the camera sees its bodies from outside.
+- Opening a Rust example in the UI app loads it; its source was also handed to Python, which stopped with a SyntaxError.
 - With `app.config.neovim`, `:w` no longer fails with `E32: No file name` after switching buffers, `:e` opens a file in kalast, and the bar under the text says when Neovim has left the script for a buffer the editor does not show.
 - Scripts no longer leave an empty `out/frames` folder where they are run: it is made when the first frame is exported.
 - Arrows and other symbols -- `→`, `⌥`, `●` -- show in the UI app instead of boxes.

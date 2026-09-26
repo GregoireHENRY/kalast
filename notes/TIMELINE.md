@@ -4415,3 +4415,43 @@ calls into the module are checked. What is left is what was listed as open:
 floats passed to `column(b: int)`, `Properties.se`, uppercase constants
 reassigned, and optional values used unchecked -- the last a warning in the
 editor, which runs the server with them downgraded.
+
+## 2026-09-26 — a level default camera, a Rust example kept from Python, the logo in the toolbar
+
+**Examples came out rolled.** Reported: switching from one Python example to
+another, the camera sometimes came up at a wrong angle, "like the up vector
+is wrong". The default camera made this morning stood where Blender's does,
+above the scene, so its `up` leaned back toward its view; a script places the
+camera with `pos` and `look_anchor()`, which keeps the `up` it finds and only
+makes it perpendicular to the new view -- and `level()` is by design never
+applied on a script's behalf (its doc: "a script's `up` is its own"). From
+`cube/light.py`'s (18, 5, 10), `up` came out (-0.52, 0.26, 0.81) instead of
+level (-0.455, -0.126, 0.881). The default now looks level from Blender's
+side at Blender's distance, `up` exactly world up, which is what scripts had
+always found: `look_anchor` from it is level again, from any position -- the
+test `a_camera_placed_from_a_new_apps_is_level` fails on the old default --
+and in the app the cube placed as `light.py` places it stands straight.
+Making `look_anchor` keep a level camera level was considered and left: it
+would change what that call means for every script.
+
+**A Rust example run as Python.** Reported: opening
+`crater_self_shadow/main.rs` in the bundle ended in a Python SyntaxError at
+`use std::cell::RefCell;`. Opening a file has asked, since 7 September, for
+a run on the next frame, to show a script's scene; for a `.rs` the open
+already asks for the example to load, and the run handed its text to the
+Python runner as well. The open asks no run for a `.rs` now, and
+`Shared::take_script` -- which both front doors take their script from --
+never gives one out. `a_rust_example_never_reaches_the_script_runner` fails
+without the guard.
+
+**The logo starts the toolbar,** where VS Code has its own, the version on
+hover. Scaled on the CPU, for the screen's pixels per point and again when
+they change: egui-wgpu makes textures without mipmaps, and the 256-pixel
+logo sampled down to 18 points was jagged. Lanczos, on premultiplied pixels,
+so the transparent corners' black does not bleed into the rim.
+
+**The Windows test failure,** `the_search_path_is_two_arguments`: the test
+expected Python's `lib` folder, which is the other platforms' layout; on
+Windows the flag rightly names `libs`, where Python keeps its import library.
+It expects the platform's folder now, and the library suite is whole on
+Windows.

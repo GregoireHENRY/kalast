@@ -733,12 +733,17 @@ mod rustflag_tests {
     }
 
     /// `-L` and its value are separate arguments; joined into one they would
-    /// reach rustc as an unknown flag.
+    /// reach rustc as an unknown flag. The folder is the platform's: Windows
+    /// keeps Python's import library in `libs`, the others in `lib`. This
+    /// expected `lib` everywhere, and failed on Windows, where the flag was
+    /// right.
     #[test]
     fn the_search_path_is_two_arguments() {
-        let flags = bundled_python_rustflags(std::path::Path::new("/p/python"));
+        let python = std::path::Path::new("/p/python");
+        let flags = bundled_python_rustflags(python);
         let i = flags.iter().position(|f| f == "-L").expect("a -L");
-        assert!(flags[i + 1].starts_with("native=/p/python/lib"), "{flags:?}");
+        let lib = python.join(if cfg!(windows) { "libs" } else { "lib" });
+        assert_eq!(flags[i + 1], format!("native={}", lib.display()), "{flags:?}");
     }
 }
 

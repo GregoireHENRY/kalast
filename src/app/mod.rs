@@ -194,6 +194,16 @@ impl Shared {
         self.script_pending.is_some() || self.load_requested.is_some() || self.reset_requested
     }
 
+    /// The script to run next, if one was asked for -- never a `.rs`, which
+    /// is an example to load, not a script. Opening one asked for a run as
+    /// well, to show a script's scene, and the runner executed the Rust as
+    /// Python: `use std::cell::RefCell;`, a SyntaxError. Both front doors
+    /// take their script here.
+    pub fn take_script(&mut self) -> Option<(String, String, bool)> {
+        let request = self.script_pending.take()?;
+        (!request.0.trim_end().ends_with(".rs")).then_some(request)
+    }
+
     fn new() -> Self {
         Self {
             before_render: None,
@@ -1579,7 +1589,13 @@ impl App {
                 // Next frame, not this one: `source` was read from the buffer
                 // at the top of this function, before the open replaced it,
                 // so running now would run the file we just closed.
-                shared.restart_requested = true;
+                //
+                // Not for a `.rs`, which the open has already asked to load
+                // as the example it is: a run hands the text to the Python
+                // runner. See `Shared::take_script`.
+                if !path.trim_end().ends_with(".rs") {
+                    shared.restart_requested = true;
+                }
             }
         }
 
@@ -1889,7 +1905,7 @@ impl App {
     /// comes back. Doing it there rather than inside the frame is what lets a
     /// script drive its own loop.
     pub fn take_script_request(&mut self) -> Option<(String, String, bool)> {
-        self.shared.borrow_mut().script_pending.take()
+        self.shared.borrow_mut().take_script()
     }
 
     /// Ask the window to close. The next `step()` returns `false`.
@@ -3641,6 +3657,22 @@ mod editor_tests {
         assert!(shared.last_script.is_none() && !shared.script_ran, "nothing counted as run");
         assert!(!shared.reset_requested, "taken");
         assert!(shared.kalast_log.lines().any(|l| l == "scene reset"), "said in the kalast tab");
+    }
+
+    /// A `.rs` never reaches the script runner, whoever asked for the run:
+    /// opening a Rust example asked for one, and its source came back from
+    /// the Python runner as a SyntaxError at `use std::cell::RefCell;`. A
+    /// `.py` still does.
+    #[test]
+    fn a_rust_example_never_reaches_the_script_runner() {
+        let mut app = App::new();
+        app.editor_start(&[]);
+        let rust = ("examples/crater_self_shadow/main.rs".to_string(), "use std::cell::RefCell;".to_string(), true);
+        app.shared.borrow_mut().script_pending = Some(rust);
+        assert!(!matches!(app.editor_tick(), EditorTick::Run { .. }), "not for the runner");
+        assert!(app.shared.borrow().script_pending.is_none(), "and not left pending");
+        app.shared.borrow_mut().script_pending = Some(("a.py".to_string(), "x = 1".to_string(), true));
+        assert!(matches!(app.editor_tick(), EditorTick::Run { .. }), "a script still runs");
     }
 
     /// A mesh opened after a script starts from a new app's renderer: the

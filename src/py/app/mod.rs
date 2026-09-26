@@ -333,7 +333,7 @@ impl App {
     /// trying to drive. Between frames it runs as the program it is,
     /// whatever shape it has.
     fn take_script_request(&self) -> Option<(String, String, bool)> {
-        self.shared.borrow_mut().script_pending.take()
+        self.shared.borrow_mut().take_script()
     }
 
     /// Where the UI last saw the pointer, in egui points, or `None`.

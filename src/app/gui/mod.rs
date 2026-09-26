@@ -460,6 +460,36 @@ const COLLAPSE: f32 = 8.0;
 /// the iteration readout beside it -- into a blur.
 const ACTION: egui::Vec2 = egui::vec2(28.0, 24.0);
 
+/// Points the toolbar's logo is drawn at: the height of a tab's text and
+/// then some, within the row's 24.
+const BADGE: f32 = 18.0;
+
+/// The logo at `BADGE` points on a screen of `ppp` pixels per point, scaled
+/// down here rather than by the GPU: egui's wgpu textures have no mipmaps, so
+/// the 256-pixel logo sampled down to 18 points came out jagged. Filtered on
+/// premultiplied pixels, or the transparent corners' black would bleed into
+/// the edge.
+fn small_logo(ctx: &egui::Context, ppp: f32) -> Option<egui::TextureHandle> {
+    let side = (BADGE * ppp).round().max(1.0) as u32;
+    let mut rgba = image::load_from_memory(LOGO).ok()?.into_rgba8();
+    for p in rgba.pixels_mut() {
+        let a = u16::from(p[3]);
+        for c in 0..3 {
+            p[c] = ((u16::from(p[c]) * a + 127) / 255) as u8;
+        }
+    }
+    let mut small = image::imageops::resize(&rgba, side, side, image::imageops::FilterType::Lanczos3);
+    // Lanczos rings a little past the alpha it sits in; premultiplied, no
+    // colour can be brighter than its alpha.
+    for p in small.pixels_mut() {
+        for c in 0..3 {
+            p[c] = p[c].min(p[3]);
+        }
+    }
+    let pixels = egui::ColorImage::from_rgba_premultiplied([side as usize, side as usize], small.as_raw());
+    Some(ctx.load_texture("kalast badge", pixels, egui::TextureOptions::LINEAR))
+}
+
 /// What a welcome line points at: keys, drawn as caps, or a tab of the side
 /// panel, by its icon and name -- not a cap, which read as a key: "files tab"
 /// looked like the `Tab` key.
@@ -737,6 +767,9 @@ pub struct Editor {
     /// The logo, for the empty scene's watermark. Made the first time it
     /// is shown.
     logo: Option<egui::TextureHandle>,
+    /// The logo at the toolbar's start, made small for the screen it is on,
+    /// and the pixels per point it was made for. See `small_logo`.
+    badge: Option<(f32, egui::TextureHandle)>,
     /// The welcome goes the first time the camera moves, as Neovim's intro
     /// goes at the first key: the camera as it stood when the welcome came,
     /// whether it has gone, and frames to wait before taking the camera's
@@ -892,6 +925,7 @@ impl Editor {
             script_editor: script::ScriptEditor::default(),
             docs: docs::Docs::default(),
             logo: None,
+            badge: None,
             welcome_camera: None,
             welcome_gone: false,
             welcome_settle: 2,
@@ -1114,6 +1148,13 @@ impl Editor {
             scene_empty && !self.welcome_gone,
             0.25,
         );
+        // The toolbar's logo, made again when the screen's density changes --
+        // the window moved to another monitor.
+        let ppp = self.ctx.pixels_per_point();
+        if self.badge.as_ref().is_none_or(|(made_for, _)| *made_for != ppp) {
+            self.badge = small_logo(&self.ctx, ppp).map(|t| (ppp, t));
+        }
+        let badge = self.badge.as_ref().map(|(_, t)| t.id());
         let logo = (welcome > 0.0).then(|| {
             self.logo
                 .get_or_insert_with(|| {
@@ -1275,6 +1316,13 @@ impl Editor {
                 egui::containers::Sides::new().height(ACTION.y).shrink_left().truncate().show(
                     ui,
                     |ui| {
+                        // kalast's logo first, where VS Code has its own.
+                        if let Some(badge) = badge {
+                            let size = egui::vec2(BADGE, BADGE);
+                            ui.add(egui::Image::new(egui::load::SizedTexture::new(badge, size)))
+                                .on_hover_text(concat!("kalast v", env!("CARGO_PKG_VERSION")));
+                            ui.add_space(4.0);
+                        }
                         // What the middle shows, the scene or the script. Here
                         // rather than on the middle, so folding the toolbar --
                         // `↑` -- leaves nothing but the scene.

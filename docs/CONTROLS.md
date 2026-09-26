@@ -393,8 +393,9 @@ and all startup-only. See `CONFIG.md`.
 
 The middle shows the **renderer** -- the scene --, the **editor** -- the
 script, marked `●` while it has unsaved changes -- or the **documentation**,
-as the three tabs at the start of the toolbar choose, so `↑`, folding the
-toolbar, leaves the scene alone. Play, Restart and loading a Rust example switch back to the renderer,
+as the three tabs at the start of the toolbar choose -- after kalast's logo,
+which gives the version on hover -- so `↑`, folding the toolbar, leaves the
+scene alone. Play, Restart and loading a Rust example switch back to the renderer,
 since running something is for watching it; clicks and keys reach the scene
 only while it is shown. The scene fills the middle to its edges, with no card
 around it, so with every panel folded it is the whole window.
@@ -438,9 +439,10 @@ With nothing in the scene the renderer shows kalast's logo, faded, and the
 keys to start with under it, as VS Code's empty editor does. It fades away
 at the first orbit, pan or zoom -- a middle-drag, the wheel, the gizmo, a
 movement key with WASD -- as Neovim's intro goes at the first key, and comes
-back with **reset**. A new app's camera is Blender's default one: it looks at
-the origin from `(7.36, -6.93, 4.96)`, so there is something to turn about
-before anything is loaded.
+back with **reset**. A new app's camera looks level at the origin from 11
+away, on the side Blender's default camera stands, so there is something to
+turn about before anything is loaded; its `up` is world up, so a script that
+places it with `pos` and `look_anchor()` gets a level view.
 
 The editor colours Python and Rust as VS Code does with Catppuccin, numbers
 its lines and lights the one the cursor is on, and draws a line at column 80

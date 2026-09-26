@@ -306,9 +306,9 @@ impl Control {
     }
 }
 
-/// Where Blender's default camera stands, looking at the origin: a new app's
-/// camera, and the bearing a mesh opened on its own is framed from -- the
-/// view everyone who has opened Blender knows.
+/// Where Blender's default camera stands, looking at the origin: the bearing
+/// a mesh opened on its own is framed from -- the view everyone who has
+/// opened Blender knows -- and, brought down to the horizon, a new app's.
 pub const BLENDER_VIEW: Vec3 = Vec3::new(7.36, -6.93, 4.96);
 
 // if unit vectors are not normalized, results are gonna be wrong
@@ -547,18 +547,25 @@ impl Eye {
         self.fix_up();
     }
 
-    /// A new app's camera: Blender's default one, at `BLENDER_VIEW`, looking
-    /// at the origin, its anchor, with world up up.
+    /// A new app's camera: looking level at the origin, its anchor, from
+    /// Blender's default camera's side and distance -- `BLENDER_VIEW` brought
+    /// down to the horizon -- with `up` world up exactly.
     ///
     /// Standing back from the anchor, not on it. `new` puts the eye on its
     /// anchor, where an orbit has no radius and leaves it alone -- so in a new
     /// app's empty scene a drag turned nothing, the gizmo included, and the
     /// welcome waiting for the camera to move stayed.
+    ///
+    /// Level, not from Blender's height. A script places the camera with
+    /// `pos` and `look_anchor`, which keep the `up` they find, only made
+    /// perpendicular to the new view: world up comes out level, but from
+    /// Blender's height `up` leaned back toward the old view, and every
+    /// example that set no `up` of its own came out rolled.
     pub fn standing_back() -> Self {
         let mut eye = Self::new();
-        eye.pos = BLENDER_VIEW;
+        let side = Vec3::new(BLENDER_VIEW.x, BLENDER_VIEW.y, 0.0);
+        eye.pos = side.normalize() * BLENDER_VIEW.length();
         eye.look_anchor();
-        eye.level();
         eye
     }
 
@@ -1978,6 +1985,23 @@ mod tests {
         ctrl.handle_key(winit::keyboard::KeyCode::ShiftLeft, false);
         ctrl.scroll(winit::event::MouseScrollDelta::LineDelta(0.0, 1.0), 1.0);
         assert!(ctrl.asks_to_move(Control::Arcball));
+    }
+
+    /// A script places the camera with `pos` and `look_anchor`, which keep
+    /// the `up` they find, only made perpendicular to the new view. From a
+    /// new app's camera that has to come out level, as it did when the
+    /// default looked along +X with `up` world up: from Blender's height the
+    /// `up` found leaned back toward the old view, and an example that set no
+    /// `up` of its own came out rolled.
+    #[test]
+    fn a_camera_placed_from_a_new_apps_is_level() {
+        for pos in [Vec3::new(18.0, 5.0, 10.0), Vec3::new(0.0, -30.0, 0.0), Vec3::new(-3.0, 4.0, -2.0)] {
+            let mut eye = Eye::standing_back();
+            eye.pos = pos;
+            eye.look_anchor();
+            assert!(eye.right().dot(eye.up_world).abs() < 1e-5, "rolled, from {pos}: up {}", eye.up);
+            assert!(eye.up.dot(eye.up_world) > 0.0, "up is up, from {pos}");
+        }
     }
 
     /// A new app's camera stands back from its anchor, so a drag turns it:
