@@ -17,6 +17,11 @@ One `pub fn` per group and nothing else: the right-hand panel in
 they describe -- the Sun's position beside the Sun's colour -- so which groups
 go together is a decision made there, in one place, by hand.
 
+Every field is one row, `widgets::setting`: its name in a column on the
+left, its control filling the right, as VS Code lays out its settings. The
+widgets used to each lay themselves out -- a checkbox's name after the box, a
+slider's to its right, a drag field's as a prefix -- so no two lined up.
+
 What the Rust source cannot say, the doc comments can:
 
     /// :label: window width    what the widget is called, when the field
@@ -24,8 +29,16 @@ What the Rust source cannot say, the doc comments can:
     /// :range: 0..=16          slider bounds instead of a drag field
     /// :step: 0.01             drag speed
     /// :skip:                  no widget (edited from a script, not by hand)
+    /// :section: Editor        AppConfig only: this field and the ones after
+                               it, up to the next marker, are the app tab's
+                               section of that name
 
 Everything else is inferred from the type.
+
+`AppConfig` is flat -- `app.config.theme`, not `app.config.window.theme` --
+so it cannot group by nesting the way `Config` does, and `:section:` is how
+its fields are gathered under the app tab's headers instead. One function per
+section, `app_<name>`, composed with icons in `gui/mod.rs`.
 """
 
 import pathlib
@@ -53,7 +66,6 @@ TITLES = {
     "controls": "Controls",
     "debug": "Debug",
 }
-APP_TITLE = "Window"
 
 
 def variants(rust: str) -> list[str] | None:
@@ -97,7 +109,7 @@ def summary(doc: str) -> str:
 
 
 def widget(path: str, name: str, rust: str, doc: str) -> list[str]:
-    """Rust lines drawing one field, or [] to skip it."""
+    """Rust lines drawing one field as a `setting` row, or [] to skip it."""
     if marker(doc, "skip") is not None:
         return []
     hover = summary(doc)
@@ -105,106 +117,93 @@ def widget(path: str, name: str, rust: str, doc: str) -> list[str]:
     step = marker(doc, "step")
     label = marker(doc, "label") or name
 
-    def hovered(expr: str) -> list[str]:
-        if not hover:
-            return [f"    {expr};"]
-        return [f'    {expr}.on_hover_text("{hover}");']
+    def row(body: list[str]) -> list[str]:
+        """`body` is the closure's lines, drawing the control."""
+        if len(body) == 1:
+            return [f'    setting(ui, "{label}", "{hover}", |ui| {body[0]});']
+        return (
+            [f'    setting(ui, "{label}", "{hover}", |ui| {{']
+            + [f"        {line}" for line in body]
+            + ["    });"]
+        )
 
     if rust == "bool":
-        return hovered(f'ui.checkbox(&mut {path}, "{label}")')
+        return row([f'ui.checkbox(&mut {path}, "")'])
 
     if rust in ("u32", "usize", "f32", "f64", "Float"):
         if rng:
-            return hovered(f'ui.add(egui::Slider::new(&mut {path}, {rng}).text("{label}"))')
+            return row([f"ui.add(egui::Slider::new(&mut {path}, {rng}))"])
         speed = step or ("0.01" if rust in ("f32", "f64", "Float") else "1.0")
-        return hovered(
-            f'ui.add(egui::DragValue::new(&mut {path}).speed({speed}).prefix("{label}  "))'
+        return row([f"ui.add(egui::DragValue::new(&mut {path}).speed({speed}))"])
+
+    if rust in ("Option<f32>", "Option<Float>", "Option<bool>"):
+        # Ticked, a value; unticked, `None`, and the field beside it gone.
+        some, value = (
+            ("Some(true)", 'ui.checkbox(v, "");')
+            if rust == "Option<bool>"
+            else ("Some(0.0)", "ui.add(egui::DragValue::new(v).speed(1e-6));")
         )
-
-    if rust in ("Option<f32>", "Option<Float>"):
-        return [
-            "    {",
-            f"        let mut on = {path}.is_some();",
-            f'        if ui.checkbox(&mut on, "{label}").on_hover_text("{hover}").changed() {{',
-            f"            {path} = if on {{ Some(0.0) }} else {{ None }};",
-            "        }",
-            f"        if let Some(v) = {path}.as_mut() {{",
-            "            ui.add(egui::DragValue::new(v).speed(1e-6));",
-            "        }",
-            "    }",
-        ]
-
-    if rust == "Option<bool>":
-        return [
-            "    {",
-            f"        let mut on = {path}.is_some();",
-            f'        if ui.checkbox(&mut on, "{label}").on_hover_text("{hover}").changed() {{',
-            f"            {path} = if on {{ Some(true) }} else {{ None }};",
-            "        }",
-            f"        if let Some(v) = {path}.as_mut() {{",
-            '            ui.checkbox(v, "");',
-            "        }",
-            "    }",
-        ]
+        return row([
+            f"let mut on = {path}.is_some();",
+            'if ui.checkbox(&mut on, "").changed() {',
+            f"    {path} = if on {{ {some} }} else {{ None }};",
+            "}",
+            f"if let Some(v) = {path}.as_mut() {{",
+            f"    {value}",
+            "}",
+        ])
 
     if rust == "String":
-        return [
-            "    ui.horizontal(|ui| {",
-            f'        ui.label("{label}").on_hover_text("{hover}");',
-            f"        ui.add(egui::TextEdit::singleline(&mut {path}).desired_width(120.0));",
-            "    });",
-        ]
+        return row([f"ui.add(egui::TextEdit::singleline(&mut {path}).desired_width(f32::INFINITY))"])
 
     if rust == "wgpu::Color":
-        return [
-            "    ui.horizontal(|ui| {",
-            f'        ui.label("{label}").on_hover_text("{hover}");',
-            f"        let mut rgba = [{path}.r as f32, {path}.g as f32,",
-            f"                        {path}.b as f32, {path}.a as f32];",
-            "        if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {",
-            f"            {path} = wgpu::Color {{",
-            "                r: rgba[0] as f64, g: rgba[1] as f64,",
-            "                b: rgba[2] as f64, a: rgba[3] as f64,",
-            "            };",
-            "        }",
-            "    });",
-        ]
+        return row([
+            f"let mut rgba = [{path}.r as f32, {path}.g as f32,",
+            f"                {path}.b as f32, {path}.a as f32];",
+            "if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {",
+            f"    {path} = wgpu::Color {{",
+            "        r: rgba[0] as f64, g: rgba[1] as f64,",
+            "        b: rgba[2] as f64, a: rgba[3] as f64,",
+            "    };",
+            "}",
+        ])
 
     if rust == "[f32; 3]":
-        return [
-            "    ui.horizontal(|ui| {",
-            f'        ui.label("{label}").on_hover_text("{hover}");',
-            f"        ui.color_edit_button_rgb(&mut {path});",
-            "    });",
-        ]
+        return row([f"ui.color_edit_button_rgb(&mut {path})"])
 
     if rust == "[f32; 4]":
-        return [
-            "    ui.horizontal(|ui| {",
-            f'        ui.label("{label}").on_hover_text("{hover}");',
-            f"        ui.color_edit_button_rgba_unmultiplied(&mut {path});",
-            "    });",
-        ]
+        return row([f"ui.color_edit_button_rgba_unmultiplied(&mut {path})"])
 
     if (vs := variants(rust)) is not None:
         ty = rust.split("::")[-1]
         use = "crate::app::axes::AxesStyle" if ty == "AxesStyle" else f"crate::app::config::{ty}"
         lines = [
-            "    ui.horizontal(|ui| {",
-            f'        ui.label("{label}").on_hover_text("{hover}");',
-            f'        egui::ComboBox::from_id_salt("{path}")',
-            f"            .selected_text(format!(\"{{:?}}\", {path}))",
-            "            .show_ui(ui, |ui| {",
+            f'egui::ComboBox::from_id_salt("{path}")',
+            f"    .selected_text(format!(\"{{:?}}\", {path}))",
+            "    .show_ui(ui, |ui| {",
         ]
         for v in vs:
-            lines.append(f'                ui.selectable_value(&mut {path}, {use}::{v}, "{v}");')
-        lines += ["            });", "    });"]
-        return lines
+            lines.append(f'        ui.selectable_value(&mut {path}, {use}::{v}, "{v}");')
+        lines += ["    });"]
+        return row(lines)
 
-    return [
-        f'    ui.label(egui::RichText::new("{label}: set from a script").weak())',
-        f'        .on_hover_text("{path} -- {hover}");',
-    ]
+    return row([f'ui.label(egui::RichText::new("set from a script").weak())'])
+
+
+def sections(members):
+    """AppConfig's fields, split at each `:section:` marker: [(name, [(field, rust, doc)])]."""
+    out = []
+    for name, rust, doc in members:
+        title = marker(doc, "section")
+        if title is not None:
+            out.append((title, []))
+        if not out:
+            # A field with no widget has no section to be in.
+            if marker(doc, "skip") is not None:
+                continue
+            raise SystemExit(f"AppConfig.{name}: before the first `:section:` marker")
+        out[-1][1].append((name, rust, doc))
+    return out
 
 
 def groups(src: str):
@@ -226,6 +225,7 @@ def main() -> int:
         "// Regenerate after changing `Config`:  python tools/gen_config_panel.py",
         "",
         "use crate::app::config::{AppConfig, Config};",
+        "use super::widgets::setting;",
         "",
     ]
     fns = []
@@ -238,12 +238,15 @@ def main() -> int:
             out += widget(f"c.{gfield}.{name}", name, rust, doc)
         out.append("}")
         out.append("")
-    out.append(f"/// `app.config` -- {APP_TITLE}.")
-    out.append("pub fn group_app(ui: &mut egui::Ui, a: &mut AppConfig) {")
-    for name, rust, doc in fields("AppConfig", src):
-        out += widget(f"a.{name}", name, rust, doc)
-    out.append("}")
-    out.append("")
+    for title, members in sections(fields("AppConfig", src)):
+        fn = "app_" + re.sub(r"\W+", "_", title.lower()).strip("_")
+        fns.append((fn, title))
+        out.append(f"/// `app.config` -- {title}.")
+        out.append(f"pub fn {fn}(ui: &mut egui::Ui, a: &mut AppConfig) {{")
+        for name, rust, doc in members:
+            out += widget(f"a.{name}", name, rust, doc)
+        out.append("}")
+        out.append("")
     text = "\n".join(out) + "\n"
 
     if "--check" in sys.argv:
@@ -255,8 +258,8 @@ def main() -> int:
         return 0
 
     TARGET.write_text(text)
-    n = sum(1 for line in text.splitlines() if "ui." in line)
-    print(f"wrote {TARGET.relative_to(ROOT)}: {len(fns) + 1} group functions, ~{n} widgets")
+    n = text.count("setting(ui,")
+    print(f"wrote {TARGET.relative_to(ROOT)}: {len(fns)} functions, ~{n} rows")
     return 0
 
 

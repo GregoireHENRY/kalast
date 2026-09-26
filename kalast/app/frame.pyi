@@ -3,22 +3,39 @@
 # Regenerate after changing any #[pyclass]:  python tools/gen_stubs.py
 
 import numpy  # noqa: F401
+from typing import Sequence
 
 class Eye:
-    pos: numpy.ndarray
-    """Eye position, world units."""
-    dir: numpy.ndarray
-    """Unit vector the eye looks along.
+    @property
+    def pos(self) -> numpy.ndarray:
+        """Eye position, world units."""
+        ...
+    @pos.setter
+    def pos(self, value: Sequence[float] | numpy.ndarray) -> None: ...
+    @property
+    def dir(self) -> numpy.ndarray:
+        """Unit vector the eye looks along.
 
-    Ignored for the Sun, whose shadow layers aim themselves from `pos`.
-    """
-    up: numpy.ndarray
-    """Unit vector defining which way is up in the image."""
-    anchor: numpy.ndarray
-    """The point the arcball orbits, and what `look_anchor` aims at.
+        Ignored for the Sun, whose shadow layers aim themselves from `pos`.
+        """
+        ...
+    @dir.setter
+    def dir(self, value: Sequence[float] | numpy.ndarray) -> None: ...
+    @property
+    def up(self) -> numpy.ndarray:
+        """Unit vector defining which way is up in the image."""
+        ...
+    @up.setter
+    def up(self, value: Sequence[float] | numpy.ndarray) -> None: ...
+    @property
+    def anchor(self) -> numpy.ndarray:
+        """The point the arcball orbits, and what `look_anchor` aims at.
 
-    Not consulted for the Sun.
-    """
+        Not consulted for the Sun.
+        """
+        ...
+    @anchor.setter
+    def anchor(self, value: Sequence[float] | numpy.ndarray) -> None: ...
     anchor_body: int | None
     """Body index the anchor tracks, or `None` for a fixed anchor.
 
@@ -26,8 +43,12 @@ class Eye:
     Assigning `anchor` from a body matrix instead only captures where it
     was at that moment.
     """
-    up_world: numpy.ndarray
-    """Reference 'up' the arcball keeps the camera aligned to."""
+    @property
+    def up_world(self) -> numpy.ndarray:
+        """Reference 'up' the arcball keeps the camera aligned to."""
+        ...
+    @up_world.setter
+    def up_world(self, value: Sequence[float] | numpy.ndarray) -> None: ...
     projection: Projection
     """Frustum: field of view and the near/far/side planes."""
     def is_control_wasd(self) -> bool:
@@ -87,10 +108,10 @@ class Eye:
         Has no effect on the Sun: its shadow layers aim themselves from `pos`.
         """
         ...
-    def set_target(self, target: list[float]) -> None:
+    def set_target(self, target: Sequence[float] | numpy.ndarray) -> None:
         """Set `anchor` to a point *and* look at it, in one call."""
         ...
-    def view_along(self, axis: str, orthographic: bool, positive: bool) -> None:
+    def view_along(self, axis: str, orthographic: bool = ..., positive: bool = ...) -> None:
         """Look straight down an axis at the whole scene, the way a plot does.
 
         `axis` names either the axis looked along or the plane looked at, since

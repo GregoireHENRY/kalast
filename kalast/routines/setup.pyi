@@ -3,17 +3,18 @@
 # Regenerate after changing any #[pyclass]:  python tools/gen_stubs.py
 
 import numpy  # noqa: F401
+from typing import Any, Sequence
 from kalast.mesh import Mesh
 
 class ProgressDebug:
-    def __init__(self, frequency: str, digits_full: int, digits_decimal: int) -> None:
+    def __init__(self, frequency: str = ..., digits_full: int = ..., digits_decimal: int = ...) -> None:
         ...
     frequency: str
     digits_full: int
     digits_decimal: int
 
 class Time:
-    def __init__(self, dt: float, duration_total: float, duration_record: float) -> None:
+    def __init__(self, dt: float = ..., duration_total: float = ..., duration_record: float = ...) -> None:
         ...
     dt: float
     duration_total: float
@@ -23,16 +24,32 @@ class Body:
     def new(self) -> object:
         ...
     mesh: Mesh
-    state: numpy.ndarray
+    @property
+    def state(self) -> numpy.ndarray:
+        ...
+    @state.setter
+    def state(self, value: Sequence[Sequence[float] | numpy.ndarray] | numpy.ndarray) -> None: ...
     spin_period: float
-    spin_axis: numpy.ndarray
+    @property
+    def spin_axis(self) -> numpy.ndarray:
+        ...
+    @spin_axis.setter
+    def spin_axis(self, value: Sequence[float] | numpy.ndarray) -> None: ...
     orbit_period: float
-    orbit_axis: numpy.ndarray
+    @property
+    def orbit_axis(self) -> numpy.ndarray:
+        ...
+    @orbit_axis.setter
+    def orbit_axis(self, value: Sequence[float] | numpy.ndarray) -> None: ...
 
 class BodyDataMap:
-    def __init__(self, temperatures: list[numpy.ndarray], thermal_properties_all: int, thermal_properties_map: object) -> None:
+    def __init__(self, temperatures: Sequence[numpy.ndarray], thermal_properties_all: int, thermal_properties_map: object) -> None:
         ...
-    temperatures: list[numpy.ndarray]
+    @property
+    def temperatures(self) -> list[numpy.ndarray]:
+        ...
+    @temperatures.setter
+    def temperatures(self, value: Sequence[numpy.ndarray]) -> None: ...
     thermal_properties_all: int
     thermal_properties_map: list[tuple[int, int]]
 
@@ -42,4 +59,6 @@ class Setup:
     sun_position: numpy.ndarray
     progress_debug: ProgressDebug
     time: Time
+
+SkinDepthParams: Any
 

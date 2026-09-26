@@ -1,5 +1,6 @@
-//! What the UI app remembers between sessions: `app.config.theme` and
-//! `app.config.fullscreen`.
+//! What the UI app remembers between sessions: `app.config.theme`,
+//! `app.config.fullscreen`, and the script editor's settings -- Neovim, the
+//! ruler, the language servers.
 //!
 //! In `settings.toml` in the user's configuration folder -- never in the
 //! project or the bundle -- or wherever `KALAST_SETTINGS` names:
@@ -18,10 +19,16 @@
 use crate::app::config::{AppConfig, UiTheme};
 
 /// The remembered fields, as they stand in `config`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Remembered {
     pub theme: UiTheme,
     pub fullscreen: bool,
+    pub neovim: bool,
+    pub neovim_path: String,
+    pub ruler: u32,
+    pub language_servers: bool,
+    pub python_language_server: String,
+    pub rust_language_server: String,
 }
 
 impl Remembered {
@@ -29,12 +36,24 @@ impl Remembered {
         Self {
             theme: config.theme,
             fullscreen: config.fullscreen,
+            neovim: config.neovim,
+            neovim_path: config.neovim_path.clone(),
+            ruler: config.ruler,
+            language_servers: config.language_servers,
+            python_language_server: config.python_language_server.clone(),
+            rust_language_server: config.rust_language_server.clone(),
         }
     }
 
     pub fn apply(&self, config: &mut AppConfig) {
         config.theme = self.theme;
         config.fullscreen = self.fullscreen;
+        config.neovim = self.neovim;
+        config.neovim_path = self.neovim_path.clone();
+        config.ruler = self.ruler;
+        config.language_servers = self.language_servers;
+        config.python_language_server = self.python_language_server.clone();
+        config.rust_language_server = self.rust_language_server.clone();
     }
 
     /// `key = value` lines, the TOML this needs and nothing more. A key it
@@ -47,32 +66,89 @@ impl Remembered {
                 continue;
             };
             let value = value.trim();
+            let flag = |b: &mut bool| match value {
+                "true" => *b = true,
+                "false" => *b = false,
+                _ => {}
+            };
             match key.trim() {
                 "theme" => {
                     if let Some(t) = UiTheme::parse(value.trim_matches('"')) {
                         r.theme = t;
                     }
                 }
-                "fullscreen" => match value {
-                    "true" => r.fullscreen = true,
-                    "false" => r.fullscreen = false,
-                    _ => {}
-                },
+                "fullscreen" => flag(&mut r.fullscreen),
+                "neovim" => flag(&mut r.neovim),
+                "language_servers" => flag(&mut r.language_servers),
+                "ruler" => {
+                    if let Ok(n) = value.parse() {
+                        r.ruler = n;
+                    }
+                }
+                "neovim_path" => r.neovim_path = unquote(value),
+                "python_language_server" => r.python_language_server = unquote(value),
+                "rust_language_server" => r.rust_language_server = unquote(value),
                 _ => {}
             }
         }
         r
     }
 
-    fn to_text(self) -> String {
+    fn to_text(&self) -> String {
         format!(
             "# What the kalast UI app remembers; written by the app when these change in it.\n\
              theme = \"{}\"\n\
-             fullscreen = {}\n",
+             fullscreen = {}\n\
+             neovim = {}\n\
+             neovim_path = {}\n\
+             ruler = {}\n\
+             language_servers = {}\n\
+             python_language_server = {}\n\
+             rust_language_server = {}\n",
             self.theme.name(),
             self.fullscreen,
+            self.neovim,
+            quote(&self.neovim_path),
+            self.ruler,
+            self.language_servers,
+            quote(&self.python_language_server),
+            quote(&self.rust_language_server),
         )
     }
+}
+
+/// A TOML basic string: a Windows path's backslashes and a command's quotes
+/// escaped, so `C:\Program Files\Neovim` reads back as written.
+fn quote(s: &str) -> String {
+    let mut out = String::from('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// `quote` undone. Anything not in quotes is taken as it stands.
+fn unquote(s: &str) -> String {
+    let Some(inner) = s.strip_prefix('"').and_then(|s| s.strip_suffix('"')) else {
+        return s.to_string();
+    };
+    let mut out = String::new();
+    let mut chars = inner.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            if let Some(next) = chars.next() {
+                out.push(next);
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 /// Where the settings live, if there is a home to put them in.
@@ -102,7 +178,7 @@ pub fn load() -> Option<Remembered> {
 
 /// Remember `r`. A failure is reported and otherwise ignored: forgetting a
 /// theme is not worth interrupting anyone over.
-pub fn save(r: Remembered) {
+pub fn save(r: &Remembered) {
     let Some(path) = path() else {
         return;
     };
@@ -121,9 +197,19 @@ mod tests {
 
     #[test]
     fn what_is_written_reads_back() {
+        let default = Remembered::of(&AppConfig::default());
         for r in [
-            Remembered { theme: UiTheme::Dark, fullscreen: true },
-            Remembered { theme: UiTheme::CatppuccinMocha, fullscreen: false },
+            Remembered { theme: UiTheme::Dark, fullscreen: true, ..default.clone() },
+            Remembered {
+                theme: UiTheme::CatppuccinMocha,
+                fullscreen: false,
+                neovim: true,
+                neovim_path: r"C:\Program Files\Neovim\bin\nvim.exe".to_string(),
+                ruler: 100,
+                language_servers: false,
+                python_language_server: "pyright-langserver --stdio".to_string(),
+                rust_language_server: r#""C:\tools\rust analyzer.exe""#.to_string(),
+            },
         ] {
             assert_eq!(Remembered::parse(&r.to_text()), r);
         }

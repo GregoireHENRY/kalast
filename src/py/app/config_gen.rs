@@ -832,6 +832,17 @@ impl ExportConfig {
     fn hud(&self) -> bool { self.config.borrow().export.hud }
     #[setter]
     fn set_hud(&mut self, v: bool) { self.config.borrow_mut().export.hud = v; }
+    /// Keep the axes -- grid, box or panes, gizmo, and their labels -- in
+    /// exported frames as well as on screen.
+    ///
+    /// On by default: an exported frame is what the window shows, bar the HUD.
+    /// Off, frames that are exported draw the axes in a second pass after the
+    /// copy, so the window keeps them and the export has the scene alone; other
+    /// frames are drawn as before.
+    #[getter]
+    fn axes(&self) -> bool { self.config.borrow().export.axes }
+    #[setter]
+    fn set_axes(&mut self, v: bool) { self.config.borrow_mut().export.axes = v; }
     fn __repr__(&self) -> String {
         format!("{:?}", self.config.borrow().export)
     }
@@ -1289,6 +1300,19 @@ impl super::config::AppConfig {
     fn simulation_folded(&self) -> bool { self.config.borrow().simulation_folded }
     #[setter]
     fn set_simulation_folded(&mut self, v: bool) { self.config.borrow_mut().simulation_folded = v; }
+    /// What the editor's toolbar says beside the transport buttons.
+    ///
+    /// The same template as `huds`, so every placeholder works here too --
+    /// `{drawn}` for the iteration on screen, `{it}` for how many have been
+    /// begun, `{its}`, `{fps}`, `{ms}`, `{bodies}`, `{paused}`, `{warn}`,
+    /// `{gpu}` and its per-pass forms -- and a precision may be attached, as
+    /// `{fps:.1}`.
+    ///
+    /// Empty for a bare toolbar.
+    #[getter]
+    fn toolbar(&self) -> String { self.config.borrow().toolbar.clone() }
+    #[setter]
+    fn set_toolbar(&mut self, v: &str) { self.config.borrow_mut().toolbar = v.to_string(); }
     /// The colours of the UI app's panels: `"catppuccin-mocha"`, the default,
     /// or `"dark"`, egui's own.
     ///
@@ -1350,26 +1374,6 @@ impl super::config::AppConfig {
     fn height(&self) -> u32 { self.config.borrow().height }
     #[setter]
     fn set_height(&mut self, v: u32) { self.config.borrow_mut().height = v; }
-    /// What the editor's toolbar says beside the transport buttons.
-    ///
-    /// The same template as `huds`, so every placeholder works here too --
-    /// `{drawn}` for the iteration on screen, `{it}` for how many have been
-    /// begun, `{its}`, `{fps}`, `{ms}`, `{bodies}`, `{paused}`, `{warn}`,
-    /// `{gpu}` and its per-pass forms -- and a precision may be attached, as
-    /// `{fps:.1}`.
-    ///
-    /// Empty for a bare toolbar.
-    #[getter]
-    fn toolbar(&self) -> String { self.config.borrow().toolbar.clone() }
-    #[setter]
-    fn set_toolbar(&mut self, v: &str) { self.config.borrow_mut().toolbar = v.to_string(); }
-    /// Ask GitHub for a newer release when the UI app opens, and offer it in
-    /// the toolbar. On a thread, so nothing waits on it; never when a script
-    /// runs its own window. Off, kalast touches the network at no point.
-    #[getter]
-    fn check_updates(&self) -> bool { self.config.borrow().check_updates }
-    #[setter]
-    fn set_check_updates(&mut self, v: bool) { self.config.borrow_mut().check_updates = v; }
     /// The OS window title.
     #[getter]
     fn title(&self) -> String { self.config.borrow().title.clone() }
@@ -1404,5 +1408,60 @@ impl super::config::AppConfig {
     fn vsync(&self) -> bool { self.config.borrow().vsync }
     #[setter]
     fn set_vsync(&mut self, v: bool) { self.config.borrow_mut().vsync = v; }
+    /// Neovim in the script editor: your own `nvim` and your config, run the
+    /// way VS Code's Neovim extension runs it -- modes, motions, operators,
+    /// `:` commands, registers, macros and your mappings.
+    ///
+    /// Needs Neovim 0.10 or newer, as `nvim` on the PATH or named by
+    /// `neovim_path`. The config is read with `vim.g.kalast` set, so a part
+    /// of it that has no place here can be skipped with `if not vim.g.kalast`
+    /// -- the way `vim.g.vscode` is used for VS Code. Off, the editor takes
+    /// VS Code's keys.
+    #[getter]
+    fn neovim(&self) -> bool { self.config.borrow().neovim }
+    #[setter]
+    fn set_neovim(&mut self, v: bool) { self.config.borrow_mut().neovim = v; }
+    /// The Neovim to run when `neovim` is on; empty for `nvim` on the PATH.
+    #[getter]
+    fn neovim_path(&self) -> String { self.config.borrow().neovim_path.clone() }
+    #[setter]
+    fn set_neovim_path(&mut self, v: &str) { self.config.borrow_mut().neovim_path = v.to_string(); }
+    /// The column the script editor draws a vertical line at, 0 for none:
+    /// `editor.rulers` in VS Code, `colorcolumn` in Vim.
+    #[getter]
+    fn ruler(&self) -> u32 { self.config.borrow().ruler }
+    #[setter]
+    fn set_ruler(&mut self, v: u32) { self.config.borrow_mut().ruler = v; }
+    /// Completion, hover, signatures and errors in the script editor, from a
+    /// language server -- pyright for Python, rust-analyzer for Rust -- the
+    /// servers VS Code runs for its own.
+    ///
+    /// Each runs as a process of its own at low priority, so a simulation
+    /// never waits on it. One that is not installed is skipped, and the log
+    /// says how to install it.
+    #[getter]
+    fn language_servers(&self) -> bool { self.config.borrow().language_servers }
+    #[setter]
+    fn set_language_servers(&mut self, v: bool) { self.config.borrow_mut().language_servers = v; }
+    /// The command starting the Python language server; empty for the first
+    /// of `basedpyright-langserver`, `pyright-langserver`, `pylsp` and
+    /// `jedi-language-server` found.
+    #[getter]
+    fn python_language_server(&self) -> String { self.config.borrow().python_language_server.clone() }
+    #[setter]
+    fn set_python_language_server(&mut self, v: &str) { self.config.borrow_mut().python_language_server = v.to_string(); }
+    /// The command starting the Rust language server; empty for
+    /// `rust-analyzer`.
+    #[getter]
+    fn rust_language_server(&self) -> String { self.config.borrow().rust_language_server.clone() }
+    #[setter]
+    fn set_rust_language_server(&mut self, v: &str) { self.config.borrow_mut().rust_language_server = v.to_string(); }
+    /// Ask GitHub for a newer release when the UI app opens, and offer it in
+    /// the toolbar. On a thread, so nothing waits on it; never when a script
+    /// runs its own window. Off, kalast touches the network at no point.
+    #[getter]
+    fn check_updates(&self) -> bool { self.config.borrow().check_updates }
+    #[setter]
+    fn set_check_updates(&mut self, v: bool) { self.config.borrow_mut().check_updates = v; }
 }
 

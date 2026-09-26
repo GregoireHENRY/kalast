@@ -6,9 +6,9 @@ But if you want to edit them or write your own you need `Cargo` compiler.
 
 Here you can find info about the contents of the examples scripts.
 Not everything will be detailed because they are already well detailed at:
-- [notes/API.md](notes/API.md) python API
-- [notes/CONFIG.md](notes/CONFIG.md) config options
-- [notes/CONTROLS.md](notes/CONTROLS.md) UI controls
+- [docs/API.md](../docs/API.md) python API
+- [docs/CONFIG.md](../docs/CONFIG.md) config options
+- [docs/CONTROLS.md](../docs/CONTROLS.md) UI controls
 
 You can also write me an email at [gregoireh@pm.me](mailto:gregoireh@pm.me) if
 you have any question or want any feature added.
@@ -23,7 +23,7 @@ Examples that work directly:
           You can change it to smooth.
         - `app.simulation.config.light.cube_show` shows the light source.
         - `app.simulation.config.axes.style = "gizmo"` shows XYZ 3D frame gizmo
-          top right.
+          top right, the default; `"off"` hides it.
           You can change it's location and size too.
           You can also click on individual X, Y or Z and negative to select view
           plane toggling orthographic view.
@@ -53,14 +53,14 @@ Examples that work directly:
           [matplotlib gray colormap](https://matplotlib.org/stable/users/explain/colors/colormaps.html).
           You can do more customisation like this to have inferno reversed:
           `app.simulation.config.data.colormap = matplotlib.colormaps["inferno"][::-1]`
-          Such details are fully explained in [notes/CONFIG.md](../notes/CONFIG.md)
-          and [notes/API.md](../notes/API.md).
+          Such details are fully explained in [docs/CONFIG.md](../docs/CONFIG.md)
+          and [docs/API.md](../docs/API.md).
         - `app.simulation.config.selection.labels = True` to display facets
           indices.
         - Access loaded mesh with `mesh = app.simulation.bodies[0].mesh`.
           The mesh struct is really well written from Rust with a Pythonic
           wrapper and there are so many things you can do with it, please check
-          [notes/API.md mesh](../notes/API.md#what-a-mesh-carries),
+          [docs/API.md mesh](../docs/API.md#what-a-mesh-carries),
           [tests/test_mesh.py](https://github.com/GregoireHENRY/kalast/blob/main/tests/test_mesh.py)
           and
           [tests/test_mesh_intercept.py](https://github.com/GregoireHENRY/kalast/blob/main/tests/test_mesh_intercept.py)
@@ -139,7 +139,7 @@ Examples that work directly:
 Examples where full data is not shipped and you have to get your hands on the
 data:
 
-- Look at [res/README.md](res/README.md) to get Hera data.
+- Look at [res/README.md](../res/README.md) to get Hera data.
 - [didymos/main.py](didymos/main.py):
     - Load Didymos and Dimorphos shape models.
     - Showcase kalast loading and rendering speed with 2x 3M+ facets meshes.

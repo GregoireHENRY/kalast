@@ -177,17 +177,21 @@ pub struct Shared {
     /// Whether the buffer on screen is what is actually running. Here rather
     /// than on the editor so a launcher can set it before the window exists.
     pub script_ran: bool,
+    /// The toolbar's reset: the scene as a new app has it, nothing running.
+    /// Ends a run in progress the way a pending script does (`superseded`),
+    /// and is taken between frames (`editor_tick`).
+    pub reset_requested: bool,
 }
 
 impl Shared {
     /// Another run has been asked for -- a script pending from Play, Restart
-    /// or an opened file, or an example to load -- which ends the run in
-    /// progress. `step()` and `is_running()` say `false` while it holds, so a
-    /// driven loop of either language exits the way it does when the window
-    /// closes and the flow comes back to the editor, which takes the request
-    /// between frames.
+    /// or an opened file, or an example to load -- or none at all, by reset:
+    /// either ends the run in progress. `step()` and `is_running()` say
+    /// `false` while it holds, so a driven loop of either language exits the
+    /// way it does when the window closes and the flow comes back to the
+    /// editor, which takes the request between frames.
     pub fn superseded(&self) -> bool {
-        self.script_pending.is_some() || self.load_requested.is_some()
+        self.script_pending.is_some() || self.load_requested.is_some() || self.reset_requested
     }
 
     fn new() -> Self {
@@ -217,6 +221,7 @@ impl Shared {
             rebuild_then_load: false,
             script_pending: None,
             script_ran: false,
+            reset_requested: false,
         }
     }
 }
@@ -437,7 +442,19 @@ pub fn bundled_python_beside(dir: &std::path::Path) -> Option<std::path::PathBuf
     // its own interpreter, so the 18 MB `bin/python3` was a second CPython
     // nobody ran. An interrupted unpack has neither, and reporting that as
     // a bundle would turn a clear "not found" into failures much later.
-    let site_packages = if cfg!(windows) {
+    site_packages(&python).map(|_| python)
+}
+
+/// A release bundle's `site-packages` -- kalast, numpy, matplotlib -- for
+/// what has to find them without running the interpreter: the editor's
+/// language server. The bundle's interpreter is inside `kalast.exe`, which
+/// is no `python` to ask; see `gui::script::set_python`.
+pub fn bundled_site_packages() -> Option<std::path::PathBuf> {
+    site_packages(&bundled_python_dir()?)
+}
+
+fn site_packages(python: &std::path::Path) -> Option<std::path::PathBuf> {
+    let dir = if cfg!(windows) {
         python.join("Lib").join("site-packages")
     } else {
         std::fs::read_dir(python.join("lib"))
@@ -447,7 +464,7 @@ pub fn bundled_python_beside(dir: &std::path::Path) -> Option<std::path::PathBuf
             .find(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("python3")))?
             .join("site-packages")
     };
-    site_packages.is_dir().then_some(python)
+    dir.is_dir().then_some(dir)
 }
 
 /// The folder a release bundle has to work from, when it was started with
@@ -579,6 +596,15 @@ pub fn abi_fingerprint() -> u64 {
     std::mem::offset_of!(simulation::Simulation, huds).hash(&mut h);
 
     h.finish()
+}
+
+/// The logo, as a window's icon: the title bar's and the taskbar's on
+/// Windows. macOS takes an application's icon from its bundle instead, and
+/// winit ignores this there.
+fn window_icon() -> Option<winit::window::Icon> {
+    let rgba = image::load_from_memory(crate::app::gui::LOGO).ok()?.into_rgba8();
+    let (w, h) = rgba.dimensions();
+    winit::window::Icon::from_rgba(rgba.into_raw(), w, h).ok()
 }
 
 /// One turn of the editor's loop.
@@ -928,7 +954,7 @@ impl App {
     pub fn remember_settings(&self) {
         let config = self.config.borrow();
         if config.editor && !cfg!(test) {
-            settings::save(settings::Remembered::of(&config));
+            settings::save(&settings::Remembered::of(&config));
         }
     }
 
@@ -1177,8 +1203,12 @@ impl App {
 
     /// Show a mesh on its own: the scene emptied and this one loaded,
     /// framed and dressed the way Blender opens a file -- camera and Sun
-    /// placed from it, Blender axes, wireframe. What `kalast some.obj` does,
-    /// and what the editor's open button does for a `.obj`.
+    /// placed from it, wireframe on. What `kalast some.obj` does, and what
+    /// the files tab does for a `.obj`.
+    ///
+    /// The axes are a new app's, the gizmo: this set Blender's ground grid
+    /// when the default was no axes at all, and kept it once the default
+    /// had become the gizmo, so a mesh alone was the one scene without it.
     ///
     /// A mesh alone used to be a black window: camera and Sun both at the
     /// origin, inside it.
@@ -1200,7 +1230,6 @@ impl App {
         }
         let config = self.sim_config();
         let mut c = config.borrow_mut();
-        c.axes.style = crate::app::axes::AxesStyle::Blender;
         c.wireframe.mode = 2;
         c.wireframe.color = wgpu::Color { r: 0.05, g: 0.05, b: 0.05, a: 1.0 };
     }
@@ -1516,6 +1545,9 @@ impl App {
                 Ok(()) => {
                     messages.push(format!("saved {path}"));
                     saved = true;
+                    if let Some(editor) = self.editor.as_mut() {
+                        editor.script_saved();
+                    }
                 }
                 Err(e) => messages.push(format!("cannot save {path}: {e}")),
             }
@@ -1769,6 +1801,12 @@ impl App {
         if !self.step() && !self.shared.borrow().running {
             return EditorTick::Closed;
         }
+        // Reset, once the run it ended has returned: here, between frames,
+        // like the requests below.
+        if std::mem::take(&mut self.shared.borrow_mut().reset_requested) {
+            self.reset_scene();
+            return EditorTick::Frame;
+        }
         // Between frames, which is the only place an example may run: its
         // `main` owns a loop of its own if it wants one, and that nests here
         // rather than re-entering the frame that asked for it.
@@ -1791,6 +1829,22 @@ impl App {
         self.begin_script(paused);
         self.mark_script_log();
         EditorTick::Run { path, source }
+    }
+
+    /// The scene as a new app has it and nothing running -- the toolbar's
+    /// reset. The script stays in the editor, to be run again from a clean
+    /// start: forgetting it as the last one run makes Play renew the config
+    /// too, rather than keep what the reset has just put back.
+    fn reset_scene(&mut self) {
+        {
+            let mut shared = self.shared.borrow_mut();
+            shared.before_render = None;
+            shared.after_render = None;
+            shared.last_script = None;
+            shared.script_ran = false;
+        }
+        self.simulation.borrow_mut().renew();
+        self.log_kalast("scene reset");
     }
 
     /// A renderer as a new app has it, when `script` is not the one last run
@@ -2409,7 +2463,15 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
             .with_inner_size(size)
             .with_active(!background)
             .with_window_level(level)
-            .with_title(&self.config.borrow().title);
+            .with_title(&self.config.borrow().title)
+            .with_window_icon(window_icon());
+        // The taskbar's, which Windows takes from the window rather than the
+        // executable -- a script run by `python` would show Python's.
+        #[cfg(windows)]
+        {
+            use winit::platform::windows::WindowAttributesExtWindows;
+            attrs = attrs.with_taskbar_icon(window_icon());
+        }
 
         // Centre on *one* monitor, not on the desktop. Left to the window
         // manager, a window on a multi-monitor desktop is centred on the
@@ -2728,6 +2790,14 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     let mut sim = self.simulation.borrow_mut();
                     let win = self.window.as_mut().unwrap();
 
+                    // Before the camera spends it: the empty scene's welcome
+                    // goes when the user reaches for the camera, whether or
+                    // not it can move. See `Controller::asks_to_move`.
+                    if self.controller.asks_to_move(sim.camera.control) {
+                        if let Some(editor) = self.editor.as_mut() {
+                            editor.camera_asked = true;
+                        }
+                    }
                     sim.camera
                         .update_with_controller(&mut self.controller, self.dt);
 
@@ -2968,6 +3038,11 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     // at the old size, and reallocating the targets underneath
                     // it would throw the image away mid-frame.
                     win.set_render_size(wanted.0, wanted.1);
+                    // `fovy` spans the window and the viewport shows its share
+                    // of it, so a panel covers the scene rather than zooming
+                    // it (`Projection::viewport_scale`).
+                    self.simulation.borrow_mut().camera.projection.viewport_scale =
+                        wanted.1 as crate::Float / win.surface_config.height.max(1) as crate::Float;
                     win.queue.present(texture);
                 }
 
@@ -3535,6 +3610,39 @@ mod editor_tests {
         assert_eq!(starts(&idle), 0, "an empty UI app has no run to announce");
     }
 
+    /// The toolbar's reset: a driven script's loop is told to end, and
+    /// between frames the scene goes back to what a new app has -- no bodies,
+    /// no callbacks, the config's defaults -- with nothing marked as run.
+    #[test]
+    fn reset_leaves_the_scene_as_a_new_app_has_it() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut app = App::new();
+        app.editor_start(&[]);
+        {
+            let mut sim = app.simulation.borrow_mut();
+            sim.load_mesh(&root.join("res/cube.obj"), crate::Mat4::IDENTITY, false);
+            sim.config.borrow_mut().wireframe.mode = 2;
+        }
+        {
+            let mut shared = app.shared.borrow_mut();
+            shared.before_render = Some(Tick::Rust(Box::new(|_, _| {})));
+            shared.last_script = Some("a.py".into());
+            shared.script_ran = true;
+            shared.reset_requested = true;
+        }
+        assert!(!app.is_running(), "a driven script's loop ends on it");
+
+        assert!(matches!(app.editor_tick(), EditorTick::Frame));
+        let shared = app.shared.borrow();
+        let sim = app.simulation.borrow();
+        assert!(sim.bodies.is_empty(), "no bodies");
+        assert_eq!(sim.config.borrow().wireframe.mode, 0, "the config's defaults");
+        assert!(shared.before_render.is_none(), "no callback left to run");
+        assert!(shared.last_script.is_none() && !shared.script_ran, "nothing counted as run");
+        assert!(!shared.reset_requested, "taken");
+        assert!(shared.kalast_log.lines().any(|l| l == "scene reset"), "said in the kalast tab");
+    }
+
     /// A mesh opened after a script starts from a new app's renderer: the
     /// script's settings were still in force around it.
     #[test]
@@ -3557,6 +3665,10 @@ mod editor_tests {
         let sim = app.simulation.borrow();
         assert_eq!(sim.bodies.len(), 1, "the mesh loaded");
         assert!(sim.camera.pos.length() > 1.0, "the camera backed off, got {}", sim.camera.pos);
+        // Framed to the mesh, not left where a new app's camera stands --
+        // which is outside it too, now.
+        let new_app = crate::app::simulation::Simulation::new().camera.pos;
+        assert!((sim.camera.pos - new_app).length() > 1e-3, "framed to the mesh");
         assert!(sim.sun.pos.length() > 1.0, "the Sun is outside the body, got {}", sim.sun.pos);
         assert!(
             sim.camera.dir.dot((sim.camera.anchor - sim.camera.pos).normalize()) > 0.9999,
@@ -3566,7 +3678,7 @@ mod editor_tests {
 
         let config = app.sim_config();
         let c = config.borrow();
-        assert!(matches!(c.axes.style, crate::app::axes::AxesStyle::Blender), "Blender axes");
+        assert!(matches!(c.axes.style, crate::app::axes::AxesStyle::Gizmo), "the gizmo, as everywhere");
         assert_eq!(c.wireframe.mode, 2, "wireframe on");
     }
 }

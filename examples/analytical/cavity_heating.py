@@ -89,6 +89,7 @@ print(f"closed box: {nv} vertices, {nf} facets, inward-facing, "
 app = kalast.app.App()
 app.config.width = 256
 app.config.height = 256
+app.simulation.config.axes.style = "off"
 app.simulation.load_mesh(path=str(BOX), mat=numpy.eye(4))
 
 mesh = app.simulation.bodies[0].mesh

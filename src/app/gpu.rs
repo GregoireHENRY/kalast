@@ -1423,6 +1423,12 @@ fn save_job(job: SaveJob) {
 /// costs a buffer copy + a cheap ownership handoff on the render thread.
 pub struct FrameExporter {
     export_dir: std::path::PathBuf,
+    /// The directory exists: made at the first frame written, not when the
+    /// exporter is, which is every window -- an empty `out/frames` turned up
+    /// beside every script run from its own folder, whether it exported
+    /// anything or not, and a path typed into the panel made a directory at
+    /// each keystroke.
+    dir_made: bool,
     in_flight: Vec<InFlightExport>,
     pool_tx: std::sync::mpsc::Sender<PooledBuffer>,
     pool_rx: std::sync::mpsc::Receiver<PooledBuffer>,
@@ -1461,7 +1467,6 @@ impl FrameExporter {
     /// bounds the backlog to nothing.
     pub fn new(export_dir: impl Into<std::path::PathBuf>, sync: bool, max_queued: usize) -> Self {
         let export_dir = export_dir.into();
-        std::fs::create_dir_all(&export_dir).unwrap();
 
         // Resume numbering after files already in export_dir (matches the
         // old behavior of never overwriting a previous run's frames),
@@ -1520,6 +1525,7 @@ impl FrameExporter {
 
         Self {
             export_dir,
+            dir_made: false,
             in_flight: Vec::new(),
             pool_tx,
             pool_rx,
@@ -1696,6 +1702,10 @@ impl FrameExporter {
         // instead of two, and looked convincingly like a rendering bug.
         //
         // Six digits also matches ffmpeg's "%06d" input pattern directly.
+        if !self.dir_made {
+            std::fs::create_dir_all(&self.export_dir).unwrap();
+            self.dir_made = true;
+        }
         let path = self
             .export_dir
             .join(format!("{:06}.png", self.next_index));

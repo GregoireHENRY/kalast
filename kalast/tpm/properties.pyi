@@ -5,7 +5,7 @@
 import numpy  # noqa: F401
 
 class Properties:
-    def __init__(self, albedo: float, emissivity: float, density: float, heat_capacity: float, thermal_inertia: float, conductivity: float, diffusivity: float) -> None:
+    def __init__(self, albedo: float = ..., emissivity: float = ..., density: float = ..., heat_capacity: float = ..., thermal_inertia: float = ..., conductivity: float = ..., diffusivity: float = ...) -> None:
         ...
     albedo: float
     emissivity: float
@@ -22,4 +22,20 @@ class Properties:
         ...
     def compute_conductivity_diffusivity(self) -> None:
         ...
+
+DIDYMOS: Properties
+DIMORPHOS: Properties
+MOON: Properties
+PHOBOS: Properties
+DEIMOS: Properties
+def conductivity(ti: float, p: float, c: float) -> float:
+    ...
+def diffusivity(k: float, p: float, c: float) -> float:
+    ...
+def thermal_inertia(k: float, p: float, c: float) -> float:
+    ...
+def skin_depth_1(d: float, p: float) -> float:
+    ...
+def skin_depth_2pi(d: float, p: float) -> float:
+    ...
 

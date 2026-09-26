@@ -3,11 +3,11 @@
 // Regenerate after changing `Config`:  python tools/gen_config_panel.py
 
 use crate::app::config::{AppConfig, Config};
+use super::widgets::setting;
 
 /// `config.shading` -- Shading.
 pub fn group_shading(ui: &mut egui::Ui, c: &mut Config) {
-    ui.horizontal(|ui| {
-        ui.label("background").on_hover_text("Colour the frame is cleared to, `(r, g, b, a)`.");
+    setting(ui, "background", "Colour the frame is cleared to, `(r, g, b, a)`.", |ui| {
         let mut rgba = [c.shading.background.r as f32, c.shading.background.g as f32,
                         c.shading.background.b as f32, c.shading.background.a as f32];
         if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
@@ -17,10 +17,9 @@ pub fn group_shading(ui: &mut egui::Ui, c: &mut Config) {
             };
         }
     });
-    ui.checkbox(&mut c.shading.render_back_face, "render_back_face").on_hover_text("Draw triangles facing away from the camera.");
-    ui.add(egui::Slider::new(&mut c.shading.msaa, 1..=8).text("msaa")).on_hover_text("Multisample anti-aliasing for the main render pass: 1 (off), 2, 4 or 8.");
-    ui.horizontal(|ui| {
-        ui.label("color").on_hover_text("Flat colour used when `color_mode` is 2, `(r, g, b, a)`.");
+    setting(ui, "render_back_face", "Draw triangles facing away from the camera.", |ui| ui.checkbox(&mut c.shading.render_back_face, ""));
+    setting(ui, "msaa", "Multisample anti-aliasing for the main render pass: 1 (off), 2, 4 or 8.", |ui| ui.add(egui::Slider::new(&mut c.shading.msaa, 1..=8)));
+    setting(ui, "color", "Flat colour used when `color_mode` is 2, `(r, g, b, a)`.", |ui| {
         let mut rgba = [c.shading.color.r as f32, c.shading.color.g as f32,
                         c.shading.color.b as f32, c.shading.color.a as f32];
         if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
@@ -30,18 +29,17 @@ pub fn group_shading(ui: &mut egui::Ui, c: &mut Config) {
             };
         }
     });
-    ui.add(egui::Slider::new(&mut c.shading.color_mode, 0..=3).text("color_mode")).on_hover_text("What the fragment shader outputs.");
-    ui.add(egui::Slider::new(&mut c.shading.srgb_mode, 0..=2).text("srgb_mode")).on_hover_text("0 converts sRGB to linear before shading; 1 treats colours as already linear.");
-    ui.add(egui::Slider::new(&mut c.shading.gamma, 0.1..=4.0).text("gamma")).on_hover_text("Exponent used by the sRGB conversion when `srgb_mode` is 0.");
+    setting(ui, "color_mode", "What the fragment shader outputs.", |ui| ui.add(egui::Slider::new(&mut c.shading.color_mode, 0..=3)));
+    setting(ui, "srgb_mode", "0 converts sRGB to linear before shading; 1 treats colours as already linear.", |ui| ui.add(egui::Slider::new(&mut c.shading.srgb_mode, 0..=2)));
+    setting(ui, "gamma", "Exponent used by the sRGB conversion when `srgb_mode` is 0.", |ui| ui.add(egui::Slider::new(&mut c.shading.gamma, 0.1..=4.0)));
 }
 
 /// `config.light` -- Light.
 pub fn group_light(ui: &mut egui::Ui, c: &mut Config) {
-    ui.checkbox(&mut c.light.cube_show, "cube_show").on_hover_text("Draw a cube at the light's position, so the Sun is visible.");
-    ui.checkbox(&mut c.light.cube_fit, "cube_fit").on_hover_text("Fit the camera's frustum around the light cube too, not just the bodies.");
-    ui.add(egui::Slider::new(&mut c.light.ambient, 0.0..=1.0).text("ambient")).on_hover_text("Light added to every fragment regardless of shadowing.");
-    ui.horizontal(|ui| {
-        ui.label("color").on_hover_text("Colour of the Sun, `(r, g, b, a)`.");
+    setting(ui, "cube_show", "Draw a cube at the light's position, so the Sun is visible.", |ui| ui.checkbox(&mut c.light.cube_show, ""));
+    setting(ui, "cube_fit", "Fit the camera's frustum around the light cube too, not just the bodies.", |ui| ui.checkbox(&mut c.light.cube_fit, ""));
+    setting(ui, "ambient", "Light added to every fragment regardless of shadowing.", |ui| ui.add(egui::Slider::new(&mut c.light.ambient, 0.0..=1.0)));
+    setting(ui, "color", "Colour of the Sun, `(r, g, b, a)`.", |ui| {
         let mut rgba = [c.light.color.r as f32, c.light.color.g as f32,
                         c.light.color.b as f32, c.light.color.a as f32];
         if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
@@ -51,49 +49,48 @@ pub fn group_light(ui: &mut egui::Ui, c: &mut Config) {
             };
         }
     });
-    ui.add(egui::Slider::new(&mut c.light.cube_scale, 0.0..=5.0).text("cube_scale")).on_hover_text("Size of the debug light cube, in world units.");
+    setting(ui, "cube_scale", "Size of the debug light cube, in world units.", |ui| ui.add(egui::Slider::new(&mut c.light.cube_scale, 0.0..=5.0)));
 }
 
 /// `config.shadows` -- Shadows.
 pub fn group_shadows(ui: &mut egui::Ui, c: &mut Config) {
-    ui.add(egui::Slider::new(&mut c.shadows.resolution, 512..=16384).text("resolution")).on_hover_text("Side length of each square shadow map, in texels.");
-    ui.add(egui::Slider::new(&mut c.shadows.pcf, 0..=16).text("pcf")).on_hover_text("Percentage-closer-filtering kernel *radius*: 0 is a single hardware 2x2 comparison, N is a `(2N+1)^2` grid averaged.");
-    {
+    setting(ui, "resolution", "Side length of each square shadow map, in texels.", |ui| ui.add(egui::Slider::new(&mut c.shadows.resolution, 512..=16384)));
+    setting(ui, "pcf", "Percentage-closer-filtering kernel *radius*: 0 is a single hardware 2x2 comparison, N is a `(2N+1)^2` grid averaged.", |ui| ui.add(egui::Slider::new(&mut c.shadows.pcf, 0..=16)));
+    setting(ui, "normal_offset_scale", "Push the sample along the surface normal before the shadow lookup, in world units. `None` fits it per frame from the layer's own texel size.", |ui| {
         let mut on = c.shadows.normal_offset_scale.is_some();
-        if ui.checkbox(&mut on, "normal_offset_scale").on_hover_text("Push the sample along the surface normal before the shadow lookup, in world units. `None` fits it per frame from the layer's own texel size.").changed() {
+        if ui.checkbox(&mut on, "").changed() {
             c.shadows.normal_offset_scale = if on { Some(0.0) } else { None };
         }
         if let Some(v) = c.shadows.normal_offset_scale.as_mut() {
             ui.add(egui::DragValue::new(v).speed(1e-6));
         }
-    }
-    {
+    });
+    setting(ui, "bias_scale", "Slope-dependent term of the depth-comparison bias. `None` fits it per frame. Combined in the shader as `max(shadow_bias_scale * k, shadow_bias_minimum)`.", |ui| {
         let mut on = c.shadows.bias_scale.is_some();
-        if ui.checkbox(&mut on, "bias_scale").on_hover_text("Slope-dependent term of the depth-comparison bias. `None` fits it per frame. Combined in the shader as `max(shadow_bias_scale * k, shadow_bias_minimum)`.").changed() {
+        if ui.checkbox(&mut on, "").changed() {
             c.shadows.bias_scale = if on { Some(0.0) } else { None };
         }
         if let Some(v) = c.shadows.bias_scale.as_mut() {
             ui.add(egui::DragValue::new(v).speed(1e-6));
         }
-    }
-    {
+    });
+    setting(ui, "bias_minimum", "Floor on the depth-comparison bias, for surfaces facing the light head-on. `None` fits it per frame.", |ui| {
         let mut on = c.shadows.bias_minimum.is_some();
-        if ui.checkbox(&mut on, "bias_minimum").on_hover_text("Floor on the depth-comparison bias, for surfaces facing the light head-on. `None` fits it per frame.").changed() {
+        if ui.checkbox(&mut on, "").changed() {
             c.shadows.bias_minimum = if on { Some(0.0) } else { None };
         }
         if let Some(v) = c.shadows.bias_minimum.as_mut() {
             ui.add(egui::DragValue::new(v).speed(1e-6));
         }
-    }
-    ui.checkbox(&mut c.shadows.access_shadow_map, "access_shadow_map").on_hover_text("Read the shadow map back per facet: computes solar occlusion for every body each frame, readable from `after_render` via `Simulation::facet_shadow`.");
-    ui.checkbox(&mut c.shadows.per_body, "per_body").on_hover_text("Fit a shadow map per body instead of one fitted to the whole scene.");
+    });
+    setting(ui, "access_shadow_map", "Read the shadow map back per facet: computes solar occlusion for every body each frame, readable from `after_render` via `Simulation::facet_shadow`.", |ui| ui.checkbox(&mut c.shadows.access_shadow_map, ""));
+    setting(ui, "per_body", "Fit a shadow map per body instead of one fitted to the whole scene.", |ui| ui.checkbox(&mut c.shadows.per_body, ""));
 }
 
 /// `config.wireframe` -- Wireframe.
 pub fn group_wireframe(ui: &mut egui::Ui, c: &mut Config) {
-    ui.add(egui::Slider::new(&mut c.wireframe.mode, 0..=2).text("mode")).on_hover_text("the barycentrics are meaningless and the CPU side warns once.");
-    ui.horizontal(|ui| {
-        ui.label("color").on_hover_text("Wireframe colour, `(r, g, b, a)`; alpha is dropped.");
+    setting(ui, "mode", "the barycentrics are meaningless and the CPU side warns once.", |ui| ui.add(egui::Slider::new(&mut c.wireframe.mode, 0..=2)));
+    setting(ui, "color", "Wireframe colour, `(r, g, b, a)`; alpha is dropped.", |ui| {
         let mut rgba = [c.wireframe.color.r as f32, c.wireframe.color.g as f32,
                         c.wireframe.color.b as f32, c.wireframe.color.a as f32];
         if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
@@ -103,21 +100,17 @@ pub fn group_wireframe(ui: &mut egui::Ui, c: &mut Config) {
             };
         }
     });
-    ui.add(egui::Slider::new(&mut c.wireframe.width, 0.1..=10.0).text("width")).on_hover_text("Wireframe half-width in screen pixels.");
-    ui.checkbox(&mut c.wireframe.fade, "fade").on_hover_text("Fade the wireframe out as a body recedes far enough that its facets stop being resolvable. **Off by default.**");
+    setting(ui, "width", "Wireframe half-width in screen pixels.", |ui| ui.add(egui::Slider::new(&mut c.wireframe.width, 0.1..=10.0)));
+    setting(ui, "fade", "Fade the wireframe out as a body recedes far enough that its facets stop being resolvable. **Off by default.**", |ui| ui.checkbox(&mut c.wireframe.fade, ""));
 }
 
 /// `config.selection` -- Selection.
 pub fn group_selection(ui: &mut egui::Ui, c: &mut Config) {
-    ui.checkbox(&mut c.selection.labels, "labels").on_hover_text("0 shaded only, 1 wireframe only, 2 wireframe over the shaded mesh.");
-    ui.add(egui::Slider::new(&mut c.selection.labels_max, 0..=20000).text("labels_max")).on_hover_text("Most facets to label before giving up, per body.");
-    ui.add(egui::Slider::new(&mut c.selection.label_size, 4.0..=48.0).text("label_size")).on_hover_text("Size of a facet label, in pixels.");
-    ui.horizontal(|ui| {
-        ui.label("label_color").on_hover_text("Colour of a facet label, `(r, g, b, a)`.");
-        ui.color_edit_button_rgba_unmultiplied(&mut c.selection.label_color);
-    });
-    ui.horizontal(|ui| {
-        ui.label("color").on_hover_text("Colour a facet takes when it is selected, `(r, g, b, a)`.");
+    setting(ui, "labels", "0 shaded only, 1 wireframe only, 2 wireframe over the shaded mesh.", |ui| ui.checkbox(&mut c.selection.labels, ""));
+    setting(ui, "labels_max", "Most facets to label before giving up, per body.", |ui| ui.add(egui::Slider::new(&mut c.selection.labels_max, 0..=20000)));
+    setting(ui, "label_size", "Size of a facet label, in pixels.", |ui| ui.add(egui::Slider::new(&mut c.selection.label_size, 4.0..=48.0)));
+    setting(ui, "label_color", "Colour of a facet label, `(r, g, b, a)`.", |ui| ui.color_edit_button_rgba_unmultiplied(&mut c.selection.label_color));
+    setting(ui, "color", "Colour a facet takes when it is selected, `(r, g, b, a)`.", |ui| {
         let mut rgba = [c.selection.color.r as f32, c.selection.color.g as f32,
                         c.selection.color.b as f32, c.selection.color.a as f32];
         if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
@@ -131,31 +124,30 @@ pub fn group_selection(ui: &mut egui::Ui, c: &mut Config) {
 
 /// `config.data` -- Data colouring.
 pub fn group_data(ui: &mut egui::Ui, c: &mut Config) {
-    {
+    setting(ui, "value_min", "Range the colormap spans, or `None` to fit the loaded values each frame.", |ui| {
         let mut on = c.data.value_min.is_some();
-        if ui.checkbox(&mut on, "value_min").on_hover_text("Range the colormap spans, or `None` to fit the loaded values each frame.").changed() {
+        if ui.checkbox(&mut on, "").changed() {
             c.data.value_min = if on { Some(0.0) } else { None };
         }
         if let Some(v) = c.data.value_min.as_mut() {
             ui.add(egui::DragValue::new(v).speed(1e-6));
         }
-    }
-    {
+    });
+    setting(ui, "value_max", "", |ui| {
         let mut on = c.data.value_max.is_some();
-        if ui.checkbox(&mut on, "value_max").on_hover_text("").changed() {
+        if ui.checkbox(&mut on, "").changed() {
             c.data.value_max = if on { Some(0.0) } else { None };
         }
         if let Some(v) = c.data.value_max.as_mut() {
             ui.add(egui::DragValue::new(v).speed(1e-6));
         }
-    }
+    });
 }
 
 /// `config.colorbar` -- Colour bar.
 pub fn group_colorbar(ui: &mut egui::Ui, c: &mut Config) {
-    ui.checkbox(&mut c.colorbar.enabled, "enabled");
-    ui.horizontal(|ui| {
-        ui.label("anchor").on_hover_text("");
+    setting(ui, "enabled", "", |ui| ui.checkbox(&mut c.colorbar.enabled, ""));
+    setting(ui, "anchor", "", |ui| {
         egui::ComboBox::from_id_salt("c.colorbar.anchor")
             .selected_text(format!("{:?}", c.colorbar.anchor))
             .show_ui(ui, |ui| {
@@ -170,36 +162,29 @@ pub fn group_colorbar(ui: &mut egui::Ui, c: &mut Config) {
                 ui.selectable_value(&mut c.colorbar.anchor, crate::app::config::HudAnchor::BottomRight, "BottomRight");
             });
     });
-    ui.add(egui::Slider::new(&mut c.colorbar.x, 0.0..=1.0).text("x")).on_hover_text("Inset from the anchor, pixels.");
-    ui.add(egui::Slider::new(&mut c.colorbar.y, 0.0..=1.0).text("y"));
-    ui.add(egui::Slider::new(&mut c.colorbar.length, 0.0..=1.0).text("length")).on_hover_text("Long and short axis of the bar, pixels.");
-    ui.add(egui::Slider::new(&mut c.colorbar.thickness, 0.0..=0.5).text("thickness"));
-    {
+    setting(ui, "x", "Inset from the anchor, pixels.", |ui| ui.add(egui::Slider::new(&mut c.colorbar.x, 0.0..=1.0)));
+    setting(ui, "y", "", |ui| ui.add(egui::Slider::new(&mut c.colorbar.y, 0.0..=1.0)));
+    setting(ui, "length", "Long and short axis of the bar, pixels.", |ui| ui.add(egui::Slider::new(&mut c.colorbar.length, 0.0..=1.0)));
+    setting(ui, "thickness", "", |ui| ui.add(egui::Slider::new(&mut c.colorbar.thickness, 0.0..=0.5)));
+    setting(ui, "vertical", "`None` infers from the anchor.", |ui| {
         let mut on = c.colorbar.vertical.is_some();
-        if ui.checkbox(&mut on, "vertical").on_hover_text("`None` infers from the anchor.").changed() {
+        if ui.checkbox(&mut on, "").changed() {
             c.colorbar.vertical = if on { Some(true) } else { None };
         }
         if let Some(v) = c.colorbar.vertical.as_mut() {
             ui.checkbox(v, "");
         }
-    }
-    ui.horizontal(|ui| {
-        ui.label("label").on_hover_text("Caption, e.g. `\"Surface temperature (K)\"`.");
-        ui.add(egui::TextEdit::singleline(&mut c.colorbar.label).desired_width(120.0));
     });
-    ui.add(egui::Slider::new(&mut c.colorbar.ticks, 1..=20).text("ticks")).on_hover_text("Roughly how many numbered ticks; rounded to a readable step as the axes are.");
-    ui.add(egui::Slider::new(&mut c.colorbar.text_size, 4.0..=64.0).text("text_size"));
-    ui.horizontal(|ui| {
-        ui.label("text_color").on_hover_text("");
-        ui.color_edit_button_rgba_unmultiplied(&mut c.colorbar.text_color);
-    });
-    ui.checkbox(&mut c.colorbar.border, "border").on_hover_text("Outline drawn around the strip, so it reads as a scale rather than as part of the scene when it sits over a dark body.");
+    setting(ui, "label", "Caption, e.g. `\"Surface temperature (K)\"`.", |ui| ui.add(egui::TextEdit::singleline(&mut c.colorbar.label).desired_width(f32::INFINITY)));
+    setting(ui, "ticks", "Roughly how many numbered ticks; rounded to a readable step as the axes are.", |ui| ui.add(egui::Slider::new(&mut c.colorbar.ticks, 1..=20)));
+    setting(ui, "text_size", "", |ui| ui.add(egui::Slider::new(&mut c.colorbar.text_size, 4.0..=64.0)));
+    setting(ui, "text_color", "", |ui| ui.color_edit_button_rgba_unmultiplied(&mut c.colorbar.text_color));
+    setting(ui, "border", "Outline drawn around the strip, so it reads as a scale rather than as part of the scene when it sits over a dark body.", |ui| ui.checkbox(&mut c.colorbar.border, ""));
 }
 
 /// `config.axes` -- Axes & gizmo.
 pub fn group_axes(ui: &mut egui::Ui, c: &mut Config) {
-    ui.horizontal(|ui| {
-        ui.label("style").on_hover_text("Reference axes drawn around the scene.");
+    setting(ui, "style", "Reference axes drawn around the scene.", |ui| {
         egui::ComboBox::from_id_salt("c.axes.style")
             .selected_text(format!("{:?}", c.axes.style))
             .show_ui(ui, |ui| {
@@ -210,22 +195,12 @@ pub fn group_axes(ui: &mut egui::Ui, c: &mut Config) {
                 ui.selectable_value(&mut c.axes.style, crate::app::axes::AxesStyle::Blender, "Blender");
             });
     });
-    ui.horizontal(|ui| {
-        ui.label("color").on_hover_text("Colour of the axis lines and grid.");
-        ui.color_edit_button_rgb(&mut c.axes.color);
-    });
-    ui.add(egui::Slider::new(&mut c.axes.ticks, 1..=20).text("ticks")).on_hover_text("Roughly how many ticks per axis. The step is rounded to 1, 2 or 5 times a power of ten first, so the count lands near this rather than on it -- a figure with ticks at 0.0347 is unreadable.");
-    ui.horizontal(|ui| {
-        ui.label("unit").on_hover_text("Appended to every tick label, e.g. `\" km\"`.");
-        ui.add(egui::TextEdit::singleline(&mut c.axes.unit).desired_width(120.0));
-    });
-    ui.add(egui::Slider::new(&mut c.axes.label_size, 4.0..=64.0).text("label_size")).on_hover_text("Tick label size in pixels, and their colour.");
-    ui.horizontal(|ui| {
-        ui.label("label_color").on_hover_text("");
-        ui.color_edit_button_rgba_unmultiplied(&mut c.axes.label_color);
-    });
-    ui.horizontal(|ui| {
-        ui.label("gizmo_anchor").on_hover_text("Which corner the navigation gizmo sits in. Any of the nine HUD anchors, so it can be moved out of the way of a colour bar or a HUD.");
+    setting(ui, "color", "Colour of the axis lines and grid.", |ui| ui.color_edit_button_rgb(&mut c.axes.color));
+    setting(ui, "ticks", "Roughly how many ticks per axis. The step is rounded to 1, 2 or 5 times a power of ten first, so the count lands near this rather than on it -- a figure with ticks at 0.0347 is unreadable.", |ui| ui.add(egui::Slider::new(&mut c.axes.ticks, 1..=20)));
+    setting(ui, "unit", "Appended to every tick label, e.g. `\" km\"`.", |ui| ui.add(egui::TextEdit::singleline(&mut c.axes.unit).desired_width(f32::INFINITY)));
+    setting(ui, "label_size", "Tick label size in pixels, and their colour.", |ui| ui.add(egui::Slider::new(&mut c.axes.label_size, 4.0..=64.0)));
+    setting(ui, "label_color", "", |ui| ui.color_edit_button_rgba_unmultiplied(&mut c.axes.label_color));
+    setting(ui, "gizmo_anchor", "Which corner the navigation gizmo sits in. Any of the nine HUD anchors, so it can be moved out of the way of a colour bar or a HUD.", |ui| {
         egui::ComboBox::from_id_salt("c.axes.gizmo_anchor")
             .selected_text(format!("{:?}", c.axes.gizmo_anchor))
             .show_ui(ui, |ui| {
@@ -240,94 +215,78 @@ pub fn group_axes(ui: &mut egui::Ui, c: &mut Config) {
                 ui.selectable_value(&mut c.axes.gizmo_anchor, crate::app::config::HudAnchor::BottomRight, "BottomRight");
             });
     });
-    ui.add(egui::Slider::new(&mut c.axes.gizmo_size, 16.0..=200.0).text("gizmo_size")).on_hover_text("Half the widget's width, in pixels: a ball centre never sits further than this from the middle.");
+    setting(ui, "gizmo_size", "Half the widget's width, in pixels: a ball centre never sits further than this from the middle.", |ui| ui.add(egui::Slider::new(&mut c.axes.gizmo_size, 16.0..=200.0)));
 }
 
 /// `config.grid` -- Grid.
 pub fn group_grid(ui: &mut egui::Ui, c: &mut Config) {
-    ui.checkbox(&mut c.grid.enabled, "enabled").on_hover_text("Shade the `\"blender\"` style's ground grid instead of drawing it as line segments. On by default; `False` restores the segments.");
-    ui.add(egui::Slider::new(&mut c.grid.width, 0.25..=8.0).text("width")).on_hover_text("Width of a grid line, in pixels.");
-    ui.add(egui::Slider::new(&mut c.grid.major, 2..=100).text("major")).on_hover_text("Cells between thick lines, and the factor between the levels the crossfade steps through -- the same number seen from two sides.");
-    ui.horizontal(|ui| {
-        ui.label("color").on_hover_text("Colour of the ordinary lines, `(r, g, b, a)`.");
-        ui.color_edit_button_rgba_unmultiplied(&mut c.grid.color);
-    });
-    ui.horizontal(|ui| {
-        ui.label("major_color").on_hover_text("Colour of every `grid_major`-th line.");
-        ui.color_edit_button_rgba_unmultiplied(&mut c.grid.major_color);
-    });
-    ui.horizontal(|ui| {
-        ui.label("axis_x_color").on_hover_text("The axis lines, drawn over the grid so the origin reads without hunting for it. Two of the three are in the grid's plane and get drawn; which two depends on which plane that is.");
-        ui.color_edit_button_rgba_unmultiplied(&mut c.grid.axis_x_color);
-    });
-    ui.horizontal(|ui| {
-        ui.label("axis_y_color").on_hover_text("");
-        ui.color_edit_button_rgba_unmultiplied(&mut c.grid.axis_y_color);
-    });
-    ui.horizontal(|ui| {
-        ui.label("axis_z_color").on_hover_text("");
-        ui.color_edit_button_rgba_unmultiplied(&mut c.grid.axis_z_color);
-    });
-    ui.add(egui::Slider::new(&mut c.grid.fade_near, 0.0..=1.0).text("fade_near")).on_hover_text("Fade the grid out between these grazing factors: `0.0` is looking straight down at the ground plane and `1.0` is looking along it. Without it the horizon is a hard line of aliasing.");
-    ui.add(egui::Slider::new(&mut c.grid.fade_far, 0.0..=1.0).text("fade_far"));
+    setting(ui, "enabled", "Shade the `\"blender\"` style's ground grid instead of drawing it as line segments. On by default; `False` restores the segments.", |ui| ui.checkbox(&mut c.grid.enabled, ""));
+    setting(ui, "width", "Width of a grid line, in pixels.", |ui| ui.add(egui::Slider::new(&mut c.grid.width, 0.25..=8.0)));
+    setting(ui, "major", "Cells between thick lines, and the factor between the levels the crossfade steps through -- the same number seen from two sides.", |ui| ui.add(egui::Slider::new(&mut c.grid.major, 2..=100)));
+    setting(ui, "color", "Colour of the ordinary lines, `(r, g, b, a)`.", |ui| ui.color_edit_button_rgba_unmultiplied(&mut c.grid.color));
+    setting(ui, "major_color", "Colour of every `grid_major`-th line.", |ui| ui.color_edit_button_rgba_unmultiplied(&mut c.grid.major_color));
+    setting(ui, "axis_x_color", "The axis lines, drawn over the grid so the origin reads without hunting for it. Two of the three are in the grid's plane and get drawn; which two depends on which plane that is.", |ui| ui.color_edit_button_rgba_unmultiplied(&mut c.grid.axis_x_color));
+    setting(ui, "axis_y_color", "", |ui| ui.color_edit_button_rgba_unmultiplied(&mut c.grid.axis_y_color));
+    setting(ui, "axis_z_color", "", |ui| ui.color_edit_button_rgba_unmultiplied(&mut c.grid.axis_z_color));
+    setting(ui, "fade_near", "Fade the grid out between these grazing factors: `0.0` is looking straight down at the ground plane and `1.0` is looking along it. Without it the horizon is a hard line of aliasing.", |ui| ui.add(egui::Slider::new(&mut c.grid.fade_near, 0.0..=1.0)));
+    setting(ui, "fade_far", "", |ui| ui.add(egui::Slider::new(&mut c.grid.fade_far, 0.0..=1.0)));
 }
 
 /// `config.hud` -- HUD.
 pub fn group_hud(ui: &mut egui::Ui, c: &mut Config) {
-    ui.horizontal(|ui| {
-        ui.label("font").on_hover_text("Font for the HUD: a **name** or a **path**, or empty for the built-in DejaVu Sans.");
-        ui.add(egui::TextEdit::singleline(&mut c.hud.font).desired_width(120.0));
-    });
+    setting(ui, "font", "Font for the HUD: a **name** or a **path**, or empty for the built-in DejaVu Sans.", |ui| ui.add(egui::TextEdit::singleline(&mut c.hud.font).desired_width(f32::INFINITY)));
 }
 
 /// `config.export` -- Export.
 pub fn group_export(ui: &mut egui::Ui, c: &mut Config) {
-    ui.checkbox(&mut c.export.sync, "sync").on_hover_text("Encode and write each exported frame on the render thread instead of a worker pool.");
-    ui.add(egui::Slider::new(&mut c.export.max_queued, 1..=512).text("max_queued")).on_hover_text("How many frames may be waiting to be encoded before the render loop blocks.");
-    ui.horizontal(|ui| {
-        ui.label("dir").on_hover_text("Directory exported frames are written to, as `{export_dir}/{N:06}.png`.");
-        ui.add(egui::TextEdit::singleline(&mut c.export.dir).desired_width(120.0));
-    });
-    ui.checkbox(&mut c.export.hud, "hud").on_hover_text("Burn the HUD text into exported frames as well as drawing it on screen.");
+    setting(ui, "sync", "Encode and write each exported frame on the render thread instead of a worker pool.", |ui| ui.checkbox(&mut c.export.sync, ""));
+    setting(ui, "max_queued", "How many frames may be waiting to be encoded before the render loop blocks.", |ui| ui.add(egui::Slider::new(&mut c.export.max_queued, 1..=512)));
+    setting(ui, "dir", "Directory exported frames are written to, as `{export_dir}/{N:06}.png`.", |ui| ui.add(egui::TextEdit::singleline(&mut c.export.dir).desired_width(f32::INFINITY)));
+    setting(ui, "hud", "Burn the HUD text into exported frames as well as drawing it on screen.", |ui| ui.checkbox(&mut c.export.hud, ""));
+    setting(ui, "axes", "Keep the axes -- grid, box or panes, gizmo, and their labels -- in exported frames as well as on screen.", |ui| ui.checkbox(&mut c.export.axes, ""));
 }
 
 /// `config.controls` -- Controls.
 pub fn group_controls(ui: &mut egui::Ui, c: &mut Config) {
-    ui.add(egui::Slider::new(&mut c.controls.sensitivity_move, 0.1..=5.0).text("sensitivity_move")).on_hover_text("Multiplier for WASD movement speed.");
-    ui.add(egui::Slider::new(&mut c.controls.sensitivity_look, 0.1..=5.0).text("sensitivity_look")).on_hover_text("Multiplier for mouse-look speed in WASD mode.");
-    ui.add(egui::Slider::new(&mut c.controls.sensitivity_rotate, 0.1..=5.0).text("sensitivity_rotate")).on_hover_text("Multiplier for arcball orbit speed.");
-    ui.add(egui::Slider::new(&mut c.controls.sensitivity_zoom, 0.1..=5.0).text("sensitivity_zoom")).on_hover_text("Multiplier for scroll and pinch zoom speed.");
-    ui.checkbox(&mut c.controls.emulate_middle_button, "emulate_middle_button").on_hover_text("Treat alt + left-drag as a middle-drag, so the arcball can be orbited on hardware with no middle button. Blender calls the same setting \"Emulate 3 Button Mouse\". Defaults on for macOS, where a trackpad is the common case, and off elsewhere. Let `Option`/`Alt` + left-drag stand in for a middle-drag.");
-    ui.checkbox(&mut c.controls.trackpad_orbit, "trackpad_orbit").on_hover_text("Two-finger swipe on a trackpad orbits, `shift` pans and `ctrl` zooms; off, it zooms like a wheel.");
+    setting(ui, "sensitivity_move", "Multiplier for WASD movement speed.", |ui| ui.add(egui::Slider::new(&mut c.controls.sensitivity_move, 0.1..=5.0)));
+    setting(ui, "sensitivity_look", "Multiplier for mouse-look speed in WASD mode.", |ui| ui.add(egui::Slider::new(&mut c.controls.sensitivity_look, 0.1..=5.0)));
+    setting(ui, "sensitivity_rotate", "Multiplier for arcball orbit speed.", |ui| ui.add(egui::Slider::new(&mut c.controls.sensitivity_rotate, 0.1..=5.0)));
+    setting(ui, "sensitivity_zoom", "Multiplier for scroll and pinch zoom speed.", |ui| ui.add(egui::Slider::new(&mut c.controls.sensitivity_zoom, 0.1..=5.0)));
+    setting(ui, "emulate_middle_button", "Treat alt + left-drag as a middle-drag, so the arcball can be orbited on hardware with no middle button. Blender calls the same setting \"Emulate 3 Button Mouse\". Defaults on for macOS, where a trackpad is the common case, and off elsewhere. Let `Option`/`Alt` + left-drag stand in for a middle-drag.", |ui| ui.checkbox(&mut c.controls.emulate_middle_button, ""));
+    setting(ui, "trackpad_orbit", "Two-finger swipe on a trackpad orbits, `shift` pans and `ctrl` zooms; off, it zooms like a wheel.", |ui| ui.checkbox(&mut c.controls.trackpad_orbit, ""));
 }
 
 /// `config.image` -- Image.
 pub fn group_image(ui: &mut egui::Ui, c: &mut Config) {
-    ui.add(egui::Slider::new(&mut c.image.width, 0..=7680).text("image width")).on_hover_text("Render size in physical pixels -- the *image*, not the window.");
-    ui.add(egui::Slider::new(&mut c.image.height, 0..=4320).text("image height"));
+    setting(ui, "image width", "Render size in physical pixels -- the *image*, not the window.", |ui| ui.add(egui::Slider::new(&mut c.image.width, 0..=7680)));
+    setting(ui, "image height", "", |ui| ui.add(egui::Slider::new(&mut c.image.height, 0..=4320)));
 }
 
 /// `config.debug` -- Debug.
 pub fn group_debug(ui: &mut egui::Ui, c: &mut Config) {
-    ui.checkbox(&mut c.debug.app, "app").on_hover_text("Print app lifecycle events: pause and camera-mode changes.");
-    ui.checkbox(&mut c.debug.window, "window").on_hover_text("Print window and GPU setup: chosen surface format, adapter and device features, and **the present modes the surface supports**.");
-    ui.checkbox(&mut c.debug.window_mesh, "window_mesh").on_hover_text("Print per-mesh detail as meshes are uploaded.");
-    ui.checkbox(&mut c.debug.simulation, "simulation").on_hover_text("**Does nothing.** The field exists and is settable from Python, but no code reads it. Left as a placeholder.");
-    ui.checkbox(&mut c.debug.gpu_timing, "gpu_timing").on_hover_text("Time each GPU pass with timestamp queries, into `sim.gpu_timings()`.");
-    ui.checkbox(&mut c.debug.occlusion_queries, "occlusion_queries").on_hover_text("Count what each body actually drew, with occlusion queries.");
-    ui.checkbox(&mut c.debug.depth_show, "depth_show");
-    ui.add(egui::Slider::new(&mut c.debug.extra, 0..=10).text("extra")).on_hover_text("Free integer passed through to the shader, for one-off experiments.");
+    setting(ui, "app", "Print app lifecycle events: pause and camera-mode changes.", |ui| ui.checkbox(&mut c.debug.app, ""));
+    setting(ui, "window", "Print window and GPU setup: chosen surface format, adapter and device features, and **the present modes the surface supports**.", |ui| ui.checkbox(&mut c.debug.window, ""));
+    setting(ui, "window_mesh", "Print per-mesh detail as meshes are uploaded.", |ui| ui.checkbox(&mut c.debug.window_mesh, ""));
+    setting(ui, "simulation", "**Does nothing.** The field exists and is settable from Python, but no code reads it. Left as a placeholder.", |ui| ui.checkbox(&mut c.debug.simulation, ""));
+    setting(ui, "gpu_timing", "Time each GPU pass with timestamp queries, into `sim.gpu_timings()`.", |ui| ui.checkbox(&mut c.debug.gpu_timing, ""));
+    setting(ui, "occlusion_queries", "Count what each body actually drew, with occlusion queries.", |ui| ui.checkbox(&mut c.debug.occlusion_queries, ""));
+    setting(ui, "depth_show", "", |ui| ui.checkbox(&mut c.debug.depth_show, ""));
+    setting(ui, "extra", "Free integer passed through to the shader, for one-off experiments.", |ui| ui.add(egui::Slider::new(&mut c.debug.extra, 0..=10)));
+}
+
+/// `app.config` -- Panels.
+pub fn app_panels(ui: &mut egui::Ui, a: &mut AppConfig) {
+    setting(ui, "focus", "Give the whole window to the renderer: panels out of the way, each coming back when the pointer reaches its edge.", |ui| ui.checkbox(&mut a.focus, ""));
+    setting(ui, "panels_folded", "Fold the editor's panels to the window edges; `N` toggles it.", |ui| ui.checkbox(&mut a.panels_folded, ""));
+    setting(ui, "toolbar_folded", "Fold the toolbar, the top panel, or bring it back; `↑` toggles it.", |ui| ui.checkbox(&mut a.toolbar_folded, ""));
+    setting(ui, "log_folded", "Fold the log, the bottom panel, or bring it back; `↓` toggles it.", |ui| ui.checkbox(&mut a.log_folded, ""));
+    setting(ui, "simulation_folded", "Fold the side panel, on the right -- app, simulation and files -- or bring it back; `→` toggles it.", |ui| ui.checkbox(&mut a.simulation_folded, ""));
+    setting(ui, "toolbar text", "What the editor's toolbar says beside the transport buttons.", |ui| ui.add(egui::TextEdit::singleline(&mut a.toolbar).desired_width(f32::INFINITY)));
 }
 
 /// `app.config` -- Window.
-pub fn group_app(ui: &mut egui::Ui, a: &mut AppConfig) {
-    ui.checkbox(&mut a.focus, "focus").on_hover_text("Give the whole window to the renderer: panels out of the way, each coming back when the pointer reaches its edge.");
-    ui.checkbox(&mut a.panels_folded, "panels_folded").on_hover_text("Fold the editor's panels to the window edges; `N` toggles it.");
-    ui.checkbox(&mut a.toolbar_folded, "toolbar_folded").on_hover_text("Fold the toolbar, the top panel, or bring it back; `↑` toggles it.");
-    ui.checkbox(&mut a.log_folded, "log_folded").on_hover_text("Fold the log, the bottom panel, or bring it back; `↓` toggles it.");
-    ui.checkbox(&mut a.simulation_folded, "simulation_folded").on_hover_text("Fold the side panel, on the right -- app, simulation and files -- or bring it back; `→` toggles it.");
-    ui.horizontal(|ui| {
-        ui.label("theme").on_hover_text("The colours of the UI app's panels: `\"catppuccin-mocha\"`, the default, or `\"dark\"`, egui's own.");
+pub fn app_window(ui: &mut egui::Ui, a: &mut AppConfig) {
+    setting(ui, "theme", "The colours of the UI app's panels: `\"catppuccin-mocha\"`, the default, or `\"dark\"`, egui's own.", |ui| {
         egui::ComboBox::from_id_salt("a.theme")
             .selected_text(format!("{:?}", a.theme))
             .show_ui(ui, |ui| {
@@ -335,18 +294,25 @@ pub fn group_app(ui: &mut egui::Ui, a: &mut AppConfig) {
                 ui.selectable_value(&mut a.theme, crate::app::config::UiTheme::Dark, "Dark");
             });
     });
-    ui.add(egui::DragValue::new(&mut a.width).speed(1.0).prefix("window width  ")).on_hover_text("Window size in physical pixels.");
-    ui.add(egui::DragValue::new(&mut a.height).speed(1.0).prefix("window height  "));
-    ui.horizontal(|ui| {
-        ui.label("toolbar text").on_hover_text("What the editor's toolbar says beside the transport buttons.");
-        ui.add(egui::TextEdit::singleline(&mut a.toolbar).desired_width(120.0));
-    });
-    ui.checkbox(&mut a.check_updates, "check for updates").on_hover_text("Ask GitHub for a newer release when the UI app opens, and offer it in the toolbar. On a thread, so nothing waits on it; never when a script runs its own window. Off, kalast touches the network at no point.");
-    ui.horizontal(|ui| {
-        ui.label("title").on_hover_text("The OS window title.");
-        ui.add(egui::TextEdit::singleline(&mut a.title).desired_width(120.0));
-    });
-    ui.checkbox(&mut a.fullscreen, "fullscreen").on_hover_text("Open the window in native fullscreen (borderless, current monitor).");
-    ui.checkbox(&mut a.vsync, "vsync").on_hover_text("Cap the frame rate to the display refresh.");
+    setting(ui, "window width", "Window size in physical pixels.", |ui| ui.add(egui::DragValue::new(&mut a.width).speed(1.0)));
+    setting(ui, "window height", "", |ui| ui.add(egui::DragValue::new(&mut a.height).speed(1.0)));
+    setting(ui, "title", "The OS window title.", |ui| ui.add(egui::TextEdit::singleline(&mut a.title).desired_width(f32::INFINITY)));
+    setting(ui, "fullscreen", "Open the window in native fullscreen (borderless, current monitor).", |ui| ui.checkbox(&mut a.fullscreen, ""));
+    setting(ui, "vsync", "Cap the frame rate to the display refresh.", |ui| ui.checkbox(&mut a.vsync, ""));
+}
+
+/// `app.config` -- Editor.
+pub fn app_editor(ui: &mut egui::Ui, a: &mut AppConfig) {
+    setting(ui, "neovim", "Neovim in the script editor: your own `nvim` and your config, run the way VS Code's Neovim extension runs it -- modes, motions, operators, `:` commands, registers, macros and your mappings.", |ui| ui.checkbox(&mut a.neovim, ""));
+    setting(ui, "neovim path", "The Neovim to run when `neovim` is on; empty for `nvim` on the PATH.", |ui| ui.add(egui::TextEdit::singleline(&mut a.neovim_path).desired_width(f32::INFINITY)));
+    setting(ui, "ruler", "The column the script editor draws a vertical line at, 0 for none: `editor.rulers` in VS Code, `colorcolumn` in Vim.", |ui| ui.add(egui::Slider::new(&mut a.ruler, 0..=200)));
+    setting(ui, "language servers", "Completion, hover, signatures and errors in the script editor, from a language server -- pyright for Python, rust-analyzer for Rust -- the servers VS Code runs for its own.", |ui| ui.checkbox(&mut a.language_servers, ""));
+    setting(ui, "python server", "The command starting the Python language server; empty for the first of `basedpyright-langserver`, `pyright-langserver`, `pylsp` and `jedi-language-server` found.", |ui| ui.add(egui::TextEdit::singleline(&mut a.python_language_server).desired_width(f32::INFINITY)));
+    setting(ui, "rust server", "The command starting the Rust language server; empty for `rust-analyzer`.", |ui| ui.add(egui::TextEdit::singleline(&mut a.rust_language_server).desired_width(f32::INFINITY)));
+}
+
+/// `app.config` -- Updates.
+pub fn app_updates(ui: &mut egui::Ui, a: &mut AppConfig) {
+    setting(ui, "check for updates", "Ask GitHub for a newer release when the UI app opens, and offer it in the toolbar. On a thread, so nothing waits on it; never when a script runs its own window. Off, kalast touches the network at no point.", |ui| ui.checkbox(&mut a.check_updates, ""));
 }
 

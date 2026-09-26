@@ -10,27 +10,37 @@ use crate::app::simulation::Simulation;
 use crate::app::config::Config;
 use crate::Float;
 use super::config_panel::*;
+use super::icons::codicon;
+use super::theme::palette;
+use super::widgets::{line, note, section, setting, subheading, Icon};
 
-/// A labelled row, so every readout lines up the same way. Returns the
-/// value's response, for the rows that want a hover on it.
+/// A topic's section: its Codicon in its colour, kept open or shut by title.
+fn topic(ui: &mut egui::Ui, icon: &'static str, color: egui::Color32, title: &str, add: impl FnOnce(&mut egui::Ui)) {
+    section(ui, Icon::Codicon(icon, color), title, title, add);
+}
+
+/// A readout, laid out as a setting is, so a value and a control line up.
+/// Returns the value's response, for the rows that want a hover on it.
 fn row(ui: &mut egui::Ui, label: &str, value: impl Into<String>) -> egui::Response {
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(label).weak());
-        ui.label(egui::RichText::new(value.into()).monospace())
-    })
-    .inner
+    setting(ui, label, "", |ui| ui.label(egui::RichText::new(value.into()).monospace()))
 }
 
 /// Three drag fields for a vector, returning whether any changed.
-fn vec3(ui: &mut egui::Ui, label: &str, v: &mut crate::Vec3, speed: f64) -> bool {
-    let mut changed = false;
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(label).weak());
+fn vec3(ui: &mut egui::Ui, label: &str, hover: &str, v: &mut crate::Vec3, speed: f64) -> bool {
+    setting(ui, label, hover, |ui| {
+        // Three to a row, each a third of it: sized by their digits, a unit
+        // vector's three ran past the panel's edge.
+        let gap = 3.0;
+        ui.spacing_mut().item_spacing.x = gap;
+        let width = ((ui.available_width() - 2.0 * gap - 6.0) / 3.0).max(28.0);
+        let mut changed = false;
         for c in [&mut v.x, &mut v.y, &mut v.z] {
-            changed |= ui.add(egui::DragValue::new(c).speed(speed)).changed();
+            changed |= ui
+                .add_sized([width, 18.0], egui::DragValue::new(c).speed(speed).max_decimals(3))
+                .changed();
         }
-    });
-    changed
+        changed
+    })
 }
 
 /// Where the file is, without the file: its name is already the header just
@@ -113,7 +123,7 @@ fn try_load(path: &str, flat: bool) -> Result<crate::mesh::Mesh, String> {
 /// The bodies in the scene, and the means to change which ones they are.
 fn bodies_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
     if sim.bodies.is_empty() {
-        ui.label(egui::RichText::new("none loaded").weak());
+        note(ui, "none loaded");
     }
 
     // Both are applied after the loop: removing a body while iterating over
@@ -125,20 +135,16 @@ fn bodies_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
         let name = body_name(&sim.bodies[i]);
         let path = body_path(&sim.bodies[i]);
         let mut drop_it = false;
-        egui::CollapsingHeader::new(format!("body {i}  {name}"))
-            .id_salt(i)
-            .show(ui, |ui| {
-                dirty |= body_ui(ui, i, &mut sim.bodies[i]);
-                if ui
-                    .button("remove")
-                    .on_hover_text("Take this body out of the scene")
-                    .clicked()
-                {
+        let icon = Icon::Image(super::icons::for_file("body.obj"));
+        section(ui, icon, &format!("{i}  {name}"), ("body", i), |ui| {
+            dirty |= body_ui(ui, i, &mut sim.bodies[i]);
+            line(ui, |ui| {
+                if ui.button("remove").on_hover_text("Take this body out of the scene").clicked() {
                     drop_it = true;
                 }
-            })
-            .header_response
-            .on_hover_text(&path);
+            });
+        })
+        .on_hover_text(&path);
         if drop_it {
             remove = Some(i);
         }
@@ -151,18 +157,21 @@ fn bodies_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
 
     // Adding one. A path rather than a file dialog, the same way the script
     // panel opens a file -- there is no native picker in this window.
-    ui.add_space(6.0);
+    subheading(ui, "add a body");
     let id = ui.id().with("add");
     let mut path = remembered(ui, id, String::new);
     let mut flat = ui.data_mut(|d| d.get_temp::<bool>(id.with("flat"))).unwrap_or(true);
-    ui.add(
-        egui::TextEdit::singleline(&mut path)
-            .hint_text("path to an .obj")
-            .desired_width(f32::INFINITY),
-    );
-    ui.horizontal(|ui| {
-        ui.checkbox(&mut flat, "flat")
-            .on_hover_text("Give every facet its own vertices, as `flatten=True` does");
+    setting(ui, "path", "The shape model to load, an .obj", |ui| {
+        ui.add(
+            egui::TextEdit::singleline(&mut path)
+                .hint_text("path to an .obj")
+                .desired_width(f32::INFINITY),
+        )
+    });
+    setting(ui, "flat", "Give every facet its own vertices, as `flatten=True` does", |ui| {
+        ui.checkbox(&mut flat, "")
+    });
+    line(ui, |ui| {
         if ui.button("add body").clicked() && !path.is_empty() {
             match try_load(&path, flat) {
                 Ok(mesh) => {
@@ -177,7 +186,7 @@ fn bodies_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
     });
     let error = remembered(ui, id.with("error"), String::new);
     if !error.is_empty() {
-        ui.colored_label(egui::Color32::from_rgb(220, 120, 120), error);
+        line(ui, |ui| ui.colored_label(egui::Color32::from_rgb(220, 120, 120), error));
     }
     remember(ui, id, path);
     ui.data_mut(|d| d.insert_temp(id.with("flat"), flat));
@@ -194,7 +203,7 @@ fn bodies_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
 fn body_ui(ui: &mut egui::Ui, i: usize, body: &mut crate::app::body::Body) -> bool {
     let mut dirty = false;
     let Some(handle) = body.mesh.clone() else {
-        ui.label(egui::RichText::new("no mesh").weak());
+        note(ui, "no mesh");
         return false;
     };
 
@@ -208,12 +217,14 @@ fn body_ui(ui: &mut egui::Ui, i: usize, body: &mut crate::app::body::Body) -> bo
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
     let mut path = remembered(ui, id, || current.clone());
-    ui.add(
-        egui::TextEdit::singleline(&mut path)
-            .desired_width(f32::INFINITY)
-            .font(egui::TextStyle::Monospace),
-    );
-    ui.horizontal(|ui| {
+    setting(ui, "file", "Where the mesh came from: edit it and reload to point the body at another", |ui| {
+        ui.add(
+            egui::TextEdit::singleline(&mut path)
+                .desired_width(f32::INFINITY)
+                .font(egui::TextStyle::Monospace),
+        )
+    });
+    line(ui, |ui| {
         let changed = path != current;
         if ui
             .add_enabled(changed, egui::Button::new("reload"))
@@ -239,7 +250,7 @@ fn body_ui(ui: &mut egui::Ui, i: usize, body: &mut crate::app::body::Body) -> bo
     });
     let error = remembered(ui, id.with("error"), String::new);
     if !error.is_empty() {
-        ui.colored_label(egui::Color32::from_rgb(220, 120, 120), error);
+        line(ui, |ui| ui.colored_label(egui::Color32::from_rgb(220, 120, 120), error));
     }
     remember(ui, id, path);
 
@@ -268,18 +279,16 @@ fn body_ui(ui: &mut egui::Ui, i: usize, body: &mut crate::app::body::Body) -> bo
 
     if let Some(shadow) = body.shadow_mesh.as_ref() {
         let mut shadow = shadow.borrow_mut();
-        ui.add_space(4.0);
-        ui.label(
-            egui::RichText::new(format!(
-                "shadow mesh  {}",
-                shadow
-                    .path
-                    .as_ref()
-                    .and_then(|p| p.file_name())
-                    .map(|f| f.to_string_lossy().into_owned())
-                    .unwrap_or_default()
-            ))
-            .weak(),
+        subheading(ui, "shadow mesh");
+        row(
+            ui,
+            "file",
+            shadow
+                .path
+                .as_ref()
+                .and_then(|p| p.file_name())
+                .map(|f| f.to_string_lossy().into_owned())
+                .unwrap_or_default(),
         );
         dir_row(ui, shadow.path.as_deref());
         dirty |= mesh_ui(ui, &mut shadow);
@@ -288,13 +297,15 @@ fn body_ui(ui: &mut egui::Ui, i: usize, body: &mut crate::app::body::Body) -> bo
     // Model to world, editable. Usually written by a script every frame, in
     // which case an edit here lasts one frame -- but for a scene that is
     // placed once, this is where to place it.
-    ui.add_space(4.0);
-    ui.label(egui::RichText::new("mat").weak())
+    subheading(ui, "mat")
         .on_hover_text("Model to world. A script that sets `body.mat` every iteration wins over this.");
     for r in 0..4 {
-        ui.horizontal(|ui| {
+        line(ui, |ui| {
+            // Four to a row, each a quarter of it.
+            ui.spacing_mut().item_spacing.x = 3.0;
+            let width = ((ui.available_width() - 9.0) / 4.0).max(28.0);
             for c in 0..4 {
-                ui.add(egui::DragValue::new(&mut body.mat.col_mut(c)[r]).speed(0.01));
+                ui.add_sized([width, 18.0], egui::DragValue::new(&mut body.mat.col_mut(c)[r]).speed(0.01).max_decimals(4));
             }
         });
     }
@@ -313,16 +324,17 @@ fn mesh_ui(ui: &mut egui::Ui, mesh: &mut crate::mesh::Mesh) -> bool {
 
     let was = mesh.is_flat();
     let mut flat = was;
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("shading").weak())
-            .on_hover_text(
-                "Flat gives every facet its own three vertices instead of sharing \
-                 corners with its neighbours, so each shades as a plate and a \
-                 per-facet value colours exactly one triangle. What flatten=True asks for.",
-            );
-        ui.selectable_value(&mut flat, true, "flat");
-        ui.selectable_value(&mut flat, false, "smooth");
-    });
+    setting(
+        ui,
+        "shading",
+        "Flat gives every facet its own three vertices instead of sharing \
+         corners with its neighbours, so each shades as a plate and a \
+         per-facet value colours exactly one triangle. What flatten=True asks for.",
+        |ui| {
+            ui.selectable_value(&mut flat, true, "flat");
+            ui.selectable_value(&mut flat, false, "smooth");
+        },
+    );
     let changed = flat != was;
     if changed {
         if flat {
@@ -345,7 +357,7 @@ fn mesh_ui(ui: &mut egui::Ui, mesh: &mut crate::mesh::Mesh) -> bool {
 }
 
 fn eye_ui(ui: &mut egui::Ui, eye: &mut crate::app::frame::Eye, bodies: &[String], is_sun: bool) {
-    vec3(ui, "pos", &mut eye.pos, 0.05);
+    vec3(ui, "pos", "Where it stands, in world coordinates", &mut eye.pos, 0.05);
 
     // The Sun's frame is not a camera anyone reframes: it looks at the scene
     // from wherever `pos` puts it, orthographically, and its anchor follows
@@ -355,17 +367,16 @@ fn eye_ui(ui: &mut egui::Ui, eye: &mut crate::app::frame::Eye, bodies: &[String]
         // Direction and up must stay unit vectors -- a short one panics the
         // renderer, inside a callback that cannot unwind -- so they are
         // renormalised on every edit rather than trusted.
-        if vec3(ui, "dir", &mut eye.dir, 0.01) {
+        if vec3(ui, "dir", "Where it looks; kept a unit vector", &mut eye.dir, 0.01) {
             eye.dir = eye.dir.normalize_or_zero();
         }
-        if vec3(ui, "up", &mut eye.up, 0.01) {
+        if vec3(ui, "up", "Which way is up on screen; kept a unit vector", &mut eye.up, 0.01) {
             eye.up = eye.up.normalize_or_zero();
         }
 
-        vec3(ui, "anchor", &mut eye.anchor, 0.05);
+        vec3(ui, "anchor", "The point it turns about and zooms toward", &mut eye.anchor, 0.05);
 
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("anchor body").weak());
+        setting(ui, "anchor body", "A body whose centre the anchor follows", |ui| {
             let selected = match eye.anchor_body {
                 Some(i) => bodies
                     .get(i)
@@ -387,8 +398,7 @@ fn eye_ui(ui: &mut egui::Ui, eye: &mut crate::app::frame::Eye, bodies: &[String]
     let p = &mut eye.projection;
 
     if !is_sun {
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("mode").weak());
+        setting(ui, "mode", "Perspective, or orthographic: parallel rays, no vanishing point", |ui| {
             egui::ComboBox::from_id_salt("mode")
                 .selected_text(format!("{:?}", p.mode))
                 .show_ui(ui, |ui| {
@@ -401,8 +411,7 @@ fn eye_ui(ui: &mut egui::Ui, eye: &mut crate::app::frame::Eye, bodies: &[String]
         // An orthographic frustum has no field of view -- `side` is its
         // width -- so a dead angle here would only invite editing it.
         if p.mode == crate::app::frame::ProjectionMode::Perspective {
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("fovy").weak());
+            setting(ui, "fovy", "The vertical field of view, spanning the window's height", |ui| {
                 let mut deg = p.fovy.to_degrees();
                 if ui
                     .add(egui::DragValue::new(&mut deg).speed(0.2).suffix("\u{b0}"))
@@ -431,14 +440,9 @@ fn eye_ui(ui: &mut egui::Ui, eye: &mut crate::app::frame::Eye, bodies: &[String]
         ("far", &mut p.far, fitted.far, fitted_to_scene),
         ("side", &mut p.side, fitted.side, side_hover),
     ] {
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(name).weak());
+        setting(ui, name, hover, |ui| {
             let mut pinned = field.is_some();
-            if ui
-                .checkbox(&mut pinned, "")
-                .on_hover_text(hover)
-                .changed()
-            {
+            if ui.checkbox(&mut pinned, "").changed() {
                 *field = pinned.then_some(value);
             }
             match field {
@@ -464,15 +468,14 @@ fn huds_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
     use crate::app::config::{HAlign, Hud, HudAnchor, VAlign};
 
     if sim.huds.is_empty() {
-        ui.label(egui::RichText::new("none").weak());
+        note(ui, "none");
     }
 
     let mut remove = None;
     for (i, handle) in sim.huds.iter().enumerate() {
         let mut hud = handle.borrow_mut();
-        egui::CollapsingHeader::new(format!("hud {i}"))
-            .id_salt(i)
-            .show(ui, |ui| {
+        let icon = Icon::Codicon(super::icons::codicon::TEXT_SIZE, super::theme::palette::LAVENDER);
+        section(ui, icon, &format!("hud {i}"), ("hud", i), |ui| {
                 // Typing here takes the HUD off the script: what is typed
                 // goes in `pin`, which the frame uses in place of `text`.
                 // Without that an edit cannot survive at all -- a callback
@@ -481,6 +484,7 @@ fn huds_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
                 // iteration counter and not a `while` loop the script owns.
                 let pinned = hud.pin.is_some();
                 let mut buf = hud.pin.clone().unwrap_or_else(|| hud.text.clone());
+                ui.add_space(2.0);
                 let edited = ui
                     .add(
                         egui::TextEdit::multiline(&mut buf)
@@ -498,8 +502,9 @@ fn huds_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
                     hud.pin = Some(buf);
                 }
 
+                ui.add_space(2.0);
                 if hud.pin.is_some() {
-                    ui.horizontal(|ui| {
+                    line(ui, |ui| {
                         ui.label(
                             egui::RichText::new("pinned here, not the script")
                                 .weak()
@@ -528,14 +533,13 @@ fn huds_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
                     sim.state.iteration,
                 );
                 if shown != *template {
-                    ui.horizontal(|ui| {
+                    line(ui, |ui| {
                         ui.label(egui::RichText::new("shows as").weak().small());
                         ui.label(egui::RichText::new(shown).monospace().small());
                     });
                 }
 
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("anchor").weak());
+                setting(ui, "anchor", "The corner, edge or centre of the image it is placed against", |ui| {
                     egui::ComboBox::from_id_salt("anchor")
                         .selected_text(format!("{:?}", hud.anchor))
                         .show_ui(ui, |ui| {
@@ -555,15 +559,11 @@ fn huds_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
                             }
                         });
                 });
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("inset").weak());
+                setting(ui, "inset", "Pixels from the anchor, across and down", |ui| {
                     ui.add(egui::DragValue::new(&mut hud.x).speed(1.0));
                     ui.add(egui::DragValue::new(&mut hud.y).speed(1.0));
-                })
-                .response
-                .on_hover_text("Pixels from the anchor");
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("size").weak());
+                });
+                setting(ui, "size", "Letter height in pixels, and the colour", |ui| {
                     ui.add(egui::DragValue::new(&mut hud.size).speed(0.5).range(1.0..=200.0));
                     ui.color_edit_button_rgba_unmultiplied(&mut hud.color);
                 });
@@ -572,8 +572,9 @@ fn huds_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
                 // wants unless it is being pinned somewhere unusual -- so
                 // the default stays reachable rather than being overwritten
                 // the moment the picker is touched.
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("align").weak());
+                setting(ui, "align", "Which of its edges sits on the anchor; \"anchor\" follows it", |ui| {
+                    // Two lists side by side, halving the row.
+                    ui.spacing_mut().combo_width = (ui.available_width() - 8.0) / 2.0;
                     egui::ComboBox::from_id_salt("align_h")
                         .selected_text(match hud.align_h {
                             Some(a) => format!("{a:?}"),
@@ -600,17 +601,19 @@ fn huds_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
                         });
                 });
 
-                if ui.button("remove").clicked() {
-                    remove = Some(i);
-                }
-            });
+                line(ui, |ui| {
+                    if ui.button("remove").clicked() {
+                        remove = Some(i);
+                    }
+                });
+        });
     }
 
     if let Some(i) = remove {
         sim.huds.remove(i);
     }
 
-    if ui.button("add HUD").clicked() {
+    if line(ui, |ui| ui.button("add HUD").clicked()) {
         // A template rather than empty text, so a new HUD says something the
         // moment it appears and shows what a placeholder looks like.
         sim.huds.push(std::rc::Rc::new(std::cell::RefCell::new(Hud::new(
@@ -622,21 +625,17 @@ fn huds_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
 /// The picked facets: what is selected, and the two ways to change it that a
 /// pointer cannot do -- clearing the lot, and naming one by index.
 fn selection_ui(ui: &mut egui::Ui, sim: &mut Simulation, color: crate::Vec3) {
-    ui.label(
-        egui::RichText::new("click a facet in the scene to select it; click it again to drop it")
-            .weak()
-            .small(),
-    );
+    note(ui, "click a facet in the scene to select it; click it again to drop it");
 
     if sim.selected_facets.is_empty() {
-        ui.label(egui::RichText::new("none selected").weak());
+        note(ui, "none selected");
     }
 
     // Applied after the loop: dropping one mid-iteration shifts the rest.
     let mut drop_it = None;
     let many = sim.bodies.len() > 1;
     for (i, s) in sim.selected_facets.iter().enumerate() {
-        ui.horizontal(|ui| {
+        line(ui, |ui| {
             let name = if many {
                 format!("body {} facet {}", s.body, s.facet)
             } else {
@@ -656,7 +655,7 @@ fn selection_ui(ui: &mut egui::Ui, sim: &mut Simulation, color: crate::Vec3) {
         sim.toggle_facet(body, facet, color);
     }
 
-    ui.horizontal(|ui| {
+    line(ui, |ui| {
         if ui
             .add_enabled(
                 !sim.selected_facets.is_empty(),
@@ -700,14 +699,6 @@ fn selection_ui(ui: &mut egui::Ui, sim: &mut Simulation, color: crate::Vec3) {
     });
 }
 
-/// A collapsing section, opened by default or not.
-/// A topic header, folded. Every section starts closed so the panel opens as
-/// a table of contents rather than a wall -- Run, Bodies, Selection and HUD
-/// used to start open and pushed everything else below the fold.
-fn group(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui)) {
-    egui::CollapsingHeader::new(title).show(ui, add);
-}
-
 /// The right-hand panel: everything about the scene, by topic.
 ///
 /// One panel where there were two. It used to be the simulation's *entities*
@@ -723,6 +714,11 @@ fn group(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui)) {
 /// widgets come from `config_panel.rs`, generated one function per group, so
 /// a field added to the struct lands under the right header without anyone
 /// remembering.
+///
+/// Every section starts closed, so the panel opens as a table of contents
+/// rather than a wall -- Run, Bodies, Selection and HUD used to start open
+/// and pushed everything else below the fold. Each has its icon and colour,
+/// as the files tab has its file icons, to be found at a glance.
 pub fn simulation_panel(
     ui: &mut egui::Ui,
     sim: &mut Simulation,
@@ -735,109 +731,118 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config) {
     let sel = c.selection.color;
     let selection_color = crate::Vec3::new(sel.r as Float, sel.g as Float, sel.b as Float);
 
-    group(ui, "Run", |ui| {
-        ui.checkbox(&mut sim.state.is_paused, "is_paused");
+    topic(ui, codicon::PLAY_CIRCLE, palette::GREEN, "Run", |ui| {
+        setting(ui, "is_paused", "sim.state.is_paused -- hold the simulation; P toggles it", |ui| {
+            ui.checkbox(&mut sim.state.is_paused, "")
+        });
         // A cap on the frame rate, for watching something that otherwise
         // flashes past. The slider is live whether or not the cap is on, so
         // the value can be set first and the cap switched on to it; off, the
         // value is kept and does nothing. Logarithmic: the useful range runs
         // from one frame every few seconds to a few hundred a second.
-        ui.horizontal(|ui| {
-            ui.checkbox(&mut sim.state.rate_limited, "rate_limited")
-                .on_hover_text("sim.state.rate_limited -- cap the frame rate at rate_limit; one step is one frame, so the run slows with it. Off runs as fast as it can");
-            ui.add(
-                egui::Slider::new(&mut sim.state.rate_limit, 0.1..=1000.0)
-                    .logarithmic(true)
-                    .suffix(" fps"),
-            )
-            .on_hover_text("sim.state.rate_limit -- set it before or after switching the cap on; kept, and idle, while the cap is off");
-        });
-        ui.horizontal(|ui| {
-            let mut on = sim.state.pause_after_iteration.is_some();
-            if ui
-                .checkbox(&mut on, "pause_after_iteration")
-                .on_hover_text("sim.state.pause_after_iteration -- pause once this iteration has run")
-                .changed()
-            {
-                sim.state.pause_after_iteration = on.then_some(sim.state.iteration);
-            }
-            if let Some(n) = sim.state.pause_after_iteration.as_mut() {
-                ui.add(egui::DragValue::new(n).speed(1.0));
-            }
-        });
+        setting(
+            ui,
+            "rate_limited",
+            "sim.state.rate_limited -- cap the frame rate at rate_limit; one step is one frame, so the run \
+             slows with it. Off runs as fast as it can. The value can be set before or after switching the \
+             cap on; kept, and idle, while the cap is off",
+            |ui| {
+                ui.checkbox(&mut sim.state.rate_limited, "");
+                ui.spacing_mut().slider_width = (ui.available_width() - 76.0).max(40.0);
+                ui.add(
+                    egui::Slider::new(&mut sim.state.rate_limit, 0.1..=1000.0)
+                        .logarithmic(true)
+                        .suffix(" fps"),
+                );
+            },
+        );
+        setting(
+            ui,
+            "pause_after_iteration",
+            "sim.state.pause_after_iteration -- pause once this iteration has run",
+            |ui| {
+                let mut on = sim.state.pause_after_iteration.is_some();
+                if ui.checkbox(&mut on, "").changed() {
+                    sim.state.pause_after_iteration = on.then_some(sim.state.iteration);
+                }
+                if let Some(n) = sim.state.pause_after_iteration.as_mut() {
+                    ui.add(egui::DragValue::new(n).speed(1.0));
+                }
+            },
+        );
     });
 
-    group(ui, "Bodies", |ui| bodies_ui(ui, sim));
+    topic(ui, codicon::CIRCLE_LARGE_FILLED, palette::PEACH, "Bodies", |ui| bodies_ui(ui, sim));
 
     // Named for the anchor-body picker below, and collected first because
     // that reads `bodies` while the picker holds `camera` mutably.
     let names: Vec<String> = sim.bodies.iter().map(body_name).collect();
 
-    group(ui, "Selection", |ui| {
+    topic(ui, codicon::TARGET, palette::RED, "Selection", |ui| {
         selection_ui(ui, sim, selection_color);
-        sub(ui, "settings");
+        subheading(ui, "settings");
         group_selection(ui, c);
     });
 
-    group(ui, "Camera", |ui| eye_ui(ui, &mut sim.camera, &names, false));
+    topic(ui, codicon::DEVICE_CAMERA, palette::BLUE, "Camera", |ui| {
+        eye_ui(ui, &mut sim.camera, &names, false)
+    });
 
     // Where it is, then what it does as a light. One header, because that is
     // one thing.
-    group(ui, "Sun", |ui| {
+    topic(ui, codicon::STAR_FULL, palette::YELLOW, "Sun", |ui| {
         eye_ui(ui, &mut sim.sun, &names, true);
-        sub(ui, "light");
+        subheading(ui, "light");
         group_light(ui, c);
     });
 
-    group(ui, "Shading", |ui| group_shading(ui, c));
-    group(ui, "Shadows", |ui| group_shadows(ui, c));
-    group(ui, "Wireframe", |ui| group_wireframe(ui, c));
+    topic(ui, codicon::PAINTCAN, palette::MAUVE, "Shading", |ui| group_shading(ui, c));
+    topic(ui, codicon::COLOR_MODE, palette::LAVENDER, "Shadows", |ui| group_shadows(ui, c));
+    topic(ui, codicon::LAYERS, palette::TEAL, "Wireframe", |ui| group_wireframe(ui, c));
 
-    group(ui, "Data colouring", |ui| {
+    topic(ui, codicon::SYMBOL_COLOR, palette::PINK, "Data colouring", |ui| {
         group_data(ui, c);
-        sub(ui, "colour bar");
+        subheading(ui, "colour bar");
         group_colorbar(ui, c);
     });
 
-    group(ui, "Axes & grid", |ui| {
+    topic(ui, codicon::MOVE, palette::SKY, "Axes & grid", |ui| {
         group_axes(ui, c);
-        sub(ui, "grid");
+        subheading(ui, "grid");
         group_grid(ui, c);
     });
 
-    group(ui, "HUD", |ui| {
+    topic(ui, codicon::TEXT_SIZE, palette::LAVENDER, "HUD", |ui| {
         huds_ui(ui, sim);
-        sub(ui, "settings");
+        subheading(ui, "settings");
         group_hud(ui, c);
     });
 
     // The image drawn into the window. The window itself is the app's, in the
     // side panel's app tab; namespaced all the same, since the two have
     // `width` and `height` widgets of their own.
-    group(ui, "Image  (0 = follow the window)", |ui| {
+    topic(ui, codicon::FILE_MEDIA, palette::SAPPHIRE, "Image", |ui| {
+        note(ui, "0 follows the window");
         ui.push_id("image", |ui| group_image(ui, c));
     });
 
-    group(ui, "Controls", |ui| group_controls(ui, c));
+    topic(ui, codicon::RECORD_KEYS, palette::FLAMINGO, "Controls", |ui| group_controls(ui, c));
 
-    group(ui, "Export", |ui| {
-        ui.checkbox(&mut sim.export, "export")
-            .on_hover_text("Write every frame from now on");
-        if ui
-            .button("export one frame")
-            .on_hover_text("Write the next frame only")
-            .clicked()
-        {
-            sim.export_once = true;
-        }
-        sub(ui, "settings");
+    topic(ui, codicon::EXPORT, palette::GREEN, "Export", |ui| {
+        setting(ui, "export", "Write every frame from now on", |ui| ui.checkbox(&mut sim.export, ""));
+        setting(ui, "one frame", "Write the next frame only", |ui| {
+            if ui.button("export one frame").clicked() {
+                sim.export_once = true;
+            }
+        });
+        subheading(ui, "settings");
         group_export(ui, c);
     });
 
     // What the last frame could actually see, then the switches. The renderer
     // writes the diagnostics after fitting the frustums, and they are the
     // quickest answer to "why is my body not on screen".
-    group(ui, "Debug", |ui| {
+    topic(ui, codicon::DEBUG, palette::MAROON, "Debug", |ui| {
         let d = &sim.diagnostics;
         row(ui, "bodies", format!("{} of {} visible", d.n_visible, d.n_bodies));
         row(ui, "clipped near", d.out_near.to_string());
@@ -855,31 +860,15 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config) {
             );
             let occluded = d.n_visible.saturating_sub(d.occlusion.n_drawn());
             if occluded > 0 {
-                ui.label(
-                    egui::RichText::new(format!(
-                        "{occluded} in frustum but hidden behind another body"
-                    ))
-                    .weak()
-                    .small(),
-                );
+                note(ui, &format!("{occluded} in frustum but hidden behind another body"));
             }
         }
         if d.light_cube_clipped {
-            ui.label(
-                egui::RichText::new("light cube is outside the camera's far plane")
-                    .weak()
-                    .small(),
-            );
+            note(ui, "light cube is outside the camera's far plane");
         }
-        sub(ui, "switches");
+        subheading(ui, "switches");
         group_debug(ui, c);
     });
-}
-
-/// A quiet divider inside a header, between an entity and its settings.
-fn sub(ui: &mut egui::Ui, label: &str) {
-    ui.add_space(4.0);
-    ui.label(egui::RichText::new(label).weak().small());
 }
 
 #[cfg(test)]

@@ -3,21 +3,26 @@
 # Regenerate after changing any #[pyclass]:  python tools/gen_stubs.py
 
 import numpy  # noqa: F401
+from typing import Sequence
 
 class Entity:
-    def __init__(self, id: int, name: str, frame: str, label: str) -> None:
+    def __init__(self, id: int = ..., name: str = ..., frame: str = ..., label: str = ...) -> None:
         ...
     id: int
     name: str
     frame: str
 
 class Body:
-    def __init__(self, id: int, name: str, frame: str, label: str, radii: list[float], orbit_period: float, spin_period: float) -> None:
+    def __init__(self, id: int = ..., name: str = ..., frame: str = ..., label: str = ..., radii: Sequence[float] | numpy.ndarray = ..., orbit_period: float = ..., spin_period: float = ...) -> None:
         ...
     id: int
     name: str
     frame: str
-    radii: numpy.ndarray
+    @property
+    def radii(self) -> numpy.ndarray:
+        ...
+    @radii.setter
+    def radii(self, value: Sequence[float] | numpy.ndarray) -> None: ...
     orbit_period: float
     spin_period: float
     def radius(self) -> float:
@@ -28,21 +33,41 @@ class Body:
         ...
 
 class Camera:
-    def __init__(self, id: int, name: str, frame: str, label: str, px: list[int], fovy: float, filters: list[str]) -> None:
+    def __init__(self, id: int = ..., name: str = ..., frame: str = ..., label: str = ..., px: Sequence[int] | numpy.ndarray = ..., fovy: float = ..., filters: Sequence[str] = ...) -> None:
         ...
     id: int
     name: str
     frame: str
     label: str
-    px: numpy.ndarray
+    @property
+    def px(self) -> numpy.ndarray:
+        ...
+    @px.setter
+    def px(self, value: Sequence[int] | numpy.ndarray) -> None: ...
     fovy: float
     def npx(self) -> int:
         ...
 
 class Spacecraft:
-    def __init__(self, id: int, name: str, frame: str, label: str, id_cameras: list[str]) -> None:
+    def __init__(self, id: int = ..., name: str = ..., frame: str = ..., label: str = ..., id_cameras: Sequence[str] = ...) -> None:
         ...
     id: int
     name: str
     frame: str
+
+EARTH: Body
+MOON: Body
+MARS: Body
+PHOBOS: Body
+DEIMOS: Body
+DIDYMOS: Body
+DIMORPHOS: Body
+DIMORPHOS_PRE: Body
+TIRI: Camera
+AFC: Camera
+HERA: Spacecraft
+HALCA: Spacecraft
+MEX: Spacecraft
+TGO: Spacecraft
+DIDYMOS2: Body
 

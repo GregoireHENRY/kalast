@@ -3,20 +3,41 @@
 # Regenerate after changing any #[pyclass]:  python tools/gen_stubs.py
 
 import numpy  # noqa: F401
+from typing import Sequence
 
 class Vertex:
-    def __init__(self, pos: list[float] | None, normal: list[float] | None, color: list[float] | None, color_mode: int | None) -> None:
+    def __init__(self, pos: Sequence[float] | numpy.ndarray | None = ..., normal: Sequence[float] | numpy.ndarray | None = ..., color: Sequence[float] | numpy.ndarray | None = ..., color_mode: int | None = ...) -> None:
         ...
-    pos: numpy.ndarray
-    normal: numpy.ndarray
-    color: numpy.ndarray
+    @property
+    def pos(self) -> numpy.ndarray:
+        ...
+    @pos.setter
+    def pos(self, value: Sequence[float] | numpy.ndarray) -> None: ...
+    @property
+    def normal(self) -> numpy.ndarray:
+        ...
+    @normal.setter
+    def normal(self, value: Sequence[float] | numpy.ndarray) -> None: ...
+    @property
+    def color(self) -> numpy.ndarray:
+        ...
+    @color.setter
+    def color(self, value: Sequence[float] | numpy.ndarray) -> None: ...
     color_mode: int
 
 class Facet:
-    def __init__(self, pos: list[float] | None, normal: list[float] | None, area: float | None) -> None:
+    def __init__(self, pos: Sequence[float] | numpy.ndarray | None = ..., normal: Sequence[float] | numpy.ndarray | None = ..., area: float | None = ...) -> None:
         ...
-    pos: numpy.ndarray
-    normal: numpy.ndarray
+    @property
+    def pos(self) -> numpy.ndarray:
+        ...
+    @pos.setter
+    def pos(self, value: Sequence[float] | numpy.ndarray) -> None: ...
+    @property
+    def normal(self) -> numpy.ndarray:
+        ...
+    @normal.setter
+    def normal(self, value: Sequence[float] | numpy.ndarray) -> None: ...
     area: float
 
 class Material:
@@ -48,13 +69,19 @@ class Mesh:
         shadow map and hemicube drawing the old winding.
         """
         ...
-    def __init__(self, path: str | None, update_pos: object, vertices: list[Vertex] | None, facets: list[Facet] | None, indices: list[int] | None, material_id: int | None) -> None:
+    def __init__(self, path: str | None = ..., update_pos: object = ..., vertices: Sequence[Vertex] | None = ..., facets: Sequence[Facet] | None = ..., indices: Sequence[int] | numpy.ndarray | None = ..., material_id: int | None = ...) -> None:
         ...
-    def load(self, _cls: object, pyo3: object, path: str, update_pos: object) -> object:
+    def load(self, path: str, update_pos: object = ...) -> object:
         ...
     vertices: VerticesView
     indices: numpy.ndarray
-    facets: object
+    facets: Sequence[Facet]
+    """The facets, each one's position, normal and area, as a live view:
+    `len(mesh.facets)`, `mesh.facets[i].area`.
+
+    The view's class comes from `impl_mesh_view!`, which the stub
+    generator cannot read, so its type is written here.
+    """
     material_id: int | None
     positions: numpy.ndarray
     """`(v, 3)` — one row per vertex the file describes, shared between the
@@ -127,9 +154,9 @@ class Mesh:
         when smooth.
         """
         ...
-    def update_all_vertices_colors(self, mode: int, color: list[float]) -> None:
+    def update_all_vertices_colors(self, mode: int, color: Sequence[float] | numpy.ndarray) -> None:
         ...
-    def intersect(self, p: list[float], u: list[float], exit_first: bool) -> tuple[int, list[float]] | None:
+    def intersect(self, p: Sequence[float] | numpy.ndarray, u: Sequence[float] | numpy.ndarray, exit_first: bool = ...) -> tuple[int, list[float]] | None:
         ...
 
 class VerticesView:
@@ -140,16 +167,119 @@ class VerticesView:
     vertex has no single one of either to give. `mesh.normals`,
     `mesh.colors` and `get_facet_normals` are where they live.
     """
+    def __len__(self) -> int:
+        ...
+    def __getitem__(self, index: int) -> VertexView:
+        ...
     def append(self, element: Vertex) -> None:
         ...
     def clear(self) -> None:
         ...
-    def extend(self, elements: list[Vertex]) -> None:
+    def extend(self, elements: Sequence[Vertex]) -> None:
         ...
 
 class VertexView:
     pos: numpy.ndarray
 
 class FacetVerticesView:
+    def __len__(self) -> int:
+        ...
+    def __getitem__(self, index: int) -> VertexView:
+        ...
+
+def load_image(path: str) -> tuple[tuple[int, int], list[int]]:
+    ...
+def compute_facets(vertices: Sequence[Vertex], indices: Sequence[int] | numpy.ndarray) -> list[Facet]:
+    ...
+def normal_facet(ab: Sequence[float] | numpy.ndarray, ac: Sequence[float] | numpy.ndarray) -> numpy.ndarray:
+    ...
+def area_facet(ab: Sequence[float] | numpy.ndarray, ac: Sequence[float] | numpy.ndarray) -> float:
+    ...
+def is_point_in_or_on(p1: Sequence[float] | numpy.ndarray, p2: Sequence[float] | numpy.ndarray, a: Sequence[float] | numpy.ndarray, b: Sequence[float] | numpy.ndarray) -> bool:
+    ...
+def is_point_in_or_on_triangle(p: Sequence[float] | numpy.ndarray, a: Sequence[float] | numpy.ndarray, b: Sequence[float] | numpy.ndarray, c: Sequence[float] | numpy.ndarray) -> bool:
+    ...
+def is_facing_plane(u: Sequence[float] | numpy.ndarray, n: Sequence[float] | numpy.ndarray) -> bool:
+    ...
+def is_not_parallel_to_plane(u: Sequence[float] | numpy.ndarray, n: Sequence[float] | numpy.ndarray) -> bool:
+    ...
+def intersect_plane(p: Sequence[float] | numpy.ndarray, u: Sequence[float] | numpy.ndarray, a: Sequence[float] | numpy.ndarray, n: Sequence[float] | numpy.ndarray) -> numpy.ndarray | None:
+    ...
+def intersect_triangle(p: Sequence[float] | numpy.ndarray, u: Sequence[float] | numpy.ndarray, a: Sequence[float] | numpy.ndarray, b: Sequence[float] | numpy.ndarray, c: Sequence[float] | numpy.ndarray, n: Sequence[float] | numpy.ndarray) -> numpy.ndarray | None:
+    ...
+def intersect_triangle_moller_trumblore(p: Sequence[float] | numpy.ndarray, u: Sequence[float] | numpy.ndarray, a: Sequence[float] | numpy.ndarray, b: Sequence[float] | numpy.ndarray, c: Sequence[float] | numpy.ndarray) -> numpy.ndarray | None:
+    ...
+def intersect_mesh(mesh: object, p: Sequence[float] | numpy.ndarray, u: Sequence[float] | numpy.ndarray, exit_first: bool = ...) -> tuple[int, numpy.ndarray] | None:
+    ...
+def view_factor_scalar_with_area(area_b: float, angle_at_a: float, angle_at_b: float, distance_a2b: float) -> float:
+    """Compute the view factor between a facet A and B with area of facet B."""
+    ...
+def view_factor_scalar(angle_at_a: float, angle_at_b: float, distance_a2b: float) -> float:
+    """View factor between facet A and B but without area of facet B.
+    You can actually multiply by the area of facet A instead of B if A is transmitting energy to B.
+    """
+    ...
+def view_factor_facets(face_a: object, face_b: object, trans_b2a: numpy.ndarray) -> float:
+    ...
+def view_factor_triangles(tri_a: numpy.ndarray, tri_b: numpy.ndarray, ratio: float = ..., max_level: int = ...) -> float:
+    """View factor `F(A->B)` between two triangles given as (3, 3) arrays of
+    vertices, one row per vertex.
+
+    Subdivides when the pair is closer than `ratio` times its own size, so
+    unlike `view_factor_facets` it stays valid for neighbouring facets --
+    which is where self-heating actually happens. Returns the dimensionless
+    fraction of energy leaving A that reaches B.
+    """
+    ...
+def largest_slope_angle_sphere(S: float) -> float:
+    """Largest slope angle of spherical segment, in radian.
+
+    S: curvature diameter
+    """
+    ...
+def curvature_radius(r: float, d: float) -> float:
+    """Curvature radius in a concave segment, in radian.
+
+    r: radius crater
+    d: depth crater
+    """
+    ...
+def curvature_diameter_from_radius(d: float, R: float) -> float:
+    """Curvature diameter from radius, in a concave segment, in radian.
+
+    R: curvature radius
+    d: depth crater
+    """
+    ...
+def curvature_diameter_sphere(S: float) -> float:
+    """Curvature diameter of spherical segment, in radian.
+
+    g: largest slope angle
+    """
+    ...
+def z_in_crater(x: float, y: float, r: float, d: float) -> float:
+    """Z position inside crater
+
+    x, y: position
+    r: radius crater
+    d: depth crater
+    """
+    ...
+def rms_slope(f: float, g: float) -> float:
+    """RMS slope, in radian
+
+    f: coverage
+    g: largest slope angle
+    """
+    ...
+def rms_slope_hemisphere(f: float) -> float:
+    """RMS slope in case of hemispherical crater, in radian
+
+    f: coverage
+    """
+    ...
+def distribution_slope_angles(theta: float, a: float, b: float) -> float:
+    ...
+def rms_slope_terrain(theta: numpy.ndarray, a: numpy.ndarray) -> float:
     ...
 

@@ -793,14 +793,18 @@ pub struct AxesConfig {
 impl Default for AxesConfig {
     fn default() -> Self {
         Self {
-            style: crate::app::axes::AxesStyle::Off,
+            // The gizmo by default: it says which way the view looks and
+            // takes the clicks that turn it, and puts nothing in the scene.
+            // A script that exports a data product sets `"off"` (or
+            // `export.axes = False`), as the Hera examples do.
+            style: crate::app::axes::AxesStyle::Gizmo,
             color: [0.45, 0.45, 0.45],
             ticks: 5,
             unit: String::new(),
             label_size: 13.0,
             label_color: [0.85, 0.85, 0.85, 1.0],
             gizmo_anchor: HudAnchor::TopRight,
-            gizmo_size: 60.0,
+            gizmo_size: 30.0,
         }
     }
 }
@@ -987,6 +991,14 @@ pub struct Export {
     /// so it stays out of `render_texture` and therefore out of exports. Turning it
     /// on adds a separate pass that draws it into the exported image too.
     pub hud: bool,
+    /// Keep the axes -- grid, box or panes, gizmo, and their labels -- in
+    /// exported frames as well as on screen.
+    ///
+    /// On by default: an exported frame is what the window shows, bar the HUD.
+    /// Off, frames that are exported draw the axes in a second pass after the
+    /// copy, so the window keeps them and the export has the scene alone; other
+    /// frames are drawn as before.
+    pub axes: bool,
 }
 
 impl Default for Export {
@@ -996,6 +1008,7 @@ impl Default for Export {
             max_queued: 64,
             dir: "out/frames".to_string(),
             hud: false,
+            axes: true,
         }
     }
 }
@@ -1262,6 +1275,8 @@ pub struct AppConfig {
     /// Independent of `simulation.config.fullscreen`, which is the OS window
     /// and nothing else. Set both to be rid of everything at once; set this
     /// alone and the window stays where it is.
+    ///
+    /// :section: Panels
     pub focus: bool,
     /// Fold the editor's panels to the window edges; `N` toggles it.
     ///
@@ -1294,6 +1309,18 @@ pub struct AppConfig {
     ///
     /// Live and written back, like `toolbar_folded`.
     pub simulation_folded: bool,
+    /// What the editor's toolbar says beside the transport buttons.
+    ///
+    /// The same template as `huds`, so every placeholder works here too --
+    /// `{drawn}` for the iteration on screen, `{it}` for how many have been
+    /// begun, `{its}`, `{fps}`, `{ms}`, `{bodies}`, `{paused}`, `{warn}`,
+    /// `{gpu}` and its per-pass forms -- and a precision may be attached, as
+    /// `{fps:.1}`.
+    ///
+    /// Empty for a bare toolbar.
+    ///
+    /// :label: toolbar text
+    pub toolbar: String,
     /// The colours of the UI app's panels: `"catppuccin-mocha"`, the default,
     /// or `"dark"`, egui's own.
     ///
@@ -1301,6 +1328,8 @@ pub struct AppConfig {
     /// the renderer from `app.simulation.config` and shown as an image no
     /// theme tints, so a frame looks the same under either, on screen and
     /// exported.
+    ///
+    /// :section: Window
     pub theme: UiTheme,
 
     /// Open the window without taking focus, so a run can go on beside
@@ -1342,23 +1371,6 @@ pub struct AppConfig {
     /// :label: window height
     pub height: u32,
 
-    /// What the editor's toolbar says beside the transport buttons.
-    ///
-    /// The same template as `huds`, so every placeholder works here too --
-    /// `{drawn}` for the iteration on screen, `{it}` for how many have been
-    /// begun, `{its}`, `{fps}`, `{ms}`, `{bodies}`, `{paused}`, `{warn}`,
-    /// `{gpu}` and its per-pass forms -- and a precision may be attached, as
-    /// `{fps:.1}`.
-    ///
-    /// Empty for a bare toolbar.
-    ///
-    /// :label: toolbar text
-    pub toolbar: String,
-    /// Ask GitHub for a newer release when the UI app opens, and offer it in
-    /// the toolbar. On a thread, so nothing waits on it; never when a script
-    /// runs its own window. Off, kalast touches the network at no point.
-    /// :label: check for updates
-    pub check_updates: bool,
     /// The OS window title.
     pub title: String,
     /// Open the window in native fullscreen (borderless, current monitor).
@@ -1387,6 +1399,57 @@ pub struct AppConfig {
     /// 60 times a second. Set `True` when you are looking at a scene rather
     /// than timing one.
     pub vsync: bool,
+
+    /// Neovim in the script editor: your own `nvim` and your config, run the
+    /// way VS Code's Neovim extension runs it -- modes, motions, operators,
+    /// `:` commands, registers, macros and your mappings.
+    ///
+    /// Needs Neovim 0.10 or newer, as `nvim` on the PATH or named by
+    /// `neovim_path`. The config is read with `vim.g.kalast` set, so a part
+    /// of it that has no place here can be skipped with `if not vim.g.kalast`
+    /// -- the way `vim.g.vscode` is used for VS Code. Off, the editor takes
+    /// VS Code's keys.
+    ///
+    /// :section: Editor
+    pub neovim: bool,
+    /// The Neovim to run when `neovim` is on; empty for `nvim` on the PATH.
+    ///
+    /// :label: neovim path
+    pub neovim_path: String,
+    /// The column the script editor draws a vertical line at, 0 for none:
+    /// `editor.rulers` in VS Code, `colorcolumn` in Vim.
+    ///
+    /// :range: 0..=200
+    pub ruler: u32,
+    /// Completion, hover, signatures and errors in the script editor, from a
+    /// language server -- pyright for Python, rust-analyzer for Rust -- the
+    /// servers VS Code runs for its own.
+    ///
+    /// Each runs as a process of its own at low priority, so a simulation
+    /// never waits on it. One that is not installed is skipped, and the log
+    /// says how to install it.
+    ///
+    /// :label: language servers
+    pub language_servers: bool,
+    /// The command starting the Python language server; empty for the first
+    /// of `basedpyright-langserver`, `pyright-langserver`, `pylsp` and
+    /// `jedi-language-server` found.
+    ///
+    /// :label: python server
+    pub python_language_server: String,
+    /// The command starting the Rust language server; empty for
+    /// `rust-analyzer`.
+    ///
+    /// :label: rust server
+    pub rust_language_server: String,
+
+    /// Ask GitHub for a newer release when the UI app opens, and offer it in
+    /// the toolbar. On a thread, so nothing waits on it; never when a script
+    /// runs its own window. Off, kalast touches the network at no point.
+    ///
+    /// :section: Updates
+    /// :label: check for updates
+    pub check_updates: bool,
 }
 
 impl Default for AppConfig {
@@ -1404,10 +1467,16 @@ impl Default for AppConfig {
             width: 0,
             height: 0,
             toolbar: "iteration {drawn}    {fps} fps".to_string(),
-            check_updates: true,
             title: "kalast".to_string(),
             fullscreen: false,
             vsync: false,
+            neovim: false,
+            neovim_path: String::new(),
+            ruler: 80,
+            language_servers: true,
+            python_language_server: String::new(),
+            rust_language_server: String::new(),
+            check_updates: true,
         }
     }
 }

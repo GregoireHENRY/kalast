@@ -3966,3 +3966,439 @@ in 818 samples of 818 and the tab showed the notice; after, the pipe in 816
 of 816, a line written through `GetStdHandle(STD_OUTPUT_HANDLE)` in the
 kalast tab, and no notice.
 
+
+## 2026-09-26 — the gizmo by default, and axes kept out of exports
+
+`axes.style` defaults to `"gizmo"` (it was `"off"`) and `axes.gizmo_size` to
+30 (60): the gizmo says which way the view looks and turns it, and puts
+nothing in the scene. It is drawn into the texture the exporter copies, so
+every example that relied on the old default -- all those making an `App`
+without setting the axes, the Hera scripts and `landmark_tracking` among them,
+twenty outside `examples/old/` -- now sets `axes.style = "off"` explicitly.
+
+`export.axes` (default `True`) leaves the axes out of exported frames while
+the window keeps them. The HUD could already do that because it is drawn onto
+the swapchain after the copy; the axes are drawn in the main pass, before it.
+So a frame that is exported with `export.axes = False` draws them in a second
+pass once the exporter has its copy (`Pass::render_annotations`): it loads
+the colour and depth the first pass stored, draws the grid, the axes and the
+gizmo, and resolves again, and the blit to the window moves after it. With
+MSAA the first pass keeps its samples instead of discarding them, on those
+frames only. Other frames draw everything in one pass as before, so the
+option costs nothing until a frame is exported. The one visible difference
+on such a frame is the order: the axes land over the colour bar rather than
+under it. The debug depth overlay moves after the annotations so it stays on
+top.
+
+The axes' text follows the axes: tick labels and the gizmo's letters go into
+an export with `export.axes`, where tick labels used to need `export.hud`.
+
+`tests/test_export_axes.py` exports one frame with the gizmo three times --
+`export.axes` on, off, on -- at MSAA 4 and 1: 1,760 and 1,741 gizmo pixels in
+its corner with it on, 0 with it off, the next export with it on back to the
+same count, and not one level of difference anywhere else. A capture of the
+UI app exporting every frame with it off showed the gizmo in the viewport and
+none in the files.
+
+## 2026-09-26 — panels cover the scene instead of zooming it
+
+Folding the log zoomed the scene out and the side panel did not. `fovy` was
+the viewport's own vertical field, so a panel taking height made the same
+field fit fewer pixels, while one taking width only cut the side off. Now
+`fovy` spans the window's height and the viewport shows its share of it
+(`Projection::viewport_scale`, the viewport's height over the window's, set
+by the editor each frame and 1 anywhere else): folding any panel covers or
+uncovers the scene at the same scale. Perspective narrows through
+`tan(fovy / 2)`, orthographic through `side`, by the same ratio, so a plane
+view and its perspective still agree. `Eye::frame` fits to the field the
+viewport shows, or a body framed behind an open log lost its top and bottom.
+
+The other half was the slide. The image is rendered for last frame's
+viewport, and was drawn *fitted* into this frame's, so every frame of a panel
+sliding open rescaled it -- the scene pumped. It is drawn pixel for pixel
+now, centred, on the scene's background colour, and a sliding panel shows or
+hides a sliver at the edge for a frame instead.
+
+Measured with the bundle before and the module after, a background UI app
+exporting a frame per layout: the body 269, 277, 295, 272 px tall as the log
+and toolbar folded and came back, then 337 px in every one. 207 captures of
+the window while the log slid open and shut four times: 336-337 px in all of
+them, the centre gliding over ~120 ms. The cost: with the toolbar and log
+open the default view is about 25 % closer than it was, since the field is
+the window's now; with the panels folded -- the Hera scripts -- nothing
+changes. `a_shorter_viewport_crops_the_view_rather_than_zooming` holds the
+property in both projections.
+
+## 2026-09-26 — the UI app as VS Code draws it, and a reset
+
+Asked for as a list, from someone who works in VS Code with Catppuccin's
+icons: the explorer's icons, an editor that looks like one, VS Code's
+buttons, a python tab that feels like a terminal, and a way back to an empty
+scene.
+
+**Reset** (toolbar, red): a request of the same kind as Play's, so a driven
+script's `step()` answers `false` and its loop ends (`Shared::superseded`),
+then between frames the callbacks go, the scene is renewed as a new app has
+it (`Simulation::renew`) and the last script is forgotten, so Play renews the
+config too. `reset_leaves_the_scene_as_a_new_app_has_it`.
+
+**Icons.** Buttons use Codicons, VS Code's own icon font (CC BY 4.0), as a
+fallback in both egui font families so a code point draws inside any label;
+the toolbar's actions are icon-only with a background only under the pointer
+(`frame_when_inactive(false)`), in the debug toolbar's colours -- run and
+restart green, step and pause blue, reset red. The files use Catppuccin's
+Mocha icons (MIT), SVGs through egui_extras' loader: its `svg` feature only,
+`resvg` without text or raster images. 95 of the 650, chosen for what a
+kalast tree holds; which file gets which is the extension's own table, read
+from its `fileIcons.ts` and `folderIcons.ts` at a pinned commit by
+`tools/gen_icons.py`, which writes `icon_table.rs` -- plus kalast's own for
+what the extension does not know: `.pyi`, SPICE kernels, `notes`, `res`.
+Both licences are in `src/app/gui/assets/`, packaged by `Cargo.toml`'s
+`include` (it listed only `*.rs` under `src/`), and credited in the README.
+
+**The explorer** is drawn rather than built from egui's collapsing headers:
+rows the panel's width, lit under the pointer and for the open file, a
+chevron, the icon, indent guides, a click anywhere on a folder's row.
+
+**The editor** highlights Python and Rust with a tokenizer of its own
+(`gui/code.rs`) rather than egui_extras' `syntect` feature, which would
+embed a megabyte of grammars for two languages: Catppuccin's VS Code rules,
+Dark+ under the dark theme. Line numbers and the current line's band are
+painted from the `TextEdit`'s own galley, so they sit on its rows exactly;
+`Tab`/`Shift`+`Tab` indent with spaces, `Enter` keeps the indentation.
+
+**The python tab**: Python's banner (written by `capture_output`, where the
+version is known), the prompt inside the scroll area after the last line --
+not pinned to the panel's foot -- `>>>` and code in colour, tracebacks red,
+`Ctrl`+`L` to clear and `Ctrl`+`C` to drop the line and any open block, which
+reaches Python as a new `console_take_interrupt`. The panel-height test
+follows the new layout and still holds.
+
+Checked in captures of the UI app kept behind every window, with the tabs'
+defaults switched for the capture and back: the icons crisp at 16 px, the
+explorer's selected row and guides, the colours of the editor and of a
+traceback. The library's tests: 177 of 178, the one failing on Windows
+before any of this.
+
+## 2026-09-26 — the editor's helpers: a language server, Neovim, and the side panel in sections
+
+Asked for from the same VS Code: its completion and hover in the editor,
+Neovim navigation as the VS Code Neovim extension gives it with the user's
+own config, the 80-column ruler, icons on the side panel's sections and tabs,
+the old OpenGL kalast's logo, the gizmo at 30.
+
+**The side panel.** Tabs are Codicons -- gear, globe, files -- with no rule
+under them; sections are rows with a chevron, a Codicon in a palette colour
+and the title, closed until clicked, open state kept by title
+(`gui/widgets.rs`). Every setting is a row: its name in a column of its own,
+cut with an ellipsis and its doc on hover, the control filling the rest. The
+generator emits `setting(...)` for every type, where each widget used to lay
+itself out (a checkbox's name after it, a slider's to its right, a drag
+field's as a prefix) and no two lined up. `AppConfig` is flat, so its fields
+are gathered under the app tab's headers by a `:section:` marker instead of
+by nesting, one `app_<section>` function each.
+
+**Language servers** (`gui/script/lsp.rs`). JSON-RPC over the server's stdio,
+a process of its own at below-normal priority and with no console window; a
+reader thread answers the server's own requests at once (pyright analyses
+nothing until it has its settings) and queues the rest for the UI, which
+takes them once a frame and never waits. Replies are matched to the latest
+request of each kind, so a slow answer about old text is dropped. The whole
+text goes with every change. Found beside the interpreter, on the PATH, in
+`~/.local/bin`, `~/.cargo/bin` or mason's folder; the interpreter comes from
+Python (`editor_set_python(sys.executable)`), so `import kalast` resolves to
+what the script runs. Two things found by driving it: the document was synced
+at the top of the frame and the requests made at the bottom, so every request
+was a keystroke behind (`np.` asked about a text with no `.`); and the Python
+workspace was the folder kalast started in -- 2877 files in the repository,
+most of them the bundled Python under `dist/` -- so the first completion
+waited behind the auto-import index of all of them, longer than the test.
+Now: the script's folder, or the nearest above it that configures pyright.
+The first answer after that came in 1.8 s, the next in 0.3-0.7 s.
+`KALAST_LSP_TRACE` logs every message, which is how both were found.
+
+**The editor** (`gui/script/mod.rs`) draws over either view: the completion
+list with VS Code's kind icons and the selected item's docs beside it
+(resolved when selected, as blink.cmp shows them), fuzzy-filtered while the
+word grows and asked again when the server says its list was incomplete;
+signature help on `(` and `,`; hover after 300 ms on a word, diagnostics
+first; errors underlined, their line tinted, the message at its end (Error
+Lens, which that VS Code has); F12 and Ctrl+click jump within the file or
+peek into another; F8 walks the problems. A status bar counts them.
+Markdown from servers is rendered by a small parser of its own
+(`markdown.rs`): code fences highlighted, rules, setext headings, inline code.
+
+**Neovim** (`gui/script/nvim.rs`). `nvim --embed` with the user's config
+(`g:kalast` set), `nvim_ui_attach` with `ext_multigrid` -- `win_viewport`
+carries the cursor and top line in buffer terms, which a view drawing its own
+text needs -- and `ext_cmdline`, `ext_messages`, `ext_popupmenu`, so the
+command line, the messages and Neovim's own menu are drawn by kalast;
+`nvim_buf_attach` streams the buffer's changes into kalast's copy, which is
+the script that runs. The selection has no UI event, so an autocmd sends it;
+`buftype=acwrite` makes `:w` kalast's save; cmdline abbreviations make `:q`
+and `:wq` leave the editor rather than Neovim; `K`, `gh`, `gd`, `]d` are
+mapped in the buffer to ask kalast's server, since the config's LspAttach
+never fires there; `vim.b.completion = false` stands blink.cmp down, whose
+menu would be invisible. Every key goes to Neovim except Ctrl+S; the mouse
+through `nvim_input_mouse` in the window's own cells (`textoff` from
+`getwininfo`), so a drag is a visual selection and a double click a word, as
+in a terminal; the view eases to Neovim's top line. Neovim's window is 500
+columns wide so it never scrolls sideways on its own, and as tall as the
+text shown so `H`, `L` and `<C-d>` count what is on screen. CRLF scripts go
+in as lines and come back with their endings. The cursor is read only once a
+redraw's `flush` has followed a change -- a keystroke's lines and its cursor
+can land a frame apart. One trap: `Response::has_focus` is false whenever the
+OS window is not the active one, so a window driven in the background never
+took the keys; the view reads egui's own focus record, and only the cursor's
+fill follows the window.
+
+**Stubs** (`tools/gen_stubs.py`), since the language server reads them: the
+defaults of `#[pyo3(signature)]`; what a parameter accepts rather than what a
+getter returns (`Sequence[float] | numpy.ndarray` where `[f64; 3]` goes in),
+a property with its own setter where the two differ; names resolved to the
+nearest module (three classes are called `Body`, and the last one seen, the
+setup routine's, was imported into `simulation.pyi`, so every
+`sim.bodies[0].mat` was unknown); the container protocol kept; and, for a
+stub shadowing a `.py` of re-exports, the functions, constants and classes
+the module re-exports. `before_render` and `after_render` are typed and
+documented as they are called, with the simulation. basedpyright over the
+40 examples outside `examples/old`: 373 errors before, 208 after.
+
+**The logo** of the OpenGL kalast: the window's and taskbar's icon (winit,
+from the PNG), `kalast.exe`'s from its `.ico` through `embed-resource` into
+that binary only -- optional, the build goes on without the resource
+compiler -- and the empty scene's watermark with the keys to start with.
+
+Checked: the library's new tests, among them a real Neovim (`--clean`) edited
+through the bridge -- `dd`, `ciw`, `u`, `V`, `:w`, `:q`, `K`, an error, a
+completion with its import -- and a real basedpyright answering a
+completion, a hover and a diagnostic. And the UI app driven in the background
+with posted messages: a click is posted as move, press and release in one
+native call, or winit's pointer-leave, which Windows sends at once when the
+real pointer is elsewhere, lands between them. Seen in captures: the sections
+and rows, the app tab, the ruler and diagnostics, Neovim's modes, relative
+numbers, cursor shapes, `/` on the command line, `gh`'s hover, completion
+and its docs accepted in both views, the watermark, the window icon.
+
+### Open
+
+- `kalast/tpm/routine.pyi` is a stub holding one commented line, and it hides
+  every name of `routine.py` from any checker -- most of the 208 errors left
+  in the TPM examples. It predates the generator; whether to remove it is the
+  user's call.
+- Of the rest: examples passing floats to `column(b: int)`, `Properties.se`,
+  names imported into `kalast.util` without being re-exported.
+- Not seen in a capture: signature help and the hover under a resting pointer
+  -- posted input can neither press Shift nor keep a pointer over a
+  background window. The same popups are seen through `gh`.
+- macOS: an application's icon comes from its bundle's `.icns`, which the
+  release does not make yet; winit ignores a window icon there.
+
+## 2026-09-26 — a documentation tab, `docs/`, and what came with them
+
+Asked for: the documentation readable inside kalast, a tab in the middle
+beside the renderer and the editor rendering `API.md`, `CONFIG.md`,
+`CONTROLS.md`, `CHANGELOG.md`, `res/README.md` and `examples/README.md`; and
+the notes gathered in a root folder `docs`.
+
+**`docs/`** holds the three living references, moved from `notes/`. The
+timeline and the dated write-ups stay in `notes/`: they are a record, not a
+reference. `CHANGELOG.md` stays at the root, where the version gate and the
+release workflow read it, and the two READMEs beside what they describe;
+moving those too is the user's call. References followed: the README, the
+examples' README -- whose three links pointed into `examples/notes/`, which
+never existed, and whose `res/README.md` link into `examples/res/` --
+`Cargo.toml`, `hosted.rs`, `CLAUDE.md`, and the release workflow, which ships
+`docs/` in the bundle now. The references' bare mentions of dated notes got
+their `notes/` prefix.
+
+**The tab** (`gui/docs.rs`). The six pages are compiled in, `include_str!` --
+a pip install has no `docs/` beside it, and what is shown is then what the
+build does -- so they are in `Cargo.toml`'s `include`. Parsed once with
+pulldown-cmark into blocks and drawn by kalast. Not `egui_commonmark`,
+though its 0.25 does build against egui 0.36: its scroll-to-heading takes
+only explicit `{#id}`s, where the pages link GitHub's anchors
+(`API.md#what-a-mesh-carries`), and it lays the whole page out every frame
+-- its `show_scrollable`, which would not, is hidden as buggy. Here only the
+blocks in view are laid out and drawn, the others skipped at the height they
+had, remembered per width and scale; the first frame at a width measures them
+all. Anchors are GitHub's: lower case, spaces to hyphens, punctuation
+dropped, `-1` for a repeat. egui has no bold face, so bold is the text laid
+out a second time with everything else transparent and drawn a physical pixel
+to the right. Inline code's background is painted from the glyphs' own boxes
+-- a section background would fill the whole spaced-out line. Tables: each
+column its widest cell, and when they do not fit, the widest cut to a common
+width and wrapped, the narrow left whole. Code blocks go through the editor's
+highlighter, unwrapped, scrolling sideways when too wide, with a copy button.
+The outline folds `###` under `##` and lights the heading last scrolled past,
+keeping its row in view. A link goes to a page or a heading, opens a script or
+a mesh as the files tab does and turns the middle to it, shows a folder open
+in the files tab, and sends anything else to the browser -- a file of the
+repository that is not on this disk to GitHub. `every_link_leads_somewhere`
+checks that the pages' 40 relative links and their anchors resolve.
+
+Found by driving it: no link followed a posted click. The tap's pointer
+leaves in the same frame, so `hover_pos()` is `None` when `clicked()` fires --
+and a touch screen's tap is the same. A click is placed where it pressed,
+`interact_pointer_pos()`. And `→`, `⇄`, `⌥`, `●` drew as boxes: egui's
+Ubuntu Light has none of them. DejaVu Sans, compiled in for the HUD already,
+is now the last fallback of both of egui's families, one static for both.
+
+**Also since the last entry.** The welcome goes the first time the camera
+moves -- its fifteen numbers compared with a tolerance, frames skipped after a
+reset so the reset's own camera is not a move -- and comes back with Reset;
+its first line points at the files tab by its icon, not as a key cap, which
+read as `Tab`. The three side tabs share the files tab's grid: 22-point rows,
+no gap. Neovim's `E32: No file name` on `:w`: a config's `<S-h>`
+(`:bprevious`) reached the empty buffer Neovim starts in; that buffer is
+closed at setup, a file Neovim goes to is opened in kalast while Neovim goes
+back to the script, another buffer is named on the bar, and the script's
+buffer deleted restarts Neovim. A mesh opened on its own gets the gizmo:
+`open_mesh` set Blender's axes when the default was none, and kept doing so.
+And the frame exporter made its folder when the window was made, so every
+script run from its own folder left an empty `out/frames` -- the one seen in
+`examples/cube`; it is made at the first frame written now.
+
+Checked: the six tests of `docs.rs` -- parsing, anchors, links, column
+widths, and every page drawn at two widths with a heading jumped to --, the
+Rust library's tests (205 of 206: `the_search_path_is_two_arguments` fails on
+Windows, as it did before) and the 21 Python test files. In background captures:
+the tab at 1500 and 1000 points wide, every page, an outline row jumped to,
+a folder, a script and a page followed from their links, a wide code block
+cut to scroll, the arrows, the simulation tab's camera rows, and the tab in
+a rebuilt local bundle's `kalast.exe`; and a script run from a scratch folder
+without exporting leaves no `out/`.
+
+### Open
+
+- Not seen in a capture: the page under the wheel and the copy button, which
+  both want a pointer resting over a background window.
+- No search in the pages yet.
+- The previous entry's open points stand, `kalast/tpm/routine.pyi` among
+  them.
+
+## 2026-09-26 — the README in the documentation tab; the welcome, and a bundle that opened five windows
+
+Asked for: the main README among the pages. Reported: the welcome did not go
+when the camera was turned; and in the bundle, opening an example opened
+about five kalast windows, each saying `don't know what to do with import
+os, os.path, sys; ...: expected .py, .rs or .obj`, after which `import numpy`
+could not be resolved.
+
+**The README** is the first page, the one the tab opens on. Its logo is an
+HTML `<img ... align="right">`, and HTML blocks were skipped: an `<img>` in
+one is a picture now, looked up by path among those compiled in -- the logo,
+of which there is one copy now for the window's icon, the watermark and the
+page. Floated right as GitHub floats it: no height of its own, and the blocks
+beside it laid out narrower until past its bottom -- placed whether it is in
+view or not, since those blocks were measured narrowed and are skipped at
+those heights. The test that reads every link reads every picture too.
+
+**The welcome.** A new app's camera sits on its anchor, both at the origin,
+and the arcball leaves an eye on its anchor alone -- no radius to orbit --
+so a middle-drag moved nothing, and a welcome waiting for the camera to move
+waited for ever. The first check passed because its script moved the camera
+itself. It goes on the asking now: `Controller::asks_to_move`, read in the
+frame before the camera spends the input, sets the editor's `camera_asked`.
+The movement keys count only with WASD: they are fed to the controller in
+every mode, and `Shift`, the arcball's pan modifier, is one of them. Not
+driven in a capture: the camera reads raw mouse input, which cannot be
+posted to a background window; the controller's side is a unit test.
+
+**The bundle's language server.** A release bundle's interpreter is linked
+into `kalast.exe`, so there `sys.executable` is `kalast.exe` -- and that was
+handed to basedpyright as its Python. Each of its `python -c ...` runs, for
+the version and the search paths, started another kalast, which took the code
+for a file to open; with no answer, numpy was nowhere. `set_python` now
+skips the path when it is the `kalast` binary carrying its interpreter --
+which says so at startup, `set_python_embedded` -- and only then: under a
+real interpreter `sys.executable` can be the running process too, a
+`python.exe` with no venv or a venv's `python`, a symlink to it, and the
+first version of this fix would have dropped exactly what the server wants.
+The bundle's `site-packages` goes to the server as `extraPaths`; and
+`kalast.exe` refuses a first argument with a
+single dash -- Python's options; kalast's are `--` ones -- with a line on
+stderr and exit code 2 instead of a window. Considered and left: making
+`kalast.exe` answer Python's command line through `Py_Main`, which pyo3-ffi
+exposes. pyright may run it with `-I`, which ignores the `PYTHONHOME` the
+bundle's interpreter finds its standard library by, and `PyConfig`, the way
+around that, is outside the abi3 API -- a second command line nobody asked
+for, with a trap in it.
+
+Checked: the new tests -- the controller asking from on its anchor, `<img>`
+parsing, every page's pictures, `extraPaths` in the server's settings --
+with the documentation tab's, and in captures the README page with its logo.
+In a rebuilt bundle: `kalast.exe -c ...` and `-I -c ...` exit 2 with the
+message and open nothing; an example opened from the examples' README with
+basedpyright running kept one kalast process throughout, and `import numpy`
+and `import kalast` resolve -- the one error left is a bare `a` in the local
+copy of `cube/light.py`. The same example under `python -m kalast` still
+gets the venv's interpreter. The Rust library's tests: 207 of 208,
+`the_search_path_is_two_arguments` failing on Windows as before; the 21
+Python test files pass.
+
+## 2026-09-26 — a new app's camera stands back from the origin
+
+Asked for after the entry above: the camera's default not at the origin,
+which was the welcome's root cause. `Eye::new` stays as it is -- the Sun and
+the tests build on it -- and a new app's camera is `Eye::standing_back`:
+Blender's default camera, `BLENDER_VIEW` `(7.36, -6.93, 4.96)`, looking at the
+origin with world up up, the bearing `frame_all` already framed a lone mesh
+from, now one constant for both. So the empty scene orbits -- the gizmo turns
+with it -- and a script that loads a body without placing the camera sees it
+from 11.2 away instead of from inside it. No example set `camera.pos`
+without also setting where it looks, so none changes view. Reset and a new
+script go back to it through `Simulation::new`, as before. The welcome keeps
+going on the asking as well as on a move. The two framing tests that checked
+the camera had "backed off" from the origin now check that it was framed,
+since a new app's camera is outside the mesh already.
+
+## 2026-09-26 — the completion list under the wheel; a bundle rebuilt from under its user
+
+Reported: the completion list moved with the arrows but not with the wheel.
+It keeps its own window of ten rows, and did read the wheel, but two things
+undid it: every frame the window was brought back to the selection, so a
+scroll lasted one frame; and egui spreads a notch over several frames, a few
+points each, which rounded to 22-point rows one frame at a time came to
+nothing. The window now follows the selection only when the selection moves
+-- the arrows, a refilter -- and the wheel's travel is summed until it makes
+whole rows, the selection staying put, as VS Code's list scrolls. A test
+drives the editor through egui frames with a notch over the list; with the
+old following restored it fails, `scrolled down by rows, got 0`.
+
+And a mistake of the session's own. The local bundle in `dist/` was rebuilt
+while the user had it open: the build script's `rm -rf` of the old bundle
+deleted everything it could -- `kalast.exe`, `python/`, `res/` -- before
+stopping on the one folder in use, and left the running kalast without its
+files; the repository's `kalast.exe.lnk` then pointed at nothing, and Windows'
+offer to delete such a shortcut took it. The script (scratch, not the
+repository's) now moves the old bundle aside before deleting it: Windows will
+not rename a folder while anything in it is in use, so a bundle in use stops
+the build whole. The shortcut was made again as it was.
+
+## 2026-09-26 — Reset whenever
+
+Asked for: Reset clickable at any time, so the welcome comes back after the
+camera has been turned in the empty scene. It was greyed until a script had
+run or a body was loaded; it is enabled now whatever the scene, except in a
+launched Rust example's own window, which is the example itself. Nothing
+else was needed: `reset_scene` renews the simulation -- a new app's camera
+with it -- and the UI brings the welcome back on any reset. Checked in the
+background: a script moving the camera after Play took the welcome away and
+Reset brought it back, the camera with it. Some posted taps on the button were
+lost at first -- the pointer-leave race of posted input, which the same tap
+repeated did not lose again; five taps across the icon all reset.
+
+## 2026-09-26 — a completion's documentation under the pointer
+
+Reported: in the list `app.simulation.config.` opens, the pointer on
+`shading` did not show its documentation. The panel beside the list shows
+the selected item's, and the pointer never selected: it only lit the row.
+The pointer moving over a row selects it now, so the panel follows it and
+`Enter` takes what is lit. Only moving: a pointer resting on the list would
+otherwise take the selection from the keyboard as a word is typed and the
+list refilters, or as the wheel scrolls rows under it. The documentation is
+the stub's -- `shading: ShadingConfig`, "How the surface is coloured and the
+image encoded." -- seen in the app with `shading` selected by typing; the
+pointer's part is in the completion test, since a background window has no
+pointer to move.

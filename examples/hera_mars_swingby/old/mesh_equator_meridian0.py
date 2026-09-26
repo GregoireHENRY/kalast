@@ -13,6 +13,7 @@ app.config.debug_light_cube_show = True
 app.config.width = 1024
 app.config.height = 768
 app.config.global_color_mode = 1
+app.simulation.config.axes.style = "off"
 
 app.simulation.camera.pos = [50.0, 0.0, 0.0]
 app.simulation.camera.dir = [-1.0, 0.0, 0.0]

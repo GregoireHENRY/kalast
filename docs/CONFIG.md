@@ -142,7 +142,7 @@ Measured on macOS, sampling the frontmost application every 400 ms through a
 It never takes focus at all, and the run is unaffected: same iteration count,
 and the exported frame is **pixel-identical** to a focused run. (Not to be
 confused with an *occluded* window, which used to stop the simulation entirely
-— that was a bug and is fixed; see `2026-09-09_gpu_pass_timings.md`.)
+— that was a bug and is fixed; see `notes/2026-09-09_gpu_pass_timings.md`.)
 
 Two things are needed on macOS and this does both: the window is ordered in
 rather than made key, **and** the application is stopped from activating over
@@ -196,6 +196,55 @@ it is offered nothing. Pre-releases are offered to nothing else.
 `kalast --update` (or `python -m kalast --update`) does the same from a
 terminal. `KALAST_UPDATE_PRETEND=0.5.4` makes this copy claim that version,
 to try the path without waiting for a release. `src/app/update.rs`.
+
+### The script editor
+
+Remembered between sessions, like the theme, when changed in the app tab.
+
+### `app.config.neovim: bool` — default `False` *(live, remembered)*
+The editor as your own Neovim, run the way VS Code's Neovim extension runs it:
+`nvim --embed`, your config, every key -- see CONTROLS.md. Needs Neovim 0.10 or
+newer, as `nvim` on the PATH or named by `neovim_path`. The config is read with
+`vim.g.kalast` set. If Neovim cannot be started the log says why and the editor
+stays the plain one; if it quits -- `:qa`, a crash -- it is started again, up to
+three times a minute.
+
+### `app.config.neovim_path: str` — default `""` *(live, remembered)*
+The `nvim` to run; empty for the one on the PATH, then the usual install
+folders.
+
+### `app.config.ruler: int` — default `80` *(live, remembered)*
+The column the editor draws a vertical line at, 0 for none: `editor.rulers` in
+VS Code, `colorcolumn` in Vim.
+
+### `app.config.language_servers: bool` — default `True` *(live, remembered)*
+Completion, hover, signatures, errors and go-to-definition in the editor, from
+a language server -- the servers VS Code runs. For Python, the first found of
+`basedpyright-langserver`, `pyright-langserver`, `pylsp` and
+`jedi-language-server`, beside the interpreter the script runs with (a venv's
+`Scripts` or `bin`), on the PATH, in `~/.local/bin` (`uv tool install
+basedpyright`), or in Neovim's mason folder; for Rust, `rust-analyzer`. One not
+installed is said so in the log, once.
+
+Each runs as a process of its own at below-normal priority, so a simulation
+never waits on it, and is told the interpreter scripts run with, so `import
+kalast` and numpy resolve to what the script imports -- in a release bundle,
+whose interpreter is inside the executable, the bundle's packages instead. Python is checked in
+pyright's `"standard"` mode, with what may be `None` or unbound a warning
+rather than an error; a `pyrightconfig.json` or a `[tool.pyright]` in the
+project has the last word. The Python server works in the script's folder, or
+the nearest one above it holding that configuration; rust-analyzer in the cargo
+workspace, with a target folder of its own and no `cargo check` on save.
+
+`KALAST_LSP_TRACE=<file>` writes every message to and from the servers to that
+file, what VS Code's `trace.server` shows.
+
+### `app.config.python_language_server: str` — default `""` *(live, remembered)*
+The command starting the Python server, for one not found by the search above
+-- `"pyright-langserver --stdio"` -- quoted where a path has spaces.
+
+### `app.config.rust_language_server: str` — default `""` *(live, remembered)*
+The command starting rust-analyzer, likewise.
 
 ### `app.config.toolbar: str` *(live)*
 What the editor's toolbar says beside Play, Restart and Step. Default
@@ -322,7 +371,7 @@ and **the list of present modes the surface supports**
 `src/app/mod.rs:147`.
 Accepted: `True` / `False`.
 Worth enabling once on any new machine -- it is how the vsync cap described in
-`2026-08-25_BENCH_mesh_resolution_results.md` was identified.
+`notes/2026-08-25_BENCH_mesh_resolution_results.md` was identified.
 
 ### `debug.window_mesh: bool` — default `false` *(startup only)*
 Prints per-mesh detail as meshes are uploaded. Read at
@@ -356,7 +405,7 @@ two apart.
 that pass was resident on the GPU, queue wait included, so four bodies report
 4.6 ms of shadow passes inside a frame that took 3.9 ms. `span` is first
 timestamp to last and is the figure to compare against a frame time. Full
-write-up in `2026-09-09_gpu_pass_timings.md`.
+write-up in `notes/2026-09-09_gpu_pass_timings.md`.
 
 ### `debug.occlusion_queries: bool` — default `False` *(live)*
 Count what each body actually **drew**, with occlusion queries, readable from
@@ -620,7 +669,7 @@ Accepted: `True` / `False`.
 capped. With vsync on, a GPU faster than the display simply reports the refresh
 rate: on a 239 Hz panel the render loop measured exactly 239.46 it/s regardless
 of scene complexity, which made a 3.1M-facet scene look identical to a
-100k-facet one. Details in `2026-08-25_BENCH_mesh_resolution_results.md`.
+100k-facet one. Details in `notes/2026-08-25_BENCH_mesh_resolution_results.md`.
 **Fifteen** lines across the examples already set `False` by hand — the sign of
 a wrong default rather than of fifteen careful authors — and all fifteen were
 removed once it became the default. The four in `tests/` were kept
@@ -693,7 +742,7 @@ For sparse use -- only particular epochs -- leave it off and call
 want.
 
 Full write-up, validation against ray tracing and accuracy budget in
-`2026-08-26_facet_shadow_query/`.
+`notes/2026-08-26_facet_shadow_query/`.
 Accepted: `True` / `False`.
 
 ### `export.dir: String` — default `"out/frames"` *(live, flushes the queue first)*
@@ -942,6 +991,29 @@ Leave it `false` for anything that is a data product: a GIS3D/TIRI frame set
 should be the render and nothing else. Turn it on for a screen-capture-style
 movie where the run state should be legible in the frames themselves. Costs
 one text pass, and only on frames that are actually exported.
+
+The axes' own text -- tick labels, the gizmo's letters -- is not the HUD's:
+it follows `export.axes`.
+
+### `export.axes: bool` — default `true` *(live)*
+Whether the axes -- the `blender` grid, the `box` or `panes` lines, the
+gizmo, and their labels -- go into exported frames as well as the window.
+
+- `true` (default): an exported frame is what the window shows, bar the HUD.
+- `false`: exported frames have the scene alone and the window keeps its
+  axes. A frame that is exported draws them in a second pass once the
+  exporter has copied it (`Pass::render_annotations`,
+  `src/app/pass/render.rs`); with MSAA the first pass then keeps its samples
+  for the second to draw on, and both resolve. Frames that are not exported
+  draw everything in one pass, as before, so this costs nothing until a frame
+  is exported.
+
+Accepted: `True` / `False`.
+
+For a data product whose window should still show the gizmo, which
+`axes.style = "off"` would take away as well. Measured in
+`tests/test_export_axes.py`, MSAA 4 and 1: the gizmo's corner empty in the
+file and nothing else differing by a single level.
 
 ### `export.max_queued: u32` — default `64` *(live, flushes the queue first)*
 Upper bound on frames that have been exported but not yet written, before
@@ -1265,7 +1337,7 @@ The blur you actually see scales with kernel radius *in shadow-map texels*,
 which at the Hera geometry is only ~0.1 image pixels per unit of `shadows.pcf`
 -- so small values look like no change at all. Softening becomes visible
 around `8` and obvious by `24`. Worked example, measurements and side-by-side
-renders in `2026-08-25_pcf_shadow_comparison/`.
+renders in `notes/2026-08-25_pcf_shadow_comparison/`.
 
 **Previously buggy.** Before the current fix, the `N > 0` branch accumulated
 taps onto `var shadow = 1.0` instead of a zeroed sum, adding `1/(2N+1)^2` of
@@ -1319,7 +1391,7 @@ shadow, 215 -> 3,892 px.
 frame from the fitted light frustum and `shadows.resolution`, expressed
 relative to one shadow texel so they stay correct at any scene scale. Setting
 one pins it and leaves the others automatic; assigning `None` again restores
-automatic. Derivation and measurements in `2026-08-25_renderer_auto_fit_wireframe/`.
+automatic. Derivation and measurements in `notes/2026-08-25_renderer_auto_fit_wireframe/`.
 
 **With `shadows.per_body` on, there is one set of these per layer**, derived
 from that layer's own half-extent and the scene depth range
@@ -1361,8 +1433,15 @@ reverse-engineered from the matrix.
 
 ## Reference axes
 
-### `axes.style: str` — default `"off"` *(live)*
+### `axes.style: str` — default `"gizmo"` *(live)*
 Draw a measured frame around the scene, in one of four styles.
+
+The gizmo by default since 26 September (it was `"off"`): it says which way
+the view looks, takes the clicks that turn it, and puts nothing in the scene.
+It goes into exported frames like the rest of the axes, so a script that
+exports a data product sets `"off"` -- as the Hera examples and
+`landmark_tracking` do -- or keeps the window's axes and leaves them out of
+the files with `export.axes = False`.
 
 | | |
 |---|---|
@@ -1496,11 +1575,10 @@ the zoom, and they could not be clicked. Nothing replaces them in the scene:
 under `"blender"` the ground grid already draws coloured X and Y lines through
 the origin and the Z axis is picked out as a vertical line.
 
-**The letters go into exported frames** whether or not `export.hud` does,
-because the balls they sit on already do — the widget is drawn in the render
-pass, into the texture the exporter copies, so lettered balls with no letters
-on them would read as a bug. Everything else in `export.hud`'s remit is
-unaffected.
+**The letters go with the balls:** into exported frames when `export.axes`
+keeps the axes there, whether or not `export.hud` puts the HUD there too —
+lettered balls with no letters on them would read as a bug. Axis tick labels
+follow the same rule; they went with `export.hud` until `export.axes` existed.
 
 ### `axes.gizmo_anchor: str` — default `"top-right"` *(live)*
 Which corner it sits in. The nine HUD anchor names, so it can be moved clear
@@ -1508,7 +1586,7 @@ of a colour bar or a HUD: `"top-left"`, `"top-center"`, `"top-right"`,
 `"middle-left"`, `"middle-center"`, `"middle-right"`, `"bottom-left"`,
 `"bottom-center"`, `"bottom-right"`. Hyphen, underscore and space all parse.
 
-### `axes.gizmo_size: float` — default `60.0` *(live)*
+### `axes.gizmo_size: float` — default `30.0` *(live)*
 Half the widget's width in pixels: a ball centre never sits further than this
 from the middle, so the whole thing is `2 * gizmo_size` across and a corner
 anchor never puts half a ball off the image. Balls are `0.22` of it.
@@ -1637,7 +1715,7 @@ scene when it sits over a dark body.
 ## Wireframe
 
 Barycentric edge detection in the main fragment shader -- a single pass, so
-the overlay cannot z-fight. Full write-up in `2026-08-25_renderer_auto_fit_wireframe/`.
+the overlay cannot z-fight. Full write-up in `notes/2026-08-25_renderer_auto_fit_wireframe/`.
 
 **Requires flat meshes** (the default; not `load_mesh(..., smooth=True)`). The barycentrics
 come from `vertex_index % 3`, which is only a triangle corner for

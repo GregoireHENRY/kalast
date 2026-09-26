@@ -201,7 +201,7 @@ def _cases():
 def _a_mesh():
     """A triangle built from scratch, as `examples/mesh/simple.py` used to show.
 
-    That example existed to demonstrate `kalast.mesh`'s constructors. `notes/
+    That example existed to demonstrate `kalast.mesh`'s constructors. `docs/
     API.md` and the generated `kalast/mesh.pyi` document the surface far better
     -- but neither *runs*, and these classes sat in `UNCOVERED` precisely
     because nothing in the repo built one. So the example's content lives here

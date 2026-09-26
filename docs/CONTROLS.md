@@ -391,10 +391,10 @@ and all startup-only. See `CONFIG.md`.
 
 ## The layout, and the python console
 
-The middle shows the **renderer** -- the scene -- or the **editor** -- the
-script, marked `●` while it has unsaved changes -- as the two buttons at the
-start of the toolbar choose, so `↑`, folding the toolbar, leaves the scene
-alone. Play, Restart and loading a Rust example switch back to the renderer,
+The middle shows the **renderer** -- the scene --, the **editor** -- the
+script, marked `●` while it has unsaved changes -- or the **documentation**,
+as the three tabs at the start of the toolbar choose, so `↑`, folding the
+toolbar, leaves the scene alone. Play, Restart and loading a Rust example switch back to the renderer,
 since running something is for watching it; clicks and keys reach the scene
 only while it is shown. The scene fills the middle to its edges, with no card
 around it, so with every panel folded it is the whole window.
@@ -403,9 +403,14 @@ The panels are cards, 4 points apart with a faint outline, as VS Code's are.
 An edge that can be dragged is lit in the theme's accent -- mauve in Mocha --
 once the pointer has rested on it 300 ms, and at once while it is dragged.
 
-The side panel, on the right, has three: **app** (`app.config`; the theme and
-fullscreen are remembered), **simulation** (`app.simulation.config` and the
-scene) and **files**, the folder kalast was started in as a tree. That is
+The side panel, on the right, has three tabs, icons as VS Code's activity bar
+has them and named on hover: **app** (the gear; `app.config`, the theme,
+fullscreen and the editor's settings remembered), **simulation** (the globe;
+`app.simulation.config` and the scene) and **files** (the folder kalast was
+started in, as a tree). The app and simulation tabs are sections, each a row
+with its icon in its colour, closed until clicked; inside, every setting is a
+row with its name on the left -- its doc on hover -- and its control on the
+right. That is
 where a script is opened: a click on a `.py` or `.rs` reads it into the
 editor -- a `.rs` is loaded too -- and a `.obj` is shown in the scene, while
 the middle stays on whichever of the two it was showing. Other files are shown
@@ -413,6 +418,36 @@ dimmed. Folders are re-read every two seconds while shown, so a file a script
 writes turns up. Over unsaved edits a script asks first -- save and open, open
 without saving, or cancel -- as quitting does. The toolbar names the file the
 editor holds, and its **save** writes it back; the code fills the middle.
+
+The tree is drawn as VS Code's explorer: a row the panel's width, lit under
+the pointer, the open file lit; a click anywhere on a folder's row opens or
+shuts it; each file and folder has its Catppuccin icon, as VS Code shows it
+with that icon theme.
+
+The toolbar's actions are VS Code's icons, their names in their hover text,
+at its right end with the iteration and frame rate before them: **play**
+(green) and **pause** (blue) -- one button, `P` --, **restart**, **step**
+(`K`) and **reset** (red), which clears the scene as if nothing had been
+loaded: no bodies, the settings a new app has, the running script stopped,
+its callbacks gone. The script stays in the editor for Play. It can always
+be pressed -- an empty scene included, where it brings back a new app's
+camera and the welcome after the camera has been turned. A newer release's
+**update** button is VS Code's primary one, filled in the accent.
+
+With nothing in the scene the renderer shows kalast's logo, faded, and the
+keys to start with under it, as VS Code's empty editor does. It fades away
+at the first orbit, pan or zoom -- a middle-drag, the wheel, the gizmo, a
+movement key with WASD -- as Neovim's intro goes at the first key, and comes
+back with **reset**. A new app's camera is Blender's default one: it looks at
+the origin from `(7.36, -6.93, 4.96)`, so there is something to turn about
+before anything is loaded.
+
+The editor colours Python and Rust as VS Code does with Catppuccin, numbers
+its lines and lights the one the cursor is on, and draws a line at column 80
+(`app.config.ruler`). `Tab` indents with spaces -- to the next four at the
+cursor, or every line a selection spans -- and `Shift`+`Tab` takes up to four
+back off each; never a tab character. `Enter` keeps the line's indentation,
+one level more after a `:` in Python or a `{` in Rust.
 
 Opening another script and pressing Play starts from a new renderer --
 config, camera, Sun, clock, export as a new app has them, nothing selected,
@@ -431,3 +466,93 @@ never run to find out whether it is callable, and nothing is called. `exit()` is
 drives its own loop as well, between its frames. The line is a terminal's:
 the prompt and what is typed, no box around it.
 
+It reads as `python` in a terminal does: it opens on Python's own banner, the
+prompt follows the last line printed, `>>>` and `...` are in the prompt's
+colour and the code after them highlighted -- what is typed too, as it is
+typed -- and a traceback is red. `Ctrl`+`L` clears it; `Ctrl`+`C` with nothing
+selected drops the line being typed, and any block waiting at `...`, with
+`KeyboardInterrupt`, while with a selection it copies.
+
+### The documentation tab
+
+The toolbar's third tab shows kalast's documentation in the window: the
+README, which it opens on, this page, the Python API, the config, the
+changelog, and the READMEs of `res/` and `examples/`, as they were when this
+kalast was built. The pages are listed on
+the left, and under them the outline of the one shown: its sections, each
+folded over its subsections, the one being read lit.
+
+| Key or gesture | Does |
+|---|---|
+| a page | Shows it, where it was left |
+| an outline row | Goes to that section and unfolds it; its chevron folds or unfolds it |
+| a link to a page or a section | Goes there |
+| a link to a script or a mesh | Opens it as the files tab does, in the editor or the scene |
+| a link to a folder | Shows it open in the files tab |
+| any other link | The browser; a file of the repository that is not on this computer, on GitHub |
+| the copy button on a code block, under the pointer | Copies the code |
+| wheel | Scrolls the page, over a code block too |
+| `Shift`+wheel over a code block too wide for the page | Scrolls the code sideways |
+| the edge between the outline and the page | Drags to widen the outline |
+
+### The editor's helpers
+
+From a language server, as VS Code's: basedpyright or pyright for Python,
+rust-analyzer for Rust (`app.config.language_servers`, and CONFIG.md for which
+is found).
+
+| Key or gesture | Does |
+|---|---|
+| typing a word, or `.` | The completion list, filtered as the word grows; the selected item's docs beside it |
+| `↓` `↑`, `Ctrl`+`N` `Ctrl`+`P`, `PageDown` `PageUp` | Move in the list |
+| wheel over the list | Scrolls it, the selection staying where it is; the keys above bring it back into view |
+| the pointer moved onto an item | Selects it, its documentation beside the list; a pointer resting on the list takes nothing while you type |
+| `Tab`, `Enter`, `Ctrl`+`Y`, a click | Put the selected completion in -- with its import, when it brings one |
+| `Esc`, `Ctrl`+`E` | Close the list |
+| `Ctrl`+`Space` | Ask for the list, with nothing typed |
+| `(` `,` in a call | The call's signature above the line, the current parameter lit |
+| the pointer resting on a word | Its type and docs, and the errors under it |
+| `F12`, `Ctrl`+click | Go to the definition: in the script, the cursor moves there; in another file, its lines are shown where asked -- a click on the file's name opens it |
+| `F8`, `Shift`+`F8` | The next or previous error or warning, with its message |
+
+Errors and warnings are underlined and spelled out at the end of their line,
+as VS Code's Error Lens has them; a line with one is tinted, and its number
+takes the colour. Unused code is faded. The bar under the text says how many
+errors and warnings there are, where the cursor is, and which server runs --
+or what it is busy with, rust-analyzer's indexing say.
+
+### Neovim in the editor
+
+With `app.config.neovim = True` the editor is your own Neovim, run as VS
+Code's Neovim extension runs it: your `nvim`, your config, every key. kalast
+draws what Neovim reports -- the text, the cursor in the mode's shape, the
+selection, the command line and the messages, in the bar under the text with
+the mode's name in lualine's colours -- and follows `number` and
+`relativenumber` for the line numbers.
+
+| Key or gesture | Does |
+|---|---|
+| everything | Neovim's, as in a terminal: modes, motions, operators, `:` commands, `/` searches, registers, macros, your mappings |
+| `Ctrl`+`S` | Saves -- kalast's, as it is VS Code's with the extension |
+| `:w` | Saves the file |
+| `:q`, `:wq`, `:x` | Back to the renderer -- after saving, for the last two; Neovim keeps running |
+| `K`, `gh` | The hover |
+| `gd`, `gD`, `Ctrl`+`]` | Go to the definition; `Ctrl`+`O` comes back |
+| `]d`, `[d` | The next or previous error or warning |
+| `:e` a file, a picker's choice | Opens it in kalast, as the files tab does; Neovim comes back to the script |
+| click, drag, double click | Neovim's mouse: place the cursor, select, take a word |
+| wheel | Scrolls as Neovim does, `mousescroll` lines a notch |
+| `Ctrl`+`V` | Visual block, outside insert mode; paste is `p`, or `Shift`+`Insert` |
+
+In insert mode the completion list and the signature work as above, `Esc`
+closing the list and leaving insert mode together. blink.cmp and the like are
+told to stand down in the editor's buffer (`vim.b.completion = false`): their
+menus would be invisible here. A part of a config that has no place in kalast
+can be skipped with `if not vim.g.kalast then ... end`, as `vim.g.vscode` is
+used for VS Code.
+
+Neovim shows the script alone. The empty buffer it starts in is closed, so
+`:bnext` and `:bprevious` -- or a mapping on them -- have nowhere else to go;
+while it is in another buffer -- a help page, `:enew` -- the bar says so,
+until `Ctrl`+`^` comes back. Closing the script's buffer starts Neovim again
+on the script.

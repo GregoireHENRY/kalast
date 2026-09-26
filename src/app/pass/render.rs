@@ -57,7 +57,8 @@ pub fn resolve_samples(
 /// The multisampled colour and depth buffers the main pass draws into when
 /// `Config::msaa` is above 1. Neither is ever read back: colour resolves into
 /// `render_texture` (the single-sample target that has always been exported
-/// and blitted), and depth is discarded at the end of the pass.
+/// and blitted), and is kept past the pass only when `render_annotations`
+/// is to draw on it afterwards.
 struct Msaa {
     _color: wgpu::Texture,
     color_view: wgpu::TextureView,
@@ -205,16 +206,20 @@ impl Pass {
         // Drawn last, inside this pass, so the boxes are tested against a
         // depth buffer every body has finished writing.
         occlusion: Option<&crate::app::occlusion::Occlusion>,
+        // The grid, the axes and the gizmo, here; `false` leaves them to
+        // `render_annotations`, after the frame exporter has copied the scene.
+        annotations: bool,
     ) {
         // With MSAA the pass draws into the multisample buffers and resolves
         // into `render_view` on store, so everything downstream -- the blit to
         // the surface, the HUD overlay, the frame exporter -- keeps reading
-        // the same single-sample texture it always did.
+        // the same single-sample texture it always did. The samples are kept
+        // only for a second pass to draw on.
         let (color_view, resolve_target, store, depth_view) = match &self.msaa {
             Some(msaa) => (
                 &msaa.color_view,
                 Some(&self.render_view),
-                wgpu::StoreOp::Discard,
+                if annotations { wgpu::StoreOp::Discard } else { wgpu::StoreOp::Store },
                 &msaa.depth_view,
             ),
             None => (
@@ -275,28 +280,16 @@ impl Pass {
             light.render(&mut render_pass, &meshes[0], bindings);
         }
 
-        // Ground first, then the annotation that stands on it. Both are
-        // tested against the bodies and neither writes depth, so the order
-        // between them is only about which is drawn over which.
-        if config.axes.style == crate::app::axes::AxesStyle::Blender && config.grid.enabled {
-            grid.render(&mut render_pass);
-        }
-
-        // After the bodies and, like the light cube, without writing depth:
-        // annotation is occluded by what it annotates and never the reverse.
-        if config.axes.style != crate::app::axes::AxesStyle::Off {
-            axes.render(&mut render_pass, bindings);
+        if annotations {
+            draw_ground_and_axes(&mut render_pass, axes, grid, bindings, config);
         }
 
         if config.colorbar.enabled {
             colorbar.render(&mut render_pass, bindings);
         }
 
-        // On top of every other overlay. It is a control, not an annotation:
-        // something that can be clicked has to be the thing under the
-        // pointer, so nothing may be drawn over it.
-        if config.axes.style.has_gizmo() {
-            gizmo.render(&mut render_pass);
+        if annotations {
+            draw_gizmo(&mut render_pass, gizmo, config);
         }
 
         // Last, and after the overlays as much as after the bodies -- none of
@@ -306,5 +299,81 @@ impl Pass {
             bindings.for_occlusion(&mut render_pass);
             o.draw(&mut render_pass);
         }
+    }
+
+    /// The grid, the axes and the gizmo, on top of what `render` drew with
+    /// `annotations: false` -- for a frame whose export is to leave them out
+    /// (`export.axes`): the exporter copies between the two, so the window
+    /// has them and the file does not.
+    ///
+    /// Loads the colour and depth the first pass stored and resolves again,
+    /// so everything reading `render_texture` afterwards sees them. Over the
+    /// colour bar rather than under it, the one difference from one pass.
+    pub fn render_annotations(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        depth_view: &wgpu::TextureView,
+        axes: &super::axes::Pass,
+        grid: &super::grid::Pass,
+        gizmo: &super::gizmo::Pass,
+        bindings: &super::Bindings,
+        config: &crate::app::config::Config,
+    ) {
+        let (color_view, resolve_target, depth_view) = match &self.msaa {
+            Some(msaa) => (&msaa.color_view, Some(&self.render_view), &msaa.depth_view),
+            None => (&self.render_view, None, depth_view),
+        };
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("annotations"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: color_view,
+                depth_slice: None,
+                resolve_target,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: if self.msaa.is_some() { wgpu::StoreOp::Discard } else { wgpu::StoreOp::Store },
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: depth_view,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
+            ..Default::default()
+        });
+        draw_ground_and_axes(&mut render_pass, axes, grid, bindings, config);
+        draw_gizmo(&mut render_pass, gizmo, config);
+    }
+}
+
+/// Ground first, then the annotation that stands on it. Both are tested
+/// against the bodies and neither writes depth, so the order between them is
+/// only about which is drawn over which -- and, like the light cube, after
+/// the bodies: annotation is occluded by what it annotates and never the
+/// reverse.
+fn draw_ground_and_axes(
+    render_pass: &mut wgpu::RenderPass,
+    axes: &super::axes::Pass,
+    grid: &super::grid::Pass,
+    bindings: &super::Bindings,
+    config: &crate::app::config::Config,
+) {
+    if config.axes.style == crate::app::axes::AxesStyle::Blender && config.grid.enabled {
+        grid.render(render_pass);
+    }
+    if config.axes.style != crate::app::axes::AxesStyle::Off {
+        axes.render(render_pass, bindings);
+    }
+}
+
+/// On top of every other overlay. It is a control, not an annotation:
+/// something that can be clicked has to be the thing under the pointer, so
+/// nothing may be drawn over it.
+fn draw_gizmo(render_pass: &mut wgpu::RenderPass, gizmo: &super::gizmo::Pass, config: &crate::app::config::Config) {
+    if config.axes.style.has_gizmo() {
+        gizmo.render(render_pass);
     }
 }

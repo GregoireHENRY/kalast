@@ -18,6 +18,7 @@ app = App()
 app.config.width = 1020
 app.config.height = 1020
 app.config.panels_folded = True
+app.simulation.config.axes.style = "off"
 app.simulation.state.pause_after_iteration = None
 # app.simulation.config.light.ambient = 0.05
 

@@ -66,6 +66,7 @@ app = kalast.app.App()
 app.config.width = 768
 app.config.height = 1024
 app.config.color_mode = 0
+app.simulation.config.axes.style = "off"
 
 app.config.shadow_normal_offset_scale = 2e-4
 app.config.shadow_bias_scale = 1e-3

@@ -1,3 +1,5 @@
+<img src="src/app/gui/assets/kalast-256.png" alt="" width="120" align="right">
+
 # kalast
 
 Kalast is a thermophysical model (TPM) for binary asteroids; it applies to
@@ -18,11 +20,12 @@ You can also run it in your terminal:
 ```
 
 More info on [Running kalast for the first time](#running-kalast-for-the-first-time).
-There are also additional resources to read:
+There are also additional resources to read, here or in the documentation tab
+of the UI app:
 - [res/README.md](res/README.md) to get data
-- [notes/API.md](notes/API.md) python API
-- [notes/CONFIG.md](notes/CONFIG.md) config options
-- [notes/CONTROLS.md](notes/CONTROLS.md) UI controls
+- [docs/API.md](docs/API.md) python API
+- [docs/CONFIG.md](docs/CONFIG.md) config options
+- [docs/CONTROLS.md](docs/CONTROLS.md) UI controls
 - [examples/README.md](examples/README.md) examples scripts
 
 You can also write me an email at [gregoireh@pm.me](mailto:gregoireh@pm.me) if
@@ -155,3 +158,9 @@ The UI app can also be started from the kalast python module:
 ```sh
 python -m kalast examples/two_spheres/main.py
 ```
+
+## Credits
+
+The UI app's icons are VS Code's [Codicons](https://github.com/microsoft/vscode-codicons)
+(CC BY 4.0) and [Catppuccin's icons for VS Code](https://github.com/catppuccin/vscode-icons)
+(MIT); their licences are in `src/app/gui/assets/`.

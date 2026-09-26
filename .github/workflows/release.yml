@@ -475,12 +475,13 @@ jobs:
           set -euo pipefail
           stage="${{ env.stage }}"
 
-          # `res/` is read at runtime. `examples/` and `notes/` are to read
-          # and to run. Not shipped: `shaders/`, compiled into the binary by
+          # `res/` is read at runtime. `examples/`, `docs/` and `notes/` are
+          # to read and to run -- `docs/` is in the documentation tab as
+          # well, compiled in. Not shipped: `shaders/`, compiled into the binary by
           # `include_wgsl!`, and `pyproject.toml`, which declares a build
           # system that cannot run from an archive and 766 MB of
           # dependencies the bundle does not have.
-          cp -r res examples notes "$stage/"
+          cp -r res examples docs notes "$stage/"
           cp README.md "$stage/"
 
           # The hosted libraries, at the one path the editor looks for them:

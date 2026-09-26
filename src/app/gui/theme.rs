@@ -47,16 +47,67 @@ pub fn outline(theme: UiTheme) -> Color32 {
     }
 }
 
+/// The colours VS Code gives its debug toolbar's icons: run and restart
+/// green, step and pause blue, stop red -- Catppuccin's shades of them in
+/// Mocha, VS Code's own in dark.
+pub struct Actions {
+    pub run: Color32,
+    pub step: Color32,
+    pub stop: Color32,
+}
+
+pub fn actions(theme: UiTheme) -> Actions {
+    match theme {
+        UiTheme::CatppuccinMocha => Actions { run: palette::GREEN, step: palette::BLUE, stop: palette::RED },
+        UiTheme::Dark => Actions {
+            run: Color32::from_rgb(0x89, 0xd1, 0x85),
+            step: Color32::from_rgb(0x75, 0xbe, 0xff),
+            stop: Color32::from_rgb(0xf4, 0x87, 0x71),
+        },
+    }
+}
+
+/// A tree row's colours, as VS Code's lists have them: `(hover, selected,
+/// indent guide)`. Catppuccin's surfaces on the side panel's mantle.
+pub fn list(theme: UiTheme) -> (Color32, Color32, Color32) {
+    match theme {
+        UiTheme::CatppuccinMocha => (
+            Color32::from_rgba_unmultiplied(0x31, 0x32, 0x44, 150),
+            palette::SURFACE0,
+            palette::SURFACE1,
+        ),
+        UiTheme::Dark => (Color32::from_gray(42), Color32::from_rgb(0x04, 0x39, 0x5e), Color32::from_gray(58)),
+    }
+}
+
+/// VS Code's primary button -- "Update", "Install", "Restart to update" --
+/// the accent filled in, its label in the darkest shade: `(fill, label)`.
+pub fn primary(theme: UiTheme) -> (Color32, Color32) {
+    match theme {
+        UiTheme::CatppuccinMocha => (palette::MAUVE, palette::CRUST),
+        UiTheme::Dark => (Color32::from_rgb(0x00, 0x78, 0xd4), Color32::WHITE),
+    }
+}
+
 /// Catppuccin's Mocha palette, as much of it as the UI uses.
 /// <https://catppuccin.com/palette>
-mod palette {
+pub(super) mod palette {
     use egui::Color32;
 
     pub const ROSEWATER: Color32 = Color32::from_rgb(0xf5, 0xe0, 0xdc);
+    pub const FLAMINGO: Color32 = Color32::from_rgb(0xf2, 0xcd, 0xcd);
+    pub const PINK: Color32 = Color32::from_rgb(0xf5, 0xc2, 0xe7);
     pub const MAUVE: Color32 = Color32::from_rgb(0xcb, 0xa6, 0xf7);
     pub const MAROON: Color32 = Color32::from_rgb(0xeb, 0xa0, 0xac);
     pub const PEACH: Color32 = Color32::from_rgb(0xfa, 0xb3, 0x87);
+    pub const YELLOW: Color32 = Color32::from_rgb(0xf9, 0xe2, 0xaf);
+    pub const TEAL: Color32 = Color32::from_rgb(0x94, 0xe2, 0xd5);
+    pub const SKY: Color32 = Color32::from_rgb(0x89, 0xdc, 0xeb);
+    pub const SAPPHIRE: Color32 = Color32::from_rgb(0x74, 0xc7, 0xec);
     pub const BLUE: Color32 = Color32::from_rgb(0x89, 0xb4, 0xfa);
+    pub const LAVENDER: Color32 = Color32::from_rgb(0xb4, 0xbe, 0xfe);
+    pub const GREEN: Color32 = Color32::from_rgb(0xa6, 0xe3, 0xa1);
+    pub const RED: Color32 = Color32::from_rgb(0xf3, 0x8b, 0xa8);
     pub const TEXT: Color32 = Color32::from_rgb(0xcd, 0xd6, 0xf4);
     pub const OVERLAY1: Color32 = Color32::from_rgb(0x7f, 0x84, 0x9c);
     pub const SURFACE2: Color32 = Color32::from_rgb(0x58, 0x5b, 0x70);

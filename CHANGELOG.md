@@ -37,6 +37,30 @@ released, and the gate refuses the tag until it has.
 - On Windows, a script that closed its standard output and then opened a file could find kalast's own lines written into that file. What kalast prints, a Rust example's included, now goes straight into the log.
 - Each run of a script -- Play, Restart, a script opened -- starts the script tab with `script log started`, so one run's output reads apart from the last.
 - Opening and saving a file in the UI app is logged in the kalast tab, not the script tab.
+- The navigation gizmo shows by default (`app.simulation.config.axes.style = "gizmo"`; it was `"off"`), and smaller: `axes.gizmo_size` is 30 instead of 60. It goes into exported frames, so the examples that export -- the Hera scripts, `landmark_tracking` -- set `axes.style = "off"`.
+- `app.simulation.config.export.axes = False` keeps the axes -- grid, box or panes, gizmo -- out of exported frames while the window still shows them. Their tick labels now go into exported frames with them, rather than only with `export.hud`.
+- The toolbar's Play, Pause, Restart and Step are VS Code's icons, and a new **Reset** beside them clears the scene as if nothing had been loaded -- bodies, settings, the running script -- keeping the script in the editor for Play. It can always be pressed, an empty scene included, and brings back a new app's camera and the welcome. An available update shows as a filled button.
+- The files tab looks like VS Code's explorer with Catppuccin's icons: each file and folder its icon, a row lit under the pointer and for the open file, chevrons and indent guides; a click anywhere on a folder's row opens it.
+- The editor colours Python and Rust in Catppuccin Mocha, numbers its lines and lights the current one. `Tab` and `Shift`+`Tab` indent with spaces, and `Enter` keeps the indentation, one level more after `:` or `{`.
+- The python tab reads like Python in a terminal: Python's banner, the prompt right after the last line printed, prompts and code in colour, tracebacks in red. `Ctrl`+`L` clears it and `Ctrl`+`C` drops the line being typed.
+- The renderer and editor tabs, the side panel's and the log's are drawn as VS Code's, the chosen one underlined.
+- Folding or opening a panel in the UI app no longer zooms the scene: the toolbar and the log cover or uncover it, as the side panel always did, and it keeps its size while a panel slides instead of pumping in and out. The camera's field of view now spans the window's height, so with the toolbar and log open the view is closer than before; with the panels folded it is unchanged.
+- The editor completes as you type, shows a symbol's type and documentation on hover and a call's signature above it, and underlines errors and warnings with their message at the end of the line, as VS Code does -- from a language server: basedpyright or pyright for Python (`uv tool install basedpyright`), rust-analyzer for Rust; in a release bundle, the bundle's own packages are found. `F12` or `Ctrl`+click goes to a definition, `F8` to the next problem, and the bar under the text counts them. `app.config.language_servers = False` turns this off.
+- `app.config.neovim = True` makes the editor your own Neovim, with your config -- modes, `:` commands, searches, macros, your mappings -- as VS Code's Neovim extension does. `:w` saves, `:q` goes back to the renderer, and `K`, `gd` and `]d` ask the language server.
+- The editor draws a line at column 80, `app.config.ruler`.
+- A mesh opened on its own -- `kalast some.obj`, a click in the files tab -- shows the navigation gizmo like every other scene, instead of Blender's ground grid.
+- The editor's settings are remembered between sessions, with the theme.
+- The side panel's tabs are icons, and the app and simulation tabs are sections, each with its icon, closed until clicked; every setting is a row with its name on the left and its control on the right.
+- The toolbar's Play, Restart, Step and Reset are at its right end, with the iteration and frame rate before them.
+- kalast's logo is the icon of its window, of its taskbar button and of `kalast.exe`, and shows in the empty scene with the keys to start with.
+- The Python stubs describe kalast as it runs, so VS Code and the editor stop marking correct scripts as errors: optional arguments are optional (`load_mesh(path=...)`), array settings accept lists and tuples (`camera.pos = [...]`), `sim.bodies[0].mat` is known, `before_render` and `after_render` are called with the simulation, meshes' `vertices` and `facets` have a length and an index, and the modules' functions and constants -- `kalast.entity.DIDYMOS`, `kalast.tpm.properties.skin_depth_1` -- are declared.
+- A **documentation** tab beside renderer and editor shows kalast's documentation in the window -- the README, the Python API, the config and controls references, this changelog, and the READMEs of `res/` and `examples/` -- as they were when kalast was built, with an outline of the page. A link to a script opens it in the editor, and a link to a folder shows it in the files tab.
+- The Python API, config and controls references are in `docs/` instead of `notes/`.
+- The welcome in the empty scene goes at the first orbit, pan or zoom -- a middle-drag, the wheel, the gizmo -- and comes back with Reset. It points at the files tab by the tab's icon.
+- A new app's camera looks at the origin from where Blender's default camera stands, `(7.36, -6.93, 4.96)`, instead of from the origin itself, where it could not be turned: the empty scene orbits, and a script that never places the camera sees its bodies from outside.
+- With `app.config.neovim`, `:w` no longer fails with `E32: No file name` after switching buffers, `:e` opens a file in kalast, and the bar under the text says when Neovim has left the script for a buffer the editor does not show.
+- Scripts no longer leave an empty `out/frames` folder where they are run: it is made when the first frame is exported.
+- Arrows and other symbols -- `→`, `⌥`, `●` -- show in the UI app instead of boxes.
 
 ## v0.5.9
 

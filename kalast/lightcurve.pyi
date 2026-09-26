@@ -3,6 +3,7 @@
 # Regenerate after changing any #[pyclass]:  python tools/gen_stubs.py
 
 import numpy  # noqa: F401
+from typing import Sequence
 
 class Spin:
     """The spin state: where the pole points and where the body has got to.
@@ -34,7 +35,7 @@ class Spin:
     """Rotation phase at `epoch0`, radians."""
     epoch0: float
     """The epoch `phase0` refers to."""
-    def __init__(self, pole_lon: float, pole_lat: float, period: float, phase0: float, epoch0: float) -> None:
+    def __init__(self, pole_lon: float = ..., pole_lat: float = ..., period: float = ..., phase0: float = ..., epoch0: float = ...) -> None:
         """Defaults to a pole at the ecliptic north and a unit period, which is
         the spin that makes the algebra checkable rather than a typical one.
         """
@@ -85,11 +86,45 @@ class Curve:
     """Unshadowed fraction of the illuminated cross-section, per epoch."""
     overflowed: bool
     """True if any facet at any epoch hit the clipper's piece cap."""
-    def magnitude(self, reference: float | None) -> numpy.ndarray:
+    def magnitude(self, reference: float | None = ...) -> numpy.ndarray:
         """Magnitudes relative to `reference`, or to the median flux.
 
         The median is the out-of-event level of a curve with an eclipse in
         it, which a mean is not.
         """
         ...
+    def __len__(self) -> int:
+        ...
+
+def flux(vertices: numpy.ndarray, indices: object, sun: object, observer: object, law: object, shadowing: bool = ..., visibility: bool = ...) -> Point:
+    """The disc-integrated flux at one epoch.
+
+    `vertices` is `(n, 3)` in any float dtype, `indices` is `(m, 3)` or
+    flat `(3m,)` uint32 -- `kalast.mesh.Mesh` hands back the flat form, and
+    `mesh.positions * axes` is float64 -- and
+    `sun` and `observer` point from the body toward each, in the mesh's own
+    frame. `law` is a `Hapke` or a `LommelSeeligerLambert`.
+
+    Use this when the geometry is placed already -- a binary, or a body
+    whose vertices you move yourself. `lightcurve` is the rotating
+    single-body case.
+
+    Set `shadowing` and `visibility` to False for a convex shape: no facet
+    occludes another there, so both passes return 1 and cost the run.
+    """
+    ...
+def lightcurve(vertices: numpy.ndarray, indices: object, spin: Spin, sun: object, observer: object, epochs: Sequence[float] | numpy.ndarray, law: object, shadowing: bool = ..., visibility: bool = ...) -> Curve:
+    """A light curve: one rotating body over a series of epochs.
+
+    `vertices` is `(n, 3)` in any float dtype and `indices` `(m, 3)` or
+    flat `(3m,)` uint32, in the
+    body-fixed frame with the rotation axis along `+z`. `sun` and
+    `observer` are **ecliptic-frame** directions from the body, either one
+    each or one per epoch. `epochs` shares its unit with `spin.period`.
+
+    The mesh is not rotated -- the two directions are carried into the body
+    frame instead, which is exactly equivalent and two vectors per epoch
+    rather than every vertex.
+    """
+    ...
 

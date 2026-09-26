@@ -140,6 +140,7 @@ print(f"emitter sampled at {len(samples)} points, total area {total_area:.4f}")
 app = kalast.app.App()
 app.config.width = RES
 app.config.height = RES
+app.simulation.config.axes.style = "off"
 app.simulation.config.shadows.access_shadow_map = False
 app.simulation.camera.projection.fovy = numpy.pi / 2.0     # 90 deg: one cube face
 app.simulation.load_mesh(path=str(obj), mat=numpy.eye(4))

@@ -23,7 +23,7 @@
 //!
 //! What makes any of this defensible is that both sides are the same crate
 //! built by the same compiler in one invocation; `abi_fingerprint` is checked
-//! before a single call is made. See `notes/API.md`.
+//! before a single call is made. See `docs/API.md`.
 
 use std::cell::RefCell;
 use std::rc::Rc;

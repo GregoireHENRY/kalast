@@ -53,6 +53,7 @@ et0 = spice.str2et("2025-03-12 08:10:50 UTC")
 app = kalast.app.App()
 app.config.width = 1024
 app.config.height = 768
+app.simulation.config.axes.style = "off"
 app.simulation.camera.pos = [0.0, 0.0, 0.0]
 app.simulation.camera.dir = [0.0, 0.0, 1.0]
 app.simulation.camera.up = [0.0, 1.0, 0.0]

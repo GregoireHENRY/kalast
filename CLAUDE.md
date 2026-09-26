@@ -29,7 +29,8 @@
 15. Always write notes about features implementations concerning TPM/renderer.
 16. Maintain timeline updated with recent features in notes.
 17. Maintain a list of unfinished tasks and where work stopped.
-18. Maintain API.md, CONFIG.md, CONTROLS.md concise and up to date.
+18. Maintain docs/API.md, docs/CONFIG.md, docs/CONTROLS.md concise and up to
+    date.
 19. After a pull, read the pulled notes, especially potential handoff work.
 20. Never delete without asking a file that was created before by the user.
 21. Use scratch space or temporary folder. Put throwaway scripts under `/tmp`,
@@ -122,10 +123,12 @@
     generated from `tools/config_renames.py`, with a `DeprecationWarning` naming
     the new path. Three that moved to `app.config` (`title`, `fullscreen`,
     `vsync`) raise an error saying so instead.
-32. `notes/` holds dated write-ups (`YYYY-MM-DD_topic`). Some are undated on
-    purpose, because they are living documents rather than a record of one day:
-    - `TIMELINE.md` — the running summary, including what is open and what was
-      deliberately paused.
+32. `notes/` holds dated write-ups (`YYYY-MM-DD_topic`), and `TIMELINE.md`,
+    undated on purpose because it is a living document rather than a record of
+    one day: the running summary, including what is open and what was
+    deliberately paused. `docs/` holds the living references, written for
+    users -- the UI app's documentation tab shows them, compiled in, beside
+    `CHANGELOG.md`, `res/README.md` and `examples/README.md`:
     - `CONFIG.md` — the `app.config` reference. Add an entry here whenever a
       config option is added, or it goes stale silently.
     - `CONTROLS.md` — keyboard and mouse bindings for the render window. Same

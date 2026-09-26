@@ -80,6 +80,19 @@ fn main() {
     attach_parent_console();
     let args: Vec<String> = std::env::args().skip(1).collect();
 
+    // Python's options -- `-c`, `-m`, `-I` -- from a tool that took a
+    // bundle's `kalast.exe` for its Python, `sys.executable` being this
+    // program there. Each such run opened a kalast window saying it did not
+    // know what to do with the code; kalast's own flags are `--` ones.
+    if args.first().is_some_and(|a| a.starts_with('-') && !a.starts_with("--")) {
+        eprintln!(
+            "kalast: {} is Python's option, not kalast's: kalast runs a script \
+             given by its path, `kalast script.py`, and is no Python interpreter",
+            args[0]
+        );
+        std::process::exit(2);
+    }
+
     // Before anything resolves a relative path.
     move_into_the_bundle(&args);
 
@@ -87,6 +100,10 @@ fn main() {
     // does and cannot be undone.
     #[cfg(feature = "embed")]
     point_at_the_bundled_interpreter();
+    // Scripts' `sys.executable` is this program, then, which is no `python`
+    // for the editor's language server to run. See `set_python`.
+    #[cfg(feature = "embed")]
+    kalast::app::gui::script::set_python_embedded();
 
     // Before anything opens a window or asks for an adapter: these modes
     // have neither, and they run on release runners with no display.

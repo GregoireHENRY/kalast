@@ -3,7 +3,8 @@
 # Regenerate after changing any #[pyclass]:  python tools/gen_stubs.py
 
 import numpy  # noqa: F401
-from kalast.routines.setup import Body
+from typing import Sequence
+from kalast.app.body import Body
 from kalast.app.config import Config
 from kalast.app.frame import Eye
 from kalast.app.config import Hud
@@ -50,7 +51,7 @@ class Simulation:
     aims itself from `sun.pos` at the body it covers, so `dir` and `anchor` are
     not consulted.
     """
-    def load_mesh(self, path: str, mat: list[list[float]] | None, smooth: bool, shadow_path: str | None, flatten: bool | None) -> None:
+    def load_mesh(self, path: str, mat: Sequence[Sequence[float] | numpy.ndarray] | numpy.ndarray | None = ..., smooth: bool = ..., shadow_path: str | None = ..., flatten: bool | None = ...) -> None:
         """Meshes load *flat* -- each facet owning its three vertices -- which is
         what per-facet data, the wireframe overlay and the facet index map
         need. `smooth=True` keeps the file's shared vertices instead, for a
@@ -65,7 +66,7 @@ class Simulation:
         to shadow with the main mesh.
         """
         ...
-    def add_mesh(self, mesh: Mesh, mat: list[list[float]] | None) -> None:
+    def add_mesh(self, mesh: Mesh, mat: Sequence[Sequence[float] | numpy.ndarray] | numpy.ndarray | None = ...) -> None:
         """Add an already-built `Mesh`, rather than loading one from a path."""
         ...
     def remove_body(self, index: int) -> None:
@@ -95,13 +96,17 @@ class Simulation:
         ...
     export: bool
     """Whether every frame is exported. Destination is `config.export_dir`."""
-    huds: list[Hud]
-    """The live HUDs -- the same objects as `app.config.huds`, not copies.
+    @property
+    def huds(self) -> list[Hud]:
+        """The live HUDs -- the same objects as `app.config.huds`, not copies.
 
-    Edit them in `before_render`: `sim.huds[0].text = f"{i}/{n}"`. The
-    text is a template, so `{it}`, `{fps}` and the rest still expand in
-    whatever is written here.
-    """
+        Edit them in `before_render`: `sim.huds[0].text = f"{i}/{n}"`. The
+        text is a template, so `{it}`, `{fps}` and the rest still expand in
+        whatever is written here.
+        """
+        ...
+    @huds.setter
+    def huds(self, value: Sequence[Hud]) -> None: ...
     def update(self) -> None:
         """Advance the iteration counter. The app calls this once per frame; a script
         normally does not need it.
@@ -123,7 +128,7 @@ class Simulation:
         result.
         """
         ...
-    def facet_shadow(self, body: int) -> numpy.ndarray | None:
+    def facet_shadow(self, body: int = ...) -> numpy.ndarray | None:
         """Per-facet occluded fractions for `body`, or `None` if they were not
         computed this frame.
 
@@ -193,7 +198,7 @@ class Simulation:
     what `project` measures in, and what an exported frame measures.
     `(0, 0)` until a frame has been drawn.
     """
-    def project(self, point: list[float]) -> tuple[float, float] | None:
+    def project(self, point: Sequence[float] | numpy.ndarray) -> tuple[float, float] | None:
         """`(x, y)` where a world point lands in the last frame drawn, or `None`
         behind the camera.
 
@@ -227,7 +232,7 @@ class Simulation:
         hides it. `facet_id_map` says which facets were actually drawn.
         """
         ...
-    def pick_facet(self, origin: list[float], direction: list[float]) -> tuple[int, int, list[float], list[float]] | None:
+    def pick_facet(self, origin: Sequence[float] | numpy.ndarray, direction: Sequence[float] | numpy.ndarray) -> tuple[int, int, list[float], list[float]] | None:
         """The nearest facet a ray hits, across every body.
 
         `(body, facet, world_point, body_point)`, or `None`. The body point is
@@ -258,7 +263,7 @@ class Simulation:
         or `request_facet_shadow` arranges.
         """
         ...
-    def request_hemicube(self, body: int, facets: numpy.ndarray, resolution: int, batch: int) -> None:
+    def request_hemicube(self, body: int = ..., facets: numpy.ndarray = ..., resolution: int = ..., batch: int = ...) -> None:
         """Ask for hemicube view factors for `facets` of `body`, this frame.
 
         Request from `before_render`, read with `hemicube` from

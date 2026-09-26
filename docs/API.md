@@ -12,14 +12,14 @@ Editor completion comes from the generated stubs in `kalast/**.pyi`; run
 boundary.** A stub can say what `App` has, but nothing tells an editor what
 gets *passed* to a plain `def` — the assignment `app.before_render = f` is
 checked against the declared type, it does not flow back into `f`'s
-parameters. So `app.` inside an unannotated `def before_render(app, dt)`
+parameters. So `sim.` inside an unannotated `def before_render(sim, dt)`
 offers nothing, no matter how complete the stubs are:
 
 ```python
-from kalast.app import App
+from kalast.app.simulation import Simulation
 
 def before_render(sim: Simulation, dt: float) -> None:
-    app.simulation.config.        # completes only because of the `: App`
+    sim.config.        # completes only because of the `: Simulation`
 ```
 
 All the examples are written this way.
@@ -114,7 +114,8 @@ There are two ways to run: `start()`, which owns the loop and calls back into
 the script, and `step()`, which hands the loop to the script. See **Driving
 the loop yourself** below.
 
-Both callbacks take **`(app, dt)`** and are optional. `dt` is the **wall-clock
+Both callbacks take **`(sim, dt)`** -- the app's `Simulation` -- and are
+optional. `dt` is the **wall-clock
 time since the last frame**, in seconds — it is `(now - last).as_secs_f64()`
 at `src/app/mod.rs:353`, not a simulation step, so integrating physics with it
 ties the answer to the frame rate. Step the physics on `sim.state.iteration`
@@ -808,6 +809,13 @@ Assigning any of `near`/`far`/`side` **pins** it and defeats the automatic fit
 for that plane; assigning `None` restores automatic. `fovy` is never automatic
 — it is a real instrument property, not a scene-derived one.
 
+In the UI app, `fovy` spans the **window's** height, and the viewport shows
+its share of it: the toolbar and the log panel cover the scene, as the side
+panel does, instead of zooming it when they fold. An image that is the whole
+window -- panels folded, or no UI app -- has exactly `fovy`, so a data
+product rendered that way is unchanged. So is an orthographic `side`, by the
+same ratio.
+
 ## Meshes
 
 ```python
@@ -1011,7 +1019,7 @@ this array knows which way a facet points.
 
 **This is the TPM's occlusion term, not a rendering detail.** It is read back
 from the shadow map, so it inherits the shadow bias — see the calibration note
-in `2026-09-04_shadow_fixes.md` before trusting absolute values.
+in `notes/2026-09-04_shadow_fixes.md` before trusting absolute values.
 
 ### Per-facet insolation — what "lit" means
 
@@ -1192,7 +1200,7 @@ pixel, mean offset under 0.05 px) and, in the AFC example, against a pinhole
 model built from the SPICE vectors (body centres within 1e-4 px).
 `examples/landmark_tracking/main.py` uses `project_facet` for 3000 facets
 and writes their pixels, beside their positions, to `track.csv`. See
-`2026-09-24_image_positions.md`.
+`notes/2026-09-24_image_positions.md`.
 
 ### View factors — a precompute, not a per-frame query
 
@@ -1240,7 +1248,7 @@ Two things to hold on to, both measured rather than assumed:
 
 The same figures reach a HUD as `{gpu}` (the span) and `{gpu_shadow}`,
 `{gpu_render}`, `{gpu_depth}`, `{gpu_text}`, `{gpu_gui}`. Background in
-`2026-09-09_gpu_pass_timings.md`.
+`notes/2026-09-09_gpu_pass_timings.md`.
 
 ## `sim.update()`
 

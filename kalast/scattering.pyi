@@ -26,7 +26,7 @@ class LommelSeeligerLambert:
     """Single-scattering albedo, `0..1`. Not the geometric albedo."""
     c: float
     """Lommel-Seeliger fraction: `1` is pure LS, `0` pure Lambert."""
-    def __init__(self, w: float, c: float) -> None:
+    def __init__(self, w: float = ..., c: float = ...) -> None:
         ...
     def reflectance(self, mu0: float, mu: float) -> float:
         ...
@@ -48,7 +48,7 @@ class Hapke:
     radians. `0` is a smooth surface; the literature quotes 20-30 deg for
     most asteroids. Must be in `[0, pi/2)`.
     """
-    def __init__(self, w: float, b: float, c: float, b0: float, h: float, theta_bar: float) -> None:
+    def __init__(self, w: float = ..., b: float = ..., c: float = ..., b0: float = ..., h: float = ..., theta_bar: float = ...) -> None:
         ...
     def reflectance(self, mu0: float, mu: float, alpha: float) -> float:
         ...
@@ -61,4 +61,74 @@ class Hapke:
         `i <= e`, which is the identity that pins which branch is which.
         """
         ...
+
+def lambert(albedo: float) -> float:
+    """Isotropic scattering: brightness independent of viewing geometry.
+
+    `r = A / pi`. The `mu0` that makes this Lambert's cosine law lives in the
+    `I = r J mu0` convention above, not in `r` itself.
+    """
+    ...
+def lommel_seeliger(w: float, mu0: float, mu: float) -> float:
+    """Single scattering from a dark particulate half-space.
+
+    `r = (w / 4pi) / (mu0 + mu)`, so the emergent radiance carries
+    `mu0 / (mu0 + mu)` -- the limb-darkening signature of a regolith, and
+    visibly different from Lambert's `mu0` away from opposition.
+
+    `w` here is the single-scattering albedo, not the geometric albedo.
+    """
+    ...
+def lommel_seeliger_lambert(w: float, c: float, mu0: float, mu: float) -> float:
+    """The `c * LS + (1 - c) * Lambert` mix of the convex-inversion literature.
+
+    The Lambert term stands in for multiple scattering, which Lommel-Seeliger
+    omits by construction and which matters as the surface brightens. `c = 1`
+    is pure Lommel-Seeliger.
+    """
+    ...
+def h_function(w: float, x: float) -> float:
+    """Chandrasekhar's `H` function, Hapke's 2002 rational approximation.
+
+    `H` carries the multiple scattering, and it is defined implicitly by
+
+    ```text
+    H(x) = 1 + w x H(x) / 2 * integral_0^1 H(u) / (x + u) du
+    ```
+
+    which has no closed form. Hapke's 1993 approximation
+    `H = (1 + 2x) / (1 + 2x sqrt(1-w))` is good to about 4 %; the 2002 form
+    below is good to under 1 %, for the same cost, and `tests/test_scattering.py`
+    checks it against the integral equation directly rather than taking that
+    on trust.
+    """
+    ...
+def henyey_greenstein(b: float, c: float, alpha: float) -> float:
+    """Two-lobe Henyey-Greenstein particle phase function, normalised so that its
+    average over the sphere is 1.
+
+    `b` in `[0, 1)` is the lobe width and `c` in `[0, 1]` the backward
+    fraction: `c = 0` is purely forward-scattering, `c = 1` purely backward.
+    `alpha` is the phase angle in radians, so `alpha = 0` is opposition.
+
+    **Mind the sign convention**, which this got wrong first time round.
+    `alpha` is the Sun-target-observer angle, so `alpha = 0` is *back*scatter,
+    while Henyey-Greenstein is normally written in the scattering angle
+    `theta = pi - alpha`, where `theta = 0` is *forward*. The two lobes below
+    are therefore the opposite way round from the textbook expression, and
+    writing them the textbook way leaves the normalisation perfectly intact
+    while pointing the asymmetry backwards -- a phase curve that brightens
+    away from opposition. `tests/test_scattering.py` checks the direction
+    separately from the normalisation for exactly that reason, and that is
+    what caught it.
+    """
+    ...
+def opposition_surge(b0: float, h: float, alpha: float) -> float:
+    """The shadow-hiding opposition surge.
+
+    `B(alpha) = B0 / (1 + tan(alpha/2) / h)`, a sharp brightening within a few
+    degrees of opposition as particles stop shadowing one another. `B0` is its
+    amplitude at exactly zero phase and `h` its angular width.
+    """
+    ...
 

@@ -101,6 +101,8 @@ impl Passes {
         _shadow_meshes: &[Option<super::gpu::MeshBuffer>],
         config: &crate::app::config::Config,
         timer: Option<&super::gpu_timing::GpuTimer>,
+        // `false`: the grid, axes and gizmo wait for `render_annotations`.
+        annotations: bool,
     ) {
         self.render.render(
             encoder,
@@ -115,8 +117,37 @@ impl Passes {
             config,
             timer.and_then(|t| t.scope(super::gpu_timing::Scope::Render)),
             config.debug.occlusion_queries.then_some(&self.occlusion),
+            annotations,
         );
 
+        // Over everything, so after the annotations when those come later.
+        if config.debug.depth_show && annotations {
+            self.depth.render(
+                view,
+                encoder,
+                timer.and_then(|t| t.scope(super::gpu_timing::Scope::Depth)),
+            );
+        }
+    }
+
+    /// The grid, axes and gizmo that `render(.., annotations: false)` left
+    /// out, drawn once the exporter has its copy; see `export.axes`.
+    pub fn render_annotations(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+        config: &crate::app::config::Config,
+        timer: Option<&super::gpu_timing::GpuTimer>,
+    ) {
+        self.render.render_annotations(
+            encoder,
+            &self.depth.texture.view,
+            &self.axes,
+            &self.grid,
+            &self.gizmo,
+            &self.bindings,
+            config,
+        );
         if config.debug.depth_show {
             self.depth.render(
                 view,

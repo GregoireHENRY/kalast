@@ -546,6 +546,11 @@ fn find_font_file(name: &str) -> Option<std::path::PathBuf> {
     None
 }
 
+/// DejaVu Sans: the HUD's font unless the config names another, and the UI's
+/// last fallback, for the arrows and symbols egui's own fonts lack (`→`,
+/// `⌥`, `●`). One copy for both.
+pub(crate) static DEJAVU_SANS: &[u8] = include_bytes!("../../res/DejaVuSans.ttf");
+
 /// The HUD font: `config.hud.font` if it resolves, otherwise the built-in one.
 ///
 /// Accepts either a path or a font name -- `"Arial"` and
@@ -560,8 +565,7 @@ fn find_font_file(name: &str) -> Option<std::path::PathBuf> {
 fn hud_font(spec: &str) -> Option<wgpu_text::glyph_brush::ab_glyph::FontArc> {
     use wgpu_text::glyph_brush::ab_glyph::{FontArc, FontVec};
 
-    let builtin =
-        || FontArc::try_from_slice(include_bytes!("../../res/DejaVuSans.ttf")).ok();
+    let builtin = || FontArc::try_from_slice(DEJAVU_SANS).ok();
 
     if spec.is_empty() {
         return builtin();
@@ -2378,6 +2382,14 @@ impl Window {
             self.queue.submit([enc.finish()]);
         }
 
+        // A frame whose export is to leave the axes out (`export.axes`)
+        // draws them in a second pass, once the exporter has copied the
+        // scene, so the window keeps them. Only such a frame: every other one
+        // draws everything in the one pass, as before.
+        let axes_after_export = self.export_frame
+            && !config.export.axes
+            && config.axes.style != super::axes::AxesStyle::Off;
+
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
@@ -2390,44 +2402,11 @@ impl Window {
             &self.shadow_meshes,
             config,
             self.timer.as_ref().filter(|_| config.debug.gpu_timing),
+            !axes_after_export,
         );
 
-        if let Some(texture) = &surface_texture {
-            encoder.copy_texture_to_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: &self.passes.render.render_texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                wgpu::TexelCopyTextureInfo {
-                    texture: &texture.texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                // The overlap of the two, not the window's size.
-                //
-                // This is a straight texel copy, so it cannot scale. While the
-                // image follows the window they are equal and it copies the
-                // whole frame. A *pinned* `simulation.config.width` makes them
-                // differ, and then the window shows the top-left of the image
-                // rather than a scaled version of it -- the export still gets
-                // the full pinned frame, which is what pinning is for.
-                //
-                // Without the clamp this is a validation error: a 900x700
-                // window copying from a 1600x400 image "would end up
-                // overrunning the bounds of the Source texture".
-                //
-                // Scaling instead of cropping needs a fullscreen textured
-                // quad. The editor already does the equivalent, since egui
-                // samples the texture into a panel of any size.
-                wgpu::Extent3d {
-                    width: self.surface_config.width.min(self.render_size.0),
-                    height: self.surface_config.height.min(self.render_size.1),
-                    depth_or_array_layers: 1,
-                },
-            );
+        if let (Some(texture), false) = (&surface_texture, axes_after_export) {
+            self.blit(&mut encoder, texture);
         }
 
         let frame_submission = self.queue.submit([encoder.finish()]);
@@ -2492,13 +2471,13 @@ impl Window {
             || !gizmo_labels.is_empty();
         let render_size = (self.render_size.0 as f32, self.render_size.1 as f32);
 
-        // The gizmo's letters go into an exported frame whether or not the
-        // HUD does, because the widget they sit on already did: it is drawn
-        // in the render pass, into the texture the exporter copies. Lettered
-        // balls with no letters on them read as a bug, and the letters are
-        // not run state -- they are part of the picture, the way the axis
-        // tick labels are part of the axes.
-        let export_text = self.export_frame && (config.export.hud || !gizmo_labels.is_empty());
+        // The axes' text -- tick labels, the gizmo's letters -- goes with the
+        // axes: into an exported frame when `export.axes` keeps them there,
+        // whether or not the HUD goes too. Lettered balls with no letters on
+        // them read as a bug, and neither is run state: they are part of the
+        // picture, as the lines they label are.
+        let export_axes_text = config.export.axes && (!axis_labels.is_empty() || !gizmo_labels.is_empty());
+        let export_text = self.export_frame && (config.export.hud || export_axes_text);
         if export_text && any_text {
             let view = self
                 .passes
@@ -2512,10 +2491,10 @@ impl Window {
                 "hud export",
                 config,
                 if config.export.hud { huds } else { none },
-                if config.export.hud { &axis_labels } else { &[] },
+                if config.export.axes { &axis_labels } else { &[] },
                 if config.export.hud { &facet_labels } else { &[] },
                 if config.export.hud { &bar_labels } else { &[] },
-                &gizmo_labels,
+                if config.export.axes { &gizmo_labels } else { &[] },
             );
         }
 
@@ -2527,6 +2506,24 @@ impl Window {
                 self.render_size.0,
                 self.render_size.1,
             );
+        }
+
+        // The exporter has its copy: now the axes this frame kept out of it,
+        // and the window's copy of the result.
+        if axes_after_export {
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+            self.passes.render_annotations(
+                &mut encoder,
+                &surface_view,
+                config,
+                self.timer.as_ref().filter(|_| config.debug.gpu_timing),
+            );
+            if let Some(texture) = &surface_texture {
+                self.blit(&mut encoder, texture);
+            }
+            self.queue.submit([encoder.finish()]);
         }
 
         // In the editor there is no swapchain pass -- `render(None, ..)` --
@@ -2591,6 +2588,45 @@ impl Window {
         if let Some(texture) = surface_texture {
             self.queue.present(texture);
         }
+    }
+
+    /// The render texture onto the surface.
+    fn blit(&self, encoder: &mut wgpu::CommandEncoder, texture: &wgpu::SurfaceTexture) {
+        encoder.copy_texture_to_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.passes.render.render_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            // The overlap of the two, not the window's size.
+            //
+            // This is a straight texel copy, so it cannot scale. While the
+            // image follows the window they are equal and it copies the
+            // whole frame. A *pinned* `simulation.config.width` makes them
+            // differ, and then the window shows the top-left of the image
+            // rather than a scaled version of it -- the export still gets
+            // the full pinned frame, which is what pinning is for.
+            //
+            // Without the clamp this is a validation error: a 900x700
+            // window copying from a 1600x400 image "would end up
+            // overrunning the bounds of the Source texture".
+            //
+            // Scaling instead of cropping needs a fullscreen textured
+            // quad. The editor already does the equivalent, since egui
+            // samples the texture into a panel of any size.
+            wgpu::Extent3d {
+                width: self.surface_config.width.min(self.render_size.0),
+                height: self.surface_config.height.min(self.render_size.1),
+                depth_or_array_layers: 1,
+            },
+        );
     }
 }
 

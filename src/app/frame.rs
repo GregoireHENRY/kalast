@@ -90,6 +90,20 @@ pub struct Projection {
     pub side: Option<Float>,
 
     resolved: Resolved,
+
+    /// How much of `fovy` the image shows vertically, as a ratio of heights:
+    /// `fovy` spans the window, and a viewport shorter than the window shows
+    /// the matching part of it. 1 outside the editor, where the image is the
+    /// window.
+    ///
+    /// So the toolbar and the log panel no longer zoom the scene. The field
+    /// of view was the viewport's own, so a panel taking height made the
+    /// same field fit fewer pixels, while one taking width only cut its
+    /// side off -- folding the log zoomed out, folding the side panel did
+    /// not. Now neither zooms: a panel covers or uncovers the scene, as the
+    /// side panel always did. A camera's only: the Sun's never is anything
+    /// but 1.
+    pub(crate) viewport_scale: Float,
 }
 
 impl Projection {
@@ -108,11 +122,22 @@ impl Projection {
                 side: 5.0,
                 offset: [0.0, 0.0],
             },
+            viewport_scale: 1.0,
         }
     }
 
     pub fn resolved(&self) -> Resolved {
         self.resolved
+    }
+
+    /// Half the vertical field the image actually shows: `fovy`'s, narrowed
+    /// to the viewport's share of the window (`viewport_scale`).
+    pub fn half_fovy(&self) -> Float {
+        if self.viewport_scale == 1.0 {
+            self.fovy * 0.5
+        } else {
+            ((self.fovy * 0.5).tan() * self.viewport_scale).atan()
+        }
     }
 
     /// Applies a fitted result, letting any user-set value win over it.
@@ -146,7 +171,7 @@ impl Projection {
 
         match self.mode {
             ProjectionMode::Orthographic => {
-                let half_height = side;
+                let half_height = side * self.viewport_scale;
                 let half_width = half_height * aspect;
 
                 // Off-centre: the box is `side` wide but sits where the
@@ -160,7 +185,7 @@ impl Projection {
                     far,
                 )
             }
-            ProjectionMode::Perspective => perspective_rh_reversed(self.fovy, aspect, near, far),
+            ProjectionMode::Perspective => perspective_rh_reversed(2.0 * self.half_fovy(), aspect, near, far),
         }
     }
 }
@@ -280,6 +305,11 @@ impl Control {
         };
     }
 }
+
+/// Where Blender's default camera stands, looking at the origin: a new app's
+/// camera, and the bearing a mesh opened on its own is framed from -- the
+/// view everyone who has opened Blender knows.
+pub const BLENDER_VIEW: Vec3 = Vec3::new(7.36, -6.93, 4.96);
 
 // if unit vectors are not normalized, results are gonna be wrong
 #[derive(Debug, Clone)]
@@ -517,6 +547,21 @@ impl Eye {
         self.fix_up();
     }
 
+    /// A new app's camera: Blender's default one, at `BLENDER_VIEW`, looking
+    /// at the origin, its anchor, with world up up.
+    ///
+    /// Standing back from the anchor, not on it. `new` puts the eye on its
+    /// anchor, where an orbit has no radius and leaves it alone -- so in a new
+    /// app's empty scene a drag turned nothing, the gizmo included, and the
+    /// welcome waiting for the camera to move stayed.
+    pub fn standing_back() -> Self {
+        let mut eye = Self::new();
+        eye.pos = BLENDER_VIEW;
+        eye.look_anchor();
+        eye.level();
+        eye
+    }
+
     /// Stand back from `bounds`, along `from`, far enough to see all of it.
     ///
     /// The bounding sphere -- centre, half-diagonal -- is placed so it fills
@@ -530,7 +575,10 @@ impl Eye {
             return;
         }
         let radius = bounds.radius().max(1e-6);
-        let distance = radius / (self.projection.fovy * 0.5).sin() * 1.15;
+        // The field the viewport shows, not the window's: framed to `fovy`,
+        // a body behind an open log panel came out with its top and bottom
+        // cut off.
+        let distance = radius / self.projection.half_fovy().sin() * 1.15;
         self.anchor = bounds.center();
         self.anchor_body = None;
         self.pos = self.anchor + from.normalize() * distance;
@@ -1044,6 +1092,28 @@ impl Controller {
         true
     }
 
+    /// Whether anything asks the camera to move this frame -- a drag, the
+    /// wheel, a pinch, a swipe, and driving WASD a movement key held -- read
+    /// before `update_with_controller` spends it. Asked, not moved: with the
+    /// eye on its anchor there is no radius to orbit, and a new app's camera
+    /// sits on its anchor, so a drag in the empty scene moved nothing -- and
+    /// the welcome, which went when the camera moved, never went.
+    pub fn asks_to_move(&self, control: Control) -> bool {
+        let pointer = [self.horizontal, self.vertical, self.pan_horizontal, self.pan_vertical, self.zoom]
+            .iter()
+            .any(|v| *v != 0.0);
+        // The movement keys are read in every mode -- `Shift` among them --
+        // and move the camera only with WASD.
+        let keys = [self.forward, self.backward, self.left, self.right, self.up, self.down]
+            .iter()
+            .any(|v| *v != 0.0);
+        match control {
+            Control::Arcball => pointer,
+            Control::WASD => pointer || keys,
+            Control::None => false,
+        }
+    }
+
     // All three accumulate rather than assign: several input events can
     // arrive between two frames, and overwriting threw away everything but
     // the last one, which made fast drags lose motion.
@@ -1356,6 +1426,27 @@ mod tests {
             (perspective - orthographic).length() < 1e-3,
             "{perspective:?} in perspective, {orthographic:?} in orthographic"
         );
+    }
+
+    /// A viewport half the window's height shows half of what `fovy` spans,
+    /// at the same scale: a point sits as many pixels from the middle of the
+    /// short image as of the tall one -- a panel crops, it does not zoom --
+    /// in perspective and in orthographic alike.
+    #[test]
+    fn a_shorter_viewport_crops_the_view_rather_than_zooming() {
+        let bounds = aabb([-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]);
+        for mode in [ProjectionMode::Perspective, ProjectionMode::Orthographic] {
+            let mut eye = eye_at_distance(5.0);
+            eye.projection.mode = mode;
+            eye.fit_projection(&bounds, None, None);
+            let point = eye.anchor + eye.up * 0.4 + eye.right() * 0.3;
+
+            let tall = eye.project(point, (800, 600)).expect("in front") - Vec2::new(400.0, 300.0);
+            eye.projection.viewport_scale = 0.5;
+            let short = eye.project(point, (800, 300)).expect("in front") - Vec2::new(400.0, 150.0);
+
+            assert!((tall - short).length() < 1e-3, "{mode:?}: {tall:?} from the middle when tall, {short:?} when short");
+        }
     }
 
     /// `x` runs right and `y` down, and the field of view reaches the edges
@@ -1862,6 +1953,47 @@ mod tests {
             eye.distance_anchor()
         );
         assert!(eye.pos.is_finite() && eye.up.is_finite());
+    }
+
+    /// A drag asks the camera to move even where it cannot follow -- the eye
+    /// on its anchor, as a new app's was -- and it is the asking the empty
+    /// scene's welcome goes on. `Shift` held for a pan asks nothing of an
+    /// arcball; with WASD it is a movement key.
+    #[test]
+    fn a_drag_asks_to_move_even_on_the_anchor() {
+        let mut eye = Eye::new();
+        let mut ctrl = controller();
+        assert!(!ctrl.asks_to_move(Control::Arcball));
+        ctrl.drag(12.0, 3.0);
+        assert!(ctrl.asks_to_move(Control::Arcball));
+        let before = (eye.pos, eye.dir, eye.up);
+        eye.update_with_controller(&mut ctrl, 1.0 / 60.0);
+        assert_eq!((eye.pos, eye.dir, eye.up), before, "nothing to orbit on the anchor");
+        assert!(!ctrl.asks_to_move(Control::Arcball), "spent by the update");
+
+        ctrl.handle_key(winit::keyboard::KeyCode::ShiftLeft, true);
+        assert!(!ctrl.asks_to_move(Control::Arcball));
+        assert!(ctrl.asks_to_move(Control::WASD));
+        assert!(!ctrl.asks_to_move(Control::None));
+        ctrl.handle_key(winit::keyboard::KeyCode::ShiftLeft, false);
+        ctrl.scroll(winit::event::MouseScrollDelta::LineDelta(0.0, 1.0), 1.0);
+        assert!(ctrl.asks_to_move(Control::Arcball));
+    }
+
+    /// A new app's camera stands back from its anchor, so a drag turns it:
+    /// on the anchor, as it used to stand, the orbit had nothing to turn.
+    #[test]
+    fn a_new_apps_camera_orbits() {
+        let mut eye = Eye::standing_back();
+        assert!(eye.distance_anchor() > 1.0);
+        assert!(eye.dir.dot((eye.anchor - eye.pos).normalize()) > 0.9999, "looking at its anchor");
+        assert!(eye.up.dot(eye.up_world) > 0.0, "world up up");
+        let before = eye.pos;
+        let mut ctrl = controller();
+        ctrl.drag(40.0, 0.0);
+        eye.update_with_controller(&mut ctrl, 1.0 / 60.0);
+        assert!((eye.pos - before).length() > 1e-3, "the drag turned it");
+        assert!((eye.distance_anchor() - before.length()).abs() < 1e-3, "about its anchor");
     }
 
     /// Eye sitting exactly on the anchor: there is no radius to orbit, which

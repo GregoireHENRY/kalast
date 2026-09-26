@@ -34,7 +34,9 @@ from kalast._rs.app._core import console_offer as _console_offer
 from kalast._rs.app._core import console_set_more as _console_set_more
 from kalast._rs.app._core import console_take as _console_take
 from kalast._rs.app._core import console_take_completion as _console_take_completion
+from kalast._rs.app._core import console_take_interrupt as _console_take_interrupt
 from kalast._rs.app._core import console_write as _console_write
+from kalast._rs.app._core import editor_set_python as _editor_set_python
 from kalast._rs.app._core import script_write as _script_write
 
 # The namespace of the script running now, for the console to read and write:
@@ -44,6 +46,8 @@ _script_globals: dict[str, Any] | None = None
 _idle_globals: dict[str, Any] | None = None
 # Its interpreter, made again when the namespace changes.
 _console: code.InteractiveConsole | None = None
+# Whether the python tab has had the banner `python` greets with.
+_greeted = False
 
 
 class _EditorApp:
@@ -152,6 +156,19 @@ def capture_output(app: Any) -> None:
         stream = getattr(sys, name)
         if not isinstance(stream, _ScriptStream):
             setattr(sys, name, _ScriptStream(stream))
+
+    # The python tab opens as `python` in a terminal does. From here, where
+    # the interpreter's version is known, and once.
+    global _greeted
+    if not _greeted:
+        _greeted = True
+        # The script editor's language server resolves `import kalast` and
+        # numpy against the interpreter the script will actually run in.
+        _editor_set_python(sys.executable)
+        _console_write(
+            f"Python {sys.version} on {sys.platform}\n"
+            'Type "help", "copyright", "credits" or "license" for more information.\n'
+        )
 
 
 class _Restart(BaseException):
@@ -395,6 +412,10 @@ def serve_console(app: Any) -> None:
     """Run the lines typed at the console since the last frame, and answer
     a Tab. The loop calls this between frames -- the editor's, or a script's
     own through `step()`."""
+    # Ctrl+C at the prompt: the block being typed is dropped, as it is in a
+    # terminal. The line itself was never sent.
+    if _console_take_interrupt() and _console is not None:
+        _console.resetbuffer()
     while (line := _console_take()) is not None:
         console_push(app, line)
     if (line := _console_take_completion()) is not None:

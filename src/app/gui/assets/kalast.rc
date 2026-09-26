@@ -1,0 +1,3 @@
+// kalast.exe's icon: the first icon resource is what Explorer, a shortcut and
+// the taskbar show. Compiled and linked by build.rs, for that binary only.
+1 ICON "kalast.ico"

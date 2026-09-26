@@ -17,6 +17,9 @@ license = "MIT OR Apache-2.0"
 # globs, so a bare `README.md` matched five of them inside `.venv/`.
 include = [
     "/src/**/*.rs",
+    # The UI app's icons, compiled in with `include_bytes!` -- and their
+    # licences, which have to travel with them.
+    "/src/app/gui/assets/**",
     "/shaders/*.wgsl",
     "/res/cube.obj",
     "/res/ico3.obj",
@@ -25,6 +28,11 @@ include = [
     "/res/happy-tree.png",
     "/Cargo.toml",
     "/README.md",
+    # The documentation tab's pages, compiled in with `include_str!`.
+    "/docs/*.md",
+    "/CHANGELOG.md",
+    "/res/README.md",
+    "/examples/README.md",
 ]
 edition = "2024"
 # keywords = []
@@ -86,6 +94,9 @@ serde = "1.0"
 # nothing from the system.
 ureq = "3"
 serde_json = "1"
+# The script editor's Neovim mode speaks msgpack-RPC to an embedded `nvim`
+# (`src/app/gui/script/nvim.rs`).
+rmpv = "1"
 env_logger = "0.11.9"
 confique = { version = "0.2.0", features = ["toml", "yaml", "json5"] }
 lazy_static = "1.5"
@@ -124,7 +135,7 @@ pyo3 = { version = "0.28", optional = true, features = [
 numpy = { version = "0.28", optional = true }
 
 # Loading a compiled example into the running editor. See
-# `notes/API.md`, "Rust examples".
+# `docs/API.md`, "Rust examples".
 libloading = "0.8"
 
 # Window/GPU
@@ -142,8 +153,23 @@ image = { version = "0.25.10", default-features = false, features = [
 egui = "0.36"
 egui-wgpu = "0.36"
 egui-winit = "0.36"
+# The SVG loader only, for the files tab's Catppuccin icons: `resvg` without
+# its text or raster-image features. Highlighting the script is kalast's own
+# (`gui/code.rs`) rather than the `syntect` feature, which would embed a
+# megabyte of grammars for two languages.
+egui_extras = { version = "0.36", default-features = false, features = ["svg"] }
+# The documentation tab's Markdown (`src/app/gui/docs.rs`): the parser alone,
+# without its HTML writer or its command line. Drawn by kalast rather than by
+# `egui_commonmark`, whose headings take no GitHub anchors -- the links the
+# pages are written with -- and which lays out the whole page every frame.
+pulldown-cmark = { version = "0.13", default-features = false }
 raw-window-handle = "0.6.2"
 
+
+[build-dependencies]
+# kalast.exe's icon (`build.rs`): a Windows resource, linked into that
+# binary only.
+embed-resource = "3"
 
 [dev-dependencies]
 rstest = "0.26.1"

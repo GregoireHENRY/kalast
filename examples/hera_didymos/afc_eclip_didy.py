@@ -13,6 +13,7 @@ app = App()
 app.config.width = 1020
 app.config.height = 1020
 app.config.panels_folded = True
+app.simulation.config.axes.style = "off"
 
 app.simulation.huds = [Hud("", size=16)]
 app.simulation.camera.pos = [0.0, 0.0, 0.0]

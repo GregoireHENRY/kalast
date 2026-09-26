@@ -55,6 +55,20 @@ pub fn console_offer(line: String, head: String, matches: Vec<String>) {
     crate::app::gui::console_offer(line, head, matches);
 }
 
+/// The interpreter scripts run in, `sys.executable`: the script editor's
+/// Python language server resolves imports with it.
+#[pyfunction]
+pub fn editor_set_python(path: String) {
+    crate::app::gui::script::set_python(std::path::PathBuf::from(path));
+}
+
+/// Whether Ctrl+C was pressed at the python tab's prompt since last asked:
+/// the block being collected is to be dropped.
+#[pyfunction]
+pub fn console_take_interrupt() -> bool {
+    crate::app::gui::console_take_interrupt()
+}
+
 /// What running a console line printed, for the python tab.
 #[pyfunction]
 pub fn console_write(text: &str) {
@@ -470,22 +484,22 @@ impl App {
     /// Runs before each frame is drawn. Set body transforms, camera and
     /// sun here.
     ///
-    /// Called as `f(app, dt)`. `dt` is the **wall-clock time since the last
-    /// frame**, in seconds -- not a simulation step, so integrating physics
-    /// with it ties the result to the frame rate.
+    /// Called as `f(sim, dt)`: the app's `Simulation`, and `dt` the
+    /// **wall-clock time since the last frame**, in seconds -- not a
+    /// simulation step, so integrating physics with it ties the result to
+    /// the frame rate.
     ///
-    /// **Annotate the parameter** -- `def before_render(app: App, dt: float)`
-    /// -- or an editor has no way to know what `app` is and completes nothing
-    /// inside the body.
+    /// **Annotate the parameter** -- `def before_render(sim: Simulation, dt:
+    /// float)` -- or an editor has no way to know what `sim` is and completes
+    /// nothing inside the body.
     ///
     /// ```python
-    /// def before_render(app: App, dt: float) -> None:
-    ///     sim = app.simulation
+    /// def before_render(sim: Simulation, dt: float) -> None:
     ///     sim.huds[0].text = f"it={sim.state.iteration}  {dt * 1e3:.1f} ms"
     ///     sim.bodies[0].mat = pos_mat("MARS", "IAU_MARS", et0 + sim.state.iteration * step)
     /// ```
     ///
-    /// :pytype: Callable[[App, float], None]
+    /// :pytype: Callable[[Simulation, float], None]
     #[setter]
     fn set_before_render(&self, callback: Py<PyAny>) {
         let simulation = self.get_simulation();
@@ -496,7 +510,7 @@ impl App {
     /// Alias for `before_render`, kept because it is what every example and
     /// existing script uses.
     ///
-    /// :pytype: Callable[[App, float], None]
+    /// :pytype: Callable[[Simulation, float], None]
     #[setter]
     fn set_tick(&self, callback: Py<PyAny>) {
         self.set_before_render(callback);
@@ -511,9 +525,9 @@ impl App {
     /// here blocks the render loop (fine for a simulation run, but frame
     /// rate stops meaning much).
     ///
-    /// Called as `f(app, dt)`, same shape as `before_render`.
+    /// Called as `f(sim, dt)`, same shape as `before_render`.
     ///
-    /// :pytype: Callable[[App, float], None]
+    /// :pytype: Callable[[Simulation, float], None]
     #[setter]
     fn set_after_render(&self, callback: Py<PyAny>) {
         let simulation = self.get_simulation();

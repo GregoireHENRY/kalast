@@ -3,6 +3,7 @@
 # Regenerate after changing any #[pyclass]:  python tools/gen_stubs.py
 
 import numpy  # noqa: F401
+from typing import Sequence
 
 class Hud:
     """One HUD overlay: a template, a corner, and how it looks.
@@ -13,7 +14,7 @@ class Hud:
     kalast.app.Hud("{hud}", x=200, y=120, size=24.0)  # absolute, no anchor needed
     ```
     """
-    def __init__(self, text: str, anchor: str, x: float | None, y: float | None, size: float, color: list[float] | None, align_h: str | None, align_v: str | None) -> None:
+    def __init__(self, text: str, anchor: str = ..., x: float | None = ..., y: float | None = ..., size: float = ..., color: Sequence[float] | numpy.ndarray | None = ..., align_h: str | None = ..., align_v: str | None = ...) -> None:
         ...
     text: str
     """The template drawn for this HUD. See `Config::huds` for placeholders."""
@@ -44,8 +45,12 @@ class Hud:
     """
     size: float
     """Font size in pixels."""
-    color: list[float]
-    """Text colour, `(r, g, b, a)`."""
+    @property
+    def color(self) -> list[float]:
+        """Text colour, `(r, g, b, a)`."""
+        ...
+    @color.setter
+    def color(self, value: Sequence[float] | numpy.ndarray) -> None: ...
 
 class AppConfig:
     """Settings for the application: the window now, panels and colours later.
@@ -118,6 +123,17 @@ class AppConfig:
 
     Live and written back, like `toolbar_folded`.
     """
+    toolbar: str
+    """What the editor's toolbar says beside the transport buttons.
+
+    The same template as `huds`, so every placeholder works here too --
+    `{drawn}` for the iteration on screen, `{it}` for how many have been
+    begun, `{its}`, `{fps}`, `{ms}`, `{bodies}`, `{paused}`, `{warn}`,
+    `{gpu}` and its per-pass forms -- and a precision may be attached, as
+    `{fps:.1}`.
+
+    Empty for a bare toolbar.
+    """
     theme: str
     """The colours of the UI app's panels: `"catppuccin-mocha"`, the default,
     or `"dark"`, egui's own.
@@ -162,22 +178,6 @@ class AppConfig:
     inside it, and follows this unless it is set.
     """
     height: int
-    toolbar: str
-    """What the editor's toolbar says beside the transport buttons.
-
-    The same template as `huds`, so every placeholder works here too --
-    `{drawn}` for the iteration on screen, `{it}` for how many have been
-    begun, `{its}`, `{fps}`, `{ms}`, `{bodies}`, `{paused}`, `{warn}`,
-    `{gpu}` and its per-pass forms -- and a precision may be attached, as
-    `{fps:.1}`.
-
-    Empty for a bare toolbar.
-    """
-    check_updates: bool
-    """Ask GitHub for a newer release when the UI app opens, and offer it in
-    the toolbar. On a thread, so nothing waits on it; never when a script
-    runs its own window. Off, kalast touches the network at no point.
-    """
     title: str
     """The OS window title."""
     fullscreen: bool
@@ -205,17 +205,61 @@ class AppConfig:
     60 times a second. Set `True` when you are looking at a scene rather
     than timing one.
     """
+    neovim: bool
+    """Neovim in the script editor: your own `nvim` and your config, run the
+    way VS Code's Neovim extension runs it -- modes, motions, operators,
+    `:` commands, registers, macros and your mappings.
+
+    Needs Neovim 0.10 or newer, as `nvim` on the PATH or named by
+    `neovim_path`. The config is read with `vim.g.kalast` set, so a part
+    of it that has no place here can be skipped with `if not vim.g.kalast`
+    -- the way `vim.g.vscode` is used for VS Code. Off, the editor takes
+    VS Code's keys.
+    """
+    neovim_path: str
+    """The Neovim to run when `neovim` is on; empty for `nvim` on the PATH."""
+    ruler: int
+    """The column the script editor draws a vertical line at, 0 for none:
+    `editor.rulers` in VS Code, `colorcolumn` in Vim.
+    """
+    language_servers: bool
+    """Completion, hover, signatures and errors in the script editor, from a
+    language server -- pyright for Python, rust-analyzer for Rust -- the
+    servers VS Code runs for its own.
+
+    Each runs as a process of its own at low priority, so a simulation
+    never waits on it. One that is not installed is skipped, and the log
+    says how to install it.
+    """
+    python_language_server: str
+    """The command starting the Python language server; empty for the first
+    of `basedpyright-langserver`, `pyright-langserver`, `pylsp` and
+    `jedi-language-server` found.
+    """
+    rust_language_server: str
+    """The command starting the Rust language server; empty for
+    `rust-analyzer`.
+    """
+    check_updates: bool
+    """Ask GitHub for a newer release when the UI app opens, and offer it in
+    the toolbar. On a thread, so nothing waits on it; never when a script
+    runs its own window. Off, kalast touches the network at no point.
+    """
 
 class Config:
-    huds: list[Hud]
-    """The on-screen HUDs. Empty (the default) draws none.
+    @property
+    def huds(self) -> list[Hud]:
+        """The on-screen HUDs. Empty (the default) draws none.
 
-    An alias for `app.simulation.huds`, not a second list: they are the
-    same storage, so declaring them here and editing them there in
-    `before_render` cannot drift apart. The objects handed back are the
-    live ones -- setting `.text` on one takes effect on the next frame
-    with no list to reassign.
-    """
+        An alias for `app.simulation.huds`, not a second list: they are the
+        same storage, so declaring them here and editing them there in
+        `before_render` cannot drift apart. The objects handed back are the
+        live ones -- setting `.text` on one takes effect on the next frame
+        with no list to reassign.
+        """
+        ...
+    @huds.setter
+    def huds(self, value: Sequence[Hud]) -> None: ...
     shading: ShadingConfig
     """How the surface is coloured and the image encoded."""
     light: LightConfig
@@ -251,11 +295,15 @@ class ShadingConfig:
     `app.simulation.config.shading`. Reads and writes the live config
     through the same handle as every other view of it.
     """
-    background: list[float]
-    """Colour the frame is cleared to, `(r, g, b, a)`.
+    @property
+    def background(self) -> list[float]:
+        """Colour the frame is cleared to, `(r, g, b, a)`.
 
-    Accepts any 4-element sequence: tuple, list or `numpy.array`.
-    """
+        Accepts any 4-element sequence: tuple, list or `numpy.array`.
+        """
+        ...
+    @background.setter
+    def background(self, value: Sequence[float] | numpy.ndarray) -> None: ...
     render_back_face: bool
     """Draw triangles facing away from the camera.
 
@@ -292,8 +340,12 @@ class ShadingConfig:
     that `debug_depth_show` only mirrors the main pass's depth at 1: above
     that the pass writes its own multisampled depth buffer instead.
     """
-    color: list[float]
-    """Flat colour used when `color_mode` is 2, `(r, g, b, a)`."""
+    @property
+    def color(self) -> list[float]:
+        """Flat colour used when `color_mode` is 2, `(r, g, b, a)`."""
+        ...
+    @color.setter
+    def color(self, value: Sequence[float] | numpy.ndarray) -> None: ...
     color_mode: int
     """What the fragment shader outputs.
 
@@ -360,8 +412,12 @@ class LightConfig:
     Raise it to see into shadows while navigating; it is the wrong thing
     to have on for anything quantitative.
     """
-    color: list[float]
-    """Colour of the Sun, `(r, g, b, a)`."""
+    @property
+    def color(self) -> list[float]:
+        """Colour of the Sun, `(r, g, b, a)`."""
+        ...
+    @color.setter
+    def color(self, value: Sequence[float] | numpy.ndarray) -> None: ...
     cube_scale: float
     """Size of the debug light cube, in world units.
 
@@ -470,13 +526,17 @@ class WireframeConfig:
     """
     mode: int
     """the barycentrics are meaningless and the CPU side warns once."""
-    color: list[float]
-    """Wireframe colour, `(r, g, b, a)`; alpha is dropped.
+    @property
+    def color(self) -> list[float]:
+        """Wireframe colour, `(r, g, b, a)`; alpha is dropped.
 
-    Mode 2 blends by edge coverage and is antialiased; mode 1 thresholds instead,
-    because the pipeline blend state is REPLACE and a fractional alpha would be
-    ignored.
-    """
+        Mode 2 blends by edge coverage and is antialiased; mode 1 thresholds instead,
+        because the pipeline blend state is REPLACE and a fractional alpha would be
+        ignored.
+        """
+        ...
+    @color.setter
+    def color(self, value: Sequence[float] | numpy.ndarray) -> None: ...
     width: float
     """Wireframe half-width in screen pixels."""
     fade: bool
@@ -529,16 +589,24 @@ class SelectionConfig:
     """
     label_size: float
     """Size of a facet label, in pixels."""
-    label_color: list[float]
-    """Colour of a facet label, `(r, g, b, a)`."""
-    color: list[float]
-    """Colour a facet takes when it is selected, `(r, g, b, a)`.
+    @property
+    def label_color(self) -> list[float]:
+        """Colour of a facet label, `(r, g, b, a)`."""
+        ...
+    @label_color.setter
+    def label_color(self, value: Sequence[float] | numpy.ndarray) -> None: ...
+    @property
+    def color(self) -> list[float]:
+        """Colour a facet takes when it is selected, `(r, g, b, a)`.
 
-    Selecting writes this onto the facet's own vertices and marks them
-    colour-mode 1, which the shader honours for that facet alone -- so a
-    picked facet is unlit and this colour while the rest of the body keeps
-    its shading. Deselecting puts back what was there.
-    """
+        Selecting writes this onto the facet's own vertices and marks them
+        colour-mode 1, which the shader honours for that facet alone -- so a
+        picked facet is unlit and this colour while the rest of the body keeps
+        its shading. Deselecting puts back what was there.
+        """
+        ...
+    @color.setter
+    def color(self, value: Sequence[float] | numpy.ndarray) -> None: ...
 
 class DataConfig:
     """Colouring facets from per-facet values.
@@ -593,7 +661,11 @@ class ColorbarConfig:
     are.
     """
     text_size: float
-    text_color: list[float]
+    @property
+    def text_color(self) -> list[float]:
+        ...
+    @text_color.setter
+    def text_color(self, value: Sequence[float] | numpy.ndarray) -> None: ...
     border: bool
     """Outline drawn around the strip, so it reads as a scale rather than as
     part of the scene when it sits over a dark body.
@@ -613,8 +685,12 @@ class AxesConfig:
     gizmo). A rendered body alone carries no scale or orientation; these
     supply both.
     """
-    color: list[float]
-    """Colour of the axis lines and grid."""
+    @property
+    def color(self) -> list[float]:
+        """Colour of the axis lines and grid."""
+        ...
+    @color.setter
+    def color(self, value: Sequence[float] | numpy.ndarray) -> None: ...
     ticks: int
     """Roughly how many ticks per axis. The step is rounded to 1, 2 or 5
     times a power of ten first, so the count lands near this rather than
@@ -628,7 +704,11 @@ class AxesConfig:
     """
     label_size: float
     """Tick label size in pixels, and their colour."""
-    label_color: list[float]
+    @property
+    def label_color(self) -> list[float]:
+        ...
+    @label_color.setter
+    def label_color(self, value: Sequence[float] | numpy.ndarray) -> None: ...
     gizmo_anchor: str
     """Which corner the navigation gizmo sits in. Any of the nine HUD
     anchors, so it can be moved out of the way of a colour bar or a HUD.
@@ -668,17 +748,37 @@ class GridConfig:
     """Cells between thick lines, and the factor between the levels the
     crossfade steps through -- the same number seen from two sides.
     """
-    color: list[float]
-    """Colour of the ordinary lines, `(r, g, b, a)`."""
-    major_color: list[float]
-    """Colour of every `grid_major`-th line."""
-    axis_x_color: list[float]
-    """The axis lines, drawn over the grid so the origin reads without
-    hunting for it. Two of the three are in the grid's plane and get
-    drawn; which two depends on which plane that is.
-    """
-    axis_y_color: list[float]
-    axis_z_color: list[float]
+    @property
+    def color(self) -> list[float]:
+        """Colour of the ordinary lines, `(r, g, b, a)`."""
+        ...
+    @color.setter
+    def color(self, value: Sequence[float] | numpy.ndarray) -> None: ...
+    @property
+    def major_color(self) -> list[float]:
+        """Colour of every `grid_major`-th line."""
+        ...
+    @major_color.setter
+    def major_color(self, value: Sequence[float] | numpy.ndarray) -> None: ...
+    @property
+    def axis_x_color(self) -> list[float]:
+        """The axis lines, drawn over the grid so the origin reads without
+        hunting for it. Two of the three are in the grid's plane and get
+        drawn; which two depends on which plane that is.
+        """
+        ...
+    @axis_x_color.setter
+    def axis_x_color(self, value: Sequence[float] | numpy.ndarray) -> None: ...
+    @property
+    def axis_y_color(self) -> list[float]:
+        ...
+    @axis_y_color.setter
+    def axis_y_color(self, value: Sequence[float] | numpy.ndarray) -> None: ...
+    @property
+    def axis_z_color(self) -> list[float]:
+        ...
+    @axis_z_color.setter
+    def axis_z_color(self, value: Sequence[float] | numpy.ndarray) -> None: ...
     fade_near: float
     """Fade the grid out between these grazing factors: `0.0` is looking
     straight down at the ground plane and `1.0` is looking along it.
@@ -763,6 +863,15 @@ class ExportConfig:
     Off by default: the HUD is drawn straight onto the swapchain after the blit,
     so it stays out of `render_texture` and therefore out of exports. Turning it
     on adds a separate pass that draws it into the exported image too.
+    """
+    axes: bool
+    """Keep the axes -- grid, box or panes, gizmo, and their labels -- in
+    exported frames as well as on screen.
+
+    On by default: an exported frame is what the window shows, bar the HUD.
+    Off, frames that are exported draw the axes in a second pass after the
+    copy, so the window keeps them and the export has the scene alone; other
+    frames are drawn as before.
     """
 
 class ControlsConfig:
@@ -870,4 +979,20 @@ class DebugConfig:
     depth_show: bool
     extra: int
     """Free integer passed through to the shader, for one-off experiments."""
+
+def colormap(name: str) -> numpy.ndarray:
+    """A built-in colormap as a 256x3 array, the way matplotlib hands one over.
+
+    Exists so the built-ins are *data* rather than a magic string only the
+    setter understands: fetched as an array they can be reversed, sliced or
+    concatenated before use.
+
+    ```python
+    app.config.colormap = kalast.app.config.colormap("inferno")[::-1]   # reversed
+    ```
+    """
+    ...
+def colormap_names() -> list[str]:
+    """Names accepted by `colormap()` and by `config.colormap`."""
+    ...
 

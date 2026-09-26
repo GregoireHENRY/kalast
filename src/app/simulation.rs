@@ -140,7 +140,7 @@ impl Simulation {
             state: State::new(),
 
             bodies: vec![],
-            camera: crate::app::frame::Eye::new(),
+            camera: crate::app::frame::Eye::standing_back(),
             sun,
 
             export: false,
@@ -188,10 +188,10 @@ impl Simulation {
         if all.is_empty() {
             return;
         }
-        // Blender's default camera, `(7.36, -6.93, 4.96)`, and its default
-        // light, `(4.08, 1.01, 5.90)`, both toward the origin: the view
-        // everyone who has opened Blender knows.
-        self.camera.frame(&all, crate::Vec3::new(7.36, -6.93, 4.96));
+        // Blender's default camera, `BLENDER_VIEW`, and its default light,
+        // `(4.08, 1.01, 5.90)`, both toward the origin: the view everyone who
+        // has opened Blender knows.
+        self.camera.frame(&all, crate::app::frame::BLENDER_VIEW);
         let radius = all.radius().max(1e-6);
         self.sun.anchor = all.center();
         self.sun.anchor_body = None;
@@ -1277,7 +1277,10 @@ mod frame_all_tests {
 
         let centre = sim.camera.anchor;
         assert!((centre.x - 3.0).abs() < 1e-3, "anchor between the two cubes, got {centre}");
-        assert!(sim.camera.pos.length() > 3.0, "the camera backed off");
+        // Outside both cubes -- their bounding sphere is 4.24 across the
+        // middle -- and not where a new app's camera stands.
+        assert!((sim.camera.pos - centre).length() > 4.3, "the camera backed off");
+        assert_ne!(sim.camera.pos, Simulation::new().camera.pos, "framed, not left as it was");
         assert!(sim.sun.pos.length() > 3.0, "the Sun is not inside the scene");
         assert!(
             sim.sun.dir.dot((sim.sun.anchor - sim.sun.pos).normalize()) > 0.9999,

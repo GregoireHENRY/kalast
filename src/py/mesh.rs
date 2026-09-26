@@ -367,6 +367,13 @@ impl Mesh {
         unsafe { numpy::PyArray1::borrow_from_array(&arr, slf.into_any()) }
     }
 
+    /// The facets, each one's position, normal and area, as a live view:
+    /// `len(mesh.facets)`, `mesh.facets[i].area`.
+    ///
+    /// The view's class comes from `impl_mesh_view!`, which the stub
+    /// generator cannot read, so its type is written here.
+    ///
+    /// :pytype: Sequence[Facet]
     #[getter]
     fn facets(&self) -> FacetsView {
         FacetsView {

@@ -287,6 +287,8 @@ pub fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     pyadd_f!(core, app::console_take);
     pyadd_f!(core, app::console_ask_completion);
     pyadd_f!(core, app::console_take_completion);
+    pyadd_f!(core, app::console_take_interrupt);
+    pyadd_f!(core, app::editor_set_python);
     pyadd_f!(core, app::console_offer);
     pyadd_f!(core, app::console_write);
     pyadd_f!(core, app::console_set_more);

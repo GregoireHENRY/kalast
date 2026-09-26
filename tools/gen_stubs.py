@@ -64,6 +64,66 @@ def py_type(rust: str) -> str:
     return t if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", t) else "object"
 
 
+def accepted(annotation: str) -> str:
+    """A parameter's annotation as what pyo3 actually accepts for it.
+
+    `py_type` names what a value *is* -- a `Vec` comes back as a `list` -- but
+    going in, pyo3 takes any sequence for a `Vec` or an array, a tuple or a
+    numpy array as well as a list. Annotated `list[float]`, a script passing
+    `(0.0, 1.0, 0.0)`, or an array it computed, read as an error to a type
+    checker -- and the editor's language server underlined every
+    `camera.pos = [...]` in the examples.
+    """
+    if m := re.fullmatch(r"list\[(.+)\]", annotation):
+        inner = accepted(m.group(1))
+        numeric = re.fullmatch(r"(Sequence\[)*(float|int)\]*( \| numpy\.ndarray)?", inner)
+        return f"Sequence[{inner}]" + (" | numpy.ndarray" if numeric else "")
+    if annotation.endswith(" | None"):
+        return accepted(annotation.removesuffix(" | None")) + " | None"
+    return annotation
+
+
+def signature(prelude: str):
+    """`#[pyo3(signature = (...))]` as `(order, defaults)`: the parameters in
+    order, with `*` and `*args` markers kept, and the ones given defaults.
+    `None` when there is no signature.
+
+    Read from the whole prelude rather than line by line: a long signature
+    spans several lines, and the line filter kept only its first. Without
+    the defaults every optional argument read as required, and
+    `load_mesh(path=...)` as a call missing four.
+    """
+    m = re.search(r"#\[pyo3\((?:[^()]|\([^()]*\))*?signature\s*=\s*\(", prelude)
+    if not m:
+        return None
+    i = j = m.end()
+    depth = 1
+    while j < len(prelude) and depth:
+        depth += (prelude[j] in "([") - (prelude[j] in ")]")
+        j += 1
+    parts, depth, cur = [], 0, ""
+    for ch in prelude[i : j - 1]:
+        if ch == "," and depth == 0:
+            parts.append(cur)
+            cur = ""
+            continue
+        depth += (ch in "([") - (ch in ")]")
+        cur += ch
+    parts.append(cur)
+    order, defaults = [], set()
+    for part in parts:
+        part = " ".join(part.split())
+        if not part:
+            continue
+        name, eq, _ = part.partition("=")
+        # `k: "float"`: pyo3 lets a signature carry the Python annotation.
+        name = name.strip() if name.strip().startswith("*") else name.split(":", 1)[0].strip()
+        order.append(name)
+        if eq:
+            defaults.add(name)
+    return order, defaults
+
+
 def clean_doc(raw: str) -> str:
     """`/// ...` lines -> plain text, blank lines preserved."""
     # `.strip()` per line would flatten the indentation inside a ``` fence,
@@ -239,7 +299,10 @@ def parse(src: str):
             if "#[new]" in attrs:
                 name = "__init__"
                 ret = "()"          # a constructor returns None in Python
-            if name.startswith("__") and name != "__init__":
+            # A container's protocol is what makes `len(mesh.vertices)` and
+            # `mesh.vertices[i]` type-check; skipped with the other dunders,
+            # every view read as neither sized nor subscriptable.
+            if name.startswith("__") and name not in PROTOCOL:
                 continue
             doc = clean_doc(doc)
             gm = re.search(r"#\[getter(?:\((\w+)\))?\]", attrs)
@@ -260,17 +323,36 @@ def parse(src: str):
                 for a in args.split(","):
                     a = a.strip()
                     if a and not a.startswith(("&self", "self", "mut self", "py:")) and ":" in a:
-                        typ = py_type(a.split(":", 1)[1])
+                        typ = accepted(py_type(a.split(":", 1)[1]))
                 by_name[cls].append(("setter", attr, override or typ, doc))
             else:
-                params = []
+                types = {}
                 for a in args.split(","):
                     a = a.strip()
                     if not a or a.startswith(("&self", "self", "slf", "mut self", "py:")):
                         continue
                     if ":" in a:
                         pn, pt = a.split(":", 1)
-                        params.append(f"{pn.strip()}: {py_type(pt)}")
+                        pt = pt.strip()
+                        # `Python<'_>` is pyo3's, not a parameter.
+                        if pt.startswith("Python"):
+                            continue
+                        types[pn.strip()] = accepted(py_type(pt))
+                sig = signature(prelude or "")
+                params = []
+                if sig is None:
+                    params = [f"{n}: {ty}" for n, ty in types.items()]
+                else:
+                    order, defaults = sig
+                    for n in order:
+                        if n in ("*", "/"):
+                            params.append(n)
+                        elif n.startswith("**"):
+                            params.append(f"{n}: object")
+                        elif n.startswith("*"):
+                            params.append(f"{n}: object")
+                        elif n in types:
+                            params.append(f"{n}: {types[n]}" + (" = ..." if n in defaults else ""))
                 by_name[cls].append(
                     (
                         "meth",
@@ -283,20 +365,154 @@ def parse(src: str):
     return classes
 
 
+def rust_functions() -> dict:
+    """Every `#[pyfunction]` in the tree: name -> (params, return, doc).
+
+    Found anywhere under `src/`, since a module's functions are registered
+    in `src/py/mod.rs` by path but written beside what they compute --
+    `crate::tpm::properties::conductivity` lives in `src/tpm/properties.rs`.
+    """
+    found = {}
+    for rs in sorted((ROOT / "src").rglob("*.rs")):
+        src = re.sub(r"(?<!/)//(?!/)[^\n]*", "", rs.read_text(encoding="utf-8"))
+        for fm in re.finditer(
+            r"((?:[ \t]*(?:///[^\n]*|#\[(?:[^\[\]]|\[[^\]]*\])*\])[ \t]*\n)*)"
+            r"[ \t]*(?:pub(?:\([^)]*\))? )?(?:const )?fn (\w+)\s*(?:<[^>]*>)?\s*\(([^)]*)\)(?:\s*->\s*([^{]+))?",
+            src,
+        ):
+            prelude, name, args, ret = fm.groups()
+            if "pyfunction" not in (prelude or ""):
+                continue
+            # `#[pyo3(name = "flux")] fn py_flux`: Python knows it by the name.
+            if renamed := re.search(r'#\[pyo3\([^\]]*name\s*=\s*"(\w+)"', prelude):
+                name = renamed.group(1)
+            doc = clean_doc("\n".join(l for l in prelude.splitlines() if l.strip().startswith("///")))
+            override, doc = pytype_override(doc)
+            types = {}
+            for a in args.split(","):
+                a = a.strip()
+                if not a or ":" not in a or a.startswith(("py:", "_py:")):
+                    continue
+                pn, pt = a.split(":", 1)
+                if pt.strip().startswith("Python"):
+                    continue
+                types[pn.strip()] = accepted(py_type(pt))
+            sig = signature(prelude)
+            if sig is None:
+                params = [f"{n}: {ty}" for n, ty in types.items()]
+            else:
+                order, defaults = sig
+                params = [
+                    n if n in ("*", "/") else
+                    f"{n}: object" if n.startswith("*") else
+                    f"{n}: {types[n]}" + (" = ..." if n in defaults else "")
+                    for n in order
+                    if n in ("*", "/") or n.startswith("*") or n in types
+                ]
+            found[name] = (params, override or (py_type(ret) if ret else "None"), doc)
+    return found
+
+
+def rust_constants() -> dict:
+    """`(module, NAME) -> class` for the objects `src/py/mod.rs` adds to a
+    module: `let r = |x| Body::from_raw(x);` then `entity.add("EARTH",
+    r(...))` makes `kalast._rs.entity.EARTH` a `Body`.
+    """
+    found, current = {}, None
+    for line in (ROOT / "src/py/mod.rs").read_text(encoding="utf-8").splitlines():
+        if m := re.search(r"let r = \|x\| (?:[\w:]+::)?(\w+)::from_raw", line):
+            current = m.group(1)
+        if m := re.search(r'(\w+)\.add\("(\w+)", r\(', line):
+            found[(m.group(1), m.group(2))] = current
+    return found
+
+
+def reexports(pyi: str, classes: set, index: dict, functions: dict, constants: dict):
+    """What the `.py` beside a stub puts in its module, as stub lines.
+
+    The stub shadows the module: a checker reads `kalast/entity.pyi` and
+    never `kalast/entity.py`. Generated from the `#[pyclass]`es alone, it
+    left out every function and constant the module re-exports from
+    `kalast._rs` -- `kalast.entity.DIDYMOS`, `kalast.tpm.properties
+    .skin_depth_1` -- and a script using them read as a page of errors.
+    Returns `(lines, names referenced)`.
+    """
+    import ast
+
+    source = ROOT / (pyi.removesuffix(".pyi") + ".py")
+    if not source.exists():
+        return [], set()
+    here = pyi.removesuffix(".pyi").replace("/", ".")
+    lines, names = [], set()
+    for node in ast.parse(source.read_text(encoding="utf-8")).body:
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("kalast._rs"):
+            module_var = node.module.rsplit(".", 1)[-1]
+            for alias in node.names:
+                name = alias.asname or alias.name
+                if name in classes:
+                    continue
+                if alias.name in index:
+                    home = nearest(index[alias.name], here)
+                    lines.append(f"from {home} import {alias.name} as {name}")
+                elif alias.name in functions:
+                    params, ret, doc = functions[alias.name]
+                    lines.append(f"def {name}({', '.join(params)}) -> {ret}:")
+                    if doc:
+                        lines += docstring(doc, "    ")
+                    lines.append("    ...")
+                    names.update(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", " ".join(params) + " " + ret))
+                elif cls := constants.get((module_var, alias.name)):
+                    lines.append(f"{name}: {cls}")
+                    names.add(cls)
+                else:
+                    lines.append(f"{name}: Any")
+                    names.add("Any")
+        elif isinstance(node, ast.Assign):
+            value = node.value
+            cls = value.func.id if isinstance(value, ast.Call) and isinstance(value.func, ast.Name) else None
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    lines.append(f"{target.id}: {cls or 'Any'}")
+                    names.add(cls or "Any")
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            returns = ast.unparse(node.returns) if node.returns else "Any"
+            lines.append(f"def {node.name}({ast.unparse(node.args)}) -> {returns}: ...")
+            names.update(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", returns))
+            names.add("Any")
+    return lines, names
+
+
 def merge(members):
-    """Getter and setter for one attribute are one attribute in Python."""
-    seen, out = {}, []
+    """Getter and setter for one attribute are one attribute in Python.
+
+    When the setter takes more than the getter gives -- a position read back
+    as an array but set from a list -- they are a property and its setter,
+    so that both are right: one annotation for the two was either wrong on
+    reading or an error on every assignment.
+    """
+    getters, setters, order = {}, {}, []
+    out = []
     for m in members:
         if m[0] in ("attr", "setter"):
-            if m[1] in seen:
-                if m[0] == "attr":            # a real getter beats a setter
-                    out[seen[m[1]]] = ("attr",) + m[1:]
-                continue
-            seen[m[1]] = len(out)
-            out.append(("attr",) + m[1:])
+            if m[1] not in getters and m[1] not in setters:
+                order.append(m[1])
+                out.append(("slot", m[1]))
+            (getters if m[0] == "attr" else setters)[m[1]] = m
         else:
             out.append(m)
-    return out
+    merged = []
+    for m in out:
+        if m[0] != "slot":
+            merged.append(m)
+            continue
+        name = m[1]
+        get, put = getters.get(name), setters.get(name)
+        doc = (get or put)[3] or (put or get)[3]
+        if get and put and put[2] != get[2] and put[2] != "object":
+            merged.append(("prop", name, get[2], doc, put[2]))
+        else:
+            merged.append(("attr", name, (get or put)[2], doc))
+    return merged
 
 
 def docstring(text, indent):
@@ -311,7 +527,10 @@ def docstring(text, indent):
     return out
 
 
-TYPING_NAMES = {"Any", "Callable", "Iterable", "Literal", "Sequence"}
+TYPING_NAMES = {"Any", "Callable", "Iterable", "Iterator", "Literal", "Sequence"}
+
+# The dunders kept in a stub: construction, and the container protocol.
+PROTOCOL = {"__init__", "__len__", "__getitem__", "__setitem__", "__iter__", "__next__", "__contains__"}
 
 KNOWN_BUILTINS = {"int", "float", "str", "bool", "object", "None", "list",
                   "tuple", "dict", "numpy"} | TYPING_NAMES
@@ -338,13 +557,36 @@ def resolve(annotation: str, defined: set, index: dict) -> str:
     return re.sub(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*", sub, annotation)
 
 
-def render(classes, index=None) -> str:
+def nearest(modules: list[str], here: str) -> str:
+    """Of the modules defining a class of one name, the one nearest `here`.
+
+    Three classes are called `Body` -- the scene's, an entity's and the setup
+    routine's -- and a name index that kept the last one seen imported the
+    setup routine's into `kalast.app.simulation`, where `bodies` holds the
+    scene's. Every `sim.bodies[0].mat` was then an unknown attribute to a type
+    checker. The one sharing the longest module prefix is the one meant.
+    """
+    def shared(m: str) -> int:
+        n = 0
+        for a, b in zip(m.split("."), here.split(".")):
+            if a != b:
+                break
+            n += 1
+        return n
+
+    return max(modules, key=shared)
+
+
+def render(classes, index=None, here: str = "", module=((), set())) -> str:
     defined = {c for c, _, _ in classes}
-    referenced = set()
+    module_lines, module_names = module
+    referenced = set(module_names)
     for _, members, _ in classes:
         for m in merge(members):
-            for t in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", m[2] if m[0] == "attr" else m[2]):
+            for t in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", m[2]):
                 referenced.add(t)
+            if m[0] == "prop":
+                referenced.update(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", m[4]))
             if m[0] == "meth":
                 for p in m[4]:
                     referenced.update(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", p))
@@ -353,9 +595,9 @@ def render(classes, index=None) -> str:
     if used := sorted(referenced & TYPING_NAMES):
         imports.append("from typing import " + ", ".join(used))
     for name in sorted(referenced - defined):
-        mod = (index or {}).get(name)
-        if mod:
-            imports.append(f"from {mod} import {name}")
+        mods = (index or {}).get(name)
+        if mods:
+            imports.append(f"from {nearest(mods, here)} import {name}")
 
     out = [
         "# Generated by tools/gen_stubs.py -- do not edit by hand.",
@@ -366,6 +608,11 @@ def render(classes, index=None) -> str:
     ]
     out += imports
     out.append("")
+    # Re-exported classes import themselves; the rest of the module's names
+    # follow the classes they may refer to.
+    out += [l for l in module_lines if l.startswith("from ")]
+    if any(l.startswith("from ") for l in module_lines):
+        out.append("")
     for cls, members, cls_doc in classes:
         members = merge(members)
         out.append(f"class {cls}:")
@@ -376,6 +623,16 @@ def render(classes, index=None) -> str:
             out.append("")
             continue
         for m in members:
+            if m[0] == "prop":
+                _, name, typ, doc, put = m
+                out.append("    @property")
+                out.append(f"    def {name}(self) -> {resolve(typ, defined, index or {})}:")
+                if doc:
+                    out += docstring(doc, "        ")
+                out.append("        ...")
+                out.append(f"    @{name}.setter")
+                out.append(f"    def {name}(self, value: {resolve(put, defined, index or {})}) -> None: ...")
+                continue
             if m[0] == "attr":
                 _, name, typ, doc = m
                 out.append(f"    {name}: {resolve(typ, defined, index or {})}")
@@ -385,20 +642,26 @@ def render(classes, index=None) -> str:
                     out += docstring(doc, "    ")
             else:
                 _, name, ret, doc, params = m
-                params = [
+                def one(p):
                     # Only the annotation: resolving the whole "name: type"
                     # rewrote parameter *names* to `object` as well.
-                    f"{p.split(':', 1)[0]}:{resolve(p.split(':', 1)[1], defined, index or {})}"
-                    if ":" in p
-                    else p
-                    for p in params
-                ]
+                    if ":" not in p:
+                        return p
+                    name, rest = p.split(":", 1)
+                    annotation, eq, default = rest.partition(" = ")
+                    return f"{name}:{resolve(annotation, defined, index or {})}" + (f" = {default}" if eq else "")
+
+                params = [one(p) for p in params]
                 ret = resolve(ret, defined, index or {})
                 sig = ", ".join(["self"] + params)
                 out.append(f"    def {name}({sig}) -> {ret}:")
                 if doc:
                     out += docstring(doc, "        ")
                 out.append("        ...")
+        out.append("")
+    rest = [l for l in module_lines if not l.startswith("from ")]
+    if rest:
+        out += rest
         out.append("")
     return "\n".join(out) + "\n"
 
@@ -458,15 +721,17 @@ def main() -> int:
                 if m[0] in ("attr", "setter") and not m[3] and m[1] in src_docs:
                     members[i] = (m[0], m[1], m[2], src_docs[m[1]])
 
-    index = {
-        cls: pyi.removesuffix(".pyi").replace("/", ".")
-        for pyi, classes in parsed.items()
-        for cls, _, _ in classes
-    }
+    index: dict[str, list[str]] = {}
+    for pyi, classes in parsed.items():
+        for cls, _, _ in classes:
+            index.setdefault(cls, []).append(pyi.removesuffix(".pyi").replace("/", "."))
 
+    functions = rust_functions()
+    constants = rust_constants()
     stale = []
     for pyi, classes in parsed.items():
-        text = render(classes, index)
+        module = reexports(pyi, {c for c, _, _ in classes}, index, functions, constants)
+        text = render(classes, index, pyi.removesuffix(".pyi").replace("/", "."), module)
         path = ROOT / pyi
         if args.check:
             if not path.exists() or path.read_text() != text:

@@ -46,6 +46,7 @@ app = kalast.app.App()
 app.config.width = 768
 app.config.height = 1024
 app.config.color_mode = 1
+app.simulation.config.axes.style = "off"
 
 spice.kclear()
 spice.furnsh("/Users/gregoireh/data/spice/hera/kernels/mk/hera_ops_local.tm")
