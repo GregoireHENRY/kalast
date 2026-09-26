@@ -980,21 +980,16 @@ pub struct Export {
     pub dir: String,
     /// Burn the HUD text into exported frames as well as drawing it on screen.
     ///
-    /// Off by default, and that is the right default for a data product: the
-    /// HUD is drawn onto the swapchain after the scene has been copied out, so
-    /// exports carry the render alone. Turn it on for a screen-capture-style
-    /// movie where the run state should be visible in the frames themselves --
-    /// it costs one extra text pass, on exported frames only.
-    /// Burn the HUD text into exported frames as well as the window.
-    ///
-    /// Off by default: the HUD is drawn straight onto the swapchain after the blit,
-    /// so it stays out of `render_texture` and therefore out of exports. Turning it
-    /// on adds a separate pass that draws it into the exported image too.
+    /// On by default: an exported frame is what the window shows, the run
+    /// state a HUD writes -- a date, an iteration -- included. On, it costs
+    /// one extra text pass, on exported frames only. Off for a data product
+    /// with a HUD on screen: the HUD is drawn onto the swapchain after the
+    /// scene has been copied out, so the export carries the render alone.
     pub hud: bool,
     /// Keep the axes -- grid, box or panes, gizmo, and their labels -- in
     /// exported frames as well as on screen.
     ///
-    /// On by default: an exported frame is what the window shows, bar the HUD.
+    /// On by default, as `hud` is: an exported frame is what the window shows.
     /// Off, frames that are exported draw the axes in a second pass after the
     /// copy, so the window keeps them and the export has the scene alone; other
     /// frames are drawn as before.
@@ -1007,7 +1002,7 @@ impl Default for Export {
             sync: false,
             max_queued: 64,
             dir: "out/frames".to_string(),
-            hud: false,
+            hud: true,
             axes: true,
         }
     }

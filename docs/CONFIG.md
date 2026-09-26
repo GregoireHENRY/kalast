@@ -796,8 +796,8 @@ as there are save workers.
 
 ### `huds: list[Hud]` — default `[]` *(live)*
 ### `hud.font: String` — default `""` *(live, rebuilds the glyph atlas)*
-On-screen overlay text, drawn over the swapchain after the blit — so by
-default it stays out of exported frames (`export.hud` adds it to those too).
+On-screen overlay text, drawn over the swapchain after the blit, and by
+default into exported frames too (`export.hud`).
 Empty draws nothing.
 
 `app.simulation.config.huds` and `app.simulation.huds` are **the same list**, not two.
@@ -974,22 +974,22 @@ width.
 
 ---
 
-### `export.hud: bool` — default `false` *(live)*
+### `export.hud: bool` — default `true` *(live)*
 Whether the HUD text (`sim.huds`) is burned into exported frames as well as
 drawn on screen.
 
-- `false` (default): exports carry the render alone. The on-screen HUD is
-  drawn onto the swapchain *after* the exporter has copied `render_texture`
+- `true` (default): an extra text pass draws the HUD into `render_texture`
+  before the exporter copies it, so exported PNGs show it too. The window is
+  unchanged either way -- the text is simply drawn twice.
+- `false`: exports carry the render alone. The on-screen HUD is drawn onto
+  the swapchain *after* the exporter has copied `render_texture`
   (`src/app/window.rs`), so it cannot reach a frame.
-- `true`: an extra text pass draws the HUD into `render_texture` before that
-  copy, so exported PNGs show it too. The window is unchanged either way --
-  the text is simply drawn twice.
 
 Accepted: `True` / `False`.
 
-Leave it `false` for anything that is a data product: a GIS3D/TIRI frame set
-should be the render and nothing else. Turn it on for a screen-capture-style
-movie where the run state should be legible in the frames themselves. Costs
+Set it `false` for a data product with a HUD on screen: a GIS3D/TIRI frame
+set should be the render and nothing else. On, the default, suits a movie of
+a run, where the run state should be legible in the frames themselves. Costs
 one text pass, and only on frames that are actually exported.
 
 The axes' own text -- tick labels, the gizmo's letters -- is not the HUD's:

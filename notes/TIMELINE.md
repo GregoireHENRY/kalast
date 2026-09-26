@@ -4490,3 +4490,15 @@ Codicons font and its licence, and Catppuccin's file icons with theirs
 (`res/icons/`; `tools/gen_icons.py` writes there and the table's paths
 follow). `src/app/gui/assets/` is gone; `Cargo.toml`'s `include` lists the
 files from `res/` the build reads.
+
+## 2026-09-27 — the HUD in exported frames by default
+
+Asked for: `export.hud` on by default. Its doc had argued for off, as the
+right default for a data product, and said so twice. Now an exported frame is
+what the window shows, the HUD's run state included; a data product with a
+HUD on screen sets it off. No GIS3D/TIRI example draws a HUD, so their frame
+sets stay the render alone. Three examples export and draw one, and now carry
+it in their frames: `hera_didymos/afc.py` and `afc_eclip_didy.py` (the date)
+and `tpm_phase2.py` (progress). The bindings' and stubs' docstrings are
+regenerated from the new doc; the panel's hover, its first sentence, did not
+change.
