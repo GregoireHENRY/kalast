@@ -9,7 +9,7 @@ pushed. While betas of a version go out, its section is headed
 `## v<version>-beta`; it becomes `## v<version>` when the version is
 released, and the gate refuses the tag until it has.
 
-## v0.5.10-beta
+## v0.5.10
 
 - The UI app's log panel has two tabs: **kalast**, shown first, with what kalast says about itself -- loading, the update check, builds -- and **script**, with what the script prints -- `print`, tracebacks, `app.log` -- so the first no longer lands in the middle of the second. Everything still goes on to the terminal.
 - A plane view from the navigation gizmo -- or any orthographic camera -- holds still while the bodies move, as the perspective view does: on the Didymos pair it panned and zoomed with Dimorphos's orbit. Switching between perspective and orthographic keeps the size of what is at the camera's anchor.

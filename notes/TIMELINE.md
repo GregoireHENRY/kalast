@@ -4567,3 +4567,16 @@ every line pushed to a log counts as unread until its tab is shown.
 and the drain pushes those lines with `Log::push_seen_at`, which leaves the
 count as it was; what a typed line prints still counts.
 `the_python_tab_is_greeted_once_and_quietly` fails without it.
+
+## 2026-09-27 — v0.5.10 prepared; the engine tests on every platform
+
+Asked for: v0.5.10 released if every test passes on Windows, Linux and
+macOS in CI. The release workflow ran the engine tests on Linux alone, as
+"the same code three times buys minutes, not coverage"; Windows and macOS
+were built and their bundles checked (`--python-check`, the Rust examples
+precompiled), no test run. The code is not the same by platform, and
+`the_search_path_is_two_arguments` failed on Windows only, unseen by CI. The
+step now runs on all four targets, Linux, macOS arm64 and x86_64, Windows.
+The changelog's section is renamed `## v0.5.10` for the tag's gate; a local
+`cargo test --lib --no-default-features` on Windows passed 217 of 217
+first. The Python test files are not part of CI: most open a window.

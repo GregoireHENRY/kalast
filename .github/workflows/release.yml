@@ -386,10 +386,11 @@ jobs:
           grep -E "^(version|shared|abi3|lib_name)=" "$root/pyo3-config.txt" | tr '\n' ' '; echo
 
       # The engine alone, which is still a supported build and the shape the
-      # audit was written for. One platform: the same code three times buys
-      # minutes, not coverage.
+      # audit was written for. On every platform: it was Linux alone, as "the
+      # same code three times", but the code is not the same -- paths,
+      # processes, the console differ by platform -- and a test that failed
+      # only on Windows went unseen by CI for as long as that lasted.
       - name: Engine tests
-        if: runner.os == 'Linux'
         run: cargo test --release --lib --no-default-features
 
       # Into the bundle before it is run at all: it finds its libpython
