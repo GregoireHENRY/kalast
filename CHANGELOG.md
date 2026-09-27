@@ -63,6 +63,7 @@ released, and the gate refuses the tag until it has.
 - With `app.config.neovim`, `:w` no longer fails with `E32: No file name` after switching buffers, `:e` opens a file in kalast, and the bar under the text says when Neovim has left the script for a buffer the editor does not show.
 - Scripts no longer leave an empty `out/frames` folder where they are run: it is made when the first frame is exported.
 - Arrows and other symbols -- `→`, `⌥`, `●` -- show in the UI app instead of boxes.
+- The navigation gizmo's balls work in an empty scene: the view turns to look along the axis, about the point it looks at. They did nothing until something was loaded.
 
 ## v0.5.9
 

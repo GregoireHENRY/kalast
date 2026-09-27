@@ -1639,7 +1639,9 @@ impl Window {
                 config.shadows.resolution,
             ))
         } else {
-            simulation.camera.projection.resolve_manual();
+            // Nothing to fit, but an orthographic camera still sizes its box
+            // from where it stands: the ground grid draws without geometry.
+            simulation.camera.fit_projection(&crate::mesh::Aabb::empty(), None, None);
             simulation.sun.projection.resolve_manual();
             None
         };

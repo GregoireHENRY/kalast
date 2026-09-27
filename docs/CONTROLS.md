@@ -200,6 +200,10 @@ widget starts a gizmo gesture rather than a facet pick, so the axis views stay
 reachable over a body. Clicks elsewhere are unaffected — the widget is a
 `axes.gizmo_size`-radius disc in one corner and nothing outside it changes.
 
+**A click frames the whole scene**, the eye backed off from its centre. With
+nothing loaded the view turns about its anchor instead, at the distance it
+stood, as Blender's always does -- the balls work in an empty scene too.
+
 **Clicking an axis also switches to orthographic**, which is Blender's
 behaviour and for the reason `Eye::view_along` was written: a plane view read
 in perspective is not measurable, near rim and far rim being at different
@@ -233,7 +237,9 @@ body at all.
 
 The negative balls are not decoration: `-Z` looks *up* at the scene from
 underneath, which `sim.camera.view_along("z")` cannot reach on its own. In
-Rust that is `Eye::view_along_from(axis, positive, bounds, orthographic)`.
+Rust that is `Eye::view_along_from(axis, positive, bounds, orthographic)`,
+and `Eye::view_along_anchor(axis, positive, orthographic)` with nothing to
+frame.
 
 Handled in `src/app/mod.rs` (`window_event`, `view_along_ball`) with the
 layout and hit-testing in `src/app/gizmo.rs`, which is pure arithmetic on the

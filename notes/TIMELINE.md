@@ -4534,3 +4534,26 @@ picture among the drawn blocks, and checks each is compiled in and on disk.
 Not watched in a window: whether test windows took the user's focus is an
 open question, so none was opened for these two; the unit tests above cover
 the paths the buttons and the start take.
+
+## 2026-09-27 — the gizmo's balls in an empty scene
+
+Reported: the X, Y, Z balls could not be clicked with nothing loaded. The
+click reached `view_along_ball`, which framed the scene's bounds and returned
+when there were none -- an empty scene, a new app's with the welcome
+included. With nothing to frame the view now turns about its anchor, at the
+distance it stood (`Eye::view_along_anchor`), which is what Blender's axis
+views always do; an eye on its anchor stands back as a new app's does. The
+placement both share is one method, `view_along_at`, given a centre and a
+distance. `camera.view_along` from a script is unchanged: it documents doing
+nothing before the meshes, and a figure framed before its bodies exist
+would not be one.
+
+The same case showed a second gap: with no geometry the frame fit was
+skipped, so an orthographic camera kept the side fitted last -- the
+default's 5 against the 3.0 its perspective view has at the anchor -- and
+the Blender-style ground grid, which draws from the camera alone, jumped in
+scale on the click. `fit_projection` with empty bounds still sizes a
+camera's box from where it stands, and the window calls it for an empty
+scene too. Tests: `a_gizmo_ball_turns_an_empty_scene_too` and
+`with_nothing_to_fit_the_orthographic_keeps_the_scale_at_the_anchor` fail
+without their fixes; `with_nothing_to_frame_the_view_turns_about_its_anchor`.

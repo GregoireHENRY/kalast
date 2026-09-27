@@ -2076,7 +2076,6 @@ impl App {
             let sim = self.simulation.borrow();
             sim.scene_bounds()
         };
-        let Some(bounds) = bounds else { return };
 
         let mut sim = self.simulation.borrow_mut();
         // Remembered once per excursion: clicking from one plane view straight
@@ -2089,8 +2088,12 @@ impl App {
             sn.1 = ball.positive;
         }
 
-        sim.camera
-            .view_along_from(ball.axis, ball.positive, &bounds, true);
+        match bounds {
+            Some(bounds) => sim.camera.view_along_from(ball.axis, ball.positive, &bounds, true),
+            // An empty scene has nothing to frame, and the click did nothing
+            // at all: the view turns where it stands instead.
+            None => sim.camera.view_along_anchor(ball.axis, ball.positive, true),
+        }
     }
 
     fn select_at_cursor(&mut self) {
@@ -3687,6 +3690,31 @@ mod editor_tests {
             assert_eq!(sim.state.iteration, 0, "the counter stays at the start (running before: {running})");
             assert_eq!(app.was_paused, None, "no pause to log (running before: {running})");
         }
+    }
+
+    /// The gizmo's balls work in an empty scene, a new app's included: with
+    /// no bounds to frame a click did nothing at all. The view turns about
+    /// its anchor, at the distance it stood, and turning away from the plane
+    /// leaves it as with bodies.
+    #[test]
+    fn a_gizmo_ball_turns_an_empty_scene_too() {
+        use crate::app::frame::{Axis, ProjectionMode};
+        let mut app = App::new();
+        app.editor_start(&[]);
+        let far = app.simulation.borrow().camera.distance_anchor();
+        let ball = crate::app::gizmo::Ball {
+            axis: Axis::Y,
+            positive: true,
+            center: [0.0, 0.0],
+            facing: 0.0,
+            color: [0.0; 3],
+        };
+        app.view_along_ball(ball);
+        let sim = app.simulation.borrow();
+        assert_eq!(sim.camera.plane_view(), Some((Axis::Y, true)), "looking along Y");
+        assert_eq!(sim.camera.projection.mode, ProjectionMode::Orthographic);
+        assert!((sim.camera.distance_anchor() - far).abs() < 1e-4 * far, "as far as it stood");
+        assert_eq!(app.snap.map(|s| (s.0, s.1, s.2)), Some((Axis::Y, true, ProjectionMode::Perspective)), "perspective to go back to");
     }
 
     /// A `.rs` never reaches the script runner, whoever asked for the run:

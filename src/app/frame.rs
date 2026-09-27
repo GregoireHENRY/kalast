@@ -403,6 +403,15 @@ impl Eye {
         (self.anchor - self.pos).length()
     }
 
+    /// The half-height a camera's orthographic box takes: what its
+    /// perspective view shows at the anchor, so switching between the two
+    /// keeps the scale of what is looked at -- see `fit_projection`. `None`
+    /// for an eye on its anchor, which has no scale to take.
+    fn anchored_side(&self) -> Option<Float> {
+        let side = self.distance_anchor() * (self.projection.fovy * 0.5).tan();
+        (side > 0.0 && side.is_finite()).then_some(side)
+    }
+
     pub fn lookto(&self) -> anyhow::Result<Mat4> {
         if !self.dir.is_normalized() {
             return Err(anyhow::anyhow!("Camera dir {} is not normalized", self.dir));
@@ -656,10 +665,26 @@ impl Eye {
         bounds: &crate::mesh::Aabb,
         orthographic: bool,
     ) {
-        let centre = bounds.center();
         // Tied to the scene, so the eye is never inside the geometry.
         let back = (bounds.radius() * 4.0).max(Float::EPSILON);
+        self.view_along_at(axis, positive, bounds.center(), back, orthographic);
+    }
 
+    /// `view_along_from` with nothing to frame: the eye turns about its
+    /// anchor and keeps its distance from it, as Blender's axis views always
+    /// do. For the navigation gizmo in an empty scene, whose balls did
+    /// nothing until something was loaded -- there were no bounds to frame.
+    pub fn view_along_anchor(&mut self, axis: Axis, positive: bool, orthographic: bool) {
+        // An eye on its anchor has no distance to keep: a new app's, then.
+        let back = Some(self.distance_anchor())
+            .filter(|d| *d > Float::EPSILON)
+            .unwrap_or_else(|| NEW_APP_VIEW.length());
+        let anchor = self.anchor;
+        self.view_along_at(axis, positive, anchor, back, orthographic);
+    }
+
+    /// The eye `back` from `centre` along `axis`, looking at it.
+    fn view_along_at(&mut self, axis: Axis, positive: bool, centre: Vec3, back: Float, orthographic: bool) {
         let (eye_dir, up) = match axis {
             // Up is chosen so the remaining two axes read left-to-right and
             // bottom-to-top, matching how the same plane is drawn in a plot.
@@ -707,7 +732,17 @@ impl Eye {
         shadow_texels: Option<u32>,
     ) {
         if bounds.is_empty() {
-            self.projection.resolve_manual();
+            // No depth range to fit. A camera's box still takes its side from
+            // where it stands, below: an empty scene's plane view -- the
+            // gizmo's -- opened at whatever side was fitted last, and the
+            // ground grid jumped in scale on the click.
+            let mut kept = self.projection.resolved;
+            if shadow_texels.is_none() && self.projection.mode == ProjectionMode::Orthographic {
+                if let Some(side) = self.anchored_side() {
+                    kept.side = side;
+                }
+            }
+            self.projection.resolve_with(kept);
             return;
         }
 
@@ -761,20 +796,12 @@ impl Eye {
             // slid and grew with the bodies: a gizmo plane view of the
             // Didymos pair panned and zoomed with Dimorphos's orbit, where
             // the perspective view it came from held still.
-            ProjectionMode::Orthographic if shadow_texels.is_none() => {
-                let side = self.distance_anchor() * (self.projection.fovy * 0.5).tan();
-                Resolved {
-                    near: min_d - bounds.radius() * margin,
-                    far: max_d + bounds.radius() * margin,
-                    // An eye on its anchor has no scale to take.
-                    side: if side > 0.0 && side.is_finite() {
-                        side
-                    } else {
-                        bounds.radius() * margin
-                    },
-                    offset: [0.0, 0.0],
-                }
-            }
+            ProjectionMode::Orthographic if shadow_texels.is_none() => Resolved {
+                near: min_d - bounds.radius() * margin,
+                far: max_d + bounds.radius() * margin,
+                side: self.anchored_side().unwrap_or(bounds.radius() * margin),
+                offset: [0.0, 0.0],
+            },
             ProjectionMode::Orthographic => {
                 // Size from the bounding sphere, not the projected extent:
                 // the sphere radius does not change as the light rotates, so
@@ -1713,6 +1740,40 @@ mod tests {
         // The plane view is orthographic when asked for, whichever end it is
         // seen from: a profile read in perspective is not measurable.
         assert_eq!(from_below.projection.mode, ProjectionMode::Orthographic);
+    }
+
+    /// With nothing to frame the view turns about its anchor at the distance
+    /// it stood, and an eye on its anchor stands back as a new app's does.
+    #[test]
+    fn with_nothing_to_frame_the_view_turns_about_its_anchor() {
+        let mut eye = Eye::standing_back();
+        eye.anchor = Vec3::new(1.0, 2.0, 3.0);
+        let far = eye.distance_anchor();
+        eye.view_along_anchor(Axis::X, false, true);
+        assert_eq!(eye.plane_view(), Some((Axis::X, false)));
+        assert!((eye.anchor - Vec3::new(1.0, 2.0, 3.0)).length() < 1e-6, "the anchor stays");
+        assert!((eye.distance_anchor() - far).abs() < 1e-4 * far, "and the distance");
+        assert_eq!(eye.projection.mode, ProjectionMode::Orthographic);
+
+        let mut on_it = Eye::new();
+        on_it.pos = on_it.anchor;
+        on_it.view_along_anchor(Axis::Z, true, true);
+        assert_eq!(on_it.plane_view(), Some((Axis::Z, true)));
+        assert!((on_it.distance_anchor() - NEW_APP_VIEW.length()).abs() < 1e-4);
+    }
+
+    /// With nothing to fit, an orthographic camera's box still takes the
+    /// half-height its perspective view has at the anchor: an empty scene's
+    /// plane view opened at the side fitted last, the default's 5, and the
+    /// ground grid jumped in scale on the click.
+    #[test]
+    fn with_nothing_to_fit_the_orthographic_keeps_the_scale_at_the_anchor() {
+        let mut eye = Eye::standing_back();
+        eye.view_along_anchor(Axis::Z, true, true);
+        eye.fit_projection(&crate::mesh::Aabb::empty(), None, None);
+        let wanted = eye.distance_anchor() * (eye.projection.fovy * 0.5).tan();
+        let side = eye.projection.resolved().side;
+        assert!((side - wanted).abs() < 1e-5 * wanted, "side {side}, the perspective's {wanted} at the anchor");
     }
 
     #[test]
