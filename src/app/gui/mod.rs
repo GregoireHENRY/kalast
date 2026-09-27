@@ -243,6 +243,14 @@ impl Log {
         self.unread = self.unread.saturating_add(1);
     }
 
+    /// A line that is no news, shown without a dot on its tab: the python
+    /// tab's banner.
+    pub fn push_seen_at(&mut self, time: String, line: impl Into<String>) {
+        let unread = self.unread;
+        self.push_at(time, line);
+        self.unread = unread;
+    }
+
     /// Whether lines have come in since `mark_read`.
     pub fn has_unread(&self) -> bool {
         self.unread > 0
@@ -282,10 +290,13 @@ mod log_tests {
     }
 
     /// The python tab is greeted once, whoever asks first: the binary as it
-    /// starts and Python after it both do.
+    /// starts and Python after it both do. And quietly: the banner put a dot
+    /// on the tab at every start, for two lines nobody had written.
     #[test]
-    fn the_python_tab_is_greeted_once() {
+    fn the_python_tab_is_greeted_once_and_quietly() {
         let _turn = console_turn();
+        // Whatever an earlier test left, so the dot below is this one's.
+        super::drain_console_output(&mut Log::new(8));
         super::console_greet("3.14.7 (main)", "win32");
         super::console_greet("3.14.7 (main)", "win32");
         let mut log = Log::new(8);
@@ -293,6 +304,11 @@ mod log_tests {
         let lines: Vec<&String> = log.lines().collect();
         assert_eq!(lines.iter().filter(|l| l.starts_with("Python 3.14.7 (main) on win32")).count(), 1, "{lines:?}");
         assert!(lines.iter().any(|l| l.starts_with("Type \"help\"")), "{lines:?}");
+        assert!(!log.has_unread(), "no dot for the banner");
+
+        super::console_write("42\n");
+        super::drain_console_output(&mut log);
+        assert!(log.has_unread(), "what a line prints is news");
     }
 
     /// Tab's answer goes into the line: one completion whole, several as
@@ -3058,6 +3074,7 @@ static CONSOLE: std::sync::Mutex<Console> = std::sync::Mutex::new(Console {
     offer: None,
     partial: Vec::new(),
     lines: Vec::new(),
+    greeting: Vec::new(),
     more: false,
     interrupt: false,
 });
@@ -3072,6 +3089,8 @@ struct Console {
     offer: Option<(String, String, Vec<String>)>,
     partial: Vec<u8>,
     lines: Vec<Entry>,
+    /// The banner's lines, kept apart from `lines` to go in as seen.
+    greeting: Vec<Entry>,
     /// The last line opened a block -- a `for`, a `def` -- so the next is
     /// typed at `...`.
     more: bool,
@@ -3137,14 +3156,20 @@ fn console_take_offer() -> Option<(String, String, Vec<String>)> {
 
 /// The python tab's greeting, `python`'s in a terminal: its version, then
 /// where help is. Once, whoever asks first -- the `kalast` binary as it
-/// starts, or Python itself when kalast runs under it.
+/// starts, or Python itself when kalast runs under it. No news, so it puts
+/// no dot on the tab: it did at every start.
 pub fn console_greet(version: &str, platform: &str) {
     static GREETED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     if !GREETED.swap(true, std::sync::atomic::Ordering::Relaxed) {
-        console_write(&format!(
+        let time = crate::app::clock::now().time();
+        let banner = format!(
             "Python {version} on {platform}\n\
-             Type \"help\", \"copyright\", \"credits\" or \"license\" for more information.\n"
-        ));
+             Type \"help\", \"copyright\", \"credits\" or \"license\" for more information."
+        );
+        // `lines`, not one line: some builds' `sys.version` has a newline.
+        console()
+            .greeting
+            .extend(banner.lines().map(|text| Entry { time: time.clone(), text: text.to_string() }));
     }
 }
 
@@ -3178,7 +3203,13 @@ fn console_more() -> bool {
 
 /// Move what the console printed since last time into its log.
 pub fn drain_console_output(log: &mut Log) {
-    let lines = std::mem::take(&mut console().lines);
+    let (greeting, lines) = {
+        let mut c = console();
+        (std::mem::take(&mut c.greeting), std::mem::take(&mut c.lines))
+    };
+    for line in greeting {
+        log.push_seen_at(line.time, line.text);
+    }
     for line in lines {
         log.push_at(line.time, line.text);
     }

@@ -103,7 +103,7 @@ Rust example loaded -- and says it again at every run, since the log is not
 cleared between them, so one run's output reads apart from the last; opened
 with nothing to run, it stays empty. The terminal's copy has no stamps. The
 tab not shown gets a small dot while lines have come into it that it has not
-shown.
+shown -- not for the python tab's banner, which is there from the start.
 
 Two configs, and `width`/`height` exist on both without meaning the same
 thing: `app.config.width` is the OS window, `app.simulation.config.image.width` is

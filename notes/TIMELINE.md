@@ -4557,3 +4557,13 @@ camera's box from where it stands, and the window calls it for an empty
 scene too. Tests: `a_gizmo_ball_turns_an_empty_scene_too` and
 `with_nothing_to_fit_the_orthographic_keeps_the_scale_at_the_anchor` fail
 without their fixes; `with_nothing_to_frame_the_view_turns_about_its_anchor`.
+
+## 2026-09-27 — no dot for the banner
+
+Reported: the python tab had its unread dot at every start, for the banner
+alone. The banner went through `console_write` like a line's output, and
+every line pushed to a log counts as unread until its tab is shown.
+`console_greet` now keeps the banner apart, in the console's `greeting`,
+and the drain pushes those lines with `Log::push_seen_at`, which leaves the
+count as it was; what a typed line prints still counts.
+`the_python_tab_is_greeted_once_and_quietly` fails without it.
