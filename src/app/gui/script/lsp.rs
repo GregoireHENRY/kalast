@@ -1265,7 +1265,7 @@ fn bundled(language_id: &str) -> Option<Spec> {
         return None;
     }
     Some(Spec {
-        name: "the bundle's ty".to_string(),
+        name: "ty".to_string(),
         program: crate::app::bundled_language_server()?,
         args: vec!["server".to_string()],
     })

@@ -628,7 +628,7 @@ jobs:
           }
           du -sm . | awk '{print "bundle unpacked: " $1 " MB"}'
 
-      # The script editor's language server: the bundle's ty (`kalast
+      # The script editor's language server: ty, the bundle's own (`kalast
       # --language-server` runs it). Asked through the protocol what follows
       # `app.simulation.`, in the pruned bundle -- so what the prune took was
       # nothing it needed, and ty reads the bundle's packages. Any Python
