@@ -1,6 +1,6 @@
 //! What the UI app remembers between sessions: `app.config.theme`,
-//! `app.config.fullscreen`, and the script editor's settings -- Neovim, the
-//! ruler, the language servers.
+//! `app.config.fullscreen`, and the script editor's settings -- Neovim and
+//! its config, the ruler, the language servers.
 //!
 //! In `settings.toml` in the user's configuration folder -- never in the
 //! project or the bundle -- or wherever `KALAST_SETTINGS` names:
@@ -25,6 +25,7 @@ pub struct Remembered {
     pub fullscreen: bool,
     pub neovim: bool,
     pub neovim_path: String,
+    pub neovim_config: String,
     pub ruler: u32,
     pub language_servers: bool,
     pub python_language_server: String,
@@ -38,6 +39,7 @@ impl Remembered {
             fullscreen: config.fullscreen,
             neovim: config.neovim,
             neovim_path: config.neovim_path.clone(),
+            neovim_config: config.neovim_config.clone(),
             ruler: config.ruler,
             language_servers: config.language_servers,
             python_language_server: config.python_language_server.clone(),
@@ -50,6 +52,7 @@ impl Remembered {
         config.fullscreen = self.fullscreen;
         config.neovim = self.neovim;
         config.neovim_path = self.neovim_path.clone();
+        config.neovim_config = self.neovim_config.clone();
         config.ruler = self.ruler;
         config.language_servers = self.language_servers;
         config.python_language_server = self.python_language_server.clone();
@@ -86,6 +89,7 @@ impl Remembered {
                     }
                 }
                 "neovim_path" => r.neovim_path = unquote(value),
+                "neovim_config" => r.neovim_config = unquote(value),
                 "python_language_server" => r.python_language_server = unquote(value),
                 "rust_language_server" => r.rust_language_server = unquote(value),
                 _ => {}
@@ -101,6 +105,7 @@ impl Remembered {
              fullscreen = {}\n\
              neovim = {}\n\
              neovim_path = {}\n\
+             neovim_config = {}\n\
              ruler = {}\n\
              language_servers = {}\n\
              python_language_server = {}\n\
@@ -109,6 +114,7 @@ impl Remembered {
             self.fullscreen,
             self.neovim,
             quote(&self.neovim_path),
+            quote(&self.neovim_config),
             self.ruler,
             self.language_servers,
             quote(&self.python_language_server),
@@ -205,6 +211,7 @@ mod tests {
                 fullscreen: false,
                 neovim: true,
                 neovim_path: r"C:\Program Files\Neovim\bin\nvim.exe".to_string(),
+                neovim_config: r"C:\Users\me\AppData\Local\nvim".to_string(),
                 ruler: 100,
                 language_servers: false,
                 python_language_server: "pyright-langserver --stdio".to_string(),

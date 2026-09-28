@@ -86,3 +86,52 @@ server never asks for its settings, and basedpyright answered an empty list.
 The release workflow runs it on every bundle after pruning, with the
 runner's own Python ("The bundle's language server answers"). The local
 build runs it too.
+
+## No errors reported in a bundle under `dist/`: ty's project
+
+Reported: "i dont see ty identifying live the python errors i type", in
+`examples/cube/light.py` of the local bundle, which sits in the repository's
+`dist/`. Completions worked.
+
+ty checks only the files of its project. It finds the project by walking up
+from the workspace, the script's folder, to the nearest `ty.toml` or
+`pyproject.toml`. For the local bundle that was the repository's, and a
+project leaves out what `.gitignore` ignores and ty's default excludes, among
+them `**/dist/`. The script was outside the project: ty still answered
+completions and hover for it, and published an empty list of diagnostics for
+every version. Nothing on kalast's side: the editor sends the text every
+frame and draws what is published, in Neovim mode too. Replayed through the
+protocol, an undefined name and an unknown attribute appended in a
+`didChange`:
+
+| script | project ty found | indexed | errors |
+|---|---|---|---|
+| `examples/cube/light.py`, in the repository | the repository | 246 | both |
+| the bundle's copy, in `dist/` | the repository | 246, not the copy | none |
+| a copy in a folder of its own | that folder | 1 | both |
+| a copy under `dist/` of a project with no git | that project | 1, not the copy | none |
+| the bundle under a project's `dist/`, `ty.toml` at its root | the bundle | 2633 | both |
+| the same, the `ty.toml` excluding `python` | the bundle | 153 | both |
+
+The fourth line shows it is not git alone: any bundle unpacked in another
+project's `dist/`, or in a folder that project's git ignores, was silent the
+same way. The bundle's ty and mason's behaved the same throughout. (A copy
+under `/tmp` looked silent too, for another reason: `/tmp` is a link to
+`/private/tmp`, and the probe's URI named the link.)
+
+The bundle now carries `tools/bundle-ty.toml` as `ty.toml` at its root: a
+project of its own wherever it is unpacked. It excludes the bundle's
+`python/`, whose 2480 files are kalast's environment, still read through
+`environment.python`, not scripts to check. A user's own script in a folder
+their project excludes stays unchecked. That is ty's rule in any editor, and
+`docs/CONFIG.md` says so.
+
+`tools/lsp_check.py` had missed it: its probe was in a temporary folder, a
+project of its own, and it asked only for completions, which work on
+excluded files. It now starts the server as the editor does for a script
+among the bundle's examples, with that folder as working directory and
+workspace. It opens a script there, in memory only, and expects both
+`not_defined_anywhere` reported and `bodies` completed. In CI the bundle is
+in the checkout's `dist/`, the case reported. Run on a copy with no
+`ty.toml`, the check fails ("Indexed 0 file(s)", nothing published); with
+it, it passes.

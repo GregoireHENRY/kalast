@@ -1211,6 +1211,7 @@ impl Editor {
         let mut docs_request: Option<docs::Request> = None;
         // The editor's settings, read before the app tab can borrow them.
         let neovim_path = app_config.neovim_path.clone();
+        let neovim_config = app_config.neovim_config.clone();
         let python_language_server = app_config.python_language_server.clone();
         let rust_language_server = app_config.rust_language_server.clone();
         let (neovim, ruler, language_servers) = (app_config.neovim, app_config.ruler, app_config.language_servers);
@@ -1668,6 +1669,7 @@ impl Editor {
                     let settings = script::Settings {
                         neovim,
                         neovim_path: &neovim_path,
+                        neovim_config: &neovim_config,
                         ruler,
                         language_servers,
                         python_language_server: &python_language_server,

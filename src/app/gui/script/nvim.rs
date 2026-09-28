@@ -109,6 +109,8 @@ pub enum Action {
     /// A file Neovim went to -- `:e`, a picker -- for kalast to open, as
     /// VS Code opens it in a tab.
     Open(String),
+    /// The selection, Cmd+C or Cmd+X: for the clipboard.
+    Copy(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -245,17 +247,19 @@ vim.api.nvim_create_autocmd('BufModifiedSet', { group = group, buffer = buf, cal
 end })
 -- The selection: a UI is told where the cursor is, never where a
 -- selection began.
-local was = false
+-- The mode goes with it, each time it changes: back to Normal mode too,
+-- which it once did not say, and kalast went on taking the keys for text.
+local last
 local function selection()
   local m = vim.api.nvim_get_mode().mode
   local c = m:sub(1, 1)
   if c == 'v' or c == 'V' or c == '\22' or c == 's' or c == 'S' or c == '\19' then
     local s = vim.fn.getpos('v')
     local e = vim.api.nvim_win_get_cursor(0)
-    was = true
+    last = m
     notify('visual', m, s[2] - 1, s[3] - 1, e[1] - 1, e[2])
-  elseif was or c ~= 'n' then
-    was = false
+  elseif m ~= last then
+    last = m
     notify('visual', m)
   end
 end
@@ -272,6 +276,35 @@ for lhs, action in pairs({ K = 'hover', gh = 'hover', gd = 'definition', gD = 'd
                            ['<C-]>'] = 'definition', [']d'] = 'next_diagnostic', ['[d'] = 'prev_diagnostic' }) do
   vim.keymap.set('n', lhs, function() notify(action) end, { buffer = buf, desc = 'kalast: ' .. action })
 end
+-- macOS's editing keys that mean one thing in one mode and another in the
+-- next: kalast sends them as calls to these, which act in the mode Neovim is
+-- in when it reads them (`nvim::typed`). The selection's text goes to kalast
+-- for the clipboard, which needs no clipboard tool on the system.
+local function keys(k) return vim.api.nvim_replace_termcodes(k, true, false, true) end
+local function selected()
+  local mode = vim.fn.mode()
+  if not mode:match('^[vV\22sS\19]') then return nil end
+  local kind = ({ s = 'v', S = 'V', ['\19'] = '\22' })[mode:sub(1, 1)] or mode:sub(1, 1)
+  local ok, lines = pcall(vim.fn.getregion, vim.fn.getpos('v'), vim.fn.getpos('.'), { type = kind })
+  if not ok then return nil end
+  return table.concat(lines, '\n') .. (kind == 'V' and '\n' or ''), mode
+end
+kalast_keys = {
+  -- Cmd+C, Cmd+X: the selection copied, and cut -- still selected after a
+  -- copy, as in VS Code.
+  copy = function(cut)
+    local text, mode = selected()
+    if not text then return end
+    notify('copy', text)
+    if cut then vim.api.nvim_feedkeys(keys(mode:match('^[sS\19]') and '<C-g>d' or 'd'), 'in', false) end
+  end,
+  -- Option+Backspace, Cmd+Backspace: a word, or the line, before the cursor
+  -- -- where text is being typed, and nowhere else.
+  erase = function(what)
+    local key = ({ word = '<C-w>', line = '<C-u>' })[what]
+    if key and vim.fn.mode():match('^[iRc]') then vim.api.nvim_feedkeys(keys(key), 'in', false) end
+  end,
+}
 -- :q and :wq leave the editor, not Neovim, which kalast keeps running.
 vim.api.nvim_create_user_command('KalastQuit', function(o) notify('quit', o.bang) end, { bang = true })
 vim.api.nvim_create_user_command('KalastWriteQuit', function(o)
@@ -333,7 +366,12 @@ local levels = vim.bo[buf].undolevels
 vim.bo[buf].undolevels = -1
 vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
 vim.bo[buf].undolevels = levels
-if name ~= '' then
+-- A script with no file yet is named anyway: `:w` on a buffer without a name
+-- says E32 before BufWriteCmd is asked, and kalast is what asks where to
+-- save it.
+if name == '' then
+  pcall(vim.api.nvim_buf_set_name, buf, 'kalast://untitled')
+else
   local full = vim.fn.fnamemodify(name, ':p')
   if vim.api.nvim_buf_get_name(buf) ~= full then
     for _, b in ipairs(vim.api.nvim_list_bufs()) do
@@ -355,26 +393,126 @@ end
 return true
 "#;
 
+/// The Neovim config kalast ships -- its author's -- compiled in, by its
+/// path in the config folder. `neovim_config = "kalast"`, the default,
+/// writes it out (`kalast_config`) and has Neovim read it there.
+const KALAST_CONFIG: &[(&str, &str)] = &[
+    ("init.lua", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/res/neovim/init.lua"))),
+    ("lazy-lock.json", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/res/neovim/lazy-lock.json"))),
+    ("lua/settings.lua", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/res/neovim/lua/settings.lua"))),
+    ("lua/plugins.lua", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/res/neovim/lua/plugins.lua"))),
+    ("lua/plugins/completion.lua", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/res/neovim/lua/plugins/completion.lua"))),
+    ("lua/plugins/editor.lua", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/res/neovim/lua/plugins/editor.lua"))),
+    ("lua/plugins/lsp.lua", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/res/neovim/lua/plugins/lsp.lua"))),
+    ("lua/plugins/treesitter.lua", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/res/neovim/lua/plugins/treesitter.lua"))),
+    ("lua/plugins/ui.lua", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/res/neovim/lua/plugins/ui.lua"))),
+];
+
+/// Neovim's name for kalast's config: its folder, and the one its plugins
+/// and state go in -- `~/.local/share/kalast-nvim` -- apart from the user's
+/// own Neovim's.
+const KALAST_APPNAME: &str = "kalast-nvim";
+
+/// Write kalast's config into `base/kalast-nvim`, each file where it is
+/// missing or differs, and return `base`: what `XDG_CONFIG_HOME` is set to
+/// for Neovim to find it. The copy is kalast's, rewritten from the binary;
+/// a config of one's own is `neovim_config`.
+fn kalast_config_in(base: &Path) -> Result<PathBuf, String> {
+    let dir = base.join(KALAST_APPNAME);
+    for (name, text) in KALAST_CONFIG {
+        let path = dir.join(name);
+        if std::fs::read_to_string(&path).ok().as_deref() == Some(*text) {
+            continue;
+        }
+        let written = path
+            .parent()
+            .map_or(Ok(()), std::fs::create_dir_all)
+            .and_then(|()| std::fs::write(&path, text));
+        written.map_err(|e| format!("cannot write kalast's Neovim config to {}: {e}", path.display()))?;
+    }
+    Ok(base.to_path_buf())
+}
+
+/// What `nvim` is given for the config `neovim_config` names: environment
+/// variables, or `-u` and a file.
+///
+/// - `"kalast"`, or empty: the config kalast ships, written beside the
+///   app's settings (`kalast_config_in`) and found through
+///   `XDG_CONFIG_HOME` and `NVIM_APPNAME`, so that its plugins install
+///   apart from the user's own Neovim's.
+/// - `"user"`: the user's own, where Neovim looks for it -- nothing given.
+/// - a path: a config folder, holding `init.lua` or `init.vim`, read the
+///   same way as kalast's; or one file, read with `-u`.
+fn config_choice(config: &str) -> Result<(Vec<String>, Vec<(&'static str, std::ffi::OsString)>), String> {
+    let folder = |dir: &Path| -> Result<Vec<(&'static str, std::ffi::OsString)>, String> {
+        let (Some(parent), Some(name)) = (dir.parent(), dir.file_name()) else {
+            return Err(format!("{} is no config folder Neovim can be pointed at", dir.display()));
+        };
+        Ok(vec![("XDG_CONFIG_HOME", parent.as_os_str().to_owned()), ("NVIM_APPNAME", name.to_owned())])
+    };
+    match config.trim() {
+        "" | "kalast" => {
+            let base = crate::app::settings::path()
+                .and_then(|p| p.parent().map(|d| d.join("neovim")))
+                .ok_or("no folder to write kalast's Neovim config in")?;
+            let base = kalast_config_in(&base)?;
+            Ok((Vec::new(), folder(&base.join(KALAST_APPNAME))?))
+        }
+        "user" => Ok((Vec::new(), Vec::new())),
+        path => {
+            let path = match path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\")) {
+                Some(rest) => std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+                    .map(|home| PathBuf::from(home).join(rest))
+                    .unwrap_or_else(|| PathBuf::from(path)),
+                None => PathBuf::from(path),
+            };
+            if path.is_dir() {
+                Ok((Vec::new(), folder(&path)?))
+            } else if path.is_file() {
+                Ok((vec!["-u".to_string(), path.to_string_lossy().into_owned()], Vec::new()))
+            } else {
+                Err(format!("no Neovim config at {}: app.config.neovim_config", path.display()))
+            }
+        }
+    }
+}
+
 impl Neovim {
     /// Start `program` -- `nvim` found on the PATH if empty -- in `cwd`,
-    /// with a grid of `size` cells. Returns at once; the setup lands in
-    /// later frames, through `poll`.
+    /// with a grid of `size` cells, reading the config `config` names
+    /// (`config_choice`). Returns at once; the setup lands in later frames,
+    /// through `poll`.
     pub fn start(
         program: &str,
+        config: &str,
         cwd: &Path,
         size: (u32, u32),
         repaint: impl Fn() + Send + 'static,
     ) -> Result<Self, String> {
-        Self::spawn(program, cwd, size, &[], repaint)
+        let (args, env) = config_choice(config)?;
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        Self::spawn_with(program, cwd, size, &args, &env, repaint)
     }
 
     /// `start`, with more arguments for `nvim`: `--clean`, for a test that
     /// must not depend on whose config is installed.
-    fn spawn(
+    #[cfg(test)]
+    pub(super) fn spawn(
         program: &str,
         cwd: &Path,
         size: (u32, u32),
         extra: &[&str],
+        repaint: impl Fn() + Send + 'static,
+    ) -> Result<Self, String> {
+        Self::spawn_with(program, cwd, size, extra, &[], repaint)
+    }
+
+    fn spawn_with(
+        program: &str,
+        cwd: &Path,
+        size: (u32, u32),
+        extra: &[&str],
+        env: &[(&'static str, std::ffi::OsString)],
         repaint: impl Fn() + Send + 'static,
     ) -> Result<Self, String> {
         let program = find(program).ok_or_else(|| {
@@ -388,6 +526,7 @@ impl Neovim {
         command
             .args(["--embed", "-n", "--cmd", "let g:kalast = 1"])
             .args(extra)
+            .envs(env.iter().map(|(k, v)| (*k, v)))
             .current_dir(cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -780,7 +919,15 @@ impl Neovim {
                 }
             }
             Ui::MsgClear => self.messages.clear(),
-            Ui::MsgShowmode(text) => self.showmode = text,
+            Ui::MsgShowmode(text) => {
+                // In a terminal `-- INSERT --` is written over the message
+                // line, so an error goes as the mode changes. kalast shows
+                // the mode apart, and the error stayed beside it.
+                if text != self.showmode {
+                    self.messages.clear();
+                }
+                self.showmode = text;
+            }
             Ui::MsgShowcmd(text) => self.showcmd = text,
             Ui::MsgHistory(messages) => self.messages = messages,
             Ui::PopupShow(popup, _grid) => self.popup = Some(popup),
@@ -813,6 +960,11 @@ impl Neovim {
             "next_diagnostic" => self.actions.push(Action::NextDiagnostic),
             "prev_diagnostic" => self.actions.push(Action::PrevDiagnostic),
             "modified" => self.modified = args.get(1).and_then(Value::as_bool).unwrap_or(false),
+            "copy" => {
+                if let Some(t) = args.get(1).map(text) {
+                    self.actions.push(Action::Copy(t));
+                }
+            }
             "open" => {
                 if let Some(path) = args.get(1).map(text).filter(|p| !p.is_empty()) {
                     self.actions.push(Action::Open(path));
@@ -1119,6 +1271,41 @@ fn redraw_batch(batch: &Value) -> Vec<Ui> {
     }
 }
 
+/// A key that types nothing, by Neovim's name for it: `Esc`, `CR`, `Left`.
+/// `None` for the keys that type a character, Space among them.
+fn named(key: egui::Key) -> Option<&'static str> {
+    use egui::Key::*;
+    Some(match key {
+        Escape => "Esc",
+        Enter => "CR",
+        Tab => "Tab",
+        Backspace => "BS",
+        Delete => "Del",
+        Insert => "Insert",
+        Home => "Home",
+        End => "End",
+        PageUp => "PageUp",
+        PageDown => "PageDown",
+        ArrowLeft => "Left",
+        ArrowRight => "Right",
+        ArrowUp => "Up",
+        ArrowDown => "Down",
+        F1 => "F1",
+        F2 => "F2",
+        F3 => "F3",
+        F4 => "F4",
+        F5 => "F5",
+        F6 => "F6",
+        F7 => "F7",
+        F8 => "F8",
+        F9 => "F9",
+        F10 => "F10",
+        F11 => "F11",
+        F12 => "F12",
+        _ => return None,
+    })
+}
+
 /// A key egui reports, in Neovim's notation -- or `None` for one that
 /// arrives as text instead, and for keys Neovim has no name for.
 ///
@@ -1127,37 +1314,7 @@ fn redraw_batch(batch: &Value) -> Vec<Ui> {
 /// it is not a character (`<Esc>`, `<CR>`, `<Left>`) or carries Ctrl or Alt,
 /// which suppress the text.
 pub fn key(key: egui::Key, m: egui::Modifiers) -> Option<String> {
-    use egui::Key::*;
-    let special = match key {
-        Escape => Some("Esc"),
-        Enter => Some("CR"),
-        Tab => Some("Tab"),
-        Backspace => Some("BS"),
-        Delete => Some("Del"),
-        Insert => Some("Insert"),
-        Home => Some("Home"),
-        End => Some("End"),
-        PageUp => Some("PageUp"),
-        PageDown => Some("PageDown"),
-        ArrowLeft => Some("Left"),
-        ArrowRight => Some("Right"),
-        ArrowUp => Some("Up"),
-        ArrowDown => Some("Down"),
-        F1 => Some("F1"),
-        F2 => Some("F2"),
-        F3 => Some("F3"),
-        F4 => Some("F4"),
-        F5 => Some("F5"),
-        F6 => Some("F6"),
-        F7 => Some("F7"),
-        F8 => Some("F8"),
-        F9 => Some("F9"),
-        F10 => Some("F10"),
-        F11 => Some("F11"),
-        F12 => Some("F12"),
-        Space if m.ctrl || m.alt => Some("Space"),
-        _ => None,
-    };
+    let special = named(key).or((key == egui::Key::Space && (m.ctrl || m.alt)).then_some("Space"));
     let prefix = |shift_counts: bool| {
         let mut p = String::new();
         if m.ctrl {
@@ -1199,6 +1356,120 @@ pub fn key(key: egui::Key, m: egui::Modifiers) -> Option<String> {
     Some(format!("<{}{c}>", prefix(false)))
 }
 
+/// macOS's editing keys that mean one thing in one mode and another in the
+/// next -- `<C-w>` erases a word in Insert mode and begins a window command
+/// in Normal mode -- sent as calls to `kalast_keys` (SETUP), which act in
+/// the mode Neovim is in when it reads them, not the one kalast last saw.
+/// Nothing in angle brackets inside: `nvim_input` would read it as a key.
+const COPY: &str = "<Cmd>lua kalast_keys.copy(false)<CR>";
+const CUT: &str = "<Cmd>lua kalast_keys.copy(true)<CR>";
+const ERASE_WORD: &str = "<Cmd>lua kalast_keys.erase('word')<CR>";
+const ERASE_LINE: &str = "<Cmd>lua kalast_keys.erase('line')<CR>";
+/// Cmd+A, from whatever mode: all of it, by lines.
+const SELECT_ALL: &str = "<C-\\><C-n>ggVG";
+
+/// A frame's keyboard, for Neovim.
+#[derive(Debug, Default, PartialEq)]
+pub struct Typed {
+    /// Keys, in Neovim's notation, for `nvim_input`.
+    pub keys: String,
+    /// Text from the clipboard, for `nvim_paste`.
+    pub pastes: Vec<String>,
+    /// Ctrl+S, or Cmd+S: kalast saves, as VS Code does with its Neovim
+    /// extension.
+    pub save: bool,
+    /// An input method's composition -- a dead key's accent waiting for its
+    /// letter -- when the frame changed it; empty once it is done.
+    pub preedit: Option<String>,
+}
+
+/// The frame's keyboard events as Neovim has them from a terminal, and
+/// macOS's editing shortcuts as VS Code does them.
+///
+/// - Text is text: what the layout, Shift and, on macOS, Option made of a
+///   key. Option+5 is `{` on a French Mac; sent as `<M-{>` it left Insert
+///   mode, since Neovim reads an Alt key nothing maps as Escape and the key.
+/// - Ctrl, and Alt outside macOS, with a key are that key: `<C-r>`, `<M-x>`.
+/// - Command on macOS is the system's, as in a terminal, which never passes
+///   it on -- apart from its editing keys, VS Code's: Cmd with the arrows to
+///   the ends of the line or the file, with Backspace to the start of the
+///   line, Cmd+A, and Cmd+C and Cmd+X on the selection; Option with the
+///   arrows and Backspace goes by words. None of them may reach Neovim as
+///   `<D-z>` or `<M-Left>`: unmapped, `<D-z>` is typed out in Insert mode,
+///   `<D-c>` is `c` in Visual mode, and `<M-Left>` leaves Insert mode.
+///
+/// `inserting`: Neovim takes text -- Insert mode, the command line -- where
+/// Ctrl+V pastes; elsewhere it begins a Visual block. `ctrl`: the frame's
+/// Ctrl, which a paste does not carry.
+pub fn typed(events: &[egui::Event], mac: bool, inserting: bool, ctrl: bool) -> Typed {
+    use egui::Key::*;
+    let mut t = Typed::default();
+    let mut skip_text: Option<String> = None;
+    for event in events {
+        match event {
+            egui::Event::Text(text) => {
+                // Alt with a character came as a key already, `<M-x>`.
+                if skip_text.take().is_some_and(|s| s.eq_ignore_ascii_case(text)) {
+                    continue;
+                }
+                t.keys.push_str(&text_keys(text));
+            }
+            egui::Event::Key { key, pressed: true, modifiers: m, .. } => {
+                let key = *key;
+                skip_text = None;
+                if m.command && key == S {
+                    t.save = true;
+                } else if mac && m.mac_cmd {
+                    t.keys.push_str(match key {
+                        ArrowLeft => "<Home>",
+                        ArrowRight => "<End>",
+                        ArrowUp => "<C-Home>",
+                        ArrowDown => "<C-End>",
+                        Backspace => ERASE_LINE,
+                        A => SELECT_ALL,
+                        _ => "",
+                    });
+                } else if mac && m.alt && !m.ctrl {
+                    match key {
+                        ArrowLeft => t.keys.push_str("<C-Left>"),
+                        ArrowRight => t.keys.push_str("<C-Right>"),
+                        Backspace => t.keys.push_str(ERASE_WORD),
+                        // Its character comes as text -- a dead key's from
+                        // the input method, once composed.
+                        _ if named(key).is_none() => {}
+                        // Option means nothing to the other keys that type
+                        // nothing, as in a terminal.
+                        _ => t.keys.push_str(&self::key(key, egui::Modifiers { alt: false, ..*m }).unwrap_or_default()),
+                    }
+                } else if let Some(k) = self::key(key, *m) {
+                    t.keys.push_str(&k);
+                    if m.alt && !m.ctrl {
+                        skip_text = Some(if key == Space { " ".into() } else { key.symbol_or_name().into() });
+                    }
+                }
+            }
+            egui::Event::Copy => t.keys.push_str(if mac { COPY } else { "<C-c>" }),
+            egui::Event::Cut => t.keys.push_str(if mac { CUT } else { "<C-x>" }),
+            egui::Event::Paste(text) => {
+                // Ctrl+V is Visual block outside Insert mode; pasting there
+                // is `p`, or Shift+Insert. Cmd+V pastes anywhere.
+                if ctrl && !inserting {
+                    t.keys.push_str("<C-v>");
+                } else {
+                    t.pastes.push(text.clone());
+                }
+            }
+            egui::Event::Ime(egui::ImeEvent::Preedit { text, .. }) => t.preedit = Some(text.clone()),
+            egui::Event::Ime(egui::ImeEvent::Commit(text)) => {
+                t.keys.push_str(&text_keys(text));
+                t.preedit = Some(String::new());
+            }
+            _ => {}
+        }
+    }
+    t
+}
+
 /// Typed text in Neovim's notation: every `<` spelled out, as `nvim_input`
 /// reads the rest as keys.
 pub fn text_keys(text: &str) -> String {
@@ -1208,6 +1479,47 @@ pub fn text_keys(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// kalast's config is written out whole, as compiled in, and written
+    /// again over a copy that was changed; a second start rewrites nothing.
+    #[test]
+    fn kalast_config_is_written_out_as_shipped() {
+        let base = std::env::temp_dir().join(format!("kalast-nvim-config-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        assert_eq!(kalast_config_in(&base).unwrap(), base);
+        let dir = base.join(KALAST_APPNAME);
+        for (name, text) in KALAST_CONFIG {
+            assert_eq!(std::fs::read_to_string(dir.join(name)).unwrap(), *text, "{name}");
+        }
+        std::fs::write(dir.join("init.lua"), "-- changed").unwrap();
+        kalast_config_in(&base).unwrap();
+        assert_eq!(std::fs::read_to_string(dir.join("init.lua")).unwrap(), KALAST_CONFIG[0].1);
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// `"user"` gives Neovim nothing; a folder is read as a config folder,
+    /// through `XDG_CONFIG_HOME` and `NVIM_APPNAME`; a file with `-u`; and a
+    /// path to nothing is said so.
+    #[test]
+    fn neovim_config_names_how_neovim_finds_it() {
+        assert_eq!(config_choice("user").unwrap(), (Vec::new(), Vec::new()));
+
+        let base = std::env::temp_dir().join(format!("kalast-nvim-choice-{}", std::process::id()));
+        let folder = base.join("mine");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("init.lua"), "").unwrap();
+        let (args, env) = config_choice(folder.to_str().unwrap()).unwrap();
+        assert!(args.is_empty());
+        assert_eq!(env, vec![("XDG_CONFIG_HOME", base.clone().into_os_string()), ("NVIM_APPNAME", "mine".into())]);
+
+        let file = folder.join("init.lua");
+        let (args, env) = config_choice(file.to_str().unwrap()).unwrap();
+        assert_eq!(args, vec!["-u".to_string(), file.to_string_lossy().into_owned()]);
+        assert!(env.is_empty());
+
+        assert!(config_choice(base.join("nothing").to_str().unwrap()).unwrap_err().contains("no Neovim config at"));
+        std::fs::remove_dir_all(&base).unwrap();
+    }
 
     #[test]
     fn keys_are_named_as_neovim_names_them() {
@@ -1221,6 +1533,81 @@ mod tests {
         // A plain letter is text, not a key.
         assert_eq!(key(egui::Key::R, none), None);
         assert_eq!(text_keys("a<b"), "a<lt>b");
+    }
+
+    /// What each key a keyboard gives becomes, on macOS and elsewhere: the
+    /// events egui has from winit for it, in the order it has them.
+    #[test]
+    fn keys_reach_neovim_as_a_terminal_or_vs_code_sends_them() {
+        use egui::{Event, Key, Modifiers};
+        let press = |key: Key, modifiers: Modifiers| Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers };
+        let text = |t: &str| Event::Text(t.into());
+        let none = Modifiers::NONE;
+        let alt = Modifiers::ALT;
+        let cmd = Modifiers { mac_cmd: true, command: true, ..Default::default() };
+        let keys = |events: &[Event], mac: bool| typed(events, mac, false, false).keys;
+
+        for mac in [true, false] {
+            // Space and Enter are text and a key, whatever the pointer does.
+            assert_eq!(keys(&[press(Key::Space, none), text(" ")], mac), " ");
+            assert_eq!(keys(&[press(Key::Enter, none)], mac), "<CR>");
+            assert_eq!(keys(&[press(Key::R, Modifiers::CTRL)], mac), "<C-r>");
+            assert_eq!(keys(&[press(Key::A, Modifiers::SHIFT), text("A")], mac), "A");
+            assert_eq!(keys(&[text("<")], mac), "<lt>");
+        }
+
+        // Option+5 on a French Mac: `{`, which `<M-{>` never typed. Alt
+        // elsewhere is Meta, the text it comes with dropped.
+        let brace = [press(Key::OpenCurlyBracket, alt), text("{")];
+        assert_eq!(keys(&brace, true), "{");
+        assert_eq!(keys(&brace, false), "<M-{>");
+        // A dead key -- Option+N, `~` -- types nothing yet on macOS.
+        assert_eq!(keys(&[press(Key::N, alt)], true), "");
+        assert_eq!(keys(&[press(Key::N, alt)], false), "<M-n>");
+        assert_eq!(keys(&[press(Key::Space, alt), text(" ")], false), "<M-Space>");
+
+        // macOS's editing keys, VS Code's.
+        assert_eq!(keys(&[press(Key::ArrowLeft, alt)], true), "<C-Left>");
+        assert_eq!(keys(&[press(Key::ArrowRight, alt)], true), "<C-Right>");
+        assert_eq!(keys(&[press(Key::Backspace, alt)], true), ERASE_WORD);
+        assert_eq!(keys(&[press(Key::ArrowUp, alt)], true), "<Up>");
+        assert_eq!(keys(&[press(Key::ArrowLeft, cmd)], true), "<Home>");
+        assert_eq!(keys(&[press(Key::ArrowRight, cmd)], true), "<End>");
+        assert_eq!(keys(&[press(Key::ArrowUp, cmd)], true), "<C-Home>");
+        assert_eq!(keys(&[press(Key::ArrowDown, cmd)], true), "<C-End>");
+        assert_eq!(keys(&[press(Key::Backspace, cmd)], true), ERASE_LINE);
+        assert_eq!(keys(&[press(Key::A, cmd)], true), SELECT_ALL);
+        // The rest of Command is the system's, as in a terminal: `<D-z>`
+        // would be typed out in Insert mode.
+        assert_eq!(keys(&[press(Key::Z, cmd)], true), "");
+        assert_eq!(keys(&[press(Key::Enter, cmd)], true), "");
+        // Alt elsewhere, as a terminal sends it.
+        assert_eq!(keys(&[press(Key::ArrowLeft, alt)], false), "<M-Left>");
+        assert_eq!(keys(&[press(Key::Backspace, alt)], false), "<M-BS>");
+
+        // The clipboard: Cmd+C and Cmd+X act on the selection; Ctrl+C and
+        // Ctrl+X are Neovim's own.
+        assert_eq!(keys(&[Event::Copy], true), COPY);
+        assert_eq!(keys(&[Event::Cut], true), CUT);
+        assert_eq!(keys(&[Event::Copy], false), "<C-c>");
+        assert_eq!(keys(&[Event::Cut], false), "<C-x>");
+        let paste = [Event::Paste("x = 1".into())];
+        assert_eq!(typed(&paste, true, false, false).pastes, ["x = 1"]);
+        assert_eq!(typed(&paste, false, false, true).keys, "<C-v>", "Visual block in Normal mode");
+        assert_eq!(typed(&paste, false, true, true).pastes, ["x = 1"], "a paste in Insert mode");
+        assert!(typed(&[press(Key::S, cmd)], true, false, false).save);
+        assert!(typed(&[press(Key::S, Modifiers { ctrl: true, command: true, ..Default::default() })], false, false, false).save);
+
+        // An input method: the accent shown while it waits, then the letter.
+        let waiting = typed(&[Event::Ime(egui::ImeEvent::Preedit { text: "ˆ".into(), active_range_chars: None })], true, true, false);
+        assert_eq!((waiting.keys.as_str(), waiting.preedit.as_deref()), ("", Some("ˆ")));
+        let done = typed(
+            &[Event::Ime(egui::ImeEvent::Preedit { text: String::new(), active_range_chars: None }), Event::Ime(egui::ImeEvent::Commit("ê".into()))],
+            true,
+            true,
+            false,
+        );
+        assert_eq!((done.keys.as_str(), done.preedit.as_deref()), ("ê", Some("")));
     }
 
     #[test]
@@ -1327,6 +1714,45 @@ mod tests {
         // A completion accepted, with an import at the top.
         n.apply(&[((1, 0), (1, 1), "xyz".into()), ((0, 0), (0, 0), "import os\n".into())], (2, 3));
         wait(&mut n, "apply", |n| n.lines == ["import os", "a = 1 # end", "xyz = 3"] && n.cursor == (2, 3));
+
+        drop(n);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// macOS's editing keys, as `typed` sends them, each acting in the mode
+    /// Neovim is in when it reads it: Cmd+C copies the selection and keeps
+    /// it, Cmd+X cuts it, Cmd+A takes everything from Insert mode, and
+    /// Option+Backspace erases a word in Insert mode but nothing in Normal
+    /// mode, where `<C-w>` would begin a window command and eat the next key.
+    #[test]
+    fn macos_editing_keys_act_in_the_mode_neovim_is_in() {
+        if find("").is_none() {
+            eprintln!("no nvim on this machine; skipped");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("kalast-nvim-keys-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("t.py");
+        let mut n = Neovim::spawn("", &dir, (80, 20), &["--clean"], || {}).unwrap();
+        n.load("abc def\nghi\njkl\n", &file.to_string_lossy(), "python", None);
+        wait(&mut n, "set up", |n| n.ready && n.loading.is_none() && n.grid.is_some());
+
+        n.input(&format!("vl{COPY}"));
+        wait(&mut n, "copied", |n| n.actions.contains(&Action::Copy("ab".into())));
+        wait(&mut n, "still selected", |n| n.visual.is_some_and(|v| v.kind == 'v'));
+
+        n.input(&format!("<Esc>A{SELECT_ALL}"));
+        wait(&mut n, "all of it", |n| n.visual.is_some_and(|v| v.kind == 'V' && v.start.0 == 0 && v.end.0 == 2));
+
+        n.input(&format!("<Esc>ggjVj{CUT}"));
+        wait(&mut n, "cut", |n| n.lines == ["abc def"] && n.actions.contains(&Action::Copy("ghi\njkl\n".into())));
+
+        n.input(&format!("A{ERASE_WORD}"));
+        wait(&mut n, "a word erased", |n| n.lines == ["abc "] && n.insert_mode());
+        n.input(&format!("<Esc>0{ERASE_WORD}x"));
+        wait(&mut n, "nothing erased in Normal mode, and x still x", |n| n.lines == ["bc "] && n.mode == "normal");
+        n.input(&format!("A{ERASE_LINE}"));
+        wait(&mut n, "the line erased", |n| n.lines == [""] && n.insert_mode());
 
         drop(n);
         let _ = std::fs::remove_dir_all(&dir);

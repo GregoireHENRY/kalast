@@ -502,6 +502,11 @@ jobs:
           # dependencies the bundle does not have.
           cp -r res examples docs notes "$stage/"
           cp README.md "$stage/"
+          # ty checks only the files of the project it finds above a script,
+          # and a bundle unpacked in another project's `dist/` or git-ignored
+          # folder is none of them: nothing typed wrong was ever reported.
+          # This makes the bundle a project of its own, wherever it is.
+          cp tools/bundle-ty.toml "$stage/ty.toml"
 
           # The hosted libraries, at the one path the editor looks for them:
           # `dylib_path_for` without `KALAST_HOSTED_TARGET_DIR` set, which is
@@ -633,6 +638,9 @@ jobs:
       # `app.simulation.`, in the pruned bundle -- so what the prune took was
       # nothing it needed, and ty reads the bundle's packages. Any Python
       # drives the check; the runner's does.
+      # Here, in a checkout's `dist/`, is where ty goes quiet on the bundle's
+      # scripts without its `ty.toml`: the check expects an error reported
+      # as well as completions.
       - name: The bundle's language server answers
         shell: bash
         run: |

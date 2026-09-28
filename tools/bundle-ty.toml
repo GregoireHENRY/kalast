@@ -1,0 +1,5 @@
+# Settings for ty, the Python language server of kalast's editor: this
+# folder is a project of its own, so that its scripts are checked wherever
+# it is unpacked, and the Python inside it is kalast's, not scripts to check.
+[src]
+exclude = ["python"]

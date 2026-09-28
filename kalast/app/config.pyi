@@ -206,9 +206,10 @@ class AppConfig:
     than timing one.
     """
     neovim: bool
-    """Neovim in the script editor: your own `nvim` and your config, run the
-    way VS Code's Neovim extension runs it -- modes, motions, operators,
-    `:` commands, registers, macros and your mappings.
+    """Neovim in the script editor: your own `nvim`, run the way VS Code's
+    Neovim extension runs it -- modes, motions, operators, `:` commands,
+    registers, macros and mappings -- with the config `neovim_config`
+    names.
 
     Needs Neovim 0.10 or newer, as `nvim` on the PATH or named by
     `neovim_path`. The config is read with `vim.g.kalast` set, so a part
@@ -218,6 +219,15 @@ class AppConfig:
     """
     neovim_path: str
     """The Neovim to run when `neovim` is on; empty for `nvim` on the PATH."""
+    neovim_config: str
+    """The config Neovim reads: `"kalast"`, the one kalast ships; `"user"`,
+    your own, where Neovim looks for it; or a path, to a config folder
+    holding `init.lua` or to one file.
+
+    kalast's is its author's: lazy.nvim and its plugins, which it clones
+    with git the first time it starts, into a folder of its own
+    (`~/.local/share/kalast-nvim`), apart from your own Neovim's.
+    """
     ruler: int
     """The column the script editor draws a vertical line at, 0 for none:
     `editor.rulers` in VS Code, `colorcolumn` in Vim.

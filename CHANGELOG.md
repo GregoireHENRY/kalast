@@ -13,6 +13,13 @@ released, and the gate refuses the tag until it has.
 
 - The bundle's script editor has a Python language server with nothing to install: ty, Astral's, ships in the bundle -- completion, hover, signatures, errors and go to definition, on kalast's own API too. For `python -m kalast`, `pip install "kalast[editor]"` brings it. basedpyright, which catches more type errors, is one setting away: `app.config.python_language_server = "basedpyright-langserver --stdio"`.
 - The editor's completion list keeps a name and its type apart: with ty, `step` read as `stepbound method App.step() -> bool`.
+- Saving a script that has no file yet -- typed into the empty editor -- asks where to save it. In Neovim, `:w` said `E32: No file name`.
+- Neovim in the editor starts with a config kalast ships: its author's settings, keymaps and editing plugins (surround, autopairs, git hunks), installed the first time with git, apart from your own Neovim's. `app.config.neovim_config = "user"` keeps your own config, or a path points to any other.
+- Errors in the bundle's scripts are reported wherever the bundle is unpacked. Inside another project -- its `dist/`, or a folder git ignores -- ty counted them out of that project and said nothing; the bundle's `ty.toml` now makes it a project of its own.
+- In Neovim, a space or Enter stays where it is typed. The cursor jumped to the line under the mouse pointer, and two quick spaces selected a word, the letters after them then taken as commands.
+- On macOS, Neovim types what Option types -- `{`, `[`, `|`, and `~` or accents with a dead key -- where it left insert mode. Cmd+C and Cmd+X copy and cut the selection, and Cmd and Option with the arrows and Backspace go by line and by word, as in VS Code.
+- On Windows and Linux, Ctrl+V in Neovim begins a Visual block again after insert mode; it pasted.
+- In Neovim, changing mode clears the last message, as in a terminal: an error such as `E492: Not an editor command` stayed on screen.
 - In a bundle, the script editor's language server and Neovim start as they should. They inherited the bundle's Python settings, so a Python-based one -- such as the basedpyright Neovim's mason installs -- exited at once.
 
 ## v0.5.10

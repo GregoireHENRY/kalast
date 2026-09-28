@@ -203,15 +203,31 @@ Remembered between sessions, like the theme, when changed in the app tab.
 
 ### `app.config.neovim: bool` — default `False` *(live, remembered)*
 The editor as your own Neovim, run the way VS Code's Neovim extension runs it:
-`nvim --embed`, your config, every key -- see CONTROLS.md. Needs Neovim 0.10 or
-newer, as `nvim` on the PATH or named by `neovim_path`. The config is read with
-`vim.g.kalast` set. If Neovim cannot be started the log says why and the editor
-stays the plain one; if it quits -- `:qa`, a crash -- it is started again, up to
-three times a minute.
+`nvim --embed`, every key -- see CONTROLS.md -- with the config `neovim_config`
+names. Needs Neovim 0.10 or newer, as `nvim` on the PATH or named by
+`neovim_path`. The config is read with `vim.g.kalast` set, so a part of it with
+no place in kalast can be skipped. If Neovim cannot be started the log says why
+and the editor stays the plain one; if it quits -- `:qa`, a crash -- it is
+started again, up to three times a minute.
 
 ### `app.config.neovim_path: str` — default `""` *(live, remembered)*
 The `nvim` to run; empty for the one on the PATH, then the usual install
 folders.
+
+### `app.config.neovim_config: str` — default `"kalast"` *(live, remembered)*
+The config Neovim reads.
+
+- `"kalast"`: the one kalast ships, its author's.
+  - kalast writes it beside its settings, into `neovim/kalast-nvim`, and
+    rewrites it there when it changes.
+  - Inside kalast it loads its settings, keymaps and editing plugins
+    (surround, autopairs, git hunks). Its other plugins -- windows, colours,
+    completion, language servers -- have no place in kalast, whose editor
+    draws the text and brings its own language server.
+  - lazy.nvim clones the three plugins with git the first time, into
+    `~/.local/share/kalast-nvim`, apart from your own Neovim's.
+- `"user"`: your own config, where Neovim looks for it.
+- A path: a config folder holding `init.lua` or `init.vim`, or one file.
 
 ### `app.config.ruler: int` — default `80` *(live, remembered)*
 The column the editor draws a vertical line at, 0 for none: `editor.rulers` in
@@ -230,6 +246,11 @@ Astral's, shipped in it. For `python -m kalast`, `pip install "kalast[editor]"`
 puts ty beside the interpreter, where the search finds it. basedpyright, which
 catches more type errors, is one setting away:
 `app.config.python_language_server = "basedpyright-langserver --stdio"`.
+
+ty checks the files of the project it finds above a script -- the nearest
+`ty.toml` or `pyproject.toml` -- and reports no errors in a file that project
+leaves out, such as one under `dist/` or in a folder git ignores. A bundle is a
+project of its own, through the `ty.toml` at its root.
 
 Each runs as a process of its own at below-normal priority, so a simulation
 never waits on it, and is told the interpreter scripts run with, so `import

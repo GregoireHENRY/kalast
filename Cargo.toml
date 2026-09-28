@@ -38,6 +38,8 @@ include = [
     "/README.md",
     # The documentation tab's pages, compiled in with `include_str!`.
     "/docs/*.md",
+    # The Neovim config kalast ships, compiled in (`gui::script::nvim`).
+    "/res/neovim/**",
     "/CHANGELOG.md",
     "/res/README.md",
     "/examples/README.md",

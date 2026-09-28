@@ -1395,9 +1395,10 @@ pub struct AppConfig {
     /// than timing one.
     pub vsync: bool,
 
-    /// Neovim in the script editor: your own `nvim` and your config, run the
-    /// way VS Code's Neovim extension runs it -- modes, motions, operators,
-    /// `:` commands, registers, macros and your mappings.
+    /// Neovim in the script editor: your own `nvim`, run the way VS Code's
+    /// Neovim extension runs it -- modes, motions, operators, `:` commands,
+    /// registers, macros and mappings -- with the config `neovim_config`
+    /// names.
     ///
     /// Needs Neovim 0.10 or newer, as `nvim` on the PATH or named by
     /// `neovim_path`. The config is read with `vim.g.kalast` set, so a part
@@ -1411,6 +1412,16 @@ pub struct AppConfig {
     ///
     /// :label: neovim path
     pub neovim_path: String,
+    /// The config Neovim reads: `"kalast"`, the one kalast ships; `"user"`,
+    /// your own, where Neovim looks for it; or a path, to a config folder
+    /// holding `init.lua` or to one file.
+    ///
+    /// kalast's is its author's: lazy.nvim and its plugins, which it clones
+    /// with git the first time it starts, into a folder of its own
+    /// (`~/.local/share/kalast-nvim`), apart from your own Neovim's.
+    ///
+    /// :label: neovim config
+    pub neovim_config: String,
     /// The column the script editor draws a vertical line at, 0 for none:
     /// `editor.rulers` in VS Code, `colorcolumn` in Vim.
     ///
@@ -1467,6 +1478,7 @@ impl Default for AppConfig {
             vsync: false,
             neovim: false,
             neovim_path: String::new(),
+            neovim_config: "kalast".to_string(),
             ruler: 80,
             language_servers: true,
             python_language_server: String::new(),

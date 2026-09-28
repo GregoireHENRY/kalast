@@ -534,7 +534,8 @@ or what it is busy with, rust-analyzer's indexing say.
 ### Neovim in the editor
 
 With `app.config.neovim = True` the editor is your own Neovim, run as VS
-Code's Neovim extension runs it: your `nvim`, your config, every key. kalast
+Code's Neovim extension runs it: your `nvim`, every key, and the config
+`app.config.neovim_config` names -- kalast's own by default, or yours. kalast
 draws what Neovim reports -- the text, the cursor in the mode's shape, the
 selection, the command line and the messages, in the bar under the text with
 the mode's name in lualine's colours -- and follows `number` and
@@ -544,7 +545,7 @@ the mode's name in lualine's colours -- and follows `number` and
 |---|---|
 | everything | Neovim's, as in a terminal: modes, motions, operators, `:` commands, `/` searches, registers, macros, your mappings |
 | `Ctrl`+`S` | Saves -- kalast's, as it is VS Code's with the extension |
-| `:w` | Saves the file |
+| `:w` | Saves the file -- a script with no file yet asks where to, as `Cmd`+`S` does |
 | `:q`, `:wq`, `:x` | Back to the renderer -- after saving, for the last two; Neovim keeps running |
 | `K`, `gh` | The hover |
 | `gd`, `gD`, `Ctrl`+`]` | Go to the definition; `Ctrl`+`O` comes back |
@@ -553,6 +554,16 @@ the mode's name in lualine's colours -- and follows `number` and
 | click, drag, double click | Neovim's mouse: place the cursor, select, take a word |
 | wheel | Scrolls as Neovim does, `mousescroll` lines a notch |
 | `Ctrl`+`V` | Visual block, outside insert mode; paste is `p`, or `Shift`+`Insert` |
+| `Cmd`+`V` (macOS) | Pastes, in any mode, as a terminal does |
+| `Cmd`+`C`, `Cmd`+`X` (macOS) | Copies, or cuts, the selection to the clipboard |
+| `Cmd`+`A` (macOS) | Selects everything |
+| `Cmd`+`←` `→`, `Cmd`+`↑` `↓` (macOS) | The start or the end of the line, of the script |
+| `Option`+`←` `→` (macOS) | A word left or right |
+| `Option`+`⌫`, `Cmd`+`⌫` (macOS) | Erases the word, or the line, before the cursor -- in insert mode and on the command line |
+
+On macOS `Option` types what it types in any other app -- `{`, `[`, `|` and,
+with a dead key, `~` on a French keyboard -- and the other `Cmd` shortcuts are
+the system's, as in a terminal. Elsewhere `Alt` with a key is Neovim's `<M-…>`.
 
 In insert mode the completion list and the signature work as above, `Esc`
 closing the list and leaving insert mode together. blink.cmp and the like are

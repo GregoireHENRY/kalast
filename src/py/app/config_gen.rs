@@ -1403,9 +1403,10 @@ impl super::config::AppConfig {
     fn vsync(&self) -> bool { self.config.borrow().vsync }
     #[setter]
     fn set_vsync(&mut self, v: bool) { self.config.borrow_mut().vsync = v; }
-    /// Neovim in the script editor: your own `nvim` and your config, run the
-    /// way VS Code's Neovim extension runs it -- modes, motions, operators,
-    /// `:` commands, registers, macros and your mappings.
+    /// Neovim in the script editor: your own `nvim`, run the way VS Code's
+    /// Neovim extension runs it -- modes, motions, operators, `:` commands,
+    /// registers, macros and mappings -- with the config `neovim_config`
+    /// names.
     ///
     /// Needs Neovim 0.10 or newer, as `nvim` on the PATH or named by
     /// `neovim_path`. The config is read with `vim.g.kalast` set, so a part
@@ -1421,6 +1422,17 @@ impl super::config::AppConfig {
     fn neovim_path(&self) -> String { self.config.borrow().neovim_path.clone() }
     #[setter]
     fn set_neovim_path(&mut self, v: &str) { self.config.borrow_mut().neovim_path = v.to_string(); }
+    /// The config Neovim reads: `"kalast"`, the one kalast ships; `"user"`,
+    /// your own, where Neovim looks for it; or a path, to a config folder
+    /// holding `init.lua` or to one file.
+    ///
+    /// kalast's is its author's: lazy.nvim and its plugins, which it clones
+    /// with git the first time it starts, into a folder of its own
+    /// (`~/.local/share/kalast-nvim`), apart from your own Neovim's.
+    #[getter]
+    fn neovim_config(&self) -> String { self.config.borrow().neovim_config.clone() }
+    #[setter]
+    fn set_neovim_config(&mut self, v: &str) { self.config.borrow_mut().neovim_config = v.to_string(); }
     /// The column the script editor draws a vertical line at, 0 for none:
     /// `editor.rulers` in VS Code, `colorcolumn` in Vim.
     #[getter]

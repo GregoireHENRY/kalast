@@ -4685,3 +4685,79 @@ completion list now keeps a name and its type apart.
 `tools/lsp_check.py`, run by the release workflow on every bundle, asks the
 bundle's server through the protocol what follows `app.simulation.`. See
 `notes/2026-09-28_a_language_server_in_the_bundle.md`.
+
+## 2026-09-28 — the Neovim config kalast ships
+
+Asked for: the author's Neovim config shipped as the default, with a way to
+point to one's own, updated to recent tools first. His config
+(`~/config/nvim`, backed up beside it) was updated:
+
+- nvim-treesitter moved from `master` to `main`, with Neovim 0.12's `an`/`in`
+  for `<CR>`/`<BS>`;
+- ty and ruff for Python;
+- snacks' pickers and indent guides in place of telescope and indent-blankline;
+- Comment.nvim dropped for the built-in `gc`;
+- rustaceanvim `^9`.
+
+It became kalast-aware: under `vim.g.kalast` only gitsigns, surround and
+autopairs load. The copy in `res/neovim/`, with a portable undo folder, is
+compiled in. `app.config.neovim_config` is `"kalast"` (the default: written
+beside the settings, read through `XDG_CONFIG_HOME` and
+`NVIM_APPNAME=kalast-nvim`), `"user"`, or a path.
+
+A fresh start installs three plugins, 9.2 MB, in 9 s. See
+`notes/2026-09-28_neovim_config_shipped.md`.
+
+## 2026-09-28 — an untitled script saves: a dialog, and no E32 in Neovim
+
+Reported: "E32: no filename when i save", in Neovim mode. A script with no file
+-- typed into the empty editor -- gave Neovim's buffer no name. With
+`buftype=acwrite`, `:w` then fails with E32 before BufWriteCmd is asked, and
+kalast's own save wrote to an empty path.
+
+- `nvim::LOAD` names such a buffer `kalast://untitled`, so `:w` reaches kalast.
+- A save with no path opens a "Save the script as" dialog (`rfd`, kept for
+  this). The path chosen becomes the script's, and the next sync renames
+  Neovim's buffer after it.
+
+Replayed headless, through the bridge's SETUP and LOAD with an untitled
+script: the buffer is named `kalast://untitled`, and `:w` reached
+BufWriteCmd. A named script already saved.
+
+## 2026-09-28 — ty's errors in a bundle under `dist/`
+
+Reported: no errors shown while typing in the local bundle's `light.py`. ty
+checks only its project's files, found by walking up to the nearest
+`ty.toml` or `pyproject.toml`. From the repository's `dist/` that was the
+repository, which leaves out `dist/` (git, and ty's own default excludes).
+Any bundle unpacked inside another project's `dist/` or git-ignored folder
+was silent the same way; completions still worked. The bundle now carries a
+`ty.toml` (`tools/bundle-ty.toml`) that makes it a project of its own,
+without its `python/`. `tools/lsp_check.py` now checks from inside the
+bundle and expects an error reported as well as completions. Without the
+file it fails. See `notes/2026-09-28_a_language_server_in_the_bundle.md`.
+
+## 2026-09-28 — Neovim's last message cleared on a mode change
+
+Reported: an error such as `E492: Not an editor command` stayed under the
+text after going back to editing. In a terminal, `-- INSERT --` is written
+over the message line. kalast shows the mode apart, so now clears the
+messages when the mode changes (`Ui::MsgShowmode` in `nvim.rs`).
+
+## 2026-09-28 — Neovim in the editor: keys as typed, not clicks
+
+Reported: a space at the end of a line sent the cursor to the next line;
+asked for Neovim to behave as in a terminal or VS Code. egui counts Space and
+Enter on the focused widget as a click, and the Neovim view passed every
+click to Neovim at the pointer: the space went in, then the cursor jumped to
+the pointer's line, and two quick spaces were a double click. That was also
+the fast typing lost earlier (E35). Clicks are now the mouse's only.
+
+The rest of the keyboard, audited against `nvim --clean`: on macOS, Option
+types its characters (`{` `[` `|` on a French Mac; `<M-{>` had left Insert
+mode) and dead keys compose through the input method, on while Neovim takes
+text. Cmd+C and Cmd+X copy and cut the selection instead of acting as
+`<C-c>`/`<C-x>`. VS Code's Cmd/Option editing keys work, the ones that
+depend on the mode through `<Cmd>lua kalast_keys.…`, and no `<D-x>` is sent.
+The mode Neovim reports is now current after Insert mode. See
+`notes/2026-09-28_neovim_keys_as_typed.md`.

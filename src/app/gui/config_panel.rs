@@ -303,8 +303,9 @@ pub fn app_window(ui: &mut egui::Ui, a: &mut AppConfig) {
 
 /// `app.config` -- Editor.
 pub fn app_editor(ui: &mut egui::Ui, a: &mut AppConfig) {
-    setting(ui, "neovim", "Neovim in the script editor: your own `nvim` and your config, run the way VS Code's Neovim extension runs it -- modes, motions, operators, `:` commands, registers, macros and your mappings.", |ui| ui.checkbox(&mut a.neovim, ""));
+    setting(ui, "neovim", "Neovim in the script editor: your own `nvim`, run the way VS Code's Neovim extension runs it -- modes, motions, operators, `:` commands, registers, macros and mappings -- with the config `neovim_config` names.", |ui| ui.checkbox(&mut a.neovim, ""));
     setting(ui, "neovim path", "The Neovim to run when `neovim` is on; empty for `nvim` on the PATH.", |ui| ui.add(egui::TextEdit::singleline(&mut a.neovim_path).desired_width(f32::INFINITY)));
+    setting(ui, "neovim config", "The config Neovim reads: `\"kalast\"`, the one kalast ships; `\"user\"`, your own, where Neovim looks for it; or a path, to a config folder holding `init.lua` or to one file.", |ui| ui.add(egui::TextEdit::singleline(&mut a.neovim_config).desired_width(f32::INFINITY)));
     setting(ui, "ruler", "The column the script editor draws a vertical line at, 0 for none: `editor.rulers` in VS Code, `colorcolumn` in Vim.", |ui| ui.add(egui::Slider::new(&mut a.ruler, 0..=200)));
     setting(ui, "language servers", "Completion, hover, signatures and errors in the script editor, from a language server -- pyright for Python, rust-analyzer for Rust -- the servers VS Code runs for its own.", |ui| ui.checkbox(&mut a.language_servers, ""));
     setting(ui, "python server", "The command starting the Python language server; empty for the first of `basedpyright-langserver`, `pyright-langserver`, `pylsp` and `jedi-language-server` found.", |ui| ui.add(egui::TextEdit::singleline(&mut a.python_language_server).desired_width(f32::INFINITY)));

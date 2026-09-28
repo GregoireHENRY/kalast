@@ -1554,7 +1554,7 @@ impl App {
         if !(run || open || save || quit) {
             return;
         }
-        let path = editor.script_path.clone();
+        let mut path = editor.script_path.clone();
         let source = editor.script.clone();
 
         // Nothing is borrowed across the work below. Messages are collected
@@ -1596,6 +1596,31 @@ impl App {
             }
         }
 
+        // A script with no file yet -- typed into the empty editor -- is
+        // asked where to go, as VS Code asks of an untitled one. Neovim's
+        // `:w` on it comes here too (`kalast://untitled`, in `nvim::LOAD`),
+        // where it said E32, no file name.
+        let mut save = save;
+        if save && path.trim().is_empty() {
+            let chosen = rfd::FileDialog::new()
+                .set_title("Save the script as")
+                .add_filter("Python", &["py"])
+                .add_filter("Rust", &["rs"])
+                .set_file_name("script.py")
+                .save_file();
+            match chosen {
+                Some(p) => {
+                    path = p.to_string_lossy().into_owned();
+                    if let Some(editor) = self.editor.as_mut() {
+                        editor.script_path = path.clone();
+                    }
+                }
+                None => {
+                    messages.push("not saved: no file chosen".to_string());
+                    save = false;
+                }
+            }
+        }
         if save {
             match std::fs::write(&path, &source) {
                 Ok(()) => {

@@ -114,6 +114,8 @@ fn python() -> Option<PathBuf> {
 pub struct Settings<'a> {
     pub neovim: bool,
     pub neovim_path: &'a str,
+    /// `app.config.neovim_config`: kalast's, the user's own, or a path.
+    pub neovim_config: &'a str,
     pub ruler: u32,
     pub language_servers: bool,
     pub python_language_server: &'a str,
@@ -344,8 +346,8 @@ impl View {
 pub struct ScriptEditor {
     servers: HashMap<&'static str, (String, Slot)>,
     nvim: Option<nvim::Neovim>,
-    /// The Neovim that could not be started, and why: not tried again until
-    /// `neovim_path` changes.
+    /// The Neovim that could not be started -- its `neovim_path` and
+    /// `neovim_config` -- and why: not tried again until either changes.
     nvim_failed: Option<(String, String)>,
     nvim_exits: Vec<std::time::Instant>,
     /// The file Neovim holds and the text it was last in step with. A script
@@ -393,6 +395,8 @@ pub struct ScriptEditor {
     left: f32,
     wheel: f32,
     pressed: Option<(usize, usize)>,
+    /// The input method's composition in progress, drawn at the cursor.
+    preedit: String,
 
     /// Lines for the kalast tab of the log.
     pub log: Vec<String>,
@@ -490,6 +494,7 @@ impl ScriptEditor {
                     nvim::Action::NextDiagnostic => self.keys.push(KeyAction::NextProblem),
                     nvim::Action::PrevDiagnostic => self.keys.push(KeyAction::PrevProblem),
                     nvim::Action::Open(path) => out.open = Some(PathBuf::from(path)),
+                    nvim::Action::Copy(text) => ctx.copy_text(text),
                 }
             }
         }
@@ -641,6 +646,10 @@ impl ScriptEditor {
     }
 
     fn ensure_nvim(&mut self, ctx: &egui::Context, settings: &Settings) -> bool {
+        /// What a failed start is remembered by: the Neovim and the config.
+        fn nvim_key(settings: &Settings) -> String {
+            format!("{}|{}", settings.neovim_path, settings.neovim_config)
+        }
         if let Some(n) = &self.nvim {
             let Some(why) = n.gone.clone() else { return true };
             // It went: `:qa`, a crash, a config calling `:quit`. Once is a
@@ -652,19 +661,21 @@ impl ScriptEditor {
             if self.nvim_exits.len() >= 3 {
                 let why = format!("{why}, three times in a minute; the editor goes on without it");
                 self.say(why.clone());
-                self.nvim_failed = Some((settings.neovim_path.to_string(), why));
+                self.nvim_failed = Some((nvim_key(settings), why));
                 return false;
             }
             self.log.push(format!("{why}; started again"));
         }
         match &self.nvim_failed {
-            Some((path, _)) if path == settings.neovim_path => return false,
+            Some((key, _)) if *key == nvim_key(settings) => return false,
             Some(_) => self.nvim_failed = None,
             None => {}
         }
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         let repaint = ctx.clone();
-        match nvim::Neovim::start(settings.neovim_path, &cwd, (COLUMNS, 40), move || repaint.request_repaint()) {
+        match nvim::Neovim::start(settings.neovim_path, settings.neovim_config, &cwd, (COLUMNS, 40), move || {
+            repaint.request_repaint()
+        }) {
             Ok(n) => {
                 self.nvim = Some(n);
                 self.synced = None;
@@ -672,7 +683,7 @@ impl ScriptEditor {
             }
             Err(e) => {
                 self.say(e.clone());
-                self.nvim_failed = Some((settings.neovim_path.to_string(), e));
+                self.nvim_failed = Some((nvim_key(settings), e));
                 false
             }
         }
@@ -889,8 +900,9 @@ impl ScriptEditor {
                         cursor = at;
                     }
                 }
-                // Ctrl+click: the definition, as in VS Code.
-                if output.response.clicked() && command {
+                // Ctrl+click: the definition, as in VS Code. The mouse's
+                // click: Cmd+Enter is a `clicked()` too.
+                if output.response.clicked_by(egui::PointerButton::Primary) && command {
                     self.keys.push(KeyAction::Definition);
                 }
 
@@ -988,14 +1000,17 @@ impl ScriptEditor {
 
         // The keys, all of them, in Neovim's notation.
         if focused {
-            let (keys, pastes, save) = collect_keys(ui, n.insert_mode() || n.cmdline().is_some());
-            let typed = !keys.is_empty() || !pastes.is_empty();
-            n.input(&keys);
-            for p in pastes {
+            let typed = collect_keys(ui, n.insert_mode() || n.cmdline().is_some());
+            let any = !typed.keys.is_empty() || !typed.pastes.is_empty();
+            n.input(&typed.keys);
+            for p in typed.pastes {
                 n.paste(&p);
             }
-            out.save |= save;
-            if typed {
+            out.save |= typed.save;
+            if let Some(p) = typed.preedit {
+                self.preedit = p;
+            }
+            if any {
                 // A key closes what `K` opened, as Neovim closes its floats.
                 if self.hover.as_ref().is_some_and(|h| h.word.is_none()) {
                     self.hover = None;
@@ -1055,6 +1070,11 @@ impl ScriptEditor {
             m
         });
         let down = ui.input(|i| i.pointer.primary_down());
+        // A click of the mouse's, not `clicked()`: egui also counts Space and
+        // Enter on the focused widget as one, and each space typed became a
+        // click wherever the pointer rested -- the cursor jumped to that
+        // line, and two quick spaces made a double click, a word selected.
+        let clicked = response.clicked_by(egui::PointerButton::Primary);
         if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
             let starts_here = response.is_pointer_button_down_on() && text_rect.contains(pos);
             if down && (starts_here || self.pressed.is_some()) {
@@ -1067,7 +1087,7 @@ impl ScriptEditor {
                 self.pressed = Some(at);
             } else if let Some((line, col)) = self.pressed.take() {
                 n.mouse("left", "release", &modifiers, line, col);
-            } else if response.clicked() && text_rect.contains(pos) {
+            } else if clicked && text_rect.contains(pos) {
                 // Pressed and released within one frame -- a tap, or a
                 // click faster than the frame: both halves at once.
                 let (line, col) = cell(pos);
@@ -1075,7 +1095,7 @@ impl ScriptEditor {
                 n.mouse("left", "release", &modifiers, line, col);
             }
             // Ctrl+click: the definition, as in VS Code.
-            if response.clicked() && ui.input(|i| i.modifiers.command) {
+            if clicked && ui.input(|i| i.modifiers.command) {
                 self.keys.push(KeyAction::Definition);
             }
         }
@@ -1149,6 +1169,36 @@ impl ScriptEditor {
                     text_painter.rect_filled(r, 0.0, color);
                 }
             }
+        }
+
+        // The input method, while Neovim takes text: a dead key's accent --
+        // `~` and `^` on a French Mac -- waits for its letter, and an IME's
+        // candidates open at the cursor. Not in Normal mode, where macOS
+        // would offer a held key's accents rather than repeat it, and `l`
+        // held would stop.
+        let taking_text = n.insert_mode() || n.mode == "replace" || n.cmdline().is_some();
+        if focused && taking_text && n.ready {
+            let at = view.rect(cursor);
+            ui.ctx().output_mut(|o| {
+                o.ime = Some(egui::output::IMEOutput {
+                    purpose: egui::IMEPurpose::Normal,
+                    rect: text_rect,
+                    cursor_rect: at,
+                    should_interrupt_composition: false,
+                })
+            });
+            // The composition so far, underlined where it will go in, as a
+            // text field shows it.
+            if editing && !self.preedit.is_empty() {
+                let ink = ui.visuals().text_color();
+                let g = ui.painter().layout_no_wrap(self.preedit.clone(), font.clone(), ink);
+                let r = Rect::from_min_size(at.min, egui::vec2(g.size().x, row_height));
+                text_painter.rect_filled(r, 0.0, ui.visuals().extreme_bg_color);
+                text_painter.galley(egui::pos2(r.left(), r.top() + (row_height - g.size().y) / 2.0), g, ink);
+                text_painter.line_segment([r.left_bottom(), r.right_bottom()], Stroke::new(1.0, ink));
+            }
+        } else {
+            self.preedit.clear();
         }
 
         // The gutter, over any text scrolled under it: line numbers,
@@ -2452,52 +2502,12 @@ fn draw_diagnostics(painter: &egui::Painter, view: &View, diagnostics: &[lsp::Di
     }
 }
 
-/// Every key the frame had, in Neovim's notation, and any text pasted --
-/// taken out of egui's input so nothing else in the window acts on them.
-/// Ctrl+S is kalast's own, as it is VS Code's with the Neovim extension.
-fn collect_keys(ui: &mut egui::Ui, inserting: bool) -> (String, Vec<String>, bool) {
-    let events = ui.input(|i| i.events.clone());
-    let ctrl = ui.input(|i| i.modifiers.ctrl);
-    let mut keys = String::new();
-    let mut pastes = Vec::new();
-    let mut save = false;
-    let mut skip_text: Option<String> = None;
-    for event in events {
-        match event {
-            egui::Event::Text(t) => {
-                // Alt with a letter came as a key already, `<M-x>`.
-                if skip_text.take().is_some_and(|s| s.eq_ignore_ascii_case(&t)) {
-                    continue;
-                }
-                keys.push_str(&nvim::text_keys(&t));
-            }
-            egui::Event::Key { key, pressed: true, modifiers, .. } => {
-                if modifiers.command && key == egui::Key::S {
-                    save = true;
-                    continue;
-                }
-                if let Some(k) = nvim::key(key, modifiers) {
-                    keys.push_str(&k);
-                    if modifiers.alt && !modifiers.ctrl {
-                        skip_text = Some(key.symbol_or_name().to_string());
-                    }
-                }
-            }
-            egui::Event::Copy => keys.push_str("<C-c>"),
-            egui::Event::Cut => keys.push_str("<C-x>"),
-            egui::Event::Paste(text) => {
-                // Ctrl+V is visual block outside insert mode; pasting there
-                // is `p`, or Shift+Insert.
-                if ctrl && !inserting {
-                    keys.push_str("<C-v>");
-                } else {
-                    pastes.push(text);
-                }
-            }
-            egui::Event::Ime(egui::ImeEvent::Commit(t)) => keys.push_str(&nvim::text_keys(&t)),
-            _ => {}
-        }
-    }
+/// Every key the frame had, for Neovim -- taken out of egui's input so
+/// nothing else in the window acts on them. What each becomes is
+/// `nvim::typed`'s.
+fn collect_keys(ui: &mut egui::Ui, inserting: bool) -> nvim::Typed {
+    let (events, ctrl) = ui.input(|i| (i.events.clone(), i.modifiers.ctrl));
+    let typed = nvim::typed(&events, cfg!(target_os = "macos"), inserting, ctrl);
     ui.input_mut(|i| {
         i.events.retain(|e| {
             !matches!(
@@ -2511,7 +2521,7 @@ fn collect_keys(ui: &mut egui::Ui, inserting: bool) -> (String, Vec<String>, boo
             )
         })
     });
-    (keys, pastes, save)
+    typed
 }
 
 #[cfg(test)]
@@ -2534,6 +2544,7 @@ mod tests {
         let settings = Settings {
             neovim: false,
             neovim_path: "",
+            neovim_config: "user",
             ruler: 80,
             language_servers: false,
             python_language_server: "",
@@ -2690,5 +2701,122 @@ mod tests {
                 assert_eq!(v.lsp_index(p, enc), lsp::index(&text, p, enc));
             }
         }
+    }
+
+    /// Space and Enter are keys to Neovim, and only that. egui also takes
+    /// either one, on the focused widget, as a click on it, and the editor
+    /// passed that click on to Neovim wherever the pointer was: a space at
+    /// the end of a line went in, unseen, and the cursor jumped to the line
+    /// the pointer rested on. Two quick spaces were a double click -- a word
+    /// selected, and the letters after it Visual mode commands. Driven as a
+    /// window drives it, through egui, the pointer over a line further down.
+    #[test]
+    fn space_and_enter_are_typed_not_clicked() {
+        if nvim::find("").is_none() {
+            eprintln!("no nvim on this machine; skipped");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("kalast-typed-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("t.py").to_string_lossy().into_owned();
+        let ctx = egui::Context::default();
+        let mut editor = ScriptEditor {
+            nvim: Some(nvim::Neovim::spawn("", &dir, (COLUMNS, 40), &["--clean"], || {}).unwrap()),
+            ..Default::default()
+        };
+        let mut script = (0..12).map(|i| format!("line{i}\n")).collect::<String>();
+        let palette = code::palette(UiTheme::CatppuccinMocha);
+        let settings = Settings {
+            neovim: true,
+            neovim_path: "",
+            neovim_config: "user",
+            ruler: 80,
+            language_servers: false,
+            python_language_server: "",
+            rust_language_server: "",
+            theme: UiTheme::CatppuccinMocha,
+        };
+        let mut time = 0.0;
+        // Each frame says whether it asked for the input method.
+        let mut frame = |editor: &mut ScriptEditor, script: &mut String, events: Vec<egui::Event>| {
+            time += 1.0 / 60.0;
+            let raw = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1000.0, 700.0))),
+                time: Some(time),
+                events,
+                ..Default::default()
+            };
+            let mut output = ctx.run_ui(raw, |ui| {
+                editor.show(ui, script, &path, Lang::Python, &palette, &settings, false);
+            });
+            output.textures_delta.clear();
+            output.platform_output.ime.is_some()
+        };
+        type Frame<'a> = dyn FnMut(&mut ScriptEditor, &mut String, Vec<egui::Event>) -> bool + 'a;
+        /// Frames, empty of input, until Neovim shows `done`.
+        fn until(frame: &mut Frame, editor: &mut ScriptEditor, script: &mut String, what: &str, done: &dyn Fn(&nvim::Neovim) -> bool) {
+            for _ in 0..400 {
+                frame(editor, script, vec![]);
+                let n = editor.nvim.as_ref().unwrap();
+                if done(n) {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            let n = editor.nvim.as_ref().unwrap();
+            panic!("{what}: lines {:?}, mode {:?}, cursor {:?}", n.lines, n.mode, n.cursor);
+        }
+        /// Frames enough for whatever else was sent to have landed.
+        fn settle(frame: &mut Frame, editor: &mut ScriptEditor, script: &mut String) {
+            for _ in 0..20 {
+                frame(editor, script, vec![]);
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        }
+        until(&mut frame, &mut editor, &mut script, "loaded", &|n| n.ready && n.lines.len() == 12);
+        ctx.memory_mut(|m| m.request_focus(text_id()));
+        // The pointer comes to rest over the ninth line or so: rows are about
+        // 17 points, and the text starts at the panel's top.
+        let resting = egui::Event::PointerMoved(egui::pos2(300.0, 8.5 * 17.0));
+        let key = |key: egui::Key, modifiers: egui::Modifiers| egui::Event::Key {
+            key,
+            physical_key: Some(key),
+            pressed: true,
+            repeat: false,
+            modifiers,
+        };
+        let normal = frame(&mut editor, &mut script, vec![resting]);
+        assert!(!normal, "no input method in Normal mode, where macOS would hold a key for its accents");
+        frame(&mut editor, &mut script, vec![key(egui::Key::A, egui::Modifiers::SHIFT), egui::Event::Text("A".into())]);
+        until(&mut frame, &mut editor, &mut script, "A", &|n| n.insert_mode());
+        assert!(frame(&mut editor, &mut script, vec![]), "the input method, in Insert mode");
+
+        frame(&mut editor, &mut script, vec![key(egui::Key::Space, egui::Modifiers::NONE), egui::Event::Text(" ".into())]);
+        until(&mut frame, &mut editor, &mut script, "the space", &|n| n.lines[0] == "line0 ");
+        settle(&mut frame, &mut editor, &mut script);
+        let n = editor.nvim.as_ref().unwrap();
+        assert_eq!((n.cursor, n.insert_mode()), ((0, 6), true), "after the space, where it went in");
+
+        frame(&mut editor, &mut script, vec![key(egui::Key::Enter, egui::Modifiers::NONE)]);
+        until(&mut frame, &mut editor, &mut script, "the new line", &|n| n.lines.len() == 13);
+        settle(&mut frame, &mut editor, &mut script);
+        let n = editor.nvim.as_ref().unwrap();
+        assert_eq!((n.cursor, n.insert_mode()), ((1, 0), true), "after Enter, on the new line");
+        assert!(script.starts_with("line0 \n\nline1\n"), "{script:?}");
+
+        // A dead key's accent, then its letter: what the input method
+        // composed goes in, once.
+        let preedit = |text: &str| egui::Event::Ime(egui::ImeEvent::Preedit { text: text.into(), active_range_chars: None });
+        frame(&mut editor, &mut script, vec![preedit("ˆ")]);
+        assert_eq!(editor.preedit, "ˆ", "the accent shown while it waits");
+        frame(&mut editor, &mut script, vec![preedit(""), egui::Event::Ime(egui::ImeEvent::Commit("ê".into()))]);
+        until(&mut frame, &mut editor, &mut script, "ê", &|n| n.lines[1] == "ê");
+        assert_eq!(editor.preedit, "");
+        frame(&mut editor, &mut script, vec![key(egui::Key::Escape, egui::Modifiers::NONE)]);
+        until(&mut frame, &mut editor, &mut script, "Normal mode", &|n| n.mode == "normal");
+        assert!(!frame(&mut editor, &mut script, vec![]), "the input method off again");
+
+        drop(editor);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
