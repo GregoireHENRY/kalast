@@ -507,9 +507,9 @@ folded over its subsections, the one being read lit.
 
 ### The editor's helpers
 
-From a language server, as VS Code's: basedpyright or pyright for Python,
-rust-analyzer for Rust (`app.config.language_servers`, and CONFIG.md for which
-is found).
+From a language server: ty, basedpyright or pyright for Python, rust-analyzer
+for Rust (`app.config.language_servers`, and CONFIG.md for which is found). A
+release bundle brings ty with it.
 
 | Key or gesture | Does |
 |---|---|

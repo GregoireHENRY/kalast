@@ -606,8 +606,9 @@ impl ScriptEditor {
         let slot = match lsp::find(language, configured, python.as_deref()) {
             None => {
                 self.say(match language {
-                    "python" => "no Python language server found, so no completion or hover: install one \
-                                 with `uv tool install basedpyright` (or pip), or name one in \
+                    "python" => "no Python language server found, so no completion or hover: \
+                                 `pip install \"kalast[editor]\"` brings ty, as does \
+                                 `uv tool install ty`; or name one in \
                                  app.config.python_language_server"
                         .to_string(),
                     _ => "no rust-analyzer found, so no completion or hover in Rust: \
@@ -1611,6 +1612,9 @@ impl ScriptEditor {
                             }
                             if !item.label_detail.is_empty() {
                                 job.append(&item.label_detail, 0.0, TextFormat { color: weak, ..base.clone() });
+                            }
+                            if !item.label_description.is_empty() {
+                                job.append(&item.label_description, 12.0, TextFormat { color: weak, ..base.clone() });
                             }
                             // The selected item's detail at the row's end, as
                             // VS Code puts it, when it is short.

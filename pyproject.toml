@@ -1,6 +1,6 @@
 [project]
 name = "kalast"
-version = "0.5.10"
+version = "0.5.11"
 description = "TPM for binary asteroids"
 readme = "README.md"
 requires-python = ">=3.14.3,<3.15"
@@ -23,6 +23,13 @@ dependencies = [
 	"spiceypy>=8",
 	"symfit>=0.5",
 ]
+
+[project.optional-dependencies]
+# The UI app's script editor: ty, Astral's language server, one executable.
+# Optional, so that kalast as a library -- on a cluster, in a pipeline --
+# does not bring it: `pip install "kalast[editor]"`. A release bundle ships
+# it.
+editor = ["ty>=0.0.84"]
 
 [dependency-groups]
 dev = [

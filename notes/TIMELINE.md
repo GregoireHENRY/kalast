@@ -4654,3 +4654,34 @@ The fix has three parts:
 Verified: a queued line saw the crater example's one body at iteration 1 while
 its loop ran, and closed it. There is a new unit test for the restore. See
 `notes/2026-09-28_console_during_a_rust_example.md`.
+
+## 2026-09-28 — the bundle's `PYTHONHOME` kept out of language servers and Neovim
+
+Reported: on macOS the editor's basedpyright "started" and exited 70 ms
+later, in a bundle. The bundle sets `PYTHONHOME` for the interpreter linked
+into kalast (`point_at_the_bundled_interpreter`), and every child inherited
+it. Neovim's mason copy of basedpyright is a venv script whose Python then
+loaded the bundle's stripped standard library and died on `No module named
+'_posixsubprocess'`. Without the variable it starts. Everything Neovim runs
+in Python broke the same way.
+
+`app::without_bundled_python_home` removes it from the language servers'
+and Neovim's commands, and only when it is the bundle's own value. Not done:
+a script's own `subprocess` of another Python still inherits it.
+
+Then, asked for: a colleague's fresh v0.5.10 found no Python language
+server at all. The bundle now ships one, ahead of anything installed. Three
+were tried:
+
+- jedi-language-server: pure Python, run by kalast's own interpreter, and
+  "way more worse" in the editor;
+- basedpyright with Node: excellent, but 43 MB more to download and 669 MB
+  of memory;
+- ty, Astral's: on a par with basedpyright in the editor, 13 MB, 62 MB of
+  memory, ten to a hundred times faster, one executable. The user chose it.
+
+`pip install "kalast[editor]"` brings ty for `python -m kalast`. The
+completion list now keeps a name and its type apart.
+`tools/lsp_check.py`, run by the release workflow on every bundle, asks the
+bundle's server through the protocol what follows `app.simulation.`. See
+`notes/2026-09-28_a_language_server_in_the_bundle.md`.

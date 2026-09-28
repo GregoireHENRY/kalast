@@ -219,18 +219,23 @@ VS Code, `colorcolumn` in Vim.
 
 ### `app.config.language_servers: bool` — default `True` *(live, remembered)*
 Completion, hover, signatures, errors and go-to-definition in the editor, from
-a language server -- the servers VS Code runs. For Python, the first found of
-`basedpyright-langserver`, `pyright-langserver`, `pylsp` and
-`jedi-language-server`, beside the interpreter the script runs with (a venv's
-`Scripts` or `bin`), on the PATH, in `~/.local/bin` (`uv tool install
-basedpyright`), or in Neovim's mason folder; for Rust, `rust-analyzer`. One not
-installed is said so in the log, once.
+a language server. For Python, the first found of `ty`, `basedpyright-langserver`,
+`pyright-langserver`, `pylsp` and `jedi-language-server`, beside the
+interpreter the script runs with (a venv's `Scripts` or `bin`), on the PATH, in
+`~/.local/bin` (`uv tool install ty`), or in Neovim's mason folder; for Rust,
+`rust-analyzer`. One not installed is said so in the log, once.
+
+A release bundle uses its own for Python, ahead of anything installed: ty,
+Astral's, shipped in it. For `python -m kalast`, `pip install "kalast[editor]"`
+puts ty beside the interpreter, where the search finds it. basedpyright, which
+catches more type errors, is one setting away:
+`app.config.python_language_server = "basedpyright-langserver --stdio"`.
 
 Each runs as a process of its own at below-normal priority, so a simulation
 never waits on it, and is told the interpreter scripts run with, so `import
 kalast` and numpy resolve to what the script imports -- in a release bundle,
-whose interpreter is inside the executable, the bundle's packages instead. Python is checked in
-pyright's `"standard"` mode, with what may be `None` or unbound a warning
+whose interpreter is inside the executable, the bundle's packages instead. With
+pyright or basedpyright, Python is checked in pyright's `"standard"` mode, with what may be `None` or unbound a warning
 rather than an error; a `pyrightconfig.json` or a `[tool.pyright]` in the
 project has the last word. The Python server works in the script's folder, or
 the nearest one above it holding that configuration; rust-analyzer in the cargo
@@ -240,8 +245,9 @@ workspace, with a target folder of its own and no `cargo check` on save.
 file, what VS Code's `trace.server` shows.
 
 ### `app.config.python_language_server: str` — default `""` *(live, remembered)*
-The command starting the Python server, for one not found by the search above
--- `"pyright-langserver --stdio"` -- quoted where a path has spaces.
+The command starting the Python server, in place of the one found above or a
+bundle's own -- `"pyright-langserver --stdio"` -- quoted where a path has
+spaces.
 
 ### `app.config.rust_language_server: str` — default `""` *(live, remembered)*
 The command starting rust-analyzer, likewise.

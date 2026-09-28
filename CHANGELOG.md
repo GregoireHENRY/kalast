@@ -9,6 +9,12 @@ pushed. While betas of a version go out, its section is headed
 `## v<version>-beta`; it becomes `## v<version>` when the version is
 released, and the gate refuses the tag until it has.
 
+## v0.5.11-beta
+
+- The bundle's script editor has a Python language server with nothing to install: ty, Astral's, ships in the bundle -- completion, hover, signatures, errors and go to definition, on kalast's own API too. For `python -m kalast`, `pip install "kalast[editor]"` brings it. basedpyright, which catches more type errors, is one setting away: `app.config.python_language_server = "basedpyright-langserver --stdio"`.
+- The editor's completion list keeps a name and its type apart: with ty, `step` read as `stepbound method App.step() -> bool`.
+- In a bundle, the script editor's language server and Neovim start as they should. They inherited the bundle's Python settings, so a Python-based one -- such as the basedpyright Neovim's mason installs -- exited at once.
+
 ## v0.5.10
 
 - macOS: the bundle has a `kalast.app`, with kalast's icon: double-clicking it opens the UI app without Terminal. `./kalast` still runs it from a terminal.

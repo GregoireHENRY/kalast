@@ -450,6 +450,21 @@ pub fn bundled_python_dir() -> Option<std::path::PathBuf> {
     bundled_python_beside(exe.parent()?)
 }
 
+/// `command` -- a program of the user's own, a language server or Neovim --
+/// without the `PYTHONHOME` a bundle sets for the interpreter linked into
+/// kalast (`point_at_the_bundled_interpreter`, in the binary). Inherited, it
+/// sends any other Python to the bundle's standard library, where it dies on
+/// its first import: basedpyright's on `_posixsubprocess`, 70 ms after it
+/// started, and so did every program Neovim runs in Python. Left alone when
+/// it is not the bundle's.
+pub fn without_bundled_python_home(command: &mut std::process::Command) {
+    let set = std::env::var_os("PYTHONHOME");
+    let ours = bundled_python_dir();
+    if ours.is_some() && set.as_deref().map(std::path::Path::new) == ours.as_deref() {
+        command.env_remove("PYTHONHOME");
+    }
+}
+
 /// Split from `bundled_python_dir` so it can be tested against a directory
 /// that is not the one this test binary happens to live in.
 pub fn bundled_python_beside(dir: &std::path::Path) -> Option<std::path::PathBuf> {
@@ -468,6 +483,22 @@ pub fn bundled_python_beside(dir: &std::path::Path) -> Option<std::path::PathBuf
 /// is no `python` to ask; see `gui::script::set_python`.
 pub fn bundled_site_packages() -> Option<std::path::PathBuf> {
     site_packages(&bundled_python_dir()?)
+}
+
+/// A release bundle's language server for Python: ty, Astral's, a single
+/// executable pip installs beside the bundle's interpreter
+/// (`tools/bundle-requirements.txt`), and the one file the release keeps
+/// when it prunes that folder -- so the script editor has completion,
+/// hover, signatures and type checking with nothing to install. `None`
+/// outside a bundle, or in one without it.
+pub fn bundled_language_server() -> Option<std::path::PathBuf> {
+    let python = bundled_python_dir()?;
+    let ty = if cfg!(windows) {
+        python.join("Scripts").join("ty.exe")
+    } else {
+        python.join("bin").join("ty")
+    };
+    ty.is_file().then_some(ty)
 }
 
 fn site_packages(python: &std::path::Path) -> Option<std::path::PathBuf> {

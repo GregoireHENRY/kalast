@@ -1,7 +1,7 @@
 # What a release bundle's own interpreter needs installed, beside the kalast
 # wheel itself.
 #
-# Two things, and they are different:
+# Three things, and they are different:
 #
 #   1. what `import kalast` reaches -- numpy and spiceypy, and nothing else
 #      since `kalast.plot` and `kalast.tpm` started deferring their
@@ -9,7 +9,14 @@
 #   2. what the examples the bundle ships actually call. matplotlib for
 #      `misc/cbar.py`, `analytical/sinusoidal.py` and
 #      `analytical/slab_relaxation.py`; scipy for the last two, one through
-#      `kalast.tpm.implicit` and one directly.
+#      `kalast.tpm.implicit` and one directly;
+#   3. the script editor's language server for Python: ty, Astral's, one
+#      25 MB executable that pip puts in the interpreter's `bin` (`Scripts`
+#      on Windows), the one file the release keeps when it prunes that
+#      folder (`kalast::app::bundled_language_server`). Three were tried:
+#      jedi-language-server was much the poorer; basedpyright was on a par
+#      with ty in the editor but needs Node -- 43 MB more to download, 669
+#      MB of memory against ty's 62, and ten to a hundred times slower.
 #
 # **pyarrow is deliberately absent.** It is 120 MB, the largest thing in the
 # bundle after the interpreter itself, and the only thing that wants it is
@@ -27,3 +34,4 @@ numpy>=2.5
 scipy>=1.16
 matplotlib>=3.10
 spiceypy>=8
+ty>=0.0.84

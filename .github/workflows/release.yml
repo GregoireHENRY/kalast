@@ -552,13 +552,19 @@ jobs:
         run: |
           set -euo pipefail
           before=$(du -sm python | cut -f1)
+          # The interpreter's `bin` (`Scripts`) goes, all but ty: the
+          # editor's language server, which pip put there.
           if [ "${{ runner.os }}" = "Windows" ]; then
-            rm -rf python/python.exe python/pythonw.exe python/Scripts python/include python/tcl \
+            find python/Scripts -mindepth 1 ! -name ty.exe -exec rm -rf {} +
+            rm -rf python/python.exe python/pythonw.exe python/include python/tcl \
                    python/*.dll python/Lib/site-packages/pip* python/Lib/site-packages/kalast/_rs*.pyd
+            [ -f python/Scripts/ty.exe ] || { echo "::error::ty.exe missing after pruning"; exit 1; }
           else
-            rm -rf python/bin python/include python/share python/lib/pkgconfig \
+            find python/bin -mindepth 1 ! -name ty -exec rm -rf {} +
+            rm -rf python/include python/share python/lib/pkgconfig \
                    python/lib/tcl* python/lib/tk* python/lib/itcl* python/lib/thread* python/lib/libtcl* \
                    python/lib/python3.*/site-packages/pip* python/lib/python3.*/site-packages/kalast/_rs.abi3.so
+            [ -f python/bin/ty ] || { echo "::error::ty missing after pruning"; exit 1; }
           fi
           echo "python/ $before MB -> $(du -sm python | cut -f1) MB"
           [ -f python/pyo3-config.txt ] || { echo "::error::pyo3-config.txt missing after pruning"; exit 1; }
@@ -621,6 +627,18 @@ jobs:
             exit 1
           }
           du -sm . | awk '{print "bundle unpacked: " $1 " MB"}'
+
+      # The script editor's language server: the bundle's ty (`kalast
+      # --language-server` runs it). Asked through the protocol what follows
+      # `app.simulation.`, in the pruned bundle -- so what the prune took was
+      # nothing it needed, and ty reads the bundle's packages. Any Python
+      # drives the check; the runner's does.
+      - name: The bundle's language server answers
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ runner.os }}" = "Windows" ]; then exe=kalast.exe; py=python; else exe=kalast; py=python3; fi
+          "$py" tools/lsp_check.py "dist/${{ env.name }}/$exe"
 
       # Run in the bundle, where there is no source tree: `--precompile`
       # checks `is_current` before it builds anything, so "0 built" is proof

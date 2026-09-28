@@ -77,8 +77,17 @@ fn gui_c_runtime() {}
 
 fn main() {
     gui_c_runtime();
-    attach_parent_console();
     let args: Vec<String> = std::env::args().skip(1).collect();
+
+    // The bundle's language server, over stdin and stdout
+    // (`language_server`). First of all: those two are the protocol's, so
+    // nothing may be printed on them, no console is attached, and the
+    // working directory stays the one it was started in.
+    if args.first().is_some_and(|a| a == "--language-server") {
+        std::process::exit(language_server());
+    }
+
+    attach_parent_console();
 
     // Python's options -- `-c`, `-m`, `-I` -- from a tool that took a
     // bundle's `kalast.exe` for its Python, `sys.executable` being this
@@ -266,6 +275,37 @@ fn python_check() -> i32 {
         }
         Err(e) => {
             eprintln!("embedded interpreter failed: {e}");
+            1
+        }
+    }
+}
+
+/// Run the bundle's language server, ty, over stdin and stdout
+/// (`kalast::app::bundled_language_server`). The editor starts it itself;
+/// this is the same server by a name that does not depend on where the
+/// bundle keeps it, for `tools/lsp_check.py` and the release workflow.
+///
+/// ty inherits the streams: on Unix it replaces this process, and elsewhere
+/// this one waits for it and passes on its status.
+fn language_server() -> i32 {
+    let Some(ty) = kalast::app::bundled_language_server() else {
+        eprintln!("kalast: no language server here: --language-server runs a release bundle's own");
+        return 2;
+    };
+    let mut command = std::process::Command::new(&ty);
+    command.arg("server");
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        let e = command.exec();
+        eprintln!("kalast: cannot start {}: {e}", ty.display());
+        1
+    }
+    #[cfg(not(unix))]
+    match command.status() {
+        Ok(status) => status.code().unwrap_or(1),
+        Err(e) => {
+            eprintln!("kalast: cannot start {}: {e}", ty.display());
             1
         }
     }

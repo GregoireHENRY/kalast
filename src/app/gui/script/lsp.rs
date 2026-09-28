@@ -181,8 +181,13 @@ pub struct CompletionItem {
     /// module, 10 property, 14 keyword...
     pub kind: u8,
     pub detail: String,
-    /// `labelDetails`: a function's parameters, a symbol's module.
+    /// `labelDetails.detail`, drawn against the name: a function's
+    /// parameters.
     pub label_detail: String,
+    /// `labelDetails.description`, drawn apart from it: a symbol's module, or
+    /// with ty its type -- `bound method App.step() -> bool`, which read as
+    /// `stepbound method...` while the two were joined.
+    pub label_description: String,
     pub documentation: Markup,
     pub sort_text: String,
     pub filter_text: String,
@@ -352,6 +357,7 @@ impl Server {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
+        crate::app::without_bundled_python_home(&mut command);
         background(&mut command);
         let mut child = command
             .spawn()
@@ -707,9 +713,14 @@ impl Drop for Server {
 }
 
 /// Where a server keeps its settings, by its command: rust-analyzer reads
-/// `initializationOptions` as its whole configuration.
+/// `initializationOptions` as its whole configuration. ty asks for its own
+/// section through `workspace/configuration`, and its initialization
+/// options are something else -- a log level, a log file -- so it is given
+/// none, where kalast's pyright settings had it print them back as unknown.
 fn server_section(name: &str) -> &'static str {
-    if name.contains("rust-analyzer") {
+    if name == "ty" || name.ends_with(" ty") {
+        "ty-initialization"
+    } else if name.contains("rust-analyzer") {
         "rust-analyzer"
     } else if name.contains("pylsp") {
         "pylsp"
@@ -749,9 +760,15 @@ pub fn settings(python: Option<&Path>, search: &[PathBuf]) -> Value {
             "reportPossiblyUnbound": "warning",
         },
     });
+    // ty's environment is the interpreter scripts run with, or in a bundle,
+    // whose interpreter is inside kalast, the bundle's Python folder, which
+    // ty reads as an installation: its standard library and site-packages.
+    let ty_python = python.map(Path::to_path_buf).or_else(crate::app::bundled_python_dir);
     json!({
         "python": {"pythonPath": python.map(|p| p.to_string_lossy()), "analysis": analysis},
         "basedpyright": {"analysis": analysis},
+        "ty": {"configuration": {"environment": {"python": ty_python.map(|p| p.to_string_lossy().into_owned())}}},
+        "ty-initialization": {},
         "rust-analyzer": {"checkOnSave": false, "cargo": {"targetDir": true}},
         "pylsp": {},
         "jedi": {},
@@ -1053,15 +1070,13 @@ fn completion_item(v: &Value) -> CompletionItem {
         .unwrap_or_else(|| label.clone());
     let (insert, cursor) = if snippet { flatten_snippet(&raw_text) } else { (raw_text, None) };
     let details = &v["labelDetails"];
-    let label_detail = [details["detail"].as_str(), details["description"].as_str()]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>()
-        .join(" ");
+    let label_detail = details["detail"].as_str().unwrap_or_default().to_string();
+    let label_description = details["description"].as_str().unwrap_or_default().to_string();
     CompletionItem {
         kind: v["kind"].as_u64().unwrap_or(1) as u8,
         detail: v["detail"].as_str().unwrap_or_default().to_string(),
         label_detail,
+        label_description,
         documentation: markup(&v["documentation"]),
         sort_text: v["sortText"].as_str().map(str::to_string).unwrap_or_else(|| label.clone()),
         filter_text: v["filterText"].as_str().map(str::to_string).unwrap_or_else(|| label.clone()),
@@ -1187,12 +1202,14 @@ fn locations(v: &Value) -> Vec<Location> {
 }
 
 /// The servers kalast looks for, best first, by language: the command and
-/// its arguments. basedpyright and pyright are what VS Code's Pylance is
-/// built on; pylsp and jedi-language-server are what is often installed
-/// already. rust-analyzer is the one there is.
+/// its arguments. ty is the one a bundle ships and `pip install
+/// "kalast[editor]"` brings; basedpyright and pyright are what VS Code's
+/// Pylance is built on; pylsp and jedi-language-server are what is often
+/// installed already. rust-analyzer is the one there is.
 pub fn candidates(language_id: &str) -> &'static [(&'static str, &'static [&'static str])] {
     match language_id {
         "python" => &[
+            ("ty", &["server"]),
             ("basedpyright-langserver", &["--stdio"]),
             ("pyright-langserver", &["--stdio"]),
             ("pylsp", &[]),
@@ -1204,9 +1221,10 @@ pub fn candidates(language_id: &str) -> &'static [(&'static str, &'static [&'sta
 }
 
 /// The server to run for `language_id`: the command set in the app's
-/// settings, or else the first candidate installed -- beside the Python
-/// interpreter (a venv's `Scripts` or `bin`), on the PATH, in uv's and
-/// cargo's tool directories, or where Neovim's mason put it.
+/// settings; else, in a bundle, its own (`bundled`); else the first
+/// candidate installed -- beside the Python interpreter (a venv's `Scripts`
+/// or `bin`), on the PATH, in uv's and cargo's tool directories, or where
+/// Neovim's mason put it.
 pub fn find(language_id: &str, configured: &str, python: Option<&Path>) -> Option<Spec> {
     let configured = configured.trim();
     if !configured.is_empty() {
@@ -1219,6 +1237,9 @@ pub fn find(language_id: &str, configured: &str, python: Option<&Path>) -> Optio
         let program = which(&program, &search_dirs(python)).unwrap_or_else(|| PathBuf::from(&program));
         return Some(Spec { name, program, args: words.collect() });
     }
+    if let Some(own) = bundled(language_id) {
+        return Some(own);
+    }
     let dirs = search_dirs(python);
     candidates(language_id).iter().find_map(|(name, args)| {
         which(name, &dirs).map(|program| Spec {
@@ -1226,6 +1247,27 @@ pub fn find(language_id: &str, configured: &str, python: Option<&Path>) -> Optio
             program,
             args: args.iter().map(|s| s.to_string()).collect(),
         })
+    })
+}
+
+/// A bundle's own, for Python: ty (`crate::app::bundled_language_server`).
+///
+/// Ahead of anything installed, so that the editor is the same on every
+/// machine. Three were tried. jedi-language-server, pure Python on kalast's
+/// own interpreter, was much the poorer: bare hovers, no type checking.
+/// basedpyright and ty were on a par in the editor -- the same completions,
+/// hovers and signatures on kalast's scripts -- and ty was a tenth of the
+/// memory, ten to a hundred times faster, and a single executable where
+/// basedpyright needs Node. basedpyright catches more type errors; it is one
+/// setting away, `app.config.python_language_server`.
+fn bundled(language_id: &str) -> Option<Spec> {
+    if language_id != "python" {
+        return None;
+    }
+    Some(Spec {
+        name: "the bundle's ty".to_string(),
+        program: crate::app::bundled_language_server()?,
+        args: vec!["server".to_string()],
     })
 }
 

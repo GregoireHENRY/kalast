@@ -392,6 +392,7 @@ impl Neovim {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
+        crate::app::without_bundled_python_home(&mut command);
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;

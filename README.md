@@ -121,6 +121,7 @@ and as a [crate](https://crates.io/crates/kalast).
 
 ```sh
 pip install kalast          # Python -- do this in a venv, you can use astral uv
+pip install "kalast[editor]"  # the same, with ty for the UI app's script editor
 cargo add kalast            # Rust
 ```
 
