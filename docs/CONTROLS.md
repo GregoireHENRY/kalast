@@ -472,7 +472,8 @@ dotted one, `m.` -- as Python's terminal does: one completion goes in whole,
 several put in what they share and are listed above. Asked of Python between
 frames, so the answer lands a frame or two after the key; an attribute is
 never run to find out whether it is callable, and nothing is called. `exit()` is refused: close the window to quit. Lines run while a script
-drives its own loop as well, between its frames. The line is a terminal's:
+or a Rust example drives its own loop as well, between its frames, and `app`
+is then the app showing that example's scene. The line is a terminal's:
 the prompt and what is typed, no box around it.
 
 It reads as `python` in a terminal does: it opens on Python's own banner,

@@ -27,3 +27,8 @@ target/kalast-hosted/
 
 # Modules moved aside by tools/develop.py because Windows had them mapped.
 kalast/_rs.pyd.old-*
+
+# The root's shortcut into the local bundle in dist/, remade with each one:
+# the macOS alias, and the Windows shortcut.
+/kalast.app
+/kalast.exe.lnk

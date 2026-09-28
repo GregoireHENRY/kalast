@@ -4580,3 +4580,77 @@ step now runs on all four targets, Linux, macOS arm64 and x86_64, Windows.
 The changelog's section is renamed `## v0.5.10` for the tag's gate; a local
 `cargo test --lib --no-default-features` on Windows passed 217 of 217
 first. The Python test files are not part of CI: most open a window.
+
+## 2026-09-28 — a `kalast.app` to double-click
+
+Asked for: double-clicking the macOS bundle should open the UI app as
+double-clicking `kalast.exe` does on Windows, not Terminal. The Finder runs a
+bare executable in Terminal; an application bundle it launches itself. The
+bundle now carries `kalast.app`, made by `tools/macos_app.py` in the release
+workflow and the local build alike: an `Info.plist` (version from
+`pyproject.toml`), `kalast.icns` from `res/kalast-256.png` through `sips` and
+`iconutil` -- which also closes the open point that macOS had no icon for
+kalast -- and, as its executable, a shell script that `exec`s the `kalast`
+beside the app. So nothing else moves: `./kalast script.py`, `python/`,
+`res/`, the rpaths, and the updater, which installs a bundle entry by entry
+and takes the new `kalast.app` with the rest. Started by LaunchServices
+(`open -g`, as the Finder does): the process is the real `kalast`, parented
+to launchd, no Terminal; its working directory is the bundle's, through
+`bundle_working_dir` as for any start from elsewhere; and LaunchServices
+files it under `kalast.app` and its identifier, so the Dock shows its name and
+icon. Beside the app or nothing: a quarantined download run from a copy of
+the app alone (App Translocation) finds no `kalast`, and says so in an alert
+pointing at the README's `xattr -cr` rather than failing silently. The
+workflow runs `--python-check` through the launcher.
+
+## 2026-09-28 — the macOS 26 SDK capped the local bundle at the display's rate
+
+Asked: "barely 100 fps on empty scene on mac now", against 3,000+ on Friday.
+The local bundle built today with Xcode 26.5 was linked against the macOS 26
+SDK. For such a program, AppKit returns from `[NSApp run]` once per display
+refresh, so each winit pump, which is each frame, waited for the display:
+122–134 frames/s.
+
+Neither today's pull nor `kalast.app` was the cause: the 23 September binary
+does the same, and so does the bundle's binary started from a terminal.
+`python -m kalast` is unaffected, because its main program, Python, is linked
+against SDK 15.5. So are the released bundles, linked against SDK 14.5 (arm64)
+and 15.5 (x86_64).
+
+The same binary stamped SDK 15.5 with `vtool` ran at ~3,900. The local bundle
+now links against the Command Line Tools' SDK 14.5, as CI's arm64 runner does,
+and without the shell's `/opt/local/lib`, which had linked MacPorts' libiconv
+into it: 3,759 fps through `kalast.app`.
+
+Then for every build: `build.rs` records SDK 15.5 for kalast's binaries and
+examples, whatever Xcode links them, by passing a last
+`-Wl,-platform_version`. With Xcode 26.5, `cargo run --bin kalast` drew 3,468
+fps. The release workflow fails a macOS bundle recorded against SDK 26 or
+later.
+
+Open: someone else's program that links kalast as a library records its own
+toolchain's SDK and would need the same argument.
+
+See `notes/2026-09-28_macos26_sdk_paces_the_pump.md`.
+
+## 2026-09-28 — the python tab while a Rust example runs
+
+Asked: "the python tab console doesnt seem to work on a rust example". A Rust
+example's `main` ran inside `editor_tick`, with the front door's borrow of the
+app held for the length of its loop, so console lines waited for the loop to
+end. They could not have reached `app` anyway, and the Python `App` held the
+simulation from before the example adopted its own.
+
+The fix has three parts:
+
+- `EditorTick::Example` hands the load to the front door, and
+  `App::run_example` runs it, borrowing the app per call. It serves the
+  python tab between the example's frames, only when a line is waiting.
+- The Python getter reads the app's current simulation between frames.
+- The app's own simulation comes back for a script, a Reset or the next
+  example. That fixes an older bug: a script run after a Rust example showed
+  an empty viewport.
+
+Verified: a queued line saw the crater example's one body at iteration 1 while
+its loop ran, and closed it. There is a new unit test for the restore. See
+`notes/2026-09-28_console_during_a_rust_example.md`.

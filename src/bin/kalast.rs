@@ -141,6 +141,16 @@ fn main() {
                 run_script(&app, &path, &source)
             }
             kalast::app::EditorTick::Console => console_serve(&app),
+            // A Rust example holds the flow until its loop ends, so the
+            // python tab is served between its frames instead.
+            kalast::app::EditorTick::Example { path, release } => {
+                let mut between = || {
+                    if kalast::app::gui::console_pending() {
+                        console_serve(&app);
+                    }
+                };
+                kalast::app::App::run_example(&app, &path, release, &mut between);
+            }
         }
     }
 

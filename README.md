@@ -113,6 +113,9 @@ cleared, use:
 xattr -cr /path/to/kalast-v*-*
 ```
 
+Then double-click `kalast.app` in that folder to open the UI app; `./kalast`
+runs it from a terminal.
+
 Kalast is also available as a [PyPI package](https://pypi.org/project/kalast)
 and as a [crate](https://crates.io/crates/kalast).
 

@@ -137,6 +137,18 @@ impl App {
     }
 }
 
+/// What the log's python tab has for Python -- lines typed, a Tab -- run by
+/// `kalast.editor.serve_console` against `app`. Its own errors are the
+/// console's to show; one reaching here is shown there.
+fn serve_console(py: Python<'_>, app: &App) {
+    let served = py
+        .import("kalast.editor")
+        .and_then(|m| m.call_method1("serve_console", (app.clone(),)));
+    if let Err(e) = served {
+        crate::app::gui::console_write(&format!("{e}\n"));
+    }
+}
+
 #[pymethods]
 impl App {
     #[new]
@@ -175,10 +187,18 @@ impl App {
     #[getter]
     /// The scene: bodies, camera, Sun, iteration state and HUDs.
     fn get_simulation(&self) -> simulation::Simulation {
-        simulation::Simulation {
-            inner: self.simulation.clone(),
-            config: self.sim_config.clone(),
-        }
+        // The app's own, as it stands: a Rust example the editor loads
+        // brings a simulation of its own, which the window shows and the
+        // python tab has to see. Through the handles held beside `inner`
+        // while the app is borrowed -- inside a frame, from a callback --
+        // where the simulation is the app's own again: a script's run puts it
+        // back (`App::begin_script`).
+        let current = self.inner.try_borrow().ok().and_then(|app| {
+            let config = app.simulation.try_borrow().ok()?.config.clone();
+            Some((app.simulation.clone(), config))
+        });
+        let (inner, config) = current.unwrap_or_else(|| (self.simulation.clone(), self.sim_config.clone()));
+        simulation::Simulation { inner, config }
     }
 
     /// Create the window and run the render loop.
@@ -304,15 +324,18 @@ impl App {
                 crate::app::EditorTick::Run { path, source } => {
                     run_script.call1(py, (this.clone(), source, path))?;
                 }
-                // The log's python tab: lines typed, a Tab. Its own errors
-                // are the console's to show; one reaching here is shown there.
-                crate::app::EditorTick::Console => {
-                    let served = py
-                        .import("kalast.editor")
-                        .and_then(|m| m.call_method1("serve_console", (this.clone(),)));
-                    if let Err(e) = served {
-                        crate::app::gui::console_write(&format!("{e}\n"));
-                    }
+                // The log's python tab: lines typed, a Tab.
+                crate::app::EditorTick::Console => serve_console(py, &this),
+                // A Rust example holds the flow until its loop ends, so the
+                // python tab is served between its frames instead -- with
+                // nothing of ours borrowed, as for a script.
+                crate::app::EditorTick::Example { path, release } => {
+                    let mut between = || {
+                        if crate::app::gui::console_pending() {
+                            serve_console(py, &this);
+                        }
+                    };
+                    crate::app::App::run_example(&self.inner, &path, release, &mut between);
                 }
             }
         }

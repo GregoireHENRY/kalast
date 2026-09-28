@@ -11,6 +11,8 @@ released, and the gate refuses the tag until it has.
 
 ## v0.5.10
 
+- macOS: the bundle has a `kalast.app`, with kalast's icon: double-clicking it opens the UI app without Terminal. `./kalast` still runs it from a terminal.
+- macOS: the UI app and the Rust examples built from source with Xcode 26 run at full speed. They were held to the display's refresh rate, about 120 frames a second.
 - The UI app's log panel has two tabs: **kalast**, shown first, with what kalast says about itself -- loading, the update check, builds -- and **script**, with what the script prints -- `print`, tracebacks, `app.log` -- so the first no longer lands in the middle of the second. Everything still goes on to the terminal.
 - A plane view from the navigation gizmo -- or any orthographic camera -- holds still while the bodies move, as the perspective view does: on the Didymos pair it panned and zoomed with Dimorphos's orbit. Switching between perspective and orthographic keeps the size of what is at the camera's anchor.
 - The log's kalast tab says when the simulation pauses and when it runs again, and at which iteration, whether by `P`, the Play, Pause and Step buttons, `pause_after_iteration` or the script.
@@ -19,7 +21,8 @@ released, and the gate refuses the tag until it has.
 - A log tab you are not looking at shows a small dot when new lines come into it.
 - The log panel keeps its height when switching tabs, and can be dragged taller than the text in it.
 - The UI app is laid out like VS Code, its panels in rounded cards. The middle shows the **renderer** or the **editor** (the script), chosen with two buttons at the start of the toolbar, so folding the toolbar with `↑` leaves the scene alone; Play or Restart switch back to the renderer. A panel's edge lights up when it can be dragged. The side panel on the right has three: **app** (the app's settings), **simulation** and **files**, the folder kalast was started in as a tree, which is where a script or a mesh is opened now, with a click -- over unsaved edits it asks first. The toolbar names the open file, with **save** beside it, and the editor fills the middle. The script panel on the left is gone, with its open button and path field, and with it what `←` and `app.config.script_folded` did.
-- The log has a **python** tab: a Python console whose lines run between frames among the running script's variables, `app` included, so a paused scene can be inspected and changed -- while a script runs its own loop too. `Tab` completes names and attributes, and `↑` and `↓` recall earlier lines.
+- The log has a **python** tab: a Python console whose lines run between frames among the running script's variables, `app` included, so a paused scene can be inspected and changed -- while a script or a Rust example runs its own loop too. `Tab` completes names and attributes, and `↑` and `↓` recall earlier lines.
+- In the UI app, a Python script run after a Rust example shows its scene: the viewport stayed empty.
 - `help(body)` explains a body's `mat` and `mesh`.
 - Printing `app.simulation` or a mesh shows a one-line summary -- bodies, facets, iteration -- instead of every vertex, which froze the UI app on a full-resolution model.
 - `Cmd` + `Q` quits the UI app whatever it is doing -- it did nothing while a script was loaded -- and asks first over an edited script.

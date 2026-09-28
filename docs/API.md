@@ -256,7 +256,15 @@ Three things make the example *this* window rather than a second one:
 - **Loading happens between frames.** An example's `main` may call `step()`,
   and stepping from inside a frame re-enters the event loop -- which killed
   the process the first time this ran. `editor_tick` picks the request up
-  after a frame ends, the same place a Python script runs.
+  after a frame ends and hands it out as `EditorTick::Example`, the way it
+  hands out a Python script as `Run`. A front door that shares the app runs
+  it with `App::run_example`, which borrows the app for each call the example
+  makes and never across one, and runs a closure of the front door's after
+  each of its frames. `python -m kalast` and the bundle serve the python tab
+  there, since a driven example holds the flow until its loop ends.
+- **The app's own scene comes back.** A script run after an example, Reset,
+  or another example shows the simulation the app was made with again, the
+  one Python's handles on the app hold.
 
 The wrapper *copies* the example rather than including or moduling it, and
 both of those were tried: a module puts `fn main` out of reach, because an

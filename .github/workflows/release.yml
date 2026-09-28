@@ -415,6 +415,24 @@ jobs:
             cp target/release/kalast "${{ env.stage }}/"
           fi
 
+      # For a program linked against the macOS 26 SDK, AppKit returns from
+      # `[NSApp run]` once per display refresh, and every `step()` with it: a
+      # bundle so linked passes every check here and draws 130 frames/s where
+      # it should draw thousands. `build.rs` records 15.5 whatever Xcode the
+      # runner has; this keeps it so.
+      - name: AppKit sees an SDK before 26
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk=$(otool -l "${{ env.stage }}/kalast" \
+            | awk '/LC_BUILD_VERSION|LC_VERSION_MIN_MACOSX/ {f=1} f && $1 == "sdk" {print $2; exit}')
+          echo "recorded as linked against the macOS $sdk SDK"
+          case "$sdk" in
+            1[0-9].*|2[0-5].*) ;;
+            *) echo "::error::kalast is recorded against the macOS '$sdk' SDK: AppKit would pace every frame to the display (build.rs)"; exit 1 ;;
+          esac
+
       # A window cannot be opened on a runner, so this is how we find out
       # whether the interpreter linked into the executable actually works: a
       # relocated CPython reached through `PYTHONHOME`, and every way it can
@@ -502,6 +520,19 @@ jobs:
           # rpath inside is relative, so the rename is safe, and every step
           # from here on refers to `env.name`.
           mv "$stage" "dist/${{ env.name }}"
+
+      # A double-click on macOS. The Finder runs a bare executable in
+      # Terminal, and launches an application bundle itself, so the bundle
+      # gets `kalast.app`: a launcher for the `kalast` beside it, with
+      # kalast's icon (`tools/macos_app.py`). Run through the launcher once,
+      # which proves it finds the executable from where it sits.
+      - name: A kalast.app to double-click
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/macos_app.py "dist/${{ env.name }}"
+          "dist/${{ env.name }}/kalast.app/Contents/MacOS/kalast" --python-check
 
       # 49 MB of the interpreter that nothing in a bundle runs. `bin/python3`
       # (18 MB, a second CPython linked in statically -- the executable uses

@@ -254,6 +254,13 @@ pub struct App {
     pub dt: Float,
 
     pub simulation: Rc<RefCell<crate::app::simulation::Simulation>>,
+    /// The simulation this app was made with. A Rust example the editor
+    /// loads brings one of its own, which the window then shows
+    /// (`adopt_scene`); this one comes back when a script runs, the scene is
+    /// reset or another example is loaded. Python's handles on the app were
+    /// made holding this one, and a script's scene has to be the one on
+    /// screen.
+    home_simulation: Rc<RefCell<crate::app::simulation::Simulation>>,
     /// Everything a script can reach while the loop runs. See `Shared`.
     pub shared: Rc<RefCell<Shared>>,
 
@@ -632,6 +639,13 @@ pub enum EditorTick {
     /// to complete. Serve it -- `kalast.editor.serve_console` -- then carry
     /// on ticking.
     Console,
+    /// A Rust example was asked for. Run it -- `App::run_example`, or
+    /// `load_example` where the app is not shared -- then carry on ticking.
+    /// Handed out between frames like `Run`, and for the same reason: its
+    /// `main` may own a loop of its own. And out of the front door's borrow
+    /// of the app, so what runs between that loop's frames -- the python
+    /// tab -- can reach the app too.
+    Example { path: String, release: bool },
 }
 
 /// Fills one HUD's template in for this frame.
@@ -815,6 +829,7 @@ impl App {
             now: std::time::Instant::now(),
             dt: 0.0,
 
+            home_simulation: simulation.clone(),
             simulation,
             shared: Rc::new(RefCell::new({
                 let mut s = Shared::new();
@@ -1663,6 +1678,10 @@ impl App {
                 // here rather than inside the frame, and runs to completion
                 // before this loop resumes.
                 EditorTick::Run { path, source } => run_script(self, &path, &source),
+                // Borrowing nothing, this loop can run the example in place;
+                // with no Python to serve the console with, it has nothing to
+                // run between its frames.
+                EditorTick::Example { path, release } => self.load_example(&path, release),
                 // Nothing here runs Python; the front doors that can,
                 // `python -m kalast` and the bundle, serve it themselves.
                 EditorTick::Console => {
@@ -1824,13 +1843,12 @@ impl App {
             return EditorTick::Frame;
         }
         // Between frames, which is the only place an example may run: its
-        // `main` owns a loop of its own if it wants one, and that nests here
-        // rather than re-entering the frame that asked for it.
+        // `main` owns a loop of its own if it wants one, and that nests in
+        // the front door rather than re-entering the frame that asked for it.
         let load = self.shared.borrow_mut().load_requested.take();
         if let Some((path, release)) = load {
             self.mark_script_log();
-            self.load_example(&path, release);
-            return EditorTick::Frame;
+            return EditorTick::Example { path, release };
         }
         let Some((path, source, paused)) = self.take_script_request() else {
             // The console, between frames like a script: one that drives its
@@ -1859,6 +1877,7 @@ impl App {
             shared.last_script = None;
             shared.script_ran = false;
         }
+        self.restore_home_simulation();
         self.simulation.borrow_mut().renew();
         // Held, as a new app is -- see `editor_start`. The clock `renew` puts
         // back is a script's, which runs from its first frame, and Reset on
@@ -1891,6 +1910,9 @@ impl App {
             shared.before_render = None;
             shared.after_render = None;
         }
+        // A script's `app.simulation` is this app's own, so that is the one
+        // to show -- not the scene a Rust example left on screen.
+        self.restore_home_simulation();
         // `load_mesh` appends, so a run without this stacks the scene: two
         // craters, and Restart looking like it did nothing.
         self.simulation.borrow_mut().reset();
@@ -1963,7 +1985,37 @@ impl App {
     /// The Python front door runs a `.py` in the process you are looking at;
     /// this is the same for a `.rs`, and the reason the editor no longer
     /// closes and reopens to show one.
+    ///
+    /// For the editor's own loop, which owns the app. A front door that
+    /// shares it runs `run_example` instead.
     fn load_example(&mut self, example: &str, release: bool) {
+        self.prepare_example(example);
+        // SAFETY: `self` is not touched again until the example's `main`
+        // returns; the guest reaches it through `host` alone.
+        let mut host = unsafe { hosted::host::Host::owned(self) };
+        let api = hosted::host::api(&mut host);
+        let loaded = crate::app::cargo::load_example(std::path::Path::new(example), release, &api);
+        self.finish_example(loaded);
+    }
+
+    /// Run the Rust example `example` in `app`'s window: its `main`, whose
+    /// frames `app` draws, with `between` run after each of them.
+    ///
+    /// `app` is borrowed for each call the example makes and never across
+    /// one, so `between` may take it. The front doors with an interpreter
+    /// serve the log's python tab there: a driven example holds the flow
+    /// until its loop ends, and the editor's own turn, where the console is
+    /// served otherwise, does not come round while it runs.
+    pub fn run_example(app: &Rc<RefCell<App>>, example: &str, release: bool, between: &mut dyn FnMut()) {
+        app.borrow_mut().prepare_example(example);
+        let mut host = hosted::host::Host::shared(app, between);
+        let api = hosted::host::api(&mut host);
+        let loaded = crate::app::cargo::load_example(std::path::Path::new(example), release, &api);
+        app.borrow_mut().finish_example(loaded);
+    }
+
+    /// What the last example left, cleared before `example` is loaded.
+    fn prepare_example(&mut self, example: &str) {
         // Order matters, and the wrong order is a crash rather than a bug.
         // The callbacks currently armed are function pointers into the
         // library about to be unloaded, so they go first; the scene goes with
@@ -1973,11 +2025,28 @@ impl App {
             shared.before_render = None;
             shared.after_render = None;
         }
+        // Before the library goes: the last example's simulation is dropped
+        // with the host's handle on it, while its code is still loaded.
+        self.restore_home_simulation();
         self.simulation.borrow_mut().reset();
         self.renew_for(example);
         drop(self.loaded_example.take());
+    }
 
-        match crate::app::cargo::load_example(std::path::Path::new(example), release, self) {
+    /// Show this app's own simulation again, if an example's is on screen
+    /// (`home_simulation`).
+    fn restore_home_simulation(&mut self) {
+        if !Rc::ptr_eq(&self.simulation, &self.home_simulation) {
+            self.simulation = self.home_simulation.clone();
+            // The GPU buffers were built from the example's bodies.
+            self.simulation.borrow_mut().meshes_dirty = true;
+        }
+    }
+
+    /// Keep the library the example ran from: the callbacks it installed
+    /// point into it.
+    fn finish_example(&mut self, loaded: Result<libloading::Library, String>) {
+        match loaded {
             Ok(library) => self.loaded_example = Some(library),
             Err(e) => {
                 // `eprintln!` only: the editor tees stdout and stderr into
@@ -3689,6 +3758,30 @@ mod editor_tests {
             sim.state.advance();
             assert_eq!(sim.state.iteration, 0, "the counter stays at the start (running before: {running})");
             assert_eq!(app.was_paused, None, "no pause to log (running before: {running})");
+        }
+    }
+
+    /// A Rust example's scene is shown in place of the app's own. A script
+    /// run afterwards, a Reset or another example puts the app's own back:
+    /// Python's handles on the app hold it, and a script built its scene
+    /// into it while the window went on showing the example's.
+    #[test]
+    fn the_apps_own_simulation_comes_back_after_an_example() {
+        let mut app = App::new();
+        app.editor_start(&[]);
+        let own = app.simulation.clone();
+        for back in ["a script", "a reset", "another example"] {
+            let example = Rc::new(RefCell::new(crate::app::simulation::Simulation::new()));
+            app.adopt_scene(example.clone(), Rc::new(RefCell::new(Shared::new())));
+            assert!(Rc::ptr_eq(&app.simulation, &example), "the example's is shown");
+            own.borrow_mut().meshes_dirty = false;
+            match back {
+                "a script" => app.begin_script(false),
+                "a reset" => app.reset_scene(),
+                _ => app.prepare_example("examples/crater_self_shadow/main.rs"),
+            }
+            assert!(Rc::ptr_eq(&app.simulation, &own), "the app's own is back after {back}");
+            assert!(own.borrow().meshes_dirty, "and built again on the GPU after {back}");
         }
     }
 

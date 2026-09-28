@@ -839,13 +839,14 @@ pub fn source_hash_path(library: &std::path::Path) -> std::path::PathBuf {
 ///
 /// # Safety
 ///
-/// Calls `dlopen` on a file cargo produced from this crate, and hands it a
-/// pointer to the live `App`. The fingerprint check below is what makes that
-/// defensible; see `kalast::app::abi_fingerprint`.
+/// Calls `dlopen` on a file cargo produced from this crate, and hands it the
+/// host's table, `api`, through which it reaches the live `App`. The
+/// fingerprint check below is what makes that defensible; see
+/// `kalast::app::abi_fingerprint`.
 pub fn load_example(
     example: &std::path::Path,
     release: bool,
-    app: &mut crate::app::App,
+    api: &crate::app::hosted::HostApi,
 ) -> Result<libloading::Library, String> {
     let path = dylib_path_for(&package_name(example), release);
     if !path.is_file() {
@@ -877,15 +878,16 @@ pub fn load_example(
             .map_err(|_| format!("{} exports no kalast_example", path.display()))?;
         println!("loaded {}", path.display());
 
-        // On this stack for the whole call, which is what `set_host` needs.
-        // The example's `main` runs inside it: it builds an `App` of its own,
-        // and every call that would own a loop crosses back through here.
-        let api = crate::app::hosted::host::api(app as *mut _);
-        if run(&api as *const _) != 0 {
+        // On the caller's stack for the whole call, which is what `set_host`
+        // needs. The example's `main` runs inside it: it builds an `App` of
+        // its own, and every call that would own a loop crosses back through
+        // `api`.
+        if run(api as *const _) != 0 {
             // Said into the log by the wrapper. The library stays loaded:
             // whatever the example installed before it panicked -- a scene,
             // a callback -- points into it.
-            app.log(&format!("{} stopped at that panic", path.display()));
+            let line = format!("{} stopped at that panic", path.display());
+            (api.log)(api.ctx, line.as_ptr(), line.len());
         }
 
         // Dropped by the caller, not here: the symbols are gone from scope but
