@@ -1129,6 +1129,18 @@ impl ScriptEditor {
         for shape in behind_text(&view, settings, diagnostics) {
             text_painter.add(shape);
         }
+        // A search's matches, as Neovim's screen has them: every one while
+        // `hlsearch` is on, the current one stronger, as the pattern is
+        // typed too -- and none after `:noh`, which is Neovim's to decide.
+        for &(line, from, to, how) in &n.found {
+            if let Some(r) = span_rect(&view, line, from, to) {
+                let fill = match how {
+                    nvim::Found::Match => palette.found,
+                    nvim::Found::Current => palette.found_current,
+                };
+                text_painter.rect_filled(r, 2.0, fill);
+            }
+        }
         // The selection, as Neovim holds it.
         if let Some(v) = n.visual {
             let selection = ui.visuals().selection.bg_fill;
@@ -2376,6 +2388,18 @@ fn diagnostics_at(diagnostics: &[lsp::Diagnostic], view: &View, index: usize, en
 }
 
 /// Neovim's selection as rectangles over the text.
+/// Bytes `from..to` of a line, as a rectangle behind its text; an empty
+/// span -- a match of nothing, at the end of a line -- a character wide.
+fn span_rect(view: &View, line: usize, from: usize, to: usize) -> Option<Rect> {
+    if line >= view.line_starts.len() {
+        return None;
+    }
+    let (a, b) = (view.index(line, from), view.index(line, to));
+    let r = view.rect(a);
+    let right = if b > a { view.rect(b).left() } else { r.left() + view.char_width };
+    Some(Rect::from_min_max(r.min, egui::pos2(right, r.min.y + view.row_height)))
+}
+
 fn selection_rects(view: &View, v: nvim::Visual) -> Vec<Rect> {
     let (a, b) = if v.start <= v.end { (v.start, v.end) } else { (v.end, v.start) };
     let line_rect = |from: usize, to: usize| {
@@ -2815,6 +2839,14 @@ mod tests {
         frame(&mut editor, &mut script, vec![key(egui::Key::Escape, egui::Modifiers::NONE)]);
         until(&mut frame, &mut editor, &mut script, "Normal mode", &|n| n.mode == "normal");
         assert!(!frame(&mut editor, &mut script, vec![]), "the input method off again");
+
+        // A search's matches reach the view, drawn with the text: `line1`,
+        // `line10` and `line11`, the first the current one.
+        frame(&mut editor, &mut script, vec![egui::Event::Text("/line1".into()), key(egui::Key::Enter, egui::Modifiers::NONE)]);
+        until(&mut frame, &mut editor, &mut script, "/line1", &|n| n.found.len() == 3);
+        settle(&mut frame, &mut editor, &mut script);
+        let n = editor.nvim.as_ref().unwrap();
+        assert!(n.found.iter().any(|&(line, a, b, how)| (line, a, b, how) == (2, 0, 5, nvim::Found::Current)), "{:?}", n.found);
 
         drop(editor);
         let _ = std::fs::remove_dir_all(&dir);

@@ -537,9 +537,10 @@ With `app.config.neovim = True` the editor is your own Neovim, run as VS
 Code's Neovim extension runs it: your `nvim`, every key, and the config
 `app.config.neovim_config` names -- kalast's own by default, or yours. kalast
 draws what Neovim reports -- the text, the cursor in the mode's shape, the
-selection, the command line and the messages, in the bar under the text with
-the mode's name in lualine's colours -- and follows `number` and
-`relativenumber` for the line numbers.
+selection, a search's matches as Neovim highlights them (`hlsearch`,
+`incsearch`, gone after `:noh`), the command line and the messages, in the
+bar under the text with the mode's name in lualine's colours -- and follows
+`number` and `relativenumber` for the line numbers.
 
 | Key or gesture | Does |
 |---|---|

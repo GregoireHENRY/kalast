@@ -4761,3 +4761,14 @@ text. Cmd+C and Cmd+X copy and cut the selection instead of acting as
 depend on the mode through `<Cmd>lua kalast_keys.…`, and no `<D-x>` is sent.
 The mode Neovim reports is now current after Insert mode. See
 `notes/2026-09-28_neovim_keys_as_typed.md`.
+
+## 2026-09-29 — Neovim in the editor: a search's matches highlighted
+
+Reported: `/` highlighted nothing. kalast draws the text from the buffer
+and dropped Neovim's screen, where the highlights are. It now reads the
+screen as vscode-neovim does: attached with `ext_hlstate`, it keeps each
+grid's cells by highlight, and at each flush turns the cells drawn with
+`Search`, `CurSearch` or `IncSearch` into spans of the buffer's lines,
+drawn behind the text. `incsearch`, `hlsearch`, the current match and
+`:noh` are Neovim's own. Not done: `MatchParen`, and `:s`'s live preview.
+See `notes/2026-09-29_neovim_search_highlights.md`.

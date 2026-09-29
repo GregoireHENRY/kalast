@@ -105,8 +105,10 @@ serde = "1.0"
 ureq = "3"
 serde_json = "1"
 # The script editor's Neovim mode speaks msgpack-RPC to an embedded `nvim`
-# (`src/app/gui/script/nvim.rs`).
+# (`src/app/gui/script/nvim.rs`), and counts screen cells as it does -- a
+# wide character takes two -- to find what its screen highlights.
 rmpv = "1"
+unicode-width = "0.2"
 env_logger = "0.11.9"
 confique = { version = "0.2.0", features = ["toml", "yaml", "json5"] }
 lazy_static = "1.5"

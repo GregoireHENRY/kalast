@@ -59,6 +59,9 @@ pub struct Palette {
     pub gutter_current: Color32,
     /// The band behind the line the cursor is on.
     pub current_line: Color32,
+    /// A search's matches under the text, and the current one's.
+    pub found: Color32,
+    pub found_current: Color32,
     /// The python tab's `>>>`, and an error's lines: Python's own REPL draws
     /// its prompt in magenta and its tracebacks in red.
     pub prompt: Color32,
@@ -95,6 +98,9 @@ pub fn palette(theme: UiTheme) -> Palette {
                 gutter: c(0x6c, 0x70, 0x86),
                 gutter_current: c(0xb4, 0xbe, 0xfe),
                 current_line: Color32::from_rgba_unmultiplied(0x31, 0x32, 0x44, 110),
+                // Yellow, and peach for the current one.
+                found: Color32::from_rgba_unmultiplied(0xf9, 0xe2, 0xaf, 0x38),
+                found_current: Color32::from_rgba_unmultiplied(0xfa, 0xb3, 0x87, 0x80),
                 prompt: c(0xcb, 0xa6, 0xf7),
                 error: c(0xf3, 0x8b, 0xa8),
             }
@@ -120,6 +126,9 @@ pub fn palette(theme: UiTheme) -> Palette {
                 gutter: c(0x85, 0x85, 0x85),
                 gutter_current: c(0xc6, 0xc6, 0xc6),
                 current_line: Color32::from_rgba_unmultiplied(0xff, 0xff, 0xff, 10),
+                // VS Code's find highlights.
+                found: Color32::from_rgba_unmultiplied(0xea, 0x5c, 0x00, 0x55),
+                found_current: c(0x51, 0x5c, 0x6a),
                 prompt: c(0xc5, 0x86, 0xc0),
                 error: c(0xf4, 0x87, 0x71),
             }

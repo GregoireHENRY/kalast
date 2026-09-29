@@ -113,6 +113,75 @@ pub enum Action {
     Copy(String),
 }
 
+/// A search's match, as Neovim highlights it on its screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Found {
+    /// `Search`: every match, while `hlsearch` is on.
+    Match,
+    /// `CurSearch` or `IncSearch`: the one under the cursor, or the one an
+    /// incremental search has reached.
+    Current,
+}
+
+/// A grid of Neovim's screen, by the highlight each cell is drawn with --
+/// all kalast keeps of it, since it draws the text itself from the buffer:
+/// enough to find what Neovim highlights there.
+#[derive(Debug, Default)]
+struct Grid {
+    width: usize,
+    height: usize,
+    /// Row by row.
+    cells: Vec<u64>,
+}
+
+impl Grid {
+    fn resize(&mut self, width: usize, height: usize) {
+        let mut cells = vec![0; width * height];
+        for r in 0..height.min(self.height) {
+            for c in 0..width.min(self.width) {
+                cells[r * width + c] = self.cells[r * self.width + c];
+            }
+        }
+        *self = Grid { width, height, cells };
+    }
+
+    /// `grid_line`'s cells from `col` on, as runs of `(highlight, count)`.
+    fn line(&mut self, row: usize, col: usize, runs: &[(u64, usize)]) {
+        if row >= self.height {
+            return;
+        }
+        let mut c = col;
+        for &(hl, n) in runs {
+            for _ in 0..n {
+                if c < self.width {
+                    self.cells[row * self.width + c] = hl;
+                }
+                c += 1;
+            }
+        }
+    }
+
+    /// `grid_scroll`: the region's content moves up by `rows`, down when it
+    /// is negative; the rows it leaves are redrawn after.
+    fn scroll(&mut self, top: usize, bot: usize, left: usize, right: usize, rows: i64) {
+        let (w, bot, right) = (self.width, bot.min(self.height), right.min(self.width));
+        let n = rows.unsigned_abs() as usize;
+        if rows > 0 {
+            for r in top..bot.saturating_sub(n) {
+                for c in left..right {
+                    self.cells[r * w + c] = self.cells[(r + n) * w + c];
+                }
+            }
+        } else {
+            for r in (top + n..bot).rev() {
+                for c in left..right {
+                    self.cells[r * w + c] = self.cells[(r - n) * w + c];
+                }
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Call {
     ApiInfo,
@@ -149,6 +218,15 @@ enum Ui {
     PopupShow(Popup, i64),
     PopupSelect(Option<usize>),
     PopupHide,
+    /// `hl_attr_define`: which of a search's highlights, if any, the
+    /// highlight is made of.
+    HlAttr(u64, Option<Found>),
+    GridResize(i64, usize, usize),
+    GridClear(i64),
+    GridDestroy(i64),
+    /// A row's cells from a column on, as runs of `(highlight, count)`.
+    GridLine(i64, usize, usize, Vec<(u64, usize)>),
+    GridScroll { grid: i64, top: usize, bot: usize, left: usize, right: usize, rows: i64 },
     /// The end of a batch: the state is whole.
     Flush,
 }
@@ -213,6 +291,15 @@ pub struct Neovim {
     /// The columns before the text in Neovim's window -- its line numbers
     /// and signs -- which a mouse position has to be given in.
     textoff: usize,
+    /// The buffer's `tabstop`: how many screen columns a tab takes.
+    tabstop: usize,
+    /// Neovim's screen, by grid, and which of its highlights are a
+    /// search's.
+    grids: HashMap<i64, Grid>,
+    found_by: HashMap<u64, Found>,
+    /// What Neovim's screen shows of a search, in the buffer's terms:
+    /// `(line, first byte, byte after, how)`.
+    pub found: Vec<(usize, usize, usize, Found)>,
     pub actions: Vec<Action>,
 }
 
@@ -266,7 +353,7 @@ end
 vim.api.nvim_create_autocmd({ 'ModeChanged', 'CursorMoved' }, { group = group, callback = selection })
 local function options()
   local info = vim.fn.getwininfo(win)[1]
-  notify('options', vim.wo[win].number, vim.wo[win].relativenumber, info and info.textoff or 0)
+  notify('options', vim.wo[win].number, vim.wo[win].relativenumber, info and info.textoff or 0, vim.bo[buf].tabstop)
 end
 vim.api.nvim_create_autocmd('OptionSet', { group = group, callback = function() vim.schedule(options) end })
 vim.api.nvim_create_autocmd({ 'BufWinEnter', 'WinResized', 'VimResized' }, { group = group, callback = function() vim.schedule(options) end })
@@ -359,7 +446,7 @@ return { buf, win, vim.wo[win].number, vim.wo[win].relativenumber, info and info
 
 /// Put the script in the buffer without making it an undoable change, name
 /// it after its file, and give it its filetype -- indent rules, `gcc`'s
-/// comment string. Returns nothing kalast needs.
+/// comment string. Returns the `tabstop` the filetype gave it.
 const LOAD: &str = r#"
 local buf, lines, name, ft, eol, crlf, line = ...
 local levels = vim.bo[buf].undolevels
@@ -390,7 +477,7 @@ vim.bo[buf].modified = false
 if line ~= vim.NIL and line ~= nil then
   pcall(vim.api.nvim_win_set_cursor, 0, { math.min(line + 1, #lines), 0 })
 end
-return true
+return vim.bo[buf].tabstop
 "#;
 
 /// The Neovim config kalast ships -- its author's -- compiled in, by its
@@ -602,6 +689,10 @@ impl Neovim {
             relativenumber: false,
             foreign: false,
             textoff: 0,
+            tabstop: 8,
+            grids: HashMap::new(),
+            found_by: HashMap::new(),
+            found: Vec::new(),
             actions: Vec::new(),
         };
         nvim.call(Call::ApiInfo, "nvim_get_api_info", vec![]);
@@ -612,6 +703,9 @@ impl Neovim {
             "ext_cmdline",
             "ext_messages",
             "ext_popupmenu",
+            // Each highlight with the groups it is made of: a search's
+            // match on a keyword is `Search` over the keyword's colour.
+            "ext_hlstate",
         ]
         .into_iter()
         .map(|k| (Value::from(k), Value::from(true)))
@@ -882,6 +976,9 @@ impl Neovim {
                 if self.loading == Some(id) {
                     self.loading = None;
                 }
+                if let Some(ts) = result.as_u64() {
+                    self.tabstop = (ts as usize).max(1);
+                }
             }
             Call::Attach | Call::Other => {}
         }
@@ -937,7 +1034,42 @@ impl Neovim {
                 }
             }
             Ui::PopupHide => self.popup = None,
-            Ui::Flush => self.unflushed = false,
+            Ui::HlAttr(id, found) => match found {
+                Some(f) => {
+                    self.found_by.insert(id, f);
+                }
+                None => {
+                    self.found_by.remove(&id);
+                }
+            },
+            Ui::GridResize(grid, width, height) => self.grids.entry(grid).or_default().resize(width, height),
+            Ui::GridClear(grid) => {
+                if let Some(g) = self.grids.get_mut(&grid) {
+                    g.cells.fill(0);
+                }
+            }
+            Ui::GridDestroy(grid) => {
+                self.grids.remove(&grid);
+            }
+            Ui::GridLine(grid, row, col, runs) => {
+                if let Some(g) = self.grids.get_mut(&grid) {
+                    g.line(row, col, &runs);
+                }
+            }
+            Ui::GridScroll { grid, top, bot, left, right, rows } => {
+                if let Some(g) = self.grids.get_mut(&grid) {
+                    g.scroll(top, bot, left, right, rows);
+                }
+            }
+            Ui::Flush => {
+                self.unflushed = false;
+                self.found = match self.grid.and_then(|g| self.grids.get(&g)) {
+                    Some(g) if !self.found_by.is_empty() => {
+                        found_spans(g, &self.found_by, &self.lines, self.topline, self.textoff, self.tabstop)
+                    }
+                    _ => Vec::new(),
+                };
+            }
         }
     }
 
@@ -981,6 +1113,9 @@ impl Neovim {
                 self.number = args.get(1).and_then(Value::as_bool).unwrap_or(true);
                 self.relativenumber = args.get(2).and_then(Value::as_bool).unwrap_or(false);
                 self.textoff = int(3);
+                if let Some(ts) = args.get(4).and_then(Value::as_u64) {
+                    self.tabstop = (ts as usize).max(1);
+                }
             }
             "visual" => {
                 let mode = args.get(1).map(text).unwrap_or_default();
@@ -1266,9 +1401,118 @@ fn redraw_batch(batch: &Value) -> Vec<Ui> {
             })
             .collect(),
         "popupmenu_hide" => vec![Ui::PopupHide],
+        "hl_attr_define" => calls.map(|a| Ui::HlAttr(a.first().and_then(Value::as_u64).unwrap_or(0), found_in(a.get(3)))).collect(),
+        "grid_resize" => calls.map(|a| Ui::GridResize(int(a, 0), int(a, 1).max(0) as usize, int(a, 2).max(0) as usize)).collect(),
+        "grid_clear" => calls.map(|a| Ui::GridClear(int(a, 0))).collect(),
+        "grid_destroy" => calls.map(|a| Ui::GridDestroy(int(a, 0))).collect(),
+        "grid_line" => calls
+            .filter_map(|a| {
+                // `[text, highlight, repeat]`, the highlight left out when
+                // it is the one before, the repeat when it is one.
+                let mut hl = 0;
+                let runs = a
+                    .get(3)?
+                    .as_array()?
+                    .iter()
+                    .filter_map(Value::as_array)
+                    .map(|cell| {
+                        if let Some(h) = cell.get(1).and_then(Value::as_u64) {
+                            hl = h;
+                        }
+                        (hl, cell.get(2).and_then(Value::as_u64).unwrap_or(1) as usize)
+                    })
+                    .collect();
+                Some(Ui::GridLine(int(a, 0), int(a, 1).max(0) as usize, int(a, 2).max(0) as usize, runs))
+            })
+            .collect(),
+        "grid_scroll" => calls
+            .map(|a| Ui::GridScroll {
+                grid: int(a, 0),
+                top: int(a, 1).max(0) as usize,
+                bot: int(a, 2).max(0) as usize,
+                left: int(a, 3).max(0) as usize,
+                right: int(a, 4).max(0) as usize,
+                rows: int(a, 5),
+            })
+            .collect(),
         "flush" => vec![Ui::Flush],
         _ => Vec::new(),
     }
+}
+
+/// Which of a search's highlights a highlight is made of, from
+/// `ext_hlstate`'s account of its groups.
+fn found_in(info: Option<&Value>) -> Option<Found> {
+    let mut how = None;
+    for item in info?.as_array()? {
+        let name = item
+            .as_map()
+            .and_then(|m| m.iter().find(|(k, _)| k.as_str() == Some("ui_name")))
+            .and_then(|(_, v)| v.as_str());
+        match name {
+            Some("CurSearch" | "IncSearch") => return Some(Found::Current),
+            Some("Search") => how = Some(Found::Match),
+            _ => {}
+        }
+    }
+    how
+}
+
+/// What a grid shows of a search, as spans of the buffer's lines. Each row
+/// is a line from `top` on -- kalast's window is too wide to wrap and folds
+/// nothing -- and the first `textoff` columns are the line numbers.
+fn found_spans(
+    grid: &Grid,
+    found_by: &HashMap<u64, Found>,
+    lines: &[String],
+    top: usize,
+    textoff: usize,
+    tabstop: usize,
+) -> Vec<(usize, usize, usize, Found)> {
+    let mut spans = Vec::new();
+    for row in 0..grid.height {
+        let Some(text) = lines.get(top + row) else { break };
+        let cells = &grid.cells[row * grid.width..(row + 1) * grid.width];
+        let mut col = textoff;
+        while col < cells.len() {
+            let Some(&how) = found_by.get(&cells[col]) else {
+                col += 1;
+                continue;
+            };
+            let start = col;
+            while col < cells.len() && found_by.get(&cells[col]) == Some(&how) {
+                col += 1;
+            }
+            let (a, b) = bytes_at(text, start - textoff, col - textoff, tabstop);
+            spans.push((top + row, a, b, how));
+        }
+    }
+    spans
+}
+
+/// The bytes of `text` its screen columns `from..to` show, as Neovim lays it
+/// out: a tab to the next multiple of `tabstop`, a wide character over two
+/// columns, an accent that combines with the one before it.
+fn bytes_at(text: &str, from: usize, to: usize, tabstop: usize) -> (usize, usize) {
+    let (mut a, mut b) = (None, text.len());
+    let mut column = 0;
+    for (i, c) in text.char_indices() {
+        let w = if c == '\t' {
+            tabstop - column % tabstop
+        } else {
+            unicode_width::UnicodeWidthChar::width(c).unwrap_or(0)
+        };
+        if w > 0 && column >= to {
+            b = i;
+            break;
+        }
+        if a.is_none() && column + w > from {
+            a = Some(i);
+        }
+        column += w;
+    }
+    let a = a.unwrap_or(text.len());
+    (a, b.max(a))
 }
 
 /// A key that types nothing, by Neovim's name for it: `Esc`, `CR`, `Left`.
@@ -1753,6 +1997,109 @@ mod tests {
         wait(&mut n, "nothing erased in Normal mode, and x still x", |n| n.lines == ["bc "] && n.mode == "normal");
         n.input(&format!("A{ERASE_LINE}"));
         wait(&mut n, "the line erased", |n| n.lines == [""] && n.insert_mode());
+
+        drop(n);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Neovim's screen columns back to a line's bytes: a tab to the next
+    /// stop, a wide character over two columns, an accent with its letter.
+    #[test]
+    fn screen_columns_are_the_lines_bytes() {
+        assert_eq!(bytes_at("foo bar foo", 8, 11, 8), (8, 11));
+        assert_eq!(bytes_at("\tfoo baz", 8, 11, 8), (1, 4), "past a tab of 8");
+        assert_eq!(bytes_at("\tfoo baz", 4, 7, 4), (1, 4), "past a tab of 4");
+        assert_eq!(bytes_at("ab\tc", 2, 4, 4), (2, 3), "a tab from column 2 fills to the stop at 4");
+        assert_eq!(bytes_at("ab\tc", 4, 5, 4), (3, 4), "and c comes after it");
+        // 日 and 本 are two columns each: `本x` is columns 2..5.
+        assert_eq!(bytes_at("日本x", 2, 5, 8), (3, 7));
+        // e and a combining acute are one column, and stay together; é made
+        // as one character is one column of two bytes.
+        assert_eq!(bytes_at("e\u{301}e", 0, 1, 8), (0, 3));
+        assert_eq!(bytes_at("\u{e9}e", 0, 1, 8), (0, 2));
+        // Past the end: a match of nothing, or of the line's end.
+        assert_eq!(bytes_at("abc", 3, 4, 8), (3, 3));
+    }
+
+    /// `ext_hlstate` says which groups a highlight is made of.
+    #[test]
+    fn a_search_highlight_is_known_by_its_groups() {
+        let info = |names: &[&str]| {
+            Value::Array(
+                names
+                    .iter()
+                    .map(|n| Value::Map(vec![("kind".into(), "ui".into()), ("ui_name".into(), (*n).into())]))
+                    .collect(),
+            )
+        };
+        assert_eq!(found_in(Some(&info(&["Search"]))), Some(Found::Match));
+        assert_eq!(found_in(Some(&info(&["Normal", "CurSearch"]))), Some(Found::Current));
+        assert_eq!(found_in(Some(&info(&["IncSearch"]))), Some(Found::Current));
+        assert_eq!(found_in(Some(&info(&["Visual"]))), None);
+        assert_eq!(found_in(Some(&Value::Array(vec![]))), None);
+
+        let line = Value::Array(vec![
+            "grid_line".into(),
+            Value::Array(vec![
+                2.into(),
+                3.into(),
+                4.into(),
+                Value::Array(vec![
+                    Value::Array(vec!["f".into(), 7.into()]),
+                    Value::Array(vec!["o".into()]),
+                    Value::Array(vec![" ".into(), 0.into(), 3.into()]),
+                ]),
+                false.into(),
+            ]),
+        ]);
+        match redraw_batch(&line).as_slice() {
+            [Ui::GridLine(2, 3, 4, runs)] => assert_eq!(runs, &[(7, 1), (7, 1), (0, 3)]),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// A grid's rows move as Neovim scrolls them, up or down.
+    #[test]
+    fn a_grid_scrolls_as_neovim_says() {
+        let mut g = Grid::default();
+        g.resize(2, 4);
+        for r in 0..4 {
+            g.line(r, 0, &[(r as u64 + 1, 2)]);
+        }
+        g.scroll(0, 4, 0, 2, 1);
+        assert_eq!(g.cells[..6], [2, 2, 3, 3, 4, 4], "up by one");
+        g.scroll(0, 4, 0, 2, -2);
+        assert_eq!(g.cells[4..], [2, 2, 3, 3], "down by two");
+    }
+
+    /// Search, on Neovim's own terms, as kalast now shows it: every match
+    /// while `hlsearch` is on and the current one apart, none after `:noh`,
+    /// and the matches of a pattern still being typed -- past a tab, which
+    /// takes columns the line's bytes do not.
+    #[test]
+    fn a_search_shows_as_neovim_highlights_it() {
+        if find("").is_none() {
+            eprintln!("no nvim on this machine; skipped");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("kalast-nvim-search-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("t.py");
+        let mut n = Neovim::spawn("", &dir, (80, 20), &["--clean"], || {}).unwrap();
+        n.load("foo bar foo\n\tfoo baz\n", &file.to_string_lossy(), "python", None);
+        wait(&mut n, "set up", |n| n.ready && n.loading.is_none() && n.grid.is_some());
+
+        n.input("/foo<CR>");
+        let every = [(0, 0, 3, Found::Match), (0, 8, 11, Found::Current), (1, 1, 4, Found::Match)];
+        wait(&mut n, "/foo", |n| n.found == every);
+
+        n.input(":noh<CR>");
+        wait(&mut n, ":noh", |n| n.found.is_empty() && n.cmdline().is_none());
+
+        n.input("/ba");
+        wait(&mut n, "/ba, typed", |n| n.found == [(0, 4, 6, Found::Match), (1, 5, 7, Found::Current)]);
+        n.input("<Esc>");
+        wait(&mut n, "given up", |n| n.found.is_empty() && n.cmdline().is_none());
 
         drop(n);
         let _ = std::fs::remove_dir_all(&dir);

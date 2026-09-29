@@ -19,6 +19,7 @@ released, and the gate refuses the tag until it has.
 - In Neovim, a space or Enter stays where it is typed. The cursor jumped to the line under the mouse pointer, and two quick spaces selected a word, the letters after them then taken as commands.
 - On macOS, Neovim types what Option types -- `{`, `[`, `|`, and `~` or accents with a dead key -- where it left insert mode. Cmd+C and Cmd+X copy and cut the selection, and Cmd and Option with the arrows and Backspace go by line and by word, as in VS Code.
 - On Windows and Linux, Ctrl+V in Neovim begins a Visual block again after insert mode; it pasted.
+- In Neovim, `/` and `?` highlight their matches as in a terminal: all of them while `hlsearch` is on, the current one apart, as the pattern is typed, until `:noh`.
 - In Neovim, changing mode clears the last message, as in a terminal: an error such as `E492: Not an editor command` stayed on screen.
 - In a bundle, the script editor's language server and Neovim start as they should. They inherited the bundle's Python settings, so a Python-based one -- such as the basedpyright Neovim's mason installs -- exited at once.
 
