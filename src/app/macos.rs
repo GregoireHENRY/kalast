@@ -1,8 +1,9 @@
 //! The bits of AppKit winit does not reach.
 //!
-//! Only the window's green button, which is not winit's to give: it is
-//! AppKit's `toggleFullScreen:`, wired up by the collection behaviour of the
-//! `NSWindow` and with no hook in between.
+//! The window's green button, which is not winit's to give: it is AppKit's
+//! `toggleFullScreen:`, wired up by the collection behaviour of the
+//! `NSWindow` and with no hook in between. `Cmd`-`Q` ahead of the text
+//! input. And a screen's name.
 
 use objc2::rc::Retained;
 use objc2_app_kit::{NSView, NSWindow, NSWindowCollectionBehavior};
@@ -103,4 +104,19 @@ pub fn unzoom(window: &winit::window::Window) {
             ns.zoom(None);
         }
     }
+}
+
+/// A screen's name as System Settings gives it -- "Built-in Retina
+/// Display", "DELL U2720Q", numbered when two are alike -- where winit gives
+/// `Monitor #` and its model's number. `display` is its `CGDirectDisplayID`,
+/// winit's `native_id`. `None` off the main thread, or for no such screen.
+pub fn screen_name(display: u32) -> Option<String> {
+    use objc2_app_kit::NSScreen;
+    use objc2_foundation::{NSNumber, NSString};
+    let mtm = objc2::MainThreadMarker::new()?;
+    let key = NSString::from_str("NSScreenNumber");
+    NSScreen::screens(mtm).iter().find_map(|screen| {
+        let number = screen.deviceDescription().objectForKey(&key)?.downcast::<NSNumber>().ok()?;
+        (number.unsignedIntValue() == display).then(|| screen.localizedName().to_string())
+    })
 }

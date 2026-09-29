@@ -4772,3 +4772,61 @@ grid's cells by highlight, and at each flush turns the cells drawn with
 drawn behind the text. `incsearch`, `hlsearch`, the current match and
 `:noh` are Neovim's own. Not done: `MatchParen`, and `:s`'s live preview.
 See `notes/2026-09-29_neovim_search_highlights.md`.
+
+## 2026-09-29 — the window where it was left; names whole; READMEs as pages; pandas
+
+- The UI app remembers where its window was closed -- screen, place, size,
+  maximised -- in `settings.toml`, and opens there; `app.config.monitor`,
+  `width` and `height` force it. On macOS winit takes a new window's position
+  for its content's corner and converts at the main screen's scale: worked
+  around, and screens named as System Settings names them. Checked across the
+  built-in screen and an external one. "Remember last window" in the app
+  tab; unticked, the screen, place, size and fullscreen to open with, every
+  time (`remember_window`, `window_x`, `window_y`, `start_fullscreen`).
+- The side panel's setting names share a column as wide as the widest; a
+  text field keeps within the panel.
+- A Markdown file opened in the files tab, or linked to on disk, becomes a
+  page of the documentation tab until kalast closes.
+- `mesh` folders are plain folders; the bundle ships pandas for
+  `landmark_tracking/main.py`.
+
+See `notes/2026-09-29_window_place_and_panel_fixes.md`.
+
+## 2026-09-29 — the scripts tab, the editor's files, render as its own act
+
+- The files tab is **scripts**: `examples` and the user's `scripts`, beside
+  the executable in a bundle. Right clicks: new example, folder or file,
+  rename, delete to the Trash (`trash`), send to renderer, open as
+  documentation. A button beside the side tabs opens any file.
+- The editor opens any text file and keeps every file opened, with its
+  edits (`Buffers`), listed on its left over the shown file's outline
+  (`script::outline`: Python, Rust, Markdown).
+- Opening no longer renders: the render button, top right, sends the shown
+  file to the renderer, and Play, Restart and Step act on it (`rendering`).
+  Compile, debug or release, beside it.
+- Updates never touch `scripts` and send the old `examples` to the Trash.
+
+See `notes/2026-09-29_scripts_tab_and_editor_files.md`.
+
+## 2026-09-29 — a thermophysical model over every facet at once
+
+- `tpm::core` steps every facet's column at once, in place on one
+  `(layers, facets)` array: `columns`, `solar_bc`, `bottom_adiabatic`,
+  `heat_conduction`, the per-column physics applied over the body, 13 times
+  the numpy path's speed. `sim.facet_incidence(body)`, the cosine of
+  incidence per facet from the pose as set, no shadow map.
+- The user's `scripts/sphere/tpm.py`: the sphere spinning 300 times at 1 AU,
+  the loop the three calls. Checked against the per-column functions,
+  radiative balance, energy returned over a spin (0.0002 %), and a
+  resolution study that chose 8 layers per skin depth (0.6 K).
+- The UI app's hold at iteration 0 and Step no longer share
+  `pause_after_iteration` with a script's run length
+  (`hold_after_iteration`); `None` still runs straight.
+- A stub for `kalast.tpm.core`; the stubs no longer make a colormap by
+  name, `mesh.values` from a list, or `body.mesh` without a `None` check
+  an error in the editor (`body.mesh` is `Mesh`).
+
+Open: a nonuniform grid over every facet, for the Hera scripts to leave
+`routine.step_*`; one thread.
+
+See `notes/2026-09-29_tpm_every_facet_at_once.md`.

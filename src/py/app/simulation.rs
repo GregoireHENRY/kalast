@@ -502,6 +502,29 @@ impl Simulation {
         Some(numpy::PyArray1::from_slice(py, &v))
     }
 
+    /// Per-facet `max(0, cos i)`: how squarely each facet of `body` faces
+    /// the Sun, from its pose and the Sun's position as they stand -- the
+    /// moment `mat` or `sun.pos` is set, before `step()` draws anything.
+    ///
+    /// Geometry alone, nothing in the way counted: right for a convex body
+    /// on its own, and what `kalast.tpm.core.solar_bc` takes. A body that
+    /// shadows itself or another wants `facet_illumination`, which is this
+    /// times the unblocked fraction the shadow map reads back.
+    ///
+    /// ```python
+    /// cosi = sim.facet_incidence(0)
+    /// ```
+    ///
+    /// `None` for a body that does not exist or has no mesh.
+    fn facet_incidence<'py>(
+        slf: pyo3::Bound<'py, Self>,
+        body: usize,
+    ) -> Option<pyo3::Bound<'py, numpy::PyArray1<Float>>> {
+        let py = slf.py();
+        let v = slf.borrow().inner.borrow().facet_incidence(body)?;
+        Some(numpy::PyArray1::from_vec(py, v))
+    }
+
     /// Ask for hemicube view factors for `facets` of `body`, this frame.
     ///
     /// Request from `before_render`, read with `hemicube` from
@@ -721,9 +744,13 @@ impl State {
         self.simulation.borrow_mut().state.is_paused = is_paused;
     }
 
-    /// Pause once this iteration has run, or `None` to run on: `0` holds the
-    /// run after its first. Plus one, it is what `{nit}` in a HUD reads, the
-    /// length of the run.
+    /// Pause once this iteration has run -- the run's length, which plus
+    /// one is what `{nit}` in a HUD reads -- or `None` to run on, the UI
+    /// app's hold at the start included: `0` holds the run after its first.
+    ///
+    /// The app's own steps stop apart from it: Step, `K`, and the one
+    /// iteration an opened script shows neither end a run early nor lose its
+    /// length.
     #[getter]
     fn pause_after_iteration(&self) -> Option<usize> {
         self.simulation.borrow().state.pause_after_iteration
@@ -731,7 +758,7 @@ impl State {
 
     #[setter]
     fn set_pause_after_iteration(&mut self, iteration: Option<usize>) {
-        self.simulation.borrow_mut().state.pause_after_iteration = iteration;
+        self.simulation.borrow_mut().state.set_pause_after_iteration(iteration);
     }
 
     /// The old spelling, one more: `pause_at = n` is `pause_after_iteration
@@ -747,8 +774,10 @@ impl State {
         warn_pause_at(py)?;
         // `pause_at = 0` never fired: the counter had left 0 before it was
         // compared.
-        self.simulation.borrow_mut().state.pause_after_iteration =
-            pause_at.and_then(|n| n.checked_sub(1));
+        self.simulation
+            .borrow_mut()
+            .state
+            .set_pause_after_iteration(pause_at.and_then(|n| n.checked_sub(1)));
         Ok(())
     }
 

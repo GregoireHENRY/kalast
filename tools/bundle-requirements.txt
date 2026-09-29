@@ -9,7 +9,10 @@
 #   2. what the examples the bundle ships actually call. matplotlib for
 #      `misc/cbar.py`, `analytical/sinusoidal.py` and
 #      `analytical/slab_relaxation.py`; scipy for the last two, one through
-#      `kalast.tpm.implicit` and one directly;
+#      `kalast.tpm.implicit` and one directly; pandas for
+#      `landmark_tracking/main.py`, which ran into ModuleNotFoundError in the
+#      bundle. Not what the Hera scripts also want -- astropy -- which run
+#      only with the mission's data, nor pymeshlab for `mesh/decimate.py`;
 #   3. the script editor's language server for Python: ty, Astral's, one
 #      25 MB executable that pip puts in the interpreter's `bin` (`Scripts`
 #      on Windows), the one file the release keeps when it prunes that
@@ -33,5 +36,6 @@
 numpy>=2.5
 scipy>=1.16
 matplotlib>=3.10
+pandas>=3
 spiceypy>=8
 ty>=0.0.84

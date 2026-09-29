@@ -590,8 +590,6 @@ pub(super) static BY_FOLDER: &[(&str, &str)] = &[
     ("measure", "benchmark"),
     ("measurement", "benchmark"),
     ("measures", "benchmark"),
-    ("mesh", "database"),
-    ("meshes", "database"),
     ("meta-inf", "config"),
     ("notes", "docs"),
     ("option", "config"),

@@ -15,8 +15,34 @@
 use super::icons;
 use super::{INDENT, ROW, TWISTIE};
 
-/// The share of the panel a setting's name takes.
-const NAME_SHARE: f32 = 0.38;
+/// The least a setting's control is left, beside its name: a checkbox, a
+/// short value. A name is cut short only to leave this -- 120 points, room
+/// for a slider, cut `simulation_folded` beside a checkbox in a panel with
+/// room to spare; a slider makes do with less, the panel there to be widened.
+const CONTROL_MIN: f32 = 48.0;
+
+/// The column of the names of the settings drawn in one `Ui` -- a section's
+/// -- as wide as the widest of them, so each shows whole where the panel has
+/// room and the controls beside them line up. Measured as they are drawn and
+/// used from the next pass on: one that finds it wider asks egui to draw the
+/// frame again before showing it, so the first frame is not seen askew.
+fn names_column(ui: &egui::Ui, wanted: f32) -> f32 {
+    let key = ui.id().with("setting names");
+    let pass = ui.ctx().cumulative_pass_nr();
+    // The widest of the pass before, the widest of this one so far, and
+    // which pass this is.
+    let (mut before, mut now, at) = ui.data(|d| d.get_temp::<(f32, f32, u64)>(key)).unwrap_or((0.0, 0.0, pass));
+    if at != pass {
+        before = now;
+        now = 0.0;
+    }
+    now = now.max(wanted);
+    ui.data_mut(|d| d.insert_temp(key, (before, now, pass)));
+    if wanted > before {
+        ui.ctx().request_discard("a setting's name wider than its column");
+    }
+    before.max(wanted)
+}
 
 /// What a row is lit in under the pointer: the explorer's hover, from the
 /// theme's faint background.
@@ -101,12 +127,24 @@ pub fn section(
     response
 }
 
-/// One setting: its name dim on the left, cut short with an ellipsis if the
-/// panel is narrow, and its doc on hover; `add` draws the control, filling
-/// the rest of the row. The row is lit under the pointer, as a list row is.
+/// The names' column in a row `width` wide: all it asks for, as long as the
+/// control keeps `CONTROL_MIN` -- and never under 72 points, which a name
+/// needs to be told apart from the next.
+fn name_width(column: f32, width: f32) -> f32 {
+    column.min(width - CONTROL_MIN).max(72.0_f32.min(width))
+}
+
+/// One setting: its name dim on the left, whole unless the panel is too
+/// narrow for it and its control both -- then cut short with an ellipsis --
+/// and its doc on hover; `add` draws the control, filling the rest of the
+/// row. The names of a section share one column (`names_column`). The row is
+/// lit under the pointer, as a list row is.
 pub fn setting<R>(ui: &mut egui::Ui, name: &str, hover: &str, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
     let width = ui.available_width();
-    let name_width = (width * NAME_SHARE).clamp(72.0, 170.0);
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    // Its own width, and the 6 points before it and 8 after.
+    let natural = ui.fonts_mut(|f| f.layout_no_wrap(name.to_owned(), font.clone(), egui::Color32::PLACEHOLDER).size().x);
+    let name_width = name_width(names_column(ui, natural + 14.0), width);
     let (rect, _) = ui.allocate_exact_size(egui::vec2(width, ROW), egui::Sense::hover());
     if ui.rect_contains_pointer(rect) {
         ui.painter().rect_filled(rect, 0.0, hover_fill(ui));
@@ -114,11 +152,7 @@ pub fn setting<R>(ui: &mut egui::Ui, name: &str, hover: &str, add: impl FnOnce(&
     let name_rect = egui::Rect::from_min_size(rect.min + egui::vec2(6.0, 0.0), egui::vec2(name_width - 6.0, ROW));
     let mut job = egui::text::LayoutJob::single_section(
         name.to_owned(),
-        egui::TextFormat {
-            font_id: egui::TextStyle::Body.resolve(ui.style()),
-            color: ui.visuals().weak_text_color(),
-            ..Default::default()
-        },
+        egui::TextFormat { font_id: font, color: ui.visuals().weak_text_color(), ..Default::default() },
     );
     job.wrap = egui::text::TextWrapping::truncate_at_width(name_rect.width() - 8.0);
     let galley = ui.painter().layout_job(job);
@@ -137,9 +171,12 @@ pub fn setting<R>(ui: &mut egui::Ui, name: &str, hover: &str, add: impl FnOnce(&
             .max_rect(control)
             .layout(egui::Layout::left_to_right(egui::Align::Center)),
     );
-    // A slider fills what its value box leaves.
+    // A slider fills what its value box leaves; a list and a text field
+    // what there is -- a text field took egui's 280 points, past the
+    // panel's edge.
     child.spacing_mut().slider_width = (control.width() - 64.0).max(40.0);
     child.spacing_mut().combo_width = control.width() - 4.0;
+    child.spacing_mut().text_edit_width = (control.width() - 8.0).max(40.0);
     add(&mut child)
 }
 
@@ -193,4 +230,51 @@ pub fn icon_tab(ui: &mut egui::Ui, selected: bool, icon: &str, accent: egui::Col
         ui.painter().hline(rect.x_range().shrink(6.0), rect.bottom() - 1.0, egui::Stroke::new(2.0, accent));
     }
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A section's names share a column as wide as the widest of them, from
+    /// the first frame shown: the pass that finds it is drawn again before
+    /// anything is shown, and a steady panel is drawn once.
+    #[test]
+    fn a_sections_names_share_a_column_as_wide_as_the_widest() {
+        let ctx = egui::Context::default();
+        let names = ["focus", "panels_folded", "simulation_folded", "toolbar text"];
+        let frame = || {
+            let mut column = 0.0;
+            let raw = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(600.0, 400.0))),
+                ..Default::default()
+            };
+            let mut output = ctx.run_ui(raw, |ui| {
+                for name in names {
+                    setting(ui, name, "", |ui| ui.label("x"));
+                }
+                column = ui.data(|d| d.get_temp::<(f32, f32, u64)>(ui.id().with("setting names"))).unwrap().0;
+            });
+            output.textures_delta.clear();
+            (column, output.platform_output.num_completed_passes)
+        };
+        let (first, passes) = frame();
+        let font = egui::TextStyle::Body.resolve(&ctx.global_style());
+        let widest = ctx.fonts_mut(|f| {
+            names.iter().map(|n| f.layout_no_wrap(n.to_string(), font.clone(), egui::Color32::WHITE).size().x).fold(0.0, f32::max)
+        });
+        assert_eq!(first, widest + 14.0, "the widest name, whole");
+        assert_eq!(passes, 2, "drawn again before it was shown");
+        assert_eq!(frame(), (first, 1), "steady: once");
+    }
+
+    /// Whole where there is room; cut only to leave the control its least.
+    #[test]
+    fn a_name_is_cut_only_to_leave_its_control_room() {
+        assert_eq!(name_width(134.0, 400.0), 134.0);
+        assert_eq!(name_width(134.0, 235.0), 134.0, "a side panel of 235: whole, beside a checkbox");
+        assert_eq!(name_width(134.0, 160.0), 112.0, "a narrow one: the control keeps 48");
+        assert_eq!(name_width(134.0, 110.0), 72.0, "never under 72");
+        assert_eq!(name_width(134.0, 60.0), 60.0, "nor over the row");
+    }
 }

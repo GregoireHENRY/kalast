@@ -467,10 +467,10 @@ are what that loop is built from, and what a custom launcher would use:
 
 | | |
 |---|---|
-| `set_script(path, source)` | load a script into the panel without running it |
-| `run_script()` | Play: build the scene and start |
-| `restart_script()` | Restart: rebuild and hold at the start |
-| `open_script()` | read the file at `script_path`, as a click in the files tab does |
+| `set_script(path, source)` | show a script in the editor, the one shown kept, and make it the renderer's -- what Play runs -- without running it |
+| `run_script()` | Play: build the renderer's script's scene and start |
+| `restart_script()` | Restart: rebuild it and hold at the start |
+| `open_script()` | read the file at `script_path` again and send it to the renderer, as the editor's render button does |
 | `take_script_request()` | `(path, source, paused)` when a button asked for a run, else `None`; clears it |
 | `script_requested` | the same, as a peek that does not clear |
 | `script_runner` | the callable the launcher installs to execute a script |
@@ -619,7 +619,7 @@ the callback returns.
 |---|---|
 | `iteration` | frames advanced so far; readable and writable |
 | `is_paused` | `P` toggles it; readable and writable |
-| `pause_after_iteration` | `int` or `None` — pause once this iteration has run: `0` holds the run after its first, which the log calls "paused after iteration 0". `pause_at`, one more, is the old name, accepted for a release with a `DeprecationWarning` |
+| `pause_after_iteration` | `int` or `None` — the run's length: pause once this iteration has run, `0` holding the run after its first, which the log calls "paused after iteration 0". `None` runs on, the UI app's hold at the start included. Step, `K` and the iteration an opened script shows stop apart from it, so they neither end a run early nor lose its length. `pause_at`, one more, is the old name, accepted for a release with a `DeprecationWarning` |
 | `rate_limited` | `bool` — cap the frame rate at `rate_limit`: the frame waits for its turn, and since one step is one frame the iteration rate is the same number. A paused run is not paced. The Run header's checkbox |
 | `rate_limit` | `float`, frames per second while `rate_limited`; kept while the cap is off. The Run header's slider |
 | `toggle_pause()` | flips `is_paused`, returns the new value |
@@ -679,7 +679,7 @@ A list, in load order. Each `Body` has:
 | | |
 |---|---|
 | `mat` | 4×4 model matrix as a numpy array — position and orientation |
-| `mesh` | the `Mesh`, or `None` |
+| `mesh` | the `Mesh` |
 
 ```python
 sim.bodies[0].mat[:3, :3] = spice.pxform("IAU_MARS", "HERA_TIRI", et)
@@ -1037,7 +1037,8 @@ lit = float((illum > 0).mean())          # fraction receiving any sun
 mean = float(illum.mean())               # and how much, on average
 ```
 
-`max(0, cos i) * (1 - occluded)`, one entry per facet: **0 is dark, 1 is facing
+`max(0, cos i) * (1 - occluded)`, one entry per facet -- `facet_incidence` times
+the unblocked fraction: **0 is dark, 1 is facing
 the Sun with nothing in the way.** The same quantity the shader shades with,
 without the `light.ambient` floor — the `Lighting` colour bar is this plus
 ambient. The cosine is clamped at zero for the reason `tpm::core::radiation_sun`
@@ -1262,6 +1263,58 @@ The same figures reach a HUD as `{gpu}` (the span) and `{gpu_shadow}`,
 
 Advances `state.iteration`. The app calls it once per frame; a script does not
 normally need it.
+
+## `kalast.tpm.core` — a thermophysical model, every facet at once
+
+A column of layers under each facet, as one `(layers, facets)` array, and one
+call per physical step over all of them: the surface balance, the bottom, the
+conduction in between.
+
+```python
+from kalast.tpm import core, properties
+
+prop = properties.Properties(albedo=0.1, emissivity=0.9, density=2000.0,
+                             heat_capacity=600.0, thermal_inertia=200.0)
+prop.compute_conductivity_diffusivity()
+
+t = core.columns(layers, len(mesh.facets), 280.0)   # K, t[0] the surface
+
+while app.running:
+    ...                                             # pose the body, move the Sun
+    cosi = sim.facet_incidence(0)
+    core.solar_bc(t, dau, cosi, prop, dz)
+    core.bottom_adiabatic(t)
+    core.heat_conduction(t, prop, dt, dz)
+    sim.bodies[0].mesh.values = t[0]
+    app.step()
+```
+
+| | |
+|---|---|
+| `columns(layers, facets, t)` | the temperatures, all at `t` (K): `t[0]` the surface, `t[-1]` the bottom, `t[:, i]` the ground under facet `i` -- of the float type kalast was built with, which the three below change in place |
+| `solar_bc(t, dau, cosi, prop, dz)` | each surface temperature solved for `S (1-A) max(cos i, 0) / dau^2 = e sigma T0^4 - k dT/dz`: the sunlight absorbed, radiated, and conducted into the column. `dau` in AU, `cosi` one per facet, `dz` the layer thickness (m) |
+| `bottom_adiabatic(t)` | no heat through the base: the last layer at the temperature of the one above |
+| `heat_conduction(t, prop, dt, dz)` | one explicit step of `dt` (s) through each column's interior, layers `dz` apart |
+
+`heat_conduction` refuses a step past the scheme's stability, `D dt / dz^2 >
+1/2`, where it would blow up rather than merely lose accuracy --
+`stability_maxdt(D, dz**2, 0.5)` is the largest `dt` -- and a `Properties`
+whose diffusivity was never computed. A column deep enough for the adiabatic
+bottom is `properties.skin_depth_2pi(D, period)`, where the rotation's wave is
+0.2 % of its swing at the surface; eight layers per `skin_depth_1` put the
+surface within 0.6 K of a converged grid.
+
+### `sim.facet_incidence(body)` — the Sun on each facet, no shadow
+
+```python
+cosi = sim.facet_incidence(0)     # max(0, cos i) per facet, or None
+```
+
+From the body's pose and the Sun's position as they stand -- the moment `mat`
+or `sun.pos` is set, before `step()` draws anything. Geometry alone: right for
+a convex body on its own. A body that shadows itself or another wants
+`facet_illumination`, which is this times the unblocked fraction the shadow
+map reads back.
 
 ## `kalast.scattering` — reflected sunlight
 

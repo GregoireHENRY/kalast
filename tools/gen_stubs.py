@@ -92,8 +92,14 @@ def signature(prelude: str):
     spans several lines, and the line filter kept only its first. Without
     the defaults every optional argument read as required, and
     `load_mesh(path=...)` as a call missing four.
+
+    Inside a `#[cfg_attr(feature = "python", pyo3(...))]` too, as the physics
+    beside its binding writes it: missed, `stability_maxdt`'s `s=0.5` read as
+    required, and a checker flagged every call that relied on it.
     """
-    m = re.search(r"#\[pyo3\((?:[^()]|\([^()]*\))*?signature\s*=\s*\(", prelude)
+    m = re.search(
+        r"#\[(?:cfg_attr\([^,]*,\s*)?pyo3\((?:[^()]|\([^()]*\))*?signature\s*=\s*\(", prelude
+    )
     if not m:
         return None
     i = j = m.end()
@@ -678,6 +684,10 @@ TARGETS = {
     "src/py/routines/setup.rs": "kalast/routines/setup.pyi",
     "src/py/tpm/properties.rs": "kalast/tpm/properties.pyi",
     "src/py/tpm/column.rs": "kalast/tpm/column.pyi",
+    # No class, only functions: the stub is the ones `kalast/tpm/core.py`
+    # re-exports, so that a script stepping a thermophysical model reads
+    # them in its editor rather than a module the checker cannot see into.
+    "src/tpm/core.rs": "kalast/tpm/core.pyi",
     # Not under src/py/: `scattering` keeps its `#[pyclass]` inline with the
     # physics rather than in a separate binding file, since the struct is
     # the same either way and splitting it would put the parameter docs a

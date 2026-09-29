@@ -23,9 +23,13 @@ class Body:
         ...
     @mat.setter
     def mat(self, value: Sequence[Sequence[float] | numpy.ndarray] | numpy.ndarray) -> None: ...
-    mesh: Mesh | None
-    """The shape model the renderer draws, or `None` for a body without
-    one: facets, positions, colours and per-facet data --
-    `help(body.mesh)` for all of it.
+    mesh: Mesh
+    """The shape model the renderer draws: facets, positions, colours and
+    per-facet data -- `help(body.mesh)` for all of it.
+
+    Every body a script loads or adds has one. A body built without one,
+    which only Rust can do, raises `AttributeError` -- so that
+    `getattr(body, "mesh", None)` still asks -- rather than giving `None`,
+    which typed every `body.mesh.values = ...` as an error in the editor.
     """
 

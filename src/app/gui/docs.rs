@@ -14,6 +14,10 @@
 //! a mesh, opened as the files tab opens one, a folder, shown in the files
 //! tab, and anything else to the browser, a file of the repository that is
 //! not on this disk to GitHub.
+//!
+//! A Markdown file opened in the files tab, or linked to from a page and on
+//! this disk, is read from it and becomes a page of the tab until kalast
+//! closes (`Docs::open`).
 
 use super::code::{self, Lang};
 use super::theme::{self, palette};
@@ -818,6 +822,21 @@ fn textures(ctx: &egui::Context, pages: &[Page]) -> HashMap<String, egui::Textur
     out
 }
 
+/// The pictures of a page read from disk, `here` its path: from beside it,
+/// as a Markdown preview shows them.
+fn disk_textures(ctx: &egui::Context, here: &str, page: &Page, out: &mut HashMap<String, egui::TextureHandle>) {
+    let mut found = Vec::new();
+    images(&page.blocks, &mut found);
+    for src in found {
+        let path = resolve(here, src);
+        let Ok(bytes) = std::fs::read(&path) else { continue };
+        let Ok(image) = image::load_from_memory(&bytes).map(|i| i.into_rgba8()) else { continue };
+        let size = [image.width() as usize, image.height() as usize];
+        let pixels = egui::ColorImage::from_rgba_unmultiplied(size, image.as_raw());
+        out.insert(path.clone(), ctx.load_texture(&path, pixels, egui::TextureOptions::LINEAR));
+    }
+}
+
 /// A list: each item's blocks indented, its bullet -- or number -- beside
 /// its first line.
 fn list(ui: &mut egui::Ui, start: Option<u64>, items: &[Vec<Block>], d: &mut Draw) {
@@ -1051,7 +1070,7 @@ fn outline(headings: &[Heading]) -> Vec<Row> {
 
 /// A title over a list in the tab's left column, as VS Code heads the
 /// sections of its side bar.
-fn section_title(ui: &mut egui::Ui, title: &str) {
+pub(super) fn section_title(ui: &mut egui::Ui, title: &str) {
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), ROW), Sense::hover());
     ui.painter().text(
         pos2(rect.left() + 8.0, rect.center().y),
@@ -1102,6 +1121,23 @@ pub struct Docs {
     /// The outline row the outline was last scrolled to: it follows the
     /// page, and only when the page moves on to another heading.
     followed: Option<(usize, usize)>,
+    /// The Markdown files opened this run, pages after the tab's own, by
+    /// their path as the files tab has them -- or whole, beside the
+    /// executable.
+    opened: Vec<String>,
+}
+
+/// Page `i`'s path: one of the tab's own, or one opened this run.
+fn path_at(opened: &[String], i: usize) -> &str {
+    match i.checked_sub(SOURCES.len()) {
+        Some(j) => &opened[j],
+        None => SOURCES[i].path,
+    }
+}
+
+/// Whether a file is Markdown, for the tab rather than the editor.
+pub fn is_markdown(path: &std::path::Path) -> bool {
+    path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("md") || e.eq_ignore_ascii_case("markdown"))
 }
 
 impl Docs {
@@ -1109,11 +1145,7 @@ impl Docs {
     /// the left, the page on the right. Returns what a click asked of the
     /// rest of the window.
     pub fn show(&mut self, ui: &mut egui::Ui, theme: UiTheme) -> Option<Request> {
-        if self.pages.is_empty() {
-            self.pages = SOURCES.iter().map(|s| parse(s.text)).collect();
-            self.heights = SOURCES.iter().map(|_| Heights::default()).collect();
-            self.pictures = textures(ui.ctx(), &self.pages);
-        }
+        self.parsed(ui.ctx());
         // The column's edge a line as faint as a card's outline, rather than
         // egui's separator, which the theme draws in a widget's border.
         let nav = egui::Panel::left("docs nav")
@@ -1130,6 +1162,50 @@ impl Docs {
         clicked.and_then(|to| self.follow(ui.ctx(), &to))
     }
 
+    /// The tab's own pages, parsed the first time they are wanted.
+    fn parsed(&mut self, ctx: &egui::Context) {
+        if self.pages.is_empty() {
+            self.pages = SOURCES.iter().map(|s| parse(s.text)).collect();
+            self.heights = SOURCES.iter().map(|_| Heights::default()).collect();
+            self.pictures = textures(ctx, &self.pages);
+        }
+    }
+
+    /// A Markdown file, `path` as the files tab has it: shown, and a page of
+    /// the tab until kalast closes, read anew each time it is opened. One of
+    /// the tab's own pages, by its path, is that page, as this build has it.
+    pub fn open(&mut self, ctx: &egui::Context, path: &std::path::Path) -> Result<(), String> {
+        self.parsed(ctx);
+        let key = path.to_string_lossy().replace('\\', "/");
+        let key = key.strip_prefix("./").unwrap_or(&key).to_string();
+        let index = match SOURCES.iter().position(|s| s.path == key) {
+            Some(i) => i,
+            None => {
+                let text = std::fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+                let page = parse(&text);
+                disk_textures(ctx, &key, &page, &mut self.pictures);
+                match self.opened.iter().position(|o| *o == key) {
+                    Some(j) => {
+                        let i = SOURCES.len() + j;
+                        self.pages[i] = page;
+                        self.heights[i] = Heights::default();
+                        i
+                    }
+                    None => {
+                        self.opened.push(key);
+                        self.pages.push(page);
+                        self.heights.push(Heights::default());
+                        self.pages.len() - 1
+                    }
+                }
+            }
+        };
+        self.current = index;
+        self.reading = None;
+        self.jump = Some((index, 0));
+        Ok(())
+    }
+
     /// The left column: the pages, as the files tab lists files, and the
     /// shown page's outline, as VS Code's outline view -- its sections
     /// folded, the one being read lit, and the list kept on it.
@@ -1140,8 +1216,9 @@ impl Docs {
         let body = egui::TextStyle::Body.resolve(ui.style());
         ui.spacing_mut().item_spacing.y = 0.0;
         section_title(ui, "PAGES");
-        for (i, source) in SOURCES.iter().enumerate() {
-            let (dir, name) = source.path.rsplit_once('/').unwrap_or(("", source.path));
+        for i in 0..self.pages.len() {
+            let path = path_at(&self.opened, i);
+            let (dir, name) = path.rsplit_once('/').unwrap_or(("", path));
             let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), ROW), Sense::click());
             let painter = ui.painter_at(rect);
             if i == self.current {
@@ -1158,7 +1235,7 @@ impl Docs {
             if !dir.is_empty() {
                 painter.text(pos2(named.right() + 6.0, y), egui::Align2::LEFT_CENTER, dir, FontId::proportional(11.5), weak);
             }
-            let hover_text = format!("{}\n{}", self.pages[i].title, source.path);
+            let hover_text = format!("{}\n{}", self.pages[i].title, path);
             if response.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(hover_text).clicked() && i != self.current {
                 self.current = i;
                 self.reading = None;
@@ -1284,7 +1361,7 @@ impl Docs {
                 ui.add_space(MARGIN);
                 let mut d = Draw {
                     look: &look,
-                    here: SOURCES[index].path,
+                    here: path_at(&self.opened, index),
                     pictures,
                     links: &page.links,
                     clicked,
@@ -1356,13 +1433,21 @@ impl Docs {
             return None;
         }
         let (path, anchor) = to.split_once('#').unwrap_or((to, ""));
-        let here = SOURCES[self.current].path;
+        let here = path_at(&self.opened, self.current);
         let target = if path.is_empty() { here.to_string() } else { resolve(here, path) };
-        if let Some(page) = SOURCES.iter().position(|s| s.path == target) {
+        if let Some(page) = (0..self.pages.len()).position(|i| path_at(&self.opened, i) == target) {
             self.current = page;
             self.reading = None;
             let block = self.pages[page].headings.iter().find(|h| h.anchor == anchor).map_or(0, |h| h.block);
             self.jump = Some((page, block));
+            return None;
+        }
+        // Markdown linked from a page opened whole, beside the executable.
+        let whole = std::path::Path::new(&target);
+        if whole.is_absolute() && whole.is_file() && is_markdown(whole) {
+            if let Err(e) = self.open(ctx, whole) {
+                eprintln!("{e}");
+            }
             return None;
         }
         // A file of the repository: from this disk when it is on it -- run
@@ -1375,6 +1460,14 @@ impl Docs {
             let path = base.join(&relative);
             let opens = matches!(path.extension().and_then(|e| e.to_str()), Some("py" | "rs" | "obj"));
             let in_tree = cwd.as_ref() == Some(base);
+            // Markdown on this disk: a page of its own, here.
+            if path.is_file() && is_markdown(&path) {
+                let shown = self.open(ctx, if in_tree { &relative } else { &path });
+                if let Err(e) = shown {
+                    eprintln!("{e}");
+                }
+                return None;
+            }
             if path.is_file() && opens {
                 return Some(Request::Open(if in_tree { relative } else { path }));
             }
@@ -1390,6 +1483,37 @@ impl Docs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A Markdown file from the files tab: a page until kalast closes, read
+    /// anew when opened again and never listed twice; one of the tab's own
+    /// pages, by its path, is that page; and a link from it to another on
+    /// the disk opens that one too.
+    #[test]
+    fn a_markdown_file_opened_becomes_a_page() {
+        let ctx = egui::Context::default();
+        let dir = std::env::temp_dir().join(format!("kalast-docs-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let readme = dir.join("README.md");
+        std::fs::write(&readme, "# Cube\n").unwrap();
+        std::fs::write(dir.join("notes.md"), "# Notes\n").unwrap();
+        let own = SOURCES.len();
+
+        let mut docs = Docs::default();
+        docs.open(&ctx, &readme).unwrap();
+        assert_eq!((docs.pages.len(), docs.current, docs.pages[own].title.as_str()), (own + 1, own, "Cube"));
+
+        std::fs::write(&readme, "# Cube, again\n\nSee [the notes](notes.md).\n").unwrap();
+        docs.open(&ctx, &readme).unwrap();
+        assert_eq!((docs.pages.len(), docs.pages[own].title.as_str()), (own + 1, "Cube, again"), "read anew, once");
+
+        docs.open(&ctx, std::path::Path::new("README.md")).unwrap();
+        assert_eq!((docs.pages.len(), docs.current), (own + 1, 0), "the tab's own README");
+
+        docs.current = own;
+        assert_eq!(docs.follow(&ctx, "notes.md"), None);
+        assert_eq!((docs.pages.len(), docs.current, docs.pages[own + 1].title.as_str()), (own + 2, own + 1, "Notes"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn a_heading_is_anchored_as_github_anchors_it() {

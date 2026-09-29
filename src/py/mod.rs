@@ -173,6 +173,10 @@ pub fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     pyadd_f!(core, crate::tpm::core::py::newton_method);
     pyadd_f!(core, crate::tpm::core::py::conduction_1d);
     pyadd_f!(core, crate::tpm::core::py::conduction_1d_nonuniform);
+    pyadd_f!(core, crate::tpm::core::py::columns);
+    pyadd_f!(core, crate::tpm::core::py::solar_bc);
+    pyadd_f!(core, crate::tpm::core::py::bottom_adiabatic);
+    pyadd_f!(core, crate::tpm::core::py::heat_conduction);
     tpm.add_submodule(&core)?;
     py.import("sys")?
         .getattr("modules")?

@@ -83,7 +83,7 @@ def accessor(path: str, name: str, rust: str, doc):
     cfg = "self.config.borrow()"
     cfg_mut = "self.config.borrow_mut()"
 
-    if rust in ("bool", "u32", "usize", "f32", "f64", "Float", "[f32; 3]", "[f32; 4]",
+    if rust in ("bool", "u32", "i32", "usize", "f32", "f64", "Float", "[f32; 3]", "[f32; 4]",
                 "Option<f32>", "Option<Float>", "Option<bool>"):
         ty = rust
         lines += [

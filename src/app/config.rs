@@ -1356,15 +1356,57 @@ pub struct AppConfig {
     /// is already open, and a checkbox that does nothing is worse than none.
     pub open_in_background: bool,
 
+    /// Open the UI app's window where it was left: on its screen, at its
+    /// place and size, fullscreen if it was.
+    ///
+    /// Off, it opens where `monitor`, `window_x`, `window_y`, `width`,
+    /// `height` and `start_fullscreen` say, every time; the app tab shows
+    /// them then, and remembers them as they are set there.
+    ///
+    /// :label: remember last window
+    pub remember_window: bool,
     /// Window size in physical pixels.
     ///
     /// The *window*, not the render. `simulation.config.width` is the image
     /// inside it, and follows this unless it is set.
     ///
-    /// :label: window width
+    /// `0`, the default: the size the UI app was left at, or else most of
+    /// the screen. Set, it wins over what the app remembers.
+    ///
+    /// :skip:
+    /// In the app tab while `remember_window` is off, beside the screen and
+    /// the place: written by hand there (`gui::window_start`).
     pub width: u32,
-    /// :label: window height
+    /// :skip:
     pub height: u32,
+    /// The screen the window opens on: its number in the system's list,
+    /// from `"1"`, or part of its name, as `"DELL"` or `"Built-in"`.
+    ///
+    /// Empty, the default: the screen the UI app was last closed on, where
+    /// it was on it -- or else the main screen, the window in its middle.
+    /// Set, it wins over what the app remembers, as `width` and `height` do.
+    /// Set while the window is open, it moves it there.
+    ///
+    /// :skip:
+    /// A list of the screens in the app tab while `remember_window` is off,
+    /// written by hand: a name typed in would move the window at each letter.
+    pub monitor: String,
+    /// Where on its screen the window opens: its top-left corner from the
+    /// screen's, in physical pixels. `-1`, the default: in the screen's
+    /// middle, or where the UI app left it. Set while the window is open,
+    /// it moves it there.
+    ///
+    /// :skip:
+    /// In the app tab while `remember_window` is off, with `width`.
+    pub window_x: i32,
+    /// :skip:
+    pub window_y: i32,
+    /// Open the UI app fullscreen, while `remember_window` is off -- `F` and
+    /// the green button then change the window, not this.
+    ///
+    /// :skip:
+    /// In the app tab while `remember_window` is off.
+    pub start_fullscreen: bool,
 
     /// The OS window title.
     pub title: String,
@@ -1470,8 +1512,13 @@ impl Default for AppConfig {
             simulation_folded: false,
             theme: UiTheme::CatppuccinMocha,
             open_in_background: false,
+            remember_window: true,
             width: 0,
             height: 0,
+            monitor: String::new(),
+            window_x: -1,
+            window_y: -1,
+            start_fullscreen: false,
             toolbar: "iteration {drawn}    {fps} fps".to_string(),
             title: "kalast".to_string(),
             fullscreen: false,

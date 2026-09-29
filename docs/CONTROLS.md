@@ -411,20 +411,47 @@ An edge that can be dragged is lit in the theme's accent -- mauve in Mocha --
 once the pointer has rested on it 300 ms, and at once while it is dragged.
 
 The side panel, on the right, has three tabs, icons as VS Code's activity bar
-has them and named on hover: **app** (the gear; `app.config`, the theme,
-fullscreen and the editor's settings remembered), **simulation** (the globe;
-`app.simulation.config` and the scene) and **files** (the folder kalast was
-started in, as a tree). The app and simulation tabs are sections, each a row
-with its icon in its colour, closed until clicked; inside, every setting is a
-row with its name on the left -- its doc on hover -- and its control on the
-right. That is
-where a script is opened: a click on a `.py` or `.rs` reads it into the
-editor -- a `.rs` is loaded too -- and a `.obj` is shown in the scene, while
-the middle stays on whichever of the two it was showing. Other files are shown
-dimmed. Folders are re-read every two seconds while shown, so a file a script
-writes turns up. Over unsaved edits a script asks first -- save and open, open
-without saving, or cancel -- as quitting does. The toolbar names the file the
-editor holds, and its **save** writes it back; the code fills the middle.
+has them and named on hover: **app** (the gear; `app.config`, the theme, the
+window and the editor's settings remembered), **simulation** (the globe;
+`app.simulation.config` and the scene) and **scripts** (two folders as a
+tree: `examples`, the bundle's, and `scripts`, your own). The app and
+simulation tabs are sections, each a row with its icon in its colour, closed
+until clicked; inside, every setting is a row with its name on the left --
+its doc on hover -- and its control on the right. The folder button at the
+tabs' right opens any text file from anywhere, through the system's dialog.
+
+A click on a file in the scripts tab opens it in the editor -- any text file,
+a script, a mesh, a README -- and only there: what the scene shows is changed
+by the editor's **render** button alone. A right click on a row:
+
+| Row | Offers |
+|---|---|
+| `examples` | New example -- a folder, named in the row |
+| `scripts` | New folder, New file |
+| a folder in either | New file, Rename, Delete |
+| a file | Rename, Delete; Send to renderer for a script or a mesh; Open as documentation for Markdown |
+
+Delete moves to the Trash, from where it can be put back, once asked. An
+update of a release bundle replaces `examples` -- the old one goes to the
+Trash, edits and all -- and never touches `scripts`, which is where your own
+belong. Folders are re-read every two seconds while shown, so a file a script
+writes turns up.
+
+The editor keeps every file opened this run, each with its edits, listed on
+its left as the documentation lists its pages: the one shown lit, an edited
+one dotted, the one the renderer runs marked with the render icon, a cross to
+close each -- asking first over edits. Under the list is the shown file's
+outline, VS Code's: classes, functions and methods, the variables of a module
+or a class; items of a Rust file; headings of a Markdown one. A click goes to
+the line. At the editor's top right, **render** sends the file shown to the
+renderer, from a clean scene each time -- a new app's settings and camera, as
+Reset gives them: a script built to its first iteration and held, a Rust
+example compiled if it has to be and loaded, a mesh shown. Beside it, for a Rust
+example, **compile** -- a bug for debug, a rocket for release, the chevron to
+choose -- and for Markdown, **open as documentation**. Play, Restart and Step
+act on what was sent, whatever file is shown; the toolbar names it. The
+toolbar names the file the editor shows too, and its **save** writes that one
+back; quitting over edits in any file asks first.
 
 The tree is drawn as VS Code's explorer: a row the panel's width, lit under
 the pointer, the open file lit; a click anywhere on a folder's row opens or
@@ -488,7 +515,9 @@ selected drops the line being typed, and any block waiting at `...`, with
 The toolbar's third tab shows kalast's documentation in the window: the
 README, which it opens on, this page, the Python API, the config, the
 changelog, and the READMEs of `res/` and `examples/`, as they were when this
-kalast was built. The pages are listed on
+kalast was built -- and after them any Markdown file opened as documentation
+from the scripts tab or the editor, read from the disk, until kalast closes.
+The pages are listed on
 the left, and under them the outline of the one shown: its sections, each
 folded over its subsections, the one being read lit.
 
@@ -497,8 +526,9 @@ folded over its subsections, the one being read lit.
 | a page | Shows it, where it was left |
 | an outline row | Goes to that section and unfolds it; its chevron folds or unfolds it |
 | a link to a page or a section | Goes there |
-| a link to a script or a mesh | Opens it as the files tab does, in the editor or the scene |
-| a link to a folder | Shows it open in the files tab |
+| a link to Markdown on this disk | Opens it as a page, as the scripts tab's Open as documentation does |
+| a link to a script or a mesh | Opens it in the editor, as the scripts tab does |
+| a link to a folder | Shows it open in the scripts tab |
 | any other link | The browser; a file of the repository that is not on this computer, on GitHub |
 | the copy button on a code block, under the pointer | Copies the code |
 | wheel | Scrolls the page, over a code block too |

@@ -13,7 +13,10 @@
 //! archive for this platform into the bundle folder, unpacks it with `tar`
 //! (`.zip` included: Windows 10's tar is bsdtar) and swaps every entry in
 //! place, keeping what it replaced in `.previous` until the next start,
-//! since Windows cannot delete a running executable but can rename it; a
+//! since Windows cannot delete a running executable but can rename it. The
+//! user's `scripts` folder is never touched, and the `examples` replaced go
+//! to the Trash rather than away, since the scripts tab invites editing
+//! them; a
 //! pip install runs `pip install --upgrade` with the interpreter this is
 //! running in; a source checkout is told to pull. Nothing restarts behind
 //! the user's back: the toolbar's button becomes "restart", and that
@@ -368,6 +371,11 @@ fn install_bundle(u: &Update, dir: &Path, log: &dyn Fn(String)) -> Result<(), St
     std::fs::create_dir_all(&previous).map_err(|e| format!("{}: {e}", previous.display()))?;
     for entry in std::fs::read_dir(&inner).map_err(|e| format!("{}: {e}", inner.display()))? {
         let entry = entry.map_err(|e| e.to_string())?;
+        // The user's own, beside the examples: no release is to replace it,
+        // whatever it ships.
+        if entry.file_name() == "scripts" {
+            continue;
+        }
         let target = dir.join(entry.file_name());
         if target.exists() {
             std::fs::rename(&target, previous.join(entry.file_name()))
@@ -377,6 +385,15 @@ fn install_bundle(u: &Update, dir: &Path, log: &dyn Fn(String)) -> Result<(), St
             .map_err(|e| format!("installing {}: {e}", target.display()))?;
     }
     let _ = std::fs::remove_dir_all(&work);
+    // The examples replaced, edits and all, to the Trash, from where they can
+    // be put back; the rest of what was replaced goes as before.
+    let old_examples = previous.join("examples");
+    if old_examples.exists() {
+        match trash::delete(&old_examples) {
+            Ok(()) => log("the examples replaced are in the Trash".to_string()),
+            Err(e) => log(format!("the examples replaced could not go to the Trash ({e}); removed")),
+        }
+    }
     clean_previous(dir);
     log(format!("installed v{} in {}", u.latest.version, dir.display()));
     Ok(())

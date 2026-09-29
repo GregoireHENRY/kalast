@@ -171,13 +171,54 @@ class AppConfig:
     time there is a panel to tick it in, the window it would have governed
     is already open, and a checkbox that does nothing is worse than none.
     """
+    remember_window: bool
+    """Open the UI app's window where it was left: on its screen, at its
+    place and size, fullscreen if it was.
+
+    Off, it opens where `monitor`, `window_x`, `window_y`, `width`,
+    `height` and `start_fullscreen` say, every time; the app tab shows
+    them then, and remembers them as they are set there.
+    """
     width: int
     """Window size in physical pixels.
 
     The *window*, not the render. `simulation.config.width` is the image
     inside it, and follows this unless it is set.
+
+    `0`, the default: the size the UI app was left at, or else most of
+    the screen. Set, it wins over what the app remembers.
+
+    In the app tab while `remember_window` is off, beside the screen and
+    the place: written by hand there (`gui::window_start`).
     """
     height: int
+    monitor: str
+    """The screen the window opens on: its number in the system's list,
+    from `"1"`, or part of its name, as `"DELL"` or `"Built-in"`.
+
+    Empty, the default: the screen the UI app was last closed on, where
+    it was on it -- or else the main screen, the window in its middle.
+    Set, it wins over what the app remembers, as `width` and `height` do.
+    Set while the window is open, it moves it there.
+
+    A list of the screens in the app tab while `remember_window` is off,
+    written by hand: a name typed in would move the window at each letter.
+    """
+    window_x: int
+    """Where on its screen the window opens: its top-left corner from the
+    screen's, in physical pixels. `-1`, the default: in the screen's
+    middle, or where the UI app left it. Set while the window is open,
+    it moves it there.
+
+    In the app tab while `remember_window` is off, with `width`.
+    """
+    window_y: int
+    start_fullscreen: bool
+    """Open the UI app fullscreen, while `remember_window` is off -- `F` and
+    the green button then change the window, not this.
+
+    In the app tab while `remember_window` is off.
+    """
     title: str
     """The OS window title."""
     fullscreen: bool
@@ -624,19 +665,23 @@ class DataConfig:
     `app.simulation.config.data`. Reads and writes the live config
     through the same handle as every other view of it.
     """
-    colormap: numpy.ndarray
-    """Colour lookup table: a built-in name or an Nx3 array of RGB in 0..1.
+    @property
+    def colormap(self) -> numpy.ndarray:
+        """Colour lookup table: a built-in name or an Nx3 array of RGB in 0..1.
 
-    `"viridis"`, `"inferno"`, `"turbo"`, `"grey"`, or any matplotlib
-    colormap passed straight through:
+        `"viridis"`, `"inferno"`, `"turbo"`, `"grey"`, or any matplotlib
+        colormap passed straight through:
 
-    ```python
-    app.config.colormap = matplotlib.colormaps["magma"](numpy.linspace(0, 1, 256))[:, :3]
-    ```
+        ```python
+        app.config.colormap = matplotlib.colormaps["magma"](numpy.linspace(0, 1, 256))[:, :3]
+        ```
 
-    Resampled to 256 entries, so any length works.
-    The colour table in use, as a 256x3 array.
-    """
+        Resampled to 256 entries, so any length works.
+        The colour table in use, as a 256x3 array.
+        """
+        ...
+    @colormap.setter
+    def colormap(self, value: str | numpy.ndarray | Sequence[Sequence[float]]) -> None: ...
     value_min: float | None
     """Range the colormap spans, or `None` to fit the loaded values each
     frame.

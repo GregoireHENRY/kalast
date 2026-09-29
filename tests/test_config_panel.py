@@ -44,10 +44,14 @@ def test_every_field_has_a_widget() -> None:
     src = CONFIG.read_text()
     panel = PANEL.read_text()
 
-    def skipped(name: str) -> bool:
+    def skipped(struct: str, name: str) -> bool:
         # The whole doc block, not just the line above `pub`: `:skip:` is
-        # allowed anywhere in it, and the generator reads it that way.
-        block = re.search(rf"((?:^[ \t]*///[^\n]*\n)*)[ \t]*pub {name}:", src, re.M)
+        # allowed anywhere in it, and the generator reads it that way. Looked
+        # for in the field's own struct: `width` is the wireframe's, the
+        # grid's, the image's and the window's, and a search of the file
+        # found the wireframe's and said the window's had no widget.
+        body = re.search(r"pub struct %s \{(.*?)\n\}" % struct, src, re.S).group(1)
+        block = re.search(rf"((?:^[ \t]*///[^\n]*\n)*)[ \t]*pub {name}:", body, re.M)
         return bool(block and ":skip:" in block.group(1))
 
     def types(struct: str) -> list[tuple[str, str]]:
@@ -60,10 +64,10 @@ def test_every_field_has_a_widget() -> None:
         members = fields(gtype)
         assert members, f"Config.{group}: {gtype} has no fields -- not a group?"
         for name in members:
-            if not skipped(name) and f"c.{group}.{name}" not in panel:
+            if not skipped(gtype, name) and f"c.{group}.{name}" not in panel:
                 missing.append(f"c.{group}.{name}")
     for name in fields("AppConfig"):
-        if not skipped(name) and f"a.{name}" not in panel:
+        if not skipped("AppConfig", name) and f"a.{name}" not in panel:
             missing.append(f"a.{name}")
     assert not missing, "no widget for: " + ", ".join(missing)
 

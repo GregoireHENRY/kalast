@@ -539,11 +539,44 @@ The OS window title. Applied at `src/app/mod.rs:117` via winit's
 `.with_title()`.
 Accepted: any string.
 
-### `app.config.width: int` — default `800` *(live)*
-### `app.config.height: int` — default `600` *(live)*
-The OS window, in physical pixels. A request rather than a command: a tiling
-window manager or a small screen may hand back something else, and the image
-follows whatever was actually granted unless it is pinned below.
+### `app.config.remember_window: bool` — default `True` *(live, remembered)*
+Open the UI app's window where it was left: on its screen, at its place and
+size, maximised or fullscreen if it was. Off, it opens where `monitor`,
+`window_x`, `window_y`, `width`, `height` and `start_fullscreen` say, every
+time: the app tab shows them then -- filled, as the box is unticked, from the
+window as it stands -- and remembers them as they are set there. `F` and the
+green button then change the window and not `start_fullscreen`.
+Accepted: `True` / `False`.
+
+### `app.config.width: int` — default `0` *(live, remembered)*
+### `app.config.height: int` — default `0` *(live, remembered)*
+The OS window, in physical pixels. `0`: the size the UI app was last closed
+at, or else most of the screen. Set, it wins over what the app remembers. A
+request rather than a command: a tiling window manager or a small screen may
+hand back something else, and the image follows whatever was actually granted
+unless it is pinned below. In the app tab while `remember_window` is off.
+
+### `app.config.window_x: int` — default `-1` *(live, remembered)*
+### `app.config.window_y: int` — default `-1` *(live, remembered)*
+Where on its screen the window opens: its top-left corner from the screen's,
+in physical pixels. `-1`: in the screen's middle, or where the UI app left it.
+Set with the window open, it moves there. In the app tab while
+`remember_window` is off.
+
+### `app.config.start_fullscreen: bool` — default `False` *(remembered)*
+Open the UI app fullscreen, while `remember_window` is off. In the app tab
+then. Accepted: `True` / `False`.
+
+### `app.config.monitor: str` — default `""` *(live, remembered)*
+The screen the window opens on: its number in the system's list, from `"1"`,
+or part of its name -- `"DELL"`, `"Built-in"`, as System Settings names them
+on macOS; `DP-1` or `\\.\DISPLAY1` elsewhere. Empty: the screen the UI app was
+last closed on, where it was and at its size -- or else the main screen, the
+window in its middle. Set, it wins over what the app remembers, as `width`
+and `height` do; set while the window is open, it moves the window there. A
+name no screen has is said in the log, with the screens there are. In the app
+tab while `remember_window` is off, as a list of the screens connected: typed
+into a panel, a name would move the window at every letter.
 
 ### `image.width: int` — default `0` *(live)*
 ### `image.height: int` — default `0` *(live)*
@@ -568,6 +601,13 @@ user's configuration folder (`~/Library/Application Support/kalast/` on macOS,
 script runs, so a script that sets it still has the last word, and a script's
 change is never saved. A window opened with `open_in_background` does not go
 fullscreen, whatever is remembered.
+
+**Where the window was left** is remembered the same way, when the UI app
+closes, while `remember_window` is on: its screen, its place on it, its size,
+and whether it was maximised -- fullscreen or maximised, the place it had
+before. The next UI app opens there, unless `monitor`, `width` or `height`
+say otherwise, or the screen is gone. A script's own window, editor or not,
+remembers nothing.
 
 On macOS this is the **simple** fullscreen — the pre-Lion kind, the one
 Electron gives VS Code. The window grows to cover the screen, menu bar

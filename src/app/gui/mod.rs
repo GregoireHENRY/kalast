@@ -80,7 +80,11 @@ pub enum SideTab {
     Files,
 }
 
-/// The files tab: the working directory as a tree, listed as it is opened.
+/// The scripts tab: two folders as a tree -- `examples`, the bundle's, which
+/// an update replaces, and `scripts`, the user's own, which it never touches
+/// -- listed as they are opened. A right click on a row offers what can be
+/// done to it: a new file or folder, a rename, a move to the Trash; for a
+/// file, the documentation tab or the renderer.
 #[derive(Default)]
 struct FileTree {
     /// Each opened folder's entries -- folders first, then files, by name --
@@ -89,6 +93,186 @@ struct FileTree {
     listings: std::collections::HashMap<std::path::PathBuf, (std::time::Instant, Vec<(String, bool)>)>,
     /// The folders shown open.
     open: std::collections::HashSet<std::path::PathBuf>,
+    /// A name being typed into the tree.
+    naming: Option<Naming>,
+}
+
+/// What a row of the tree asked for, served after the frame.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TreeAction {
+    /// A file clicked: into the editor.
+    Open(std::path::PathBuf),
+    /// Markdown's "Open as documentation".
+    Docs(std::path::PathBuf),
+    /// A script's or a mesh's "Send to renderer".
+    Render(std::path::PathBuf),
+    /// "Delete": asked about, then to the Trash.
+    Trash(std::path::PathBuf),
+    /// A file "New file" made: into the editor.
+    Created(std::path::PathBuf),
+    /// A file renamed: the editor follows it.
+    Renamed(std::path::PathBuf, std::path::PathBuf),
+}
+
+/// A name being typed into the tree, as VS Code's explorer takes one: in a
+/// row of its own, Enter to make it, Escape to give up.
+struct Naming {
+    what: Named,
+    text: String,
+    /// The field asks for the focus once, as it appears.
+    focus: bool,
+    /// Why the last Enter was refused.
+    error: Option<String>,
+}
+
+enum Named {
+    /// A new folder, in this one.
+    Folder(std::path::PathBuf),
+    /// A new file, in this one.
+    File(std::path::PathBuf),
+    /// This file's new name.
+    Rename(std::path::PathBuf),
+}
+
+/// Where `examples` and `scripts` are: beside the executable in a release
+/// bundle, wherever it was started from, and otherwise in the working
+/// directory -- the repository's, a project's.
+fn scripts_base() -> std::path::PathBuf {
+    crate::app::bundled_python_dir()
+        .and_then(|python| python.parent().map(tree_path))
+        .unwrap_or_default()
+}
+
+/// `path` relative to the working directory when inside it, as the tree
+/// names what it lists; whole otherwise.
+fn tree_path(path: &std::path::Path) -> std::path::PathBuf {
+    std::env::current_dir()
+        .ok()
+        .and_then(|cwd| path.strip_prefix(cwd).ok().map(std::path::Path::to_path_buf))
+        .unwrap_or_else(|| path.to_path_buf())
+}
+
+/// The editor's files: the one shown -- its text, its path and whether it is
+/// edited, the `Editor`'s own fields, which the rest of the window reads --
+/// and the others opened this run, kept aside with their edits. A view onto
+/// those fields, so that opening, switching, closing and renaming can be
+/// tested without a window.
+struct Buffers<'a> {
+    script: &'a mut String,
+    path: &'a mut String,
+    dirty: &'a mut bool,
+    opened: &'a mut Vec<String>,
+    stash: &'a mut std::collections::HashMap<String, (String, bool)>,
+}
+
+impl Buffers<'_> {
+    /// Show `path`: switched to if it is open, edits and all, else read --
+    /// text only, and small enough to edit -- and added to the list. The one
+    /// it replaces is kept aside.
+    fn open(&mut self, path: &std::path::Path) -> Result<(), String> {
+        let key = path.display().to_string();
+        if key == self.path.trim() {
+            return Ok(());
+        }
+        let (text, dirty) = match self.stash.remove(&key) {
+            Some(buffer) => buffer,
+            None => (read_text(path)?, false),
+        };
+        self.stash_shown();
+        *self.script = text;
+        *self.path = key.clone();
+        *self.dirty = dirty;
+        if !self.opened.contains(&key) {
+            self.opened.push(key);
+        }
+        Ok(())
+    }
+
+    /// The one shown, kept aside -- an untitled one too, when there is
+    /// something in it.
+    fn stash_shown(&mut self) {
+        let key = self.path.trim().to_string();
+        if key.is_empty() && self.script.trim().is_empty() {
+            return;
+        }
+        self.stash.insert(key.clone(), (std::mem::take(self.script), *self.dirty));
+        if !self.opened.contains(&key) {
+            self.opened.push(key);
+        }
+    }
+
+    /// Close `path`, its edits already asked about: the file after it in the
+    /// list shown in its place when it was the one shown, else nothing.
+    fn close(&mut self, path: &str) {
+        let at = self.opened.iter().position(|p| p == path);
+        self.opened.retain(|p| p != path);
+        self.stash.remove(path);
+        if path != self.path.trim() {
+            return;
+        }
+        let next = at.and_then(|i| self.opened.get(i.min(self.opened.len().saturating_sub(1))).cloned());
+        match next.and_then(|n| self.stash.remove(&n).map(|buffer| (n, buffer))) {
+            Some((n, (text, dirty))) => {
+                *self.script = text;
+                *self.path = n;
+                *self.dirty = dirty;
+            }
+            None => {
+                self.script.clear();
+                self.path.clear();
+                *self.dirty = false;
+            }
+        }
+    }
+
+    /// A file or a folder renamed on the disk: the buffers of what was in
+    /// it follow it.
+    fn renamed(&mut self, from: &str, to: &str) {
+        if let Some(moved) = moved(self.path.trim(), from, to) {
+            *self.path = moved;
+        }
+        for p in self.opened.iter_mut() {
+            if let Some(moved) = moved(p, from, to) {
+                *p = moved;
+            }
+        }
+        let keys: Vec<String> = self.stash.keys().filter(|k| moved(k, from, to).is_some()).cloned().collect();
+        for key in keys {
+            if let (Some(buffer), Some(moved)) = (self.stash.remove(&key), moved(&key, from, to)) {
+                self.stash.insert(moved, buffer);
+            }
+        }
+    }
+}
+
+/// Where `path` is once `from` -- it, or a folder above it -- is renamed
+/// `to`; `None` when it is not under `from`.
+fn moved(path: &str, from: &str, to: &str) -> Option<String> {
+    if from.is_empty() || path.is_empty() {
+        return None;
+    }
+    let rest = std::path::Path::new(path).strip_prefix(from).ok()?;
+    Some(if rest.as_os_str().is_empty() { to.to_string() } else { std::path::Path::new(to).join(rest).display().to_string() })
+}
+
+/// A file's text, for the editor: refused when it is not text -- a NUL in
+/// its first 8 KiB, or not UTF-8 -- or too big to edit at a frame's pace.
+fn read_text(path: &std::path::Path) -> Result<String, String> {
+    const MAX: u64 = 4 << 20;
+    let size = std::fs::metadata(path).map_err(|e| format!("cannot open {}: {e}", path.display()))?.len();
+    if size > MAX {
+        return Err(format!("{} is {} MB, too big to edit here", path.display(), size / 1_000_000));
+    }
+    let bytes = std::fs::read(path).map_err(|e| format!("cannot open {}: {e}", path.display()))?;
+    if bytes[..bytes.len().min(8192)].contains(&0) {
+        return Err(format!("{} is not text", path.display()));
+    }
+    String::from_utf8(bytes).map_err(|_| format!("{} is not text: not UTF-8", path.display()))
+}
+
+/// A file the renderer takes: a script to run, a mesh to show.
+fn renderable(path: &std::path::Path) -> bool {
+    matches!(path.extension().and_then(|e| e.to_str()), Some("py" | "rs" | "obj"))
 }
 
 /// A tree row's height, a level's indent and the chevron's column, in
@@ -100,9 +284,8 @@ const TWISTIE: f32 = 16.0;
 impl FileTree {
     const FRESH: std::time::Duration = std::time::Duration::from_secs(2);
 
-    /// `dir`'s entries, hidden ones and `__pycache__` left out. `dir` is
-    /// relative to the working directory, the empty path being the root, so
-    /// a path clicked reads the way a script's path is usually typed.
+    /// `dir`'s entries, hidden ones and `__pycache__` left out: none for a
+    /// folder that is not there yet, as `scripts` may not be.
     fn list(&mut self, dir: &std::path::Path) -> Vec<(String, bool)> {
         if let Some((at, entries)) = self.listings.get(dir) {
             if at.elapsed() < Self::FRESH {
@@ -125,8 +308,13 @@ impl FileTree {
         entries
     }
 
-    /// Draw `dir` as a tree, returning the file clicked. Scripts and meshes
-    /// open; anything else is shown dimmed, for finding one's way.
+    /// Everything shown read again at the next frame: after a file is made,
+    /// renamed or thrown away.
+    fn reread(&mut self) {
+        self.listings.clear();
+    }
+
+    /// Draw the two folders as a tree, returning what a row asked for.
     ///
     /// Drawn as VS Code's explorer draws it rather than with egui's
     /// collapsing headers: rows the width of the panel, lit under the pointer
@@ -135,88 +323,444 @@ impl FileTree {
     fn show(
         &mut self,
         ui: &mut egui::Ui,
-        dir: &std::path::Path,
         current: &std::path::Path,
         theme: crate::app::config::UiTheme,
-    ) -> Option<std::path::PathBuf> {
+    ) -> Option<TreeAction> {
         ui.spacing_mut().item_spacing.y = 0.0;
-        let mut clicked = None;
-        self.rows(ui, dir, 0, current, theme, &mut clicked);
-        clicked
+        let base = scripts_base();
+        let mut action = None;
+        for root in ["examples", "scripts"] {
+            self.row(ui, &base.join(root), root, true, 0, current, theme, &mut action);
+        }
+        action
     }
 
-    fn rows(
+    /// `dir`'s rows: a name being typed for a new entry first, then each
+    /// entry, the one being renamed as its field.
+    fn children(
         &mut self,
         ui: &mut egui::Ui,
         dir: &std::path::Path,
         depth: usize,
         current: &std::path::Path,
         theme: crate::app::config::UiTheme,
-        clicked: &mut Option<std::path::PathBuf>,
+        action: &mut Option<TreeAction>,
     ) {
-        let (hover, selected, guide) = theme::list(theme);
+        let new_here = match self.naming.as_ref().map(|n| &n.what) {
+            Some(Named::Folder(d)) => (d == dir).then_some(true),
+            Some(Named::File(d)) => (d == dir).then_some(false),
+            _ => None,
+        };
+        if let Some(is_dir) = new_here {
+            self.naming_row(ui, depth, is_dir, "", action);
+        }
         for (name, is_dir) in self.list(dir) {
             let path = dir.join(&name);
-            let open = is_dir && self.open.contains(&path);
-            let opens = !is_dir && matches!(path.extension().and_then(|e| e.to_str()), Some("py" | "rs" | "obj"));
+            if matches!(self.naming.as_ref().map(|n| &n.what), Some(Named::Rename(p)) if *p == path) {
+                self.naming_row(ui, depth, is_dir, &name, action);
+                continue;
+            }
+            self.row(ui, &path, &name, is_dir, depth, current, theme, action);
+        }
+    }
 
-            let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), ROW), egui::Sense::click());
-            let painter = ui.painter_at(rect);
-            if !is_dir && path == current {
-                painter.rect_filled(rect, 0.0, selected);
-            } else if response.hovered() {
-                painter.rect_filled(rect, 0.0, hover);
-            }
-            // One guide per level above this one, through the middle of the
-            // chevron column of the folder it belongs to.
-            for level in 0..depth {
-                let x = rect.left() + level as f32 * INDENT + TWISTIE / 2.0;
-                painter.vline(x, rect.y_range(), egui::Stroke::new(1.0, guide));
-            }
+    /// One entry's row, its menu, and its children when it is an open
+    /// folder.
+    #[allow(clippy::too_many_arguments)]
+    fn row(
+        &mut self,
+        ui: &mut egui::Ui,
+        path: &std::path::Path,
+        name: &str,
+        is_dir: bool,
+        depth: usize,
+        current: &std::path::Path,
+        theme: crate::app::config::UiTheme,
+        action: &mut Option<TreeAction>,
+    ) {
+        let (hover, selected, guide) = theme::list(theme);
+        let open = is_dir && self.open.contains(path);
+        let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), ROW), egui::Sense::click());
+        let painter = ui.painter_at(rect);
+        if !is_dir && path == current {
+            painter.rect_filled(rect, 0.0, selected);
+        } else if response.hovered() || response.context_menu_opened() {
+            painter.rect_filled(rect, 0.0, hover);
+        }
+        // One guide per level above this one, through the middle of the
+        // chevron column of the folder it belongs to.
+        for level in 0..depth {
+            let x = rect.left() + level as f32 * INDENT + TWISTIE / 2.0;
+            painter.vline(x, rect.y_range(), egui::Stroke::new(1.0, guide));
+        }
 
-            let mut x = rect.left() + depth as f32 * INDENT;
-            let text_color = ui.visuals().text_color();
-            if is_dir {
-                let chevron = if open { icons::codicon::CHEVRON_DOWN } else { icons::codicon::CHEVRON_RIGHT };
-                painter.text(
-                    egui::pos2(x + TWISTIE / 2.0, rect.center().y),
-                    egui::Align2::CENTER_CENTER,
-                    chevron,
-                    egui::FontId::proportional(14.0),
-                    text_color,
-                );
-            }
-            x += TWISTIE + 2.0;
-            let icon = if is_dir { icons::for_folder(&name, open) } else { icons::for_file(&name) };
-            egui::Image::new(icon).paint_at(
-                ui,
-                egui::Rect::from_center_size(egui::pos2(x + 8.0, rect.center().y), egui::vec2(16.0, 16.0)),
-            );
-            x += 16.0 + 6.0;
-            let color = if is_dir || opens { text_color } else { ui.visuals().weak_text_color() };
+        let mut x = rect.left() + depth as f32 * INDENT;
+        let text_color = ui.visuals().text_color();
+        if is_dir {
+            let chevron = if open { icons::codicon::CHEVRON_DOWN } else { icons::codicon::CHEVRON_RIGHT };
             painter.text(
-                egui::pos2(x, rect.center().y),
-                egui::Align2::LEFT_CENTER,
-                &name,
-                egui::TextStyle::Body.resolve(ui.style()),
-                color,
+                egui::pos2(x + TWISTIE / 2.0, rect.center().y),
+                egui::Align2::CENTER_CENTER,
+                chevron,
+                egui::FontId::proportional(14.0),
+                text_color,
             );
+        }
+        x += TWISTIE + 2.0;
+        let icon = if is_dir { icons::for_folder(name, open) } else { icons::for_file(name) };
+        egui::Image::new(icon).paint_at(
+            ui,
+            egui::Rect::from_center_size(egui::pos2(x + 8.0, rect.center().y), egui::vec2(16.0, 16.0)),
+        );
+        x += 16.0 + 6.0;
+        painter.text(
+            egui::pos2(x, rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            name,
+            egui::TextStyle::Body.resolve(ui.style()),
+            text_color,
+        );
 
-            let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
-            if response.clicked() {
-                if is_dir {
-                    if !self.open.remove(&path) {
-                        self.open.insert(path.clone());
-                    }
-                } else if opens {
-                    *clicked = Some(path.clone());
+        let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+        if response.clicked() {
+            if is_dir {
+                if !self.open.remove(path) {
+                    self.open.insert(path.to_path_buf());
                 }
+            } else {
+                *action = Some(TreeAction::Open(path.to_path_buf()));
             }
-            if open {
-                self.rows(ui, &path, depth + 1, current, theme, clicked);
+        }
+        response.context_menu(|ui| self.menu(ui, path, is_dir, depth == 0, action));
+        if open {
+            self.children(ui, path, depth + 1, current, theme, action);
+        }
+    }
+
+    /// A row's menu: `examples` takes a new example, `scripts` a new folder
+    /// or file, a folder in either a new file, a new name or the Trash, and a
+    /// file a new name or the Trash -- and, as it is, the documentation tab or
+    /// the renderer.
+    fn menu(&mut self, ui: &mut egui::Ui, path: &std::path::Path, is_dir: bool, root: bool, action: &mut Option<TreeAction>) {
+        // Lit under the pointer, as a menu's rows are; no frame otherwise.
+        let item = |ui: &mut egui::Ui, icon: &str, text: &str| {
+            ui.add(egui::Button::new(format!("{icon}  {text}")).frame_when_inactive(false)).clicked()
+        };
+        use icons::codicon as c;
+        let dir = path.to_path_buf();
+        if is_dir {
+            let examples = path.file_name().is_some_and(|n| n == "examples");
+            if root && examples {
+                if item(ui, c::NEW_FOLDER, "New example\u{2026}") {
+                    self.start(Named::Folder(dir));
+                }
+                return;
+            }
+            if root {
+                if item(ui, c::NEW_FOLDER, "New folder\u{2026}") {
+                    self.start(Named::Folder(dir.clone()));
+                }
+                if item(ui, c::NEW_FILE, "New file\u{2026}") {
+                    self.start(Named::File(dir));
+                }
+                return;
+            }
+            if item(ui, c::NEW_FILE, "New file\u{2026}") {
+                self.start(Named::File(dir.clone()));
+            }
+            if item(ui, c::EDIT, "Rename\u{2026}") {
+                self.start(Named::Rename(dir.clone()));
+            }
+            ui.separator();
+            if item(ui, c::TRASH, "Delete") {
+                *action = Some(TreeAction::Trash(dir));
+            }
+            return;
+        }
+        if docs::is_markdown(path) && item(ui, c::OPEN_PREVIEW, "Open as documentation") {
+            *action = Some(TreeAction::Docs(dir.clone()));
+        }
+        if renderable(path) && item(ui, c::SEND, "Send to renderer") {
+            *action = Some(TreeAction::Render(dir.clone()));
+        }
+        if item(ui, c::EDIT, "Rename\u{2026}") {
+            self.start(Named::Rename(dir.clone()));
+        }
+        ui.separator();
+        if item(ui, c::TRASH, "Delete") {
+            *action = Some(TreeAction::Trash(dir));
+        }
+    }
+
+    /// A name to type, for `what`: its folder opened so the field shows.
+    fn start(&mut self, what: Named) {
+        let text = match &what {
+            Named::Rename(p) => p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+            Named::Folder(d) | Named::File(d) => {
+                self.open.insert(d.clone());
+                String::new()
+            }
+        };
+        self.naming = Some(Naming { what, text, focus: true, error: None });
+    }
+
+    /// The row a name is typed in: its icon, and the field.
+    fn naming_row(&mut self, ui: &mut egui::Ui, depth: usize, is_dir: bool, was: &str, action: &mut Option<TreeAction>) {
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), ROW), egui::Sense::hover());
+        let x = rect.left() + depth as f32 * INDENT + TWISTIE + 2.0;
+        let named = self.naming.as_ref().map(|n| n.text.clone()).unwrap_or_default();
+        let shown = if named.is_empty() { was.to_string() } else { named };
+        let icon = if is_dir { icons::for_folder(&shown, false) } else { icons::for_file(&shown) };
+        egui::Image::new(icon).paint_at(
+            ui,
+            egui::Rect::from_center_size(egui::pos2(x + 8.0, rect.center().y), egui::vec2(16.0, 16.0)),
+        );
+        let field = egui::Rect::from_min_max(egui::pos2(x + 22.0, rect.top() + 1.0), egui::pos2(rect.right() - 4.0, rect.bottom() - 1.0));
+        let Some(n) = self.naming.as_mut() else { return };
+        let response = ui.put(
+            field,
+            egui::TextEdit::singleline(&mut n.text).margin(egui::vec2(4.0, 1.0)).id(egui::Id::new("tree naming")),
+        );
+        if std::mem::take(&mut n.focus) {
+            response.request_focus();
+        }
+        if let Some(e) = &n.error {
+            ui.painter().rect_stroke(field, 2.0, egui::Stroke::new(1.0, ui.visuals().error_fg_color), egui::StrokeKind::Outside);
+            response.clone().on_hover_text(e.clone());
+        }
+        if response.lost_focus() {
+            let (enter, escape) = ui.input(|i| (i.key_pressed(egui::Key::Enter), i.key_pressed(egui::Key::Escape)));
+            if escape {
+                self.naming = None;
+            } else {
+                self.commit(enter, action);
             }
         }
     }
+
+    /// Make what is being named: a folder, an empty file, a new name. A name
+    /// that will not do is said and the field kept -- after Enter; a click
+    /// away gives it up, as it gives up an empty one.
+    fn commit(&mut self, enter: bool, action: &mut Option<TreeAction>) {
+        let Some(n) = self.naming.as_mut() else { return };
+        let name = n.text.trim().to_string();
+        let target = match &n.what {
+            Named::Folder(d) | Named::File(d) => d.join(&name),
+            Named::Rename(p) => p.with_file_name(&name),
+        };
+        let unchanged = matches!(&n.what, Named::Rename(p) if *p == target);
+        let refused = if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\']) {
+            Some(format!("`{name}` is no name for a file"))
+        } else if !unchanged && target.exists() {
+            Some(format!("{name} is there already"))
+        } else {
+            None
+        };
+        if unchanged || (refused.is_some() && (!enter || name.is_empty())) {
+            self.naming = None;
+            return;
+        }
+        if let Some(why) = refused {
+            n.error = Some(why);
+            n.focus = true;
+            return;
+        }
+        let made = match &n.what {
+            Named::Folder(d) | Named::File(d) => std::fs::create_dir_all(d).and_then(|()| match &n.what {
+                Named::Folder(_) => std::fs::create_dir(&target).map(|()| None),
+                _ => std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&target)
+                    .map(|_| Some(TreeAction::Created(target.clone()))),
+            }),
+            Named::Rename(p) => std::fs::rename(p, &target).map(|()| Some(TreeAction::Renamed(p.clone(), target.clone()))),
+        };
+        match made {
+            Ok(done) => {
+                match &n.what {
+                    Named::Folder(_) => {
+                        self.open.insert(target);
+                    }
+                    // A folder renamed: it, and those in it, stay open.
+                    Named::Rename(from) => {
+                        let open: Vec<std::path::PathBuf> = self.open.iter().filter(|p| p.starts_with(from)).cloned().collect();
+                        for p in open {
+                            self.open.remove(&p);
+                            if let Ok(rest) = p.strip_prefix(from) {
+                                self.open.insert(target.join(rest));
+                            }
+                        }
+                    }
+                    Named::File(_) => {}
+                }
+                self.naming = None;
+                self.reread();
+                if done.is_some() {
+                    *action = done;
+                }
+            }
+            Err(e) => {
+                n.error = Some(e.to_string());
+                n.focus = true;
+            }
+        }
+    }
+}
+
+/// What a click in the editor's column asked for.
+enum NavClick {
+    /// A file open, to show.
+    Show(String),
+    /// Its cross.
+    Close(String),
+    /// A symbol of the outline: its line.
+    Line(usize),
+}
+
+/// The editor's column, as the documentation tab has its pages and theirs:
+/// the files open -- the one shown lit, an edited one dotted, the one the
+/// renderer runs marked, each with a cross under the pointer -- and the
+/// shown one's outline, VS Code's, a click going to the line.
+#[allow(clippy::too_many_arguments)]
+fn editor_nav(
+    ui: &mut egui::Ui,
+    t: crate::app::config::UiTheme,
+    opened: &[String],
+    shown: &str,
+    edited: &std::collections::HashSet<String>,
+    rendering: Option<&str>,
+    symbols: &[script::outline::Symbol],
+) -> Option<NavClick> {
+    use script::outline::Kind;
+    let (hover, selected, guide) = theme::list(t);
+    let text = ui.visuals().text_color();
+    let weak = ui.visuals().weak_text_color();
+    let body = egui::TextStyle::Body.resolve(ui.style());
+    let mut click = None;
+    ui.spacing_mut().item_spacing.y = 0.0;
+    docs::section_title(ui, "OPEN FILES");
+    let mut files: Vec<&str> = opened.iter().map(String::as_str).collect();
+    if !files.contains(&shown) && !shown.is_empty() {
+        files.push(shown);
+    }
+    if files.is_empty() {
+        widgets::note(ui, "none: a click in the scripts tab opens one");
+    }
+    for path in files {
+        let (dir, name) = path.rsplit_once(['/', '\\']).unwrap_or(("", path));
+        let name = if name.is_empty() { "untitled" } else { name };
+        let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), ROW), egui::Sense::click());
+        let painter = ui.painter_at(rect);
+        if path == shown {
+            painter.rect_filled(rect, 0.0, selected);
+        } else if response.hovered() {
+            painter.rect_filled(rect, 0.0, hover);
+        }
+        let (x, y) = (rect.left() + 8.0, rect.center().y);
+        egui::Image::new(icons::for_file(name)).paint_at(ui, egui::Rect::from_center_size(egui::pos2(x + 8.0, y), egui::vec2(16.0, 16.0)));
+        let named = painter.text(egui::pos2(x + 22.0, y), egui::Align2::LEFT_CENTER, name, body.clone(), text);
+        if !dir.is_empty() {
+            painter.text(egui::pos2(named.right() + 6.0, y), egui::Align2::LEFT_CENTER, dir, egui::FontId::proportional(11.5), weak);
+        }
+        // On the right: the cross under the pointer, else the edited dot;
+        // before it, the renderer's mark.
+        let cross = egui::Rect::from_center_size(egui::pos2(rect.right() - 12.0, y), egui::vec2(18.0, 18.0));
+        if response.hovered() {
+            let over = response.hover_pos().is_some_and(|p| cross.contains(p));
+            if over {
+                painter.rect_filled(cross, 3.0, hover.gamma_multiply(2.0));
+            }
+            painter.text(cross.center(), egui::Align2::CENTER_CENTER, icons::codicon::CLOSE, egui::FontId::proportional(14.0), text);
+        } else if edited.contains(path) {
+            painter.text(cross.center(), egui::Align2::CENTER_CENTER, icons::codicon::CIRCLE_FILLED, egui::FontId::proportional(10.0), text);
+        }
+        if rendering == Some(path) {
+            painter.text(
+                egui::pos2(cross.left() - 10.0, y),
+                egui::Align2::CENTER_CENTER,
+                icons::codicon::SEND,
+                egui::FontId::proportional(13.0),
+                theme::accent(t),
+            );
+        }
+        let response = response.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(if rendering == Some(path) {
+            format!("{path}\nsent to the renderer: Play and Restart run it")
+        } else {
+            path.to_string()
+        });
+        if response.clicked() {
+            let on_cross = response.interact_pointer_pos().is_some_and(|p| cross.contains(p));
+            click = Some(if on_cross { NavClick::Close(path.to_string()) } else { NavClick::Show(path.to_string()) });
+        }
+    }
+
+    ui.add_space(10.0);
+    docs::section_title(ui, "OUTLINE");
+    if symbols.is_empty() {
+        widgets::note(ui, if shown.is_empty() { "no file shown" } else { "nothing to outline in this file" });
+    }
+    egui::ScrollArea::vertical().id_salt("editor outline").auto_shrink([false, false]).show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        for symbol in symbols {
+            let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), ROW), egui::Sense::click());
+            let painter = ui.painter_at(rect);
+            if response.hovered() {
+                painter.rect_filled(rect, 0.0, hover);
+            }
+            for level in 0..symbol.depth {
+                let x = rect.left() + level as f32 * INDENT + TWISTIE / 2.0;
+                painter.vline(x, rect.y_range(), egui::Stroke::new(1.0, guide));
+            }
+            // VS Code's glyph and colour for the kind.
+            let (glyph, color) = match symbol.kind {
+                Kind::Class => (icons::codicon::SYMBOL_CLASS, theme::palette::PEACH),
+                Kind::Function | Kind::Method => (icons::codicon::SYMBOL_METHOD, theme::palette::MAUVE),
+                Kind::Variable => (icons::codicon::SYMBOL_VARIABLE, theme::palette::BLUE),
+                Kind::Field => (icons::codicon::SYMBOL_FIELD, theme::palette::BLUE),
+                Kind::Constant => (icons::codicon::SYMBOL_CONSTANT, theme::palette::PEACH),
+                Kind::Struct => (icons::codicon::SYMBOL_STRUCTURE, theme::palette::YELLOW),
+                Kind::Enum => (icons::codicon::SYMBOL_ENUM, theme::palette::PEACH),
+                Kind::Trait => (icons::codicon::SYMBOL_INTERFACE, theme::palette::BLUE),
+                Kind::Module => (icons::codicon::SYMBOL_NAMESPACE, text),
+                Kind::Implementation => (icons::codicon::SYMBOL_CLASS, theme::palette::YELLOW),
+                Kind::Heading => (icons::codicon::SYMBOL_STRING, text),
+            };
+            let x = rect.left() + symbol.depth as f32 * INDENT + 8.0;
+            painter.text(egui::pos2(x + 8.0, rect.center().y), egui::Align2::CENTER_CENTER, glyph, egui::FontId::proportional(14.0), color);
+            painter.text(egui::pos2(x + 22.0, rect.center().y), egui::Align2::LEFT_CENTER, &symbol.name, body.clone(), text);
+            if response.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                click = Some(NavClick::Line(symbol.line));
+            }
+        }
+    });
+    click
+}
+
+/// Where the UI app's window opens every time, shown while
+/// `remember_window` is off -- filled, as the box is unticked, from the
+/// window as it then stands. Written by hand rather than generated: the
+/// screen is a list of those connected, where a name typed in would move the
+/// window at each letter.
+fn window_start(ui: &mut egui::Ui, a: &mut crate::app::config::AppConfig, screens: &[String]) {
+    widgets::setting(ui, "screen", "The screen the window opens on.", |ui| {
+        let shown = if a.monitor.is_empty() { "the main one".to_string() } else { a.monitor.clone() };
+        egui::ComboBox::from_id_salt("a.monitor").selected_text(shown).show_ui(ui, |ui| {
+            ui.selectable_value(&mut a.monitor, String::new(), "the main one");
+            for name in screens {
+                ui.selectable_value(&mut a.monitor, name.clone(), name);
+            }
+        });
+    });
+    let at = "Its top-left corner from the screen's, in pixels; -1 in the middle.";
+    widgets::setting(ui, "window x", at, |ui| ui.add(egui::DragValue::new(&mut a.window_x).range(-1..=i32::MAX)));
+    widgets::setting(ui, "window y", at, |ui| ui.add(egui::DragValue::new(&mut a.window_y).range(-1..=i32::MAX)));
+    let size = "In pixels; 0 for most of the screen.";
+    widgets::setting(ui, "window width", size, |ui| ui.add(egui::DragValue::new(&mut a.width)));
+    widgets::setting(ui, "window height", size, |ui| ui.add(egui::DragValue::new(&mut a.height)));
+    widgets::setting(ui, "open fullscreen", "Open fullscreen, whatever F did last time.", |ui| {
+        ui.checkbox(&mut a.start_fullscreen, "")
+    });
 }
 
 impl Log {
@@ -785,10 +1329,27 @@ pub struct Editor {
     sash_drag: Option<usize>,
     /// The files tab's listings.
     files: FileTree,
-    /// A file clicked in the tree over unsaved edits, waiting on the prompt.
-    confirm_open: Option<std::path::PathBuf>,
-    /// One to open once the save the prompt asked for has landed.
-    open_after_save: Option<std::path::PathBuf>,
+    /// The files opened this run, in the order they were: the one shown is
+    /// `script_path`, its text in `script`; the others' text, and whether it
+    /// is edited, are in `stash`, so that switching back loses nothing.
+    opened: Vec<String>,
+    stash: std::collections::HashMap<String, (String, bool)>,
+    /// The script the renderer runs -- sent to it by the editor's render
+    /// button or the scripts tab -- which Play, Restart and Step act on,
+    /// whatever file the editor shows.
+    pub rendering: Option<String>,
+    /// A mesh sent to the renderer, for the app to show.
+    pub mesh_request: Option<std::path::PathBuf>,
+    /// Render asks for the scene as a new app has it first -- settings and
+    /// camera too, which Restart keeps -- so that rendering again is a clean
+    /// start. Taken by the app with the run it goes with.
+    pub reset_before_render: bool,
+    /// A path the scripts tab asked to throw away, waiting on the prompt.
+    trash_asked: Option<std::path::PathBuf>,
+    /// An edited file asked to be closed, waiting on the prompt.
+    close_asked: Option<String>,
+    /// What the editor has to say, for the log's kalast tab.
+    notes: Vec<String>,
 
     /// The script buffer, so a simulation can be edited without leaving the
     /// window. Plain text, not a file handle: what is on screen is what
@@ -855,7 +1416,7 @@ pub struct Editor {
     /// a build changes -- not every frame, since answering it means reading
     /// `Cargo.toml` and stat-ing a file.
     pub rust_built: bool,
-    pub rust_key: (String, bool, bool),
+    pub rust_key: (String, bool, u64),
     pub was_building: bool,
     /// A build the editor started itself, after a load found the library
     /// stale. Load again when it finishes.
@@ -872,11 +1433,175 @@ impl Editor {
         self.script_editor.saved();
     }
 
-    /// Open `path` from the tree: as the path field used to, through
-    /// `open_request`.
-    fn open_path(&mut self, path: std::path::PathBuf) {
-        self.script_path = path.display().to_string();
-        self.open_request = true;
+    /// Show `path` in the editor: switched to if it is open already, else
+    /// read -- text only, and small enough to edit -- and added to the files
+    /// opened. The buffer it replaces is kept, edits and all. Nothing reaches
+    /// the renderer: that is the render button's.
+    pub fn open_file(&mut self, path: &std::path::Path) -> Result<(), String> {
+        self.buffers().open(path)
+    }
+
+    /// The editor's files, as `Buffers` works on them.
+    fn buffers(&mut self) -> Buffers<'_> {
+        Buffers {
+            script: &mut self.script,
+            path: &mut self.script_path,
+            dirty: &mut self.script_dirty,
+            opened: &mut self.opened,
+            stash: &mut self.stash,
+        }
+    }
+
+    /// A script given whole -- the command line's, `app.set_script` --
+    /// shown, with the one shown kept, and sent to the renderer: it is what
+    /// runs.
+    pub fn show_script(&mut self, path: String, source: String) {
+        if path.trim() != self.script_path.trim() {
+            self.stash.remove(path.trim());
+            self.stash_current();
+        }
+        self.script = source;
+        self.script_path = path.clone();
+        self.script_dirty = false;
+        if !self.opened.contains(&path) {
+            self.opened.push(path.clone());
+        }
+        self.rendering = Some(path);
+    }
+
+    /// An untitled script given a file by "Save as": listed by it now.
+    pub fn saved_as(&mut self, path: &str) {
+        self.buffers().renamed("", path);
+        self.script_path = path.to_string();
+        if !self.opened.iter().any(|p| p == path) {
+            self.opened.push(path.to_string());
+        }
+    }
+
+    /// The file shown read again from the disk, its edits given up.
+    pub fn reload_shown(&mut self) -> Result<(), String> {
+        let path = std::path::PathBuf::from(self.script_path.trim());
+        self.script = read_text(&path)?;
+        self.script_dirty = false;
+        let key = path.display().to_string();
+        if !self.opened.contains(&key) {
+            self.opened.push(key);
+        }
+        Ok(())
+    }
+
+    /// `open_file`, the middle turned to the editor -- or, a file that
+    /// cannot be edited, said why.
+    fn open_in_editor(&mut self, path: &std::path::Path) {
+        match self.open_file(path) {
+            Ok(()) => self.central_tab = CentralTab::Editor,
+            Err(e) => self.notes.push(e),
+        }
+    }
+
+    /// The buffer shown, kept aside for switching back to.
+    fn stash_current(&mut self) {
+        self.buffers().stash_shown();
+    }
+
+    /// Close `path`, its edits already asked about.
+    fn close_file(&mut self, path: &str) {
+        self.buffers().close(path);
+    }
+
+    /// Whether a file open has edits not saved: the one shown or another.
+    pub fn any_dirty(&self) -> bool {
+        self.script_dirty || self.stash.values().any(|(_, dirty)| *dirty)
+    }
+
+    /// The files with edits not saved, by path.
+    fn dirty_names(&self) -> Vec<String> {
+        let name = |p: &str| if p.is_empty() { "untitled".to_string() } else { p.to_string() };
+        let mut names: Vec<String> = self.stash.iter().filter(|(_, (_, d))| *d).map(|(p, _)| name(p)).collect();
+        if self.script_dirty {
+            names.insert(0, name(self.script_path.trim()));
+        }
+        names
+    }
+
+    /// Write every edited file but the one shown -- which goes the usual
+    /// way, through `save_request` -- as "Save all and quit" asks.
+    fn save_stashed(&mut self) {
+        for (path, (text, dirty)) in self.stash.iter_mut().filter(|(p, (_, d))| *d && !p.is_empty()) {
+            match std::fs::write(path.as_str(), text.as_str()) {
+                Ok(()) => {
+                    *dirty = false;
+                    self.notes.push(format!("saved {path}"));
+                }
+                Err(e) => self.notes.push(format!("cannot save {path}: {e}")),
+            }
+        }
+    }
+
+    /// The script the renderer runs, and its text as it stands: the editor's
+    /// buffer when it is open there, saved or not, else the file.
+    pub fn render_source(&self) -> Option<(String, String)> {
+        let path = self.rendering.as_ref()?;
+        if *path == self.script_path.trim() {
+            return Some((path.clone(), self.script.clone()));
+        }
+        if let Some((text, _)) = self.stash.get(path) {
+            return Some((path.clone(), text.clone()));
+        }
+        std::fs::read_to_string(path).ok().map(|text| (path.clone(), text))
+    }
+
+    /// Send `path` to the renderer, from a clean scene -- a new app's, its
+    /// settings and camera too: a script run to its first iteration and held
+    /// there, a Rust example built if it has to be and loaded, a mesh shown.
+    /// The middle turns to the scene; the editor stays as it is.
+    pub fn send_to_renderer(&mut self, path: &std::path::Path) {
+        let key = path.display().to_string();
+        self.reset_before_render = true;
+        match path.extension().and_then(|e| e.to_str()) {
+            Some("obj") => {
+                // The scene is the mesh now: there is no script left to play.
+                self.mesh_request = Some(path.to_path_buf());
+                self.rendering = None;
+            }
+            Some("rs") => {
+                self.rendering = Some(key);
+                self.launch_request = true;
+            }
+            _ => {
+                self.rendering = Some(key);
+                self.run_request = true;
+                self.restart_request = true;
+            }
+        }
+        self.central_tab = CentralTab::Renderer;
+    }
+
+    /// A file the scripts tab renamed: its buffer, and the renderer's
+    /// script, follow it.
+    fn renamed(&mut self, from: &std::path::Path, to: &std::path::Path) {
+        let (from, to) = (from.display().to_string(), to.display().to_string());
+        self.buffers().renamed(&from, &to);
+        if let Some(moved) = self.rendering.as_deref().and_then(|r| moved(r, &from, &to)) {
+            self.rendering = Some(moved);
+        }
+    }
+
+    /// What was thrown away, closed: the files open from under `gone`, and
+    /// the renderer's script if it was one of them.
+    fn thrown_away(&mut self, gone: &std::path::Path) {
+        let under = |p: &str| std::path::Path::new(p).starts_with(gone);
+        let open: Vec<String> = self.opened.iter().filter(|p| under(p)).cloned().collect();
+        for p in open {
+            self.close_file(&p);
+        }
+        if under(self.script_path.trim()) && !self.script_path.trim().is_empty() {
+            let shown = self.script_path.trim().to_string();
+            self.close_file(&shown);
+        }
+        if self.rendering.as_deref().is_some_and(under) {
+            self.rendering = None;
+        }
     }
 
     /// Fold the three docked panels to the window edges, or bring them all
@@ -954,8 +1679,14 @@ impl Editor {
             sash_hover: None,
             sash_drag: None,
             files: FileTree::default(),
-            confirm_open: None,
-            open_after_save: None,
+            opened: Vec::new(),
+            stash: std::collections::HashMap::new(),
+            rendering: None,
+            mesh_request: None,
+            reset_before_render: false,
+            trash_asked: None,
+            close_asked: None,
+            notes: Vec::new(),
             script: String::new(),
             script_path: String::new(),
             script_dirty: false,
@@ -980,7 +1711,7 @@ impl Editor {
             build_request: false,
             launch_request: false,
             rust_built: false,
-            rust_key: (String::new(), false, false),
+            rust_key: (String::new(), false, 0),
             was_building: false,
             load_after_build: false,
             building: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -1058,6 +1789,14 @@ impl Editor {
             self.theme = Some(app_config.theme);
         }
 
+        // The screens, by name, for the app tab's list while the window is not
+        // remembered -- and only then, since asking walks them all.
+        let screens: Vec<String> = if app_config.remember_window {
+            Vec::new()
+        } else {
+            window.available_monitors().map(|m| crate::app::screen_name(&m)).collect()
+        };
+
         let mut raw = self.state.take_egui_input(window);
         // Lay out for what is being drawn into, not for the window.
         let ppp = self.ctx.pixels_per_point();
@@ -1116,12 +1855,11 @@ impl Editor {
         // Read before the panel closures are built: the toolbar needs to know
         // whether there is a script, the script panel needs the buffer, and
         // one cannot borrow it while the other holds it.
-        let has_script = !self.script.trim().is_empty();
+        // Something for Play to run: the script sent to the renderer.
+        let has_script = self.rendering.is_some();
+        // The edited files, for the question before quitting.
+        let dirty_names = self.dirty_names();
         let confirm_exit = self.confirm_exit;
-        let path_label = match self.script_path.trim() {
-            "" => "The script".to_string(),
-            p => p.to_string(),
-        };
         shared.panels_shown = [show_top, show_bottom, show_left, show_right];
         shared.pointer = pointer.map(|p| (p.x, p.y));
         shared.ui_size = (screen.width(), screen.height());
@@ -1154,9 +1892,28 @@ impl Editor {
         let accent = theme::accent(app_config.theme);
         let outline = theme::outline(app_config.theme);
         let side_fill = theme::side_fill(app_config.theme);
-        let mut file_clicked: Option<std::path::PathBuf> = None;
-        let confirm_open = self.confirm_open.clone();
-        let (mut open_saving, mut open_anyway, mut keep_editing) = (false, false, false);
+        let mut tree_action: Option<TreeAction> = None;
+        // The side panel's open button, the editor's column and its buttons.
+        let mut open_external = false;
+        let mut nav_click: Option<NavClick> = None;
+        let (mut render_now, mut preview_now) = (false, false);
+        // What the editor's column lists: the files open, those edited, the
+        // renderer's, and the shown one's outline.
+        let opened = self.opened.clone();
+        let edited: std::collections::HashSet<String> = self
+            .stash
+            .iter()
+            .filter(|(_, (_, dirty))| *dirty)
+            .map(|(path, _)| path.clone())
+            .chain(self.script_dirty.then(|| self.script_path.trim().to_string()))
+            .collect();
+        let rendering = self.rendering.clone();
+        let symbols = script::outline::symbols(&self.script, self.script_path.trim());
+        // The prompts after a right click or a cross.
+        let trash_asked = self.trash_asked.clone();
+        let (mut trash_now, mut trash_cancel) = (false, false);
+        let close_asked = self.close_asked.clone();
+        let (mut close_saving, mut close_anyway, mut close_cancel) = (false, false, false);
         let mut remember = false;
         // An empty scene shows the logo, as VS Code's empty editor does.
         let scene_empty = sim.borrow().bodies.is_empty();
@@ -1216,7 +1973,10 @@ impl Editor {
         let rust_language_server = app_config.rust_language_server.clone();
         let (neovim, ruler, language_servers) = (app_config.neovim, app_config.ruler, app_config.language_servers);
         let (mut editor_save, mut editor_open) = (false, None::<std::path::PathBuf>);
-        let is_rust = script_path.trim_end().ends_with(".rs");
+        let is_rust = rendering.as_deref().is_some_and(|p| p.trim_end().ends_with(".rs"));
+        let editing_rust = script_path.trim_end().ends_with(".rs");
+        let shown_renders = renderable(std::path::Path::new(script_path.trim()));
+        let shown_markdown = docs::is_markdown(std::path::Path::new(script_path.trim()));
         let lang = code::Lang::of(script_path);
         let script_dirty = self.script_dirty;
         let script_ran = shared.script_ran;
@@ -1470,7 +2230,7 @@ impl Editor {
                             .clicked()
                         {
                             state.is_paused = false;
-                            state.pause_after_iteration = Some(state.iteration);
+                            state.hold_after_iteration = Some(state.iteration);
                         }
                         // Enabled whenever there is something to run, not only
                         // once it has run: an edit clears `script_ran` so that
@@ -1529,6 +2289,13 @@ impl Editor {
                             .on_hover_text(
                                 "app.config.toolbar -- {drawn} {it} {its} {fps} {ms} {bodies} {paused} {warn} {gpu}",
                             );
+                        }
+                        // What the transport acts on, whatever file the
+                        // editor shows: the script sent to the renderer.
+                        if let Some(sent) = rendering.as_deref() {
+                            let name = std::path::Path::new(sent).file_name().map_or(sent.into(), |n| n.to_string_lossy());
+                            ui.label(egui::RichText::new(format!("{}  {name}", icons::codicon::SEND)).weak())
+                                .on_hover_text(format!("{sent}\nsent to the renderer: Play, Restart and Step act on it"));
                         }
                     },
                 );
@@ -1629,39 +2396,78 @@ impl Editor {
                         });
                 };
             let script_ui = |ui: &mut egui::Ui| {
-                    // A Rust example is a separate program: it links kalast
-                    // as a library and opens its own window, so it cannot be
-                    // hosted in this one the way a script is. Build it and
-                    // launch it instead -- cargo and the example both inherit
-                    // this process's redirected stdout, so their output still
-                    // arrives in the Log below.
-                    // Not in a launched example: it is already running the
-                    // thing, and there is no Play left to launch a rebuild
-                    // with -- Play is its pause button. The source is here to
-                    // read, not to act on.
-                    if is_rust && !native {
-                        ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new("Rust").weak());
-                            ui.selectable_value(rust_release, false, "debug")
-                                .on_hover_text("cargo build --example ...");
-                            ui.selectable_value(rust_release, true, "release")
-                                .on_hover_text(
-                                    "cargo build --release --example ... -- 2-15x faster here, \
-                                     and what any run worth keeping wants",
-                                );
+                // The files open and the shown one's outline, in a column on
+                // the left, as the documentation has its pages and theirs.
+                let nav = egui::Panel::left("editor nav")
+                    .frame(egui::Frame::NONE.inner_margin(egui::Margin { left: 0, right: 8, top: 0, bottom: 0 }))
+                    .show_separator_line(false)
+                    .resizable(true)
+                    .default_size(210.0)
+                    .size_range(140.0..=420.0)
+                    .show(ui, |ui| editor_nav(ui, ui_theme, &opened, script_path.trim(), &edited, rendering.as_deref(), &symbols));
+                nav_click = nav.inner;
+                let edge = nav.response.rect;
+                ui.painter().vline(edge.right(), edge.y_range(), egui::Stroke::new(1.0, outline));
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| {
+                    // The shown file's own buttons, on the right as VS Code
+                    // has an editor's. A Rust example is a separate program:
+                    // it links kalast as a library, so it is built -- a bug
+                    // for debug, a rocket for release, the chevron to choose
+                    // -- and loaded, never run in this process. Render sends
+                    // what is shown to the renderer: nothing else does. Not
+                    // in a launched example, which is already running it.
+                    ui.horizontal(|ui| {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let text = ui.visuals().text_color();
+                            if shown_markdown
+                                && ui
+                                    .add(action(icons::codicon::OPEN_PREVIEW, text))
+                                    .on_hover_text("Open as documentation: this file as a page of the documentation tab")
+                                    .clicked()
+                            {
+                                preview_now = true;
+                            }
                             if ui
-                                .add_enabled(!building, egui::Button::new("compile"))
-                                .on_hover_text(if building {
-                                    "a compile is already running"
-                                } else {
-                                    "cargo build for this example"
+                                .add_enabled(shown_renders && !native, action(icons::codicon::SEND, accent))
+                                .on_hover_text(
+                                    "Render: send this file to the renderer -- a script run to its first iteration, \
+                                     a Rust example built and loaded, a mesh shown. Opening a file never does.",
+                                )
+                                .on_disabled_hover_text("Render: for a Python script, a Rust example or a mesh")
+                                .clicked()
+                            {
+                                render_now = true;
+                            }
+                            let rust = editing_rust && !native;
+                            ui.add_enabled_ui(rust, |ui| {
+                                ui.menu_button(egui::RichText::new(icons::codicon::CHEVRON_DOWN).size(12.0), |ui| {
+                                    ui.radio_value(rust_release, false, "debug").on_hover_text("cargo build --example ...");
+                                    ui.radio_value(rust_release, true, "release").on_hover_text(
+                                        "cargo build --release --example ... -- 2-15x faster here, and what any run worth keeping wants",
+                                    );
                                 })
+                                .response
+                                .on_hover_text("debug or release");
+                            });
+                            let (mode, profile) = if *rust_release {
+                                (icons::codicon::ROCKET, "release")
+                            } else {
+                                (icons::codicon::DEBUG, "debug")
+                            };
+                            if ui
+                                .add_enabled(rust && !building, action(mode, text))
+                                .on_hover_text(if building {
+                                    "a compile is already running".to_string()
+                                } else {
+                                    format!("Compile: cargo build for this example, {profile}")
+                                })
+                                .on_disabled_hover_text("Compile: for a Rust example")
                                 .clicked()
                             {
                                 build_request = true;
                             }
                         });
-                    }
+                    });
                     // The editor: VS Code's, with a language server's
                     // completion and hover, or the user's Neovim. See
                     // `script`.
@@ -1680,8 +2486,11 @@ impl Editor {
                         script_editor.show(ui, script, script_path.as_str(), lang, &palette, &settings, *dirty);
                     if outcome.changed {
                         *dirty = true;
-                        // What is running is no longer what is shown.
-                        *ran = false;
+                        // What is running is no longer what is shown -- when
+                        // what is shown is what is running.
+                        if rendering.as_deref() == Some(script_path.trim()) {
+                            *ran = false;
+                        }
                     }
                     // Under Neovim, measured against the file: `u` back to
                     // the saved text is not an edit to save.
@@ -1695,7 +2504,8 @@ impl Editor {
                     if outcome.open.is_some() {
                         editor_open = outcome.open;
                     }
-                };
+                });
+            };
             // kalast's references, rendered; a link followed from them is
             // served after the frame. See `docs`.
             let docs_ui = |ui: &mut egui::Ui| {
@@ -1711,12 +2521,26 @@ impl Editor {
                         for (which, icon, hover) in [
                             (SideTab::App, icons::codicon::SETTINGS_GEAR, "App: the app's own settings, remembered for next time"),
                             (SideTab::Simulation, icons::codicon::GLOBE, "Simulation: app.simulation.config, and the scene's bodies, camera and Sun"),
-                            (SideTab::Files, icons::codicon::FILES, "Files: the folder the app was started in; a script or a mesh opens on a click"),
+                            (
+                                SideTab::Files,
+                                icons::codicon::FILE_CODE,
+                                "Scripts: the bundle's examples and your own scripts; a click opens a file in the editor, a right click does the rest",
+                            ),
                         ] {
                             if widgets::icon_tab(ui, *side_tab == which, icon, accent).on_hover_text(hover).clicked() {
                                 *side_tab = which;
                             }
                         }
+                        // Any file, from anywhere, as the system's dialog finds it.
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui
+                                .add(action(icons::codicon::FOLDER_OPENED, ui.visuals().text_color()))
+                                .on_hover_text("Open a file: any text file, from anywhere -- a script, a mesh, a README")
+                                .clicked()
+                            {
+                                open_external = true;
+                            }
+                        });
                     });
                     ui.add_space(4.0);
                     // A scroll position per tab, so switching does not drop
@@ -1737,7 +2561,10 @@ impl Editor {
                                     config_panel::app_panels(ui, app_config)
                                 });
                                 widgets::section(ui, Codicon(icons::codicon::WINDOW, palette::LAVENDER), "Window", "Window", |ui| {
-                                    config_panel::app_window(ui, app_config)
+                                    config_panel::app_window(ui, app_config);
+                                    if !app_config.remember_window {
+                                        window_start(ui, app_config, &screens);
+                                    }
                                 });
                                 widgets::section(ui, Codicon(icons::codicon::CODE, palette::GREEN), "Editor", "Editor", |ui| {
                                     config_panel::app_editor(ui, app_config)
@@ -1752,7 +2579,7 @@ impl Editor {
                                 remember |= crate::app::settings::Remembered::of(app_config) != before;
                                 ui.add_space(8.0);
                                 ui.label(
-                                    egui::RichText::new("The theme, fullscreen and the editor's settings are remembered for next time.")
+                                    egui::RichText::new("The theme, the window and the editor's settings are remembered for next time.")
                                         .weak()
                                         .small(),
                                 );
@@ -1769,13 +2596,9 @@ impl Editor {
                                 simulation_panel::simulation_panel(ui, &mut sim, config);
                             }
                             SideTab::Files => {
-                                let root = std::env::current_dir()
-                                    .ok()
-                                    .and_then(|d| d.file_name().map(|n| n.to_string_lossy().into_owned()))
-                                    .unwrap_or_else(|| ".".to_string());
-                                // The root as VS Code heads its explorer section.
-                                ui.label(egui::RichText::new(root.to_uppercase()).strong().size(11.0));
-                                file_clicked = files.show(ui, std::path::Path::new(""), &current_script, ui_theme);
+                                // Headed as VS Code heads its explorer.
+                                ui.label(egui::RichText::new("SCRIPTS").strong().size(11.0));
+                                tree_action = files.show(ui, &current_script, ui_theme);
                             }
                             }
                         });
@@ -2170,12 +2993,14 @@ impl Editor {
                     |ui| {
                         ui.set_width(380.0);
                         ui.heading("Unsaved changes");
-                        ui.label(format!(
-                            "{path_label} has been edited since it was last saved."
-                        ));
+                        ui.label(match dirty_names.as_slice() {
+                            [one] => format!("{one} has been edited since it was last saved."),
+                            many => format!("{} have been edited since they were last saved.", many.join(", ")),
+                        });
                         ui.add_space(8.0);
                         ui.horizontal(|ui| {
-                            if ui.add(primary(ui_theme, icons::codicon::SAVE, "Save and quit")).clicked() {
+                            let save = if dirty_names.len() > 1 { "Save all and quit" } else { "Save and quit" };
+                            if ui.add(primary(ui_theme, icons::codicon::SAVE, save)).clicked() {
                                 save_and_quit = true;
                             }
                             if ui.button("Quit without saving").clicked() {
@@ -2192,31 +3017,55 @@ impl Editor {
                 }
             }
 
-            // The same question before a file from the tree replaces edits
-            // not yet saved: the tree puts that one click away.
-            if let Some(next) = &confirm_open {
-                let modal = egui::Modal::new(egui::Id::new("confirm_open")).show(ui_root.ctx(), |ui| {
+            // A right click's Delete: to the Trash, from where it can be put
+            // back, once asked.
+            if let Some(path) = &trash_asked {
+                let modal = egui::Modal::new(egui::Id::new("confirm_trash")).show(ui_root.ctx(), |ui| {
                     ui.set_width(380.0);
-                    ui.heading("Unsaved changes");
-                    ui.label(format!(
-                        "{path_label} has been edited since it was last saved. Open {} in its place?",
-                        next.display()
-                    ));
+                    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                    ui.heading(format!("Delete {name}?"));
+                    ui.label(if path.is_dir() {
+                        format!("{} and everything in it go to the Trash, from where they can be put back.", path.display())
+                    } else {
+                        format!("{} goes to the Trash, from where it can be put back.", path.display())
+                    });
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
-                        if ui.add(primary(ui_theme, icons::codicon::SAVE, "Save and open")).clicked() {
-                            open_saving = true;
-                        }
-                        if ui.button("Open without saving").clicked() {
-                            open_anyway = true;
+                        if ui.add(primary(ui_theme, icons::codicon::TRASH, "Move to the Trash")).clicked() {
+                            trash_now = true;
                         }
                         if ui.button("Cancel").clicked() {
-                            keep_editing = true;
+                            trash_cancel = true;
                         }
                     });
                 });
                 if modal.should_close() {
-                    keep_editing = true;
+                    trash_cancel = true;
+                }
+            }
+
+            // A cross on an edited file in the editor's column.
+            if let Some(path) = &close_asked {
+                let modal = egui::Modal::new(egui::Id::new("confirm_close")).show(ui_root.ctx(), |ui| {
+                    ui.set_width(380.0);
+                    ui.heading("Unsaved changes");
+                    let name = if path.is_empty() { "untitled" } else { path.as_str() };
+                    ui.label(format!("{name} has been edited since it was last saved. Save it before it is closed?"));
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if !path.is_empty() && ui.add(primary(ui_theme, icons::codicon::SAVE, "Save and close")).clicked() {
+                            close_saving = true;
+                        }
+                        if ui.button("Close without saving").clicked() {
+                            close_anyway = true;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            close_cancel = true;
+                        }
+                    });
+                });
+                if modal.should_close() {
+                    close_cancel = true;
                 }
             }
         });
@@ -2251,16 +3100,10 @@ impl Editor {
         if run_request || restart_request || launch_request {
             self.central_tab = CentralTab::Renderer;
         }
-        // Followed from the documentation: a script or a mesh opened as the
-        // files tab opens one, and the middle turned to it, since it was
-        // showing the page; a folder shown open in the files tab.
-        let mut docs_open = None;
+        // Followed from the documentation: a file opened in the editor, since
+        // the middle was showing the page; a folder shown open in the tree.
         match docs_request {
-            Some(docs::Request::Open(path)) => {
-                let mesh = path.extension().is_some_and(|e| e == "obj");
-                self.central_tab = if mesh { CentralTab::Renderer } else { CentralTab::Editor };
-                docs_open = Some(path);
-            }
+            Some(docs::Request::Open(path)) => self.open_in_editor(&path),
             Some(docs::Request::Reveal(dir)) => {
                 let mut open = std::path::PathBuf::new();
                 for part in dir.components() {
@@ -2272,38 +3115,101 @@ impl Editor {
             }
             None => {}
         }
-        // Opened from the files tab: a script into the editor, a mesh into
-        // the scene, whichever of the two the middle is showing. A script
-        // over unsaved edits asks first; a mesh leaves the editor as it is.
-        // A definition's file, opened from the editor's peek, goes the way
-        // a click in the files tab does.
-        let file_clicked = file_clicked.or(editor_open).or(docs_open);
-        if let Some(path) = file_clicked {
-            let is_mesh = path.extension().is_some_and(|e| e == "obj");
-            if self.script_dirty && !is_mesh {
-                self.confirm_open = Some(path);
-            } else {
-                self.open_path(path);
-            }
+        // A definition's file, from the editor's peek.
+        if let Some(path) = editor_open {
+            self.open_in_editor(&path);
         }
-        if open_saving || open_anyway || keep_editing {
-            if let Some(path) = self.confirm_open.take() {
-                if open_saving {
-                    self.save_request = true;
-                    self.open_after_save = Some(path);
-                } else if open_anyway {
-                    self.open_path(path);
+        // What a row of the scripts tab asked for.
+        match tree_action {
+            Some(TreeAction::Open(path) | TreeAction::Created(path)) => self.open_in_editor(&path),
+            Some(TreeAction::Docs(path)) => match self.docs.open(&self.ctx, &path) {
+                Ok(()) => self.central_tab = CentralTab::Docs,
+                Err(e) => self.notes.push(e),
+            },
+            Some(TreeAction::Render(path)) => self.send_to_renderer(&path),
+            Some(TreeAction::Trash(path)) => self.trash_asked = Some(path),
+            Some(TreeAction::Renamed(from, to)) => self.renamed(&from, &to),
+            None => {}
+        }
+        if trash_now {
+            if let Some(path) = self.trash_asked.take() {
+                // Whole, as the tree's paths are relative to where kalast
+                // started, and not every platform's Trash reads them so.
+                let whole = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+                match trash::delete(&whole) {
+                    Ok(()) => {
+                        self.notes.push(format!("moved {} to the Trash", path.display()));
+                        self.files.reread();
+                        self.thrown_away(&path);
+                    }
+                    Err(e) => self.notes.push(format!("cannot move {} to the Trash: {e}", path.display())),
                 }
             }
         }
-        // Saved, then opened: the save is served between frames and the open
-        // waits for it. One that failed leaves the edits, and drops the open
-        // rather than leave it to spring later.
-        if !self.save_request {
-            if let Some(path) = self.open_after_save.take() {
-                if !self.script_dirty {
-                    self.open_path(path);
+        if trash_cancel {
+            self.trash_asked = None;
+        }
+        // The side panel's open button: the system's dialog, any file. A
+        // mesh too big to edit goes to the scene instead.
+        if open_external {
+            if let Some(path) = rfd::FileDialog::new().set_title("Open a file").pick_file() {
+                let path = tree_path(&path);
+                let big_mesh = path.extension().is_some_and(|e| e == "obj") && read_text(&path).is_err();
+                if big_mesh {
+                    self.send_to_renderer(&path);
+                } else {
+                    self.open_in_editor(&path);
                 }
+            }
+        }
+        // The editor's column.
+        match nav_click {
+            Some(NavClick::Show(path)) => self.open_in_editor(std::path::Path::new(&path)),
+            Some(NavClick::Close(path)) => {
+                let edited = if path == self.script_path.trim() {
+                    self.script_dirty
+                } else {
+                    self.stash.get(&path).is_some_and(|(_, dirty)| *dirty)
+                };
+                if edited {
+                    self.close_asked = Some(path);
+                } else {
+                    self.close_file(&path);
+                }
+            }
+            Some(NavClick::Line(line)) => self.script_editor.go_to_line(&self.ctx, &self.script, line),
+            None => {}
+        }
+        if close_saving || close_anyway {
+            if let Some(path) = self.close_asked.take() {
+                if close_saving {
+                    let text = if path == self.script_path.trim() {
+                        Some(self.script.clone())
+                    } else {
+                        self.stash.get(&path).map(|(text, _)| text.clone())
+                    };
+                    match text.map(|t| std::fs::write(&path, t)) {
+                        Some(Ok(())) => self.notes.push(format!("saved {path}")),
+                        Some(Err(e)) => self.notes.push(format!("cannot save {path}: {e}")),
+                        None => {}
+                    }
+                }
+                self.close_file(&path);
+            }
+        }
+        if close_cancel {
+            self.close_asked = None;
+        }
+        // The shown file's buttons.
+        if render_now {
+            let path = std::path::PathBuf::from(self.script_path.trim());
+            self.send_to_renderer(&path);
+        }
+        if preview_now {
+            let path = std::path::PathBuf::from(self.script_path.trim());
+            match self.docs.open(&self.ctx, &path) {
+                Ok(()) => self.central_tab = CentralTab::Docs,
+                Err(e) => self.notes.push(e),
             }
         }
         // Changed in the app tab: remembered. See `settings`.
@@ -2311,6 +3217,7 @@ impl Editor {
             crate::app::settings::save(&crate::app::settings::Remembered::of(app_config));
         }
         if save_and_quit {
+            self.save_stashed();
             self.save_request = true;
             self.exit_after_save = true;
         }
@@ -2321,6 +3228,9 @@ impl Editor {
         self.save_request |= save_request || editor_save;
         // What the editor had to say -- a language server started, Neovim
         // missing -- in the kalast tab.
+        for line in self.notes.drain(..) {
+            shared.kalast_log.push(line);
+        }
         for line in self.script_editor.log.drain(..) {
             shared.kalast_log.push(line);
         }
@@ -3671,3 +4581,121 @@ impl Drop for StdioCapture {
     }
 }
 
+
+#[cfg(test)]
+mod scripts_tests {
+    use super::*;
+
+    /// A folder of its own for each test, gone after it.
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("kalast-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// The editor's files: an edit survives switching away and back, a file
+    /// closed gives its place to the next, a renamed one is followed, and
+    /// what is not text is refused rather than opened.
+    #[test]
+    fn switching_files_keeps_their_edits() {
+        let dir = scratch("buffers");
+        let (a, b) = (dir.join("a.py"), dir.join("b.py"));
+        std::fs::write(&a, "a = 1\n").unwrap();
+        std::fs::write(&b, "b = 2\n").unwrap();
+        std::fs::write(dir.join("mesh.bin"), [1u8, 0, 2]).unwrap();
+        let (mut script, mut path, mut dirty) = (String::new(), String::new(), false);
+        let (mut opened, mut stash) = (Vec::new(), std::collections::HashMap::new());
+        let mut files =
+            Buffers { script: &mut script, path: &mut path, dirty: &mut dirty, opened: &mut opened, stash: &mut stash };
+        let key = |p: &std::path::Path| p.display().to_string();
+
+        files.open(&a).unwrap();
+        assert_eq!((files.script.as_str(), files.path.as_str()), ("a = 1\n", key(&a).as_str()));
+        *files.script = "a = 10\n".to_string();
+        *files.dirty = true;
+
+        files.open(&b).unwrap();
+        assert_eq!((files.script.as_str(), *files.dirty), ("b = 2\n", false));
+        assert_eq!(*files.opened, [key(&a), key(&b)]);
+
+        files.open(&a).unwrap();
+        assert_eq!((files.script.as_str(), *files.dirty), ("a = 10\n", true), "the edit kept");
+
+        files.close(&key(&a));
+        assert_eq!((files.path.as_str(), files.script.as_str()), (key(&b).as_str(), "b = 2\n"), "the next one shown");
+        assert_eq!(*files.opened, [key(&b)]);
+
+        let c = dir.join("c.py");
+        files.renamed(&key(&b), &key(&c));
+        assert_eq!((files.path.as_str(), files.opened.as_slice()), (key(&c).as_str(), [key(&c)].as_slice()));
+        // Its folder renamed: followed too, by what is under it.
+        let moved_dir = dir.with_file_name(format!("{}-moved", dir.file_name().unwrap().to_string_lossy()));
+        files.renamed(&key(&dir), &key(&moved_dir));
+        assert_eq!(files.path.as_str(), key(&moved_dir.join("c.py")));
+        files.renamed(&key(&moved_dir), &key(&dir));
+
+        assert!(files.open(&dir.join("mesh.bin")).unwrap_err().contains("not text"));
+        assert!(files.open(&dir.join("gone.py")).is_err());
+        assert_eq!(files.path.as_str(), key(&c), "a refused file changes nothing");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Names typed into the tree: a folder, an empty file and a new name
+    /// made; a name taken or not a name refused, the field kept for it.
+    #[test]
+    fn names_typed_in_the_tree_make_what_they_say() {
+        let dir = scratch("naming");
+        let mut tree = FileTree::default();
+        let mut action = None;
+        let name = |tree: &mut FileTree, what: Named, text: &str, action: &mut Option<TreeAction>| {
+            tree.start(what);
+            tree.naming.as_mut().unwrap().text = text.to_string();
+            tree.commit(true, action);
+        };
+
+        name(&mut tree, Named::Folder(dir.clone()), "orbit", &mut action);
+        assert!(dir.join("orbit").is_dir() && tree.naming.is_none() && action.is_none());
+
+        name(&mut tree, Named::File(dir.join("orbit")), "main.py", &mut action);
+        let made = dir.join("orbit").join("main.py");
+        assert!(made.is_file());
+        assert_eq!(action.take(), Some(TreeAction::Created(made.clone())));
+
+        name(&mut tree, Named::Rename(made.clone()), "run.py", &mut action);
+        let renamed = dir.join("orbit").join("run.py");
+        assert!(renamed.is_file() && !made.exists());
+        assert_eq!(action.take(), Some(TreeAction::Renamed(made, renamed.clone())));
+
+        // A folder renamed, open, and what is open in it kept open.
+        tree.open.insert(dir.join("orbit"));
+        name(&mut tree, Named::Rename(dir.join("orbit")), "transfer", &mut action);
+        assert!(dir.join("transfer").join("run.py").is_file() && tree.open.contains(&dir.join("transfer")));
+        assert_eq!(action.take(), Some(TreeAction::Renamed(dir.join("orbit"), dir.join("transfer"))));
+        name(&mut tree, Named::Rename(dir.join("transfer")), "orbit", &mut action);
+        action = None;
+
+        std::fs::write(dir.join("orbit").join("taken.py"), "").unwrap();
+        name(&mut tree, Named::Rename(renamed.clone()), "taken.py", &mut action);
+        assert!(tree.naming.as_ref().is_some_and(|n| n.error.is_some()), "a name taken: said, the field kept");
+        assert!(renamed.is_file());
+        tree.naming = None;
+        name(&mut tree, Named::File(dir.clone()), "a/b.py", &mut action);
+        assert!(tree.naming.as_ref().is_some_and(|n| n.error.is_some()), "not a name");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Text is read; what is not -- a NUL in it, or not UTF-8 -- or is too
+    /// big to edit, is said, not opened.
+    #[test]
+    fn only_text_is_read_for_the_editor() {
+        let dir = scratch("text");
+        std::fs::write(dir.join("a.md"), "# Title\n").unwrap();
+        std::fs::write(dir.join("latin1.txt"), [0x63, 0x61, 0x66, 0xe9]).unwrap();
+        std::fs::write(dir.join("big.obj"), vec![b'v'; 5 << 20]).unwrap();
+        assert_eq!(read_text(&dir.join("a.md")).unwrap(), "# Title\n");
+        assert!(read_text(&dir.join("latin1.txt")).unwrap_err().contains("UTF-8"));
+        assert!(read_text(&dir.join("big.obj")).unwrap_err().contains("too big"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}

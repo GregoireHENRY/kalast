@@ -263,6 +263,23 @@ class Simulation:
         or `request_facet_shadow` arranges.
         """
         ...
+    def facet_incidence(self, body: int) -> numpy.ndarray | None:
+        """Per-facet `max(0, cos i)`: how squarely each facet of `body` faces
+        the Sun, from its pose and the Sun's position as they stand -- the
+        moment `mat` or `sun.pos` is set, before `step()` draws anything.
+
+        Geometry alone, nothing in the way counted: right for a convex body
+        on its own, and what `kalast.tpm.core.solar_bc` takes. A body that
+        shadows itself or another wants `facet_illumination`, which is this
+        times the unblocked fraction the shadow map reads back.
+
+        ```python
+        cosi = sim.facet_incidence(0)
+        ```
+
+        `None` for a body that does not exist or has no mesh.
+        """
+        ...
     def request_hemicube(self, body: int = ..., facets: numpy.ndarray = ..., resolution: int = ..., batch: int = ...) -> None:
         """Ask for hemicube view factors for `facets` of `body`, this frame.
 
@@ -362,9 +379,13 @@ class State:
     script does not need its own check.
     """
     pause_after_iteration: int | None
-    """Pause once this iteration has run, or `None` to run on: `0` holds the
-    run after its first. Plus one, it is what `{nit}` in a HUD reads, the
-    length of the run.
+    """Pause once this iteration has run -- the run's length, which plus
+    one is what `{nit}` in a HUD reads -- or `None` to run on, the UI
+    app's hold at the start included: `0` holds the run after its first.
+
+    The app's own steps stop apart from it: Step, `K`, and the one
+    iteration an opened script shows neither end a run early nor lose its
+    length.
     """
     pause_at: int | None
     """The old spelling, one more: `pause_at = n` is `pause_after_iteration

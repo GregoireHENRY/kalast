@@ -294,8 +294,7 @@ pub fn app_window(ui: &mut egui::Ui, a: &mut AppConfig) {
                 ui.selectable_value(&mut a.theme, crate::app::config::UiTheme::Dark, "Dark");
             });
     });
-    setting(ui, "window width", "Window size in physical pixels.", |ui| ui.add(egui::DragValue::new(&mut a.width).speed(1.0)));
-    setting(ui, "window height", "", |ui| ui.add(egui::DragValue::new(&mut a.height).speed(1.0)));
+    setting(ui, "remember last window", "Open the UI app's window where it was left: on its screen, at its place and size, fullscreen if it was.", |ui| ui.checkbox(&mut a.remember_window, ""));
     setting(ui, "title", "The OS window title.", |ui| ui.add(egui::TextEdit::singleline(&mut a.title).desired_width(f32::INFINITY)));
     setting(ui, "fullscreen", "Open the window in native fullscreen (borderless, current monitor).", |ui| ui.checkbox(&mut a.fullscreen, ""));
     setting(ui, "vsync", "Cap the frame rate to the display refresh.", |ui| ui.checkbox(&mut a.vsync, ""));

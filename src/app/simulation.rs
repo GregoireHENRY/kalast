@@ -306,6 +306,7 @@ impl Simulation {
         self.meshes_dirty = true;
         self.state.iteration = 0;
         self.state.pause_after_iteration = None;
+        self.state.hold_after_iteration = None;
 
         self.export_once = false;
         self.facet_shadow_request = None;
@@ -461,6 +462,27 @@ impl Simulation {
     /// exactly as `facet_shadow`.
     pub fn facet_illumination(&self, body: usize) -> Option<Vec<f32>> {
         let shadow = self.facet_shadow(body)?;
+        let incidence = self.facet_incidence(body)?;
+        Some(
+            incidence
+                .iter()
+                .zip(shadow)
+                .map(|(&cosi, &occluded)| cosi as f32 * (1.0 - occluded))
+                .collect(),
+        )
+    }
+
+    /// Per-facet `max(0, cos i)`: how squarely each facet faces the Sun, from
+    /// the body's pose and the Sun's position as they stand -- the moment
+    /// `mat` or `sun.pos` is set, with no frame drawn.
+    ///
+    /// Geometry alone: nothing in the way is counted, which is right for a
+    /// convex body on its own. What shadows itself, or another body,
+    /// wants `facet_illumination`, which is this times the unblocked
+    /// fraction the shadow map reads back.
+    ///
+    /// `None` for a body that does not exist or has no mesh.
+    pub fn facet_incidence(&self, body: usize) -> Option<Vec<crate::Float>> {
         let b = self.bodies.get(body)?;
         let mesh = b.mesh.as_ref()?.borrow();
 
@@ -471,12 +493,11 @@ impl Simulation {
         Some(
             mesh.facets
                 .iter()
-                .zip(shadow)
-                .map(|(f, &occluded)| {
+                .map(|f| {
                     let pos = b.mat.transform_point3(f.pos);
                     let normal = (rot * f.normal).normalize_or_zero();
                     let to_sun = (self.sun.pos - pos).normalize_or_zero();
-                    (normal.dot(to_sun).max(0.0) as f32) * (1.0 - occluded)
+                    normal.dot(to_sun).max(0.0)
                 })
                 .collect(),
         )
@@ -537,6 +558,15 @@ pub struct State {
     /// iterations in the run -- since it is the only thing that tells the
     /// engine how long a run is meant to be.
     pub pause_after_iteration: Option<usize>,
+    /// Pause once this iteration has run, and forget it: the app's own
+    /// one-iteration steps -- Step, `K`, the iteration an opened script or a
+    /// paused Restart shows.
+    ///
+    /// Apart from `pause_after_iteration`, which is the run's length and a
+    /// script's to set. They were one field, so a script giving its length
+    /// undid the hold -- opened, it played straight through -- and a Step
+    /// wiped the length that `{nit}` reads.
+    pub hold_after_iteration: Option<usize>,
     /// Cap the frame rate at `rate_limit`. Off, the loop runs as fast as it can.
     ///
     /// For watching something that otherwise flashes past -- a mutual event at
@@ -568,6 +598,7 @@ impl State {
             iteration: 0,
             is_paused: false,
             pause_after_iteration: None,
+            hold_after_iteration: None,
             rate_limited: false,
             rate_limit: 10.0,
             held: false,
@@ -658,6 +689,22 @@ impl State {
         // log: `pause_at = 1` was "paused after iteration 0".
         if self.pause_after_iteration == Some(done) {
             self.is_paused = true;
+        }
+        if self.hold_after_iteration == Some(done) {
+            self.hold_after_iteration = None;
+            self.is_paused = true;
+        }
+    }
+
+    /// The run's length, as a script gives it: pause once iteration `n` has
+    /// run -- or, `None`, never on its own, the app's hold at the start
+    /// dropped too. A driven script that wants to run straight says so this
+    /// way (`examples/landmark_tracking/main.py`), which it did when the two
+    /// were one field.
+    pub fn set_pause_after_iteration(&mut self, n: Option<usize>) {
+        self.pause_after_iteration = n;
+        if n.is_none() {
+            self.hold_after_iteration = None;
         }
     }
 
@@ -815,12 +862,49 @@ mod pause_tests {
 
         // What the Step button does: one more iteration, then hold again.
         sim.state.is_paused = false;
-        sim.state.pause_after_iteration = Some(sim.state.iteration);
+        sim.state.hold_after_iteration = Some(sim.state.iteration);
         for _ in 0..10 {
             sim.update();
         }
         assert_eq!(sim.state.iteration, 4, "Step is one iteration, not a run");
         assert!(sim.state.is_paused);
+    }
+
+    /// A script that gives its run's length -- `tpm.py`'s few hundred spins
+    /// -- is still held at iteration 0 when opened, and a Step on the way
+    /// neither ends the run nor loses its length.
+    #[test]
+    fn a_run_length_and_the_apps_holds_keep_out_of_each_other() {
+        let mut sim = Simulation::new();
+        // The open: the hold, then the script's setup giving its length.
+        sim.state.hold_after_iteration = Some(0);
+        sim.state.pause_after_iteration = Some(9);
+        for _ in 0..5 {
+            sim.update();
+        }
+        assert_eq!(sim.state.iteration, 1, "held after iteration 0");
+        assert_eq!(sim.state.hold_after_iteration, None, "a hold is spent once it fires");
+
+        // A Step, then Play: to the end of the run and no further.
+        sim.state.hold_after_iteration = Some(sim.state.iteration);
+        sim.state.is_paused = false;
+        sim.update();
+        assert_eq!((sim.state.iteration, sim.state.is_paused), (2, true));
+        sim.state.is_paused = false;
+        for _ in 0..20 {
+            sim.update();
+        }
+        assert_eq!(sim.state.iteration, 10, "paused after iteration 9, the run's last");
+        assert_eq!(sim.state.pause_after_iteration, Some(9), "the length `{{nit}}` reads");
+
+        // `None` from a script runs straight, the hold at the start with it.
+        let mut sim = Simulation::new();
+        sim.state.hold_after_iteration = Some(0);
+        sim.state.set_pause_after_iteration(None);
+        for _ in 0..5 {
+            sim.update();
+        }
+        assert_eq!((sim.state.iteration, sim.state.is_paused), (5, false));
     }
 
     /// Resuming past an automatic pause must not stop on the same mark again.
@@ -906,6 +990,26 @@ mod illumination_tests {
         let sim = scene();
         assert!(sim.facet_illumination(0).is_none());
         assert!(sim.facet_illumination(9).is_none());
+    }
+
+    /// The incidence needs no shadow and no frame: it follows the body's
+    /// pose the moment it is set, as a thermophysical step wants it.
+    #[test]
+    fn incidence_follows_the_pose_as_set() {
+        let mut sim = scene();
+        assert_eq!(sim.facet_incidence(0).unwrap(), vec![1.0, 0.0]);
+
+        // Turned a quarter about x: both facets edge-on to the Sun above.
+        sim.bodies[0].mat = crate::Mat4::from_rotation_x(crate::util::PI / 2.0);
+        let quarter = sim.facet_incidence(0).unwrap();
+        assert!(quarter.iter().all(|c| c.abs() < 1e-6), "{quarter:?}");
+
+        // Half a turn: the other facet faces it now.
+        sim.bodies[0].mat = crate::Mat4::from_rotation_x(crate::util::PI);
+        let half = sim.facet_incidence(0).unwrap();
+        assert!(half[0] == 0.0 && (half[1] - 1.0).abs() < 1e-6, "{half:?}");
+
+        assert!(sim.facet_incidence(9).is_none());
     }
 }
 

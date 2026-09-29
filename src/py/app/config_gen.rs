@@ -1357,10 +1357,26 @@ impl super::config::AppConfig {
     fn open_in_background(&self) -> bool { self.config.borrow().open_in_background }
     #[setter]
     fn set_open_in_background(&mut self, v: bool) { self.config.borrow_mut().open_in_background = v; }
+    /// Open the UI app's window where it was left: on its screen, at its
+    /// place and size, fullscreen if it was.
+    ///
+    /// Off, it opens where `monitor`, `window_x`, `window_y`, `width`,
+    /// `height` and `start_fullscreen` say, every time; the app tab shows
+    /// them then, and remembers them as they are set there.
+    #[getter]
+    fn remember_window(&self) -> bool { self.config.borrow().remember_window }
+    #[setter]
+    fn set_remember_window(&mut self, v: bool) { self.config.borrow_mut().remember_window = v; }
     /// Window size in physical pixels.
     ///
     /// The *window*, not the render. `simulation.config.width` is the image
     /// inside it, and follows this unless it is set.
+    ///
+    /// `0`, the default: the size the UI app was left at, or else most of
+    /// the screen. Set, it wins over what the app remembers.
+    ///
+    /// In the app tab while `remember_window` is off, beside the screen and
+    /// the place: written by hand there (`gui::window_start`).
     #[getter]
     fn width(&self) -> u32 { self.config.borrow().width }
     #[setter]
@@ -1369,6 +1385,42 @@ impl super::config::AppConfig {
     fn height(&self) -> u32 { self.config.borrow().height }
     #[setter]
     fn set_height(&mut self, v: u32) { self.config.borrow_mut().height = v; }
+    /// The screen the window opens on: its number in the system's list,
+    /// from `"1"`, or part of its name, as `"DELL"` or `"Built-in"`.
+    ///
+    /// Empty, the default: the screen the UI app was last closed on, where
+    /// it was on it -- or else the main screen, the window in its middle.
+    /// Set, it wins over what the app remembers, as `width` and `height` do.
+    /// Set while the window is open, it moves it there.
+    ///
+    /// A list of the screens in the app tab while `remember_window` is off,
+    /// written by hand: a name typed in would move the window at each letter.
+    #[getter]
+    fn monitor(&self) -> String { self.config.borrow().monitor.clone() }
+    #[setter]
+    fn set_monitor(&mut self, v: &str) { self.config.borrow_mut().monitor = v.to_string(); }
+    /// Where on its screen the window opens: its top-left corner from the
+    /// screen's, in physical pixels. `-1`, the default: in the screen's
+    /// middle, or where the UI app left it. Set while the window is open,
+    /// it moves it there.
+    ///
+    /// In the app tab while `remember_window` is off, with `width`.
+    #[getter]
+    fn window_x(&self) -> i32 { self.config.borrow().window_x }
+    #[setter]
+    fn set_window_x(&mut self, v: i32) { self.config.borrow_mut().window_x = v; }
+    #[getter]
+    fn window_y(&self) -> i32 { self.config.borrow().window_y }
+    #[setter]
+    fn set_window_y(&mut self, v: i32) { self.config.borrow_mut().window_y = v; }
+    /// Open the UI app fullscreen, while `remember_window` is off -- `F` and
+    /// the green button then change the window, not this.
+    ///
+    /// In the app tab while `remember_window` is off.
+    #[getter]
+    fn start_fullscreen(&self) -> bool { self.config.borrow().start_fullscreen }
+    #[setter]
+    fn set_start_fullscreen(&mut self, v: bool) { self.config.borrow_mut().start_fullscreen = v; }
     /// The OS window title.
     #[getter]
     fn title(&self) -> String { self.config.borrow().title.clone() }

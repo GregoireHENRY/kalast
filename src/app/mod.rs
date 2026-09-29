@@ -3,6 +3,7 @@ pub mod body;
 pub mod cargo;
 pub mod clock;
 pub mod settings;
+pub mod place;
 pub mod config;
 pub mod facet_id;
 pub mod facet_shadow;
@@ -68,6 +69,109 @@ fn set_window_fullscreen(window: &winit::window::Window, on: bool) {
     #[cfg(not(target_os = "macos"))]
     {
         window.set_fullscreen(on.then(|| winit::window::Fullscreen::Borderless(None)));
+    }
+}
+
+/// A text's hash, for knowing it changed without keeping it.
+fn text_hash(text: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    text.hash(&mut h);
+    h.finish()
+}
+
+/// winit's monitors, as `place` has them.
+fn screens_of(monitors: &[winit::monitor::MonitorHandle]) -> Vec<place::Screen> {
+    monitors
+        .iter()
+        .map(|m| place::Screen {
+            name: screen_name(m),
+            origin: (m.position().x, m.position().y),
+            size: (m.size().width, m.size().height),
+        })
+        .collect()
+}
+
+/// A screen's name: on macOS as System Settings gives it, winit's being
+/// `Monitor #` and a model number; winit's elsewhere -- `DP-1` on Linux,
+/// `\\.\DISPLAY1` on Windows.
+pub(crate) fn screen_name(m: &winit::monitor::MonitorHandle) -> String {
+    #[cfg(target_os = "macos")]
+    {
+        use winit::platform::macos::MonitorHandleExtMacOS as _;
+        if let Some(name) = crate::app::macos::screen_name(m.native_id()) {
+            return name;
+        }
+    }
+    m.name().unwrap_or_default()
+}
+
+/// A size in `m`'s pixels, in the units winit places a window in: points on
+/// macOS, which would otherwise be taken at the *main* screen's scale -- half
+/// or twice the size on a screen of another -- and pixels elsewhere.
+fn screen_size(m: &winit::monitor::MonitorHandle, (w, h): (u32, u32)) -> winit::dpi::Size {
+    if cfg!(target_os = "macos") {
+        let s = m.scale_factor();
+        winit::dpi::LogicalSize::new(w as f64 / s, h as f64 / s).into()
+    } else {
+        winit::dpi::PhysicalSize::new(w, h).into()
+    }
+}
+
+/// A point on the desktop in `m`'s pixels, likewise: on macOS a screen's
+/// origin is its corner in points times its own scale, so its pixels divide
+/// back into points by that scale.
+fn screen_position(m: &winit::monitor::MonitorHandle, (x, y): (i32, i32)) -> winit::dpi::Position {
+    if cfg!(target_os = "macos") {
+        let s = m.scale_factor();
+        winit::dpi::LogicalPosition::new(x as f64 / s, y as f64 / s).into()
+    } else {
+        winit::dpi::PhysicalPosition::new(x, y).into()
+    }
+}
+
+/// `1 "Built-in Retina Display", 2 "DELL U2720Q"`: what `monitor` can name.
+fn screen_names(screens: &[place::Screen]) -> String {
+    let names: Vec<String> = screens.iter().enumerate().map(|(i, s)| format!("{} \"{}\"", i + 1, s.name)).collect();
+    names.join(", ")
+}
+
+/// Move the window to the screen `spec` names -- the one it is on, if it
+/// names none -- at `at` on it, each axis in the middle where negative, at
+/// the size it has. Fullscreen or maximised, it leaves that and comes back
+/// to it there: both fill the screen the window is on.
+fn move_to_screen(window: &winit::window::Window, spec: &str, at: (i32, i32), fullscreen: bool) {
+    let monitors: Vec<winit::monitor::MonitorHandle> = window.available_monitors().collect();
+    let screens = screens_of(&monitors);
+    let i = if spec.trim().is_empty() {
+        let on = window.current_monitor();
+        monitors.iter().position(|m| Some(m) == on.as_ref())
+    } else {
+        place::named(&screens, spec)
+    };
+    let Some(i) = i else {
+        eprintln!("no screen `{spec}` to move the window to, among {}", screen_names(&screens));
+        return;
+    };
+    let maximized = window.is_maximized();
+    if fullscreen {
+        set_window_fullscreen(window, false);
+    }
+    if maximized {
+        window.set_maximized(false);
+    }
+    let s = &screens[i];
+    // The window's size in the target's pixels: the same points, at its scale.
+    let size = window.outer_size().to_logical::<f64>(window.scale_factor()).to_physical::<i32>(monitors[i].scale_factor());
+    let room = ((s.size.0 as i32 - size.width).max(0), (s.size.1 as i32 - size.height).max(0));
+    let x = s.origin.0 + if at.0 >= 0 { at.0.min(room.0) } else { room.0 / 2 };
+    let y = s.origin.1 + if at.1 >= 0 { at.1.min(room.1) } else { room.1 / 2 };
+    window.set_outer_position(screen_position(&monitors[i], (x, y)));
+    if maximized {
+        window.set_maximized(true);
+    }
+    if fullscreen {
+        set_window_fullscreen(window, true);
     }
 }
 
@@ -181,6 +285,9 @@ pub struct Shared {
     /// Ends a run in progress the way a pending script does (`superseded`),
     /// and is taken between frames (`editor_tick`).
     pub reset_requested: bool,
+    /// A mesh sent to the renderer, shown between frames after the reset
+    /// that came with it -- inside the frame, the reset would clear it.
+    pub mesh_requested: Option<std::path::PathBuf>,
 }
 
 impl Shared {
@@ -191,7 +298,7 @@ impl Shared {
     /// way it does when the window closes and the flow comes back to the
     /// editor, which takes the request between frames.
     pub fn superseded(&self) -> bool {
-        self.script_pending.is_some() || self.load_requested.is_some() || self.reset_requested
+        self.script_pending.is_some() || self.load_requested.is_some() || self.reset_requested || self.mesh_requested.is_some()
     }
 
     /// The script to run next, if one was asked for -- never a `.rs`, which
@@ -232,6 +339,7 @@ impl Shared {
             script_pending: None,
             script_ran: false,
             reset_requested: false,
+            mesh_requested: None,
         }
     }
 }
@@ -358,6 +466,13 @@ pub struct App {
     /// that button a plain zoom, and a zoom is then read as "fullscreen was
     /// asked for".
     zoomed: bool,
+    /// Where the UI app's window was last closed, from its settings: where
+    /// it opens, unless the config says otherwise. See `place`.
+    window_left: Option<settings::Place>,
+    /// Started as the UI app, by `editor_start`: it remembers where its
+    /// window is left. A script's window, editor or not, does not -- a
+    /// script dressing a figure does not change the app for next time.
+    ui_app: bool,
 }
 
 /// How long `{fps}` and `{its}` average over before updating, in seconds.
@@ -379,6 +494,9 @@ struct Realised {
     /// The image, from the simulation's config. `(0, 0)` follows the window.
     render: (u32, u32),
     fullscreen: bool,
+    monitor: String,
+    window_at: (i32, i32),
+    remember_window: bool,
     vsync: bool,
     msaa: u32,
     render_back_face: bool,
@@ -400,6 +518,9 @@ impl Realised {
             height: a.height,
             render: (c.image.width, c.image.height),
             fullscreen: a.fullscreen,
+            monitor: a.monitor.clone(),
+            window_at: (a.window_x, a.window_y),
+            remember_window: a.remember_window,
             vsync: a.vsync,
             msaa: c.shading.msaa,
             render_back_face: c.shading.render_back_face,
@@ -422,6 +543,9 @@ impl Realised {
             && self.height == a.height
             && self.render == (c.image.width, c.image.height)
             && self.fullscreen == a.fullscreen
+            && self.monitor == a.monitor
+            && self.window_at == (a.window_x, a.window_y)
+            && self.remember_window == a.remember_window
             && self.vsync == a.vsync
             && self.msaa == c.shading.msaa
             && self.render_back_face == c.shading.render_back_face
@@ -903,6 +1027,8 @@ impl App {
             want_editor: false,
             event_loop_built: false,
             zoomed: false,
+            window_left: None,
+            ui_app: false,
         }
     }
 
@@ -985,11 +1111,7 @@ impl App {
     /// the editor being built only once there is a GPU device -- and after.
     pub fn set_script(&mut self, path: String, source: String) {
         match self.editor.as_mut() {
-            Some(editor) => {
-                editor.script_path = path;
-                editor.script = source;
-                editor.script_dirty = false;
-            }
+            Some(editor) => editor.show_script(path, source),
             None => self.shared.borrow_mut().pending_script = Some((path, source)),
         }
     }
@@ -999,7 +1121,7 @@ impl App {
     /// request, and `serve_editor_requests` turns it into the exit.
     fn request_close(&mut self, ev: &winit::event_loop::ActiveEventLoop) {
         match self.editor.as_mut() {
-            Some(editor) if editor.script_dirty => editor.confirm_exit = true,
+            Some(editor) if editor.any_dirty() => editor.confirm_exit = true,
             _ => self.exit(ev),
         }
     }
@@ -1277,10 +1399,15 @@ impl App {
             shared.before_render = None;
             shared.after_render = None;
             shared.last_script = Some(path.display().to_string());
+            shared.drawn_iteration = 0;
         }
         {
             let mut sim = self.simulation.borrow_mut();
             sim.renew();
+            // Held: a mesh has nothing to run, and the clock `renew` puts
+            // back is a script's, which runs from its first frame -- the
+            // counter climbed over a still mesh as if Play had been pressed.
+            sim.state.is_paused = true;
             sim.load_mesh(path, crate::Mat4::IDENTITY, false);
             sim.frame_all();
         }
@@ -1328,6 +1455,31 @@ impl App {
             }
         }
 
+        // `remember_window` unticked: the options it hands over to start
+        // from the window as it stands -- its screen, place, size and whether
+        // it is fullscreen -- and taken as realised, since the window is
+        // already there.
+        let unticked = self.realised.as_ref().is_some_and(|r| r.remember_window) && !self.config.borrow().remember_window;
+        if unticked {
+            if let Some(place) = self.window_place() {
+                let mut a = self.config.borrow_mut();
+                a.monitor = place.monitor;
+                (a.window_x, a.window_y) = place.position.unwrap_or((-1, -1));
+                if let Some((w, h)) = place.size {
+                    (a.width, a.height) = (w, h);
+                }
+                a.start_fullscreen = a.fullscreen;
+                if let Some(r) = self.realised.as_mut() {
+                    r.monitor = a.monitor.clone();
+                    r.window_at = (a.window_x, a.window_y);
+                    (r.width, r.height) = (a.width, a.height);
+                    r.remember_window = false;
+                }
+                drop(a);
+                self.remember_settings();
+            }
+        }
+
         // Cheap enough to copy unconditionally -- plain scalars into a struct
         // this owns, no GPU resource behind them.
         {
@@ -1371,6 +1523,13 @@ impl App {
 
         if was.fullscreen != want.fullscreen {
             set_window_fullscreen(&win.window, want.fullscreen);
+        }
+
+        // A screen named while the window is open, or a place on it: it goes
+        // there. A screen emptied, it stays where it is.
+        let named = was.monitor != want.monitor && !want.monitor.trim().is_empty();
+        if named || was.window_at != want.window_at {
+            move_to_screen(&win.window, &want.monitor, want.window_at, want.fullscreen);
         }
 
         // The image. `(0, 0)` follows the window, which is what a terminal
@@ -1440,9 +1599,7 @@ impl App {
         // creation, so before this `app.set_script()` mid-run went nowhere.
         let pending = self.shared.borrow_mut().pending_script.take();
         if let (Some((path, source)), Some(editor)) = (pending, self.editor.as_mut()) {
-            editor.script_path = path;
-            editor.script = source;
-            editor.script_dirty = false;
+            editor.show_script(path, source);
             self.shared.borrow_mut().script_ran = false;
         }
 
@@ -1469,29 +1626,43 @@ impl App {
             )
         };
         let asked = asked | asked_restart;
+        // Render: a clean scene first, taken between frames before the run
+        // or the load asked with it -- and a mesh after it.
+        let (mesh, reset_first) = self
+            .editor
+            .as_mut()
+            .map(|e| (e.mesh_request.take(), std::mem::take(&mut e.reset_before_render)))
+            .unwrap_or_default();
+        {
+            let mut shared = self.shared.borrow_mut();
+            shared.reset_requested |= reset_first;
+            if mesh.is_some() {
+                shared.mesh_requested = mesh;
+            }
+        }
         let Some(editor) = self.editor.as_mut() else { return };
         // Rust first, and on its own: building or launching an example has
         // nothing to do with the Python path below, and a `.rs` in the panel
         // never reaches the script runner.
         let mut rust_messages: Vec<String> = Vec::new();
         let mut load: Option<(String, bool)> = None;
+        // The renderer's script when it is a Rust example: what Play loads.
+        let target = editor.render_source().filter(|(p, _)| p.trim_end().ends_with(".rs"));
         {
             // Reading `Cargo.toml` and stat-ing a file, so not every frame:
-            // only when the path or profile changes, or a compile just
-            // finished and may have produced the binary.
-            let key = (
-                editor.script_path.trim_end().to_string(),
-                editor.rust_release,
-                // And when the buffer's dirty state flips: an unsaved edit
-                // makes the library stale, and the panel should say so
-                // before Play finds out.
-                editor.script_dirty,
-            );
+            // only when the path, the profile or the text changes -- an
+            // unsaved edit makes the library stale, and the panel should say
+            // so before Play finds out -- or a compile just finished and may
+            // have produced the binary.
+            let key = match &target {
+                Some((path, source)) => (path.trim_end().to_string(), editor.rust_release, text_hash(source)),
+                None => (String::new(), editor.rust_release, 0),
+            };
             let busy = editor.building.load(std::sync::atomic::Ordering::SeqCst);
             let finished = editor.was_building && !busy;
             if editor.rust_key != key || finished {
                 editor.rust_key = key.clone();
-                editor.rust_built = crate::app::cargo::is_current(key.1, &key.0, &editor.script);
+                editor.rust_built = target.as_ref().is_some_and(|(path, source)| crate::app::cargo::is_current(key.1, path, source));
             }
             editor.was_building = busy;
             // A build started because a load failed: take it up again now
@@ -1506,28 +1677,31 @@ impl App {
                 std::mem::take(&mut editor.launch_request) | asked_launch,
                 editor.rust_release,
             );
-            let mut retry_build = retry_build;
-            if build || launch || retry_build {
+            let busy = editor.building.clone();
+            let mut started = false;
+            // A load -- Play, the render button -- is of the renderer's
+            // script. One out of date would run code the panel is not
+            // showing, and, worse, an old `hosted` against a new host: built
+            // first, and loaded when that lands.
+            if launch || retry_build {
+                if let Some((path, source)) = &target {
+                    let stale = !crate::app::cargo::is_current(release, path, source);
+                    if stale || retry_build {
+                        busy.store(true, std::sync::atomic::Ordering::SeqCst);
+                        crate::app::cargo::build_hosted(std::path::Path::new(path.trim_end()), source, release, busy.clone());
+                        editor.load_after_build = true;
+                        started = true;
+                    } else {
+                        load = Some((path.trim_end().to_string(), release));
+                    }
+                }
+            }
+            // Compile is of the file shown, as its button beside it says.
+            if build && !started {
                 let path = editor.script_path.trim_end().to_string();
-                let busy = editor.building.clone();
-                // A load of a library that is out of date would run code
-                // the panel is not showing -- and, worse, an old `hosted`
-                // against a new host. Build first and load when it lands.
-                let stale = launch && !crate::app::cargo::is_current(release, &path, &editor.script);
-                let retry = std::mem::take(&mut retry_build) || stale;
-                if build || retry {
-                    busy.store(true, std::sync::atomic::Ordering::SeqCst);
-                    crate::app::cargo::build_hosted(
-                        std::path::Path::new(&path),
-                        &editor.script,
-                        release,
-                        busy.clone(),
-                    );
-                    editor.load_after_build = retry;
-                }
-                if launch && !stale {
-                    load = Some((path.clone(), release));
-                }
+                busy.store(true, std::sync::atomic::Ordering::SeqCst);
+                crate::app::cargo::build_hosted(std::path::Path::new(&path), &editor.script, release, busy.clone());
+                editor.load_after_build = false;
             }
         }
 
@@ -1562,37 +1736,21 @@ impl App {
         // reading the script runner -- holding one across the other panicked
         // with `RefCell already mutably borrowed`.
         let mut messages: Vec<String> = Vec::new();
-        let mut opened: Option<String> = None;
         let mut saved = false;
-        // A file just read is not what is running.
-        let mut fresh = false;
 
-        if open && path.trim_end().ends_with(".obj") {
-            // Not a script to read into the panel: a mesh to show, the way
-            // `kalast some.obj` shows it. The panel keeps its text; only the
-            // path field names the mesh, and Play stays greyed with no
-            // script to run.
-            self.open_mesh(std::path::Path::new(path.trim_end()));
-            messages.push(format!("opened {}", path.trim_end()));
-        } else if open {
-            match std::fs::read_to_string(&path) {
-                Ok(text) => {
-                    messages.push(format!("opened {path}"));
-                    opened = Some(text);
-                    // Opening a `.rs` means the same here as it does on the
-                    // command line: show it, which for a Rust example means
-                    // load it, compiling first if the library is out of date.
-                    // Without this the panel filled with source and the
-                    // viewport stayed black until Play was found.
-                    //
-                    // A `.py` is left alone: the scene already on screen is
-                    // its own, and replacing it the moment a file is opened
-                    // would throw away a run that is still being looked at.
-                    if path.trim_end().ends_with(".rs") {
-                        self.shared.borrow_mut().launch_requested = true;
+        if open {
+            // `app.open_script()`: `set_script`'s file read again, and sent to
+            // the renderer as the open button once did. Opening from the
+            // scripts tab only opens: rendering is the render button's.
+            if let Some(editor) = self.editor.as_mut() {
+                let file = std::path::PathBuf::from(path.trim());
+                match editor.reload_shown() {
+                    Ok(()) => {
+                        messages.push(format!("opened {}", path.trim()));
+                        editor.send_to_renderer(&file);
                     }
+                    Err(e) => messages.push(e),
                 }
-                Err(e) => messages.push(format!("cannot open {path}: {e}")),
             }
         }
 
@@ -1612,7 +1770,7 @@ impl App {
                 Some(p) => {
                     path = p.to_string_lossy().into_owned();
                     if let Some(editor) = self.editor.as_mut() {
-                        editor.script_path = path.clone();
+                        editor.saved_as(&path);
                     }
                 }
                 None => {
@@ -1641,36 +1799,15 @@ impl App {
             self.shared.borrow_mut().exit_requested = true;
         }
 
-        if opened.is_some() || saved {
+        if saved {
             if let Some(editor) = self.editor.as_mut() {
-                if let Some(text) = opened {
-                    editor.script = text;
-                    fresh = true;
-                }
                 editor.script_dirty = false;
-            }
-            if fresh {
-                let mut shared = self.shared.borrow_mut();
-                shared.script_ran = false;
-                // Opening a file *shows* it: build the scene and hold at
-                // iteration 0, the same as naming one on the command line.
-                // Without this the viewport stayed black until Play, and Step
-                // stayed grey because nothing had run.
-                //
-                // Next frame, not this one: `source` was read from the buffer
-                // at the top of this function, before the open replaced it,
-                // so running now would run the file we just closed.
-                //
-                // Not for a `.rs`, which the open has already asked to load
-                // as the example it is: a run hands the text to the Python
-                // runner. See `Shared::take_script`.
-                if !path.trim_end().ends_with(".rs") {
-                    shared.restart_requested = true;
-                }
             }
         }
 
-        if run {
+        // The renderer's script, as it stands in the editor, saved or not.
+        let rendered = self.editor.as_ref().and_then(|e| e.render_source());
+        if let (true, Some((path, source))) = (run, rendered) {
             // Not executed here. This is inside a frame, and a script that
             // drives its own `while app.step():` cannot run inside one -- it
             // would be a loop inside the loop it is trying to drive, which is
@@ -1685,7 +1822,7 @@ impl App {
                     .as_mut()
                     .map(|e| std::mem::take(&mut e.restart_request))
                     .unwrap_or(false);
-            self.shared.borrow_mut().script_pending = Some((path.clone(), source, paused));
+            self.shared.borrow_mut().script_pending = Some((path, source, paused));
         }
 
         for m in messages {
@@ -1759,12 +1896,14 @@ impl App {
     pub fn editor_start(&mut self, args: &[String]) {
         self.config.borrow_mut().editor = true;
         self.config.borrow_mut().title = "kalast".to_string();
+        self.ui_app = true;
         // What the app was left with last time -- before a script runs, so
         // one that sets either still has the last word. Not in the unit
         // tests, which would otherwise read whoever runs them.
         if !cfg!(test) {
             if let Some(remembered) = settings::load() {
                 remembered.apply(&mut self.config.borrow_mut());
+                self.window_left = remembered.window;
             }
         }
         // Here, not when the window opens: a script named on the command
@@ -1896,8 +2035,10 @@ impl App {
         // like the requests below.
         if std::mem::take(&mut self.shared.borrow_mut().reset_requested) {
             self.reset_scene();
+            self.show_sent_mesh();
             return EditorTick::Frame;
         }
+        self.show_sent_mesh();
         // Between frames, which is the only place an example may run: its
         // `main` owns a loop of its own if it wants one, and that nests in
         // the front door rather than re-entering the frame that asked for it.
@@ -1921,6 +2062,16 @@ impl App {
         EditorTick::Run { path, source }
     }
 
+    /// A mesh sent to the renderer, shown: between frames, after the reset
+    /// that came with it.
+    fn show_sent_mesh(&mut self) {
+        let mesh = self.shared.borrow_mut().mesh_requested.take();
+        if let Some(path) = mesh {
+            self.open_mesh(&path);
+            self.log_kalast(&format!("showing {}", path.display()));
+        }
+    }
+
     /// The scene as a new app has it and nothing running -- the toolbar's
     /// reset. The script stays in the editor, to be run again from a clean
     /// start: forgetting it as the last one run makes Play renew the config
@@ -1932,6 +2083,9 @@ impl App {
             shared.after_render = None;
             shared.last_script = None;
             shared.script_ran = false;
+            // The toolbar's `{drawn}`: taken from a frame that advanced, so a
+            // held one -- which a reset is -- went on showing the last run's.
+            shared.drawn_iteration = 0;
         }
         self.restore_home_simulation();
         self.simulation.borrow_mut().renew();
@@ -1978,7 +2132,7 @@ impl App {
         // that places its bodies per iteration shows them where iteration 0
         // puts them rather than at the origin.
         if paused {
-            self.simulation.borrow_mut().state.pause_after_iteration = Some(0);
+            self.simulation.borrow_mut().state.hold_after_iteration = Some(0);
         }
         self.simulation.borrow_mut().state.is_paused = false;
         self.shared.borrow_mut().script_ran = true;
@@ -2031,7 +2185,7 @@ impl App {
         // loop ends. Anything set afterwards would be set when the run was
         // already over, which is why it played straight through.
         let mut sim = self.simulation.borrow_mut();
-        sim.state.pause_after_iteration = Some(sim.state.iteration);
+        sim.state.hold_after_iteration = Some(sim.state.iteration);
         sim.state.is_paused = false;
     }
 
@@ -2523,6 +2677,14 @@ impl App {
     }
 
     pub fn exit(&mut self, ev: &winit::event_loop::ActiveEventLoop) {
+        // Where the window was left, for the next time the UI app opens. See
+        // `settings`.
+        if self.ui_app && self.config.borrow().remember_window && !cfg!(test) {
+            if let Some(place) = self.window_place() {
+                settings::save_place(place);
+            }
+        }
+
         let win = self.window.as_mut().unwrap();
 
         if self.simulation.borrow().camera.control == frame::Control::WASD {
@@ -2542,6 +2704,33 @@ impl App {
         ev.exit()
     }
 
+    /// Where the window is: its screen, its place on it, its size. Filling
+    /// the screen -- fullscreen or maximised -- its frame is the screen's,
+    /// and its own place is the one it had there before, if known.
+    /// Minimised, nowhere worth remembering.
+    fn window_place(&self) -> Option<settings::Place> {
+        let win = &self.window.as_ref()?.window;
+        if win.is_minimized() == Some(true) {
+            return None;
+        }
+        let m = win.current_monitor()?;
+        let name = screen_name(&m);
+        let origin = (m.position().x, m.position().y);
+        let fullscreen = self.config.borrow().fullscreen;
+        let maximized = !fullscreen && win.is_maximized();
+        let (position, size) = if fullscreen || maximized {
+            match self.window_left.as_ref().filter(|p| p.monitor == name) {
+                Some(p) => (p.position, p.size),
+                None => (None, None),
+            }
+        } else {
+            let at = win.outer_position().ok().map(|p| (p.x - origin.0, p.y - origin.1));
+            let s = win.inner_size();
+            (at, Some((s.width, s.height)))
+        };
+        Some(settings::Place { monitor: name, origin, position, size, maximized })
+    }
+
     pub fn toggle_export_frame(&mut self) {
         self.window.as_mut().unwrap().toggle_export_frame();
     }
@@ -2554,15 +2743,13 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
         // itself -- see `about_to_wait`.
         ev.set_control_flow(winit::event_loop::ControlFlow::Poll);
 
-        // A zero width or height means "pick one", and the pick is made from
-        // the monitor rather than from a constant. Passing 0 through to winit
-        // got its own fallback, which is a fixed 800x600 that knows nothing
-        // about the screen it lands on -- fine on the display it was chosen
-        // for, wrong on anything else.
-        //
-        // 70% of the *work area*, not the full bounds, so the taskbar or dock
-        // does not eat the bottom of the window. Each axis is resolved on its
-        // own, so setting only `width` still gets a sensible height.
+        // A zero width or height means "pick one": the size the UI app was
+        // left at, else a share of the screen rather than a constant. Passing
+        // 0 through to winit got its own fallback, which is a fixed 800x600
+        // that knows nothing about the screen it lands on -- fine on the
+        // display it was chosen for, wrong on anything else. Each axis is
+        // resolved on its own, so setting only `width` still gets a sensible
+        // height. See `place`.
         let (want_w, want_h) = {
             let c = self.config.borrow();
             (c.width, c.height)
@@ -2576,24 +2763,34 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
         } else {
             0.7
         };
-        let monitor = ev.primary_monitor().or_else(|| ev.available_monitors().next());
-        let (auto_w, auto_h) = monitor
-            .as_ref()
-            .map(|m| {
-                let s = m.size();
-                (
-                    (s.width as f32 * fraction) as u32,
-                    (s.height as f32 * fraction) as u32,
-                )
-            })
+        // The screen the config names, else the one the UI app was left on,
+        // else the main one.
+        let monitors: Vec<winit::monitor::MonitorHandle> = ev.available_monitors().collect();
+        let screens = screens_of(&monitors);
+        let primary = ev.primary_monitor().and_then(|p| monitors.iter().position(|m| *m == p));
+        let spec = self.config.borrow().monitor.clone();
+        if !spec.trim().is_empty() && place::named(&screens, &spec).is_none() {
+            eprintln!("no screen `{spec}` for the window among {}", screen_names(&screens));
+        }
+        let (at, remember) = {
+            let c = self.config.borrow();
+            ((c.window_x, c.window_y), c.remember_window)
+        };
+        let left = self.window_left.as_ref().filter(|_| remember);
+        let opening = place::opening(&screens, primary, &spec, at, (want_w, want_h), left, fraction);
+        let (size, position): (winit::dpi::Size, Option<winit::dpi::Position>) = match opening {
+            Some(o) => {
+                let m = &monitors[o.screen];
+                (screen_size(m, o.size), Some(screen_position(m, o.position)))
+            }
             // No monitor to ask -- headless, or a compositor that will not
             // say. The old fixed default is as good a guess as any.
-            .unwrap_or((800, 600));
-
-        let size = winit::dpi::PhysicalSize::new(
-            if want_w == 0 { auto_w.max(320) } else { want_w },
-            if want_h == 0 { auto_h.max(240) } else { want_h },
-        );
+            None => (
+                winit::dpi::PhysicalSize::new(if want_w == 0 { 800 } else { want_w }, if want_h == 0 { 600 } else { want_h })
+                    .into(),
+                None,
+            ),
+        };
         // `with_active(false)` orders the window in *behind* the active
         // application rather than making it key, so a run does not take the
         // keyboard from whatever the user is doing. On macOS that is only
@@ -2624,7 +2821,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
             attrs = attrs.with_taskbar_icon(window_icon());
         }
 
-        // Centre on *one* monitor, not on the desktop. Left to the window
+        // On *one* monitor, not the desktop's middle. Left to the window
         // manager, a window on a multi-monitor desktop is centred on the
         // whole virtual area -- on two 1920-wide screens that puts a
         // 1648-wide window at x = 1096, straddling the join, so it reads as
@@ -2633,15 +2830,22 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
         // `monitor.position()` is the monitor's own origin in desktop
         // coordinates, so this works whichever monitor is primary and
         // whatever their arrangement.
-        if let Some(m) = monitor.as_ref() {
-            let origin = m.position();
-            let s = m.size();
-            let x = origin.x + ((s.width as i32 - size.width as i32) / 2).max(0);
-            let y = origin.y + ((s.height as i32 - size.height as i32) / 2).max(0);
-            attrs = attrs.with_position(winit::dpi::PhysicalPosition::new(x, y));
+        if let Some(p) = position {
+            attrs = attrs.with_position(p);
+        }
+        if opening.is_some_and(|o| o.maximized) {
+            attrs = attrs.with_maximized(true);
         }
 
         let win = Arc::new(ev.create_window(attrs).unwrap());
+        // The frame's corner, as `outer_position` reads it and the app
+        // remembers it: a new window on macOS takes the position for its
+        // content's corner, a title bar lower -- and it crept up by one each
+        // time the app opened. Not for a maximised one, which this would
+        // un-maximise.
+        if let Some(p) = position.filter(|_| !opening.is_some_and(|o| o.maximized)) {
+            win.set_outer_position(p);
+        }
         // After creation, not through `with_fullscreen`: that attribute can
         // only ask for the native kind, and simple fullscreen is a call on a
         // window that exists.
@@ -2674,8 +2878,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
             let w = self.window.as_ref().unwrap();
             let mut editor = crate::app::gui::Editor::new(&win, &w.device, w.surface_config.format);
             if let Some((path, source)) = self.shared.borrow_mut().pending_script.take() {
-                editor.script_path = path;
-                editor.script = source;
+                editor.show_script(path, source);
             }
             self.editor = Some(editor);
             // Only with an editor, so a run that never opens one keeps its
@@ -3303,7 +3506,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     // by a keystroke -- worth having to aim for.
                     (winit::keyboard::KeyCode::KeyK, true) => {
                         let mut sim = self.simulation.borrow_mut();
-                        sim.state.pause_after_iteration = Some(sim.state.iteration);
+                        sim.state.hold_after_iteration = Some(sim.state.iteration);
                         sim.state.is_paused = false;
                     }
 
@@ -3668,7 +3871,8 @@ fn pause_line(
         return Some(format!("paused after iteration {drawn}"));
     }
     let next = state.iteration;
-    (state.pause_after_iteration != Some(next)).then(|| format!("resumed at iteration {next}"))
+    let step = state.hold_after_iteration == Some(next) || state.pause_after_iteration == Some(next);
+    (!step).then(|| format!("resumed at iteration {next}"))
 }
 
 #[cfg(test)]
@@ -3693,8 +3897,11 @@ mod pause_line_tests {
             Some("resumed at iteration 42")
         );
 
-        state.pause_after_iteration = Some(42);
+        state.hold_after_iteration = Some(42);
         assert_eq!(pause_line(Some(true), false, 41, &state), None, "a step");
+        state.hold_after_iteration = None;
+        state.pause_after_iteration = Some(42);
+        assert_eq!(pause_line(Some(true), false, 41, &state), None, "a run's last iteration, a step too");
 
         // Play after the mark fired: it stays on the iteration it fired after.
         state.pause_after_iteration = Some(41);
@@ -3815,6 +4022,26 @@ mod editor_tests {
             assert_eq!(sim.state.iteration, 0, "the counter stays at the start (running before: {running})");
             assert_eq!(app.was_paused, None, "no pause to log (running before: {running})");
         }
+        // The toolbar's number too, which a held frame never updates.
+        app.shared.borrow_mut().drawn_iteration = 537;
+        app.shared.borrow_mut().reset_requested = true;
+        app.editor_tick();
+        assert_eq!(app.shared.borrow().drawn_iteration, 0, "the toolbar back to 0");
+    }
+
+    /// A mesh sent to the renderer is shown held, at iteration 0: nothing
+    /// runs it, and the clock a renewed scene has started counting on its own.
+    #[test]
+    fn a_mesh_is_shown_held() {
+        let mut app = App::new();
+        app.editor_start(&[]);
+        app.shared.borrow_mut().drawn_iteration = 12;
+        app.open_mesh(std::path::Path::new("res/cube.obj"));
+        let mut sim = app.simulation.borrow_mut();
+        assert!(!sim.bodies.is_empty(), "the mesh is in the scene");
+        assert!(!sim.state.begin_frame(std::time::Instant::now()), "held");
+        sim.state.advance();
+        assert_eq!((sim.state.iteration, app.shared.borrow().drawn_iteration), (0, 0));
     }
 
     /// A Rust example's scene is shown in place of the app's own. A script

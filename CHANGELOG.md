@@ -20,8 +20,23 @@ released, and the gate refuses the tag until it has.
 - On macOS, Neovim types what Option types -- `{`, `[`, `|`, and `~` or accents with a dead key -- where it left insert mode. Cmd+C and Cmd+X copy and cut the selection, and Cmd and Option with the arrows and Backspace go by line and by word, as in VS Code.
 - On Windows and Linux, Ctrl+V in Neovim begins a Visual block again after insert mode; it pasted.
 - In Neovim, `/` and `?` highlight their matches as in a terminal: all of them while `hlsearch` is on, the current one apart, as the pattern is typed, until `:noh`.
+- The UI app opens where it was closed: on the same screen, at the same place and size, maximised or fullscreen if it was. Unticking **remember last window** in the app tab fixes where it opens instead -- screen, place, size, fullscreen -- and `app.config.monitor`, `window_x`, `window_y`, `width` and `height` set them from a script.
+- The side panel's settings show their names whole where there is room, and a text field stays within the panel.
+- The files tab is the **scripts** tab: two folders, `examples` and `scripts`, your own. A right click adds an example, a folder or a file, renames either, or moves either to the Trash; a file also goes to the renderer, and Markdown to the documentation tab. The button beside the tabs opens any text file from anywhere.
+- An update of the bundle replaces `examples` -- the old one to the Trash, edits and all -- and never touches `scripts`.
+- The editor opens any text file, and keeps every file opened, with its edits, in a list on its left, under which is the shown file's outline -- classes, functions, variables; a Rust file's items; Markdown's headings -- a click going to the line.
+- Opening a file no longer changes the scene: the editor's **render** button sends the file shown to the renderer, from a clean scene each time -- a script, a Rust example, a mesh, which is shown held -- and Play, Restart and Step act on what was sent. A Rust example's **compile**, debug or release, is beside it.
+- A Markdown file opened as documentation is a page of the documentation tab until kalast closes, and a link from a page to Markdown on this disk opens there too.
+- Reset puts the toolbar's iteration back to 0; it went on showing the last run's.
+- A folder named `mesh` is a plain folder in the scripts tab, not a database.
+- The bundle ships pandas: `examples/landmark_tracking/main.py` stopped on `No module named 'pandas'`.
 - In Neovim, changing mode clears the last message, as in a terminal: an error such as `E492: Not an editor command` stayed on screen.
 - In a bundle, the script editor's language server and Neovim start as they should. They inherited the bundle's Python settings, so a Python-based one -- such as the basedpyright Neovim's mason installs -- exited at once.
+- `kalast.tpm.core` runs a thermophysical model over every facet of a body at once, one call per physical step: `columns` makes the temperatures, a column of layers under each facet; `solar_bc` balances each surface's absorbed sunlight against what it radiates and conducts down; `bottom_adiabatic` closes the columns; `heat_conduction` conducts through them.
+- `app.simulation.facet_incidence(body)` gives each facet's cosine of incidence from the body's pose and the Sun's position as set, with no frame drawn and no shadow map.
+- A script that sets the length of its run, `state.pause_after_iteration`, is held at iteration 0 when opened, like any other; it played straight through. Step and `K` keep that length; they replaced it.
+- The script editor completes and documents `kalast.tpm.core`'s functions.
+- The script editor no longer marks as errors a colormap given by name, `config.data.colormap = "inferno"`, `mesh.values` set from a list, or `body.mesh` used without a check for `None`: every body loaded from a script has a mesh.
 
 ## v0.5.10
 

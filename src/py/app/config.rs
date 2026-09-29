@@ -321,6 +321,11 @@ impl super::config_gen::DataConfig {
         Ok(numpy::PyArray2::from_vec2(py, &rows)?)
     }
 
+    /// Takes more than the getter gives back -- a name, or rows of RGB --
+    /// which the stub has to say, or a checker reads `= "inferno"` as an
+    /// error.
+    ///
+    /// :pytype: str | numpy.ndarray | Sequence[Sequence[float]]
     #[setter]
     fn set_colormap(&mut self, v: &Bound<'_, PyAny>) -> PyResult<()> {
         let table = if let Ok(name) = v.extract::<String>() {

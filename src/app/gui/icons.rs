@@ -54,6 +54,29 @@ pub mod codicon {
     // into once it has copied.
     pub const COPY: &str = "\u{ebcc}";
     pub const CHECK: &str = "\u{eab2}";
+    // The scripts tab's menus, the editor's files and its buttons.
+    pub const NEW_FILE: &str = "\u{ea7f}";
+    pub const NEW_FOLDER: &str = "\u{ea80}";
+    pub const TRASH: &str = "\u{ea81}";
+    pub const EDIT: &str = "\u{ea73}";
+    pub const OPEN_PREVIEW: &str = "\u{eb28}";
+    pub const SEND: &str = "\u{ec0f}";
+    pub const CLOSE: &str = "\u{ea76}";
+    pub const CIRCLE_FILLED: &str = "\u{ea71}";
+    pub const FOLDER_OPENED: &str = "\u{eaf7}";
+    pub const FILE_CODE: &str = "\u{eae9}";
+    pub const ROCKET: &str = "\u{eb44}";
+    // The outline's symbols, VS Code's.
+    pub const SYMBOL_CLASS: &str = "\u{eb5b}";
+    pub const SYMBOL_METHOD: &str = "\u{ea8c}";
+    pub const SYMBOL_VARIABLE: &str = "\u{ea88}";
+    pub const SYMBOL_FIELD: &str = "\u{eb5f}";
+    pub const SYMBOL_CONSTANT: &str = "\u{eb5d}";
+    pub const SYMBOL_ENUM: &str = "\u{ea95}";
+    pub const SYMBOL_STRUCTURE: &str = "\u{ea91}";
+    pub const SYMBOL_INTERFACE: &str = "\u{eb61}";
+    pub const SYMBOL_NAMESPACE: &str = "\u{eb0f}";
+    pub const SYMBOL_STRING: &str = "\u{eb8d}";
 }
 
 /// The Codicons font behind every family, DejaVu Sans behind that, and the

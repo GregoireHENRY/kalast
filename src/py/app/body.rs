@@ -39,14 +39,21 @@ impl Body {
             Mat4::from_cols_array_2d(&m).transpose();
     }
 
-    /// The shape model the renderer draws, or `None` for a body without
-    /// one: facets, positions, colours and per-facet data --
-    /// `help(body.mesh)` for all of it.
+    /// The shape model the renderer draws: facets, positions, colours and
+    /// per-facet data -- `help(body.mesh)` for all of it.
+    ///
+    /// Every body a script loads or adds has one. A body built without one,
+    /// which only Rust can do, raises `AttributeError` -- so that
+    /// `getattr(body, "mesh", None)` still asks -- rather than giving `None`,
+    /// which typed every `body.mesh.values = ...` as an error in the editor.
     #[getter]
-    fn mesh(&self) -> Option<crate::py::mesh::Mesh> {
+    fn mesh(&self) -> PyResult<crate::py::mesh::Mesh> {
         self.simulation.borrow().bodies[self.index]
             .mesh
             .as_ref()
-            .and_then(|m| Some(crate::py::mesh::Mesh { inner: m.clone() }))
+            .map(|m| crate::py::mesh::Mesh { inner: m.clone() })
+            .ok_or_else(|| {
+                pyo3::exceptions::PyAttributeError::new_err(format!("body {} has no mesh", self.index))
+            })
     }
 }

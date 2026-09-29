@@ -53,7 +53,8 @@ KALAST_EXT = {
 KALAST_FOLDERS = {
     "notes": "docs", "res": "assets", "tools": "scripts", "target": "dist",
     "out": "dist", "output": "dist", "results": "dist",
-    "data": "database", "mesh": "database", "meshes": "database",
+    # Not `mesh`: shapes, not data -- a plain folder.
+    "data": "database",
     "spice": "database", "kernels": "database",
 }
 

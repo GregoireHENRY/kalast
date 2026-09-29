@@ -12,4 +12,8 @@ from kalast._rs.tpm.core import (  # noqa
     newton_method,
     conduction_1d,
     conduction_1d_nonuniform,
+    columns,
+    solar_bc,
+    bottom_adiabatic,
+    heat_conduction,
 )

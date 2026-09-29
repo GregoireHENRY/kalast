@@ -16,6 +16,7 @@
 pub mod lsp;
 mod markdown;
 pub mod nvim;
+pub mod outline;
 
 use super::code::{self, Lang, Palette};
 use super::theme;
@@ -1346,6 +1347,19 @@ impl ScriptEditor {
     /// A word on the status bar for a few seconds.
     fn flash(&mut self, message: &str) {
         self.status = Some((message.to_string(), f64::NAN));
+    }
+
+    /// Go to `line` of `text`, the script shown -- the outline's click, as a
+    /// definition is gone to: through Neovim or in the `TextEdit` -- and give
+    /// the editor the keyboard.
+    pub fn go_to_line(&mut self, ctx: &egui::Context, text: &str, line: usize) {
+        if let Some(n) = self.nvim.as_mut().filter(|n| n.ready) {
+            n.jump(line, 0);
+        } else {
+            self.place_cursor = Some(char_index(text, line, 0));
+            self.scroll_to_cursor = true;
+        }
+        ctx.memory_mut(|m| m.request_focus(text_id()));
     }
 
     /// Move the cursor to `at`: through Neovim, keeping `''` for `<C-o>`,

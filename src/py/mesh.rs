@@ -479,6 +479,7 @@ impl Mesh {
         numpy::PyArray1::from_vec(py, v)
     }
 
+    /// :pytype: numpy.ndarray | Sequence[float]
     #[setter]
     fn set_values(&mut self, values: &Bound<'_, PyAny>) -> PyResult<()> {
         let mesh = self.inner.borrow();
