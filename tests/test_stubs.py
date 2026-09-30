@@ -15,6 +15,7 @@ import subprocess
 import sys
 
 import kalast
+import kalast.astro
 import kalast.lightcurve
 import kalast.mesh
 import kalast.scattering
@@ -125,6 +126,17 @@ UNCOVERED = {
 _CASES = None
 
 
+def _a_ground():
+    """A small `Ground`, from properties whose conductivity is computed."""
+    import kalast.tpm.core
+
+    prop = kalast.tpm.properties.Properties(
+        albedo=0.1, emissivity=0.9, density=2000.0, heat_capacity=600.0, thermal_inertia=200.0
+    )
+    prop.compute_conductivity_diffusivity()
+    return kalast.tpm.core.Ground(prop, 3, 2)
+
+
 def _cases():
     """`(stub, class, live object)` triples, built once.
 
@@ -171,6 +183,8 @@ def _cases():
         ("kalast/entity.pyi", "Body", kalast.entity.DEIMOS),
         ("kalast/entity.pyi", "Camera", kalast.entity.TIRI),
         ("kalast/tpm/properties.pyi", "Properties", kalast.tpm.properties.DEIMOS),
+        ("kalast/tpm/core.pyi", "Ground", _a_ground()),
+        ("kalast/astro.pyi", "Orbit", kalast.astro.Orbit(a=1.6426, e=0.3832)),
         # Added after this list let a broken stub through. `Hapke` shipped
         # advertising `py_reflectance` -- the Rust name, because the generator
         # ignored `#[pyo3(name = ...)]` -- and every check here passed, since

@@ -156,15 +156,20 @@ pub struct Colorbar {
     pub enabled: bool,
     pub anchor: HudAnchor,
     /// Inset from the anchor, pixels.
-    /// :range: 0.0..=1.0
+    /// :step: 1.0
     pub x: f32,
-    /// :range: 0.0..=1.0
+    /// :step: 1.0
     pub y: f32,
-    /// Long and short axis of the bar, pixels.
-    /// :range: 0.0..=1.0
+    /// Long and short axis of the bar, pixels. Its edges drag in the
+    /// viewport too.
+    /// :step: 1.0
     pub length: f32,
-    /// :range: 0.0..=0.5
+    /// :step: 1.0
     pub thickness: f32,
+    /// Length of a tick mark, pixels, across the bar's edge -- half inside,
+    /// half out -- the numbers standing past it.
+    /// :step: 0.5
+    pub tick_size: f32,
     /// `None` infers from the anchor.
     pub vertical: Option<bool>,
     /// Caption, e.g. `"Surface temperature (K)"`.
@@ -176,9 +181,19 @@ pub struct Colorbar {
     /// :range: 4.0..=64.0
     pub text_size: f32,
     pub text_color: [f32; 4],
-    /// Outline drawn around the strip, so it reads as a scale rather than as
-    /// part of the scene when it sits over a dark body.
+    /// Outline drawn around the strip, in the text's colour, so it reads as a
+    /// scale rather than as part of the scene when it sits over a dark body.
     pub border: bool,
+    /// Mark the lowest and highest value the bodies carry where they fall on
+    /// the scale -- at its end, when a pinned range leaves them outside it --
+    /// and name them, on the side away from the tick numbers: above a
+    /// horizontal bar, left of a vertical one. The data map's only
+    /// (`shading.color_mode` 1).
+    pub min_max: bool,
+    /// How `min_max` writes the two values, as a Python format spec: `.0f`
+    /// whole numbers, `.3f` three decimals, `.2e` in powers of ten, `d` an
+    /// integer. Anything else reads as `.0f`.
+    pub min_max_format: String,
 }
 
 impl Default for Colorbar {
@@ -188,14 +203,17 @@ impl Default for Colorbar {
             anchor: HudAnchor::BottomCenter,
             x: 0.0,
             y: 48.0,
-            length: 320.0,
-            thickness: 18.0,
+            length: 800.0,
+            thickness: 36.0,
+            tick_size: 5.0,
             vertical: None,
             label: String::new(),
             ticks: 5,
             text_size: 13.0,
             text_color: [0.92, 0.92, 0.92, 1.0],
             border: true,
+            min_max: false,
+            min_max_format: ".0f".into(),
         }
     }
 }
@@ -259,20 +277,35 @@ impl Hud {
     }
 }
 
-/// The built-in colour tables, by name.
-///
-/// Four is deliberate rather than a full matplotlib set: any other colormap
-/// can be passed as an array, so shipping more would be duplicating a
-/// dependency the user already has. These are the ones worth having without
-/// it -- three perceptually uniform, and grey for print.
-///
-/// Sampled at 8 anchor points and interpolated to 256 on upload, which is
-/// within a colour step of the originals and keeps the table readable here.
+/// The colour the data map draws `v` in: the shader's `colormap_lookup` on
+/// the CPU, so that a selected facet's colour can be shown beside its value.
+/// `table` as `data.colormap` holds it -- empty is the renderer's greyscale
+/// -- resampled to the renderer's entries and read between two of them, `v`
+/// clamped to `range`.
+pub fn colormap_color(table: &[[f32; 3]], range: (f32, f32), v: f32) -> [f32; 3] {
+    let t = ((v - range.0) / (range.1 - range.0).max(1e-20)).clamp(0.0, 1.0);
+    if table.is_empty() {
+        return [t, t, t];
+    }
+    let n = crate::app::uniform::COLORMAP_SIZE;
+    let lut = resample_colormap(table, n);
+    let x = t * (n - 1) as f32;
+    let i = x.floor() as usize;
+    let (a, b, f) = (lut[i], lut[(i + 1).min(n - 1)], x - i as f32);
+    [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f]
+}
+
+/// A colour's red, green and blue, `0..1` as kalast takes colours -- what a
+/// script can give `selection.color` or a colormap back.
+pub fn rgb(c: [f32; 3]) -> String {
+    format!("{:.3} {:.3} {:.3}", c[0], c[1], c[2])
+}
+
 /// Resample a colour table to `n` entries, interpolating between them.
 ///
-/// Interpolated, not nearest: nearest turned the 8-anchor built-ins into 8
-/// visible bands -- tolerable on a shaded body where lighting hides it,
-/// obvious on a colour scale, which is a flat ramp with nothing to hide
+/// Interpolated, not nearest: nearest turned a table of a few anchors into
+/// as many visible bands -- tolerable on a shaded body where lighting hides
+/// it, obvious on a colour scale, which is a flat ramp with nothing to hide
 /// behind.
 ///
 /// Shared with the GPU upload so a table fetched from Python is the one the
@@ -299,58 +332,143 @@ pub fn resample_colormap(table: &[[f32; 3]], n: usize) -> Vec<[f32; 3]> {
         .collect()
 }
 
+/// matplotlib's colormaps, every one, sampled at the renderer's 256 entries
+/// by `tools/gen_colormaps.py` -- the format is in its docstring, the notices
+/// they come with in `res/LICENSE-colormaps`. Compiled in, so the panel lists
+/// them and a script names them without matplotlib, in Rust alone too.
+static COLORMAPS: &[u8] = include_bytes!("../../res/colormaps.bin");
+
+/// One of `COLORMAPS`: its name, whether it is another's table under a
+/// second name -- `grey` of `gray` -- and its 256 RGB bytes.
+struct Colormap {
+    name: &'static str,
+    alias: bool,
+    rgb: &'static [u8],
+}
+
+impl Colormap {
+    fn rows(&self) -> impl DoubleEndedIterator<Item = [f32; 3]> + '_ {
+        self.rgb.chunks_exact(3).map(|c| [c[0] as f32 / 255.0, c[1] as f32 / 255.0, c[2] as f32 / 255.0])
+    }
+
+    /// Whether `table` is this one, in its order or reversed.
+    fn is(&self, table: &[[f32; 3]], reversed: bool) -> bool {
+        table.len() * 3 == self.rgb.len()
+            && if reversed {
+                self.rows().rev().eq(table.iter().copied())
+            } else {
+                self.rows().eq(table.iter().copied())
+            }
+    }
+}
+
+fn colormaps() -> &'static [Colormap] {
+    static PARSED: std::sync::OnceLock<Vec<Colormap>> = std::sync::OnceLock::new();
+    PARSED.get_or_init(|| {
+        let b = COLORMAPS;
+        assert!(b.starts_with(b"KALASTCM"), "res/colormaps.bin is not tools/gen_colormaps.py's");
+        let count = u16::from_le_bytes([b[8], b[9]]) as usize;
+        let mut at = 10;
+        (0..count)
+            .map(|_| {
+                let (alias, len) = (b[at] == 1, b[at + 1] as usize);
+                let name = std::str::from_utf8(&b[at + 2..at + 2 + len]).expect("a name in UTF-8");
+                let rgb = &b[at + 2 + len..at + 2 + len + 3 * crate::app::uniform::COLORMAP_SIZE];
+                at += 2 + len + rgb.len();
+                Colormap { name, alias, rgb }
+            })
+            .collect()
+    })
+}
+
+/// The colormaps the panel lists: matplotlib's, each table once, in
+/// matplotlib's order -- its perceptually uniform first. Their other names,
+/// `grey` of `gray`, are taken too, and each reversed with `_r` after it, as
+/// matplotlib names them. Python's `colormap_names` gives these.
+pub fn colormap_names() -> Vec<&'static str> {
+    colormaps().iter().filter(|c| !c.alias).map(|c| c.name).collect()
+}
+
+/// A built-in colour table by its matplotlib name, `_r` after it for its
+/// reverse, as its 256 rows; its case need not match, `Inferno` is
+/// `inferno`. `None` for a name matplotlib does not have.
 pub fn builtin_colormap(name: &str) -> Option<Vec<[f32; 3]>> {
-    // Sampled from matplotlib at 24 even points including both ends, then
-    // interpolated to the 256-entry LUT.
-    //
-    // The previous tables were eight points that stopped short of t = 1:
-    // viridis ended at its mid-green rather than its yellow, leaving the top
-    // quarter of every scale unreachable and the rendered colours off by up
-    // to 0.73 out of 0..1 against matplotlib. Now under 0.015 for all four.
-    let anchors: &[[f32; 3]] = match name.to_ascii_lowercase().as_str() {
-        "viridis" => &[
-            [0.267, 0.005, 0.329],     [0.280, 0.068, 0.392],     [0.283, 0.126, 0.445],
-            [0.278, 0.180, 0.487],     [0.265, 0.233, 0.517],     [0.247, 0.283, 0.536],
-            [0.226, 0.331, 0.547],     [0.205, 0.376, 0.554],     [0.184, 0.422, 0.557],
-            [0.167, 0.464, 0.558],     [0.150, 0.504, 0.557],     [0.135, 0.545, 0.554],
-            [0.123, 0.585, 0.547],     [0.121, 0.626, 0.533],     [0.140, 0.666, 0.513],
-            [0.186, 0.705, 0.485],     [0.260, 0.745, 0.444],     [0.344, 0.780, 0.397],
-            [0.440, 0.811, 0.341],     [0.546, 0.838, 0.276],     [0.658, 0.860, 0.203],
-            [0.773, 0.878, 0.131],     [0.886, 0.892, 0.095],     [0.993, 0.906, 0.144],
-        ],
-        "inferno" => &[
-            [0.001, 0.000, 0.014],     [0.022, 0.017, 0.097],     [0.071, 0.040, 0.196],
-            [0.136, 0.047, 0.300],     [0.211, 0.037, 0.379],     [0.284, 0.044, 0.417],
-            [0.354, 0.067, 0.431],     [0.423, 0.093, 0.433],     [0.497, 0.119, 0.424],
-            [0.566, 0.144, 0.408],     [0.634, 0.169, 0.384],     [0.701, 0.198, 0.351],
-            [0.764, 0.233, 0.311],     [0.822, 0.275, 0.266],     [0.874, 0.327, 0.217],
-            [0.916, 0.387, 0.165],     [0.952, 0.462, 0.105],     [0.974, 0.537, 0.048],
-            [0.986, 0.616, 0.026],     [0.987, 0.698, 0.088],     [0.977, 0.782, 0.186],
-            [0.959, 0.867, 0.311],     [0.947, 0.943, 0.475],     [0.988, 0.998, 0.645],
-        ],
-        "turbo" => &[
-            [0.190, 0.072, 0.232],     [0.236, 0.197, 0.524],     [0.265, 0.317, 0.747],
-            [0.277, 0.431, 0.903],     [0.271, 0.540, 0.989],     [0.220, 0.649, 0.984],
-            [0.145, 0.754, 0.905],     [0.095, 0.845, 0.793],     [0.127, 0.917, 0.676],
-            [0.248, 0.964, 0.543],     [0.412, 0.993, 0.398],     [0.574, 0.998, 0.277],
-            [0.695, 0.976, 0.213],     [0.805, 0.925, 0.205],     [0.899, 0.851, 0.220],
-            [0.965, 0.764, 0.228],     [0.995, 0.653, 0.196],     [0.990, 0.529, 0.144],
-            [0.958, 0.400, 0.088],     [0.905, 0.287, 0.045],     [0.832, 0.199, 0.021],
-            [0.737, 0.125, 0.008],     [0.619, 0.064, 0.004],     [0.480, 0.016, 0.011],
-        ],
-        "grey" | "gray" => &[
-            [0.000, 0.000, 0.000],     [0.043, 0.043, 0.043],     [0.086, 0.086, 0.086],
-            [0.129, 0.129, 0.129],     [0.173, 0.173, 0.173],     [0.216, 0.216, 0.216],
-            [0.259, 0.259, 0.259],     [0.302, 0.302, 0.302],     [0.349, 0.349, 0.349],
-            [0.392, 0.392, 0.392],     [0.435, 0.435, 0.435],     [0.478, 0.478, 0.478],
-            [0.522, 0.522, 0.522],     [0.565, 0.565, 0.565],     [0.608, 0.608, 0.608],
-            [0.651, 0.651, 0.651],     [0.698, 0.698, 0.698],     [0.741, 0.741, 0.741],
-            [0.784, 0.784, 0.784],     [0.827, 0.827, 0.827],     [0.871, 0.871, 0.871],
-            [0.914, 0.914, 0.914],     [0.957, 0.957, 0.957],     [1.000, 1.000, 1.000],
-        ],
-        _ => return None,
-    };
-    Some(anchors.to_vec())
+    if let Some(forward) = name.strip_suffix("_r").or_else(|| name.strip_suffix("_R")) {
+        return builtin_colormap(forward).map(|mut table| {
+            table.reverse();
+            table
+        });
+    }
+    let all = colormaps();
+    all.iter()
+        .find(|c| c.name == name)
+        .or_else(|| all.iter().find(|c| c.name.eq_ignore_ascii_case(name)))
+        .map(|c| c.rows().collect())
+}
+
+/// The name a colour table was made from: a listed built-in, `_r` after it
+/// if reversed -- or `None` for one given as an array or read from a file.
+/// Empty, the default, is the renderer's own greyscale, which is `gray`.
+pub fn colormap_name(table: &[[f32; 3]]) -> Option<String> {
+    if table.is_empty() {
+        return Some("gray".into());
+    }
+    // A name as it is before any reversed: gray's table is binary's the
+    // other way round, and is gray.
+    let listed = || colormaps().iter().filter(|c| !c.alias);
+    listed()
+        .find(|c| c.is(table, false))
+        .map(|c| c.name.to_string())
+        .or_else(|| listed().find(|c| c.is(table, true)).map(|c| format!("{}_r", c.name)))
+}
+
+/// A colour table read from a text file: a colour a line, its red, green
+/// and blue -- a fourth value, alpha, dropped -- apart by commas, spaces,
+/// tabs or semicolons. In 0..1, or 0..255 where any value is above 1.
+/// Blank lines, `#` comments and a header before the first colour are
+/// skipped, so a table saved from matplotlib, ParaView or a spreadsheet
+/// reads as it is.
+pub fn colormap_from_file(path: &std::path::Path) -> Result<Vec<[f32; 3]>, String> {
+    let shown = path.display();
+    let text = std::fs::read_to_string(path).map_err(|e| format!("cannot read {shown}: {e}"))?;
+    let mut rows: Vec<[f32; 3]> = Vec::new();
+    for (i, line) in text.lines().enumerate() {
+        let line = line.split('#').next().unwrap_or_default().trim();
+        if line.is_empty() {
+            continue;
+        }
+        let values: Result<Vec<f32>, _> = line
+            .split(|c: char| c == ',' || c == ';' || c.is_whitespace())
+            .filter(|v| !v.is_empty())
+            .map(str::parse::<f32>)
+            .collect();
+        match values {
+            Ok(v) if v.len() == 3 || v.len() == 4 => rows.push([v[0], v[1], v[2]]),
+            Ok(v) => {
+                return Err(format!(
+                    "{shown}, line {}: {} values, where a colour is 3 -- or 4, with alpha",
+                    i + 1,
+                    v.len()
+                ));
+            }
+            Err(_) if rows.is_empty() => {} // a header
+            Err(_) => return Err(format!("{shown}, line {}: not numbers: {line}", i + 1)),
+        }
+    }
+    if rows.is_empty() {
+        return Err(format!("{shown}: no colours in it, a line of red, green and blue each"));
+    }
+    if let Some(x) = rows.iter().flatten().find(|x| !x.is_finite()) {
+        return Err(format!("{shown}: {x} is not a colour value"));
+    }
+    let (low, high) = rows.iter().flatten().fold((f32::MAX, f32::MIN), |(l, h), &x| (l.min(x), h.max(x)));
+    if !(low >= 0.0 && high <= 255.0) {
+        return Err(format!("{shown}: colours run from {low} to {high}, where 0..1 or 0..255 is read"));
+    }
+    if high > 1.0 {
+        rows.iter_mut().flatten().for_each(|x| *x /= 255.0);
+    }
+    Ok(rows)
 }
 
 /// How the surface is coloured and the image encoded.
@@ -729,9 +847,11 @@ pub struct Data {
     pub value_max: Option<f32>,
     /// Colour lookup table, 256 RGB entries in 0..1.
     ///
-    /// Set by name (`"viridis"`, `"inferno"`, `"turbo"`, `"grey"`) or from any
-    /// 256x3 array, so a matplotlib colormap can be handed over unchanged.
-    /// Defaults to greyscale.
+    /// Set by name -- any of matplotlib's, `"inferno"`, each reversed with
+    /// `_r` after it (`colormap_names`) -- from any Nx3 array, so a matplotlib
+    /// colormap can be handed over unchanged, or from a text file of rows of
+    /// RGB (`colormap_from_file`). Defaults to greyscale. Chosen, reversed and
+    /// loaded in the panel by `colormap_ui`, by hand.
     /// :skip:
     /// :py_custom:
     pub colormap: Vec<[f32; 3]>,
@@ -1532,5 +1652,75 @@ impl Default for AppConfig {
             rust_language_server: String::new(),
             check_updates: true,
         }
+    }
+}
+
+#[cfg(test)]
+mod colormap_tests {
+    use super::*;
+
+    /// A built-in's name with `_r` after it is its reverse, as matplotlib
+    /// names them, and a table is named back from what it holds.
+    #[test]
+    fn a_colormap_is_named_back_reversed_or_not() {
+        let inferno = builtin_colormap("inferno").unwrap();
+        let reversed = builtin_colormap("inferno_r").unwrap();
+        assert!(inferno.iter().rev().eq(reversed.iter()));
+        assert_eq!(colormap_name(&reversed).as_deref(), Some("inferno_r"));
+        assert_eq!(colormap_name(&[]).as_deref(), Some("gray"), "the default greyscale");
+        assert_eq!(colormap_name(&[[1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]), None);
+        for name in colormap_names() {
+            assert_eq!(colormap_name(&builtin_colormap(name).unwrap()).as_deref(), Some(name));
+        }
+    }
+
+    /// matplotlib's colormaps, every one, by its names -- its aliases, any
+    /// case -- listed once each; a listed one keeps its steps. Asked for: "i
+    /// only see 4 builtins colormaps in UI app, can we have all the builtins
+    /// colormaps of matplotlib?"
+    #[test]
+    fn matplotlibs_colormaps_are_all_there() {
+        let names = colormap_names();
+        for name in ["magma", "viridis", "cividis", "twilight", "turbo", "berlin", "coolwarm", "RdBu", "Blues", "tab10", "gray", "jet"] {
+            assert!(names.contains(&name), "{name} not listed");
+        }
+        assert!(!names.contains(&"grey"), "an alias listed beside its table");
+        assert_eq!(builtin_colormap("grey"), builtin_colormap("gray"));
+        assert_eq!(builtin_colormap("rdbu"), builtin_colormap("RdBu"));
+        assert_eq!(builtin_colormap("gray").unwrap().len(), crate::app::uniform::COLORMAP_SIZE);
+        let mut tab10 = builtin_colormap("tab10").unwrap();
+        tab10.dedup();
+        assert_eq!(tab10.len(), 10, "tab10's ten colours, in steps");
+        assert!(builtin_colormap("nonsense").is_none());
+    }
+
+    /// A text file of colours: any separator, a header, comments, a fourth
+    /// column dropped, 0..255 read as bytes; and what is not a table refused
+    /// saying why.
+    #[test]
+    fn a_colormap_is_read_from_a_text_file() {
+        let dir = std::env::temp_dir().join(format!("kalast-colormap-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let write = |name: &str, text: &str| {
+            let p = dir.join(name);
+            std::fs::write(&p, text).unwrap();
+            p
+        };
+        let csv = write("a.csv", "r,g,b\n# ice\n0,0,0.5\n0.5, 0.5 ,1\n1;1;1;0.2\n");
+        assert_eq!(colormap_from_file(&csv).unwrap(), vec![[0.0, 0.0, 0.5], [0.5, 0.5, 1.0], [1.0, 1.0, 1.0]]);
+        let bytes = write("b.txt", "0 0 0\n255\t128\t0\n");
+        assert_eq!(colormap_from_file(&bytes).unwrap(), vec![[0.0, 0.0, 0.0], [1.0, 128.0 / 255.0, 0.0]]);
+        for (name, text, says) in [
+            ("c.txt", "0 0\n", "2 values"),
+            ("d.txt", "", "no colours"),
+            ("e.txt", "0 0 0\nred green blue\n", "not numbers"),
+            ("f.txt", "-1 0 0\n", "colours run from"),
+            ("g.txt", "0 0 nan\n", "is not a colour value"),
+        ] {
+            let e = colormap_from_file(&write(name, text)).unwrap_err();
+            assert!(e.contains(says), "{name}: {e}");
+        }
+        assert!(colormap_from_file(&dir.join("none.csv")).unwrap_err().contains("cannot read"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

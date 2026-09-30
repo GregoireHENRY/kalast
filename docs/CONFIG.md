@@ -186,6 +186,11 @@ again on the new version with the same command line. Nothing restarts on its
 own. Up to date, the log says so in one line; unreachable, it says nothing.
 The lines go to the log's kalast tab.
 
+A bundle's `scripts` and `examples` are not among the folders replaced. The
+new version, at its first start, puts its examples in place of the old, and
+moves each example you changed or added, whole, to
+`scripts/examples-before-v<version>`; the kalast tab says which.
+
 A beta bundle -- one from the pre-release `v<version>-beta` -- is offered the
 newer beta of its version, and then that version's release. It knows which
 commit it was built from and when, and a beta on GitHub is newer when it was
@@ -1679,29 +1684,50 @@ faces the viewer, so a letter never outshines the ball it is on.
 ## Facet colouring from data
 
 ### `data.colormap` *(live)*
-The colour table. Accepts a built-in name, any N×3 or N×4 array (alpha
-ignored) in float32 or float64, or a sequence of `[r, g, b]` triples:
+The colour table. Accepts a built-in name -- any of matplotlib's, `_r` after
+it for its reverse, as matplotlib names them -- a path to a text file of
+colours, any N×3 or N×4 array (alpha ignored) in float32 or float64, or a
+sequence of `[r, g, b]` triples:
 
 ```python
 app.simulation.config.data.colormap = "inferno"
+app.simulation.config.data.colormap = "inferno_r"                                # reversed
+app.simulation.config.data.colormap = "cmaps/ice.csv"                             # a file
 app.simulation.config.data.colormap = matplotlib.colormaps["magma"](numpy.linspace(0, 1, 256))[:, :3]
-app.simulation.config.data.colormap = kalast.app.colormap("inferno")[::-1]      # reversed
 ```
 
+A file holds a colour a line, red, green and blue -- a fourth value, alpha,
+dropped -- apart by commas, spaces, tabs or semicolons, in 0..1, or 0..255
+where any value is above 1. Blank lines, `#` comments and a header before the
+first colour are skipped, so a table saved from matplotlib, ParaView or a
+spreadsheet reads as it is. A `pathlib.Path` works as a string does.
+
+In the simulation tab, under **Data colouring**: the list of built-ins, each
+with its colours beside its name, showing the table's name as it was made --
+`_r` when reversed, "custom" for an array or a file -- a strip of its colours,
+**reverse**, and **load file...**, for the same text files.
+
+The built-ins are matplotlib's, every one, sampled at 256 entries and
+compiled into kalast -- no matplotlib needed -- in matplotlib's order, its
+perceptually uniform first; a name matplotlib gives the same table twice,
+`grey` of `gray`, is taken but listed once. Their licenses are in
+`res/LICENSE-colormaps`. When a matplotlib release adds one,
+`tools/gen_colormaps.py` brings it in.
+
 Any length works — it is resampled to 256 entries on upload, interpolated
-rather than nearest, since nearest turned the 8-anchor built-ins into 8
-visible bands. Obvious on a colour scale, which is a flat ramp with nothing
-to hide behind.
+rather than nearest, since nearest turns a table of a few anchors into as
+many visible bands. Obvious on a colour scale, which is a flat ramp with
+nothing to hide behind.
 
 Reading it back gives the stored table as an array. Defaults to greyscale, so
 a mesh with values but no colormap set still reads as data rather than one
 flat colour.
 
 **`kalast.app.colormap(name)`** returns a built-in as a 256×3 array, and
-**`kalast.app.colormap_names()`** lists them. That makes the built-ins data
-rather than a string only the setter understands, so one can be reversed,
-sliced or concatenated before use. An unknown name raises `ValueError`
-listing the built-ins.
+**`kalast.app.colormap_names()`** lists them, each also taken with `_r`. That
+makes the built-ins data rather than a string only the setter understands, so
+one can be reversed, sliced or concatenated before use. An unknown name raises
+`ValueError` pointing at `colormap_names()`.
 
 Until 7 September the setter took **only float32**, so the matplotlib call
 in its own documentation failed — numpy's default is float64 — with
@@ -1753,29 +1779,56 @@ colour, so there is no scale to label.
 
 ### `colorbar.label: str` *(live)*
 Caption, e.g. `"Surface temperature (K)"`. Same warning as `axes.unit`:
-nothing checks it against what is actually mapped.
+nothing checks it against what is actually mapped. Above a horizontal bar;
+beside a vertical one, past its tick numbers, turned to read upwards.
 
 ### `colorbar.anchor: str` *(live)*
 ### `colorbar.x: float` *(live)*
 ### `colorbar.y: float` *(live)*
-Placement, using the same nine anchors and inset convention as `Hud`.
+Placement, using the same nine anchors and inset convention as `Hud`, in
+pixels.
 
 ### `colorbar.vertical: bool | None` — default `None` *(live)*
 Orientation. `None` infers it from the anchor, which is right for the corners.
+In the panel, one choice of three: auto, yes, no.
 
-### `colorbar.length: float` *(live)*
-### `colorbar.thickness: float` *(live)*
-Long and short axis of the bar, in pixels.
+### `colorbar.length: float` — default `800` *(live)*
+### `colorbar.thickness: float` — default `36` *(live)*
+Long and short axis of the bar, in pixels. Its edges also drag in the render
+window: an end for the length, a side for the thickness, the pointer showing
+resize arrows over them — see `CONTROLS.md`. A drag sets these two and the
+inset, `x` or `y`, so a script can read back the size it was given.
 
 ### `colorbar.ticks: int` *(live)*
 ### `colorbar.text_size: float` *(live)*
 ### `colorbar.text_color: list[float]` *(live)*
 Roughly how many numbered ticks — rounded to a readable step as the axes are —
-plus label size and colour.
+plus label size and colour. Each number has a tick mark on the bar's edge
+beside it, where its value falls.
+
+### `colorbar.tick_size: float` — default `5` *(live)*
+Length of a tick mark, in pixels, the numbers' and `min_max`'s alike,
+centred on the bar's edge: half inside the strip, half out, the numbers
+standing past the outer half. `0` draws no marks.
 
 ### `colorbar.border: bool` — default `True` *(live)*
-Outline around the strip, so it reads as a scale rather than as part of the
-scene when it sits over a dark body.
+Outline around the strip, in the text's colour, so it reads as a scale rather
+than as part of the scene when it sits over a dark body.
+
+### `colorbar.min_max: bool` — default `False` *(live)*
+Mark the lowest and highest value the bodies carry where they fall on the
+scale, and write them, the numbers alone, as `min_max_format` says. On the
+side away from the tick numbers — above a horizontal bar, left of a vertical
+one — each centred on its own mark, as the tick numbers are, and pushed apart
+only where the two would touch. A value off a pinned range is marked at the
+end it lies past. The ticks fall on round
+numbers; these are what the surface actually reached. Data map only
+(`shading.color_mode = 1`).
+
+### `colorbar.min_max_format: str` — default `".0f"` *(live)*
+How `min_max` writes its two values, as a Python format spec: `".0f"` whole
+numbers, `".3f"` three decimals, `".2e"` in powers of ten (`1.84e+02`), `"d"`
+an integer. Anything else reads as `".0f"`.
 
 ---
 

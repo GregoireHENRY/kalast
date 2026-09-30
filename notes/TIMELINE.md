@@ -4830,3 +4830,438 @@ Open: a nonuniform grid over every facet, for the Hera scripts to leave
 `routine.step_*`; one thread.
 
 See `notes/2026-09-29_tpm_every_facet_at_once.md`.
+
+## 2026-09-29 — the editor's rows by the galley
+
+Reported with a screenshot: in the Neovim editor, line 79's number beside
+line 80's text, the cursor on 79. egui rounds a galley's rows to whole
+pixels (`epaint` `text_layout`, `round_to_pixel`): at 2x the 13-point
+monospace row the font calls 15.125 points is laid out every 15.0. The
+text, the cursor and the search highlights are placed by the galley; the
+gutter, the cursor line's band, the scroll origin, clicks (`cell`) and
+hovers (`View::index_at`) by `line * row_height` -- 9.75 points low by line
+79, the number centred on the next line, and a click there went to the line
+above. At 1.5x the pitch is 15.33 and the drift ran the other way.
+`View::line_top`, `line_at` and `y_at` take the rows' own positions, and
+`row_pitch` the distance between them. The plain editor's gutter already
+read the galley; its hover did not.
+`a_line_is_placed_by_its_row_however_far_down`, at 2x, 1.5x and 1x.
+
+It froze the app, reported the next day: "if i click on editor just after
+opening kalast the app loops and get frozen". Before Neovim has loaded the
+file its buffer is empty, and an empty galley is one row of height 0 --
+`row_pitch` returned 0, and the wheel's `while wheel >= 3 * pitch` spun
+forever the moment the pointer was over the editor, flooding Neovim with
+wheel events besides. The pitch now falls back to the font's row where the
+galley's is not positive, and the notch is at least a point whatever it is
+given. `an_empty_text_still_has_a_rows_height`. Local bundles only: no beta
+carried it.
+
+The hover had the same drift: `index_at` found no word under the pointer
+far down a file, the line from the font's height and the character from the
+galley's disagreeing -- `core.heat_conduction`'s docstring, on line 81 of the
+sphere script, never showed. And the TPM functions' docs now name the
+scheme: explicit finite differences, FTCS, at a fixed step; Newton at the
+surface.
+
+## 2026-09-29 — a selected facet's value and colours
+
+Asked: "when clicking on a facet also shows facet color and value", then
+"also show color as per the colormap". The Selection panel lists each facet
+with its value -- read every frame, so a TPM run's temperature moves -- the
+colour the colormap gives it, as a swatch and its red, green and blue from
+0 to 1 -- kalast's own way to give a colour, `#rrggbb` at first until asked
+otherwise -- and its own colour,
+the one under the selection's (`Selection::color`, the colour it had when
+selected). The click's printout says the same. The colour is the shader's
+`colormap_lookup` on the CPU (`config::colormap_color`), over the range the
+last frame was drawn with -- the renderer writes it to
+`Simulation::value_range`, as it writes `image_size` -- or, the data map not
+shown, `data_range`, the renderer's own fit, now one function both use.
+`a_selected_facet_shows_its_value_and_colours` draws the panel and reads its
+text; the lookup, the range and the kept colour have tests of their own.
+
+## 2026-09-29 — the colour bar: gone when its settings opened; outline, ticks, extremes
+
+Reported: "when i click "data colouring" in simulation tab the colorbar
+disapears". `colorbar.x`, `y`, `length` and `thickness` are pixels -- 48,
+320, 18 by default -- and carried `:range: 0..=1` and `0..=0.5` from when
+they were fractions. The generated sliders clamped to those ranges as they
+were drawn: egui's default is `SliderClamping::Always`, which rewrites the
+value it shows. Opening the section made the bar 1 by 0.5 pixels. The four
+are drag fields now (`:step: 1.0`), and the generator makes every slider
+`SliderClamping::Edits`: a range bounds what is typed or dragged, never what
+a script set. Its colour buttons go through a copy kept only when changed:
+egui's button writes its HSV round trip back each frame, moving 0.0147 to
+0.014699999 -- the new `drawing_the_panel_changes_no_setting` found that,
+drawing every generated group over values outside their widgets' ranges.
+The HUD's colour and size, and the Run header's rate, the same by hand.
+
+Asked for next: an outline, ticks, and the min and max. `colorbar.border`
+was in the config, documented and on by default, and nothing drew it. The
+colour bar pass has strokes of its own now, the gizmo's antialiased bars
+(`gizmo::bar`) laid out each frame by `window::colorbar_lines`: the
+outline, just outside the strip, and a mark at each tick; the numbers moved
+past the marks. `colorbar.min_max` (off by default) marks the bodies'
+lowest and highest value (`simulation::data_extremes`, which `data_range`
+is built on) on the other edge and names them beyond their marks -- at the
+end of a pinned range they lie past. The scale's own ends were the first
+reading, and on the sphere script's pinned 200..380 K that printed the
+range the ticks already gave; the data's extremes are what a pinned scale
+hides. And the flat mode drew the bar from the last frame that had one:
+`render` checks `color_mode` as the layout does. `colorbar_tests`.
+
+## 2026-09-29 — thermal properties per facet and per layer
+
+`kalast.tpm.core.Ground`: albedo and emissivity per facet, conductivity,
+density and heat capacity per layer and facet -- any shape that broadcasts,
+numpy arrays changed in place -- taken by `solar_bc` and `heat_conduction`
+where `Properties` is. The conduction is the conservative form, `k` at a
+boundary the harmonic mean, so the flow is continuous across a change of
+material; checked by conservation over a step, two materials in series,
+and a layered column's energy over a rotation. 158 us a step at 5120 by
+51, against 56 with one `Properties`. The stub generator now carries a
+signature's annotations (`prop: "Properties | Ground"`).
+
+See `notes/2026-09-29_tpm_every_facet_at_once.md`.
+
+## 2026-09-30 — the colour bar's caption turned, its extremes formatted, `vertical` in one choice
+
+Asked for, one after the other: a vertical bar's caption vertical too; no
+second box when `vertical` is ticked; the min and max formatted at will,
+without the words. The caption of a vertical bar comes back from
+`colorbar_labels` apart and is drawn by a second brush on the same font,
+its projection turned a quarter turn about the caption's point
+(`caption_matrix`: `(x, y)` to `(y, -x)`, y down, so the text reads
+upwards) -- `wgpu_text` has one matrix a brush and no rotation per
+section. It sits past the widest tick number, measured with
+`glyph_bounds` when drawn, halfway up the bar. `colorbar.min_max_format`,
+`".1f"` by default, takes Python's `f`, `e` (written `1.84e+02`) and `d`;
+the values are written bare. The generator draws an `Option<bool>` as a
+list of auto, yes and no: ticked, the old first box set `Some(true)` and
+brought a second whose `false` looked like `None` beside a bottom anchor.
+`colorbar_tests`: the caption apart and turned upwards, the formats, the
+extremes where they fall.
+
+Then: "min max ticks colorbar should be centered around ticks like normal
+bottom ticks". Each was set beyond its own mark, the lowest ending at its
+mark and the highest starting at its own, so the two could never meet;
+centred now, as the tick numbers are, level with their marks on a vertical
+bar -- and, where the two come too close to read, pushed apart about their
+middle just far enough, their width estimated at 0.55 of the text's height
+a character. A surface all at one temperature puts both marks on one spot.
+
+## 2026-09-30 — a gizmo ball clicked twice, one zoom
+
+Reported: "when i click multiple times on the same gizmo axe for 2d view, i
+get different zoomimg". The plane view backs the eye off four radii of
+`scene_bounds` -- the box around each body's box turned through its `mat`,
+whose half-diagonal the radius is. A box around a turned box grows and
+shrinks with the turn: a sphere's, 1.73 r square-on, 2.24 r at 45 degrees,
+29 % between. On the spinning sphere each click came at another angle and
+framed another size. `Simulation::scene_sphere` takes each body's sphere
+instead -- its own box's, carried through `mat`, which a rotation leaves as it
+is -- and merges them (`enclosing`); the gizmo, `frame_all` and a script's
+`camera.view_along` frame by it, through `Eye::view_along_sphere` and
+`frame_sphere`. As loaded it is the same sphere as before, so nothing
+reframes. `framing_tests`: the plane view and `frame_all` put the eye in one
+place at four angles of a turned cube, where the box grew by a fifth.
+
+## 2026-09-30 — the colour bar resized by its edges; its tick marks sized
+
+Asked for: "allow me to resize colorbar", "add tick size", "default length
+800 and default thickness 36". A left press within 8 pixels of an edge of
+the bar drags that edge, the pointer showing resize arrows over it (the
+editor's `scene_cursor`, since egui sets the pointer each frame; winit's
+own with no editor). An end sets `colorbar.length`, a side `thickness`; the
+edge opposite stays, or the centre where the anchor centres that axis, and
+the inset is rewritten so the anchor's rule puts the bar where it was
+pulled -- 16 pixels long and 4 thick at the least. The rectangle is
+`window::colorbar_rect`, the one the renderer draws, so what is dragged is
+what is seen. The gizmo keeps its press, `Option` still orbits, and a click
+inside the bar away from its edges still picks the facet behind it.
+`colorbar.tick_size` (5) is the marks' length, the numbers' and the
+extremes' alike, which was a constant; 0 draws none. The defaults grew from
+320 by 18 to 800 by 36. `colorbar_tests`: an edge taken near it and not deep
+inside, a dragged edge followed under a centred anchor and a corner one,
+the least size held. A live drag is untested by hand here.
+
+## 2026-09-30 — each column started at its latitude's effective temperature
+
+Asked on the obliquity script: a start that knows latitude and obliquity,
+the winter pole near 0 and the summer pole warm. `core.mean_incidence(lat,
+dec)` is the daily mean of `max(cos i, 0)`, the ratio `effective_temperature`
+already took as `r` (1/4 a sphere); `effective_temperature` and it broadcast
+arrays from Python, and `columns` takes a start a facet. On the 45-degree
+sphere every column's bottom is within 1 K of its settled value after 18
+spins at most; one start for the body left the polar night 96 K warm after
+50. The polar night starts, and stays, at 0 K. Tested against the hour
+angle summed, a sphere's 1/4 at any tilt, and a spun column radiating as
+its start. `scripts/sphere/tpm_obliquity.py` in the dev bundle uses it.
+
+See `notes/2026-09-29_tpm_every_facet_at_once.md`.
+
+## 2026-09-30 — a Neovim error goes as Insert or a new command begins
+
+Reported: "after a neovim error for example if i type :W instead of :w,
+should be removed if i press I for insert mode or if i type : again for new
+command". The message was cleared only when `msg_showmode` changed -- `--
+INSERT --` arriving -- so `:` left it, hidden behind the command line while
+typed and back once the command ran, even a correct `:w`; and with
+'showmode' off `i` left it too. Now `mode_change` into Insert, Replace,
+Visual or the command line clears it (`begins_over_the_message`), as the
+terminal's message line is written over; not the change back to Normal,
+which an error arrives with. `an_error_goes_when_insert_or_a_new_command_begins`
+drives a real Neovim, 'showmode' on and off; checked once by hand against
+the installed kalast config too.
+
+## 2026-09-30 — kalast's logo simulated again; a camera's `up` a hair long no longer aborts
+
+Asked: "tpm_logo.py needs to show how to re-simulate the logo of kalast",
+with the old sphere, flattened along z, and an obliquity remembered as 45.
+The logo is `kalast.png` of the OpenGL kalast, added with v0.3.6 (2023-11-13,
+`~/projects/kalast-old-opengl-2/assets/`). Its source, by the configs of
+that commit: `examples/thermal` -- `shape: sphere` (the old
+`assets/mesh/sphere.obj`, byte for byte `res/sph1.obj`, a UV sphere of 32
+by 16 with its poles on z) scaled by Didymos's `[0.4095, 0.4005, 0.3035]`,
+albedo 0.1, emissivity 0.9, thermal inertia 500, 2100 kg/m3, 600 J/kg/K, a
+spin of 8136 s, the Sun on +x, starting at 0 K, inferno to 400 K; its
+shader coloured data flat, no light. No obliquity was set there, and the
+view was moved by hand. Measured from the image: each band one colour, the
+pole's cap black and the rings after it distinct -- which 45 degrees at a
+solstice cannot give, five bands south of -45 in polar night and black, the
+body a crescent. Band means against the logo's: no run fits closely (25 K
+rms at best, the image's colours not a snapshot of one), but 5 degrees after
+20 spins from 0 K looks it. `scripts/sphere/tpm_logo.py` in the dev bundle:
+the vertices scaled and `recompute_facets` -- `load_mesh`'s `mat` is the
+pose, which the loop's `bod.mat[:3, :3] = ...` replaced, and a scale left in
+it would turn `facet_incidence`'s normals by the plain matrix -- and the
+spin written `mat_axis_angle(tilt @ spin_axis, angle) @ tilt`, the same
+matrix as `tilt @ mat_axis_angle(spin_axis, angle)`; without the `@ tilt`
+the body's pole wobbles about the axis. `load_mesh` and API.md now say what
+`mat` is.
+
+On the way: `camera.up = [-0.342, -0.651, 0.678]`, 1.00025 long, aborted
+the process -- `Eye::lookto` refuses a vector off unit length and the
+window unwraps it, in a function that cannot unwind. The Python setters of
+`dir`, `up` and `up_world` normalise what they are given and refuse a zero
+vector with a `ValueError`.
+
+## 2026-09-30 — a body's shape in its pose: `facet_incidence` turns normals as the shader does
+
+Asked: keep the logo body's flattening in `mat` rather than scaling the
+vertices and recomputing the facets, which a very large mesh pays for --
+"i thought the shader code is using normal model matrix", and it is: each
+instance carries `mat.inverse().transpose()` (`Instance::compute_normal`),
+which `mesh_shadow.wgsl` turns the normals by. The CPU side did not:
+`facet_incidence`, what `solar_bc` is given, turned them by the pose's own
+3x3 and renormalised -- right for a rotation or a uniform scale, and for a
+flattened body a normal leaning toward the equator where the surface faces
+the pole. It takes the inverse transpose now. Tested against the same body
+flattened in its vertices (ico2, scaled 1 by 0.9 by 0.5 and turned): equal
+to 1e-5, where the plain pose was off by more than 0.1. `tpm_logo.py` poses
+`tilt @ spin @ shape` and edits nothing: the same temperatures as the vertex
+version to 1e-4 K. Still turning normals by the plain pose, for a scaled
+body: the hemicube's view-factor setup (`window.rs`), the facet labels'
+facing test, and `mesh::view_factor` between two bodies.
+
+## 2026-09-30 — the colormap chosen in the panel, reversed, read from a file
+
+Reported: "i cant seem to be able to change the colormap (name and potential
+operations like reverse, show also allow to upload one from a file or the
+console Python) in data colouring in the UI". `data.colormap` is `:skip:` --
+a table, which the generator gives no widget -- so Data colouring had none.
+`colormap_ui`, by hand beside `group_data`: the built-ins in a list, the one
+in use named by comparing the table with them (`config::colormap_name`, `_r`
+when reversed, "custom, N colours" otherwise, empty the renderer's grey), a
+strip of its colours, **reverse**, and **load file...** through rfd.
+`config::colormap_from_file` reads a colour a line -- commas, spaces, tabs or
+semicolons; alpha dropped; 0..255 where a value is above 1; comments and a
+header skipped -- refusing, with the line, what is not. `builtin_colormap`
+takes matplotlib's `_r`. The Python setter takes those names, and a path, a
+`str` or an `os.PathLike` -- the stub generator now knows `os` -- its error
+message no longer a run of spaces where a line was continued without `\`.
+`COLORMAP_NAMES` moved from the binding to `app::config`, for the panel.
+`colormap_tests`, `the_colormap_is_shown_by_name`, and the panel drawn over
+a table of its own changing nothing. The file dialog is untested by a click.
+
+## 2026-09-30 — a column's start at its latitude, in one line
+
+Asked: the latitude start "is a bit too long ... it would be better if it was
+a one line", seven lines of normals, latitudes and the Sun's in a script.
+`Simulation::facet_mean_incidence(body, axis)`: each facet's
+`mean_incidence`, its latitude and the Sun's read from the pose as it stands
+-- normals by the inverse transpose as `facet_incidence` turns them, the axis
+as the body's points turn -- so `sim.facet_mean_incidence(0)` stands where
+`0.25` stood. Tested against `facet_incidence` averaged over 720 steps of a
+spin, tilted 25 degrees and flattened by the pose: to 1e-3. The seven lines
+and the one agree to 1e-7 on the 25-degree sphere. A tilted axis wants the
+tilt in the pose first; `tpm.py` and `tpm_obliquity.py` in the dev bundle
+use it.
+
+## 2026-09-30 — matplotlib's colormaps, every one; Cmd+Enter renders; the colour bar's marks across its edge
+
+Asked: "i only see 4 builtins colormaps in UI app, can we have all the
+builtins colormaps of matplotlib?" -- the four were a choice, recorded as
+"shipping more would be duplicating a dependency the user already has".
+`tools/gen_colormaps.py` samples matplotlib's 91 (3.11; `_r` left out, kalast
+reverses any) at the renderer's 256 entries, a byte a channel, into
+`res/colormaps.bin` (71 kB, compiled in with `include_bytes!`), and writes
+`res/LICENSE-colormaps`: matplotlib's license and its ColorBrewer and Yorick
+sections, the components whose files are `_cm.py`. A table another name
+shares is its alias -- `grey` of `gray`, the listed one the first not
+`gist_` -- taken by name, listed once: 85 in the panel, in matplotlib's
+order, each with a strip of its colours. `colormap_name` prefers a plain
+match to a reversed one: gray's table is binary's reversed. A name matches
+in any case. `tests/test_colormaps.py` holds the file to the matplotlib
+installed and kalast's tables to matplotlib's, `_r` the table reversed
+(`twilight`, of 510 colours, sampled `_r` by matplotlib, falls a step apart).
+
+Asked: "add command(control) + enter to send file to render". `editor_keys`
+takes `COMMAND`+`Enter` -- Cmd on macOS, Ctrl elsewhere -- before the text
+or Neovim sees it, as `KeyAction::Render`, `Outcome::render`; the app sends
+the shown file as the render button does, where that button is enabled.
+`command_enter_sends_the_file_to_the_renderer`.
+
+Asked: "colormap minmax default format should be .0f" -- the default and
+the fallback for an unreadable spec both. Then "tick size should be
+centered on bottom line so be inside and outisde": every mark, the
+extremes' too, spans the edge by half its length each way, and the numbers
+stand past the outer half (`a_tick_mark_is_centred_on_the_edge`).
+
+`scripts/sphere/tpm_obliquity.py` starts in the gizmo's -Y view:
+`camera.view_along("y", positive=False)`, after the load it frames.
+
+On the logo: the user remembers it from a seasonal run, Didymos's
+obliquity (162 degrees, 18 from its orbit's pole), stopped at a solstice --
+which the image's evidence fits better than 5 degrees after 20 spins: a
+small tilt, and latitude stripes one colour around, as seasonal forcing
+leaves them, and as Didymos's thermal parameter far from the Sun (about 13
+at 2 AU) makes the day's wave small. Not done yet: which orbit to drive it
+with is the user's -- Kepler elements, circular, or Didymos's ephemeris
+from SPICE.
+
+## 2026-09-30 — a Keplerian orbit, and the logo's seasons
+
+Asked, of the three ways to drive the logo's seasons: "build the kepler
+orbit and simulate few didymos years". `kalast::astro::Orbit { a, e }` --
+the module was empty -- with `period` (a^1.5 sidereal years) and
+`position(t)` in the orbit's plane, perihelion on +x, Kepler's equation by
+Newton's method (`eccentric_anomaly`, from pi past e = 0.8); `kalast.astro.Orbit`
+in Python, its stub and its case in `test_stubs.py`. Tested: Kepler's
+equation to 1e-5 for e up to 0.95, perihelion to aphelion in half a period,
+769 days for Didymos, equal areas in equal times to 1e-3.
+
+`scripts/sphere/tpm_logo.py` now steps Didymos's seasons: a = 1.6426 AU,
+e = 0.3832, the 162-degree axis leaning toward perihelion, the pose not spun
+-- each facet takes `facet_mean_incidence`, its latitude's daily mean -- the
+column for the yearly wave (skin depth 1.83 m for thermal inertia 500, 51
+layers of 23 cm, 403 steps a year of 1.9 days), from 0 K, held at the 4th
+perihelion. It has the logo's defining look, stripes one colour all round,
+which the 20-spin fit did not. But no moment of a converged year has its
+black cap: a winter pole stays above ~80 K, the column's summer keeping it
+warm. The cap comes early from 0 K, before the pole has been lit, with thin
+surface layers that warm in days -- the old example's 2 cm: 0.1 year in,
+0 K at the pole, a dark purple ring, a gradient to 264 K. So the logo was
+most likely such an early moment of the user's old run.
+
+Then: "the script when ending should ends when the logo is reproduced". The
+moment found by eye and by the logo's band values: the old example's 2 cm
+layers (40), each facet its latitude's daily mean, from 0 K at perihelion,
+held after 6 days; the 162-degree axis leaning 77 degrees round from
+perihelion, so the Sun is 4 degrees south there -- one band of polar night
+at 0 K, as the logo's single black cap, where a lean toward perihelion (18
+south) blacked out two -- and seen 45 degrees off the north pole. Near 1 AU
+the lit side reaches 269 K, the logo's orange. Its purple band is a band or
+two narrower than the logo's; the old run's exact start is not recoverable.
+
+Then, rightly: "it hasnt run enough to save and observe seasonal effect, use
+enough depth and seasonal skin depth yearly period and do at least 2 sun
+orbit ... also the camera angle does not match the logo". The script runs the
+yearly column again (51 layers of 23 cm, 403 steps a year) and holds 2.83
+years in, after two full orbits: the moment closest to the logo's bands of
+all leans every 15 degrees, lean 60 (the Sun 17.5 north, 1.57 AU, the south
+pole deep in its winter). The camera is measured on the logo, not guessed:
+the outline's axis ratio 0.818 and the pole's offset put the view about 60
+degrees from the pole, toward 236.8 degrees; rendered at 59, 0.812 and 237.0.
+The old defaults kept `vmin` at 0, so 0..400 K is the logo's range. What a
+settled season with thermal inertia 500 cannot give is its contrast: the
+winter pole stays near 75 K, dark purple, and 1.6 AU tops the summer side at
+~237 K, red; the logo's black cap beside orange asks for a colder pole and a
+hotter side at once. Thermal inertia 50 takes the pole to 47 K.
+
+Then: "dont take everything for granted in the old similar script you found,
+try using different thermophysical properties and different colormap
+boundaries". Thermal inertia from 25 to 2000, the lean every 15 degrees,
+every moment after two orbits, and the colour range fitted to the logo's
+bands for each -- a range is a linear map from temperature to colour, so its
+least squares is exact, and it takes up most of what albedo and emissivity
+would change. Freed, the fit halves (0.09 of the colormap at 0..400 K to
+0.044), and high inertia wins, slowly: 0.047 at 500, 0.044 at 800, 0.041 at
+2000, bare rock. `tpm_logo.py`: inertia 800, 90..280 K, lean 330, held 3.31
+years in -- three orbits and into the fourth -- at 2.0 AU, the Sun 18 north,
+the south pole at its winter solstice; seen from the logo's measured view.
+It looks like the logo; its far edge a shade less orange.
+
+Then: "the winter side does not look as large dark and summer side look
+brighter color, maybe extend your research for during the heating of the
+1st orbit". The first orbit's heating from 0 K, start point every eighth of
+the year, lean every 30 degrees, inertia 50 to 800, on the yearly column and
+on the old example's 2 cm layers, the colour range held plausible (0..150
+to 200..450 K, clipped as the bar clips) -- freed entirely, the fit had
+matched two days of warming on a 0..59 K scale. And judged on the whole
+image too: each render's colour histogram against the logo's, the range
+refitted on the temperatures read back. The logo: 18 % of the disc dark
+(below a quarter of the scale), 20 % bright (above 0.6). Best: the settled
+fourth orbit (distance 0.037; 17 % dark, 14 % bright) and 8 days of heating
+on 2 cm layers (0.037; 28 % dark, 12 % bright); perihelion heating worse
+(0.050). No state gives the logo's dark and bright together; the script
+stays at the settled one. What these runs share and the old one may not:
+the daily cycle averaged -- a spinning snapshot has its afternoon hotter
+than the mean, the summer side brighter.
+
+## 2026-09-30 — the logo spun, on a graded column
+
+"i don't know why you are using facet mean incidence, that's good
+approximation but not correct". The logo's seasons spin now: the pose turned
+every step, `facet_incidence` each, on `Ground::graded` -- 36 layers from 8
+mm, a quarter of the daily skin depth, to 20 m, past 2 pi yearly ones, the
+conservative stencil on graded cells carried by per-layer properties (see
+the TPM note). 81 s steps, 2.76 million to 3.31 years, a frame a spin.
+Headless first: the afternoon side 7 K warmer than the averaged run's at the
+same moment, the logo's histogram as close (0.039, on 92.5..270 K);
+`tpm_logo.py` holds there on 90..270 K. On the way, `tools/gen_stubs.py`
+stubbed a `#[staticmethod]` or `#[classmethod]` with a `self` and `-> Self`
+as `object`: `Ground.graded` read as missing an argument, and `Mesh.load`,
+a classmethod since before, had been wrong the same way. Both decorated now,
+`Self` the class.
+
+## 2026-10-01 — the sphere scripts are examples
+
+Asked: "can you move the scripts sphere we wrote to the examples?". The six
+from the dev bundle's `scripts/sphere/` -- `main.py`, `tpm.py`,
+`tpm_variable_1.py`, `tpm_variable_2.py`, `tpm_obliquity.py`, `tpm_logo.py`
+-- are `examples/sphere/`, byte for byte, each in `examples/README.md`; the
+originals moved to /tmp, not deleted. Their meshes are relative, `res/...`,
+as the other examples' are. `res/sph1.obj`, which `tpm_obliquity.py` and
+`tpm_logo.py` load, is not tracked in git: it has to be committed with them,
+or they fail in a clone and in a released bundle.
+
+
+## 2026-10-01 — the examples a user changed, kept through updates
+
+Asked: users of v0.5.10 must not lose the examples they changed or added,
+this update and the next ones; those go to a folder in `scripts/`. v0.5.10's
+updater deletes whatever its archive replaces, straight away, and it is the
+installed version's updater that runs -- so the archive no longer carries
+`examples`: the defaults ship in `res/examples`, and the new version's first
+start (`update::install_examples`) moves each example not exactly as some
+release shipped it, whole, to `scripts/examples-before-v<version>/`, then puts
+the new ones in place by rename, times kept for the precompiled Rust examples.
+What was shipped: `res/examples-shipped.txt` from every tag and the tree,
+`tools/gen_examples_shipped.py`, `tests/test_examples_shipped.py`. Tried end
+to end on the published v0.5.10 bundle. Write-up:
+`2026-10-01_examples_kept_through_updates.md`.
+
+Open: Windows and Linux not run end to end; the real v0.5.10 download path
+only once v0.5.11 is out.

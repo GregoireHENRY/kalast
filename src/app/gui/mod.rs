@@ -1304,6 +1304,11 @@ pub struct Editor {
     /// where "the scene" is so those events can be let through.
     pub viewport_rect: egui::Rect,
 
+    /// The pointer's shape over the scene, where the app wants its own: on
+    /// an edge of the colour bar, or dragging one, the resize arrows. egui
+    /// sets the cursor each frame, so it has to go through here.
+    pub scene_cursor: Option<egui::CursorIcon>,
+
     /// Which of the log's two tabs is showing.
     pub log_tab: LogTab,
 
@@ -1665,6 +1670,7 @@ impl Editor {
             float_sizes: FLOAT_DEFAULTS,
             resizing: None,
             viewport_rect: egui::Rect::NOTHING,
+            scene_cursor: None,
             viewport_size: (
                 window.inner_size().width.max(1),
                 window.inner_size().height.max(1),
@@ -1973,6 +1979,7 @@ impl Editor {
         let rust_language_server = app_config.rust_language_server.clone();
         let (neovim, ruler, language_servers) = (app_config.neovim, app_config.ruler, app_config.language_servers);
         let (mut editor_save, mut editor_open) = (false, None::<std::path::PathBuf>);
+        let mut editor_render = false;
         let is_rust = rendering.as_deref().is_some_and(|p| p.trim_end().ends_with(".rs"));
         let editing_rust = script_path.trim_end().ends_with(".rs");
         let shown_renders = renderable(std::path::Path::new(script_path.trim()));
@@ -2498,6 +2505,7 @@ impl Editor {
                         *dirty = modified;
                     }
                     editor_save |= outcome.save;
+                    editor_render |= outcome.render;
                     if outcome.quit {
                         central_tab.set(CentralTab::Renderer);
                     }
@@ -3200,7 +3208,9 @@ impl Editor {
         if close_cancel {
             self.close_asked = None;
         }
-        // The shown file's buttons.
+        // The shown file's buttons -- render's, Cmd+Enter in the editor too,
+        // where the button is enabled.
+        render_now |= editor_render && shown_renders && !native;
         if render_now {
             let path = std::path::PathBuf::from(self.script_path.trim());
             self.send_to_renderer(&path);
@@ -3238,8 +3248,11 @@ impl Editor {
         self.relaunch_request |= relaunch_request;
         self.build_request |= build_request;
         self.launch_request |= launch_request;
-        self.state
-            .handle_platform_output(window, output.platform_output);
+        let mut platform = output.platform_output;
+        if let Some(icon) = self.scene_cursor {
+            platform.cursor_icon = icon;
+        }
+        self.state.handle_platform_output(window, platform);
 
         let jobs = self
             .ctx

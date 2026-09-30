@@ -709,7 +709,7 @@ Both are an `Eye`.
 
 | | |
 |---|---|
-| `pos`, `dir`, `up`, `up_world` | placement; `dir` and `up` must be unit vectors |
+| `pos`, `dir`, `up`, `up_world` | placement; `dir`, `up` and `up_world` are directions, made unit vectors when set, and a zero one is refused |
 | `anchor` | the point the arcball orbits |
 | `anchor_body` | body index to track, or `None` — an anchor that follows a body instead of snapshotting where it was |
 | `projection` | see below |
@@ -732,7 +732,9 @@ Those are the other three of the six views the navigation gizmo's balls stand
 for; see `CONTROLS.md`.
 
 Framing is left to the automatic frustum fit, so the eye's distance is not
-something to tune. It clears `anchor_body` if set: a plane view is about the
+something to tune: four radii of the bodies' bounding sphere, each body's
+sphere carried through its `mat`, so a spinning body is framed the same at
+any point of its turn. It clears `anchor_body` if set: a plane view is about the
 scene, not one body. It does nothing if no geometry is loaded, so call it
 after the meshes.
 
@@ -758,7 +760,8 @@ switches out of it — see `CONTROLS.md`.
 
 Point the camera and the Sun at everything loaded. The camera stands where
 Blender's default view stands, backed off until the bounding sphere of every
-body -- taken through its `mat`, so where it *is* -- fits the field of view;
+body -- taken through its `mat`, so where it *is*, and the same however it
+has turned -- fits the field of view;
 the Sun stands where Blender's default light stands, high and to the
 camera's right. Both look at the centre. This is what `./kalast some.obj`
 does after loading, and what a script wants when it has placed bodies and
@@ -845,6 +848,22 @@ a `DeprecationWarning`.
 `shadow_path` names a coarser mesh to render into the shadow map in place of
 `path`. Nothing facet-indexed is disturbed — unlike loading a coarser `path`,
 which would invalidate any per-facet array.
+
+`mat` is the body's starting pose, its `mat`, and leaves the vertices as the
+file has them: a loop that sets `bod.mat` replaces it. To reshape a body --
+flattened along its pole, say -- scale its vertices and recompute its facets,
+before the first frame:
+
+```python
+mesh = sim.bodies[0].mesh
+mesh.positions[:] *= [1.0, 1.0, 0.7]
+mesh.recompute_facets()     # centres, normals and areas from the new shape
+```
+
+Or keep the shape in the pose: `bod.mat[:3, :3] = turn @ numpy.diag([1.0,
+1.0, 0.7])` each step, the mesh as loaded, nothing recomputed. The renderer
+and `facet_incidence` both turn a normal by the inverse transpose of the
+pose, which keeps it normal to the flattened surface.
 
 **But it does change the illumination, including `facet_shadow`.** This
 paragraph used to claim it bought performance "without touching per-facet
@@ -1291,10 +1310,16 @@ while app.running:
 
 | | |
 |---|---|
-| `columns(layers, facets, t)` | the temperatures, all at `t` (K): `t[0]` the surface, `t[-1]` the bottom, `t[:, i]` the ground under facet `i` -- of the float type kalast was built with, which the three below change in place |
+| `columns(layers, facets, t)` | the temperatures, starting at `t` (K) -- one for the body, or one a facet, each column at its own: `t[0]` the surface, `t[-1]` the bottom, `t[:, i]` the ground under facet `i` -- of the float type kalast was built with, which the three below change in place |
 | `solar_bc(t, dau, cosi, prop, dz)` | each surface temperature solved for `S (1-A) max(cos i, 0) / dau^2 = e sigma T0^4 - k dT/dz`: the sunlight absorbed, radiated, and conducted into the column. `dau` in AU, `cosi` one per facet, `dz` the layer thickness (m) |
 | `bottom_adiabatic(t)` | no heat through the base: the last layer at the temperature of the one above |
 | `heat_conduction(t, prop, dt, dz)` | one explicit step of `dt` (s) through each column's interior, layers `dz` apart |
+
+The scheme is explicit finite differences at a fixed step: forward Euler in
+time and centred second differences in depth (FTCS) on equal layers `dz` --
+first-order in time, second in depth. The surface balance is solved for its
+temperature by Newton's method, the gradient into the column a second-order
+one-sided difference; the bottom's zero flux is `t[-1] = t[-2]`.
 
 `heat_conduction` refuses a step past the scheme's stability, `D dt / dz^2 >
 1/2`, where it would blow up rather than merely lose accuracy --
@@ -1304,17 +1329,141 @@ bottom is `properties.skin_depth_2pi(D, period)`, where the rotation's wave is
 0.2 % of its swing at the surface; eight layers per `skin_depth_1` put the
 surface within 0.6 K of a converged grid.
 
+### Where the columns start
+
+A column settles into its daily cycle from wherever it starts, the sooner
+the nearer. The effective temperature is near, and costs nothing: where the
+surface radiates what it absorbs on average.
+
+| | |
+|---|---|
+| `effective_temperature(dau, r, a, e)` | `e sigma T^4 = S (1-A) r / dau^2`, `r` the mean cosine of incidence -- 1/4 over a whole sphere |
+| `sim.facet_mean_incidence(body, spin_axis=None)` | `r` for each facet over a spin about the body's own axis (`z` unless given), from its pose and the Sun as they stand |
+| `mean_incidence(lat, dec)` | the same for ground facing latitude `lat`, the Sun at latitude `dec` (radians; the obliquity at a solstice): 0 in the polar night, `sin(lat) sin(dec)` in the polar day, `1/pi` on the equator at an equinox |
+
+They take and give numbers or arrays, broadcast as numpy does, and `columns`
+takes one start a facet -- so each column can start at its latitude's, in
+place of the sphere's 1/4:
+
+```python
+t = core.columns(layers, facets, core.effective_temperature(dau, sim.facet_mean_incidence(0), prop.albedo, prop.emissivity))
+```
+
+The Sun's latitude is read from the pose as it stands: with the spin axis
+tilted, set the tilt first (`bod.mat[:3, :3] = tilt`). A scale in the pose,
+a flattened body, is taken as the renderer takes it.
+
+On the sphere tilted 45 degrees at its solstice and spun in 6 h, every
+column is then within 1 K of its settled bottom after at most 18 spins. From
+1/4's one start for the body, the polar night is still 96 K off after 50,
+and some columns near it are not settled after 200. The polar night starts
+at 0 K, where it settles: nothing reaches it, the columns exchanging no heat
+sideways. A lit column starts a little warm, up to 14 K, the mean of `T^4`
+being above the mean of `T` it settles to at depth. The latitude is the
+normal's, so on other shapes too; shadows cast by the rest of the body are
+not counted.
+
+### `core.Ground` — properties per facet and per layer
+
+One `Properties` is the whole body. Where that is not enough -- a darker
+patch, bare rock under a crater, a fluffy layer over a denser one -- a
+`Ground` holds them facet by facet and layer by layer, and goes where the
+`Properties` went:
+
+```python
+ground = core.Ground(prop, layers, facets)   # every node as prop has it
+ground.albedo[dark] = 0.05                   # per facet
+ground.conductivity[:6] = 0.002              # the top 6 layers, every facet
+ground.conductivity[:, rock] = 0.5           # every layer under some facets
+dt = ground.stability_maxdt(dz)              # once: a pass over every node
+
+core.solar_bc(t, dau, cosi, ground, dz)
+core.bottom_adiabatic(t)
+core.heat_conduction(t, ground, dt, dz)
+```
+
+| | |
+|---|---|
+| `albedo`, `emissivity` | `(facets,)` -- the surface's balance, per facet |
+| `conductivity`, `density`, `heat_capacity` | `(layers, facets)`, as the temperatures |
+| `stability_maxdt(dz, s=0.5)` | the largest stable `dt` over every interior node |
+| `layers`, `facets` | the shape the arrays broadcast to |
+| `Ground.graded(prop, facets, dz, depth, ratio=1.2)` | a column graded with depth: three layers `dz` thick, then each `ratio` times the one above, down past `depth` |
+
+The arrays are numpy's, changed in place. Assigned whole, any shape that
+broadcasts is kept as it is: a number for the body, `(facets,)` the same all
+the way down, `(layers, 1)` the same across the body at each depth -- the
+memory of a value, a row or a column, not of the whole array. One value a
+layer is `(layers, 1)` (`profile[:, None]`): a flat `(layers,)` is taken as
+numpy takes it, one a facet, and refused unless the counts match. An array
+assigned smaller than its full shape changes in place only within that shape.
+
+A day's wave wants thin layers at the surface, a year's a column metres
+deep: `Ground.graded` gives both in a few tens of layers -- 36 from 8 mm to
+20 m at `ratio` 1.2, where equal 8 mm layers would take 2,500 -- for a body
+spun through its seasons:
+
+```python
+dz = properties.skin_depth_1(prop.diffusivity, day) / 4
+ground = core.Ground.graded(prop, facets, dz, properties.skin_depth_2pi(prop.diffusivity, year))
+t = core.columns(ground.layers, facets, 0.0)
+dt = ground.stability_maxdt(dz)                     # the thinnest layers'
+```
+
+It is a `Ground` of layers `dz` apart, as the steps take one, each layer's
+width `w` carried by its properties: the conductivity times `dz / w`, the
+density times `w / dz`. That is the conservative scheme on the graded layers
+exactly -- `rho c w_i dT_i/dt = k (T_{i+1} - T_i) / d_{i+1/2} - k (T_i -
+T_{i-1}) / d_{i-1/2}`, `d` the mean of two widths -- and the top three are
+even for the surface's gradient. Checked against a column of equal layers
+half as thick over twenty spins: within half a kelvin at the surface.
+
+The conduction keeps the heat flow continuous where the material changes:
+the balance of what crosses the boundaries above and below each layer,
+`rho c_i (T_i' - T_i) / dt = [k_{i+1/2} (T_{i+1} - T_i) - k_{i-1/2} (T_i - T_{i-1})] / dz^2`,
+with `k` at a boundary the harmonic mean of the two layers -- a diffusivity
+per layer in the uniform stencil would not conserve it. At the surface each
+facet takes its own albedo, emissivity and top-layer conductivity. The cost:
+at 5120 facets by 51 layers a step is 158 us, against 56 us for one
+`Properties`.
+
 ### `sim.facet_incidence(body)` — the Sun on each facet, no shadow
 
 ```python
-cosi = sim.facet_incidence(0)     # max(0, cos i) per facet, or None
+cosi = sim.facet_incidence(0)     # max(0, cos i) per facet
 ```
 
 From the body's pose and the Sun's position as they stand -- the moment `mat`
-or `sun.pos` is set, before `step()` draws anything. Geometry alone: right for
-a convex body on its own. A body that shadows itself or another wants
+or `sun.pos` is set, before `step()` draws anything. An `IndexError` for a
+body that does not exist. Geometry alone: right for a convex body on its own. A body that shadows itself or another wants
 `facet_illumination`, which is this times the unblocked fraction the shadow
-map reads back.
+map reads back. A pose that scales the body is taken as the renderer takes
+it, each normal turned by the pose's inverse transpose.
+
+`sim.facet_mean_incidence(body, spin_axis=None)` is its mean over a spin
+about the body's own axis, from the same pose: what a column's start takes,
+see "Where the columns start".
+
+## `kalast.astro` — an orbit about the Sun
+
+For seasons: the Sun's distance and direction over a body's year.
+
+```python
+didymos = kalast.astro.Orbit(a=1.6426, e=0.3832)   # AU, eccentricity
+year = didymos.period                                # s: a^1.5 sidereal years
+pos = didymos.position(t)                            # AU, t s after perihelion
+sim.sun.pos = -pos * kalast.util.AU                  # the body at the origin
+dau = numpy.linalg.norm(pos)                         # for solar_bc
+```
+
+In the orbit's own plane: x toward perihelion, z along its angular momentum,
+the body going round counter-clockwise seen from +z. A spin axis tilted in
+that frame is the obliquity -- over 90 degrees, spinning backwards. Kepler's
+equation is solved by Newton's method; tested against it round the orbit,
+from perihelion to aphelion in half a year, and equal areas swept in equal
+times. With `sim.facet_mean_incidence` for each latitude's daily-mean
+sunlight, and a column for the yearly wave -- `skin_depth_1(D, year)` --
+steps of a couple of days make a year a few hundred steps.
 
 ## `kalast.scattering` — reflected sunlight
 

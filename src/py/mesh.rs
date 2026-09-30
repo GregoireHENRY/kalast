@@ -454,6 +454,10 @@ impl Mesh {
         self.inner.borrow_mut().smoothen();
     }
 
+    /// The facets' centres, normals and areas again, from the positions:
+    /// after `positions` is changed in place -- `mesh.positions[:] *= [1, 1,
+    /// 0.7]`, the body flattened along z. Before the first frame, which
+    /// builds the GPU buffers from them.
     fn recompute_facets(&mut self) {
         self.inner.borrow_mut().recompute_facets();
     }

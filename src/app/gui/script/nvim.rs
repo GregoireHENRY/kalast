@@ -745,7 +745,8 @@ impl Neovim {
         }
         // A list -- `:ls`, `:messages` -- is read and dismissed by the next
         // key, as Neovim's own pager is. A one-line message stays on the
-        // status bar until Neovim clears or replaces it.
+        // status bar until Neovim clears or replaces it, or a mode begins
+        // over it (`begins_over_the_message`).
         self.messages.retain(|m| !m.is_list());
         self.call(Call::Other, "nvim_input", vec![keys.into()]);
     }
@@ -987,7 +988,18 @@ impl Neovim {
     fn redraw(&mut self, event: Ui) {
         match event {
             Ui::ModeInfo(shapes) => self.shapes = shapes.into_iter().collect(),
-            Ui::Mode(mode) => self.mode = mode,
+            Ui::Mode(mode) => {
+                // A mode begun over the message goes with it, as in a
+                // terminal, where `-- INSERT --` or the command line is
+                // written on the message line. kalast shows those apart,
+                // and with 'showmode' off nothing was written at all. Not
+                // on the way back to Normal: an error comes with that
+                // change, and has yet to be read.
+                if mode != self.mode && begins_over_the_message(&mode) {
+                    self.messages.clear();
+                }
+                self.mode = mode;
+            }
             Ui::Viewport { grid, win, top, line, col } => {
                 if win == self.win {
                     self.grid = Some(grid);
@@ -1231,6 +1243,14 @@ fn chunks(v: &Value) -> String {
     v.as_array()
         .map(|a| a.iter().filter_map(|c| c.as_array().and_then(|c| c.get(1)).map(text)).collect())
         .unwrap_or_default()
+}
+
+/// Whether a mode, as `mode_change` names it, is written over the message
+/// line in a terminal as it begins: Insert and Replace with their `-- INSERT
+/// --`, Visual and Select with theirs, and the command line itself -- `:`,
+/// `/`, `?`. Not Normal, nor the operator pending after `d`.
+fn begins_over_the_message(mode: &str) -> bool {
+    ["insert", "replace", "visual", "cmdline"].iter().any(|m| mode.starts_with(m))
 }
 
 /// One message from Neovim, as a note for the UI thread -- or `None` for
@@ -1961,6 +1981,54 @@ mod tests {
 
         drop(n);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An error stays until the next thing is begun, and goes then, as in a
+    /// terminal, where `-- INSERT --` or the command line is written over
+    /// it: Insert mode, or a new command after `:`. Asked for: "after a
+    /// neovim error for example if i type :W instead of :w, should be
+    /// removed if i press I for insert mode or if i type : again". With
+    /// 'showmode' off too, where no `-- INSERT --` comes to say so.
+    #[test]
+    fn an_error_goes_when_insert_or_a_new_command_begins() {
+        if find("").is_none() {
+            eprintln!("no nvim on this machine; skipped");
+            return;
+        }
+        for showmode in ["showmode", "noshowmode"] {
+            let dir = std::env::temp_dir().join(format!("kalast-nvim-error-{showmode}-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let file = dir.join("t.py");
+            let set = format!("set {showmode}");
+            let mut n = Neovim::spawn("", &dir, (80, 20), &["--clean", "-c", &set], || {}).unwrap();
+            n.load("a = 1\n", &file.to_string_lossy(), "python", None);
+            wait(&mut n, "set up", |n| n.ready && n.loading.is_none() && n.grid.is_some());
+            let error = |n: &Neovim| n.messages.iter().any(|m| m.kind == "emsg");
+
+            n.input(":W<CR>");
+            wait(&mut n, "the error", |n| n.mode == "normal" && error(n));
+            // Back in Normal mode, and moving about, it stays to be read.
+            n.input("l");
+            wait(&mut n, "moved", |n| n.cursor == (0, 1));
+            for _ in 0..8 {
+                n.poll();
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+            assert!(error(&n), "{showmode}: the error went by itself: {:?}", n.messages);
+
+            n.input("i");
+            wait(&mut n, "Insert mode, the error gone", |n| n.mode == "insert" && n.messages.is_empty());
+
+            n.input("<Esc>:W<CR>");
+            wait(&mut n, "the error again", |n| n.mode == "normal" && error(n));
+            n.input(":");
+            wait(&mut n, "a new command, the error gone", |n| n.mode.starts_with("cmdline") && n.messages.is_empty());
+            n.input("<Esc>");
+            wait(&mut n, "back", |n| n.mode == "normal");
+
+            drop(n);
+            let _ = std::fs::remove_dir_all(&dir);
+        }
     }
 
     /// macOS's editing keys, as `typed` sends them, each acting in the mode

@@ -3,7 +3,103 @@
 # Regenerate after changing any #[pyclass]:  python tools/gen_stubs.py
 
 import numpy  # noqa: F401
+from typing import Sequence
 from kalast.tpm.properties import Properties
+
+class Ground:
+    """A body's thermal properties facet by facet and layer by layer, where
+    one `Properties` for the body is not enough: a darker patch, bare rock
+    under a crater, a fluffy layer over a denser one.
+
+    ```python
+    ground = core.Ground(prop, layers, facets)   # all as prop has them
+    ground.albedo[dark] = 0.05                   # per facet
+    ground.conductivity[:6] = 0.002              # the top 6 layers, every facet
+    ground.conductivity[:, rock] = 0.5           # every layer under some facets
+    dt = ground.stability_maxdt(dz)             # once: a pass over every node
+    core.solar_bc(t, dau, cosi, ground, dz)
+    core.heat_conduction(t, ground, dt, dz)
+    ```
+
+    Numpy arrays, changed in place: `albedo` and `emissivity` one a facet,
+    `conductivity`, `density` and `heat_capacity` one a layer and a facet,
+    `(layers, facets)` as the temperatures are. Assigned, any shape that
+    broadcasts to that is kept as it is -- a number for the whole body,
+    `(facets,)` the same all the way down, `(layers, 1)` the same across
+    the body at each depth -- which on a large mesh saves the memory a
+    full array takes; to change one in place again, give it its full
+    shape back.
+    """
+    def __init__(self, prop: Properties, layers: int, facets: int) -> None:
+        """Every facet and layer as `prop` has them, in full arrays to change
+        where they differ. `prop`'s conductivity has to have been computed
+        (`compute_conductivity_diffusivity`).
+        """
+        ...
+    @staticmethod
+    def graded(prop: Properties, facets: int, dz: float, depth: float, ratio: float = ...) -> Ground:
+        """A column graded with depth, for a day's wave and a year's in one:
+        the first three layers `dz` thick, then each `ratio` times the one
+        above, down past `depth` (m) -- 36 layers from 8 mm to 20 m at 1.2,
+        where layers all 8 mm would take 2,500.
+
+        ```python
+        dz = properties.skin_depth_1(prop.diffusivity, day) / 4           # the top layers
+        ground = core.Ground.graded(prop, facets, dz, properties.skin_depth_2pi(prop.diffusivity, year))
+        t = core.columns(ground.layers, facets, 0.0)
+        dt = ground.stability_maxdt(dz)                                # the thinnest layers'
+        core.solar_bc(t, dau, cosi, ground, dz)
+        core.heat_conduction(t, ground, dt, dz)
+        ```
+
+        A `Ground` of layers `dz` apart as the steps take one, each
+        layer's width `w` carried by its properties -- the conductivity
+        times `dz / w`, the density times `w / dz` -- which is the
+        conservative scheme on the graded layers exactly. Change them as
+        for any `Ground`, but as widths: a value set whole is that of a
+        `dz` layer.
+        """
+        ...
+    layers: int
+    """The temperatures' layers, the first axis of every per-layer array."""
+    facets: int
+    @property
+    def albedo(self) -> numpy.ndarray:
+        """One a facet, `(facets,)`: its share of sunlight reflected."""
+        ...
+    @albedo.setter
+    def albedo(self, value: numpy.ndarray | Sequence[float] | float) -> None: ...
+    @property
+    def emissivity(self) -> numpy.ndarray:
+        """One a facet, `(facets,)`: bolometric, for what the surface radiates."""
+        ...
+    @emissivity.setter
+    def emissivity(self, value: numpy.ndarray | Sequence[float] | float) -> None: ...
+    @property
+    def conductivity(self) -> numpy.ndarray:
+        """One a layer and a facet, `(layers, facets)`, W/m/K."""
+        ...
+    @conductivity.setter
+    def conductivity(self, value: numpy.ndarray | Sequence[float] | float) -> None: ...
+    @property
+    def density(self) -> numpy.ndarray:
+        """One a layer and a facet, `(layers, facets)`, kg/m3."""
+        ...
+    @density.setter
+    def density(self, value: numpy.ndarray | Sequence[float] | float) -> None: ...
+    @property
+    def heat_capacity(self) -> numpy.ndarray:
+        """One a layer and a facet, `(layers, facets)`, J/kg/K."""
+        ...
+    @heat_capacity.setter
+    def heat_capacity(self, value: numpy.ndarray | Sequence[float] | float) -> None: ...
+    def stability_maxdt(self, dz: float, s: float = ...) -> float:
+        """The largest stable time step (s) for layers `dz` (m) apart, over
+        every interior node: `dt (k_{i-1/2} + k_{i+1/2}) / (rho c_i dz^2)
+        <= 2 s`, `s = 1/2` the limit itself. For one material,
+        `stability_maxdt(D, dz**2, s)`.
+        """
+        ...
 
 def stability(d: float, dt: float, dx2: float) -> float:
     ...
@@ -11,7 +107,48 @@ def stability_maxdt(d: float, dx2: float, s: float = ...) -> float:
     ...
 def conduction(t: float, f: float, k: float, dx: float) -> float:
     ...
-def effective_temperature(dau: float, r: float, a: float, e: float) -> float:
+def effective_temperature(dau: float, r: numpy.ndarray | Sequence[float] | float, a: numpy.ndarray | Sequence[float] | float, e: numpy.ndarray | Sequence[float] | float) -> float | numpy.ndarray:
+    """The temperature (K) at which a surface radiates what it absorbs of
+    the Sun on average, `dau` AU away, its albedo `a` and emissivity `e`:
+
+    ```text
+    e sigma T^4 = S (1 - A) r / dau^2
+    ```
+
+    `r` the ratio of the area receiving sunlight to the area emitting,
+    which is the mean cosine of incidence: 1/4 over a whole sphere; one
+    latitude's over a spin, `mean_incidence(lat, dec)`. A start for a
+    thermophysical model's temperatures, near where they settle.
+
+    `r`, `a` and `e` each a number or an array -- one a facet, say -- as
+    numpy broadcasts them, and the temperatures come back in their
+    shape: a start for `columns`, each column at its own.
+    """
+    ...
+def mean_incidence(lat: numpy.ndarray | Sequence[float] | float, dec: numpy.ndarray | Sequence[float] | float) -> float | numpy.ndarray:
+    """The cosine of incidence averaged over a spin, counted while the Sun
+    is up: the mean sunlight on ground facing latitude `lat`, the Sun at
+    latitude `dec` -- both radians from the spin's equator, `dec` the
+    subsolar latitude, which is the obliquity at a solstice and 0 at an
+    equinox. Times the solar flux, the ground's mean insolation over a
+    day:
+
+    ```text
+    <max(cos i, 0)> = (h0 sin(lat) sin(dec) + sin(h0) cos(lat) cos(dec)) / pi
+    cos(h0) = -tan(lat) tan(dec)
+    ```
+
+    `h0` the hour angle of sunset: `pi` where the Sun never sets, the
+    polar day, and 0 where it never rises, the polar night, which gets
+    nothing. `1/pi` on the equator with the Sun over it. Over a whole
+    sphere, each latitude weighed by its area, `1/4` whatever `dec`.
+
+    `lat` is where the ground faces, the latitude of its normal -- on a
+    sphere, where it lies: each facet's, `numpy.arcsin(normals @
+    spin_axis)`. The rest of the body's shadow is not counted. `lat` and
+    `dec` each a number or an array, as numpy broadcasts them, and the
+    means come back in their shape -- for `effective_temperature`'s `r`.
+    """
     ...
 def radiation_sun(dau: float, cosi: float, a: float) -> float:
     """Absorbed solar flux on a surface element.
@@ -51,18 +188,23 @@ def conduction_1d(t: object, d: object, dtpdx2: object) -> numpy.ndarray:
     ...
 def conduction_1d_nonuniform(t: object, d: object, coef_lo: object, coef_hi: object) -> numpy.ndarray:
     ...
-def columns(layers: int, facets: int, t: float) -> numpy.ndarray:
+def columns(layers: int, facets: int, t: numpy.ndarray | Sequence[float] | float) -> numpy.ndarray:
     """Temperatures for a whole body: a column of `layers` under each of
-    `facets`, all at `t` (K), for `solar_bc`, `bottom_adiabatic` and
+    `facets`, starting at `t` (K), for `solar_bc`, `bottom_adiabatic` and
     `heat_conduction` to step in place.
 
     `(layers, facets)`: `t[0]` is the surface, one temperature per facet,
     ready for `mesh.values`; `t[-1]` the bottom; `t[:, i]` the ground under
-    facet `i`. Made here rather than with `numpy.full` so that it has the
-    float type kalast was built with.
+    facet `i`. The layers are equal, `dz` apart: `t[j]` at depth `j dz`.
+    Made here rather than with `numpy.full` so that it has the float type
+    kalast was built with.
+
+    `t` one temperature for the whole body, or one a facet, each column
+    starting at its own -- any shape that broadcasts to `(layers,
+    facets)`, as numpy broadcasts.
     """
     ...
-def solar_bc(t: object, dau: float, cosi: object, prop: Properties, dz: float) -> None:
+def solar_bc(t: numpy.ndarray, dau: float, cosi: numpy.ndarray, prop: Properties | Ground, dz: float) -> None:
     """The solar boundary condition, every facet at once: each surface
     temperature, `t[0]`, solved for the balance of the sunlight it
     absorbs, what it radiates, and what it conducts into the layers under
@@ -72,29 +214,57 @@ def solar_bc(t: object, dau: float, cosi: object, prop: Properties, dz: float) -
     S (1 - A) max(cos i, 0) / r^2  -  e sigma T0^4  +  k (-3 T0 + 4 T1 - T2) / (2 dz)  =  0
     ```
 
+    The method: `T0` solved by Newton's method, from the facet's surface
+    temperature the step before, to 0.1 K -- implicit in the surface, the
+    layers under it as they stand -- with the gradient into the column
+    the second-order one-sided difference above.
+
     `t` is what `columns` made, changed in place; `dau` the distance to
     the Sun (AU); `cosi` a cosine of incidence per facet, as
-    `sim.facet_incidence` gives them; `prop` the surface's `Properties`;
-    `dz` the thickness of a layer (m).
+    `sim.facet_incidence` gives them; `prop` the body's `Properties`, or a
+    `Ground` for each facet's own albedo, emissivity and top-layer
+    conductivity; `dz` the thickness of a layer (m).
     """
     ...
 def bottom_adiabatic(t: object) -> None:
     """The adiabatic bottom, every facet at once: no heat through the base
     of a column, its last layer, `t[-1]`, at the temperature of the one
-    above. `t` is what `columns` made, changed in place.
+    above -- `t[-1] = t[-2]`, the first-order form of `dT/dz = 0` there.
+    `t` is what `columns` made, changed in place.
     """
     ...
-def heat_conduction(t: object, prop: Properties, dt: float, dz: float) -> None:
-    """Heat conduction, every facet at once: one explicit step of `dt` (s)
-    through the interior of each column, its layers `dz` (m) apart,
+def heat_conduction(t: numpy.ndarray, prop: Properties | Ground, dt: float, dz: float) -> None:
+    """Heat conduction, every facet at once: one step of `dt` (s) of the heat
+    equation `dT/dt = D d2T/dz2` through the interior of each column, its
+    layers `dz` (m) apart.
+
+    The method: explicit finite differences, forward in time and centred
+    in depth (FTCS) -- a forward Euler step of the second difference,
 
     ```text
     T_i  +=  D dt / dz^2  (T_{i-1} - 2 T_i + T_{i+1})
     ```
 
-    `t` is what `columns` made, changed in place, and `prop` gives the
-    diffusivity `D`. Refused past the stability of the scheme, `D dt /
-    dz^2 > 1/2`: `stability_maxdt` gives the largest `dt`.
+    on equal layers and at a fixed step: first-order accurate in time,
+    second-order in depth, every layer stepped from the temperatures of
+    the step before. Stable while `D dt / dz^2 <= 1/2`, and refused past
+    it: `stability_maxdt(D, dz**2, 0.5)` gives the largest `dt`.
+
+    With a `Ground` -- conductivity `k`, density `rho` and heat capacity
+    `c` a layer and a facet each -- the same scheme in the form that keeps
+    the heat flow continuous where the material changes,
+
+    ```text
+    rho c_i (T_i' - T_i) / dt  =  [ k_{i+1/2} (T_{i+1} - T_i) - k_{i-1/2} (T_i - T_{i-1}) ] / dz^2
+    ```
+
+    `k` at a boundary the harmonic mean of the two layers. Its limit is
+    `ground.stability_maxdt(dz)`.
+
+    `t` is what `columns` made, changed in place, and `prop` the body's
+    `Properties` -- `D` their diffusivity -- or a `Ground`. The surface
+    and the bottom layer are the boundary conditions', `solar_bc` and
+    `bottom_adiabatic`.
     """
     ...
 

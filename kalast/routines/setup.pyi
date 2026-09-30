@@ -21,7 +21,7 @@ class Time:
     duration_record: float
 
 class Body:
-    def new(self) -> object:
+    def new(self) -> Body:
         ...
     mesh: Mesh
     @property

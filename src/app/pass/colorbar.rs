@@ -6,6 +6,9 @@ use crate::app::gpu;
 /// the axes because it is in screen space rather than world space.
 pub struct Pass {
     pub pipeline: gpu::RenderPipeline,
+    /// The outline and the tick marks, in the gizmo's antialiased strokes,
+    /// laid out on the CPU each frame (`window::colorbar_lines`).
+    pub lines: super::gizmo::Pass,
 }
 
 impl Pass {
@@ -32,12 +35,13 @@ impl Pass {
             &[],
         );
 
-        Self { pipeline }
+        Self { pipeline, lines: super::gizmo::Pass::new(device, format, samples) }
     }
 
     pub fn render(&self, render_pass: &mut wgpu::RenderPass, bindings: &super::Bindings) {
         render_pass.set_pipeline(&self.pipeline.inner);
         bindings.all(render_pass);
         render_pass.draw(0..6, 0..1);
+        self.lines.render(render_pass);
     }
 }

@@ -518,7 +518,8 @@ impl ColorbarConfig {
     fn y(&self) -> f32 { self.config.borrow().colorbar.y }
     #[setter]
     fn set_y(&mut self, v: f32) { self.config.borrow_mut().colorbar.y = v; }
-    /// Long and short axis of the bar, pixels.
+    /// Long and short axis of the bar, pixels. Its edges drag in the
+    /// viewport too.
     #[getter]
     fn length(&self) -> f32 { self.config.borrow().colorbar.length }
     #[setter]
@@ -527,6 +528,12 @@ impl ColorbarConfig {
     fn thickness(&self) -> f32 { self.config.borrow().colorbar.thickness }
     #[setter]
     fn set_thickness(&mut self, v: f32) { self.config.borrow_mut().colorbar.thickness = v; }
+    /// Length of a tick mark, pixels, across the bar's edge -- half inside,
+    /// half out -- the numbers standing past it.
+    #[getter]
+    fn tick_size(&self) -> f32 { self.config.borrow().colorbar.tick_size }
+    #[setter]
+    fn set_tick_size(&mut self, v: f32) { self.config.borrow_mut().colorbar.tick_size = v; }
     /// `None` infers from the anchor.
     #[getter]
     fn vertical(&self) -> Option<bool> { self.config.borrow().colorbar.vertical }
@@ -551,12 +558,28 @@ impl ColorbarConfig {
     fn text_color(&self) -> [f32; 4] { self.config.borrow().colorbar.text_color }
     #[setter]
     fn set_text_color(&mut self, v: [f32; 4]) { self.config.borrow_mut().colorbar.text_color = v; }
-    /// Outline drawn around the strip, so it reads as a scale rather than as
-    /// part of the scene when it sits over a dark body.
+    /// Outline drawn around the strip, in the text's colour, so it reads as a
+    /// scale rather than as part of the scene when it sits over a dark body.
     #[getter]
     fn border(&self) -> bool { self.config.borrow().colorbar.border }
     #[setter]
     fn set_border(&mut self, v: bool) { self.config.borrow_mut().colorbar.border = v; }
+    /// Mark the lowest and highest value the bodies carry where they fall on
+    /// the scale -- at its end, when a pinned range leaves them outside it --
+    /// and name them, on the side away from the tick numbers: above a
+    /// horizontal bar, left of a vertical one. The data map's only
+    /// (`shading.color_mode` 1).
+    #[getter]
+    fn min_max(&self) -> bool { self.config.borrow().colorbar.min_max }
+    #[setter]
+    fn set_min_max(&mut self, v: bool) { self.config.borrow_mut().colorbar.min_max = v; }
+    /// How `min_max` writes the two values, as a Python format spec: `.0f`
+    /// whole numbers, `.3f` three decimals, `.2e` in powers of ten, `d` an
+    /// integer. Anything else reads as `.0f`.
+    #[getter]
+    fn min_max_format(&self) -> String { self.config.borrow().colorbar.min_max_format.clone() }
+    #[setter]
+    fn set_min_max_format(&mut self, v: &str) { self.config.borrow_mut().colorbar.min_max_format = v.to_string(); }
     fn __repr__(&self) -> String {
         format!("{:?}", self.config.borrow().colorbar)
     }

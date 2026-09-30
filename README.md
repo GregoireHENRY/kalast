@@ -116,6 +116,10 @@ xattr -cr /path/to/kalast-v*-*
 Then double-click `kalast.app` in that folder to open the UI app; `./kalast`
 runs it from a terminal.
 
+Your own scripts belong in `scripts/`. The first start puts the examples in
+`examples/`, and each update replaces them, keeping any example you changed
+or added in `scripts/examples-before-v<version>`.
+
 Kalast is also available as a [PyPI package](https://pypi.org/project/kalast)
 and as a [crate](https://crates.io/crates/kalast).
 

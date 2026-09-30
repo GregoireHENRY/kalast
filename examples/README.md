@@ -127,6 +127,34 @@ Examples that work directly:
       axis.
     - In the main loop, if the simulation is not paused, the rotating matrix is
       applied to the second body model matrix.
+- [sphere](sphere):
+    - [sphere/main.py](sphere/main.py):
+        - A sphere turning a little each frame under diffuse lighting.
+    - [sphere/tpm.py](sphere/tpm.py):
+        - The thermophysical model of the spinning sphere at 1 AU, every facet
+          at once with `kalast.tpm.core`: thermal properties, the daily skin
+          depth setting the layers and the column, a few hundred spins, and
+          each step the solar boundary condition, the adiabatic bottom, then
+          heat conduction.
+        - Each column starts at its latitude's effective temperature,
+          `app.simulation.facet_mean_incidence`.
+    - [sphere/tpm_variable_1.py](sphere/tpm_variable_1.py):
+        - Thermal properties per facet and per layer with `core.Ground`:
+          regolith over rock, a brighter patch and bare rock in circular
+          areas given by latitude, longitude and radius in degrees.
+    - [sphere/tpm_variable_2.py](sphere/tpm_variable_2.py):
+        - Another way: ponds of dust fading into compact ground, and each
+          column turning from its own surface to a deep material with depth,
+          as regolith compacts.
+    - [sphere/tpm_obliquity.py](sphere/tpm_obliquity.py):
+        - The spin axis tilted: a polar day and a polar night.
+        - Starts in the gizmo's -Y view, `camera.view_along("y",
+          positive=False)`.
+    - [sphere/tpm_logo.py](sphere/tpm_logo.py):
+        - kalast's logo simulated again: a sphere given Didymos's shape and
+          obliquity, spinning through the seasons of its orbit
+          (`kalast.astro.Orbit`) on a column thin at the surface and thicker
+          with depth (`core.Ground.graded`), held after 3.31 years.
 - [mesh/decimate.py](mesh/decimate.py):
     - Use it like `python examples/mesh/decimate.py IN.obj OUT.obj 10000` to
       decimate `IN.obj` from its current size to `10000` facets and save it at

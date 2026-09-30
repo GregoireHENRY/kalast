@@ -110,6 +110,11 @@ impl Simulation {
     /// touching per-facet science data -- unlike loading a coarser `path`,
     /// which would invalidate facet-indexed results. Omit it (the default)
     /// to shadow with the main mesh.
+    ///
+    /// `mat` is the body's starting pose -- its `mat` -- and leaves the
+    /// vertices as the file has them: a loop that sets `bod.mat` replaces
+    /// it. To reshape the body, flattened along its pole say, scale
+    /// `mesh.positions` and call `mesh.recompute_facets()`.
     #[pyo3(signature = (
         path,
         mat=None,
@@ -515,14 +520,66 @@ impl Simulation {
     /// cosi = sim.facet_incidence(0)
     /// ```
     ///
-    /// `None` for a body that does not exist or has no mesh.
+    /// A pose that scales the body -- `bod.mat[:3, :3] = turn @ numpy.diag([a,
+    /// b, c])`, flattened along its pole -- is taken as the renderer takes
+    /// it, each normal turned to stay normal to the surface drawn: the shape
+    /// can stay in `mat`, the mesh as loaded.
+    ///
+    /// An `IndexError` for a body that does not exist, rather than `None`:
+    /// every body loaded has a mesh, so `None` was only ever a wrong index,
+    /// and it made each `solar_bc(t, dau, cosi, ...)` an error in the
+    /// editor, `cosi` being possibly `None`.
     fn facet_incidence<'py>(
         slf: pyo3::Bound<'py, Self>,
         body: usize,
-    ) -> Option<pyo3::Bound<'py, numpy::PyArray1<Float>>> {
+    ) -> PyResult<pyo3::Bound<'py, numpy::PyArray1<Float>>> {
         let py = slf.py();
-        let v = slf.borrow().inner.borrow().facet_incidence(body)?;
-        Some(numpy::PyArray1::from_vec(py, v))
+        let sim = slf.borrow();
+        let sim = sim.inner.borrow();
+        match sim.facet_incidence(body) {
+            Some(v) => Ok(numpy::PyArray1::from_vec(py, v)),
+            None if body >= sim.bodies.len() => Err(pyo3::exceptions::PyIndexError::new_err(format!(
+                "no body {body}: {} loaded",
+                sim.bodies.len()
+            ))),
+            None => Err(pyo3::exceptions::PyValueError::new_err(format!("body {body} has no mesh"))),
+        }
+    }
+
+    /// Per-facet `max(0, cos i)` averaged over a spin about `spin_axis` --
+    /// the body's own axis, in its frame, `z` unless given -- from its pose
+    /// and the Sun's position as they stand: each facet's
+    /// `kalast.tpm.core.mean_incidence`, of its latitude and the Sun's.
+    ///
+    /// What `core.effective_temperature` takes as `r` -- in place of the
+    /// whole sphere's 1/4 -- to start each column at its latitude's
+    /// effective temperature, 0 K in the polar night:
+    ///
+    /// ```python
+    /// temperature = core.columns(nz, nf, core.effective_temperature(dau, sim.facet_mean_incidence(0), prop.albedo, prop.emissivity))
+    /// ```
+    ///
+    /// The Sun's latitude is read from the pose as it stands: with the spin
+    /// axis tilted, set the tilt first. A scale in the pose is taken as the
+    /// renderer takes it. An `IndexError` for a body that does not exist.
+    #[pyo3(signature = (body, spin_axis=None))]
+    fn facet_mean_incidence<'py>(
+        slf: pyo3::Bound<'py, Self>,
+        body: usize,
+        spin_axis: Option<[Float; 3]>,
+    ) -> PyResult<pyo3::Bound<'py, numpy::PyArray1<Float>>> {
+        let py = slf.py();
+        let sim = slf.borrow();
+        let sim = sim.inner.borrow();
+        let axis = spin_axis.map(crate::Vec3::from).unwrap_or(crate::Vec3::Z);
+        match sim.facet_mean_incidence(body, axis) {
+            Some(v) => Ok(numpy::PyArray1::from_vec(py, v)),
+            None if body >= sim.bodies.len() => Err(pyo3::exceptions::PyIndexError::new_err(format!(
+                "no body {body}: {} loaded",
+                sim.bodies.len()
+            ))),
+            None => Err(pyo3::exceptions::PyValueError::new_err(format!("body {body} has no mesh"))),
+        }
     }
 
     /// Ask for hemicube view factors for `facets` of `body`, this frame.

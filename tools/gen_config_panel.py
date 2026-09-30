@@ -132,17 +132,31 @@ def widget(path: str, name: str, rust: str, doc: str) -> list[str]:
 
     if rust in ("u32", "usize", "f32", "f64", "Float"):
         if rng:
-            return row([f"ui.add(egui::Slider::new(&mut {path}, {rng}))"])
+            # Clamped on edits only: egui's default clamps the value it is
+            # shown with, so opening a section rewrote whatever a script had
+            # set outside the range -- the colour bar's 320-pixel length
+            # became 1, and the bar vanished, when "Data colouring" opened.
+            return row([f"ui.add(egui::Slider::new(&mut {path}, {rng}).clamping(egui::SliderClamping::Edits))"])
         speed = step or ("0.01" if rust in ("f32", "f64", "Float") else "1.0")
         return row([f"ui.add(egui::DragValue::new(&mut {path}).speed({speed}))"])
 
-    if rust in ("Option<f32>", "Option<Float>", "Option<bool>"):
+    if rust == "Option<bool>":
+        # One choice of three, not a box that brings a second: ticked, the
+        # first set `Some(true)` and showed another box for the value, whose
+        # `false` often looked like `None` -- "a second box that does nothing".
+        return row([
+            f'egui::ComboBox::from_id_salt("{path}")',
+            f'    .selected_text(match {path} {{ None => "auto", Some(true) => "yes", Some(false) => "no" }})',
+            "    .show_ui(ui, |ui| {",
+            f'        ui.selectable_value(&mut {path}, None, "auto");',
+            f'        ui.selectable_value(&mut {path}, Some(true), "yes");',
+            f'        ui.selectable_value(&mut {path}, Some(false), "no");',
+            "    });",
+        ])
+
+    if rust in ("Option<f32>", "Option<Float>"):
         # Ticked, a value; unticked, `None`, and the field beside it gone.
-        some, value = (
-            ("Some(true)", 'ui.checkbox(v, "");')
-            if rust == "Option<bool>"
-            else ("Some(0.0)", "ui.add(egui::DragValue::new(v).speed(1e-6));")
-        )
+        some, value = ("Some(0.0)", "ui.add(egui::DragValue::new(v).speed(1e-6));")
         return row([
             f"let mut on = {path}.is_some();",
             'if ui.checkbox(&mut on, "").changed() {',
@@ -168,11 +182,25 @@ def widget(path: str, name: str, rust: str, doc: str) -> list[str]:
             "}",
         ])
 
+    # Through a copy, kept only when the button says it changed: egui's colour
+    # button goes to HSV and back and writes the result every frame, so a
+    # section shown moved 0.0147 to 0.014699999 -- the panel changing what a
+    # script set, as `wgpu::Color` above already avoids.
     if rust == "[f32; 3]":
-        return row([f"ui.color_edit_button_rgb(&mut {path})"])
+        return row([
+            f"let mut rgb = {path};",
+            "if ui.color_edit_button_rgb(&mut rgb).changed() {",
+            f"    {path} = rgb;",
+            "}",
+        ])
 
     if rust == "[f32; 4]":
-        return row([f"ui.color_edit_button_rgba_unmultiplied(&mut {path})"])
+        return row([
+            f"let mut rgba = {path};",
+            "if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {",
+            f"    {path} = rgba;",
+            "}",
+        ])
 
     if (vs := variants(rust)) is not None:
         ty = rust.split("::")[-1]

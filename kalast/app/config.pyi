@@ -3,6 +3,7 @@
 # Regenerate after changing any #[pyclass]:  python tools/gen_stubs.py
 
 import numpy  # noqa: F401
+import os
 from typing import Sequence
 
 class Hud:
@@ -667,21 +668,24 @@ class DataConfig:
     """
     @property
     def colormap(self) -> numpy.ndarray:
-        """Colour lookup table: a built-in name or an Nx3 array of RGB in 0..1.
+        """Colour lookup table: a built-in's name, a text file of colours, or an
+        Nx3 array of RGB in 0..1.
 
-        `"viridis"`, `"inferno"`, `"turbo"`, `"grey"`, or any matplotlib
-        colormap passed straight through:
+        `"viridis"`, `"inferno"`, `"turbo"`, `"grey"` -- each reversed with
+        `_r` after it, `"inferno_r"` -- a file with a colour a line, red,
+        green and blue, in 0..1 or 0..255 (`"cmaps/ice.csv"`), or any
+        matplotlib colormap passed straight through:
 
         ```python
-        app.config.colormap = matplotlib.colormaps["magma"](numpy.linspace(0, 1, 256))[:, :3]
+        config.data.colormap = matplotlib.colormaps["magma"](numpy.linspace(0, 1, 256))[:, :3]
         ```
 
-        Resampled to 256 entries, so any length works.
-        The colour table in use, as a 256x3 array.
+        Resampled to 256 entries when drawn, so any length works. Read back,
+        the table as it was given: a built-in's 24 anchors, an array's rows.
         """
         ...
     @colormap.setter
-    def colormap(self, value: str | numpy.ndarray | Sequence[Sequence[float]]) -> None: ...
+    def colormap(self, value: str | os.PathLike[str] | numpy.ndarray | Sequence[Sequence[float]]) -> None: ...
     value_min: float | None
     """Range the colormap spans, or `None` to fit the loaded values each
     frame.
@@ -705,8 +709,14 @@ class ColorbarConfig:
     """Inset from the anchor, pixels."""
     y: float
     length: float
-    """Long and short axis of the bar, pixels."""
+    """Long and short axis of the bar, pixels. Its edges drag in the
+    viewport too.
+    """
     thickness: float
+    tick_size: float
+    """Length of a tick mark, pixels, across the bar's edge -- half inside,
+    half out -- the numbers standing past it.
+    """
     vertical: bool | None
     """`None` infers from the anchor."""
     label: str
@@ -722,8 +732,20 @@ class ColorbarConfig:
     @text_color.setter
     def text_color(self, value: Sequence[float] | numpy.ndarray) -> None: ...
     border: bool
-    """Outline drawn around the strip, so it reads as a scale rather than as
-    part of the scene when it sits over a dark body.
+    """Outline drawn around the strip, in the text's colour, so it reads as a
+    scale rather than as part of the scene when it sits over a dark body.
+    """
+    min_max: bool
+    """Mark the lowest and highest value the bodies carry where they fall on
+    the scale -- at its end, when a pinned range leaves them outside it --
+    and name them, on the side away from the tick numbers: above a
+    horizontal bar, left of a vertical one. The data map's only
+    (`shading.color_mode` 1).
+    """
+    min_max_format: str
+    """How `min_max` writes the two values, as a Python format spec: `.0f`
+    whole numbers, `.3f` three decimals, `.2e` in powers of ten, `d` an
+    integer. Anything else reads as `.0f`.
     """
 
 class AxesConfig:
@@ -1038,11 +1060,16 @@ def colormap(name: str) -> numpy.ndarray:
     concatenated before use.
 
     ```python
-    app.config.colormap = kalast.app.config.colormap("inferno")[::-1]   # reversed
+    config.data.colormap = kalast.app.config.colormap("inferno")[::-1]   # reversed
     ```
+
+    A built-in's name with `_r` after it is its reverse already:
+    `colormap("inferno_r")`.
     """
     ...
 def colormap_names() -> list[str]:
-    """Names accepted by `colormap()` and by `config.colormap`."""
+    """Names accepted by `colormap()` and by `config.data.colormap`, each also
+    with `_r` after it for its reverse.
+    """
     ...
 

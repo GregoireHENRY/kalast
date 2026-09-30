@@ -147,7 +147,7 @@ pub fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
         .set_item("kalast._rs.mesh", mesh)?;
 
     let astro = PyModule::new(m.py(), "astro")?;
-    // nothing yet
+    astro.add_class::<crate::astro::Orbit>()?;
     m.add_submodule(&astro)?;
     py.import("sys")?
         .getattr("modules")?
@@ -163,7 +163,8 @@ pub fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     pyadd_f!(core, crate::tpm::core::stability);
     pyadd_f!(core, crate::tpm::core::stability_maxdt);
     pyadd_f!(core, crate::tpm::core::conduction);
-    pyadd_f!(core, crate::tpm::core::effective_temperature);
+    pyadd_f!(core, crate::tpm::core::py::effective_temperature);
+    pyadd_f!(core, crate::tpm::core::py::mean_incidence);
     pyadd_f!(core, crate::tpm::core::radiation_sun);
     pyadd_f!(core, crate::tpm::core::radiation_sun_reflected);
     pyadd_f!(core, crate::tpm::core::radiation_sun_reflected_reuse);
@@ -177,6 +178,7 @@ pub fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     pyadd_f!(core, crate::tpm::core::py::solar_bc);
     pyadd_f!(core, crate::tpm::core::py::bottom_adiabatic);
     pyadd_f!(core, crate::tpm::core::py::heat_conduction);
+    core.add_class::<crate::tpm::core::py::Ground>()?;
     tpm.add_submodule(&core)?;
     py.import("sys")?
         .getattr("modules")?

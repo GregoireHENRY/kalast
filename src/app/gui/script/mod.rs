@@ -136,6 +136,9 @@ pub struct Outcome {
     pub save: bool,
     /// `:q`: back to the scene.
     pub quit: bool,
+    /// Cmd+Enter, Ctrl+Enter off macOS: the file shown, to the renderer, as
+    /// its render button sends it.
+    pub render: bool,
     /// A definition's file, opened from its peek.
     pub open: Option<PathBuf>,
 }
@@ -192,10 +195,28 @@ struct Peek {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum KeyAction {
     Complete,
+    Render,
     Definition,
     Hover,
     NextProblem,
     PrevProblem,
+}
+
+/// A row's height as `galley` lays its rows out -- the distance from one to
+/// the next, which egui rounds to whole pixels -- not as the font measures
+/// it; `fallback` for a galley of one row or none.
+///
+/// Never zero. An empty text -- Neovim's buffer before the file is loaded,
+/// just after the app opens -- is one row of height 0, and a pitch of 0 made
+/// the editor's wheel loop, `while wheel >= 3 * pitch`, spin forever the
+/// moment the pointer was over it: the app froze.
+fn row_pitch(galley: &egui::Galley, fallback: f32) -> f32 {
+    let pitch = match galley.rows.as_slice() {
+        [a, b, ..] => b.pos.y - a.pos.y,
+        [a] => a.rect().height(),
+        [] => fallback,
+    };
+    if pitch > 0.0 { pitch } else { fallback.max(1.0) }
 }
 
 /// The text as drawn this frame: what everything over it is placed by.
@@ -228,7 +249,45 @@ impl View {
         let chars: Vec<char> = text.chars().collect();
         let mut line_starts = vec![0];
         line_starts.extend(chars.iter().enumerate().filter(|(_, c)| **c == '\n').map(|(i, _)| i + 1));
+        let row_height = row_pitch(&galley, row_height);
         Self { galley, origin, clip, text, chars, line_starts, cursor, row_height, char_width }
+    }
+
+    /// Where `line`'s row starts, down from the galley's top -- the galley's
+    /// own rows, one a line since the code does not wrap. egui rounds each
+    /// to whole pixels: at 2x a 13-point row is 15.0 points where the font
+    /// says 15.125, and a line placed at `line * row_height` drifted off its
+    /// text, the gutter's number a row low by line 79. Past the last line, a
+    /// row a line.
+    fn line_top(&self, line: usize) -> f32 {
+        let rows = &self.galley.rows;
+        match rows.get(line) {
+            Some(r) => r.pos.y,
+            None => rows.last().map_or(0.0, |r| r.pos.y) + (line + 1 - rows.len()) as f32 * self.row_height,
+        }
+    }
+
+    /// `line_top` at a fractional line, for a view scrolled part way.
+    fn y_at(&self, line: f32) -> f32 {
+        let line = line.max(0.0);
+        let (i, f) = (line.floor() as usize, line.fract());
+        let top = self.line_top(i);
+        top + (self.line_top(i + 1) - top) * f
+    }
+
+    /// The line whose row holds `y`, down from the galley's top: by the
+    /// rows, as `line_top` places them. Above the first, the first; below
+    /// the last, counted on a row a line.
+    fn line_at(&self, y: f32) -> usize {
+        let rows = &self.galley.rows;
+        match rows.partition_point(|r| r.pos.y <= y) {
+            0 => 0,
+            i if i < rows.len() => i - 1,
+            _ => {
+                let last = rows.len() - 1;
+                last + ((y - rows[last].pos.y) / self.row_height).floor().max(0.0) as usize
+            }
+        }
     }
 
     /// Where `index` is drawn, on screen.
@@ -303,12 +362,11 @@ impl View {
         if !self.clip.contains(pos) {
             return None;
         }
-        let line = ((pos.y - self.origin.y) / self.row_height).floor();
-        if line < 0.0 || line as usize >= self.line_starts.len() {
+        let local = pos - self.origin;
+        let line = self.line_at(local.y);
+        if local.y < 0.0 || line >= self.line_starts.len() {
             return None;
         }
-        let line = line as usize;
-        let local = pos - self.origin;
         let (start, end) = (self.line_starts[line], self.line_end(line));
         let cursor = self.galley.cursor_from_pos(local).index.0;
         // `cursor_from_pos` snaps to the nearest gap; the character is the
@@ -512,6 +570,7 @@ impl ScriptEditor {
                         self.completion_request = Some((id, start));
                     }
                 }
+                KeyAction::Render => out.render = true,
                 KeyAction::Definition => self.ask_definition(language, &view, view.cursor, encoding),
                 KeyAction::Hover => self.ask_hover(language, &view, view.cursor, None, &diagnostics, encoding),
                 KeyAction::NextProblem => self.jump_problem(&view, true, &diagnostics, encoding),
@@ -773,6 +832,12 @@ impl ScriptEditor {
         if consume(ui, Modifiers::NONE, Key::F12) {
             self.keys.push(KeyAction::Definition);
         }
+        // Cmd+Enter -- Ctrl+Enter off macOS, `COMMAND` being either -- sends
+        // the file to the renderer, as a notebook runs a cell. Taken here,
+        // before the text and Neovim see it, in either editor.
+        if consume(ui, Modifiers::COMMAND, Key::Enter) {
+            self.keys.push(KeyAction::Render);
+        }
         if consume(ui, Modifiers::NONE, Key::F8) {
             self.keys.push(KeyAction::NextProblem);
         }
@@ -996,7 +1061,7 @@ impl ScriptEditor {
 
         // Neovim's window is as tall as the text shown, so `H`, `L`,
         // `<C-d>` and `scrolloff` count what is on screen.
-        let rows = (text_rect.height() / row_height).floor().max(1.0) as u32;
+        let rows = (text_rect.height() / row_pitch(&galley, row_height)).floor().max(1.0) as u32;
         n.resize(COLUMNS, rows);
 
         // The keys, all of them, in Neovim's notation.
@@ -1038,6 +1103,8 @@ impl ScriptEditor {
         };
         let (mut view, cursor) = chars_cursor;
         view.cursor = cursor;
+        // Rows as the galley has them, from here on: see `View::line_top`.
+        let row_height = view.row_height;
         let cursor_rect = galley.pos_from_cursor(CCursor::new(cursor));
         // Sideways is kalast's own: the cursor kept in view with a margin.
         let width = text_rect.width();
@@ -1046,14 +1113,14 @@ impl ScriptEditor {
         } else if cursor_rect.right() - self.left > width - char_width {
             self.left = cursor_rect.right() - width + 4.0 * char_width;
         }
-        let origin = egui::pos2(text_rect.left() - self.left, rect.top() - self.top * row_height);
+        let origin = egui::pos2(text_rect.left() - self.left, rect.top() - view.y_at(self.top));
         view.origin = origin;
         view.clip = text_rect;
 
         // The pointer: pressed, dragged and released on a cell, and the
         // wheel as Neovim scrolls -- `mousescroll` lines a notch.
         let cell = |pos: Pos2| -> (usize, usize) {
-            let line = ((pos.y - origin.y) / row_height).floor().max(0.0) as usize;
+            let line = view.line_at(pos.y - origin.y);
             let col = ((pos.x - origin.x) / char_width).round().max(0.0) as usize;
             (line, col)
         };
@@ -1106,7 +1173,8 @@ impl ScriptEditor {
                 self.left = (self.left - delta.x).max(0.0);
             }
             self.wheel += delta.y;
-            let notch = 3.0 * row_height;
+            // At least a point: a notch of nothing never runs out.
+            let notch = (3.0 * row_height).max(1.0);
             while self.wheel.abs() >= notch {
                 let up = self.wheel > 0.0;
                 self.wheel -= notch.copysign(self.wheel);
@@ -1115,7 +1183,7 @@ impl ScriptEditor {
         }
 
         let painter = ui.painter_at(rect);
-        let row_y = |line: usize| origin.y + line as f32 * row_height;
+        let row_y = |line: usize| origin.y + view.line_top(line);
         let editing = n.cmdline().is_none();
         // The cursor's line: VS Code's band, Neovim's `cursorline`.
         if editing {
@@ -2566,12 +2634,128 @@ fn collect_keys(ui: &mut egui::Ui, inserting: bool) -> nvim::Typed {
 mod tests {
     use super::*;
 
+    /// An empty text -- the editor just opened, Neovim's buffer not yet
+    /// loaded -- still has a row's height: a pitch of 0 spun the wheel's
+    /// loop forever and froze the app.
+    #[test]
+    fn an_empty_text_still_has_a_rows_height() {
+        let ctx = egui::Context::default();
+        let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0))), ..Default::default() };
+        let mut output = ctx.run_ui(raw, |ui| {
+            let font = FontId::monospace(13.0);
+            let palette = code::palette(UiTheme::CatppuccinMocha);
+            for text in ["", "x", "\n"] {
+                let (font_row, galley) = ui.ctx().fonts_mut(|f| {
+                    (f.row_height(&font), f.layout_job(code::layout(text, Lang::Python, &palette, font.clone())))
+                });
+                let pitch = row_pitch(&galley, font_row);
+                assert!(pitch >= 1.0, "{text:?}: {pitch}");
+                let view = View::new(galley, Pos2::ZERO, Rect::EVERYTHING, text.to_string(), 0, font_row, 8.0);
+                assert!(view.row_height >= 1.0 && view.line_at(1e6) < usize::MAX / 2, "{text:?}");
+            }
+        });
+        output.textures_delta.clear();
+    }
+
+    /// A line's number, band and clicks sit on its own text however far down
+    /// the file: by the galley's rows, which egui rounds to whole pixels. At
+    /// 2x the font's 15.125-point row is laid out every 15.0, and counted as
+    /// `line * row_height` line 79's number was drawn on line 80's text.
+    #[test]
+    fn a_line_is_placed_by_its_row_however_far_down() {
+        for ppp in [2.0f32, 1.5, 1.0] {
+            let ctx = egui::Context::default();
+            ctx.set_pixels_per_point(ppp);
+            let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0))), ..Default::default() };
+            let mut output = ctx.run_ui(raw, |ui| {
+                let font = FontId::monospace(13.0);
+                let text = (0..200).map(|i| format!("x{i} = {i}")).collect::<Vec<_>>().join("\n");
+                let palette = code::palette(UiTheme::CatppuccinMocha);
+                let (font_row, galley) = ui.ctx().fonts_mut(|f| {
+                    (f.row_height(&font), f.layout_job(code::layout(&text, Lang::Python, &palette, font.clone())))
+                });
+                let view = View::new(galley.clone(), Pos2::ZERO, Rect::EVERYTHING, text.clone(), 0, font_row, 8.0);
+                for line in 0..200 {
+                    let start = view.line_starts[line];
+                    let top = galley.pos_from_cursor(CCursor::new(start)).top();
+                    assert_eq!(view.line_top(line), top, "ppp {ppp}: line {line}");
+                    assert_eq!(view.line_at(top + 0.5 * view.row_height), line, "ppp {ppp}: line {line}");
+                    // Hovering its first character finds it, on its own line.
+                    let at = Pos2::new(galley.pos_from_cursor(CCursor::new(start)).center().x + 1.0, top + 0.5 * view.row_height);
+                    assert_eq!(view.index_at(at).map(|i| view.line_of(i)), Some(line), "ppp {ppp}: line {line}");
+                }
+                assert_eq!(view.line_at(-5.0), 0);
+                assert_eq!(view.line_at(view.line_top(199) + 3.5 * view.row_height), 202, "past the end, a row a line");
+                assert!((view.y_at(10.5) - (view.line_top(10) + view.line_top(11)) / 2.0).abs() < 1e-4);
+                if ppp == 2.0 {
+                    // What drew line 79's number a row low.
+                    assert_ne!(view.line_at(78.0 * font_row + 0.5 * font_row), 78, "the font's row is not the galley's");
+                }
+            });
+            output.textures_delta.clear();
+        }
+    }
+
     /// The wheel scrolls the completion list, whole rows at a time, the
     /// selection left where it was; the pointer moved onto a row selects it,
     /// for its documentation; moving the selection brings the view back to
     /// it. The view was pinned to the selection every frame, and a notch --
     /// which egui spreads over frames, a few points each -- was rounded to
     /// rows one frame at a time, to nothing.
+    /// Cmd+Enter -- Ctrl+Enter off macOS -- asks for the file to go to the
+    /// renderer, as the render button sends it, and types nothing; a plain
+    /// Enter is still a new line. Asked for: "add command(control) + enter
+    /// to send file to render".
+    #[test]
+    fn command_enter_sends_the_file_to_the_renderer() {
+        let ctx = egui::Context::default();
+        let mut editor = ScriptEditor::default();
+        let mut script = String::from("x = 1\n");
+        let palette = code::palette(UiTheme::CatppuccinMocha);
+        let settings = Settings {
+            neovim: false,
+            neovim_path: "",
+            neovim_config: "user",
+            ruler: 80,
+            language_servers: false,
+            python_language_server: "",
+            rust_language_server: "",
+            theme: UiTheme::CatppuccinMocha,
+        };
+        let mut time = 0.0;
+        let mut frame = |editor: &mut ScriptEditor, script: &mut String, events: Vec<egui::Event>| {
+            time += 1.0 / 60.0;
+            let raw = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1000.0, 700.0))),
+                time: Some(time),
+                events,
+                ..Default::default()
+            };
+            let mut out = Outcome::default();
+            let mut output = ctx.run_ui(raw, |ui| {
+                out = editor.show(ui, script, "a.py", Lang::Python, &palette, &settings, false);
+            });
+            output.textures_delta.clear();
+            out
+        };
+        frame(&mut editor, &mut script, vec![]);
+        ctx.memory_mut(|m| m.request_focus(text_id()));
+        frame(&mut editor, &mut script, vec![]);
+        let enter = |modifiers| egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: Some(egui::Key::Enter),
+            pressed: true,
+            repeat: false,
+            modifiers,
+        };
+        let out = frame(&mut editor, &mut script, vec![enter(egui::Modifiers::COMMAND)]);
+        assert!(out.render, "Cmd+Enter asked for no render");
+        assert_eq!(script, "x = 1\n", "Cmd+Enter typed into the text");
+        let out = frame(&mut editor, &mut script, vec![enter(egui::Modifiers::NONE)]);
+        assert!(!out.render, "a plain Enter asked for a render");
+        assert_eq!(script.matches('\n').count(), 2, "a plain Enter is a new line: {script:?}");
+    }
+
     #[test]
     fn the_wheel_scrolls_the_completion_list() {
         let ctx = egui::Context::default();

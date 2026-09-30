@@ -3,6 +3,7 @@ from kalast._rs.tpm.core import (  # noqa
     stability_maxdt,
     conduction,
     effective_temperature,
+    mean_incidence,
     radiation_sun,
     radiation_sun_reflected,
     radiation_sun_reflected_reuse,
@@ -16,4 +17,5 @@ from kalast._rs.tpm.core import (  # noqa
     solar_bc,
     bottom_adiabatic,
     heat_conduction,
+    Ground,
 )

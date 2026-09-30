@@ -120,6 +120,94 @@ fn try_load(path: &str, flat: bool) -> Result<crate::mesh::Mesh, String> {
     .map_err(|_| format!("could not read {path} as a mesh"))
 }
 
+/// The colour map: a built-in chosen by name, reversed, or read from a file
+/// -- `data.colormap` is a table, which the generated widgets leave alone
+/// (`:skip:`). The list shows the name the table was made from, `_r` if
+/// reversed, found by comparing it with the built-ins, and a strip its
+/// colours.
+fn colormap_ui(ui: &mut egui::Ui, c: &mut Config) {
+    use crate::app::config::{builtin_colormap, colormap_from_file, colormap_name, colormap_names};
+    let id = ui.id().with("colormap");
+    let table = &c.data.colormap;
+    let name = colormap_name(table);
+    let shown = name.clone().unwrap_or_else(|| format!("custom, {} colours", table.len()));
+    let mut chosen: Option<Vec<[f32; 3]>> = None;
+
+    setting(
+        ui,
+        "colormap",
+        "data.colormap -- the colours the values are drawn in: a built-in, reversed with _r after its name, or a table from a script or a file",
+        |ui| {
+            // matplotlib's, each with its colours beside its name.
+            egui::ComboBox::from_id_salt(id).selected_text(&shown).height(360.0).show_ui(ui, |ui| {
+                for n in colormap_names() {
+                    let current = name.as_deref().is_some_and(|m| m.strip_suffix("_r").unwrap_or(m) == n);
+                    let table = builtin_colormap(n).unwrap_or_default();
+                    ui.horizontal(|ui| {
+                        let (rect, _) = ui.allocate_exact_size(egui::vec2(48.0, 10.0), egui::Sense::hover());
+                        gradient(ui, rect, &table, 24);
+                        if ui.selectable_label(current, n).clicked() {
+                            chosen = Some(table.clone());
+                        }
+                    });
+                }
+            });
+        },
+    );
+    line(ui, |ui| {
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 12.0), egui::Sense::hover());
+        gradient(ui, rect, table, 96);
+    });
+    line(ui, |ui| {
+        if ui.button("reverse").on_hover_text("The same colours the other way round").clicked() {
+            let mut reversed = if table.is_empty() { builtin_colormap("grey").unwrap_or_default() } else { table.clone() };
+            reversed.reverse();
+            chosen = Some(reversed);
+        }
+        let load = ui.button("load file...").on_hover_text(
+            "A text file with a colour a line -- red, green and blue, in 0..1 or 0..255, apart by commas or spaces",
+        );
+        if load.clicked() {
+            let picked = rfd::FileDialog::new()
+                .set_title("A colour map")
+                .add_filter("colours", &["csv", "txt", "dat", "tsv"])
+                .pick_file();
+            if let Some(path) = picked {
+                match colormap_from_file(&path) {
+                    Ok(t) => {
+                        chosen = Some(t);
+                        remember(ui, id.with("error"), String::new());
+                    }
+                    Err(e) => remember(ui, id.with("error"), e),
+                }
+            }
+        }
+    });
+    let error = remembered(ui, id.with("error"), String::new);
+    if !error.is_empty() {
+        line(ui, |ui| ui.colored_label(egui::Color32::from_rgb(220, 120, 120), error));
+    }
+    if let Some(t) = chosen {
+        c.data.colormap = t;
+    }
+}
+
+/// A colour table's colours across `rect`, in `steps` slices, each the
+/// table's row nearest -- no resampling, drawn every frame a list is open.
+/// Empty is the renderer's greyscale.
+fn gradient(ui: &egui::Ui, rect: egui::Rect, table: &[[f32; 3]], steps: usize) {
+    let w = rect.width() / steps as f32;
+    for i in 0..steps {
+        let t = (i as f32 + 0.5) / steps as f32;
+        let c = match table.len() {
+            0 => [t, t, t],
+            n => table[((t * (n - 1) as f32).round() as usize).min(n - 1)],
+        };
+        let slice = egui::Rect::from_min_size(rect.min + egui::vec2(i as f32 * w, 0.0), egui::vec2(w + 0.5, rect.height()));
+        ui.painter().rect_filled(slice, 0.0, color32(c));
+    }
+}
+
 /// The bodies in the scene, and the means to change which ones they are.
 fn bodies_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
     if sim.bodies.is_empty() {
@@ -564,8 +652,13 @@ fn huds_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
                     ui.add(egui::DragValue::new(&mut hud.y).speed(1.0));
                 });
                 setting(ui, "size", "Letter height in pixels, and the colour", |ui| {
-                    ui.add(egui::DragValue::new(&mut hud.size).speed(0.5).range(1.0..=200.0));
-                    ui.color_edit_button_rgba_unmultiplied(&mut hud.color);
+                    ui.add(egui::DragValue::new(&mut hud.size).speed(0.5).range(1.0..=200.0).clamp_existing_to_range(false));
+                    // Through a copy: egui's button writes its HSV round
+                    // trip back every frame, changing what a script set.
+                    let mut color = hud.color;
+                    if ui.color_edit_button_rgba_unmultiplied(&mut color).changed() {
+                        hud.color = color;
+                    }
                 });
 
                 // `None` means "follow the anchor", which is what a HUD
@@ -622,8 +715,30 @@ fn huds_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
     }
 }
 
-/// The picked facets: what is selected, and the two ways to change it that a
-/// pointer cannot do -- clearing the lot, and naming one by index.
+/// A selected facet's value: four decimals where they read, else in powers
+/// of ten.
+fn format_value(v: f32) -> String {
+    let a = v.abs();
+    if !v.is_finite() || a == 0.0 || (1e-3..1e6).contains(&a) {
+        format!("{v:.4}")
+    } else {
+        format!("{v:.4e}")
+    }
+}
+
+/// A colour of `0..1` channels, as the renderer stores them -- sRGB.
+fn color32(c: [f32; 3]) -> egui::Color32 {
+    let b = |x: f32| (x.clamp(0.0, 1.0) * 255.0).round() as u8;
+    egui::Color32::from_rgb(b(c[0]), b(c[1]), b(c[2]))
+}
+
+fn swatch(ui: &mut egui::Ui, c: [f32; 3]) -> egui::Response {
+    egui::widgets::color_picker::show_color(ui, color32(c), egui::vec2(14.0, 14.0))
+}
+
+/// The picked facets: what is selected -- each with its value, the colour the
+/// colormap gives it and its own -- and the two ways to change it that a
+/// pointer cannot do: clearing the lot, and naming one by index.
 fn selection_ui(ui: &mut egui::Ui, sim: &mut Simulation, color: crate::Vec3) {
     note(ui, "click a facet in the scene to select it; click it again to drop it");
 
@@ -634,6 +749,11 @@ fn selection_ui(ui: &mut egui::Ui, sim: &mut Simulation, color: crate::Vec3) {
     // Applied after the loop: dropping one mid-iteration shifts the rest.
     let mut drop_it = None;
     let many = sim.bodies.len() > 1;
+    let config = sim.config.clone();
+    let config = config.borrow();
+    // What a value's colour is read over: the range of the frame drawn while
+    // the data map is shown, the one it would be drawn with otherwise.
+    let mut range = None;
     for (i, s) in sim.selected_facets.iter().enumerate() {
         line(ui, |ui| {
             let name = if many {
@@ -646,7 +766,40 @@ fn selection_ui(ui: &mut egui::Ui, sim: &mut Simulation, color: crate::Vec3) {
                 drop_it = Some(i);
             }
         });
+        // Read every frame: a script writing `mesh.values` as it runs is
+        // followed.
+        let value = sim
+            .bodies
+            .get(s.body)
+            .and_then(|b| b.mesh.as_ref())
+            .and_then(|m| m.borrow().values.get(s.facet).copied());
+        if let Some(v) = value {
+            let v = v as f32;
+            setting(ui, "value", "Its entry in mesh.values, as the script last set it", |ui| {
+                ui.label(egui::RichText::new(format_value(v)).monospace());
+            });
+            if v.is_finite() {
+                let r = *range.get_or_insert_with(|| sim.color_range());
+                let c = crate::app::config::colormap_color(&config.data.colormap, r, v);
+                let hover = format!(
+                    "Its colour in the colormap, red, green and blue from 0 to 1, over values {} to {}",
+                    format_value(r.0),
+                    format_value(r.1)
+                );
+                setting(ui, "colormap", &hover, |ui| {
+                    swatch(ui, c);
+                    ui.label(egui::RichText::new(crate::app::config::rgb(c)).monospace());
+                });
+            }
+        }
+        if let Some(c) = s.color() {
+            setting(ui, "colour", "Its own colour under the selection's, red, green and blue from 0 to 1", |ui| {
+                swatch(ui, c);
+                ui.label(egui::RichText::new(crate::app::config::rgb(c)).monospace());
+            });
+        }
     }
+    drop(config);
     if let Some(i) = drop_it {
         let (body, facet) = {
             let s = &sim.selected_facets[i];
@@ -751,6 +904,7 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config) {
                 ui.spacing_mut().slider_width = (ui.available_width() - 76.0).max(40.0);
                 ui.add(
                     egui::Slider::new(&mut sim.state.rate_limit, 0.1..=1000.0)
+                        .clamping(egui::SliderClamping::Edits)
                         .logarithmic(true)
                         .suffix(" fps"),
                 );
@@ -801,6 +955,7 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config) {
     topic(ui, codicon::LAYERS, palette::TEAL, "Wireframe", |ui| group_wireframe(ui, c));
 
     topic(ui, codicon::SYMBOL_COLOR, palette::PINK, "Data colouring", |ui| {
+        colormap_ui(ui, c);
         group_data(ui, c);
         subheading(ui, "colour bar");
         group_colorbar(ui, c);
@@ -874,6 +1029,115 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every text a frame drew.
+    fn texts(output: &egui::FullOutput) -> Vec<String> {
+        fn walk(shape: &egui::Shape, out: &mut Vec<String>) {
+            match shape {
+                egui::Shape::Text(t) => out.push(t.galley.text().to_owned()),
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        output.shapes.iter().for_each(|c| walk(&c.shape, &mut out));
+        out
+    }
+
+    /// Showing a section changes no setting: every generated group drawn over
+    /// a config holding values its widgets would not offer. A slider clamped
+    /// the value it was shown with -- the colour bar's 320-pixel length
+    /// became 1, and the bar vanished, when "Data colouring" opened.
+    #[test]
+    fn drawing_the_panel_changes_no_setting() {
+        let mut c = Config::default();
+        c.shading.gamma = 9.0; // its slider: 0.1..=4
+        c.light.ambient = 1.5; // 0..=1
+        c.colorbar.ticks = 40; // 1..=20
+        c.colorbar.length = 900.0;
+        c.colorbar.min_max = true;
+        c.data.colormap = vec![[1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]; // one of its own
+        let before = format!("{c:?}");
+        let ctx = egui::Context::default();
+        let raw = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 8000.0))),
+            ..Default::default()
+        };
+        let mut output = ctx.run_ui(raw, |ui| {
+            for group in [
+                colormap_ui, group_shading, group_light, group_shadows, group_wireframe, group_selection,
+                group_data, group_colorbar, group_axes, group_grid, group_hud, group_export, group_controls,
+                group_image, group_debug,
+            ] {
+                group(ui, &mut c);
+            }
+        });
+        output.textures_delta.clear();
+        assert_eq!(format!("{c:?}"), before, "drawn, the panel changed the config");
+    }
+
+    /// The colour map is named in the panel as it was made -- a built-in,
+    /// `_r` when reversed, "custom" for a table of its own -- with the means
+    /// to reverse it or read one from a file. Asked for: "i cant seem to be
+    /// able to change the colormap ... in data colouring in the UI".
+    #[test]
+    fn the_colormap_is_shown_by_name() {
+        for (table, shown) in [
+            (crate::app::config::builtin_colormap("inferno_r").unwrap(), "inferno_r"),
+            (vec![[1.0, 0.0, 0.0], [0.0, 0.0, 1.0]], "custom, 2 colours"),
+            (Vec::new(), "gray"),
+        ] {
+            let mut c = Config::default();
+            c.data.colormap = table;
+            let ctx = egui::Context::default();
+            let raw = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0))),
+                ..Default::default()
+            };
+            let mut output = ctx.run_ui(raw, |ui| colormap_ui(ui, &mut c));
+            output.textures_delta.clear();
+            let texts = texts(&output);
+            for text in [shown, "reverse", "load file..."] {
+                assert!(texts.iter().any(|t| t == text), "{text}: {texts:?}");
+            }
+        }
+    }
+
+    /// A selected facet shows its value, the colour the colormap gives it
+    /// over the range the frame was drawn with, and its own colour -- asked
+    /// for: "when clicking on a facet also shows facet color and value",
+    /// "also show color as per the colormap".
+    #[test]
+    fn a_selected_facet_shows_its_value_and_colours() {
+        let mut sim = Simulation::new();
+        sim.load_mesh("res/cube.obj", crate::Mat4::IDENTITY, false);
+        {
+            let mut mesh = sim.bodies[0].mesh.as_ref().unwrap().borrow_mut();
+            let n = mesh.facets.len();
+            mesh.values = (0..n).map(|i| 100.0 + 10.0 * i as Float).collect();
+        }
+        sim.config.borrow_mut().shading.color_mode = 1;
+        sim.value_range = (100.0, 200.0);
+        sim.toggle_facet(0, 3, crate::Vec3::X);
+        let own = crate::app::config::rgb(sim.selected_facets[0].color().unwrap());
+
+        let ctx = egui::Context::default();
+        let raw = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0))),
+            ..Default::default()
+        };
+        let mut output = ctx.run_ui(raw, |ui| selection_ui(ui, &mut sim, crate::Vec3::X));
+        output.textures_delta.clear();
+        let texts = texts(&output);
+        assert!(texts.iter().any(|t| t == "facet 3"), "{texts:?}");
+        assert!(texts.iter().any(|t| t == "130.0000"), "its value: {texts:?}");
+        // Greyscale, 130 over 100..200: 0.3 of the way.
+        assert!(texts.iter().any(|t| t == "0.300 0.300 0.300"), "its colormap colour: {texts:?}");
+        for name in ["value", "colormap", "colour"] {
+            assert!(texts.iter().any(|t| t == name), "{name}: {texts:?}");
+        }
+        assert!(texts.iter().any(|t| *t == own), "its own colour {own}: {texts:?}");
+    }
 
     /// The shading toggle is `flatten`/`smoothen` and nothing else, so it
     /// has to survive being pressed more than once. It used to rebuild the

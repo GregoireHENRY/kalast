@@ -433,6 +433,12 @@ pub struct App {
     /// release, so a press that slides off the ball still counts as a click on
     /// it -- these are small targets.
     gizmo_press: Option<crate::app::gizmo::Ball>,
+    /// The colour bar's edge being dragged, from a left press on it to its
+    /// release: its length or thickness following the pointer.
+    bar_grab: Option<crate::app::window::BarEdge>,
+    /// The resize cursor a plain window was last given, so it is set only
+    /// when it changes. The UI app's goes through egui instead.
+    bar_cursor: Option<bool>,
 
     /// Where the left button went down, so a click can be told from a drag:
     /// only a press and release in the same place is a selection.
@@ -1020,6 +1026,8 @@ impl App {
             loaded_example: None,
             cursor: None,
             gizmo_press: None,
+            bar_grab: None,
+            bar_cursor: None,
             left_press: None,
             realised: None,
             editor: None,
@@ -1928,16 +1936,36 @@ impl App {
                 uncaptured = self.stdio.is_none() && !crate::app::gui::StdioCapture::active();
             }
         }
+        // A new version's examples, in the place of the old, the ones the
+        // user changed or added kept in `scripts/` (`update::install_examples`):
+        // at a bundle's first start after an update, or after it was
+        // unpacked, and before anything reads `examples/` -- a script named
+        // on the command line, the scripts tab.
+        let examples = match crate::app::update::kind() {
+            crate::app::update::Kind::Bundle(dir) => {
+                crate::app::update::install_examples(&dir, crate::app::update::CURRENT)
+                    .transpose()
+                    .map(|outcome| crate::app::update::examples_message(&outcome, &dir, crate::app::update::CURRENT))
+            }
+            _ => None,
+        };
         // The kalast tab opens on when the UI app started, with the version --
-        // read already: a tab's dot is for news. The script tab stays empty
-        // until a run starts it (`mark_script_log`).
+        // read already: a tab's dot is for news, which examples kept aside or
+        // not installed are. The script tab stays empty until a run starts it
+        // (`mark_script_log`).
         {
             let mut shared = self.shared.borrow_mut();
             shared.kalast_log.push(format!("kalast v{} started", crate::app::update::CURRENT));
             if uncaptured {
                 shared.kalast_log.push("what kalast prints cannot reach this tab: stdout could not be redirected");
             }
+            if let Some((line, false)) = &examples {
+                shared.kalast_log.push(line.clone());
+            }
             shared.kalast_log.mark_read();
+            if let Some((line, true)) = examples {
+                shared.kalast_log.push(line);
+            }
         }
         // A newer release? Asked here, when the UI app opens -- never when a
         // script runs its own window -- and on a thread: the frame reads the
@@ -2328,6 +2356,46 @@ impl App {
         self.window.as_ref()?.gizmo.as_ref()?.ball_at(p)
     }
 
+    /// The colour bar's edge under the pointer, while the bar is drawn.
+    fn bar_edge_at_cursor(&self) -> Option<crate::app::window::BarEdge> {
+        let rect = self.window.as_ref()?.colorbar_px?;
+        crate::app::window::colorbar_edge_at(rect, self.cursor_in_image()?)
+    }
+
+    /// The colour bar resized by the edge being dragged, to the pointer; and
+    /// the pointer's shape over an edge -- the resize arrows, as over a
+    /// panel's edge.
+    fn follow_bar_drag(&mut self) {
+        if let (Some(edge), Some(p)) = (self.bar_grab, self.cursor_in_image()) {
+            let image = self.window.as_ref().map(|w| (w.render_size.0 as f32, w.render_size.1 as f32));
+            if let Some(image) = image {
+                let config = self.sim_config();
+                let mut c = config.borrow_mut();
+                let (length, thickness, x, y) = crate::app::window::colorbar_resized(&c.colorbar, image, edge, p);
+                (c.colorbar.length, c.colorbar.thickness, c.colorbar.x, c.colorbar.y) = (length, thickness, x, y);
+            }
+        }
+        let sideways = self.bar_grab.or_else(|| self.bar_edge_at_cursor()).map(|e| e.sideways());
+        match self.editor.as_mut() {
+            Some(editor) => {
+                editor.scene_cursor = sideways.map(|s| {
+                    if s { egui::CursorIcon::ResizeHorizontal } else { egui::CursorIcon::ResizeVertical }
+                });
+            }
+            None if sideways != self.bar_cursor => {
+                if let Some(win) = self.window.as_ref() {
+                    win.window.set_cursor(match sideways {
+                        Some(true) => winit::window::CursorIcon::EwResize,
+                        Some(false) => winit::window::CursorIcon::NsResize,
+                        None => winit::window::CursorIcon::Default,
+                    });
+                }
+                self.bar_cursor = sideways;
+            }
+            None => {}
+        }
+    }
+
     /// Whether the pointer is anywhere on the widget.
     fn cursor_on_gizmo(&self) -> bool {
         let Some(p) = self.cursor_in_image() else {
@@ -2351,9 +2419,9 @@ impl App {
     /// a mode the user then has to notice and undo, and it does not need a
     /// second click on the same ball to get out of.
     fn view_along_ball(&mut self, ball: crate::app::gizmo::Ball) {
-        let bounds = {
+        let sphere = {
             let sim = self.simulation.borrow();
-            sim.scene_bounds()
+            sim.scene_sphere()
         };
 
         let mut sim = self.simulation.borrow_mut();
@@ -2367,8 +2435,8 @@ impl App {
             sn.1 = ball.positive;
         }
 
-        match bounds {
-            Some(bounds) => sim.camera.view_along_from(ball.axis, ball.positive, &bounds, true),
+        match sphere {
+            Some((centre, radius)) => sim.camera.view_along_sphere(ball.axis, ball.positive, centre, radius, true),
             // An empty scene has nothing to frame, and the click did nothing
             // at all: the view turns where it stands instead.
             None => sim.camera.view_along_anchor(ball.axis, ball.positive, true),
@@ -2447,7 +2515,7 @@ impl App {
             .toggle_facet(body, facet, color);
 
         let (lat, lon) = crate::app::simulation::lat_lon(local);
-        let (list, geometry) = {
+        let (list, geometry, value, own) = {
             let sim = self.simulation.borrow();
 
             // Sorted as numbers, not as text: string order put facet 1322
@@ -2478,7 +2546,23 @@ impl App {
                 let v = m.get_facet_positions(facet);
                 (f.normal, f.pos, f.area, v)
             });
-            (list, geometry)
+            // Its value and the colour the colormap gives it, as the Selection
+            // panel shows them, and its own colour under the selection's.
+            let value = sim
+                .bodies
+                .get(body)
+                .and_then(|b| b.mesh.as_ref())
+                .and_then(|m| m.borrow().values.get(facet).copied())
+                .map(|v| {
+                    let v = v as f32;
+                    let c = v.is_finite().then(|| {
+                        let config = sim.config.borrow();
+                        crate::app::config::colormap_color(&config.data.colormap, sim.color_range(), v)
+                    });
+                    (v, c)
+                });
+            let own = sim.facet_color(body, facet);
+            (list, geometry, value, own)
         };
 
         println!(
@@ -2509,6 +2593,14 @@ impl App {
             for (i, p) in v.iter().enumerate() {
                 println!("  v{i}     {:.6} {:.6} {:.6}", p.x, p.y, p.z);
             }
+        }
+        match value {
+            Some((v, Some(c))) => println!("  value  {v:.6}   colormap {}", crate::app::config::rgb(c)),
+            Some((v, None)) => println!("  value  {v}"),
+            None => {}
+        }
+        if let Some(c) = own {
+            println!("  colour {}", crate::app::config::rgb(c));
         }
         println!(
             "  selected ({}): {}",
@@ -3607,6 +3699,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
             // pointer's actual location arrives.
             winit::event::WindowEvent::CursorMoved { position, .. } => {
                 self.cursor = Some((position.x, position.y));
+                self.follow_bar_drag();
             }
 
             winit::event::WindowEvent::MouseInput { state, button, .. } => match button {
@@ -3632,16 +3725,23 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         self.controller.gizmo_pressed = self.cursor_on_gizmo()
                             && self.simulation.borrow().camera.control
                                 == frame::Control::Arcball;
+                        // Then the colour bar's edges: a press there drags
+                        // the edge rather than picking what is behind it.
+                        if !self.cursor_on_gizmo() && !self.controller.alt_pressed {
+                            self.bar_grab = self.bar_edge_at_cursor();
+                        }
                     } else {
                         let ball = self.gizmo_press.take();
                         self.controller.gizmo_pressed = false;
+                        let dragged_bar = self.bar_grab.take().is_some();
+                        self.follow_bar_drag();
                         if let (Some(down), Some(up)) = (self.left_press.take(), self.cursor) {
                             let moved = (down.0 - up.0).hypot(down.1 - up.1);
                             if moved >= 4.0 {
                                 // A drag, whatever it started on.
                             } else if let Some(ball) = ball {
                                 self.view_along_ball(ball);
-                            } else if !self.controller.alt_pressed && !self.cursor_on_gizmo() {
+                            } else if !self.controller.alt_pressed && !self.cursor_on_gizmo() && !dragged_bar {
                                 self.select_at_cursor();
                             }
                         }

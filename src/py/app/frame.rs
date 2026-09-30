@@ -36,6 +36,18 @@ impl Eye {
     }
 }
 
+/// A direction from a script, made a unit vector: `dir` and `up` are taken
+/// as unit vectors when the frame is drawn, and one a hair long -- three
+/// decimals typed, `[-0.342, -0.651, 0.678]` -- was refused there by an
+/// unwrap that aborted the whole process. A zero or non-finite one has no
+/// direction to give, and is refused here, where it was set.
+fn unit(v: [Float; 3], name: &str) -> PyResult<crate::Vec3> {
+    let v = crate::Vec3::from(v);
+    v.try_normalize().ok_or_else(|| {
+        pyo3::exceptions::PyValueError::new_err(format!("{name} must be a direction, a non-zero vector: not {v}"))
+    })
+}
+
 #[pymethods]
 impl Eye {
     #[getter]
@@ -60,8 +72,10 @@ impl Eye {
     }
 
     #[setter]
-    fn set_dir(&self, v: [Float; 3]) {
-        self.with_mut(|e| e.dir = v.into());
+    fn set_dir(&self, v: [Float; 3]) -> PyResult<()> {
+        let v = unit(v, "dir")?;
+        self.with_mut(|e| e.dir = v);
+        Ok(())
     }
 
     #[getter]
@@ -72,8 +86,10 @@ impl Eye {
     }
 
     #[setter]
-    fn set_up(&self, v: [Float; 3]) {
-        self.with_mut(|e| e.up = v.into());
+    fn set_up(&self, v: [Float; 3]) -> PyResult<()> {
+        let v = unit(v, "up")?;
+        self.with_mut(|e| e.up = v);
+        Ok(())
     }
 
     #[getter]
@@ -113,8 +129,10 @@ impl Eye {
     }
 
     #[setter]
-    fn set_up_world(&self, v: [Float; 3]) {
-        self.with_mut(|e| e.up_world = v.into());
+    fn set_up_world(&self, v: [Float; 3]) -> PyResult<()> {
+        let v = unit(v, "up_world")?;
+        self.with_mut(|e| e.up_world = v);
+        Ok(())
     }
 
     #[getter]
@@ -264,12 +282,12 @@ impl Eye {
             ))
         })?;
 
-        let bounds = self.simulation.borrow().scene_bounds();
-        let Some(bounds) = bounds else {
+        let sphere = self.simulation.borrow().scene_sphere();
+        let Some((centre, radius)) = sphere else {
             return Ok(());
         };
 
-        self.with_mut(|e| e.view_along_from(parsed, positive, &bounds, orthographic));
+        self.with_mut(|e| e.view_along_sphere(parsed, positive, centre, radius, orthographic));
         Ok(())
     }
 

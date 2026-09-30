@@ -596,12 +596,18 @@ impl Eye {
         if bounds.is_empty() {
             return;
         }
-        let radius = bounds.radius().max(1e-6);
+        self.frame_sphere(bounds.center(), bounds.radius(), from);
+    }
+
+    /// `frame` around a sphere, `centre` and `radius`:
+    /// `Simulation::scene_sphere`, which does not change as the bodies turn.
+    pub fn frame_sphere(&mut self, centre: Vec3, radius: Float, from: Vec3) {
+        let radius = radius.max(1e-6);
         // The field the viewport shows, not the window's: framed to `fovy`,
         // a body behind an open log panel came out with its top and bottom
         // cut off.
         let distance = radius / self.projection.half_fovy().sin() * 1.15;
-        self.anchor = bounds.center();
+        self.anchor = centre;
         self.anchor_body = None;
         self.pos = self.anchor + from.normalize() * distance;
         self.look_anchor();
@@ -665,9 +671,17 @@ impl Eye {
         bounds: &crate::mesh::Aabb,
         orthographic: bool,
     ) {
+        self.view_along_sphere(axis, positive, bounds.center(), bounds.radius(), orthographic);
+    }
+
+    /// `view_along_from` around a sphere, `centre` and `radius`:
+    /// `Simulation::scene_sphere`. From a box around the bodies as they
+    /// stand, a spinning body's box grew and shrank with its turn, and the
+    /// same gizmo ball clicked twice gave two zooms.
+    pub fn view_along_sphere(&mut self, axis: Axis, positive: bool, centre: Vec3, radius: Float, orthographic: bool) {
         // Tied to the scene, so the eye is never inside the geometry.
-        let back = (bounds.radius() * 4.0).max(Float::EPSILON);
-        self.view_along_at(axis, positive, bounds.center(), back, orthographic);
+        let back = (radius * 4.0).max(Float::EPSILON);
+        self.view_along_at(axis, positive, centre, back, orthographic);
     }
 
     /// `view_along_from` with nothing to frame: the eye turns about its

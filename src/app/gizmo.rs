@@ -341,7 +341,7 @@ fn push_quad(
 }
 
 /// A rectangle of `width` pixels running from `a` to `b`.
-fn bar(
+pub(crate) fn bar(
     out: &mut Vec<Vertex>,
     size: (f32, f32),
     a: [f32; 2],

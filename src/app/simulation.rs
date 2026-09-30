@@ -99,6 +99,43 @@ pub struct Simulation {
     /// is a request whose `(0, 0)` means "follow the window", and the
     /// editor's viewport overrides it with its own size.
     pub image_size: (u32, u32),
+    /// The range the data map spanned in the last frame drawn, `data_range`'s
+    /// while `shading.color_mode` is 1. Written by the renderer, as
+    /// `image_size` is, and read by the panel that names a selected facet's
+    /// colour beside its value -- the colour the surface shows.
+    pub value_range: (f32, f32),
+}
+
+/// The lowest and highest finite value the bodies carry, `None` with none.
+/// A pass over every value.
+pub fn data_extremes(bodies: &[super::body::Body]) -> Option<(f32, f32)> {
+    let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
+    for body in bodies {
+        let Some(mesh) = body.mesh.as_ref() else { continue };
+        for v in &mesh.borrow().values {
+            let v = *v as f32;
+            if v.is_finite() {
+                lo = lo.min(v);
+                hi = hi.max(v);
+            }
+        }
+    }
+    (lo.is_finite() && hi.is_finite()).then_some((lo, hi))
+}
+
+/// The range the data map spans: `data.value_min` and `value_max` where
+/// pinned, each on its own, else fitted to the finite values the bodies
+/// carry -- `0..1` with none. A pass over every value, unless both are
+/// pinned.
+pub fn data_range(config: &crate::app::config::Config, bodies: &[super::body::Body]) -> (f32, f32) {
+    let fit = || data_extremes(bodies).unwrap_or((0.0, 1.0));
+    match (config.data.value_min, config.data.value_max) {
+        (Some(lo), Some(hi)) => (lo, hi),
+        (lo, hi) => {
+            let (a, b) = fit();
+            (lo.unwrap_or(a), hi.unwrap_or(b))
+        }
+    }
 }
 
 /// Which bodies the camera frustum contains, and why the others are missing.
@@ -162,6 +199,7 @@ impl Simulation {
             meshes_dirty: false,
             diagnostics: Diagnostics::default(),
             image_size: (0, 0),
+            value_range: (0.0, 1.0),
         }
     }
 
@@ -179,23 +217,19 @@ impl Simulation {
     /// behind it, so the relief reads. Bounds are taken through each body's
     /// transform, so a body placed by its `mat` counts where it is.
     pub fn frame_all(&mut self) {
-        let mut all = crate::mesh::Aabb::empty();
-        for body in &self.bodies {
-            if let Some(mesh) = &body.mesh {
-                all = all.union(&mesh.borrow().bounds.transformed(&body.mat));
-            }
-        }
-        if all.is_empty() {
+        // By the scene's sphere, which a spinning body leaves as it is: the
+        // same framing whenever it is asked for.
+        let Some((centre, radius)) = self.scene_sphere() else {
             return;
-        }
+        };
         // Blender's default camera, `BLENDER_VIEW`, and its default light,
         // `(4.08, 1.01, 5.90)`, both toward the origin: the view everyone who
         // has opened Blender knows.
-        self.camera.frame(&all, crate::app::frame::BLENDER_VIEW);
-        let radius = all.radius().max(1e-6);
-        self.sun.anchor = all.center();
+        self.camera.frame_sphere(centre, radius, crate::app::frame::BLENDER_VIEW);
+        let radius = radius.max(1e-6);
+        self.sun.anchor = centre;
         self.sun.anchor_body = None;
-        self.sun.pos = all.center() + crate::Vec3::new(4.08, 1.01, 5.90).normalize() * radius * 10.0;
+        self.sun.pos = centre + crate::Vec3::new(4.08, 1.01, 5.90).normalize() * radius * 10.0;
         self.sun.look_anchor();
     }
 
@@ -260,6 +294,39 @@ impl Simulation {
     /// bound. Feeds the automatic camera/light frustum fitting -- 8 corners
     /// per body per frame, so it is cheap enough to redo every frame as
     /// bodies move.
+    /// The scene's bounding sphere, `(centre, radius)`, from each body's own:
+    /// the sphere around its mesh's box, in the body's frame, carried
+    /// through `mat` -- merged into one around them all.
+    ///
+    /// For framing a view -- a gizmo's plane view, `frame_all`, a script's
+    /// `view_along` -- where `scene_bounds` would not do: a box around a
+    /// turned box grows and shrinks with the turn, 29 % across a sphere's
+    /// between 0 and 45 degrees, so a view framed on it zoomed with the
+    /// body's spin, and one gizmo ball clicked twice gave two zooms. A
+    /// sphere turned about its centre stays itself. For a body as loaded it
+    /// is the sphere around its box, so views frame as they did.
+    pub fn scene_sphere(&self) -> Option<(crate::Vec3, crate::Float)> {
+        let mut out: Option<(crate::Vec3, crate::Float)> = None;
+        for body in &self.bodies {
+            let Some(mesh) = body.mesh.as_ref() else { continue };
+            let local = mesh.borrow().bounds;
+            if local.is_empty() {
+                continue;
+            }
+            // The most `mat` stretches any direction: 1 for a rotation.
+            let stretch = [crate::Vec3::X, crate::Vec3::Y, crate::Vec3::Z]
+                .map(|a| body.mat.transform_vector3(a).length())
+                .into_iter()
+                .fold(0.0, crate::Float::max);
+            let sphere = (body.mat.transform_point3(local.center()), local.radius() * stretch);
+            out = Some(match out {
+                None => sphere,
+                Some(s) => enclosing(s, sphere),
+            });
+        }
+        out
+    }
+
     pub fn scene_bounds(&self) -> Option<crate::mesh::Aabb> {
         let mut bounds = crate::mesh::Aabb::empty();
 
@@ -481,24 +548,64 @@ impl Simulation {
     /// wants `facet_illumination`, which is this times the unblocked
     /// fraction the shadow map reads back.
     ///
+    /// A pose that scales the body -- flattened along its pole, `mat` a
+    /// rotation times `diag(a, b, c)` -- is taken as the renderer takes it:
+    /// each normal turned by the inverse transpose, still normal to the
+    /// surface as drawn, where the pose itself would tilt it the wrong way.
+    ///
     /// `None` for a body that does not exist or has no mesh.
     pub fn facet_incidence(&self, body: usize) -> Option<Vec<crate::Float>> {
         let b = self.bodies.get(body)?;
         let mesh = b.mesh.as_ref()?.borrow();
 
-        // Rotation (and any scale) but not translation: a normal is a
-        // direction. Renormalised, so a scaled body still reports a cosine.
-        let rot = crate::Mat3::from_mat4(b.mat);
+        // Not the translation: a normal is a direction. The inverse
+        // transpose of the pose, the shader's normal matrix
+        // (`Instance::compute_normal`): a rotation's own, and for a scale
+        // the one that keeps a normal normal. Renormalised after.
+        let normals = crate::Mat3::from_mat4(b.mat).inverse().transpose();
 
         Some(
             mesh.facets
                 .iter()
                 .map(|f| {
                     let pos = b.mat.transform_point3(f.pos);
-                    let normal = (rot * f.normal).normalize_or_zero();
+                    let normal = (normals * f.normal).normalize_or_zero();
                     let to_sun = (self.sun.pos - pos).normalize_or_zero();
                     normal.dot(to_sun).max(0.0)
                 })
+                .collect(),
+        )
+    }
+
+    /// Per-facet `max(0, cos i)` averaged over a spin about `axis` -- the
+    /// body's own, in its frame -- from the body's pose and the Sun's
+    /// position as they stand: each facet's `tpm::core::mean_incidence`, of
+    /// its latitude and the Sun's. What `tpm::core::effective_temperature`
+    /// takes as `r`, to start each column at its latitude's effective
+    /// temperature: none in the polar night, all spin long in the polar day.
+    ///
+    /// The pose is read as `facet_incidence` reads it, a scale in it and
+    /// all. The Sun's latitude is the pose's as it stands, so a tilted axis
+    /// wants the tilt set first. Shadows cast by the rest of the body are not
+    /// counted.
+    ///
+    /// `None` for a body that does not exist or has no mesh.
+    pub fn facet_mean_incidence(&self, body: usize, axis: crate::Vec3) -> Option<Vec<crate::Float>> {
+        let b = self.bodies.get(body)?;
+        let mesh = b.mesh.as_ref()?.borrow();
+
+        let pose = crate::Mat3::from_mat4(b.mat);
+        let normals = pose.inverse().transpose();
+        // A line through the body, turned as its points are.
+        let spin = (pose * axis).normalize_or_zero();
+        let to_sun = (self.sun.pos - b.mat.transform_point3(crate::Vec3::ZERO)).normalize_or_zero();
+        let latitude = |v: crate::Vec3| v.dot(spin).clamp(-1.0, 1.0).asin();
+        let sun = latitude(to_sun);
+
+        Some(
+            mesh.facets
+                .iter()
+                .map(|f| crate::tpm::core::mean_incidence(latitude((normals * f.normal).normalize_or_zero()), sun))
                 .collect(),
         )
     }
@@ -718,6 +825,56 @@ impl State {
 #[cfg(test)]
 mod pause_tests {
     use super::*;
+
+    /// The colour a selected facet's value is shown in is the one the shader
+    /// draws it in: the table resampled, the value clamped to the range.
+    #[test]
+    fn a_value_is_coloured_as_the_shader_colours_it() {
+        use crate::app::config::colormap_color;
+        assert_eq!(colormap_color(&[], (0.0, 10.0), 2.5), [0.25, 0.25, 0.25], "greyscale by default");
+        let red = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]];
+        let c = colormap_color(&red, (100.0, 200.0), 150.0);
+        assert!((c[0] - 0.5).abs() < 1e-4 && c[1] == 0.0 && c[2] == 0.0, "{c:?}");
+        assert_eq!(colormap_color(&red, (100.0, 200.0), 1e9), [1.0, 0.0, 0.0], "clamped, not wrapped");
+        assert_eq!(colormap_color(&red, (100.0, 200.0), -1e9), [0.0, 0.0, 0.0]);
+    }
+
+    /// The range is pinned end by end, else fitted to the finite values.
+    #[test]
+    fn the_data_range_is_pinned_or_fitted_to_the_values() {
+        let mut sim = Simulation::new();
+        let mut config = crate::app::config::Config::default();
+        assert_eq!(data_range(&config, &sim.bodies), (0.0, 1.0), "nothing to fit");
+        sim.load_mesh("res/cube.obj", crate::Mat4::IDENTITY, false);
+        {
+            let mut mesh = sim.bodies[0].mesh.as_ref().unwrap().borrow_mut();
+            let n = mesh.facets.len();
+            mesh.values = (0..n).map(|i| i as crate::Float - 3.0).collect();
+            mesh.values[1] = crate::Float::NAN;
+        }
+        let n = sim.bodies[0].mesh.as_ref().unwrap().borrow().facets.len() as f32;
+        assert_eq!(data_range(&config, &sim.bodies), (-3.0, n - 4.0), "a NaN is not a bound");
+        config.data.value_min = Some(0.0);
+        assert_eq!(data_range(&config, &sim.bodies), (0.0, n - 4.0));
+        config.data.value_max = Some(50.0);
+        assert_eq!(data_range(&config, &sim.bodies), (0.0, 50.0));
+    }
+
+    /// A selection keeps the facet's own colour, to show and to put back.
+    #[test]
+    fn a_selection_keeps_the_facets_own_colour() {
+        let mut sim = Simulation::new();
+        sim.load_mesh("res/cube.obj", crate::Mat4::IDENTITY, false);
+        let own = {
+            let mut mesh = sim.bodies[0].mesh.as_ref().unwrap().borrow_mut();
+            let slot = Simulation::facet_attr_slots(&mesh, 3).unwrap()[0];
+            mesh.attrs[slot].color = crate::Vec3::new(0.2, 0.4, 0.6);
+            [0.2f32, 0.4, 0.6]
+        };
+        sim.toggle_facet(0, 3, crate::Vec3::X);
+        let kept = sim.selected_facets[0].color().unwrap();
+        assert!(kept.iter().zip(own).all(|(a, b)| (a - b).abs() < 1e-6), "{kept:?}");
+    }
 
     /// A reset leaves nothing of the last scene for the next to be drawn
     /// with: the window rebuilds every body's buffers, whatever the count,
@@ -957,6 +1114,79 @@ mod illumination_tests {
         sim
     }
 
+    /// A body flattened by its pose -- `mat` a rotation times a scale --
+    /// faces the Sun as the same body flattened in its vertices does, its
+    /// normals turned by the inverse transpose as the renderer turns them.
+    /// Turned by the pose itself, a flattened body's normals lean toward its
+    /// equator where the surface faces its pole: asked about by a script
+    /// that kept its body's shape in `mat`, to spare a large mesh the edit.
+    #[test]
+    fn a_body_flattened_by_its_pose_faces_the_sun_as_one_flattened_in_its_vertices() {
+        let scale = crate::Vec3::new(1.0, 0.9, 0.5);
+        let turn = crate::Mat4::from_rotation_y(0.7) * crate::Mat4::from_rotation_z(0.3);
+        let pose = turn * crate::Mat4::from_scale(scale);
+        let sun = crate::Vec3::new(3.0, -2.0, 4.0) * 1e6;
+
+        let mut posed = Simulation::new();
+        posed.load_mesh("res/ico2.obj", pose, false);
+        posed.sun.pos = sun;
+        let mut shaped = Simulation::new();
+        shaped.load_mesh("res/ico2.obj", turn, false);
+        shaped.sun.pos = sun;
+        {
+            let mut mesh = shaped.bodies[0].mesh.as_ref().unwrap().borrow_mut();
+            for p in mesh.positions.iter_mut() {
+                *p *= scale;
+            }
+            mesh.recompute_facets();
+        }
+
+        let (a, b) = (posed.facet_incidence(0).unwrap(), shaped.facet_incidence(0).unwrap());
+        let worst = a.iter().zip(&b).map(|(x, y)| (x - y).abs()).fold(0.0, crate::Float::max);
+        assert!(worst < 1e-5, "the pose and the vertices disagree by {worst}");
+
+        // The pose's own 3x3, as it was taken: off by far more.
+        let mesh = posed.bodies[0].mesh.as_ref().unwrap().borrow();
+        let plain = crate::Mat3::from_mat4(pose);
+        let off = mesh
+            .facets
+            .iter()
+            .zip(&b)
+            .map(|(f, &right)| {
+                let to_sun = (sun - pose.transform_point3(f.pos)).normalize();
+                ((plain * f.normal).normalize().dot(to_sun).max(0.0) - right).abs()
+            })
+            .fold(0.0, crate::Float::max);
+        assert!(off > 0.1, "the plain pose was as good: {off}");
+    }
+
+    /// What `facet_incidence` gives as the body turns, averaged over a
+    /// spin, `facet_mean_incidence` gives at once from the pose at any
+    /// moment of it -- the axis tilted 25 degrees, the body flattened by
+    /// its pose.
+    #[test]
+    fn the_mean_over_a_spin_is_the_incidence_averaged_as_it_turns() {
+        let tilt = crate::Mat4::from_rotation_y((25.0 as crate::Float).to_radians());
+        let shape = crate::Mat4::from_scale(crate::Vec3::new(1.0, 0.9, 0.6));
+        let mut sim = Simulation::new();
+        sim.load_mesh("res/ico2.obj", tilt * crate::Mat4::from_rotation_z(1.0) * shape, false);
+        sim.sun.pos = crate::Vec3::X * 1e9;
+        let mean = sim.facet_mean_incidence(0, crate::Vec3::Z).unwrap();
+
+        let steps = 720;
+        let mut averaged = vec![0.0; mean.len()];
+        for k in 0..steps {
+            let angle = 2.0 * crate::util::PI * k as crate::Float / steps as crate::Float;
+            sim.bodies[0].mat = tilt * crate::Mat4::from_rotation_z(angle) * shape;
+            for (a, c) in averaged.iter_mut().zip(sim.facet_incidence(0).unwrap()) {
+                *a += c / steps as crate::Float;
+            }
+        }
+        let worst = mean.iter().zip(&averaged).map(|(m, a)| (m - a).abs()).fold(0.0, crate::Float::max);
+        assert!(worst < 1e-3, "the mean and the spin's average differ by {worst}");
+        assert!(mean.iter().any(|&m| m == 0.0), "no polar night, 25 degrees from the Sun");
+    }
+
     #[test]
     fn a_facet_facing_away_is_dark_however_unshadowed_it_is() {
         let mut sim = scene();
@@ -1027,7 +1257,57 @@ pub struct Selection {
     previous: Vec<(crate::Vec3, u32)>,
 }
 
+impl Selection {
+    /// The facet's own colour, under the selection's: what it had when it was
+    /// selected -- the mean of its three vertices' on a smooth mesh.
+    pub fn color(&self) -> Option<[f32; 3]> {
+        let n = self.previous.len();
+        (n > 0).then(|| {
+            let sum = self.previous.iter().fold(crate::Vec3::ZERO, |a, (c, _)| a + *c) / n as crate::Float;
+            [sum.x as f32, sum.y as f32, sum.z as f32]
+        })
+    }
+}
+
+/// The smallest sphere around two spheres, `(centre, radius)` each.
+fn enclosing(a: (crate::Vec3, crate::Float), b: (crate::Vec3, crate::Float)) -> (crate::Vec3, crate::Float) {
+    let d = (b.0 - a.0).length();
+    if d + b.1 <= a.1 {
+        return a;
+    }
+    if d + a.1 <= b.1 {
+        return b;
+    }
+    let radius = (d + a.1 + b.1) * 0.5;
+    (a.0 + (b.0 - a.0) * ((radius - a.1) / d), radius)
+}
+
 impl Simulation {
+    /// The range a facet's value is coloured over, as the surface shows it:
+    /// the last frame's while the data map is drawn, else the one it would be
+    /// drawn with -- `data_range`, a pass over every value.
+    pub fn color_range(&self) -> (f32, f32) {
+        let config = self.config.borrow();
+        match config.shading.color_mode {
+            1 => self.value_range,
+            _ => data_range(&config, &self.bodies),
+        }
+    }
+
+    /// A facet's own colour: what it had before it was selected, if it is,
+    /// else what its attributes hold -- the mean of three vertices' on a
+    /// smooth mesh.
+    pub fn facet_color(&self, body: usize, facet: usize) -> Option<[f32; 3]> {
+        if let Some(s) = self.selected_facets.iter().find(|s| s.body == body && s.facet == facet) {
+            return s.color();
+        }
+        let mesh = self.bodies.get(body)?.mesh.as_ref()?.borrow();
+        let slots = Self::facet_attr_slots(&mesh, facet)?;
+        let n = slots.len().max(1) as crate::Float;
+        let sum = slots.iter().fold(crate::Vec3::ZERO, |a, &s| a + mesh.attrs[s].color) / n;
+        Some([sum.x as f32, sum.y as f32, sum.z as f32])
+    }
+
     /// Which entries of `mesh.attrs` a facet's colour lives in: its own, on a
     /// flat mesh, and its three vertices' on a smooth one.
     fn facet_attr_slots(mesh: &crate::mesh::Mesh, facet: usize) -> Option<Vec<usize>> {
@@ -1449,5 +1729,49 @@ mod project_tests {
 
         sim.image_size = (0, 0);
         assert_eq!(sim.project_body(0), None, "no frame drawn yet");
+    }
+}
+
+#[cfg(test)]
+mod framing_tests {
+    use super::*;
+
+    /// One gizmo ball clicked at any point of a body's spin frames it the
+    /// same: its sphere, the zoom and the eye do not turn with it -- where
+    /// the box around the turned body, which the view was framed on, grew by
+    /// a fifth between 0 and 45 degrees.
+    #[test]
+    fn a_spinning_body_frames_the_same_whenever_asked() {
+        let mut sim = Simulation::new();
+        sim.load_mesh("res/cube.obj", crate::Mat4::IDENTITY, false);
+        let (mut spheres, mut boxes, mut eyes, mut framed) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        for angle in [0.0, 0.4, 0.785, 1.3] {
+            sim.bodies[0].mat = crate::Mat4::from_rotation_z(angle);
+            let (centre, radius) = sim.scene_sphere().unwrap();
+            spheres.push((centre, radius));
+            boxes.push(sim.scene_bounds().unwrap().radius());
+            sim.camera.view_along_sphere(crate::app::frame::Axis::Z, true, centre, radius, true);
+            eyes.push(sim.camera.pos);
+            sim.frame_all();
+            framed.push(sim.camera.pos);
+        }
+        for i in 1..spheres.len() {
+            assert!((spheres[i].1 - spheres[0].1).abs() < 1e-5 && (spheres[i].0 - spheres[0].0).length() < 1e-5, "{spheres:?}");
+            assert!((eyes[i] - eyes[0]).length() < 1e-4, "the plane view moved: {eyes:?}");
+            assert!((framed[i] - framed[0]).length() < 1e-4, "frame_all moved: {framed:?}");
+        }
+        assert!(boxes[2] > 1.1 * boxes[0], "what the view used to be framed on: {boxes:?}");
+        assert!((spheres[0].1 - boxes[0]).abs() < 1e-5, "as loaded, the same framing as before");
+    }
+
+    /// Two bodies: one sphere around both, whichever is inside the other or
+    /// apart.
+    #[test]
+    fn two_spheres_merge_into_the_one_around_both() {
+        let v = |x: crate::Float| crate::Vec3::new(x, 0.0, 0.0);
+        assert_eq!(enclosing((v(0.0), 5.0), (v(1.0), 1.0)), (v(0.0), 5.0), "inside");
+        assert_eq!(enclosing((v(1.0), 1.0), (v(0.0), 5.0)), (v(0.0), 5.0), "around");
+        let (c, r) = enclosing((v(0.0), 1.0), (v(10.0), 2.0));
+        assert!((r - 6.5).abs() < 1e-5 && (c - v(5.5)).length() < 1e-5, "{c:?} {r}");
     }
 }

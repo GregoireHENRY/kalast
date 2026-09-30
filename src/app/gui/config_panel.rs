@@ -18,7 +18,7 @@ pub fn group_shading(ui: &mut egui::Ui, c: &mut Config) {
         }
     });
     setting(ui, "render_back_face", "Draw triangles facing away from the camera.", |ui| ui.checkbox(&mut c.shading.render_back_face, ""));
-    setting(ui, "msaa", "Multisample anti-aliasing for the main render pass: 1 (off), 2, 4 or 8.", |ui| ui.add(egui::Slider::new(&mut c.shading.msaa, 1..=8)));
+    setting(ui, "msaa", "Multisample anti-aliasing for the main render pass: 1 (off), 2, 4 or 8.", |ui| ui.add(egui::Slider::new(&mut c.shading.msaa, 1..=8).clamping(egui::SliderClamping::Edits)));
     setting(ui, "color", "Flat colour used when `color_mode` is 2, `(r, g, b, a)`.", |ui| {
         let mut rgba = [c.shading.color.r as f32, c.shading.color.g as f32,
                         c.shading.color.b as f32, c.shading.color.a as f32];
@@ -29,16 +29,16 @@ pub fn group_shading(ui: &mut egui::Ui, c: &mut Config) {
             };
         }
     });
-    setting(ui, "color_mode", "What the fragment shader outputs.", |ui| ui.add(egui::Slider::new(&mut c.shading.color_mode, 0..=3)));
-    setting(ui, "srgb_mode", "0 converts sRGB to linear before shading; 1 treats colours as already linear.", |ui| ui.add(egui::Slider::new(&mut c.shading.srgb_mode, 0..=2)));
-    setting(ui, "gamma", "Exponent used by the sRGB conversion when `srgb_mode` is 0.", |ui| ui.add(egui::Slider::new(&mut c.shading.gamma, 0.1..=4.0)));
+    setting(ui, "color_mode", "What the fragment shader outputs.", |ui| ui.add(egui::Slider::new(&mut c.shading.color_mode, 0..=3).clamping(egui::SliderClamping::Edits)));
+    setting(ui, "srgb_mode", "0 converts sRGB to linear before shading; 1 treats colours as already linear.", |ui| ui.add(egui::Slider::new(&mut c.shading.srgb_mode, 0..=2).clamping(egui::SliderClamping::Edits)));
+    setting(ui, "gamma", "Exponent used by the sRGB conversion when `srgb_mode` is 0.", |ui| ui.add(egui::Slider::new(&mut c.shading.gamma, 0.1..=4.0).clamping(egui::SliderClamping::Edits)));
 }
 
 /// `config.light` -- Light.
 pub fn group_light(ui: &mut egui::Ui, c: &mut Config) {
     setting(ui, "cube_show", "Draw a cube at the light's position, so the Sun is visible.", |ui| ui.checkbox(&mut c.light.cube_show, ""));
     setting(ui, "cube_fit", "Fit the camera's frustum around the light cube too, not just the bodies.", |ui| ui.checkbox(&mut c.light.cube_fit, ""));
-    setting(ui, "ambient", "Light added to every fragment regardless of shadowing.", |ui| ui.add(egui::Slider::new(&mut c.light.ambient, 0.0..=1.0)));
+    setting(ui, "ambient", "Light added to every fragment regardless of shadowing.", |ui| ui.add(egui::Slider::new(&mut c.light.ambient, 0.0..=1.0).clamping(egui::SliderClamping::Edits)));
     setting(ui, "color", "Colour of the Sun, `(r, g, b, a)`.", |ui| {
         let mut rgba = [c.light.color.r as f32, c.light.color.g as f32,
                         c.light.color.b as f32, c.light.color.a as f32];
@@ -49,13 +49,13 @@ pub fn group_light(ui: &mut egui::Ui, c: &mut Config) {
             };
         }
     });
-    setting(ui, "cube_scale", "Size of the debug light cube, in world units.", |ui| ui.add(egui::Slider::new(&mut c.light.cube_scale, 0.0..=5.0)));
+    setting(ui, "cube_scale", "Size of the debug light cube, in world units.", |ui| ui.add(egui::Slider::new(&mut c.light.cube_scale, 0.0..=5.0).clamping(egui::SliderClamping::Edits)));
 }
 
 /// `config.shadows` -- Shadows.
 pub fn group_shadows(ui: &mut egui::Ui, c: &mut Config) {
-    setting(ui, "resolution", "Side length of each square shadow map, in texels.", |ui| ui.add(egui::Slider::new(&mut c.shadows.resolution, 512..=16384)));
-    setting(ui, "pcf", "Percentage-closer-filtering kernel *radius*: 0 is a single hardware 2x2 comparison, N is a `(2N+1)^2` grid averaged.", |ui| ui.add(egui::Slider::new(&mut c.shadows.pcf, 0..=16)));
+    setting(ui, "resolution", "Side length of each square shadow map, in texels.", |ui| ui.add(egui::Slider::new(&mut c.shadows.resolution, 512..=16384).clamping(egui::SliderClamping::Edits)));
+    setting(ui, "pcf", "Percentage-closer-filtering kernel *radius*: 0 is a single hardware 2x2 comparison, N is a `(2N+1)^2` grid averaged.", |ui| ui.add(egui::Slider::new(&mut c.shadows.pcf, 0..=16).clamping(egui::SliderClamping::Edits)));
     setting(ui, "normal_offset_scale", "Push the sample along the surface normal before the shadow lookup, in world units. `None` fits it per frame from the layer's own texel size.", |ui| {
         let mut on = c.shadows.normal_offset_scale.is_some();
         if ui.checkbox(&mut on, "").changed() {
@@ -89,7 +89,7 @@ pub fn group_shadows(ui: &mut egui::Ui, c: &mut Config) {
 
 /// `config.wireframe` -- Wireframe.
 pub fn group_wireframe(ui: &mut egui::Ui, c: &mut Config) {
-    setting(ui, "mode", "the barycentrics are meaningless and the CPU side warns once.", |ui| ui.add(egui::Slider::new(&mut c.wireframe.mode, 0..=2)));
+    setting(ui, "mode", "the barycentrics are meaningless and the CPU side warns once.", |ui| ui.add(egui::Slider::new(&mut c.wireframe.mode, 0..=2).clamping(egui::SliderClamping::Edits)));
     setting(ui, "color", "Wireframe colour, `(r, g, b, a)`; alpha is dropped.", |ui| {
         let mut rgba = [c.wireframe.color.r as f32, c.wireframe.color.g as f32,
                         c.wireframe.color.b as f32, c.wireframe.color.a as f32];
@@ -100,16 +100,21 @@ pub fn group_wireframe(ui: &mut egui::Ui, c: &mut Config) {
             };
         }
     });
-    setting(ui, "width", "Wireframe half-width in screen pixels.", |ui| ui.add(egui::Slider::new(&mut c.wireframe.width, 0.1..=10.0)));
+    setting(ui, "width", "Wireframe half-width in screen pixels.", |ui| ui.add(egui::Slider::new(&mut c.wireframe.width, 0.1..=10.0).clamping(egui::SliderClamping::Edits)));
     setting(ui, "fade", "Fade the wireframe out as a body recedes far enough that its facets stop being resolvable. **Off by default.**", |ui| ui.checkbox(&mut c.wireframe.fade, ""));
 }
 
 /// `config.selection` -- Selection.
 pub fn group_selection(ui: &mut egui::Ui, c: &mut Config) {
     setting(ui, "labels", "0 shaded only, 1 wireframe only, 2 wireframe over the shaded mesh.", |ui| ui.checkbox(&mut c.selection.labels, ""));
-    setting(ui, "labels_max", "Most facets to label before giving up, per body.", |ui| ui.add(egui::Slider::new(&mut c.selection.labels_max, 0..=20000)));
-    setting(ui, "label_size", "Size of a facet label, in pixels.", |ui| ui.add(egui::Slider::new(&mut c.selection.label_size, 4.0..=48.0)));
-    setting(ui, "label_color", "Colour of a facet label, `(r, g, b, a)`.", |ui| ui.color_edit_button_rgba_unmultiplied(&mut c.selection.label_color));
+    setting(ui, "labels_max", "Most facets to label before giving up, per body.", |ui| ui.add(egui::Slider::new(&mut c.selection.labels_max, 0..=20000).clamping(egui::SliderClamping::Edits)));
+    setting(ui, "label_size", "Size of a facet label, in pixels.", |ui| ui.add(egui::Slider::new(&mut c.selection.label_size, 4.0..=48.0).clamping(egui::SliderClamping::Edits)));
+    setting(ui, "label_color", "Colour of a facet label, `(r, g, b, a)`.", |ui| {
+        let mut rgba = c.selection.label_color;
+        if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
+            c.selection.label_color = rgba;
+        }
+    });
     setting(ui, "color", "Colour a facet takes when it is selected, `(r, g, b, a)`.", |ui| {
         let mut rgba = [c.selection.color.r as f32, c.selection.color.g as f32,
                         c.selection.color.b as f32, c.selection.color.a as f32];
@@ -162,24 +167,32 @@ pub fn group_colorbar(ui: &mut egui::Ui, c: &mut Config) {
                 ui.selectable_value(&mut c.colorbar.anchor, crate::app::config::HudAnchor::BottomRight, "BottomRight");
             });
     });
-    setting(ui, "x", "Inset from the anchor, pixels.", |ui| ui.add(egui::Slider::new(&mut c.colorbar.x, 0.0..=1.0)));
-    setting(ui, "y", "", |ui| ui.add(egui::Slider::new(&mut c.colorbar.y, 0.0..=1.0)));
-    setting(ui, "length", "Long and short axis of the bar, pixels.", |ui| ui.add(egui::Slider::new(&mut c.colorbar.length, 0.0..=1.0)));
-    setting(ui, "thickness", "", |ui| ui.add(egui::Slider::new(&mut c.colorbar.thickness, 0.0..=0.5)));
+    setting(ui, "x", "Inset from the anchor, pixels.", |ui| ui.add(egui::DragValue::new(&mut c.colorbar.x).speed(1.0)));
+    setting(ui, "y", "", |ui| ui.add(egui::DragValue::new(&mut c.colorbar.y).speed(1.0)));
+    setting(ui, "length", "Long and short axis of the bar, pixels. Its edges drag in the viewport too.", |ui| ui.add(egui::DragValue::new(&mut c.colorbar.length).speed(1.0)));
+    setting(ui, "thickness", "", |ui| ui.add(egui::DragValue::new(&mut c.colorbar.thickness).speed(1.0)));
+    setting(ui, "tick_size", "Length of a tick mark, pixels, across the bar's edge -- half inside, half out -- the numbers standing past it.", |ui| ui.add(egui::DragValue::new(&mut c.colorbar.tick_size).speed(0.5)));
     setting(ui, "vertical", "`None` infers from the anchor.", |ui| {
-        let mut on = c.colorbar.vertical.is_some();
-        if ui.checkbox(&mut on, "").changed() {
-            c.colorbar.vertical = if on { Some(true) } else { None };
-        }
-        if let Some(v) = c.colorbar.vertical.as_mut() {
-            ui.checkbox(v, "");
-        }
+        egui::ComboBox::from_id_salt("c.colorbar.vertical")
+            .selected_text(match c.colorbar.vertical { None => "auto", Some(true) => "yes", Some(false) => "no" })
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut c.colorbar.vertical, None, "auto");
+                ui.selectable_value(&mut c.colorbar.vertical, Some(true), "yes");
+                ui.selectable_value(&mut c.colorbar.vertical, Some(false), "no");
+            });
     });
     setting(ui, "label", "Caption, e.g. `\"Surface temperature (K)\"`.", |ui| ui.add(egui::TextEdit::singleline(&mut c.colorbar.label).desired_width(f32::INFINITY)));
-    setting(ui, "ticks", "Roughly how many numbered ticks; rounded to a readable step as the axes are.", |ui| ui.add(egui::Slider::new(&mut c.colorbar.ticks, 1..=20)));
-    setting(ui, "text_size", "", |ui| ui.add(egui::Slider::new(&mut c.colorbar.text_size, 4.0..=64.0)));
-    setting(ui, "text_color", "", |ui| ui.color_edit_button_rgba_unmultiplied(&mut c.colorbar.text_color));
-    setting(ui, "border", "Outline drawn around the strip, so it reads as a scale rather than as part of the scene when it sits over a dark body.", |ui| ui.checkbox(&mut c.colorbar.border, ""));
+    setting(ui, "ticks", "Roughly how many numbered ticks; rounded to a readable step as the axes are.", |ui| ui.add(egui::Slider::new(&mut c.colorbar.ticks, 1..=20).clamping(egui::SliderClamping::Edits)));
+    setting(ui, "text_size", "", |ui| ui.add(egui::Slider::new(&mut c.colorbar.text_size, 4.0..=64.0).clamping(egui::SliderClamping::Edits)));
+    setting(ui, "text_color", "", |ui| {
+        let mut rgba = c.colorbar.text_color;
+        if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
+            c.colorbar.text_color = rgba;
+        }
+    });
+    setting(ui, "border", "Outline drawn around the strip, in the text's colour, so it reads as a scale rather than as part of the scene when it sits over a dark body.", |ui| ui.checkbox(&mut c.colorbar.border, ""));
+    setting(ui, "min_max", "Mark the lowest and highest value the bodies carry where they fall on the scale -- at its end, when a pinned range leaves them outside it -- and name them, on the side away from the tick numbers: above a horizontal bar, left of a vertical one. The data map's only (`shading.color_mode` 1).", |ui| ui.checkbox(&mut c.colorbar.min_max, ""));
+    setting(ui, "min_max_format", "How `min_max` writes the two values, as a Python format spec: `.0f` whole numbers, `.3f` three decimals, `.2e` in powers of ten, `d` an integer. Anything else reads as `.0f`.", |ui| ui.add(egui::TextEdit::singleline(&mut c.colorbar.min_max_format).desired_width(f32::INFINITY)));
 }
 
 /// `config.axes` -- Axes & gizmo.
@@ -195,11 +208,21 @@ pub fn group_axes(ui: &mut egui::Ui, c: &mut Config) {
                 ui.selectable_value(&mut c.axes.style, crate::app::axes::AxesStyle::Blender, "Blender");
             });
     });
-    setting(ui, "color", "Colour of the axis lines and grid.", |ui| ui.color_edit_button_rgb(&mut c.axes.color));
-    setting(ui, "ticks", "Roughly how many ticks per axis. The step is rounded to 1, 2 or 5 times a power of ten first, so the count lands near this rather than on it -- a figure with ticks at 0.0347 is unreadable.", |ui| ui.add(egui::Slider::new(&mut c.axes.ticks, 1..=20)));
+    setting(ui, "color", "Colour of the axis lines and grid.", |ui| {
+        let mut rgb = c.axes.color;
+        if ui.color_edit_button_rgb(&mut rgb).changed() {
+            c.axes.color = rgb;
+        }
+    });
+    setting(ui, "ticks", "Roughly how many ticks per axis. The step is rounded to 1, 2 or 5 times a power of ten first, so the count lands near this rather than on it -- a figure with ticks at 0.0347 is unreadable.", |ui| ui.add(egui::Slider::new(&mut c.axes.ticks, 1..=20).clamping(egui::SliderClamping::Edits)));
     setting(ui, "unit", "Appended to every tick label, e.g. `\" km\"`.", |ui| ui.add(egui::TextEdit::singleline(&mut c.axes.unit).desired_width(f32::INFINITY)));
-    setting(ui, "label_size", "Tick label size in pixels, and their colour.", |ui| ui.add(egui::Slider::new(&mut c.axes.label_size, 4.0..=64.0)));
-    setting(ui, "label_color", "", |ui| ui.color_edit_button_rgba_unmultiplied(&mut c.axes.label_color));
+    setting(ui, "label_size", "Tick label size in pixels, and their colour.", |ui| ui.add(egui::Slider::new(&mut c.axes.label_size, 4.0..=64.0).clamping(egui::SliderClamping::Edits)));
+    setting(ui, "label_color", "", |ui| {
+        let mut rgba = c.axes.label_color;
+        if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
+            c.axes.label_color = rgba;
+        }
+    });
     setting(ui, "gizmo_anchor", "Which corner the navigation gizmo sits in. Any of the nine HUD anchors, so it can be moved out of the way of a colour bar or a HUD.", |ui| {
         egui::ComboBox::from_id_salt("c.axes.gizmo_anchor")
             .selected_text(format!("{:?}", c.axes.gizmo_anchor))
@@ -215,21 +238,46 @@ pub fn group_axes(ui: &mut egui::Ui, c: &mut Config) {
                 ui.selectable_value(&mut c.axes.gizmo_anchor, crate::app::config::HudAnchor::BottomRight, "BottomRight");
             });
     });
-    setting(ui, "gizmo_size", "Half the widget's width, in pixels: a ball centre never sits further than this from the middle.", |ui| ui.add(egui::Slider::new(&mut c.axes.gizmo_size, 16.0..=200.0)));
+    setting(ui, "gizmo_size", "Half the widget's width, in pixels: a ball centre never sits further than this from the middle.", |ui| ui.add(egui::Slider::new(&mut c.axes.gizmo_size, 16.0..=200.0).clamping(egui::SliderClamping::Edits)));
 }
 
 /// `config.grid` -- Grid.
 pub fn group_grid(ui: &mut egui::Ui, c: &mut Config) {
     setting(ui, "enabled", "Shade the `\"blender\"` style's ground grid instead of drawing it as line segments. On by default; `False` restores the segments.", |ui| ui.checkbox(&mut c.grid.enabled, ""));
-    setting(ui, "width", "Width of a grid line, in pixels.", |ui| ui.add(egui::Slider::new(&mut c.grid.width, 0.25..=8.0)));
-    setting(ui, "major", "Cells between thick lines, and the factor between the levels the crossfade steps through -- the same number seen from two sides.", |ui| ui.add(egui::Slider::new(&mut c.grid.major, 2..=100)));
-    setting(ui, "color", "Colour of the ordinary lines, `(r, g, b, a)`.", |ui| ui.color_edit_button_rgba_unmultiplied(&mut c.grid.color));
-    setting(ui, "major_color", "Colour of every `grid_major`-th line.", |ui| ui.color_edit_button_rgba_unmultiplied(&mut c.grid.major_color));
-    setting(ui, "axis_x_color", "The axis lines, drawn over the grid so the origin reads without hunting for it. Two of the three are in the grid's plane and get drawn; which two depends on which plane that is.", |ui| ui.color_edit_button_rgba_unmultiplied(&mut c.grid.axis_x_color));
-    setting(ui, "axis_y_color", "", |ui| ui.color_edit_button_rgba_unmultiplied(&mut c.grid.axis_y_color));
-    setting(ui, "axis_z_color", "", |ui| ui.color_edit_button_rgba_unmultiplied(&mut c.grid.axis_z_color));
-    setting(ui, "fade_near", "Fade the grid out between these grazing factors: `0.0` is looking straight down at the ground plane and `1.0` is looking along it. Without it the horizon is a hard line of aliasing.", |ui| ui.add(egui::Slider::new(&mut c.grid.fade_near, 0.0..=1.0)));
-    setting(ui, "fade_far", "", |ui| ui.add(egui::Slider::new(&mut c.grid.fade_far, 0.0..=1.0)));
+    setting(ui, "width", "Width of a grid line, in pixels.", |ui| ui.add(egui::Slider::new(&mut c.grid.width, 0.25..=8.0).clamping(egui::SliderClamping::Edits)));
+    setting(ui, "major", "Cells between thick lines, and the factor between the levels the crossfade steps through -- the same number seen from two sides.", |ui| ui.add(egui::Slider::new(&mut c.grid.major, 2..=100).clamping(egui::SliderClamping::Edits)));
+    setting(ui, "color", "Colour of the ordinary lines, `(r, g, b, a)`.", |ui| {
+        let mut rgba = c.grid.color;
+        if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
+            c.grid.color = rgba;
+        }
+    });
+    setting(ui, "major_color", "Colour of every `grid_major`-th line.", |ui| {
+        let mut rgba = c.grid.major_color;
+        if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
+            c.grid.major_color = rgba;
+        }
+    });
+    setting(ui, "axis_x_color", "The axis lines, drawn over the grid so the origin reads without hunting for it. Two of the three are in the grid's plane and get drawn; which two depends on which plane that is.", |ui| {
+        let mut rgba = c.grid.axis_x_color;
+        if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
+            c.grid.axis_x_color = rgba;
+        }
+    });
+    setting(ui, "axis_y_color", "", |ui| {
+        let mut rgba = c.grid.axis_y_color;
+        if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
+            c.grid.axis_y_color = rgba;
+        }
+    });
+    setting(ui, "axis_z_color", "", |ui| {
+        let mut rgba = c.grid.axis_z_color;
+        if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
+            c.grid.axis_z_color = rgba;
+        }
+    });
+    setting(ui, "fade_near", "Fade the grid out between these grazing factors: `0.0` is looking straight down at the ground plane and `1.0` is looking along it. Without it the horizon is a hard line of aliasing.", |ui| ui.add(egui::Slider::new(&mut c.grid.fade_near, 0.0..=1.0).clamping(egui::SliderClamping::Edits)));
+    setting(ui, "fade_far", "", |ui| ui.add(egui::Slider::new(&mut c.grid.fade_far, 0.0..=1.0).clamping(egui::SliderClamping::Edits)));
 }
 
 /// `config.hud` -- HUD.
@@ -240,7 +288,7 @@ pub fn group_hud(ui: &mut egui::Ui, c: &mut Config) {
 /// `config.export` -- Export.
 pub fn group_export(ui: &mut egui::Ui, c: &mut Config) {
     setting(ui, "sync", "Encode and write each exported frame on the render thread instead of a worker pool.", |ui| ui.checkbox(&mut c.export.sync, ""));
-    setting(ui, "max_queued", "How many frames may be waiting to be encoded before the render loop blocks.", |ui| ui.add(egui::Slider::new(&mut c.export.max_queued, 1..=512)));
+    setting(ui, "max_queued", "How many frames may be waiting to be encoded before the render loop blocks.", |ui| ui.add(egui::Slider::new(&mut c.export.max_queued, 1..=512).clamping(egui::SliderClamping::Edits)));
     setting(ui, "dir", "Directory exported frames are written to, as `{export_dir}/{N:06}.png`.", |ui| ui.add(egui::TextEdit::singleline(&mut c.export.dir).desired_width(f32::INFINITY)));
     setting(ui, "hud", "Burn the HUD text into exported frames as well as drawing it on screen.", |ui| ui.checkbox(&mut c.export.hud, ""));
     setting(ui, "axes", "Keep the axes -- grid, box or panes, gizmo, and their labels -- in exported frames as well as on screen.", |ui| ui.checkbox(&mut c.export.axes, ""));
@@ -248,18 +296,18 @@ pub fn group_export(ui: &mut egui::Ui, c: &mut Config) {
 
 /// `config.controls` -- Controls.
 pub fn group_controls(ui: &mut egui::Ui, c: &mut Config) {
-    setting(ui, "sensitivity_move", "Multiplier for WASD movement speed.", |ui| ui.add(egui::Slider::new(&mut c.controls.sensitivity_move, 0.1..=5.0)));
-    setting(ui, "sensitivity_look", "Multiplier for mouse-look speed in WASD mode.", |ui| ui.add(egui::Slider::new(&mut c.controls.sensitivity_look, 0.1..=5.0)));
-    setting(ui, "sensitivity_rotate", "Multiplier for arcball orbit speed.", |ui| ui.add(egui::Slider::new(&mut c.controls.sensitivity_rotate, 0.1..=5.0)));
-    setting(ui, "sensitivity_zoom", "Multiplier for scroll and pinch zoom speed.", |ui| ui.add(egui::Slider::new(&mut c.controls.sensitivity_zoom, 0.1..=5.0)));
+    setting(ui, "sensitivity_move", "Multiplier for WASD movement speed.", |ui| ui.add(egui::Slider::new(&mut c.controls.sensitivity_move, 0.1..=5.0).clamping(egui::SliderClamping::Edits)));
+    setting(ui, "sensitivity_look", "Multiplier for mouse-look speed in WASD mode.", |ui| ui.add(egui::Slider::new(&mut c.controls.sensitivity_look, 0.1..=5.0).clamping(egui::SliderClamping::Edits)));
+    setting(ui, "sensitivity_rotate", "Multiplier for arcball orbit speed.", |ui| ui.add(egui::Slider::new(&mut c.controls.sensitivity_rotate, 0.1..=5.0).clamping(egui::SliderClamping::Edits)));
+    setting(ui, "sensitivity_zoom", "Multiplier for scroll and pinch zoom speed.", |ui| ui.add(egui::Slider::new(&mut c.controls.sensitivity_zoom, 0.1..=5.0).clamping(egui::SliderClamping::Edits)));
     setting(ui, "emulate_middle_button", "Treat alt + left-drag as a middle-drag, so the arcball can be orbited on hardware with no middle button. Blender calls the same setting \"Emulate 3 Button Mouse\". Defaults on for macOS, where a trackpad is the common case, and off elsewhere. Let `Option`/`Alt` + left-drag stand in for a middle-drag.", |ui| ui.checkbox(&mut c.controls.emulate_middle_button, ""));
     setting(ui, "trackpad_orbit", "Two-finger swipe on a trackpad orbits, `shift` pans and `ctrl` zooms; off, it zooms like a wheel.", |ui| ui.checkbox(&mut c.controls.trackpad_orbit, ""));
 }
 
 /// `config.image` -- Image.
 pub fn group_image(ui: &mut egui::Ui, c: &mut Config) {
-    setting(ui, "image width", "Render size in physical pixels -- the *image*, not the window.", |ui| ui.add(egui::Slider::new(&mut c.image.width, 0..=7680)));
-    setting(ui, "image height", "", |ui| ui.add(egui::Slider::new(&mut c.image.height, 0..=4320)));
+    setting(ui, "image width", "Render size in physical pixels -- the *image*, not the window.", |ui| ui.add(egui::Slider::new(&mut c.image.width, 0..=7680).clamping(egui::SliderClamping::Edits)));
+    setting(ui, "image height", "", |ui| ui.add(egui::Slider::new(&mut c.image.height, 0..=4320).clamping(egui::SliderClamping::Edits)));
 }
 
 /// `config.debug` -- Debug.
@@ -271,7 +319,7 @@ pub fn group_debug(ui: &mut egui::Ui, c: &mut Config) {
     setting(ui, "gpu_timing", "Time each GPU pass with timestamp queries, into `sim.gpu_timings()`.", |ui| ui.checkbox(&mut c.debug.gpu_timing, ""));
     setting(ui, "occlusion_queries", "Count what each body actually drew, with occlusion queries.", |ui| ui.checkbox(&mut c.debug.occlusion_queries, ""));
     setting(ui, "depth_show", "", |ui| ui.checkbox(&mut c.debug.depth_show, ""));
-    setting(ui, "extra", "Free integer passed through to the shader, for one-off experiments.", |ui| ui.add(egui::Slider::new(&mut c.debug.extra, 0..=10)));
+    setting(ui, "extra", "Free integer passed through to the shader, for one-off experiments.", |ui| ui.add(egui::Slider::new(&mut c.debug.extra, 0..=10).clamping(egui::SliderClamping::Edits)));
 }
 
 /// `app.config` -- Panels.
@@ -305,7 +353,7 @@ pub fn app_editor(ui: &mut egui::Ui, a: &mut AppConfig) {
     setting(ui, "neovim", "Neovim in the script editor: your own `nvim`, run the way VS Code's Neovim extension runs it -- modes, motions, operators, `:` commands, registers, macros and mappings -- with the config `neovim_config` names.", |ui| ui.checkbox(&mut a.neovim, ""));
     setting(ui, "neovim path", "The Neovim to run when `neovim` is on; empty for `nvim` on the PATH.", |ui| ui.add(egui::TextEdit::singleline(&mut a.neovim_path).desired_width(f32::INFINITY)));
     setting(ui, "neovim config", "The config Neovim reads: `\"kalast\"`, the one kalast ships; `\"user\"`, your own, where Neovim looks for it; or a path, to a config folder holding `init.lua` or to one file.", |ui| ui.add(egui::TextEdit::singleline(&mut a.neovim_config).desired_width(f32::INFINITY)));
-    setting(ui, "ruler", "The column the script editor draws a vertical line at, 0 for none: `editor.rulers` in VS Code, `colorcolumn` in Vim.", |ui| ui.add(egui::Slider::new(&mut a.ruler, 0..=200)));
+    setting(ui, "ruler", "The column the script editor draws a vertical line at, 0 for none: `editor.rulers` in VS Code, `colorcolumn` in Vim.", |ui| ui.add(egui::Slider::new(&mut a.ruler, 0..=200).clamping(egui::SliderClamping::Edits)));
     setting(ui, "language servers", "Completion, hover, signatures and errors in the script editor, from a language server -- pyright for Python, rust-analyzer for Rust -- the servers VS Code runs for its own.", |ui| ui.checkbox(&mut a.language_servers, ""));
     setting(ui, "python server", "The command starting the Python language server; empty for the first of `basedpyright-langserver`, `pyright-langserver`, `pylsp` and `jedi-language-server` found.", |ui| ui.add(egui::TextEdit::singleline(&mut a.python_language_server).desired_width(f32::INFINITY)));
     setting(ui, "rust server", "The command starting the Rust language server; empty for `rust-analyzer`.", |ui| ui.add(egui::TextEdit::singleline(&mut a.rust_language_server).desired_width(f32::INFINITY)));

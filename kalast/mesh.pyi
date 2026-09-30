@@ -71,7 +71,8 @@ class Mesh:
         ...
     def __init__(self, path: str | None = ..., update_pos: object = ..., vertices: Sequence[Vertex] | None = ..., facets: Sequence[Facet] | None = ..., indices: Sequence[int] | numpy.ndarray | None = ..., material_id: int | None = ...) -> None:
         ...
-    def load(self, path: str, update_pos: object = ...) -> object:
+    @classmethod
+    def load(cls, path: str, update_pos: object = ...) -> Mesh:
         ...
     vertices: VerticesView
     indices: numpy.ndarray
@@ -109,6 +110,11 @@ class Mesh:
         """
         ...
     def recompute_facets(self) -> None:
+        """The facets' centres, normals and areas again, from the positions:
+        after `positions` is changed in place -- `mesh.positions[:] *= [1, 1,
+        0.7]`, the body flattened along z. Before the first frame, which
+        builds the GPU buffers from them.
+        """
         ...
     @property
     def values(self) -> numpy.ndarray:

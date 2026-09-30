@@ -97,7 +97,9 @@ shown open in it stay open.
 ones out to `.previous`, then removed it: edits to `examples` were lost for
 good, and anything the archive did not carry, kept. It now never touches
 `scripts`, whatever a release ships, and sends the old `examples` to the
-Trash.
+Trash. (Replaced on 1 October: an archive no longer carries `examples`, and
+the examples a user changed are kept in `scripts/`; see
+`2026-10-01_examples_kept_through_updates.md`.)
 
 ## Tests
 

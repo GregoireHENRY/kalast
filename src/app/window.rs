@@ -263,63 +263,374 @@ fn diagnose(
     d
 }
 
-/// Tick labels and caption for the colour scale, already in screen pixels.
+/// The gap from a tick mark -- or from the bar -- to a number, pixels. The
+/// mark's own length is `colorbar.tick_size`, centred on the bar's edge.
+const COLORBAR_GAP: f32 = 3.0;
+
+/// The range the bar spans: the data's in the unlit mode, which shows the data
+/// map; `0..1` in the lit ones, whose `ambient + cos(i) * visibility` is a
+/// fraction by construction, whatever the data spans.
+fn colorbar_range(color_mode: u32, lo: f32, hi: f32) -> (f32, f32) {
+    if color_mode == 1 { (lo, hi) } else { (0.0, 1.0) }
+}
+
+/// The ticks: their values, from the same rounding the axes use -- a scale
+/// from 87 to 349 is labelled 100, 200, 300 rather than at its raw ends --
+/// and where each falls along the bar, `0` at its low end, `1` at its high.
+fn colorbar_ticks(cb: &crate::app::config::Colorbar, lo: f32, hi: f32) -> Vec<(crate::Float, f32)> {
+    crate::app::axes::tick_values(lo as crate::Float, hi as crate::Float, cb.ticks)
+        .into_iter()
+        .map(|v| {
+            let t = if (hi - lo).abs() > f32::EPSILON { (v as f32 - lo) / (hi - lo) } else { 0.0 };
+            (v, t)
+        })
+        .filter(|&(_, t)| (-1e-4..=1.0 + 1e-4).contains(&t))
+        .collect()
+}
+
+/// A value as a Python format spec prints it -- `.0f`, `.3f`, `.2e`, `d`:
+/// what `colorbar.min_max_format` takes. Anything else reads as `.0f`.
+fn format_spec(v: f32, spec: &str) -> String {
+    let spec = spec.trim().trim_start_matches(':');
+    let (digits, kind) = match spec.strip_prefix('.') {
+        Some(rest) => {
+            let n = rest.chars().take_while(char::is_ascii_digit).count();
+            (rest[..n].parse::<usize>().ok(), &rest[n..])
+        }
+        None => (None, spec),
+    };
+    match (kind, digits) {
+        ("f", p) => format!("{v:.*}", p.unwrap_or(6)),
+        ("e", p) => python_exponent(format!("{v:.*e}", p.unwrap_or(6))),
+        ("d", None) => format!("{}", v.round() as i64),
+        _ => format!("{v:.0}"),
+    }
+}
+
+/// `1.84e2`, Rust's, as Python writes it: `1.84e+02`.
+fn python_exponent(s: String) -> String {
+    match s.split_once('e') {
+        Some((mantissa, exponent)) => {
+            let (sign, digits) = match exponent.strip_prefix('-') {
+                Some(d) => ('-', d),
+                None => ('+', exponent),
+            };
+            format!("{mantissa}e{sign}{digits:0>2}")
+        }
+        None => s,
+    }
+}
+
+/// The colour bar's rectangle in the image, `(left, top, width, height)`
+/// pixels: placed against the same nine anchors the HUD uses, `x` and `y` its
+/// inset. Pixels because a bar given as a fraction of the window changes
+/// thickness when the window is resized, and a scale bar should not. What the
+/// renderer draws and what a drag resizes, from one place.
+pub fn colorbar_rect(cb: &crate::app::config::Colorbar, image: (f32, f32)) -> (f32, f32, f32, f32) {
+    use crate::app::config::HudAnchor::*;
+    let (w, h) = image;
+    let (bw, bh) = if cb.is_vertical() { (cb.thickness, cb.length) } else { (cb.length, cb.thickness) };
+    let left = match cb.anchor {
+        TopLeft | MiddleLeft | BottomLeft => cb.x,
+        TopCenter | MiddleCenter | BottomCenter => (w - bw) * 0.5 + cb.x,
+        TopRight | MiddleRight | BottomRight => w - cb.x - bw,
+    };
+    let top = match cb.anchor {
+        TopLeft | TopCenter | TopRight => cb.y,
+        MiddleLeft | MiddleCenter | MiddleRight => (h - bh) * 0.5 + cb.y,
+        BottomLeft | BottomCenter | BottomRight => h - cb.y - bh,
+    };
+    (left, top, bw, bh)
+}
+
+/// An edge of the colour bar, to drag: along the bar it sets the length,
+/// across it the thickness.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BarEdge {
+    Left,
+    Right,
+    Top,
+    Bottom,
+}
+
+impl BarEdge {
+    /// Whether it moves left and right, rather than up and down.
+    pub fn sideways(self) -> bool {
+        matches!(self, BarEdge::Left | BarEdge::Right)
+    }
+}
+
+/// How near an edge, in pixels, the pointer takes it: a few points either
+/// side, as a panel's edge takes a drag.
+const GRIP: f32 = 8.0;
+
+/// The edge of the colour bar under `p`, image pixels: within `GRIP` of it,
+/// along its length. `None` off the bar and deep inside it, where a click
+/// still picks the facet under it.
+pub fn colorbar_edge_at(rect: (f32, f32, f32, f32), p: (f32, f32)) -> Option<BarEdge> {
+    let (left, top, w, h) = rect;
+    let (x, y) = p;
+    let (right, bottom) = (left + w, top + h);
+    let along_x = (left - GRIP..=right + GRIP).contains(&x);
+    let along_y = (top - GRIP..=bottom + GRIP).contains(&y);
+    // The nearest edge wins, so a thin bar's two sides both stay reachable.
+    [
+        (BarEdge::Left, (x - left).abs(), along_y),
+        (BarEdge::Right, (x - right).abs(), along_y),
+        (BarEdge::Top, (y - top).abs(), along_x),
+        (BarEdge::Bottom, (y - bottom).abs(), along_x),
+    ]
+    .into_iter()
+    .filter(|&(_, d, along)| along && d <= GRIP)
+    .min_by(|a, b| a.1.total_cmp(&b.1))
+    .map(|(edge, _, _)| edge)
+}
+
+/// The colour bar with `edge` dragged to `p`: its new `(length, thickness,
+/// x, y)`. The opposite edge stays where it is -- or, anchored at a centre
+/// on that axis, the centre does and both edges move -- and the inset is set
+/// so that the anchor's rule puts the bar there. Never shorter than 16
+/// pixels, nor thinner than 4.
+pub fn colorbar_resized(
+    cb: &crate::app::config::Colorbar,
+    image: (f32, f32),
+    edge: BarEdge,
+    p: (f32, f32),
+) -> (f32, f32, f32, f32) {
+    use crate::app::config::HudAnchor::*;
+    let (w, h) = image;
+    let (left, top, bw, bh) = colorbar_rect(cb, image);
+    let vertical = cb.is_vertical();
+    let least = |along: bool| if along { 16.0 } else { 4.0 };
+    // One axis at a time: `lo` and `hi` its edges, `inset` its offset, and
+    // where the anchor holds it -- 0 from the low side, 1 the middle, 2
+    // from the high side.
+    let drag = |lo: f32, hi: f32, inset: f32, anchor: u8, extent: f32, at: f32, grab_hi: bool, least: f32| -> (f32, f32) {
+        match anchor {
+            1 => {
+                let middle = (lo + hi) * 0.5;
+                ((2.0 * (at - middle).abs()).max(least), inset)
+            }
+            0 if grab_hi => ((at - lo).max(least), inset),
+            0 => {
+                let lo = at.min(hi - least);
+                (hi - lo, lo)
+            }
+            _ if grab_hi => {
+                let hi = at.max(lo + least);
+                (hi - lo, extent - hi)
+            }
+            _ => ((hi - at).max(least), inset),
+        }
+    };
+    let column = match cb.anchor {
+        TopLeft | MiddleLeft | BottomLeft => 0,
+        TopCenter | MiddleCenter | BottomCenter => 1,
+        TopRight | MiddleRight | BottomRight => 2,
+    };
+    let row = match cb.anchor {
+        TopLeft | TopCenter | TopRight => 0,
+        MiddleLeft | MiddleCenter | MiddleRight => 1,
+        BottomLeft | BottomCenter | BottomRight => 2,
+    };
+    let (mut bw, mut bh, mut x, mut y) = (bw, bh, cb.x, cb.y);
+    if edge.sideways() {
+        (bw, x) = drag(left, left + bw, cb.x, column, w, p.0, edge == BarEdge::Right, least(!vertical));
+    } else {
+        (bh, y) = drag(top, top + bh, cb.y, row, h, p.1, edge == BarEdge::Bottom, least(vertical));
+    }
+    let (length, thickness) = if vertical { (bh, bw) } else { (bw, bh) };
+    (length, thickness, x, y)
+}
+
+/// Where a value falls along the bar, `0..1`, held to its ends.
+fn colorbar_at(v: f32, lo: f32, hi: f32) -> f32 {
+    if (hi - lo).abs() > f32::EPSILON { ((v - lo) / (hi - lo)).clamp(0.0, 1.0) } else { 0.0 }
+}
+
+/// Tick labels, the data's extremes and the caption for the colour scale,
+/// already in screen pixels, each centred on its point vertically.
 ///
-/// Ticks come from the same rounding the axes use, so a scale from 87 to 349
-/// is labelled 100, 200, 300 rather than at the raw ends.
+/// The numbers sit past a tick mark each (`colorbar_lines`): below a
+/// horizontal bar, right of a vertical one. With `extremes` -- `min_max` --
+/// the lowest and highest value are written on the other side, as
+/// `min_max_format` says, each beyond its own mark so the two cannot overlap.
+/// The caption goes above a horizontal bar, rising over the extremes; a
+/// vertical bar's comes back apart, to be drawn turned, reading upwards,
+/// past the tick numbers -- from the point it gives, which the widest of
+/// them, measured when drawn, is added to.
 fn colorbar_labels(
     cb: &crate::app::config::Colorbar,
     color_mode: u32,
     rect: (f32, f32, f32, f32),
     lo: f32,
     hi: f32,
-) -> Vec<(String, (f32, f32), wgpu_text::glyph_brush::HorizontalAlign)> {
+    extremes: Option<(f32, f32)>,
+) -> (Vec<(String, (f32, f32), wgpu_text::glyph_brush::HorizontalAlign)>, Option<(String, (f32, f32))>) {
     use wgpu_text::glyph_brush::HorizontalAlign;
 
     let (left, top, w, h) = rect;
     let vertical = cb.is_vertical();
+    let (lo, hi) = colorbar_range(color_mode, lo, hi);
+    let half = cb.text_size * 0.5;
+    // A mark is centred on the bar's edge, half of it outside: the numbers
+    // stand past that half.
+    let out_of_bar = cb.tick_size * 0.5 + COLORBAR_GAP;
     let mut out = Vec::new();
 
-    // The lighting source is a fraction by construction, so its ends are 0
-    // and 1 whatever the data happens to span.
-    // The lit modes show `ambient + cos(i) * visibility`, a fraction by
-    // construction, so its ends are 0 and 1 whatever the data spans. The
-    // unlit mode shows the data map, so the bar spans the data.
-    let (lo, hi) = if color_mode == 1 { (lo, hi) } else { (0.0, 1.0) };
-
-    let gap = 6.0;
-    for v in crate::app::axes::tick_values(lo as crate::Float, hi as crate::Float, cb.ticks) {
-        let t = if (hi - lo).abs() > f32::EPSILON {
-            (v as f32 - lo) / (hi - lo)
-        } else {
-            0.0
-        };
-        let text = crate::app::axes::format_value(
-            v,
-            crate::app::axes::step_for(lo as crate::Float, hi as crate::Float, cb.ticks),
-        );
+    let step = crate::app::axes::step_for(lo as crate::Float, hi as crate::Float, cb.ticks);
+    for (v, t) in colorbar_ticks(cb, lo, hi) {
+        let text = crate::app::axes::format_value(v, step);
         if vertical {
             // Up the right-hand edge, since a vertical bar is usually parked
             // against a side of the frame with room on its inside.
-            out.push((
-                text,
-                (left + w + gap, top + h * (1.0 - t)),
-                HorizontalAlign::Left,
-            ));
+            out.push((text, (left + w + out_of_bar, top + h * (1.0 - t)), HorizontalAlign::Left));
         } else {
-            out.push((text, (left + w * t, top + h + gap), HorizontalAlign::Center));
+            out.push((text, (left + w * t, top + h + out_of_bar + half), HorizontalAlign::Center));
         }
     }
 
-    if !cb.label.is_empty() {
-        let pos = if vertical {
-            (left + w * 0.5, top - gap * 2.0)
-        } else {
-            (left + w * 0.5, top - gap * 2.0)
+    if let Some((min, max)) = extremes {
+        let (a, b) = (colorbar_at(min, lo, hi), colorbar_at(max, lo, hi));
+        let (min, max) = (format_spec(min, &cb.min_max_format), format_spec(max, &cb.min_max_format));
+        // Centred on their marks, as the tick numbers are on theirs -- and,
+        // where the two come too close to be read, pushed apart about their
+        // middle just far enough: a surface all at one temperature puts both
+        // marks on the same spot.
+        let apart = |a: f32, b: f32, need: f32| {
+            if b - a >= need {
+                (a, b)
+            } else {
+                let middle = (a + b) * 0.5;
+                (middle - need * 0.5, middle + need * 0.5)
+            }
         };
-        out.push((cb.label.clone(), pos, HorizontalAlign::Center));
+        if vertical {
+            // Left of the bar, level with their marks. Down is up the page:
+            // the lowest is the larger y.
+            let x = left - out_of_bar;
+            let (up, down) = apart(top + h * (1.0 - b), top + h * (1.0 - a), cb.text_size + COLORBAR_GAP);
+            out.push((min, (x, down), HorizontalAlign::Right));
+            out.push((max, (x, up), HorizontalAlign::Right));
+        } else {
+            // Above the bar. A digit is some 0.55 of the text's height wide:
+            // an estimate is enough to keep two numbers from touching.
+            let y = top - out_of_bar - half;
+            let width = |t: &str| t.chars().count() as f32 * cb.text_size * 0.55;
+            let need = (width(&min) + width(&max)) * 0.5 + 2.0 * COLORBAR_GAP;
+            let (x_min, x_max) = apart(left + w * a, left + w * b, need);
+            out.push((min, (x_min, y), HorizontalAlign::Center));
+            out.push((max, (x_max, y), HorizontalAlign::Center));
+        }
     }
 
+    let mut caption = None;
+    if !cb.label.is_empty() {
+        if vertical {
+            caption = Some((cb.label.clone(), (left + w + out_of_bar, top + h * 0.5)));
+        } else {
+            let over = if extremes.is_some() { cb.text_size + out_of_bar } else { 0.0 };
+            out.push((
+                cb.label.clone(),
+                (left + w * 0.5, top - 2.0 * COLORBAR_GAP - half - over),
+                HorizontalAlign::Center,
+            ));
+        }
+    }
+
+    (out, caption)
+}
+
+/// The text brush's projection turned a quarter turn about `pivot`, in
+/// pixels: a caption laid out centred there reads upwards, the tops of its
+/// letters to the left, as a vertical axis's label does. Along the text is
+/// up the screen, down the text is to its right: `(x, y)` to `(y, -x)`, y
+/// down, as `wgpu_text::ortho` has it.
+fn caption_matrix(pivot: (f32, f32), w: f32, h: f32) -> wgpu_text::Matrix {
+    let ortho = glam::Mat4::from_cols_array_2d(&wgpu_text::ortho(w, h));
+    let at = glam::Vec3::new(pivot.0, pivot.1, 0.0);
+    let turn = glam::Mat4::from_cols(
+        glam::Vec4::new(0.0, -1.0, 0.0, 0.0),
+        glam::Vec4::new(1.0, 0.0, 0.0, 0.0),
+        glam::Vec4::Z,
+        glam::Vec4::W,
+    );
+    (ortho * glam::Mat4::from_translation(at) * turn * glam::Mat4::from_translation(-at)).to_cols_array_2d()
+}
+
+/// A colour bar label's section: its size and colour, centred vertically
+/// on its point, aligned as asked.
+fn bar_section<'a>(
+    text: &'a str,
+    pos: (f32, f32),
+    align: wgpu_text::glyph_brush::HorizontalAlign,
+    cb: &crate::app::config::Colorbar,
+) -> wgpu_text::glyph_brush::Section<'a> {
+    wgpu_text::glyph_brush::Section::default()
+        .add_text(
+            wgpu_text::glyph_brush::Text::new(text)
+                .with_scale(cb.text_size)
+                .with_color(cb.text_color),
+        )
+        .with_screen_position(pos)
+        .with_layout(
+            wgpu_text::glyph_brush::Layout::default_single_line()
+                .h_align(align)
+                .v_align(wgpu_text::glyph_brush::VerticalAlign::Center),
+        )
+}
+
+/// The colour scale's strokes: an outline where `border` asks for one, just
+/// outside the strip so no colour of it is covered, and a mark at each tick,
+/// pointing at its number -- in the text's colour, as the gizmo's
+/// antialiased bars.
+fn colorbar_lines(
+    cb: &crate::app::config::Colorbar,
+    color_mode: u32,
+    rect: (f32, f32, f32, f32),
+    range: (f32, f32),
+    extremes: Option<(f32, f32)>,
+    size: (f32, f32),
+) -> Vec<super::gizmo::Vertex> {
+    use super::gizmo::bar;
+
+    let (left, top, w, h) = rect;
+    let (lo, hi) = colorbar_range(color_mode, range.0, range.1);
+    let color = cb.text_color;
+    let stroke = 1.5;
+    // Each mark centred on the edge it stands on, half inside the strip and
+    // half out.
+    let reach = cb.tick_size * 0.5;
+    let mut out = Vec::new();
+    if cb.border {
+        let e = stroke * 0.5;
+        let (l, r, t, b) = (left - e, left + w + e, top - e, top + h + e);
+        // The long edges over the corners, so they close.
+        bar(&mut out, size, [l - e, t], [r + e, t], stroke, color);
+        bar(&mut out, size, [l - e, b], [r + e, b], stroke, color);
+        bar(&mut out, size, [l, t], [l, b], stroke, color);
+        bar(&mut out, size, [r, t], [r, b], stroke, color);
+    }
+    for (_, t) in colorbar_ticks(cb, lo, hi) {
+        if cb.is_vertical() {
+            let y = top + h * (1.0 - t);
+            bar(&mut out, size, [left + w - reach, y], [left + w + reach, y], stroke, color);
+        } else {
+            let x = left + w * t;
+            bar(&mut out, size, [x, top + h - reach], [x, top + h + reach], stroke, color);
+        }
+    }
+    // The data's extremes, on the other edge: where the names point.
+    for v in extremes.into_iter().flat_map(|(a, b)| [a, b]) {
+        let t = colorbar_at(v, lo, hi);
+        if cb.is_vertical() {
+            let y = top + h * (1.0 - t);
+            bar(&mut out, size, [left - reach, y], [left + reach, y], stroke, color);
+        } else {
+            let x = left + w * t;
+            bar(&mut out, size, [x, top - reach], [x, top + reach], stroke, color);
+        }
+    }
     out
 }
 
@@ -612,6 +923,10 @@ pub struct Window {
     /// Draws `Simulation::hud` over the swapchain. `None` if the font would
     /// not load, which is not worth failing a run over.
     pub hud: Option<HudBrush>,
+    /// A second brush on the same font, for a vertical colour bar's
+    /// caption: a brush has one projection, and this one's is turned
+    /// (`caption_matrix`).
+    hud_turned: Option<HudBrush>,
     pub window: Arc<winit::window::Window>,
     pub instance: wgpu::Instance,
     pub surface: wgpu::Surface<'static>,
@@ -644,6 +959,9 @@ pub struct Window {
     /// Where the bar landed, in pixels `(left, top, width, height)`, so the
     /// tick labels can be placed against it. `None` when it is off.
     pub colorbar_px: Option<(f32, f32, f32, f32)>,
+    /// The data's lowest and highest value, for `colorbar.min_max`: found
+    /// with the bar's layout, named with its text.
+    colorbar_extremes: Option<(f32, f32)>,
 
     // 0: white cube
     // 1..: loaded by user in app.simulation.bodies
@@ -1000,15 +1318,17 @@ impl Window {
         // The font is embedded rather than read from `res/`, so the overlay
         // works from any working directory. A font that will not load leaves
         // the overlay off rather than failing the run.
-        let hud = hud_font(&config.hud.font).map(|font| {
-            wgpu_text::BrushBuilder::using_font(font)
-            .build(
+        let font = hud_font(&config.hud.font);
+        let build = |font| {
+            wgpu_text::BrushBuilder::using_font(font).build(
                 &device,
                 surface_config.width,
                 surface_config.height,
                 surface_config.format,
             )
-        });
+        };
+        let hud = font.clone().map(build);
+        let hud_turned = font.map(build);
 
         let render_size = (surface_config.width, surface_config.height);
 
@@ -1028,6 +1348,7 @@ impl Window {
             gizmo: None,
             gizmo_labels: Vec::new(),
             colorbar_px: None,
+            colorbar_extremes: None,
 
             meshes,
             shadow_meshes,
@@ -1056,6 +1377,7 @@ impl Window {
             hemicube: None,
             last_body_mats: vec![],
             hud,
+            hud_turned,
         }
     }
 
@@ -1487,14 +1809,17 @@ impl Window {
     /// A brush owns its glyph atlas, so the font cannot be swapped inside it;
     /// this builds a new brush at the current surface size.
     pub fn set_hud_font(&mut self, config: &crate::app::config::Config) {
-        self.hud = hud_font(&config.hud.font).map(|font| {
+        let font = hud_font(&config.hud.font);
+        let build = |font| {
             wgpu_text::BrushBuilder::using_font(font).build(
                 &self.device,
                 self.surface_config.width,
                 self.surface_config.height,
                 self.surface_config.format,
             )
-        });
+        };
+        self.hud = font.clone().map(build);
+        self.hud_turned = font.map(build);
     }
 
     /// Point frame export at a different directory, or change how it queues.
@@ -1652,28 +1977,14 @@ impl Window {
         // bytes, and it makes the other options live as a side effect.
         // Auto range fits the loaded values; a pinned min or max wins over it
         // independently, so half the scale can be fixed and the other fitted.
-        let mut lo = f32::INFINITY;
-        let mut hi = f32::NEG_INFINITY;
-        if config.shading.color_mode == 1 && (config.data.value_min.is_none() || config.data.value_max.is_none()) {
-            for body in &simulation.bodies {
-                let Some(mesh) = body.mesh.as_ref() else { continue };
-                for v in &mesh.borrow().values {
-                    let v = *v as f32;
-                    if v.is_finite() {
-                        lo = lo.min(v);
-                        hi = hi.max(v);
-                    }
-                }
-            }
-        }
-        if !lo.is_finite() || !hi.is_finite() {
-            lo = 0.0;
-            hi = 1.0;
-        }
-        let value_range = (
-            config.data.value_min.unwrap_or(lo),
-            config.data.value_max.unwrap_or(hi),
-        );
+        // Fitted only while the data map is what is drawn: it is a pass over
+        // every value.
+        let value_range = if config.shading.color_mode == 1 {
+            crate::app::simulation::data_range(config, &simulation.bodies)
+        } else {
+            (config.data.value_min.unwrap_or(0.0), config.data.value_max.unwrap_or(1.0))
+        };
+        simulation.value_range = value_range;
 
         self.uniforms.globals.uniform = build_globals(config, shadow_fit, value_range);
 
@@ -1942,27 +2253,7 @@ impl Window {
             );
             let cb = &config.colorbar;
             let vertical = cb.is_vertical();
-            let (bw, bh) = if vertical {
-                (cb.thickness, cb.length)
-            } else {
-                (cb.length, cb.thickness)
-            };
-
-            // Placed in pixels against the same nine anchors the HUD uses,
-            // then converted to NDC. Pixels because a bar specified as a
-            // fraction of the window changes thickness when the window is
-            // resized, and a scale bar should not.
-            use crate::app::config::HudAnchor::*;
-            let left = match cb.anchor {
-                TopLeft | MiddleLeft | BottomLeft => cb.x,
-                TopCenter | MiddleCenter | BottomCenter => (w - bw) * 0.5 + cb.x,
-                TopRight | MiddleRight | BottomRight => w - cb.x - bw,
-            };
-            let top = match cb.anchor {
-                TopLeft | TopCenter | TopRight => cb.y,
-                MiddleLeft | MiddleCenter | MiddleRight => (h - bh) * 0.5 + cb.y,
-                BottomLeft | BottomCenter | BottomRight => h - cb.y - bh,
-            };
+            let (left, top, bw, bh) = colorbar_rect(cb, (w, h));
 
             let to_ndc_x = |px: f32| px / w * 2.0 - 1.0;
             let to_ndc_y = |px: f32| 1.0 - px / h * 2.0;
@@ -1987,8 +2278,22 @@ impl Window {
                 bytemuck::bytes_of(&self.uniforms.bar.uniform),
             );
             self.colorbar_px = Some((left, top, bw, bh));
+            self.colorbar_extremes = (cb.min_max && config.shading.color_mode == 1)
+                .then(|| crate::app::simulation::data_extremes(&simulation.bodies))
+                .flatten();
+            let lines = colorbar_lines(
+                cb,
+                config.shading.color_mode,
+                (left, top, bw, bh),
+                simulation.value_range,
+                self.colorbar_extremes,
+                (w, h),
+            );
+            self.passes.colorbar.lines.upload(&self.device, &self.queue, &lines);
         } else {
             self.colorbar_px = None;
+            self.colorbar_extremes = None;
+            self.passes.colorbar.lines.upload(&self.device, &self.queue, &[]);
         }
 
         simulation.diagnostics = diagnose(
@@ -2163,6 +2468,7 @@ impl Window {
         axis_labels: &[(String, (f32, f32))],
         facet_labels: &[(String, (f32, f32))],
         bar_labels: &[(String, (f32, f32), wgpu_text::glyph_brush::HorizontalAlign)],
+        bar_caption: Option<&(String, (f32, f32))>,
         gizmo_labels: &[(String, (f32, f32), [f32; 4])],
     ) {
         let Some(brush) = self.hud.as_mut() else {
@@ -2202,20 +2508,21 @@ impl Window {
             })
             .collect();
 
-        sections.extend(bar_labels.iter().map(|(text, pos, align)| {
-            wgpu_text::glyph_brush::Section::default()
-                .add_text(
-                    wgpu_text::glyph_brush::Text::new(text)
-                        .with_scale(config.colorbar.text_size)
-                        .with_color(config.colorbar.text_color),
-                )
-                .with_screen_position(*pos)
-                .with_layout(
-                    wgpu_text::glyph_brush::Layout::default_single_line()
-                        .h_align(*align)
-                        .v_align(wgpu_text::glyph_brush::VerticalAlign::Center),
-                )
-        }));
+        sections.extend(bar_labels.iter().map(|(text, pos, align)| bar_section(text, *pos, *align, &config.colorbar)));
+
+        // A vertical bar's caption, turned to read upwards past its tick
+        // numbers -- the ones set left-aligned on its right -- by the widest
+        // of them, which only the brush can measure.
+        let caption = bar_caption.map(|(text, (x, y))| {
+            let widest = bar_labels
+                .iter()
+                .filter(|(_, _, align)| *align == wgpu_text::glyph_brush::HorizontalAlign::Left)
+                .filter_map(|(t, pos, align)| brush.glyph_bounds(bar_section(t, *pos, *align, &config.colorbar)))
+                .map(|r| r.width())
+                .fold(0.0f32, f32::max);
+            let pivot = (x + widest + 2.0 * COLORBAR_GAP + config.colorbar.text_size * 0.5, *y);
+            (text.as_str(), pivot)
+        });
 
         // Centred on the facet, which is where the point being named is.
         sections.extend(facet_labels.iter().map(|(text, pos)| {
@@ -2273,6 +2580,14 @@ impl Window {
         if brush.queue(&self.device, &self.queue, sections).is_err() {
             return;
         }
+        let turned = match (caption, self.hud_turned.as_mut()) {
+            (Some((text, pivot)), Some(turned)) => {
+                turned.update_matrix(caption_matrix(pivot, w, h), &self.queue);
+                let section = bar_section(text, pivot, wgpu_text::glyph_brush::HorizontalAlign::Center, &config.colorbar);
+                turned.queue(&self.device, &self.queue, [section]).is_ok().then_some(&*turned)
+            }
+            _ => None,
+        };
         // Taken before the encoder, and from `self.timer` rather than a
         // borrow held by the caller: this runs up to three times a frame --
         // export, viewport, swapchain -- and each takes its own slot, which
@@ -2304,6 +2619,9 @@ impl Window {
                 multiview_mask: None,
             });
             brush.draw(&mut pass);
+            if let Some(turned) = turned {
+                turned.draw(&mut pass);
+            }
         }
         self.queue.submit([encoder.finish()]);
     }
@@ -2442,7 +2760,7 @@ impl Window {
         // targets the swapchain, which the exporter never reads. Drawing it
         // twice is deliberate -- the window keeps its HUD either way, and the
         // cost is one text pass on exported frames only.
-        let bar_labels: Vec<_> = match (
+        let (bar_labels, bar_caption) = match (
             config.colorbar.enabled && config.shading.color_mode != 2,
             self.colorbar_px,
         ) {
@@ -2452,8 +2770,9 @@ impl Window {
                 rect,
                 self.uniforms.globals.uniform.value_min,
                 self.uniforms.globals.uniform.value_max,
+                self.colorbar_extremes,
             ),
-            _ => Vec::new(),
+            _ => (Vec::new(), None),
         };
 
         let axis_labels = axis_label_screen(
@@ -2470,6 +2789,7 @@ impl Window {
             || !axis_labels.is_empty()
             || !facet_labels.is_empty()
             || !bar_labels.is_empty()
+            || bar_caption.is_some()
             || !gizmo_labels.is_empty();
         let render_size = (self.render_size.0 as f32, self.render_size.1 as f32);
 
@@ -2496,6 +2816,7 @@ impl Window {
                 if config.export.axes { &axis_labels } else { &[] },
                 if config.export.hud { &facet_labels } else { &[] },
                 if config.export.hud { &bar_labels } else { &[] },
+                bar_caption.as_ref().filter(|_| config.export.hud),
                 if config.export.axes { &gizmo_labels } else { &[] },
             );
         }
@@ -2550,6 +2871,7 @@ impl Window {
                 &axis_labels,
                 &facet_labels,
                 &bar_labels,
+                bar_caption.as_ref(),
                 &gizmo_labels,
             );
         }
@@ -2575,6 +2897,7 @@ impl Window {
                 &axis_labels,
                 &facet_labels,
                 &bar_labels,
+                bar_caption.as_ref(),
                 &gizmo_labels,
             );
         }
@@ -2724,6 +3047,204 @@ fn pick_present_mode_from(modes: &[wgpu::PresentMode], vsync: bool) -> wgpu::Pre
         wanted
     } else {
         modes[0]
+    }
+}
+
+#[cfg(test)]
+mod colorbar_tests {
+    use super::*;
+    use wgpu_text::glyph_brush::HorizontalAlign;
+
+    fn bar(vertical: bool, min_max: bool) -> crate::app::config::Colorbar {
+        crate::app::config::Colorbar {
+            vertical: Some(vertical),
+            min_max,
+            label: "Surface temperature (K)".into(),
+            ..Default::default()
+        }
+    }
+
+    /// An outline of four strokes around the strip, a mark at each tick,
+    /// and one at each of the data's extremes; no outline when `border` is
+    /// off.
+    #[test]
+    fn the_bar_is_outlined_and_marked_at_its_ticks() {
+        let rect = (100.0, 500.0, 320.0, 18.0);
+        let cb = bar(false, false);
+        let ticks = colorbar_ticks(&cb, 100.0, 380.0).len();
+        assert!(ticks >= 3, "{ticks}");
+        let quads = |cb: &crate::app::config::Colorbar, extremes| {
+            colorbar_lines(cb, 1, rect, (100.0, 380.0), extremes, (800.0, 600.0)).len() / 6
+        };
+        assert_eq!(quads(&cb, None), 4 + ticks);
+        assert_eq!(quads(&cb, Some((128.6, 371.0))), 4 + ticks + 2);
+        let bare = crate::app::config::Colorbar { border: false, ..cb.clone() };
+        assert_eq!(quads(&bare, None), ticks);
+    }
+
+    /// A mark is centred on the bar's edge, half inside the strip and half
+    /// out, and the numbers stand past its outer half. Asked for: "tick size
+    /// should be centered on bottom line so be inside and outisde".
+    #[test]
+    fn a_tick_mark_is_centred_on_the_edge() {
+        let (left, top, w, h) = (100.0, 500.0, 320.0, 18.0);
+        let size = (800.0, 600.0);
+        let cb = crate::app::config::Colorbar { tick_size: 10.0, border: false, ..bar(false, false) };
+        let lines = colorbar_lines(&cb, 1, (left, top, w, h), (100.0, 380.0), None, size);
+        // The first tick's quad, its corners back to pixels: across the
+        // bottom edge, 5 above it and 5 below.
+        let ys: Vec<f32> = lines[..6].iter().map(|v| (1.0 - v.pos[1]) * 0.5 * size.1).collect();
+        let (low, high) = ys.iter().fold((f32::MAX, f32::MIN), |(l, h), &y| (l.min(y), h.max(y)));
+        assert!((low - (top + h - 5.0)).abs() < 1e-3 && (high - (top + h + 5.0)).abs() < 1e-3, "{low}..{high}");
+
+        let (labels, _) = colorbar_labels(&cb, 1, (left, top, w, h), 100.0, 380.0, None);
+        let number = labels.iter().find(|l| l.0 == "200").expect("a tick number");
+        assert_eq!(number.1.1, top + h + 5.0 + COLORBAR_GAP + cb.text_size * 0.5, "past the mark's outer half");
+    }
+
+    /// The data's extremes opposite the tick numbers -- above a horizontal
+    /// bar, left of a vertical one -- each beyond its own mark, where it
+    /// falls on the scale or at the end past which it lies; written as
+    /// `min_max_format` says, the numbers alone; the caption over them.
+    #[test]
+    fn the_extremes_are_written_opposite_the_ticks() {
+        let (left, top, w, h) = (100.0, 500.0, 320.0, 18.0);
+        // A pinned 200..380 and data from 183.97 to 370.93: the lowest is
+        // off the scale's low end.
+        let cb = crate::app::config::Colorbar { min_max_format: ".3f".into(), ..bar(false, true) };
+        let (labels, caption) = colorbar_labels(&cb, 1, (left, top, w, h), 200.0, 380.0, Some((183.9666, 370.9291)));
+        assert!(caption.is_none(), "a horizontal bar's caption is one of its labels");
+        let find = |t: &str| labels.iter().find(|l| l.0 == t).unwrap_or_else(|| panic!("{t}: {labels:?}")).clone();
+        let (min, max, caption) = (find("183.967"), find("370.929"), find("Surface temperature (K)"));
+        assert_eq!((min.1.0, min.2), (left, HorizontalAlign::Center), "held at the low end, centred on its mark");
+        let at = left + w * (370.9291 - 200.0) / 180.0;
+        assert!((max.1.0 - at).abs() < 1e-3 && max.2 == HorizontalAlign::Center, "{max:?}");
+        assert!(min.1.1 < top && caption.1.1 < min.1.1, "above the bar, the caption above them: {labels:?}");
+        let ticks: Vec<_> = labels.iter().filter(|l| l.1.1 > top + h).collect();
+        assert!(ticks.len() >= 3 && ticks.iter().all(|l| l.2 == HorizontalAlign::Center), "the numbers below: {ticks:?}");
+
+        // Values off the ticks' round numbers, which are written bare too.
+        let cb = crate::app::config::Colorbar { min_max_format: ".0f".into(), ..bar(true, true) };
+        let (labels, _) = colorbar_labels(&cb, 1, (left, top, 18.0, 320.0), 200.0, 380.0, Some((262.4, 311.8)));
+        let find = |t: &str| labels.iter().find(|l| l.0 == t).unwrap_or_else(|| panic!("{t}: {labels:?}")).clone();
+        let (min, max) = (find("262"), find("312"));
+        assert!(min.1.0 < left && max.1.0 < left && min.2 == HorizontalAlign::Right, "{labels:?}");
+        let level = |v: f32| top + 320.0 * (1.0 - (v - 200.0) / 180.0);
+        assert!((min.1.1 - level(262.4)).abs() < 1e-3 && (max.1.1 - level(311.8)).abs() < 1e-3, "level with their marks");
+        assert!(labels.iter().filter(|l| l.2 == HorizontalAlign::Left).all(|l| l.1.0 > left + 18.0));
+
+        let (plain, _) = colorbar_labels(&bar(false, false), 1, (left, top, w, h), 200.0, 380.0, None);
+        assert!(plain.iter().all(|l| l.0 != "184" && l.0 != "371"), "only when asked for: {plain:?}");
+
+        // A surface all at one temperature: both marks on one spot, the two
+        // numbers pushed apart about it, far enough not to touch.
+        let cb = crate::app::config::Colorbar { min_max_format: ".1f".into(), ..bar(false, true) };
+        let (labels, _) = colorbar_labels(&cb, 1, (left, top, w, h), 200.0, 380.0, Some((280.0, 280.4)));
+        let (a, b) = (find_in(&labels, "280.0"), find_in(&labels, "280.4"));
+        let mark = left + w * 80.2 / 180.0;
+        assert!(b.1.0 - a.1.0 >= 4.0 * 0.55 * 13.0 && ((a.1.0 + b.1.0) * 0.5 - mark).abs() < 0.5, "{a:?} {b:?}");
+    }
+
+    fn find_in(labels: &[(String, (f32, f32), HorizontalAlign)], t: &str) -> (String, (f32, f32), HorizontalAlign) {
+        labels.iter().find(|l| l.0 == t).unwrap_or_else(|| panic!("{t}: {labels:?}")).clone()
+    }
+
+    /// A vertical bar's caption comes back apart, to be drawn turned beside
+    /// its tick numbers, halfway up; a horizontal bar's is one of its labels.
+    #[test]
+    fn a_vertical_bars_caption_comes_apart_to_be_turned() {
+        let (left, top, w, h) = (40.0, 100.0, 18.0, 320.0);
+        let (labels, caption) = colorbar_labels(&bar(true, false), 1, (left, top, w, h), 200.0, 380.0, None);
+        let (text, (x, y)) = caption.expect("turned apart");
+        assert_eq!(text, "Surface temperature (K)");
+        assert!(x > left + w && (y - (top + h * 0.5)).abs() < 1e-4, "{x} {y}");
+        assert!(labels.iter().all(|l| l.0 != text), "not drawn flat as well");
+    }
+
+    /// Turned about its point, a caption reads upwards: along its text is
+    /// up the screen, and its point stays where it was.
+    #[test]
+    fn the_caption_reads_upwards() {
+        let (w, h, pivot) = (800.0, 600.0, (700.0, 300.0));
+        let m = glam::Mat4::from_cols_array_2d(&caption_matrix(pivot, w, h));
+        let o = glam::Mat4::from_cols_array_2d(&wgpu_text::ortho(w, h));
+        let at = |m: glam::Mat4, x: f32, y: f32| m * glam::Vec4::new(x, y, 0.0, 1.0);
+        assert!((at(m, pivot.0, pivot.1) - at(o, pivot.0, pivot.1)).length() < 1e-6, "the point stays");
+        assert!((at(m, pivot.0 + 10.0, pivot.1) - at(o, pivot.0, pivot.1 - 10.0)).length() < 1e-6, "along the text is up");
+        assert!((at(m, pivot.0, pivot.1 + 10.0) - at(o, pivot.0 + 10.0, pivot.1)).length() < 1e-6, "below the text is to its right");
+    }
+
+    /// An edge is taken within a few pixels of it, along the bar; inside
+    /// and away from it, nothing, so a click there still picks a facet.
+    #[test]
+    fn an_edge_is_taken_near_it() {
+        let rect = (100.0, 500.0, 320.0, 18.0);
+        assert_eq!(colorbar_edge_at(rect, (103.0, 509.0)), Some(BarEdge::Left));
+        assert_eq!(colorbar_edge_at(rect, (425.0, 505.0)), Some(BarEdge::Right));
+        assert_eq!(colorbar_edge_at(rect, (250.0, 497.0)), Some(BarEdge::Top));
+        assert_eq!(colorbar_edge_at(rect, (250.0, 521.0)), Some(BarEdge::Bottom));
+        assert_eq!(colorbar_edge_at(rect, (250.0, 470.0)), None, "above it");
+        assert_eq!(colorbar_edge_at(rect, (600.0, 509.0)), None, "past its end");
+    }
+
+    /// Dragged, the grabbed edge follows the pointer: the other one held, or
+    /// about a centre anchor both moving; and the rectangle the renderer then
+    /// draws has the edge where the pointer let go.
+    #[test]
+    fn a_dragged_edge_follows_the_pointer() {
+        use crate::app::config::HudAnchor;
+        let image = (1000.0, 800.0);
+        let with = |cb: &crate::app::config::Colorbar, (l, t, x, y)| crate::app::config::Colorbar {
+            length: l,
+            thickness: t,
+            x,
+            y,
+            ..cb.clone()
+        };
+
+        // Bottom centre: the right end dragged out 40, both ends move.
+        let cb = crate::app::config::Colorbar { vertical: Some(false), ..Default::default() };
+        let (l0, t0, w0, _) = colorbar_rect(&cb, image);
+        let after = with(&cb, colorbar_resized(&cb, image, BarEdge::Right, (l0 + w0 + 40.0, 0.0)));
+        let (l, _, w, _) = colorbar_rect(&after, image);
+        assert!((w - (w0 + 80.0)).abs() < 1e-3 && (l + w - (l0 + w0 + 40.0)).abs() < 1e-3, "{l} {w}");
+        // Its top dragged up 10: thicker, the bottom held by the anchor.
+        let after = with(&cb, colorbar_resized(&cb, image, BarEdge::Top, (0.0, t0 - 10.0)));
+        let (_, t, _, h) = colorbar_rect(&after, image);
+        assert!((t - (t0 - 10.0)).abs() < 1e-3 && (h - (cb.thickness + 10.0)).abs() < 1e-3, "{t} {h}");
+        // Its bottom dragged down 6: thicker, and the inset follows.
+        let after = with(&cb, colorbar_resized(&cb, image, BarEdge::Bottom, (0.0, t0 + cb.thickness + 6.0)));
+        let (_, t, _, h) = colorbar_rect(&after, image);
+        assert!((t - t0).abs() < 1e-3 && (h - (cb.thickness + 6.0)).abs() < 1e-3, "{t} {h}");
+
+        // Top left, vertical: the bottom end dragged up, the top held.
+        let cb = crate::app::config::Colorbar { anchor: HudAnchor::TopLeft, vertical: Some(true), x: 20.0, y: 30.0, ..Default::default() };
+        let after = with(&cb, colorbar_resized(&cb, image, BarEdge::Bottom, (0.0, 30.0 + 200.0)));
+        let (l, t, _, h) = colorbar_rect(&after, image);
+        assert_eq!((l, t, h), (20.0, 30.0, 200.0));
+        // Its left edge dragged left 8: thicker, the right side held.
+        let (l0, _, w0, _) = colorbar_rect(&cb, image);
+        let after = with(&cb, colorbar_resized(&cb, image, BarEdge::Left, (l0 - 8.0, 0.0)));
+        let (l, _, w, _) = colorbar_rect(&after, image);
+        assert!((l - (l0 - 8.0)).abs() < 1e-3 && (l + w - (l0 + w0)).abs() < 1e-3, "{l} {w}");
+
+        // Never shorter than 16 pixels, nor thinner than 4.
+        let (length, thickness, _, _) = colorbar_resized(&cb, image, BarEdge::Bottom, (0.0, -500.0));
+        assert_eq!(length, 16.0);
+        let (_, thickness2, _, _) = colorbar_resized(&cb, image, BarEdge::Right, (-500.0, 0.0));
+        assert_eq!((thickness, thickness2), (cb.thickness, 4.0));
+    }
+
+    #[test]
+    fn a_format_spec_writes_as_python_s() {
+        assert_eq!(format_spec(183.9666, ".0f"), "184");
+        assert_eq!(format_spec(183.9666, ".3f"), "183.967");
+        assert_eq!(format_spec(183.9666, ".2e"), "1.84e+02");
+        assert_eq!(format_spec(0.00123, ".1e"), "1.2e-03");
+        assert_eq!(format_spec(183.9666, "d"), "184");
+        assert_eq!(format_spec(183.9666, ":.2f"), "183.97");
+        assert_eq!(format_spec(183.9666, ""), "184");
+        assert_eq!(format_spec(183.9666, "nonsense"), "184");
     }
 }
 

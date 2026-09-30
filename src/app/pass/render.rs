@@ -284,7 +284,9 @@ impl Pass {
             draw_ground_and_axes(&mut render_pass, axes, grid, bindings, config);
         }
 
-        if config.colorbar.enabled {
+        // Not in the flat mode, where there is no scale to show -- the bar was
+        // drawn there all the same, from the last frame that had one.
+        if config.colorbar.enabled && config.shading.color_mode != 2 {
             colorbar.render(&mut render_pass, bindings);
         }
 

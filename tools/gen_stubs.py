@@ -83,20 +83,9 @@ def accepted(annotation: str) -> str:
     return annotation
 
 
-def signature(prelude: str):
-    """`#[pyo3(signature = (...))]` as `(order, defaults)`: the parameters in
-    order, with `*` and `*args` markers kept, and the ones given defaults.
-    `None` when there is no signature.
-
-    Read from the whole prelude rather than line by line: a long signature
-    spans several lines, and the line filter kept only its first. Without
-    the defaults every optional argument read as required, and
-    `load_mesh(path=...)` as a call missing four.
-
-    Inside a `#[cfg_attr(feature = "python", pyo3(...))]` too, as the physics
-    beside its binding writes it: missed, `stability_maxdt`'s `s=0.5` read as
-    required, and a checker flagged every call that relied on it.
-    """
+def signature_parts(prelude: str):
+    """The comma-separated parameters of a `#[pyo3(signature = (...))]`,
+    as written, or `None` without one."""
     m = re.search(
         r"#\[(?:cfg_attr\([^,]*,\s*)?pyo3\((?:[^()]|\([^()]*\))*?signature\s*=\s*\(", prelude
     )
@@ -116,6 +105,39 @@ def signature(prelude: str):
         depth += (ch in "([") - (ch in ")]")
         cur += ch
     parts.append(cur)
+    return parts
+
+
+def annotations(prelude: str) -> dict:
+    """The Python annotations a signature gives its parameters, by name --
+    `prop: "Properties | Ground"` -- which say what the Rust type cannot: a
+    `&Bound<PyAny>` taking either of two classes read as `object`."""
+    found = {}
+    for part in signature_parts(prelude) or []:
+        name, _, annotation = part.partition("=")[0].partition(":")
+        annotation = annotation.strip().strip('"')
+        if annotation and not name.strip().startswith("*"):
+            found[name.strip()] = annotation
+    return found
+
+
+def signature(prelude: str):
+    """`#[pyo3(signature = (...))]` as `(order, defaults)`: the parameters in
+    order, with `*` and `*args` markers kept, and the ones given defaults.
+    `None` when there is no signature.
+
+    Read from the whole prelude rather than line by line: a long signature
+    spans several lines, and the line filter kept only its first. Without
+    the defaults every optional argument read as required, and
+    `load_mesh(path=...)` as a call missing four.
+
+    Inside a `#[cfg_attr(feature = "python", pyo3(...))]` too, as the physics
+    beside its binding writes it: missed, `stability_maxdt`'s `s=0.5` read as
+    required, and a checker flagged every call that relied on it.
+    """
+    parts = signature_parts(prelude)
+    if parts is None:
+        return None
     order, defaults = [], set()
     for part in parts:
         part = " ".join(part.split())
@@ -340,10 +362,12 @@ def parse(src: str):
                     if ":" in a:
                         pn, pt = a.split(":", 1)
                         pt = pt.strip()
-                        # `Python<'_>` is pyo3's, not a parameter.
-                        if pt.startswith("Python"):
+                        # `Python<'_>` is pyo3's, not a parameter; nor is a
+                        # classmethod's class, `Bound<PyType>`.
+                        if pt.startswith("Python") or "PyType" in pt:
                             continue
                         types[pn.strip()] = accepted(py_type(pt))
+                types.update(annotations(prelude or ""))
                 sig = signature(prelude or "")
                 params = []
                 if sig is None:
@@ -359,15 +383,13 @@ def parse(src: str):
                             params.append(f"{n}: object")
                         elif n in types:
                             params.append(f"{n}: {types[n]}" + (" = ..." if n in defaults else ""))
-                by_name[cls].append(
-                    (
-                        "meth",
-                        name,
-                        override or (py_type(ret) if ret else "None"),
-                        doc,
-                        params,
-                    )
-                )
+                # A static or class method is called on the class: stubbed
+                # as one, it took a `self` it has not -- `Ground.graded(prop,
+                # ...)` read as missing an argument -- and `-> Self` read as
+                # `object`.
+                kind = "staticmethod" if "#[staticmethod]" in attrs else "classmethod" if "#[classmethod]" in attrs else None
+                returns = override or (py_type(ret) if ret else "None")
+                by_name[cls].append(("meth", name, cls if returns == "Self" else returns, doc, params, kind))
     return classes
 
 
@@ -403,6 +425,7 @@ def rust_functions() -> dict:
                 if pt.strip().startswith("Python"):
                     continue
                 types[pn.strip()] = accepted(py_type(pt))
+            types.update(annotations(prelude))
             sig = signature(prelude)
             if sig is None:
                 params = [f"{n}: {ty}" for n, ty in types.items()]
@@ -539,7 +562,7 @@ TYPING_NAMES = {"Any", "Callable", "Iterable", "Iterator", "Literal", "Sequence"
 PROTOCOL = {"__init__", "__len__", "__getitem__", "__setitem__", "__iter__", "__next__", "__contains__"}
 
 KNOWN_BUILTINS = {"int", "float", "str", "bool", "object", "None", "list",
-                  "tuple", "dict", "numpy"} | TYPING_NAMES
+                  "tuple", "dict", "numpy", "os"} | TYPING_NAMES
 
 
 def resolve(annotation: str, defined: set, index: dict) -> str:
@@ -598,6 +621,9 @@ def render(classes, index=None, here: str = "", module=((), set())) -> str:
                     referenced.update(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", p))
 
     imports = []
+    # `os.PathLike[str]`, for a setter that takes a path.
+    if "os" in referenced:
+        imports.append("import os")
     if used := sorted(referenced & TYPING_NAMES):
         imports.append("from typing import " + ", ".join(used))
     for name in sorted(referenced - defined):
@@ -647,7 +673,7 @@ def render(classes, index=None, here: str = "", module=((), set())) -> str:
                 if doc:
                     out += docstring(doc, "    ")
             else:
-                _, name, ret, doc, params = m
+                _, name, ret, doc, params, kind = m
                 def one(p):
                     # Only the annotation: resolving the whole "name: type"
                     # rewrote parameter *names* to `object` as well.
@@ -659,7 +685,10 @@ def render(classes, index=None, here: str = "", module=((), set())) -> str:
 
                 params = [one(p) for p in params]
                 ret = resolve(ret, defined, index or {})
-                sig = ", ".join(["self"] + params)
+                first = {"staticmethod": [], "classmethod": ["cls"]}.get(kind, ["self"])
+                if kind:
+                    out.append(f"    @{kind}")
+                sig = ", ".join(first + params)
                 out.append(f"    def {name}({sig}) -> {ret}:")
                 if doc:
                     out += docstring(doc, "        ")
@@ -694,6 +723,8 @@ TARGETS = {
     # file away from the formula that uses them.
     "src/scattering.rs": "kalast/scattering.pyi",
     "src/lightcurve.rs": "kalast/lightcurve.pyi",
+    # The same, the orbit beside Kepler's equation.
+    "src/astro.rs": "kalast/astro.pyi",
     # The generated half of the config bindings. `Config` and `AppConfig` are
     # *declared* in config.rs and get most of their accessors here, under
     # `impl super::config::Config` -- so both files are parsed as one text for

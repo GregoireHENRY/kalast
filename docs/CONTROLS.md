@@ -257,7 +257,8 @@ is a camera gesture, so `Option` + drag still orbits and a plain drag is still
 free for whatever the control mode does with it.
 
 Not on the navigation gizmo, which takes a press over itself first — see
-above.
+above — nor on an edge of the colour bar, which a press there drags; see
+below.
 
 The facet turns `config.selection.color` (yellow by default) and is drawn
 unlit, while the rest of the body keeps its shading — the shader honours a
@@ -287,6 +288,31 @@ colour is per vertex there and the three being painted are shared. A flat mesh
 -- the default, and what per-facet work wants anyway -- is coloured per facet,
 so the selection stops at its own edges.
 
+## The colour bar
+
+Shown by `config.colorbar.enabled`.
+
+| Gesture | Does |
+|---|---|
+| Left-drag an end of the bar | Lengthen or shorten it — `colorbar.length` |
+| Left-drag a side of the bar | Thicken or thin it — `colorbar.thickness` |
+
+An edge takes the press within 8 pixels of it, and the pointer turns to
+resize arrows there, as over a panel's edge. The opposite edge stays where it
+is -- anchored at a centre, the centre does and both edges move -- so the bar
+grows the way it is pulled; never shorter than 16 pixels nor thinner than 4.
+The drag writes `colorbar.length` or `thickness`, and the inset `x` or `y`
+where the edge moved against the anchor, so the simulation tab and a script
+read the size it was given.
+
+The navigation gizmo still takes a press over itself first, and `Option` +
+drag still orbits over the bar. Inside the bar, away from its edges, a click
+still selects the facet behind it.
+
+Handled in `src/app/mod.rs` (`follow_bar_drag`), with the geometry --
+`colorbar_rect`, `colorbar_edge_at`, `colorbar_resized` -- in
+`src/app/window.rs`, the same rectangle the renderer draws, and unit-tested.
+
 ## Mouse and trackpad — Arcball (the default)
 
 **With a three-button mouse:**
@@ -297,6 +323,7 @@ so the selection stops at its own edges.
 | `Shift` + middle-drag | Pan; moves eye and anchor together |
 | Scroll wheel | Zoom |
 | Left-drag on the navigation gizmo | Orbit — see above |
+| Left-drag an edge of the colour bar | Resize it — see above |
 
 **With a trackpad**, or any pointer without a middle button:
 
@@ -432,10 +459,12 @@ by the editor's **render** button alone. A right click on a row:
 | a file | Rename, Delete; Send to renderer for a script or a mesh; Open as documentation for Markdown |
 
 Delete moves to the Trash, from where it can be put back, once asked. An
-update of a release bundle replaces `examples` -- the old one goes to the
-Trash, edits and all -- and never touches `scripts`, which is where your own
-belong. Folders are re-read every two seconds while shown, so a file a script
-writes turns up.
+update of a release bundle never touches `scripts`, which is where your own
+belong, and replaces `examples` at the new version's first start: an example
+you changed or added -- a file edited, or new -- moves whole, as it was, to
+`scripts/examples-before-v<version>`, and the kalast tab says which. Folders
+are re-read every two seconds while shown, so a file a script writes turns
+up.
 
 The editor keeps every file opened this run, each with its edits, listed on
 its left as the documentation lists its pages: the one shown lit, an edited
@@ -443,7 +472,8 @@ one dotted, the one the renderer runs marked with the render icon, a cross to
 close each -- asking first over edits. Under the list is the shown file's
 outline, VS Code's: classes, functions and methods, the variables of a module
 or a class; items of a Rust file; headings of a Markdown one. A click goes to
-the line. At the editor's top right, **render** sends the file shown to the
+the line. At the editor's top right, **render** -- or `Cmd`+`Enter` in the
+editor, `Ctrl`+`Enter` off macOS, Neovim's too -- sends the file shown to the
 renderer, from a clean scene each time -- a new app's settings and camera, as
 Reset gives them: a script built to its first iteration and held, a Rust
 example compiled if it has to be and loaded, a mesh shown. Beside it, for a Rust
@@ -554,6 +584,7 @@ release bundle brings ty with it.
 | the pointer resting on a word | Its type and docs, and the errors under it |
 | `F12`, `Ctrl`+click | Go to the definition: in the script, the cursor moves there; in another file, its lines are shown where asked -- a click on the file's name opens it |
 | `F8`, `Shift`+`F8` | The next or previous error or warning, with its message |
+| `Cmd`+`Enter`, `Ctrl`+`Enter` off macOS | Render: the file shown to the renderer, as the **render** button sends it |
 
 Errors and warnings are underlined and spelled out at the end of their line,
 as VS Code's Error Lens has them; a line with one is tinted, and its number
@@ -576,6 +607,7 @@ bar under the text with the mode's name in lualine's colours -- and follows
 |---|---|
 | everything | Neovim's, as in a terminal: modes, motions, operators, `:` commands, `/` searches, registers, macros, your mappings |
 | `Ctrl`+`S` | Saves -- kalast's, as it is VS Code's with the extension |
+| `Cmd`+`Enter`, `Ctrl`+`Enter` off macOS | Render -- kalast's, never Neovim's `<CR>` |
 | `:w` | Saves the file -- a script with no file yet asks where to, as `Cmd`+`S` does |
 | `:q`, `:wq`, `:x` | Back to the renderer -- after saving, for the last two; Neovim keeps running |
 | `K`, `gh` | The hover |

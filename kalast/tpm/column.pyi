@@ -11,6 +11,6 @@ class Column:
     z: numpy.ndarray
     t: numpy.ndarray
     d: numpy.ndarray
-    def clone(self) -> object:
+    def clone(self) -> Column:
         ...
 

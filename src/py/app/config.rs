@@ -4,8 +4,6 @@ use pyo3::prelude::*;
 
 
 
-/// The built-in colormaps, by name.
-pub const COLORMAP_NAMES: [&str; 4] = ["viridis", "inferno", "turbo", "grey"];
 
 /// A built-in colormap as a 256x3 array, the way matplotlib hands one over.
 ///
@@ -14,8 +12,11 @@ pub const COLORMAP_NAMES: [&str; 4] = ["viridis", "inferno", "turbo", "grey"];
 /// concatenated before use.
 ///
 /// ```python
-/// app.config.colormap = kalast.app.config.colormap("inferno")[::-1]   # reversed
+/// config.data.colormap = kalast.app.config.colormap("inferno")[::-1]   # reversed
 /// ```
+///
+/// A built-in's name with `_r` after it is its reverse already:
+/// `colormap("inferno_r")`.
 #[pyfunction]
 #[pyo3(name = "colormap")]
 pub fn colormap_by_name<'py>(
@@ -24,23 +25,23 @@ pub fn colormap_by_name<'py>(
 ) -> PyResult<Bound<'py, numpy::PyArray2<f32>>> {
     let table = crate::app::config::builtin_colormap(name).ok_or_else(|| {
         pyo3::exceptions::PyValueError::new_err(format!(
-            "unknown colormap {name:?}: built-ins are {}",
-            COLORMAP_NAMES.join(", ")
+            "unknown colormap {name:?}: kalast.app.config.colormap_names() lists them, \
+             each reversed with _r after it"
         ))
     })?;
     // Resampled to the renderer's own table size, so what comes back is what
-    // would be used -- the built-ins are stored as 8 anchors, and handing
-    // those out would make a sliced or reversed copy needlessly coarse.
+    // would be used whatever length a table has.
     let table =
         crate::app::config::resample_colormap(&table, crate::app::uniform::COLORMAP_SIZE);
     let rows: Vec<Vec<f32>> = table.iter().map(|c| c.to_vec()).collect();
     Ok(numpy::PyArray2::from_vec2(py, &rows)?)
 }
 
-/// Names accepted by `colormap()` and by `config.colormap`.
+/// Names accepted by `colormap()` and by `config.data.colormap`, each also
+/// with `_r` after it for its reverse.
 #[pyfunction]
 pub fn colormap_names() -> Vec<String> {
-    COLORMAP_NAMES.iter().map(|s| s.to_string()).collect()
+    crate::app::config::colormap_names().into_iter().map(str::to_string).collect()
 }
 
 /// A colormap row needs at least r, g and b; a fourth is alpha and ignored.
@@ -297,17 +298,20 @@ impl Config {
 /// field is marked `:py_custom:` so the generator leaves it to this.
 #[pymethods]
 impl super::config_gen::DataConfig {
-    /// Colour lookup table: a built-in name or an Nx3 array of RGB in 0..1.
+    /// Colour lookup table: a built-in's name, a text file of colours, or an
+    /// Nx3 array of RGB in 0..1.
     ///
-    /// `"viridis"`, `"inferno"`, `"turbo"`, `"grey"`, or any matplotlib
-    /// colormap passed straight through:
+    /// `"viridis"`, `"inferno"`, `"turbo"`, `"grey"` -- each reversed with
+    /// `_r` after it, `"inferno_r"` -- a file with a colour a line, red,
+    /// green and blue, in 0..1 or 0..255 (`"cmaps/ice.csv"`), or any
+    /// matplotlib colormap passed straight through:
     ///
     /// ```python
-    /// app.config.colormap = matplotlib.colormaps["magma"](numpy.linspace(0, 1, 256))[:, :3]
+    /// config.data.colormap = matplotlib.colormaps["magma"](numpy.linspace(0, 1, 256))[:, :3]
     /// ```
     ///
-    /// Resampled to 256 entries, so any length works.
-    /// The colour table in use, as a 256x3 array.
+    /// Resampled to 256 entries when drawn, so any length works. Read back,
+    /// the table as it was given: a built-in's 24 anchors, an array's rows.
     #[getter]
     fn colormap<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, numpy::PyArray2<f32>>> {
         let rows: Vec<Vec<f32>> = self
@@ -321,19 +325,33 @@ impl super::config_gen::DataConfig {
         Ok(numpy::PyArray2::from_vec2(py, &rows)?)
     }
 
-    /// Takes more than the getter gives back -- a name, or rows of RGB --
-    /// which the stub has to say, or a checker reads `= "inferno"` as an
-    /// error.
+    /// Takes more than the getter gives back -- a name, a file, or rows of
+    /// RGB -- which the stub has to say, or a checker reads `= "inferno"` as
+    /// an error.
     ///
-    /// :pytype: str | numpy.ndarray | Sequence[Sequence[float]]
+    /// :pytype: str | os.PathLike[str] | numpy.ndarray | Sequence[Sequence[float]]
     #[setter]
     fn set_colormap(&mut self, v: &Bound<'_, PyAny>) -> PyResult<()> {
+        let file = |path: &std::path::Path| {
+            crate::app::config::colormap_from_file(path).map_err(pyo3::exceptions::PyValueError::new_err)
+        };
         let table = if let Ok(name) = v.extract::<String>() {
-            crate::app::config::builtin_colormap(&name).ok_or_else(|| {
-                pyo3::exceptions::PyValueError::new_err(format!(
-                    "unknown colormap {name:?}: built-ins are viridis, inferno, turbo, grey;                      otherwise pass an Nx3 array"
-                ))
-            })?
+            match crate::app::config::builtin_colormap(&name) {
+                Some(table) => table,
+                None if std::path::Path::new(&name).is_file() => file(std::path::Path::new(&name))?,
+                None => {
+                    return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                        "unknown colormap {name:?}, and no such file: matplotlib's names are \
+                         taken, kalast.app.config.colormap_names() lists them, each reversed with \
+                         _r after it; otherwise a file of colours, or an Nx3 array"
+                    )));
+                }
+            }
+        } else if let Ok(path) = v
+            .getattr("__fspath__")
+            .and_then(|_| v.extract::<std::path::PathBuf>())
+        {
+            file(&path)?
         } else {
             // f64 first: that is numpy's default and what matplotlib returns,
             // so extracting only f32 rejected the very call the docs give as
