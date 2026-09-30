@@ -104,10 +104,19 @@ A second start moved nothing; a fresh unpack got its examples and no
 `tools/lsp_check.py` starts ty in `examples/`, or `res/examples` in a bundle
 not yet started, as CI's is.
 
+Then for real, once the beta was out (`fc57fff`, run 36786884962, every
+job green, the archive with no top-level `examples`): the beta published on
+29 September, unpacked in /tmp with `cube/color_map.py` edited and
+`examples/mine/` added, ran its own `./kalast --update`, which offered and
+installed the newer beta and left `examples/` as it was; the first start kept
+`cube` and `mine` in `scripts/examples-before-v0.5.11/`, `scripts/test`
+intact, `examples/` identical to `fc57fff`'s, "2 up to date, 0 built".
+
 ## Open
 
 - Windows and Linux not run end to end; the code is the same renames, and
   the CRLF case is a unit test.
-- The real v0.5.10 → v0.5.11 path, through v0.5.10's own download, can only
-  run once v0.5.11 is released; the beta before it goes through the same
-  code with the beta's updater.
+- The v0.5.10 → v0.5.11 path through v0.5.10's own download can only run
+  once v0.5.11 is released; its swap was simulated above, and the beta's
+  updater, which the real test went through, differs from it only in
+  skipping `scripts` and trashing an `examples` no archive carries now.
