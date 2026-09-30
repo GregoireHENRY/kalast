@@ -5277,3 +5277,8 @@ real, keeping `cube` (edited) and `mine` (added) in
 same code goes out as v0.5.12, with the list fixed and
 `tests/test_crate_package.py` run by the rehearsal's `sdist` job. Write-up:
 `2026-10-01_v0.5.11_half_published.md`.
+
+v0.5.12 released (`a2f30e5`: GitHub release, crates.io, PyPI). The published
+v0.5.10 bundle then updated itself to it through its own `kalast --update`,
+and v0.5.12's first start kept the edited `cube` and the added `mine` in
+`scripts/examples-before-v0.5.12/`.

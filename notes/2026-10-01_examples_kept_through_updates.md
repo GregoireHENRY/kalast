@@ -112,12 +112,15 @@ installed the newer beta and left `examples/` as it was; the first start kept
 `cube` and `mine` in `scripts/examples-before-v0.5.11/`, `scripts/test`
 intact, `examples/` identical to `fc57fff`'s, "2 up to date, 0 built".
 
+And once v0.5.12 was released (v0.5.11 never got its GitHub release, see
+`2026-10-01_v0.5.11_half_published.md`), the path v0.5.10's users take: the
+published v0.5.10 bundle, `cube/color_map.py` edited and `examples/mine/`
+added, ran its own `./kalast --update`, which offered and installed v0.5.12
+and left `examples/` as it was; v0.5.12's first start kept `cube`, edit
+included, and `mine` in `scripts/examples-before-v0.5.12/`, `scripts/test`
+intact, `examples/` identical to `a2f30e5`'s, "2 up to date, 0 built".
+
 ## Open
 
 - Windows and Linux not run end to end; the code is the same renames, and
   the CRLF case is a unit test.
-- The v0.5.10 → v0.5.12 path through v0.5.10's own download can only run
-  once v0.5.12 is released (v0.5.11 never got its GitHub release, see
-  `2026-10-01_v0.5.11_half_published.md`); its swap was simulated above, and the beta's
-  updater, which the real test went through, differs from it only in
-  skipping `scripts` and trashing an `examples` no archive carries now.
