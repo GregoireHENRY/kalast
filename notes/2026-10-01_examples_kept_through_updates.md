@@ -116,7 +116,8 @@ intact, `examples/` identical to `fc57fff`'s, "2 up to date, 0 built".
 
 - Windows and Linux not run end to end; the code is the same renames, and
   the CRLF case is a unit test.
-- The v0.5.10 → v0.5.11 path through v0.5.10's own download can only run
-  once v0.5.11 is released; its swap was simulated above, and the beta's
+- The v0.5.10 → v0.5.12 path through v0.5.10's own download can only run
+  once v0.5.12 is released (v0.5.11 never got its GitHub release, see
+  `2026-10-01_v0.5.11_half_published.md`); its swap was simulated above, and the beta's
   updater, which the real test went through, differs from it only in
   skipping `scripts` and trashing an `examples` no archive carries now.

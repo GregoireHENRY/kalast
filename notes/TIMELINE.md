@@ -5265,3 +5265,15 @@ to end on the published v0.5.10 bundle. Write-up:
 
 Open: Windows and Linux not run end to end; the real v0.5.10 download path
 only once v0.5.11 is out.
+
+## 2026-10-01 — v0.5.11 half published; v0.5.12 in its place
+
+The beta went out (`fc57fff`) and the previous beta updated itself to it for
+real, keeping `cube` (edited) and `mine` (added) in
+`scripts/examples-before-v0.5.11/`. The tag v0.5.11 then published PyPI's
+0.5.11 and failed on crates.io: `res/colormaps.bin` and
+`res/examples-shipped.txt`, both compiled in, were not in `Cargo.toml`'s
+`include`, so no GitHub release, and PyPI's 0.5.11 sdist cannot build. The
+same code goes out as v0.5.12, with the list fixed and
+`tests/test_crate_package.py` run by the rehearsal's `sdist` job. Write-up:
+`2026-10-01_v0.5.11_half_published.md`.

@@ -9,7 +9,7 @@ pushed. While betas of a version go out, its section is headed
 `## v<version>-beta`; it becomes `## v<version>` when the version is
 released, and the gate refuses the tag until it has.
 
-## v0.5.11
+## v0.5.12
 
 - The bundle's script editor has a Python language server with nothing to install: ty, Astral's, ships in the bundle -- completion, hover, signatures, errors and go to definition, on kalast's own API too. For `python -m kalast`, `pip install "kalast[editor]"` brings it. basedpyright, which catches more type errors, is one setting away: `app.config.python_language_server = "basedpyright-langserver --stdio"`.
 - The editor's completion list keeps a name and its type apart: with ty, `step` read as `stepbound method App.step() -> bool`.

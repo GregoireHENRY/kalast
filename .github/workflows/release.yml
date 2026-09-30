@@ -781,6 +781,13 @@ jobs:
     if: needs.reuse.outputs.run_id == ''
     steps:
       - uses: actions/checkout@v4
+      # Every file the code compiles in is in the crate's package, the list
+      # the sdist is drawn from too. The rehearsal never publishes the crate,
+      # so without this a missing one is found by `cargo publish` on the tag,
+      # after PyPI took the version: v0.5.11's crate failed so, and its sdist
+      # could not build.
+      - name: The crate's package holds what the code compiles in
+        run: python3 tests/test_crate_package.py
       - uses: PyO3/maturin-action@v1
         with:
           command: sdist
