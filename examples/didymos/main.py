@@ -8,9 +8,7 @@ from kalast.app import App
 
 
 app = App()
-# app.simulation.config.wireframe.mode = 2
-app.simulation.config.wireframe.color = [0.05, 0.05, 0.05, 1.0]
-app.simulation.config.axes.style = "gizmo"
+app.simulation.config.wireframe.mode = 0
 
 app.simulation.camera.pos = [-1.0, -3.0, 1.0]
 app.simulation.camera.look_anchor()
@@ -23,7 +21,7 @@ app.simulation.load_mesh(
 )
 
 spice.kclear()
-spice.furnsh("/Users/gregoireh/data/spice/hera/kernels/mk/hera_plan_local.tm")
+spice.furnsh("/Users/gregoireh/data/spice/hera/kernels/mk/hera_plan.tm")
 et0 = spice.str2et("2027-03-01 12:00:00 UTC")
 
 while app.running:

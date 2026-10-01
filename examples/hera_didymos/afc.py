@@ -14,6 +14,7 @@ app.config.width = 1020
 app.config.height = 1020
 app.config.panels_folded = True
 app.simulation.config.axes.style = "off"
+app.simulation.config.wireframe.mode = 0
 
 app.simulation.huds = [Hud("", size=16)]
 app.simulation.camera.pos = [0.0, 0.0, 0.0]
@@ -29,7 +30,7 @@ app.simulation.load_mesh(
 )
 
 spice.kclear()
-spice.furnsh("/Users/gregoireh/data/spice/hera/kernels/mk/hera_plan_local.tm")
+spice.furnsh("/Users/gregoireh/data/spice/hera/kernels/mk/hera_plan.tm")
 et0 = spice.str2et("2026-11-05 00:00:00 UTC")
 etf = spice.str2et("2027-04-30 00:00:00 UTC")
 dur = etf - et0

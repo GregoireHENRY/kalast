@@ -23,13 +23,13 @@ Examples that work directly:
           You can change it to smooth.
         - `app.simulation.config.light.cube_show` shows the light source.
         - `app.simulation.config.axes.style = "gizmo"` shows XYZ 3D frame gizmo
-          top right, the default; `"off"` hides it.
+          top right by default; use `"off"` to hide it.
           You can change it's location and size too.
           You can also click on individual X, Y or Z and negative to select view
           plane toggling orthographic view.
           There are also other axes style options like `blender`.
-        - Using wireframe `2` to show mesh + wireframe.
-          Default is `0` with just mesh.
+        - Wireframe mode `2` is the default to show facets + wireframe.
+          Use mode `0` to show just facets.
           Use `1` if you want wireframe only.
         - Setting initial camera position and direction.
           Direction is set by asking camera to look at anchor point.
@@ -119,6 +119,45 @@ Examples that work directly:
     - [crater_self_shadow/main.rs](crater_self_shadow/main.rs) and [crater_self_shadow/fn.rs](crater_self_shadow/fn.rs):
         - Same example scripts but written in rust. They come pre-compiled but
           you are free to update and re-compile them.
+- [sphere](sphere):
+    - [sphere/main.py](sphere/main.py):
+        - A sphere with spin period 6h.
+        - Only rendering diffuse lighting.
+        - Try the two different sphere meshes: icosphere and sphere (triangulated from quad method fixed)
+    - [sphere/tpm.py](sphere/tpm.py):
+        - Simple TPM of the sphere at with Sun at 1 AU.
+        - Colorbar inferno.
+        - Thermophysical property of average S-type asteroid.
+        - Adiabatic at 1x 2pi spin skin depth.
+        - Max time step for stability.
+        - Initialization with effective temperature at given latitudes.
+        - Simple spin without obliquity, no solar orbit.
+        - For each time step in the while loop, vectorized per facet:
+            - Surface boundary condition with solar radiation.
+            - Adiabatic condition at depth boundary.
+            - 1D heat conduction.
+    - [sphere/tpm_obliquity.py](sphere/tpm_obliquity.py):
+        - Simple sphere TPM with obliquity (tilt of the spin axis).
+    - [sphere/tpm_logo.py](sphere/tpm_logo.py):
+        - Kalast logo was created in the past using a similar script. I was
+          observing the evolution of the surface temperature of an oblate sphere
+          resized to the extents of Didymos, using Didymos thermophysical
+          and orbital properties.
+        - Seasonal effects are simulated by taking 1x 2pi yearly skin depth and
+          Didymos obliquity.
+        - Solar orbit with Keplerian parameters.
+        - After 3 Didymos years, the surface temperature has converged (yearly
+          polar variations and thermal printing at depth boundary).
+        - Several TPM steps are simulated between rendering steps to go faster.
+    - [sphere/tpm_variable_1.py](sphere/tpm_variable_1.py):
+        - Varying surface and depth thermophysical properties.
+        - Regolith over rock.
+        - A brighter patch and bare rock in circular areas given by latitude,
+          longitude and radius in degrees.
+    - [sphere/tpm_variable_2.py](sphere/tpm_variable_2.py):
+        - Another way: ponds of dust fading into compact ground, and each
+          column turning from its own surface to a deep material with depth,
+          as regolith compacts.
 - [two_spheres/main.py](two_spheres/main.py):
     - Showcase with two bodies and mutual shadows.
     - The second body is loaded with a custom 4D model matrix to change its
@@ -127,34 +166,6 @@ Examples that work directly:
       axis.
     - In the main loop, if the simulation is not paused, the rotating matrix is
       applied to the second body model matrix.
-- [sphere](sphere):
-    - [sphere/main.py](sphere/main.py):
-        - A sphere turning a little each frame under diffuse lighting.
-    - [sphere/tpm.py](sphere/tpm.py):
-        - The thermophysical model of the spinning sphere at 1 AU, every facet
-          at once with `kalast.tpm.core`: thermal properties, the daily skin
-          depth setting the layers and the column, a few hundred spins, and
-          each step the solar boundary condition, the adiabatic bottom, then
-          heat conduction.
-        - Each column starts at its latitude's effective temperature,
-          `app.simulation.facet_mean_incidence`.
-    - [sphere/tpm_variable_1.py](sphere/tpm_variable_1.py):
-        - Thermal properties per facet and per layer with `core.Ground`:
-          regolith over rock, a brighter patch and bare rock in circular
-          areas given by latitude, longitude and radius in degrees.
-    - [sphere/tpm_variable_2.py](sphere/tpm_variable_2.py):
-        - Another way: ponds of dust fading into compact ground, and each
-          column turning from its own surface to a deep material with depth,
-          as regolith compacts.
-    - [sphere/tpm_obliquity.py](sphere/tpm_obliquity.py):
-        - The spin axis tilted: a polar day and a polar night.
-        - Starts in the gizmo's -Y view, `camera.view_along("y",
-          positive=False)`.
-    - [sphere/tpm_logo.py](sphere/tpm_logo.py):
-        - kalast's logo simulated again: a sphere given Didymos's shape and
-          obliquity, spinning through the seasons of its orbit
-          (`kalast.astro.Orbit`) on a column thin at the surface and thicker
-          with depth (`core.Ground.graded`), held after 3.31 years.
 - [mesh/decimate.py](mesh/decimate.py):
     - Use it like `python examples/mesh/decimate.py IN.obj OUT.obj 10000` to
       decimate `IN.obj` from its current size to `10000` facets and save it at

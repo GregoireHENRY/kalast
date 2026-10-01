@@ -25,12 +25,9 @@ def after_render(sim: Simulation, dt: float) -> None:
 
 
 app = App()
-app.simulation.config.axes.style = "gizmo"
 app.simulation.config.light.cube_show = True
 app.simulation.config.shading.render_back_face = True
 app.simulation.config.shadows.access_shadow_map = True
-app.simulation.config.wireframe.mode = 2
-app.simulation.config.wireframe.color = [0.05, 0.05, 0.05, 1.0]
 # app.simulation.config.shadows.resolution = 8192
 # app.simulation.config.shadows.pcf = 2
 app.simulation.huds = [Hud("", size=16)]

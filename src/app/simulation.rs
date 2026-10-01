@@ -374,6 +374,7 @@ impl Simulation {
         self.state.iteration = 0;
         self.state.pause_after_iteration = None;
         self.state.hold_after_iteration = None;
+        self.state.step_requested = false;
 
         self.export_once = false;
         self.facet_shadow_request = None;
@@ -688,6 +689,9 @@ pub struct State {
     /// Set by `begin_frame`: this frame does not advance, because the run is
     /// paused. Read by `advance`.
     pub held: bool,
+    /// One iteration asked for -- Step, `K` -- and granted at the end of the
+    /// frame it was asked in (`grant_step`), never by that frame itself.
+    pub step_requested: bool,
     /// When the next frame is due under the cap.
     ///
     /// Scheduled one period on from when it *was* due, not from when it
@@ -709,6 +713,7 @@ impl State {
             rate_limited: false,
             rate_limit: 10.0,
             held: false,
+            step_requested: false,
             due: None,
         }
     }
@@ -803,6 +808,27 @@ impl State {
         }
     }
 
+    /// One iteration, then hold: what Step and `K` ask for. Granted by
+    /// `grant_step` at the end of the frame.
+    pub fn request_step(&mut self) {
+        self.step_requested = true;
+    }
+
+    /// The iteration asked for, granted: the run unpaused until it has run.
+    /// At the end of a frame, after that frame decided whether it advances --
+    /// so the iteration is the *next* frame's, and a script driving its own
+    /// loop, which does its work between two `app.step()` calls and only
+    /// while `is_paused` is false, sees the run unpaused for exactly one
+    /// turn. `K` arrives before the frame's own start in the same event pump,
+    /// and unpausing there let that frame take the iteration and hold again
+    /// inside one `app.step()`: the counter moved, the loop never ran.
+    pub fn grant_step(&mut self) {
+        if std::mem::take(&mut self.step_requested) {
+            self.hold_after_iteration = Some(self.iteration);
+            self.is_paused = false;
+        }
+    }
+
     /// The run's length, as a script gives it: pause once iteration `n` has
     /// run -- or, `None`, never on its own, the app's hold at the start
     /// dropped too. A driven script that wants to run straight says so this
@@ -824,6 +850,33 @@ impl State {
 
 #[cfg(test)]
 mod pause_tests {
+
+    /// `K` while a driven script is paused: the key arrives in the event pump
+    /// before the frame starts, and the frame it arrives in still holds. The
+    /// run is unpaused when that frame ends, so the script's own loop -- its
+    /// work between two `app.step()` calls, gated on `is_paused` -- gets one
+    /// turn, and the next frame counts that iteration and holds again. The
+    /// frame used to take the iteration itself: the counter moved and the
+    /// loop never ran.
+    #[test]
+    fn a_step_asked_for_is_the_next_frames_and_a_driven_loop_sees_it() {
+        let now = std::time::Instant::now();
+        let mut s = State::new();
+        s.is_paused = true;
+        s.iteration = 5;
+        s.request_step();
+        assert!(!s.begin_frame(now), "the frame it was asked in holds");
+        s.advance();
+        assert_eq!(s.iteration, 5);
+        s.grant_step();
+        assert!(!s.is_paused, "between the two frames, the script's loop runs its body");
+        assert!(s.begin_frame(now));
+        s.advance();
+        assert_eq!(s.iteration, 6);
+        assert!(s.is_paused, "held again after the one iteration");
+        s.grant_step();
+        assert!(s.is_paused, "nothing more asked for");
+    }
     use super::*;
 
     /// The colour a selected facet's value is shown in is the one the shader

@@ -500,16 +500,16 @@ jobs:
           # `include_wgsl!`, and `pyproject.toml`, which declares a build
           # system that cannot run from an archive and 766 MB of
           # dependencies the bundle does not have.
-          #
-          # The examples go in `res/examples`, never `examples`: an update
-          # replaces every entry the archive holds, and v0.5.10's deleted
-          # what it replaced -- the examples a user had changed or added with
-          # the rest. kalast puts them in place at its first start, the
-          # user's own kept in `scripts/` (`install_examples`,
-          # `src/app/update.rs`).
-          cp -r res docs notes "$stage/"
-          cp -r examples "$stage/res/examples"
+          cp -r res examples docs notes "$stage/"
           cp README.md "$stage/"
+          # Whose examples they are, for a later version to tell its own
+          # from those an older updater left (`settle_examples`,
+          # `src/app/update.rs`).
+          version=$(sed -n '/^\[project\]/,/^\[/p' pyproject.toml | sed -n 's/^version *= *"\(.*\)"/\1/p' | head -1)
+          printf '%s\n' "$version" > "$stage/examples/.kalast-version"
+          # Where the user's own scripts go, empty: an update never touches
+          # it, and keeps there any example the user changed.
+          mkdir -p "$stage/scripts"
           # ty checks only the files of the project it finds above a script,
           # and a bundle unpacked in another project's `dist/` or git-ignored
           # folder is none of them: nothing typed wrong was ever reported.
@@ -663,18 +663,13 @@ jobs:
       # from here that means crates.io, which does not have this version
       # until the `crates` job publishes it -- so it fails rather than
       # quietly producing a bundle that recompiles on first use.
-      #
-      # From `res/examples`, where the archive carries them: the first start
-      # renames that folder to `examples`, which changes neither a file's
-      # text nor its time, nor the library name (`package_name` reads the
-      # last two components of the path).
       - name: The Rust examples are built, not merely shipped
         shell: bash
         working-directory: dist/${{ env.name }}
         run: |
           set -euo pipefail
           if [ "${{ runner.os }}" = "Windows" ]; then exe=./kalast.exe; else exe=./kalast; fi
-          out=$(find res/examples -name '*.rs' -not -path 'res/examples/old/*' -print0 \
+          out=$(find examples -name '*.rs' -not -path 'examples/old/*' -print0 \
                 | xargs -0 "$exe" --precompile)
           echo "$out"
           grep -q "0 built, 0 failed" <<<"$out" || {
@@ -687,10 +682,13 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          # Not a top-level `examples`: an update would put it in place of
-          # the user's (see "Assemble the rest of the bundle").
-          [ ! -e "${{ env.name }}/examples" ] && [ -d "${{ env.name }}/res/examples" ] || {
-            echo "::error::the bundle carries its examples as examples/, not res/examples/"
+          # The layout a download shows: the examples with their version,
+          # and `scripts/` there and empty (see "Assemble the rest of the
+          # bundle").
+          b="${{ env.name }}"
+          [ -s "$b/examples/.kalast-version" ] && [ -d "$b/scripts" ] && [ -z "$(ls -A "$b/scripts")" ] \
+            && [ ! -e "$b/res/examples" ] || {
+            echo "::error::the bundle wants examples/ with its .kalast-version and an empty scripts/"
             exit 1
           }
           if [ "${{ matrix.archive }}" = "zip" ]; then

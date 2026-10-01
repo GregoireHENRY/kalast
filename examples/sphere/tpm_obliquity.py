@@ -8,11 +8,6 @@ from kalast.tpm import core, properties
 from kalast.util import AU
 
 app = App()
-app.simulation.config.wireframe.mode = 2
-app.simulation.config.wireframe.color = [0.05, 0.05, 0.05, 1.0]
-app.simulation.config.axes.style = "gizmo"
-
-# Colormap for surface temperature.
 app.simulation.config.shading.color_mode = 1
 app.simulation.config.data.colormap = "inferno"
 app.simulation.config.data.value_min = 0.0
@@ -21,7 +16,6 @@ app.simulation.config.colorbar.enabled = True
 app.simulation.config.colorbar.label = "Surface temperature (K)"
 app.simulation.config.colorbar.min_max = True
 app.simulation.config.colorbar.ticks = 12
-app.simulation.config.colorbar.min_max_format = ".0f"
 
 dau = 1.0  # distance to the Sun (AU)
 app.simulation.sun.pos = [dau * AU, 0.0, 0.0]

@@ -838,11 +838,9 @@ impl State {
         Ok(())
     }
 
-    /// Cap the frame rate at `rate_limit`; off runs as fast as it can. One step
-    /// is one frame, so the iteration rate follows.
-    ///
-    /// The frame keeps its full rate -- the camera stays live -- while the
-    /// counter and both callbacks wait, exactly as under pause.
+    /// Cap the frame rate at `rate_limit`; off runs as fast as it can. The
+    /// frame waits for its turn, `app.step()` with it, and one step being one
+    /// frame, the iteration rate is the same number.
     #[getter]
     fn rate_limited(&self) -> bool {
         self.simulation.borrow().state.rate_limited

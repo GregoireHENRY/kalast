@@ -731,7 +731,8 @@ pub struct Wireframe {
     /// the barycentrics are meaningless and the CPU side warns once.
     /// :range: 0..=2
     pub mode: u32,
-    /// Wireframe colour, `(r, g, b, a)`; alpha is dropped.
+    /// Wireframe colour, `(r, g, b, a)`; alpha is dropped. Very dark grey
+    /// rather than black by default.
     ///
     /// Mode 2 blends by edge coverage and is antialiased; mode 1 thresholds instead,
     /// because the pipeline blend state is REPLACE and a fractional alpha would be
@@ -763,8 +764,8 @@ pub struct Wireframe {
 impl Default for Wireframe {
     fn default() -> Self {
         Self {
-            mode: 0,
-            color: wgpu::Color::BLACK,
+            mode: 2,
+            color: wgpu::Color { r: 0.01, g: 0.01, b: 0.01, a: 1.0 },
             width: 1.0,
             fade: false,
         }

@@ -1,6 +1,6 @@
 [package]
 name = "kalast"
-version = "0.5.12"
+version = "0.5.13"
 description = "TPM for binary asteroids"
 authors = ["Grégoire Henry <gregoireh@pm.me>"]
 repository = "https://github.com/GregoireHENRY/kalast"
@@ -57,6 +57,11 @@ edition = "2024"
 [lib]
 name = "kalast"
 crate-type = ["lib", "cdylib"]
+
+# `kalast_examples`, set by `build.rs` when it packed the examples: unknown
+# where the build script is not, as in the crate on crates.io.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kalast_examples)"] }
 
 [features]
 # Python is on by default so that `cargo run --bin kalast` can run a `.py`

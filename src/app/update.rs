@@ -14,10 +14,9 @@
 //! (`.zip` included: Windows 10's tar is bsdtar) and swaps every entry in
 //! place, keeping what it replaced in `.previous` until the next start,
 //! since Windows cannot delete a running executable but can rename it. The
-//! user's `scripts` and `examples` folders are never among them: an archive
-//! carries its examples in `res/examples`, and the new version, at its first
-//! start, puts them in place of the old, keeping in `scripts/` whatever
-//! example the user changed or added (`install_examples`); a
+//! user's `scripts` is never among them. `examples` is, kalast's own: but
+//! first every example the user changed or added there moves, whole, to
+//! `scripts/backup/before-v<version>/` (`keep_changed_examples`); a
 //! pip install runs `pip install --upgrade` with the interpreter this is
 //! running in; a source checkout is told to pull. Nothing restarts behind
 //! the user's back: the toolbar's button becomes "restart", and that
@@ -363,29 +362,39 @@ fn install_bundle(u: &Update, dir: &Path, log: &dyn Fn(String)) -> Result<(), St
         return Err(format!("{name} holds no {} folder", inner.display()));
     }
 
-    // Every entry of the new bundle replaces its namesake here. What it
-    // replaces goes to `.previous` first: on Windows the running executable
-    // cannot be deleted, but it can be renamed, and `clean_previous` takes
-    // the folder away at the next start.
-    let previous = dir.join(".previous");
-    let _ = std::fs::remove_dir_all(&previous);
-    std::fs::create_dir_all(&previous).map_err(|e| format!("{}: {e}", previous.display()))?;
-    swap_in(&inner, dir, &previous)?;
+    install_unpacked(&inner, dir, &u.latest.version, &Shipped::new(), log)?;
     let _ = std::fs::remove_dir_all(&work);
-    clean_previous(dir);
     log(format!("installed v{} in {}", u.latest.version, dir.display()));
     Ok(())
 }
 
+/// The new bundle, unpacked in `inner`, in place of this one in `dir`.
+///
+/// First the examples the user changed or added go to
+/// `scripts/backup/before-v<version>/` (`keep_changed_examples`); nothing is
+/// replaced if that fails. Then every entry of the new bundle replaces its
+/// namesake, `examples` with the rest. What it replaces goes to `.previous`
+/// first: on Windows the running executable cannot be deleted, but it can be
+/// renamed, and `clean_previous` takes the folder away at the next start.
+fn install_unpacked(inner: &Path, dir: &Path, version: &str, shipped: &Shipped, log: &dyn Fn(String)) -> Result<(), String> {
+    if let Some(kept) = keep_changed_examples(dir, &dir.join("examples"), version, shipped)? {
+        log(kept_line(&kept, dir));
+    }
+    let previous = dir.join(".previous");
+    let _ = std::fs::remove_dir_all(&previous);
+    std::fs::create_dir_all(&previous).map_err(|e| format!("{}: {e}", previous.display()))?;
+    swap_in(inner, dir, &previous)?;
+    clean_previous(dir);
+    Ok(())
+}
+
 /// Every entry of `inner`, an archive unpacked, in place of its namesake in
-/// `dir`, which goes to `previous` -- all but two. The user's `scripts`, and
-/// the examples they may have changed: no archive is to replace either,
-/// whatever it holds. The new examples come in `res/examples`, for
-/// `install_examples` to put in place.
+/// `dir`, which goes to `previous` -- all but the user's `scripts`, which no
+/// archive is to replace, whatever it holds.
 fn swap_in(inner: &Path, dir: &Path, previous: &Path) -> Result<(), String> {
     for entry in std::fs::read_dir(inner).map_err(|e| format!("{}: {e}", inner.display()))? {
         let entry = entry.map_err(|e| e.to_string())?;
-        if entry.file_name() == "scripts" || entry.file_name() == "examples" {
+        if entry.file_name() == "scripts" {
             continue;
         }
         let target = dir.join(entry.file_name());
@@ -480,75 +489,17 @@ fn is_litter(name: &std::ffi::OsStr) -> bool {
     matches!(name.to_str(), Some(".DS_Store" | "Thumbs.db" | "desktop.ini" | "__pycache__"))
 }
 
-/// What `install_examples` did.
-#[derive(Debug, PartialEq)]
-pub struct ExamplesInstalled {
-    /// The folder the examples changed or added went to, and their names
-    /// there, when there were any.
-    pub kept: Option<(PathBuf, Vec<String>)>,
-}
-
-/// The examples this version ships, put in place: `res/examples`, where a
-/// bundle carries them, becomes `examples`.
-///
-/// Never `examples` itself in the archive, because an update replaces every
-/// entry its archive holds, and v0.5.10's deleted what it replaced -- the
-/// examples a user had changed or added with the rest. So they arrive beside
-/// the old, and here, at the first start of the version that brought them,
-/// take their place: each example, a folder of `examples/` or a file there,
-/// in which anything is not exactly as some release shipped it -- a file
-/// edited, added, a link -- is moved whole into
-/// `scripts/examples-before-v<version>/`, where it still runs beside
-/// whatever it reads; the others, as shipped to the byte, go. A rename, both
-/// ways, so every file keeps its time -- and the precompiled Rust examples,
-/// checked against it, stay current.
-///
-/// `None` when there is nothing new to install. An error leaves
-/// `res/examples` where it is, for the next start to try again; what was
-/// moved by then is in `scripts/`, and the error says where.
-pub fn install_examples(dir: &Path, version: &str) -> Result<Option<ExamplesInstalled>, String> {
-    install_examples_against(dir, version, &Shipped::new())
-}
-
-/// `install_examples`, against a list of its own for the tests.
-fn install_examples_against(dir: &Path, version: &str, shipped: &Shipped) -> Result<Option<ExamplesInstalled>, String> {
-    let staged = dir.join("res").join("examples");
-    if !staged.is_dir() {
-        return Ok(None);
-    }
-    let show = |p: &Path| p.strip_prefix(dir).unwrap_or(p).display().to_string();
-    let installed = dir.join("examples");
-    let kept = keep_changed_examples(dir, &installed, version, shipped)?;
-    let swapped = (|| {
-        // What is left is kalast's own, as it shipped it: aside, and gone
-        // once the new ones are in -- or back, if they could not be.
-        let aside = dir.join(".previous").join("examples");
-        let old = std::fs::symlink_metadata(&installed).is_ok();
-        if old {
-            let _ = std::fs::remove_dir_all(&aside);
-            std::fs::create_dir_all(dir.join(".previous")).map_err(|e| format!(".previous: {e}"))?;
-            std::fs::rename(&installed, &aside).map_err(|e| format!("moving {} aside: {e}", show(&installed)))?;
-        }
-        if let Err(e) = std::fs::rename(&staged, &installed) {
-            if old {
-                let _ = std::fs::rename(&aside, &installed);
-            }
-            return Err(format!("installing {}: {e}", show(&staged)));
-        }
-        let _ = std::fs::remove_dir_all(&aside);
-        Ok(())
-    })();
-    match (swapped, &kept) {
-        (Ok(()), _) => Ok(Some(ExamplesInstalled { kept })),
-        (Err(e), None) => Err(e),
-        (Err(e), Some((backup, _))) => Err(format!("{e}; the ones you had changed are in {} already", show(backup))),
-    }
-}
+/// In `examples/`, the version whose examples they are: written by the
+/// release into its archive, and by `settle_examples`.
+pub const EXAMPLES_VERSION: &str = ".kalast-version";
 
 /// The examples of `installed` that are not as kalast shipped them, moved
-/// into a new folder of `scripts/`: that folder and their names, if any.
-/// Whole examples, by name; a link or a file where the folder was is the
-/// user's, whole.
+/// into `scripts/backup/before-v<version>/`, `version` the one about to
+/// replace them: that folder and their names, if any. Whole examples, a
+/// folder of `examples/` or a file there, so one still runs beside what it
+/// reads -- an edited file, an added one, a link, anything not exactly as
+/// some release shipped it makes its example the user's. A link or a file
+/// where the folder was is the user's, whole.
 fn keep_changed_examples(
     dir: &Path,
     installed: &Path,
@@ -564,7 +515,10 @@ fn keep_changed_examples(
         for entry in std::fs::read_dir(installed).map_err(|e| format!("{}: {e}", show(installed)))? {
             let entry = entry.map_err(|e| format!("{}: {e}", show(installed)))?;
             let name = entry.file_name();
-            if !is_litter(&name) && !name.to_str().is_some_and(|n| shipped.has(&entry.path(), n)) {
+            if is_litter(&name) || name == EXAMPLES_VERSION {
+                continue;
+            }
+            if !name.to_str().is_some_and(|n| shipped.has(&entry.path(), n)) {
                 changed.push(name);
             }
         }
@@ -576,10 +530,9 @@ fn keep_changed_examples(
     if changed.is_empty() {
         return Ok(None);
     }
-    let scripts = dir.join("scripts");
-    let base = format!("examples-before-v{version}");
+    let base = dir.join("scripts").join("backup");
     let backup = (1..)
-        .map(|n| scripts.join(if n == 1 { base.clone() } else { format!("{base}-{n}") }))
+        .map(|n| base.join(if n == 1 { format!("before-v{version}") } else { format!("before-v{version}-{n}") }))
         .find(|p| std::fs::symlink_metadata(p).is_err())
         .expect("a free name");
     std::fs::create_dir_all(&backup).map_err(|e| format!("{}: {e}", show(&backup)))?;
@@ -591,18 +544,136 @@ fn keep_changed_examples(
     Ok(Some((backup, changed.iter().map(|n| n.to_string_lossy().into_owned()).collect())))
 }
 
-/// What the kalast tab says of `install_examples`'s outcome, and whether it
+/// The log's line for examples kept: where, and which.
+pub fn kept_line((backup, names): &(PathBuf, Vec<String>), dir: &Path) -> String {
+    let backup = backup.strip_prefix(dir).unwrap_or(backup).display();
+    match names.len() {
+        1 => format!("the example you had changed or added is in {backup}: {}", names[0]),
+        n => format!("the {n} examples you had changed or added are in {backup}: {}", names.join(", ")),
+    }
+}
+
+/// The examples this version ships, built into the bundle's executable
+/// (`build.rs`, `pack_examples`). None in the Python module or a build
+/// without an interpreter -- only a bundle's executable puts them in place --
+/// nor in the crate on crates.io, which has no build script to pack them.
+#[cfg(all(feature = "embed", kalast_examples))]
+static EXAMPLES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/examples.pack"));
+#[cfg(not(all(feature = "embed", kalast_examples)))]
+static EXAMPLES: &[u8] = &[];
+
+/// The files of a pack `pack_examples` wrote, by their path under
+/// `examples/`. A path that would leave that folder is refused.
+fn unpack(pack: &[u8]) -> Result<Vec<(&str, &[u8])>, String> {
+    if pack.is_empty() {
+        return Ok(vec![]);
+    }
+    fn take<'a>(pack: &'a [u8], at: &mut usize, n: usize) -> Result<&'a [u8], String> {
+        let bytes = pack.get(*at..*at + n).ok_or("the examples built in end early")?;
+        *at += n;
+        Ok(bytes)
+    }
+    if pack.get(..8) != Some(b"KALASTEX".as_slice()) {
+        return Err("the examples built in are not a pack".to_string());
+    }
+    let at = &mut 8;
+    let count = u32::from_le_bytes(take(pack, at, 4)?.try_into().unwrap());
+    let mut files = Vec::with_capacity(count as usize);
+    for _ in 0..count {
+        let len = u32::from_le_bytes(take(pack, at, 4)?.try_into().unwrap()) as usize;
+        let path = std::str::from_utf8(take(pack, at, len)?).map_err(|_| "a path built in is not UTF-8")?;
+        let len = u64::from_le_bytes(take(pack, at, 8)?.try_into().unwrap()) as usize;
+        let data = take(pack, at, len)?;
+        if path.is_empty() || Path::new(path).components().any(|c| !matches!(c, std::path::Component::Normal(_))) {
+            return Err(format!("a path built in leaves examples/: {path}"));
+        }
+        files.push((path, data));
+    }
+    Ok(files)
+}
+
+/// What `settle_examples` did.
+#[derive(Debug, PartialEq)]
+pub struct ExamplesSettled {
+    /// Where the examples the user changed or added went, and their names,
+    /// when there were any.
+    pub kept: Option<(PathBuf, Vec<String>)>,
+}
+
+/// This version's examples in `examples/`, when an update left another
+/// version's there, or none.
+///
+/// v0.5.12's updater, and the beta before it, never replace `examples/`: an
+/// update from either leaves the old examples and drops the new. So a
+/// bundle's executable carries its own (`EXAMPLES`), and
+/// `examples/.kalast-version` says whose are in the folder. This version's,
+/// nothing is done -- the user's edits included, until the next update keeps
+/// them. Another's, or none: the examples the user changed or added go to
+/// `scripts/backup/before-v<version>/` (`keep_changed_examples`), and this
+/// version's take the place of the rest. Written beside first, so a failure
+/// leaves the folder as it was, for the next start to try again.
+///
+/// `None` when they are this version's, or this build carries none.
+pub fn settle_examples(dir: &Path, version: &str) -> Result<Option<ExamplesSettled>, String> {
+    settle_examples_from(dir, version, &Shipped::new(), EXAMPLES)
+}
+
+/// `settle_examples`, from a list and a pack of its own for the tests.
+fn settle_examples_from(dir: &Path, version: &str, shipped: &Shipped, pack: &[u8]) -> Result<Option<ExamplesSettled>, String> {
+    let installed = dir.join("examples");
+    if std::fs::read_to_string(installed.join(EXAMPLES_VERSION)).is_ok_and(|v| v.trim() == version) {
+        return Ok(None);
+    }
+    let files = unpack(pack)?;
+    if files.is_empty() {
+        return Ok(None);
+    }
+    let show = |p: &Path| p.strip_prefix(dir).unwrap_or(p).display().to_string();
+    let previous = dir.join(".previous");
+    let fresh = previous.join("examples-new");
+    let _ = std::fs::remove_dir_all(&fresh);
+    for (path, data) in &files {
+        let to = fresh.join(path);
+        if let Some(parent) = to.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", show(parent)))?;
+        }
+        std::fs::write(&to, data).map_err(|e| format!("{}: {e}", show(&to)))?;
+    }
+    std::fs::write(fresh.join(EXAMPLES_VERSION), format!("{version}\n")).map_err(|e| format!("{EXAMPLES_VERSION}: {e}"))?;
+
+    let kept = keep_changed_examples(dir, &installed, version, shipped)?;
+    let swapped = (|| {
+        // What is left is kalast's own, as it shipped it: aside, and gone
+        // once the new ones are in -- or back, if they could not be.
+        let aside = previous.join("examples");
+        let old = std::fs::symlink_metadata(&installed).is_ok();
+        if old {
+            let _ = std::fs::remove_dir_all(&aside);
+            std::fs::rename(&installed, &aside).map_err(|e| format!("moving {} aside: {e}", show(&installed)))?;
+        }
+        if let Err(e) = std::fs::rename(&fresh, &installed) {
+            if old {
+                let _ = std::fs::rename(&aside, &installed);
+            }
+            return Err(format!("installing {}: {e}", show(&installed)));
+        }
+        let _ = std::fs::remove_dir_all(&aside);
+        Ok(())
+    })();
+    match (swapped, &kept) {
+        (Ok(()), _) => Ok(Some(ExamplesSettled { kept })),
+        (Err(e), None) => Err(e),
+        (Err(e), Some((backup, _))) => Err(format!("{e}; the ones you had changed are in {} already", show(backup))),
+    }
+}
+
+/// What the kalast tab says of `settle_examples`'s outcome, and whether it
 /// is news -- anything kept, or a failure -- rather than a line to read.
-pub fn examples_message(outcome: &Result<ExamplesInstalled, String>, dir: &Path, version: &str) -> (String, bool) {
+pub fn settled_message(outcome: &Result<ExamplesSettled, String>, dir: &Path, version: &str) -> (String, bool) {
     match outcome {
-        Ok(ExamplesInstalled { kept: None }) => (format!("installed the examples of v{version}"), false),
-        Ok(ExamplesInstalled { kept: Some((backup, names)) }) => {
-            let backup = backup.strip_prefix(dir).unwrap_or(backup).display();
-            let what = match names.len() {
-                1 => "the example you had changed or added is".to_string(),
-                n => format!("the {n} examples you had changed or added are"),
-            };
-            (format!("installed the examples of v{version}; {what} in {backup}: {}", names.join(", ")), true)
+        Ok(ExamplesSettled { kept: None }) => (format!("installed the examples of v{version}"), false),
+        Ok(ExamplesSettled { kept: Some(kept) }) => {
+            (format!("installed the examples of v{version}; {}", kept_line(kept, dir)), true)
         }
         Err(e) => (format!("the examples of v{version} could not be installed, kalast tries again at its next start: {e}"), true),
     }
@@ -889,28 +960,24 @@ mod tests {
         )
     }
 
-    /// A first start, from an archive just unpacked: the examples are put
-    /// in place, and a second start finds nothing more to do.
-    #[test]
-    fn a_new_bundles_examples_are_put_in_place() {
-        let b = Bundle::new("fresh");
-        b.write("res/examples/cube/main.py", "cube = 3\n");
-        let done = install_examples_against(&b.0, "9.9.9", &shipped()).unwrap();
-        assert_eq!(done, Some(ExamplesInstalled { kept: None }));
-        assert_eq!(b.read("examples/cube/main.py").as_deref(), Some("cube = 3\n"));
-        assert!(!b.exists("res/examples") && !b.exists("scripts"));
-        assert_eq!(install_examples_against(&b.0, "9.9.9", &shipped()).unwrap(), None);
+    /// A pack as `build.rs` writes one.
+    fn pack(files: &[(&str, &str)]) -> Vec<u8> {
+        let mut out = b"KALASTEX".to_vec();
+        out.extend((files.len() as u32).to_le_bytes());
+        for (path, text) in files {
+            out.extend((path.len() as u32).to_le_bytes());
+            out.extend(path.as_bytes());
+            out.extend((text.len() as u64).to_le_bytes());
+            out.extend(text.as_bytes());
+        }
+        out
     }
 
-    /// An update: every example exactly as some release shipped it -- in
-    /// Windows' line endings too, and with the litter a folder collects --
-    /// goes; one edited, one with a file added, one of the user's own and
-    /// an edited README are kept whole in `scripts/`, and the new examples
-    /// take the place of the old.
-    #[test]
-    fn the_examples_a_user_changed_are_kept_in_scripts() {
-        let b = Bundle::new("update");
-        b.write("examples/README.md", "# the README\r\n");
+    /// A v0.5.12 bundle's examples: as shipped -- in Windows' line endings
+    /// too, with the litter a folder collects -- but for one edited, one
+    /// with a file added, one of the user's own and an edited README.
+    fn a_users_examples(b: &Bundle) {
+        b.write("examples/README.md", "# the README, edited\n");
         b.write("examples/cube/main.py", "cube = 1\r\n");
         b.write("examples/cube/cube.obj", "v 0 0 0\n");
         b.write("examples/cube/__pycache__/main.cpython-314.pyc", "bytes");
@@ -920,85 +987,124 @@ mod tests {
         b.write("examples/mars/swingby/out.csv", "t, x\n");
         b.write("examples/mine/main.py", "mine = 1\n");
         b.write("scripts/test/main.py", "the user's\n");
-        b.write("res/examples/README.md", "# the new README\n");
-        b.write("res/examples/cube/main.py", "cube = 3\n");
-        b.write("res/examples/sphere/main.py", "sphere = 2\n");
+    }
 
-        let done = install_examples_against(&b.0, "9.9.9", &shipped()).unwrap().unwrap();
-        let (backup, names) = done.kept.unwrap();
-        assert_eq!(backup, b.0.join("scripts/examples-before-v9.9.9"));
-        assert_eq!(names, ["mars", "mine", "sphere"]);
-        assert_eq!(b.read("scripts/examples-before-v9.9.9/sphere/main.py").as_deref(), Some("sphere = 1, edited\n"));
-        assert_eq!(b.read("scripts/examples-before-v9.9.9/mars/swingby/out.csv").as_deref(), Some("t, x\n"));
-        assert_eq!(b.read("scripts/examples-before-v9.9.9/mars/swingby/main.py").as_deref(), Some("orbit = 1\n"));
-        assert_eq!(b.read("scripts/examples-before-v9.9.9/mine/main.py").as_deref(), Some("mine = 1\n"));
-        assert!(!b.exists("scripts/examples-before-v9.9.9/cube") && !b.exists("scripts/examples-before-v9.9.9/README.md"));
+    /// What `a_users_examples` makes the user's, kept whole where it ran.
+    fn kept_as_they_were(b: &Bundle, backup: &str) {
+        assert_eq!(b.read(&format!("{backup}/README.md")).as_deref(), Some("# the README, edited\n"));
+        assert_eq!(b.read(&format!("{backup}/sphere/main.py")).as_deref(), Some("sphere = 1, edited\n"));
+        assert_eq!(b.read(&format!("{backup}/mars/swingby/out.csv")).as_deref(), Some("t, x\n"));
+        assert_eq!(b.read(&format!("{backup}/mars/swingby/main.py")).as_deref(), Some("orbit = 1\n"));
+        assert_eq!(b.read(&format!("{backup}/mine/main.py")).as_deref(), Some("mine = 1\n"));
+        assert!(!b.exists(&format!("{backup}/cube")), "cube is as shipped, CRLF and bytecode aside");
         assert_eq!(b.read("scripts/test/main.py").as_deref(), Some("the user's\n"));
+    }
 
-        assert_eq!(b.read("examples/README.md").as_deref(), Some("# the new README\n"));
+    /// An update by this version: the examples the user changed or added go
+    /// to `scripts/backup/before-v<new>/` first, then the new bundle takes
+    /// the place of the old -- its `examples` with the rest, never
+    /// `scripts`, even one the archive holds.
+    #[test]
+    fn an_update_keeps_the_examples_a_user_changed_in_scripts_backup() {
+        let b = Bundle::new("update");
+        a_users_examples(&b);
+        b.write("kalast", "old");
+        b.write("examples/.kalast-version", "9.9.8\n");
+        let inner = "update/kalast-v9.9.9";
+        b.write(&format!("{inner}/kalast"), "new");
+        b.write(&format!("{inner}/examples/cube/main.py"), "cube = 3\n");
+        b.write(&format!("{inner}/examples/.kalast-version"), "9.9.9\n");
+        b.write(&format!("{inner}/scripts/test/main.py"), "shipped\n");
+        let lines = std::cell::RefCell::new(vec![]);
+        install_unpacked(&b.0.join(inner), &b.0, "9.9.9", &shipped(), &|l| lines.borrow_mut().push(l)).unwrap();
+
+        kept_as_they_were(&b, "scripts/backup/before-v9.9.9");
+        assert_eq!(b.read("kalast").as_deref(), Some("new"));
         assert_eq!(b.read("examples/cube/main.py").as_deref(), Some("cube = 3\n"));
-        assert_eq!(b.read("examples/sphere/main.py").as_deref(), Some("sphere = 2\n"));
-        assert!(!b.exists("examples/cube/cube.obj") && !b.exists("examples/mine") && !b.exists("examples/.DS_Store"));
-        assert!(!b.exists("res/examples") && !b.exists(".previous/examples"));
-
-        let (line, news) = examples_message(&Ok(ExamplesInstalled { kept: Some((backup, names)) }), &b.0, "9.9.9");
-        assert!(news);
+        assert_eq!(b.read("examples/.kalast-version").as_deref(), Some("9.9.9\n"));
+        assert!(!b.exists("examples/mine") && !b.exists("examples/README.md") && !b.exists(".previous"));
+        let backup = std::path::Path::new("scripts").join("backup").join("before-v9.9.9");
         assert_eq!(
-            line,
-            format!(
-                "installed the examples of v9.9.9; the 3 examples you had changed or added are in {}: mars, mine, sphere",
-                std::path::Path::new("scripts").join("examples-before-v9.9.9").display()
-            )
+            *lines.borrow(),
+            [format!("the 4 examples you had changed or added are in {}: README.md, mars, mine, sphere", backup.display())]
         );
     }
 
-    /// Every example as shipped: nothing is kept, and nothing said but that
-    /// the examples are in.
+    /// Every example as shipped: nothing kept, nothing said.
     #[test]
-    fn examples_as_shipped_are_replaced_quietly() {
+    fn an_update_over_examples_as_shipped_keeps_nothing() {
         let b = Bundle::new("quiet");
         b.write("examples/cube/main.py", "cube = 2\n");
         b.write("examples/README.md", "# the README\n");
-        b.write("res/examples/cube/main.py", "cube = 3\n");
-        let done = install_examples_against(&b.0, "9.9.9", &shipped()).unwrap();
-        assert_eq!(done, Some(ExamplesInstalled { kept: None }));
-        assert!(!b.exists("scripts"));
+        b.write("update/kalast-v9.9.9/examples/cube/main.py", "cube = 3\n");
+        let lines = std::cell::RefCell::new(vec![]);
+        install_unpacked(&b.0.join("update/kalast-v9.9.9"), &b.0, "9.9.9", &shipped(), &|l| lines.borrow_mut().push(l)).unwrap();
+        assert!(lines.borrow().is_empty() && !b.exists("scripts"));
         assert_eq!(b.read("examples/cube/main.py").as_deref(), Some("cube = 3\n"));
-        assert_eq!(examples_message(&Ok(done.unwrap()), &b.0, "9.9.9"), ("installed the examples of v9.9.9".to_string(), false));
+        assert!(!b.exists("examples/README.md"));
     }
 
-    /// A second update of one version -- a beta, then its release -- keeps
-    /// the first's folder and makes another beside it.
+    /// After an update by v0.5.12, which left `examples/` as it was: the
+    /// examples the user changed or added kept, and the ones built into
+    /// kalast in the place of the rest, with their version.
     #[test]
-    fn a_folder_kept_before_is_not_written_into() {
+    fn examples_an_older_update_left_are_replaced_by_kalasts_own() {
+        let b = Bundle::new("settle");
+        a_users_examples(&b);
+        let built_in = pack(&[("README.md", "# the new README\n"), ("cube/main.py", "cube = 3\n"), ("sphere/main.py", "sphere = 2\n")]);
+        let done = settle_examples_from(&b.0, "9.9.9", &shipped(), &built_in).unwrap().unwrap();
+        let (backup, names) = done.kept.clone().unwrap();
+        assert_eq!(backup, b.0.join("scripts/backup/before-v9.9.9"));
+        assert_eq!(names, ["README.md", "mars", "mine", "sphere"]);
+        kept_as_they_were(&b, "scripts/backup/before-v9.9.9");
+        assert_eq!(b.read("examples/README.md").as_deref(), Some("# the new README\n"));
+        assert_eq!(b.read("examples/cube/main.py").as_deref(), Some("cube = 3\n"));
+        assert_eq!(b.read("examples/sphere/main.py").as_deref(), Some("sphere = 2\n"));
+        assert_eq!(b.read("examples/.kalast-version").as_deref(), Some("9.9.9\n"));
+        assert!(!b.exists("examples/cube/cube.obj") && !b.exists("examples/mine") && !b.exists("examples/.DS_Store"));
+        assert!(!b.exists(".previous/examples") && !b.exists(".previous/examples-new"));
+
+        let (line, news) = settled_message(&Ok(done), &b.0, "9.9.9");
+        assert!(news);
+        let backup = std::path::Path::new("scripts").join("backup").join("before-v9.9.9");
+        assert_eq!(
+            line,
+            format!(
+                "installed the examples of v9.9.9; the 4 examples you had changed or added are in {}: README.md, mars, mine, sphere",
+                backup.display()
+            )
+        );
+
+        // The next start finds them this version's, and does nothing.
+        b.write("examples/cube/main.py", "cube = 3, edited since\n");
+        assert_eq!(settle_examples_from(&b.0, "9.9.9", &shipped(), &built_in).unwrap(), None);
+        assert_eq!(b.read("examples/cube/main.py").as_deref(), Some("cube = 3, edited since\n"));
+    }
+
+    /// No `examples/` at all -- v0.5.12 unpacked, never started, updated
+    /// from a terminal -- gets this version's, and nothing else happens.
+    #[test]
+    fn a_missing_examples_folder_is_put_back() {
+        let b = Bundle::new("missing");
+        let built_in = pack(&[("cube/main.py", "cube = 3\n")]);
+        let done = settle_examples_from(&b.0, "9.9.9", &shipped(), &built_in).unwrap().unwrap();
+        assert_eq!(done, ExamplesSettled { kept: None });
+        assert_eq!(b.read("examples/cube/main.py").as_deref(), Some("cube = 3\n"));
+        assert!(!b.exists("scripts"));
+        assert_eq!(settled_message(&Ok(done), &b.0, "9.9.9"), ("installed the examples of v9.9.9".to_string(), false));
+    }
+
+    /// A second backup for one version -- a beta, then its release -- is a
+    /// folder of its own beside the first.
+    #[test]
+    fn a_backup_never_writes_into_an_earlier_one() {
         let b = Bundle::new("again");
-        b.write("scripts/examples-before-v9.9.9/mine/main.py", "first\n");
+        b.write("scripts/backup/before-v9.9.9/mine/main.py", "first\n");
         b.write("examples/mine/main.py", "second\n");
-        b.write("res/examples/cube/main.py", "cube = 3\n");
-        let done = install_examples_against(&b.0, "9.9.9", &shipped()).unwrap().unwrap();
-        assert_eq!(done.kept.unwrap().0, b.0.join("scripts/examples-before-v9.9.9-2"));
-        assert_eq!(b.read("scripts/examples-before-v9.9.9/mine/main.py").as_deref(), Some("first\n"));
-        assert_eq!(b.read("scripts/examples-before-v9.9.9-2/mine/main.py").as_deref(), Some("second\n"));
-    }
-
-    /// The new examples keep their files' times through the move: the
-    /// precompiled Rust examples are current only while their libraries are
-    /// newer.
-    #[test]
-    fn the_examples_keep_their_times() {
-        let b = Bundle::new("times");
-        b.write("examples/cube/main.py", "cube = 1\n");
-        b.write("res/examples/cube/main.rs", "fn main() {}\n");
-        let then = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
-        std::fs::File::options()
-            .write(true)
-            .open(b.0.join("res/examples/cube/main.rs"))
-            .unwrap()
-            .set_modified(then)
-            .unwrap();
-        install_examples_against(&b.0, "9.9.9", &shipped()).unwrap();
-        let modified = std::fs::metadata(b.0.join("examples/cube/main.rs")).unwrap().modified().unwrap();
-        assert_eq!(modified, then);
+        let kept = keep_changed_examples(&b.0, &b.0.join("examples"), "9.9.9", &shipped()).unwrap().unwrap();
+        assert_eq!(kept.0, b.0.join("scripts/backup/before-v9.9.9-2"));
+        assert_eq!(b.read("scripts/backup/before-v9.9.9/mine/main.py").as_deref(), Some("first\n"));
+        assert_eq!(b.read("scripts/backup/before-v9.9.9-2/mine/main.py").as_deref(), Some("second\n"));
     }
 
     /// A link is the user's, whole, and never followed: whatever it points
@@ -1011,46 +1117,69 @@ mod tests {
         elsewhere.write("theirs/main.py", "cube = 1\n");
         std::fs::create_dir_all(b.0.join("examples")).unwrap();
         std::os::unix::fs::symlink(elsewhere.0.join("theirs"), b.0.join("examples/cube")).unwrap();
-        b.write("res/examples/cube/main.py", "cube = 3\n");
-        let done = install_examples_against(&b.0, "9.9.9", &shipped()).unwrap().unwrap();
-        assert_eq!(done.kept.unwrap().1, ["cube"]);
-        let kept = b.0.join("scripts/examples-before-v9.9.9/cube");
-        assert!(std::fs::symlink_metadata(&kept).unwrap().file_type().is_symlink());
+        let kept = keep_changed_examples(&b.0, &b.0.join("examples"), "9.9.9", &shipped()).unwrap().unwrap();
+        assert_eq!(kept.1, ["cube"]);
+        let link = b.0.join("scripts/backup/before-v9.9.9/cube");
+        assert!(std::fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
         assert_eq!(elsewhere.read("theirs/main.py").as_deref(), Some("cube = 1\n"));
-        assert_eq!(b.read("examples/cube/main.py").as_deref(), Some("cube = 3\n"));
 
         // `examples` itself a link, to a checkout's, say.
         let c = Bundle::new("linked");
         std::os::unix::fs::symlink(&elsewhere.0, c.0.join("examples")).unwrap();
-        c.write("res/examples/cube/main.py", "cube = 3\n");
-        let done = install_examples_against(&c.0, "9.9.9", &shipped()).unwrap().unwrap();
+        let built_in = pack(&[("cube/main.py", "cube = 3\n")]);
+        let done = settle_examples_from(&c.0, "9.9.9", &shipped(), &built_in).unwrap().unwrap();
         assert_eq!(done.kept.unwrap().1, ["examples"]);
-        assert!(std::fs::symlink_metadata(c.0.join("scripts/examples-before-v9.9.9/examples")).unwrap().file_type().is_symlink());
+        assert!(std::fs::symlink_metadata(c.0.join("scripts/backup/before-v9.9.9/examples")).unwrap().file_type().is_symlink());
         assert_eq!(elsewhere.read("theirs/main.py").as_deref(), Some("cube = 1\n"));
         assert_eq!(c.read("examples/cube/main.py").as_deref(), Some("cube = 3\n"));
     }
 
-    /// The swap replaces what the archive holds and leaves the user's own:
-    /// an archive holding `examples` or `scripts` all the same is not let
-    /// near theirs.
+    /// A pack is read back as written, and one naming a path out of
+    /// `examples/` is refused whole.
     #[test]
-    fn an_update_never_replaces_the_examples_or_the_scripts() {
+    fn a_pack_is_read_back_and_never_leaves_examples() {
+        let files = pack(&[("README.md", "# r\n"), ("cube/main.py", "x\n")]);
+        assert_eq!(unpack(&files).unwrap(), [("README.md", b"# r\n".as_slice()), ("cube/main.py", b"x\n".as_slice())]);
+        assert!(unpack(&pack(&[("../escape.py", "x")])).is_err());
+        assert!(unpack(&pack(&[("/abs.py", "x")])).is_err());
+        assert!(unpack(&files[..files.len() - 1]).is_err(), "cut short");
+        assert!(unpack(b"").unwrap().is_empty());
+    }
+
+    /// The examples built into the bundle's executable are the repository's,
+    /// every file, byte for byte.
+    #[cfg(all(feature = "embed", kalast_examples))]
+    #[test]
+    fn the_examples_built_in_are_the_repositorys() {
+        let files = unpack(EXAMPLES).unwrap();
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+        assert!(files.len() > 50, "{} files", files.len());
+        for (path, data) in &files {
+            assert_eq!(std::fs::read(root.join(path)).unwrap(), *data, "{path}");
+        }
+        assert!(files.iter().any(|(p, _)| *p == "README.md"));
+        assert!(!files.iter().any(|(p, _)| p.contains("__pycache__") || p.ends_with(".DS_Store")));
+    }
+
+    /// The swap replaces what the archive holds, `examples` included, and
+    /// never `scripts`, even one the archive holds.
+    #[test]
+    fn an_update_never_replaces_the_scripts() {
         let b = Bundle::new("swap");
         b.write("kalast", "old");
         b.write("res/sph1.obj", "old");
-        b.write("examples/mine/main.py", "mine\n");
+        b.write("examples/cube/main.py", "cube = 1\n");
         b.write("scripts/test/main.py", "the user's\n");
         b.write(".update/kalast-v9.9.9/kalast", "new");
-        b.write(".update/kalast-v9.9.9/res/examples/cube/main.py", "cube = 3\n");
+        b.write(".update/kalast-v9.9.9/res/sph1.obj", "new");
         b.write(".update/kalast-v9.9.9/examples/cube/main.py", "cube = 3\n");
         b.write(".update/kalast-v9.9.9/scripts/test/main.py", "shipped\n");
         std::fs::create_dir_all(b.0.join(".previous")).unwrap();
         swap_in(&b.0.join(".update/kalast-v9.9.9"), &b.0, &b.0.join(".previous")).unwrap();
         assert_eq!(b.read("kalast").as_deref(), Some("new"));
         assert_eq!(b.read(".previous/kalast").as_deref(), Some("old"));
-        assert!(!b.exists("res/sph1.obj") && b.exists("res/examples/cube/main.py"));
-        assert_eq!(b.read("examples/mine/main.py").as_deref(), Some("mine\n"));
-        assert!(!b.exists("examples/cube"));
+        assert_eq!(b.read("res/sph1.obj").as_deref(), Some("new"));
+        assert_eq!(b.read("examples/cube/main.py").as_deref(), Some("cube = 3\n"));
         assert_eq!(b.read("scripts/test/main.py").as_deref(), Some("the user's\n"));
     }
 }

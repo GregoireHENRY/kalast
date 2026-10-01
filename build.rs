@@ -19,6 +19,10 @@
 //! code is linked against the SDK installed. The Python module is left alone:
 //! there the main executable is Python's.
 //! `notes/2026-09-28_macos26_sdk_paces_the_pump.md`.
+//!
+//! And the examples, packed for the bundle's executable to put back in
+//! `examples/` when an older updater left that folder as it was
+//! (`update::settle_examples`).
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=res/kalast.rc");
@@ -42,6 +46,58 @@ fn main() {
             println!("cargo:warning=kalast.exe keeps the default icon: {e}");
         }
     }
+    println!("cargo:rerun-if-changed=examples");
+    let pack = std::path::PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR")).join("examples.pack");
+    let packed = pack_examples(std::path::Path::new("examples"));
+    // Written only when it changed: an example run writes its bytecode and
+    // its output beside it, which reruns this, and a pack rewritten the same
+    // would still recompile the crate.
+    if std::fs::read(&pack).ok().as_deref() != Some(packed.as_slice()) {
+        std::fs::write(&pack, packed).expect("write examples.pack");
+    }
+    // What says it is there: the crate on crates.io ships without this
+    // script, so without `OUT_DIR`, and builds with none.
+    println!("cargo:rustc-check-cfg=cfg(kalast_examples)");
+    println!("cargo:rustc-cfg=kalast_examples");
+}
+
+/// Every file of `examples/` but what a folder collects -- the Finder's and
+/// Explorer's records, Python's bytecode -- and the version a bundle writes
+/// there. `KALASTEX`, a little-endian u32 count, then per file a u32 length
+/// and its path under `examples/` with `/`, a u64 length and its bytes, in
+/// path order, so one tree packs to the same bytes. A crate built from
+/// crates.io has only `examples/README.md` to pack.
+fn pack_examples(root: &std::path::Path) -> Vec<u8> {
+    fn walk(dir: &std::path::Path, prefix: &str, files: &mut Vec<(String, std::path::PathBuf)>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if matches!(name.as_str(), ".DS_Store" | "Thumbs.db" | "desktop.ini" | "__pycache__" | ".kalast-version") {
+                continue;
+            }
+            let rel = if prefix.is_empty() { name } else { format!("{prefix}/{name}") };
+            match entry.file_type() {
+                Ok(t) if t.is_dir() => walk(&entry.path(), &rel, files),
+                Ok(t) if t.is_file() => files.push((rel, entry.path())),
+                _ => {}
+            }
+        }
+    }
+    let mut files = vec![];
+    walk(root, "", &mut files);
+    files.sort();
+    let mut out = b"KALASTEX".to_vec();
+    out.extend((files.len() as u32).to_le_bytes());
+    for (rel, path) in files {
+        let data = std::fs::read(&path).expect("read an example");
+        out.extend((rel.len() as u32).to_le_bytes());
+        out.extend(rel.as_bytes());
+        out.extend((data.len() as u64).to_le_bytes());
+        out.extend(data);
+    }
+    out
 }
 
 /// The macOS version rustc links for, worked out as rustc does:

@@ -9,7 +9,6 @@ from kalast.util import AU
 
 app = App()
 app.simulation.config.wireframe.mode = 2
-app.simulation.config.wireframe.color = [0.05, 0.05, 0.05, 1.0]
 app.simulation.config.axes.style = "gizmo"
 
 # Colormap for surface temperature.

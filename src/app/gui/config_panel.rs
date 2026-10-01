@@ -90,7 +90,7 @@ pub fn group_shadows(ui: &mut egui::Ui, c: &mut Config) {
 /// `config.wireframe` -- Wireframe.
 pub fn group_wireframe(ui: &mut egui::Ui, c: &mut Config) {
     setting(ui, "mode", "the barycentrics are meaningless and the CPU side warns once.", |ui| ui.add(egui::Slider::new(&mut c.wireframe.mode, 0..=2).clamping(egui::SliderClamping::Edits)));
-    setting(ui, "color", "Wireframe colour, `(r, g, b, a)`; alpha is dropped.", |ui| {
+    setting(ui, "color", "Wireframe colour, `(r, g, b, a)`; alpha is dropped. Very dark grey rather than black by default.", |ui| {
         let mut rgba = [c.wireframe.color.r as f32, c.wireframe.color.g as f32,
                         c.wireframe.color.b as f32, c.wireframe.color.a as f32];
         if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {

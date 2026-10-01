@@ -186,10 +186,9 @@ again on the new version with the same command line. Nothing restarts on its
 own. Up to date, the log says so in one line; unreachable, it says nothing.
 The lines go to the log's kalast tab.
 
-A bundle's `scripts` and `examples` are not among the folders replaced. The
-new version, at its first start, puts its examples in place of the old, and
-moves each example you changed or added, whole, to
-`scripts/examples-before-v<version>`; the kalast tab says which.
+A bundle's `scripts` is never replaced. Before `examples` is, every example
+you changed or added there moves, whole, to
+`scripts/backup/before-v<version>/`, and the log says which.
 
 A beta bundle -- one from the pre-release `v<version>-beta` -- is offered the
 newer beta of its version, and then that version's release. It knows which
@@ -1874,7 +1873,7 @@ Indices are the mesh's own facet indices, the same ones `sim.toggle_facet`
 takes and `mesh.values`/`mesh.colors` are indexed by. Useful on `res/cube.obj`
 (12 facets) to see which triangle is which before writing per-facet data.
 
-### `wireframe.mode: u32` — default `0` *(live)*
+### `wireframe.mode: u32` — default `2` *(live)*
 
 | Value | Meaning |
 |---|---|
@@ -1894,7 +1893,7 @@ the framebuffer (100k+ facets seen from far away) every fragment is within
 `wireframe.width` of an edge and the body renders solid. Zoom in or use a
 decimated mesh.
 
-### `wireframe.color: wgpu::Color` — default `BLACK` *(live)*
+### `wireframe.color: wgpu::Color` — default `(0.01, 0.01, 0.01, 1.0)` *(live)*
 Accepted: any 4-element sequence of floats — tuple, list or `numpy.array` —
 as `(r, g, b, a)`; alpha is dropped. Same as `shading.background`, `shading.color` and
 `light.color`.

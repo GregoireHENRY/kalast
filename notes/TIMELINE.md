@@ -5282,3 +5282,26 @@ v0.5.12 released (`a2f30e5`: GitHub release, crates.io, PyPI). The published
 v0.5.10 bundle then updated itself to it through its own `kalast --update`,
 and v0.5.12's first start kept the edited `cube` and the added `mine` in
 `scripts/examples-before-v0.5.12/`.
+
+## 2026-10-01 — examples back at the bundle's root; backups in scripts/backup
+
+The user refused v0.5.12's `res/examples` and set the layout: `examples/` and
+an empty `scripts/` at the root, the user's work in `scripts/`, changed or
+added examples saved in `scripts/backup` at an update. Given that v0.5.10's
+updater deletes an archive's `examples/` before any new code runs, they kept
+the update button and accepted that loss for users skipping v0.5.12; updates
+stay in place. This version's updater moves changed examples to
+`scripts/backup/before-v<version>/` before the swap; after v0.5.12's updater,
+which drops the new examples, the executable installs its own copy
+(`build.rs` pack, `examples/.kalast-version`). Tried end to end from a fresh
+unpack, from v0.5.12, and through the new updater for real. Not released yet:
+0.5.13, `## v0.5.13-beta`. Write-up: `2026-10-01_examples_back_at_the_root.md`.
+
+## 2026-10-01 — `K` steps a script's own loop; the wireframe's defaults
+
+`K` moved the counter of a script driving its own loop without running it: the
+key arrived before the frame decided to advance, and the frame took the
+iteration itself. Step and `K` now ask, and the frame grants at its end, so the
+loop gets its turn. The wireframe defaults to mode 2 in `(0.01, 0.01, 0.01)`.
+`tpm_logo.py` steps a spin exactly and shows TPM it/s in a HUD. Write-up:
+`2026-10-01_step_key_and_wireframe_defaults.md`.

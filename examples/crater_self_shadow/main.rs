@@ -11,17 +11,9 @@ fn main() {
     {
         let config = app.sim_config();
         let mut c = config.borrow_mut();
-        c.axes.style = kalast::app::axes::AxesStyle::Gizmo;
         c.shading.render_back_face = true;
         c.light.cube_show = true;
         c.shadows.access_shadow_map = true;
-        c.wireframe.mode = 2;
-        c.wireframe.color = wgpu::Color {
-            r: 0.05,
-            g: 0.05,
-            b: 0.05,
-            a: 1.0,
-        };
     }
 
     {

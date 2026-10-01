@@ -9,6 +9,13 @@ pushed. While betas of a version go out, its section is headed
 `## v<version>-beta`; it becomes `## v<version>` when the version is
 released, and the gate refuses the tag until it has.
 
+## v0.5.13-beta
+
+- A downloaded bundle has `examples/` at its root again, beside an empty `scripts/` for your own scripts. An update never touches `scripts/`, and before it replaces `examples/`, moves every example you changed or added there, whole, to `scripts/backup/before-v<version>/`.
+- The wireframe is on by default, drawn over the shaded mesh (`wireframe.mode = 2`), in very dark grey `(0.01, 0.01, 0.01, 1.0)` rather than black; the examples no longer set that colour themselves.
+- `K` steps a script that runs its own loop -- `while app.running:`, as `examples/sphere/main.py` does -- as the Step button does. It moved the iteration counter and nothing else.
+- In `examples/sphere/tpm_logo.py` the time step divides Didymos's spin exactly, so drawing a frame a spin (`steps_per_frame = steps_per_spin`) shows it at the same turn every frame instead of creeping round.
+
 ## v0.5.12
 
 - The bundle's script editor has a Python language server with nothing to install: ty, Astral's, ships in the bundle -- completion, hover, signatures, errors and go to definition, on kalast's own API too. For `python -m kalast`, `pip install "kalast[editor]"` brings it. basedpyright, which catches more type errors, is one setting away: `app.config.python_language_server = "basedpyright-langserver --stdio"`.

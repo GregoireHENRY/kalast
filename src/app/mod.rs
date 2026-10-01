@@ -1419,10 +1419,6 @@ impl App {
             sim.load_mesh(path, crate::Mat4::IDENTITY, false);
             sim.frame_all();
         }
-        let config = self.sim_config();
-        let mut c = config.borrow_mut();
-        c.wireframe.mode = 2;
-        c.wireframe.color = wgpu::Color { r: 0.05, g: 0.05, b: 0.05, a: 1.0 };
     }
 
     /// Realise any option that changed since the window was built.
@@ -1936,16 +1932,15 @@ impl App {
                 uncaptured = self.stdio.is_none() && !crate::app::gui::StdioCapture::active();
             }
         }
-        // A new version's examples, in the place of the old, the ones the
-        // user changed or added kept in `scripts/` (`update::install_examples`):
-        // at a bundle's first start after an update, or after it was
-        // unpacked, and before anything reads `examples/` -- a script named
-        // on the command line, the scripts tab.
+        // This version's examples, when an older updater left another's in
+        // `examples/` -- the ones the user changed or added kept in
+        // `scripts/backup/` (`update::settle_examples`). Before anything reads
+        // that folder: a script named on the command line, the scripts tab.
         let examples = match crate::app::update::kind() {
             crate::app::update::Kind::Bundle(dir) => {
-                crate::app::update::install_examples(&dir, crate::app::update::CURRENT)
+                crate::app::update::settle_examples(&dir, crate::app::update::CURRENT)
                     .transpose()
-                    .map(|outcome| crate::app::update::examples_message(&outcome, &dir, crate::app::update::CURRENT))
+                    .map(|outcome| crate::app::update::settled_message(&outcome, &dir, crate::app::update::CURRENT))
             }
             _ => None,
         };
@@ -3527,6 +3522,10 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 if !paused {
                     self.simulation.borrow_mut().update();
                 }
+                // Step or `K`, granted now that this frame has decided: the
+                // next one runs the iteration, and a driven script's loop
+                // gets its turn between the two (`State::grant_step`).
+                self.simulation.borrow_mut().state.grant_step();
 
                 // Reached only by a frame that actually rendered: the
                 // early return above, for a surface that is not configured
@@ -3597,9 +3596,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     // runs the script again, which is a long run thrown away
                     // by a keystroke -- worth having to aim for.
                     (winit::keyboard::KeyCode::KeyK, true) => {
-                        let mut sim = self.simulation.borrow_mut();
-                        sim.state.hold_after_iteration = Some(sim.state.iteration);
-                        sim.state.is_paused = false;
+                        self.simulation.borrow_mut().state.request_step();
                     }
 
                     (winit::keyboard::KeyCode::KeyT, true) => {
@@ -4079,7 +4076,7 @@ mod editor_tests {
         {
             let mut sim = app.simulation.borrow_mut();
             sim.load_mesh(&root.join("res/cube.obj"), crate::Mat4::IDENTITY, false);
-            sim.config.borrow_mut().wireframe.mode = 2;
+            sim.config.borrow_mut().wireframe.mode = 0;
         }
         {
             let mut shared = app.shared.borrow_mut();
@@ -4094,7 +4091,11 @@ mod editor_tests {
         let shared = app.shared.borrow();
         let sim = app.simulation.borrow();
         assert!(sim.bodies.is_empty(), "no bodies");
-        assert_eq!(sim.config.borrow().wireframe.mode, 0, "the config's defaults");
+        assert_eq!(
+            sim.config.borrow().wireframe.mode,
+            crate::app::config::Wireframe::default().mode,
+            "the config's defaults"
+        );
         assert!(shared.before_render.is_none(), "no callback left to run");
         assert!(shared.last_script.is_none() && !shared.script_ran, "nothing counted as run");
         assert!(!shared.reset_requested, "taken");

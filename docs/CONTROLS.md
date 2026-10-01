@@ -93,11 +93,13 @@ what the key or a drag did; see `CONFIG.md`.
 
 ### `K` — one iteration
 
-The two lines the editor's Step button runs: set
-`state.pause_after_iteration` to the iteration about to run and clear
-`is_paused`, so the next frame runs it and `Simulation::update` holds it again
-after it. Same code, so the key and the button cannot drift
-apart.
+What the editor's Step button does, through the same call
+(`State::request_step`), so the two cannot drift apart: one iteration, then
+hold. The request is granted when the frame it arrived in ends, so the next
+frame runs the iteration and holds after it -- and a script running its own
+loop, `while app.running:` checking `is_paused`, sees the run unpaused for
+exactly one turn between those two frames. Held down, `K` steps on at the
+key's repeat.
 
 Nothing happens while a script has not run — there is no iteration to take.
 
@@ -460,11 +462,10 @@ by the editor's **render** button alone. A right click on a row:
 
 Delete moves to the Trash, from where it can be put back, once asked. An
 update of a release bundle never touches `scripts`, which is where your own
-belong, and replaces `examples` at the new version's first start: an example
-you changed or added -- a file edited, or new -- moves whole, as it was, to
-`scripts/examples-before-v<version>`, and the kalast tab says which. Folders
-are re-read every two seconds while shown, so a file a script writes turns
-up.
+belong, and replaces `examples`: an example you changed or added there -- a
+file edited, or new -- first moves whole, as it was, to
+`scripts/backup/before-v<version>/`, and the log says which. Folders are
+re-read every two seconds while shown, so a file a script writes turns up.
 
 The editor keeps every file opened this run, each with its edits, listed on
 its left as the documentation lists its pages: the one shown lit, an edited

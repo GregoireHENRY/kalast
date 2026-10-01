@@ -2236,8 +2236,7 @@ impl Editor {
                             .on_hover_text("Step: advance one iteration  (K)")
                             .clicked()
                         {
-                            state.is_paused = false;
-                            state.hold_after_iteration = Some(state.iteration);
+                            state.request_step();
                         }
                         // Enabled whenever there is something to run, not only
                         // once it has run: an edit clears `script_ran` so that

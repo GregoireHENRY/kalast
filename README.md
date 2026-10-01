@@ -116,9 +116,9 @@ xattr -cr /path/to/kalast-v*-*
 Then double-click `kalast.app` in that folder to open the UI app; `./kalast`
 runs it from a terminal.
 
-Your own scripts belong in `scripts/`. The first start puts the examples in
-`examples/`, and each update replaces them, keeping any example you changed
-or added in `scripts/examples-before-v<version>`.
+Write your own scripts in `scripts/`. `examples/` holds kalast's examples,
+which each update replaces: an example you changed or added there is first
+moved, whole, to `scripts/backup/before-v<version>/`.
 
 Kalast is also available as a [PyPI package](https://pypi.org/project/kalast)
 and as a [crate](https://crates.io/crates/kalast).
@@ -140,7 +140,7 @@ cargo add kalast            # Rust
 - `kalast/`: Python wrapper. Provides Pythonic usage of Kalast (e.g. object
   references) for users less familiar with Rust. Built with maturin.
 - `shaders/`: wgpu shaders (`.wgsl`) used by the rendering pipeline.
-- `examples/`: Examples of usage of Kalast. Scripts under `examples/old/`
+- `examples/`: Examples of usage of Kalast. `examples/old/`
   are earlier/superseded versions kept for reference, not maintained
 - `res/`: resources folder.
 - `out/`: default output directory for simulation results.

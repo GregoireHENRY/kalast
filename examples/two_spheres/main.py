@@ -7,10 +7,6 @@ from kalast.app import App
 
 
 app = App()
-app.simulation.config.wireframe.mode = 2
-app.simulation.config.wireframe.color = [0.05, 0.05, 0.05, 1.0]
-app.simulation.config.axes.style = "gizmo"
-
 app.simulation.sun.pos = [10.0, 0.0, 0.0]
 app.simulation.camera.pos = [13.5, -6.0, 5.0]
 app.simulation.camera.look_anchor()

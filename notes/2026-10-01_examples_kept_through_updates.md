@@ -1,5 +1,8 @@
 # 2026-10-01 — the examples a user changed, kept through updates
 
+(Superseded the same day: the user refused `res/examples`; see
+`2026-10-01_examples_back_at_the_root.md`.)
+
 Asked: "i want to make sure the users of the current public version v0.5.10
 wont loose their customs examples / for this update and next ones, if users
 have custom examples in their examples folder of kalast, that differ from the

@@ -67,12 +67,8 @@ def main() -> int:
     kalast = pathlib.Path(sys.argv[1]).resolve()
     bundle = kalast.parent
     # Where a user's scripts are, and so the folder the editor starts the
-    # server in and names as its workspace: the examples -- in `res/examples`
-    # until the bundle's first start puts them in place, as an archive
-    # carries them.
+    # server in and names as its workspace.
     folder = bundle / "examples"
-    if not folder.is_dir():
-        folder = bundle / "res" / "examples"
     server = subprocess.Popen(
         [kalast, "--language-server"],
         cwd=folder,
