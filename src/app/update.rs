@@ -414,13 +414,15 @@ pub fn clean_previous(dir: &Path) {
     let _ = std::fs::remove_dir_all(dir.join(".previous"));
 }
 
-/// Every example file kalast has shipped, a line each: the fingerprint of its
-/// text and its path under `examples/` (`tools/gen_examples_shipped.py`).
-const SHIPPED_EXAMPLES: &str = include_str!("../../res/examples-shipped.txt");
+/// Every example file kalast shipped up to v0.5.12, a line each: the
+/// fingerprint of its text and its path under `examples/`. Frozen: from
+/// v0.5.13 a bundle carries its own examples (`EXAMPLES`), which is what an
+/// update compares with; this is for an `examples/` older than that.
+const EXAMPLES_UNTIL_V0_5_12: &str = include_str!("examples-until-v0.5.12.txt");
 
 /// FNV-1a, 64 bits, of `data` with each `\r\n` read as `\n` -- a checkout on
 /// Windows writes the one and the tags hold the other: the fingerprint
-/// `SHIPPED_EXAMPLES` lists, which the tool computes the same way.
+/// `EXAMPLES_UNTIL_V0_5_12` lists.
 pub fn example_fingerprint(data: &[u8]) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for (i, &b) in data.iter().enumerate() {
@@ -432,16 +434,22 @@ pub fn example_fingerprint(data: &[u8]) -> u64 {
     h
 }
 
-/// `SHIPPED_EXAMPLES`, read: the fingerprints each file was shipped with,
-/// and every folder it was shipped in.
+/// What kalast shipped: the fingerprints each file was shipped with, and
+/// every folder it was shipped in.
 struct Shipped {
     files: std::collections::HashMap<String, Vec<u64>>,
     folders: std::collections::HashSet<String>,
 }
 
 impl Shipped {
+    /// This version's examples, built into it, and every release's up to
+    /// v0.5.12, for an `examples/` from before this version.
     fn new() -> Self {
-        Self::parse(SHIPPED_EXAMPLES)
+        let mut shipped = Self::parse(EXAMPLES_UNTIL_V0_5_12);
+        for (path, data) in unpack(EXAMPLES).unwrap_or_default() {
+            shipped.add(path, example_fingerprint(data));
+        }
+        shipped
     }
 
     fn parse(text: &str) -> Self {
@@ -449,10 +457,14 @@ impl Shipped {
         for line in text.lines().filter(|l| !l.is_empty() && !l.starts_with('#')) {
             let Some((hex, path)) = line.split_once(' ') else { continue };
             let Ok(value) = u64::from_str_radix(hex, 16) else { continue };
-            shipped.files.entry(path.to_string()).or_default().push(value);
-            shipped.folders.extend(path.match_indices('/').map(|(i, _)| path[..i].to_string()));
+            shipped.add(path, value);
         }
         shipped
+    }
+
+    fn add(&mut self, path: &str, value: u64) {
+        self.files.entry(path.to_string()).or_default().push(value);
+        self.folders.extend(path.match_indices('/').map(|(i, _)| path[..i].to_string()));
     }
 
     /// Whether `path`, `name` under `examples/`, is as some release shipped
@@ -886,10 +898,10 @@ mod tests {
     }
 
     /// FNV-1a's published values, a line ending either way the same, and a
-    /// carriage return on its own the file's -- what
-    /// `tests/test_examples_shipped.py` checks the tool gives.
+    /// carriage return on its own the file's -- what the list frozen at
+    /// v0.5.12 was written with.
     #[test]
-    fn the_fingerprint_is_the_tools() {
+    fn the_fingerprint_is_the_lists() {
         let f = |d: &[u8]| format!("{:016x}", example_fingerprint(d));
         assert_eq!(f(b""), "cbf29ce484222325");
         assert_eq!(f(b"a"), "af63dc4c8601ec8c");
@@ -899,11 +911,11 @@ mod tests {
         assert_eq!(f(b"\r\r\n"), "083cb407b4f40f36");
     }
 
-    /// The list compiled in is the one the tool writes, and knows the
-    /// examples by the paths they have under `examples/`.
+    /// The list frozen at v0.5.12 is compiled in, and knows the examples by
+    /// the paths they have under `examples/`.
     #[test]
-    fn the_shipped_examples_are_compiled_in() {
-        let shipped = Shipped::new();
+    fn the_examples_until_v0_5_12_are_compiled_in() {
+        let shipped = Shipped::parse(EXAMPLES_UNTIL_V0_5_12);
         assert!(shipped.files.len() > 100, "{} files", shipped.files.len());
         assert!(shipped.files.contains_key("README.md"));
         assert!(shipped.files.contains_key("cube/color_map.py"));
@@ -1144,6 +1156,25 @@ mod tests {
         assert!(unpack(&pack(&[("/abs.py", "x")])).is_err());
         assert!(unpack(&files[..files.len() - 1]).is_err(), "cut short");
         assert!(unpack(b"").unwrap().is_empty());
+    }
+
+    /// This version's own examples, as built into it, are kalast's without
+    /// any list naming them: an update over them keeps nothing, and an edit
+    /// is still the user's.
+    #[cfg(all(feature = "embed", kalast_examples))]
+    #[test]
+    fn this_versions_own_examples_need_no_list() {
+        let b = Bundle::new("own");
+        for (path, data) in unpack(EXAMPLES).unwrap() {
+            let to = b.0.join("examples").join(path);
+            std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+            std::fs::write(to, data).unwrap();
+        }
+        let installed = b.0.join("examples");
+        assert_eq!(keep_changed_examples(&b.0, &installed, "9.9.9", &Shipped::new()).unwrap(), None);
+        b.write("examples/sphere/tpm_logo.py", "edited\n");
+        let kept = keep_changed_examples(&b.0, &installed, "9.9.9", &Shipped::new()).unwrap().unwrap();
+        assert_eq!(kept.1, ["sphere"]);
     }
 
     /// The examples built into the bundle's executable are the repository's,

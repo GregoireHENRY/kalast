@@ -31,4 +31,7 @@ kalast/_rs.pyd.old-*
 # The root's shortcut into the local bundle in dist/, remade with each one:
 # the macOS alias, and the Windows shortcut.
 /kalast.app
+# Your own scripts, beside examples/, as a bundle has them: the root
+# kalast.app runs kalast from here.
+/scripts/
 /kalast.exe.lnk

@@ -41,11 +41,11 @@ include = [
     # The Neovim config kalast ships, compiled in (`gui::script::nvim`).
     "/res/neovim/**",
     # matplotlib's colormaps, compiled in (`app::config`), and the notices
-    # that have to travel with them; every example file a release shipped,
-    # compiled in (`app::update`).
+    # that have to travel with them; every example file released up to
+    # v0.5.12, compiled in (`app::update`).
     "/res/colormaps.bin",
     "/res/LICENSE-colormaps",
-    "/res/examples-shipped.txt",
+    "/src/app/examples-until-v0.5.12.txt",
     "/CHANGELOG.md",
     "/res/README.md",
     "/examples/README.md",

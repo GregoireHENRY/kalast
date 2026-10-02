@@ -102,3 +102,16 @@ End to end in /tmp, macOS arm64:
 - Windows and Linux not run end to end.
 - `scripts/examples-before-v0.5.12/` folders made by v0.5.12 stay where they
   are: the user's now.
+
+## 2 October: the list frozen, out of `res/`
+
+The user: "this has nothing to do with res/ the resources folder". Since every
+bundle from v0.5.13 carries its examples in its executable, an update compares
+`examples/` with exactly what that version shipped (`Shipped::new` adds the
+built-in pack's fingerprints). The list is only for an `examples/` from
+v0.5.12 or older, so it is frozen as v0.5.12 committed it -- every release up
+to there -- in `src/app/examples-until-v0.5.12.txt`, beside `update.rs`, and
+in the crate's `include`. `res/examples-shipped.txt`,
+`tools/gen_examples_shipped.py` and `tests/test_examples_shipped.py` are gone:
+editing an example no longer touches any list.
+`update::tests::this_versions_own_examples_need_no_list`.

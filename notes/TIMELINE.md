@@ -5305,3 +5305,12 @@ iteration itself. Step and `K` now ask, and the frame grants at its end, so the
 loop gets its turn. The wireframe defaults to mode 2 in `(0.01, 0.01, 0.01)`.
 `tpm_logo.py` steps a spin exactly and shows TPM it/s in a HUD. Write-up:
 `2026-10-01_step_key_and_wireframe_defaults.md`.
+
+## 2026-10-02 — the shipped-examples list frozen, out of `res/`
+
+An update now compares `examples/` with the examples built into that version;
+the list of every example released up to v0.5.12 stays only for older
+`examples/` folders, frozen in `src/app/examples-until-v0.5.12.txt`. Its
+generator and test are gone. The root `kalast.app` runs the repository
+(`python -m kalast`), so examples are edited in git directly. See
+`2026-10-01_examples_back_at_the_root.md`.

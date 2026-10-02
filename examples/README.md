@@ -13,7 +13,7 @@ Not everything will be detailed because they are already well detailed at:
 You can also write me an email at [gregoireh@pm.me](mailto:gregoireh@pm.me) if
 you have any question or want any feature added.
 
-Examples that work directly:
+## Examples that work directly
 
 - [cube](cube):
     - [cube/light.py](cube/light.py):
@@ -149,6 +149,7 @@ Examples that work directly:
         - After 3 Didymos years, the surface temperature has converged (yearly
           polar variations and thermal printing at depth boundary).
         - Several TPM steps are simulated between rendering steps to go faster.
+        - Toggle off the wireframe and you have kalast logo re-generated.
     - [sphere/tpm_variable_1.py](sphere/tpm_variable_1.py):
         - Varying surface and depth thermophysical properties.
         - Regolith over rock.
@@ -174,11 +175,10 @@ Examples that work directly:
 - [misc/cbar.py](misc/cbar.py):
     - Quick example to create a colorbar.
       
-      
-Examples where full data is not shipped and you have to get your hands on the
-data:
+## Examples that work after you get data and fix paths
 
-- Look at [res/README.md](../res/README.md) to get Hera data.
+Look at [res/README.md](../res/README.md) to get Hera data.
+
 - [didymos/main.py](didymos/main.py):
     - Load Didymos and Dimorphos shape models.
     - Showcase kalast loading and rendering speed with 2x 3M+ facets meshes.
@@ -210,7 +210,7 @@ data:
     - Create random landmarks locations by selecting facets.
     - Export landmarks screen-space X/Y positions in CSV file.
 
-Examples that are on-going work not ready for users:
+## Examples that worked but not ready for users
 
 - [analytical](analytical)
 - [hera_didymos](hera_didymos):
@@ -223,4 +223,6 @@ Examples that are on-going work not ready for users:
 - [hera_mars_swingby](hera_mars_swingby)
 - [lightcurve](lightcurve)
 
-Legacy examples in [old](old).
+## Legacy examples
+
+in [old](old)
