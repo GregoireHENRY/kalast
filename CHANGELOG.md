@@ -9,7 +9,7 @@ pushed. While betas of a version go out, its section is headed
 `## v<version>-beta`; it becomes `## v<version>` when the version is
 released, and the gate refuses the tag until it has.
 
-## v0.5.13-beta
+## v0.5.13
 
 - A downloaded bundle has `examples/` at its root again, beside an empty `scripts/` for your own scripts. An update never touches `scripts/`, and before it replaces `examples/`, moves every example you changed or added there, whole, to `scripts/backup/before-v<version>/`.
 - The wireframe is on by default, drawn over the shaded mesh (`wireframe.mode = 2`), in very dark grey `(0.01, 0.01, 0.01, 1.0)` rather than black; the examples no longer set that colour themselves.
