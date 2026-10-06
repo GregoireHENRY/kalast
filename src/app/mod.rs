@@ -506,6 +506,9 @@ struct Realised {
     vsync: bool,
     msaa: u32,
     render_back_face: bool,
+    /// One of the image's two mirrors and not the other, which turns the
+    /// triangles' winding round: the scene pass culls the other side.
+    mirrored: bool,
     shadow_resolution: u32,
     hud_font: String,
     export_dir: String,
@@ -530,6 +533,7 @@ impl Realised {
             vsync: a.vsync,
             msaa: c.shading.msaa,
             render_back_face: c.shading.render_back_face,
+            mirrored: c.image.flip_x != c.image.flip_y,
             shadow_resolution: c.shadows.resolution,
             hud_font: c.hud.font.clone(),
             export_dir: c.export.dir.clone(),
@@ -555,6 +559,7 @@ impl Realised {
             && self.vsync == a.vsync
             && self.msaa == c.shading.msaa
             && self.render_back_face == c.shading.render_back_face
+            && self.mirrored == (c.image.flip_x != c.image.flip_y)
             && self.shadow_resolution == c.shadows.resolution
             && self.export_sync == c.export.sync
             && self.export_max_queued == c.export.max_queued
@@ -1495,6 +1500,10 @@ impl App {
             self.controller.sensitivity_zoom = c.controls.sensitivity_zoom;
             self.controller.emulate_middle_button = c.controls.emulate_middle_button;
             self.controller.trackpad_orbit = c.controls.trackpad_orbit;
+            // The image's mirrors into the camera's projection, where every
+            // matrix it makes picks them up: the render's, a click's ray,
+            // the gizmo's.
+            self.simulation.borrow_mut().camera.projection.flip = [c.image.flip_x, c.image.flip_y];
         }
 
         // Cloned so the config is not borrowed while `self.window` is held
@@ -1538,8 +1547,8 @@ impl App {
 
         // The image. `(0, 0)` follows the window, which is what a terminal
         // run does and what every script did when there was one pair of
-        // these. The editor overrides it from the viewport panel each frame,
-        // so a pinned render size only holds outside the editor.
+        // these. The editor sets the render size itself every frame, the
+        // pinned one or its viewport's.
         if was.render != want.render && self.editor.is_none() {
             let (w, h) = if want.render == (0, 0) {
                 (win.surface_config.width, win.surface_config.height)
@@ -1563,8 +1572,8 @@ impl App {
             win.set_vsync(want.vsync);
         }
 
-        // Both are baked into the pipelines, so one rebuild covers them.
-        if (was.msaa, was.render_back_face) != (want.msaa, want.render_back_face) {
+        // All three are baked into the pipelines, so one rebuild covers them.
+        if (was.msaa, was.render_back_face, was.mirrored) != (want.msaa, want.render_back_face, want.mirrored) {
             win.rebuild_passes(&c);
         }
 
@@ -3475,15 +3484,26 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                                 .and_then(|t| t.scope(gpu_timing::Scope::Gui)),
                         )
                     };
+                    // A pinned image (`image.width`, `image.height`) at its own
+                    // size, fitted into the viewport; otherwise the viewport's
+                    // size is the image's.
+                    let pinned = {
+                        let c = sim_cfg.borrow();
+                        ((c.image.width, c.image.height) != (0, 0)).then_some((c.image.width, c.image.height))
+                    };
+                    let size = pinned.unwrap_or(wanted);
                     // Applied for the *next* frame: this one is already drawn
                     // at the old size, and reallocating the targets underneath
                     // it would throw the image away mid-frame.
-                    win.set_render_size(wanted.0, wanted.1);
+                    win.set_render_size(size.0, size.1);
                     // `fovy` spans the window and the viewport shows its share
                     // of it, so a panel covers the scene rather than zooming
-                    // it (`Projection::viewport_scale`).
-                    self.simulation.borrow_mut().camera.projection.viewport_scale =
-                        wanted.1 as crate::Float / win.surface_config.height.max(1) as crate::Float;
+                    // it (`Projection::viewport_scale`). A pinned image is the
+                    // whole of `fovy`.
+                    self.simulation.borrow_mut().camera.projection.viewport_scale = match pinned {
+                        Some(_) => 1.0,
+                        None => wanted.1 as crate::Float / win.surface_config.height.max(1) as crate::Float,
+                    };
                     win.queue.present(texture);
                 }
 

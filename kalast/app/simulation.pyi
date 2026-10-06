@@ -312,6 +312,27 @@ class Simulation:
         renderer takes it. An `IndexError` for a body that does not exist.
         """
         ...
+    def meridian_facets(self, body: int, longitude: float = ..., step: float = ...) -> tuple[numpy.ndarray, numpy.ndarray]:
+        """The facets along a meridian of `body`, pole to pole, and the latitude
+        each has (degrees), as two arrays: for each latitude from -90 to 90
+        `step` degrees apart, the facet whose centre lies nearest it in
+        direction from the body's centre on the meridian at `longitude` --
+        each facet once, so a coarse mesh can give fewer.
+
+        ```python
+        meridian, latitudes = app.simulation.meridian_facets(0)
+        surface = temperature[0, meridian]        # pole to pole
+        ```
+
+        In the body's own frame, `z` its spin axis and `x` longitude 0, and on
+        its shape as its pose stretches it: a spin or a tilt in the pose
+        changes nothing, a scale along the body's own axes counts -- set a
+        scaled pose first. Any shape centred on its origin; on a concave one,
+        the facet pointing most nearly along the direction. A `ValueError` for
+        a `step` outside (0, 180] or a body with no mesh, an `IndexError` for
+        a body that does not exist.
+        """
+        ...
     def request_hemicube(self, body: int = ..., facets: numpy.ndarray = ..., resolution: int = ..., batch: int = ...) -> None:
         """Ask for hemicube view factors for `facets` of `body`, this frame.
 

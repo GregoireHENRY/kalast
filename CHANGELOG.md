@@ -9,6 +9,15 @@ pushed. While betas of a version go out, its section is headed
 `## v<version>-beta`; it becomes `## v<version>` when the version is
 released, and the gate refuses the tag until it has.
 
+## v0.5.14-beta
+
+- `app.simulation.meridian_facets(body)`: the facets along a meridian, pole to pole, and the latitude each has, on the body's shape as its pose stretches it.
+- `examples/sphere/tpm_plot.py` draws a sphere TPM run: the surface at each latitude over the last two spins, and the equator's and the poles' columns spin after spin, with whether they have converged, and through the last spin, the daily wave going down -- for `tpm_logo.py`, with its orbit, the last two years and the last year beside them, the seasons. Every sphere TPM script saves what it draws when its run stops.
+- A graded column (`core.Ground.graded`) settles all the way down. Its thick deep layers stepped by less than float32 holds near where they settle, every step was rounded away, and they stopped short: the logo's 11 m columns by up to 10 K, which left its surface up to 1 K too warm near the poles. A `Ground` now carries what a step leaves over into the next one; columns of equal layers are unchanged.
+- `app.simulation.config.image.width` and `height` pin the image in the editor too, rendered at that size and fitted into the viewport, and in a plain window from its first frame: a size set before the window opened was ignored, and the export came out at the window's physical size -- twice its size on a Retina screen.
+- `app.simulation.config.image.flip_x` and `flip_y` mirror the image, left to right and top to bottom, on screen and in exported frames, to match an instrument whose images are stored mirrored: any corner of the view can be pixel `(0, 0)`. The HUD and the colour bar are drawn as they are; picking, the axes, the navigation gizmo and the mouse follow the mirror.
+- `examples/sphere/tpm_logo.py` starts each column at the temperature its mean sunlight over an orbit gives it rather than 0 K, and runs 30 Didymos years rather than 3: its temperatures have converged down to the bottom of its columns, where after 3 years from 0 K they were still rising.
+
 ## v0.5.13
 
 - A downloaded bundle has `examples/` at its root again, beside an empty `scripts/` for your own scripts. An update never touches `scripts/`, and before it replaces `examples/`, moves every example you changed or added there, whole, to `scripts/backup/before-v<version>/`.

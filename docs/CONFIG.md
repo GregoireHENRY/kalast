@@ -297,8 +297,10 @@ export from a small window, say.
 While the two differ the window shows the **top-left of the image, not a
 scaled version**, because the blit is a straight texel copy and cannot scale.
 The export still gets the full pinned frame, which is the point of pinning it.
-The editor has no such limit -- egui samples the render texture into a panel
-of any size.
+The editor has no such limit: it renders the pinned image at its own size and
+fits it into the viewport, letterboxed. Either way the image's size is pixels,
+the screen's scaling aside -- a Retina screen's double size is the window's
+only.
 
 Defined in `src/app/config.rs` (`Config`, one sub-struct per group, each with
 its `Default`). Exposed to Python by `src/py/app/config_gen.rs`, **generated**
@@ -587,12 +589,40 @@ into a panel, a name would move the window at every letter.
 The image being rendered -- what the camera's aspect ratio, the axis ticks,
 the colour bar and an exported frame all follow. `0` means "follow the window",
 which is what a terminal run wants and what every script got when there was one
-pair of these. Set both to pin the render independently of the window: a 4K
-export out of a small window, say. While the two differ the window shows the
-top-left of the image rather than a scaled copy, since the blit is a straight
-texel copy; the export still gets the full pinned frame. Export buffers are
-pooled by byte size, and stale-sized ones are discarded when this changes
-(`src/app/gpu.rs`, the `pool_rx.try_recv()` loop in `export_frame`).
+pair of these, at the window's physical pixels: twice its size on a Retina
+screen. Set both to pin the render independently of the window: an instrument's
+1018 x 768 frame out of any window, or a 4K export out of a small one. The
+editor renders a pinned image at its size and fits it into the viewport. A
+plain window shows the top-left of the image rather than a scaled copy, since
+the blit is a straight texel copy; the export still gets the full pinned
+frame. Export buffers are pooled by byte size, and stale-sized ones are
+discarded when this changes (`src/app/gpu.rs`, the `pool_rx.try_recv()` loop
+in `export_frame`).
+
+### `image.flip_x: bool` — default `false` *(live)*
+### `image.flip_y: bool` — default `false` *(live)*
+Mirror the image, left to right and top to bottom. Pixel `(0, 0)` of an image
+is its top-left corner, as PNG has it, and a camera fills it with the top left
+of what it sees -- `up` at the top, its right on the right. An instrument whose
+images are stored mirrored puts another corner of the view there, which no
+camera `up` reproduces: turning `up` round turns the image by 180 degrees, a
+rotation, not a mirror. `flip_y` puts the bottom left of the view at `(0, 0)`,
+`flip_x` the top right, both the bottom right -- so any corner can be the first
+pixel, and a frame compares with the instrument's pixel for pixel:
+
+```python
+app.simulation.config.image.width = 1018   # TIRI's browse images
+app.simulation.config.image.height = 768
+app.simulation.config.image.flip_y = True  # +X left and +Y down, as they are
+```
+
+The scene is mirrored, on screen and in an exported frame, and so is
+everything placed through the camera: `sim.project`, a click's pick, the axes,
+the navigation gizmo. The HUD and the colour bar are drawn as they are. A drag
+or a key moves the image the way it goes on screen. One mirror and not the
+other turns the triangles' winding round, so the scene pass culls the other
+side; changing that rebuilds the pipelines, as `shading.render_back_face`
+does.
 
 ### `app.config.fullscreen: bool` — default `false` *(live, remembered)*
 Fill the screen. Accepted: `True` / `False`.

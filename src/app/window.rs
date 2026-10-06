@@ -270,6 +270,15 @@ const COLORBAR_GAP: f32 = 3.0;
 /// The range the bar spans: the data's in the unlit mode, which shows the data
 /// map; `0..1` in the lit ones, whose `ambient + cos(i) * visibility` is a
 /// fraction by construction, whatever the data spans.
+/// The size the image is rendered at: `config.image`'s when one is pinned,
+/// else the window's -- `(0, 0)` follows the window.
+fn image_size(config: &crate::app::config::Config, window: (u32, u32)) -> (u32, u32) {
+    match (config.image.width, config.image.height) {
+        (0, 0) => window,
+        (w, h) => (w.max(1), h.max(1)),
+    }
+}
+
 fn colorbar_range(color_mode: u32, lo: f32, hi: f32) -> (f32, f32) {
     if color_mode == 1 { (lo, hi) } else { (0.0, 1.0) }
 }
@@ -1307,13 +1316,11 @@ impl Window {
             mesh_attrs: mesh_attrs_layout,
         };
 
-        let passes = super::pass::Passes::new(
-            &device,
-            surface_config.format,
-            &config,
-            &uniforms,
-            (surface_config.width, surface_config.height),
-        );
+        // The image's own size when one is pinned, from the first frame: taken
+        // as the window's here, a size set before the window opened was never
+        // applied -- the live config takes what it finds at the start as done.
+        let render_size = image_size(config, (surface_config.width, surface_config.height));
+        let passes = super::pass::Passes::new(&device, surface_config.format, &config, &uniforms, render_size);
 
         // The font is embedded rather than read from `res/`, so the overlay
         // works from any working directory. A font that will not load leaves
@@ -1329,8 +1336,6 @@ impl Window {
         };
         let hud = font.clone().map(build);
         let hud_turned = font.map(build);
-
-        let render_size = (surface_config.width, surface_config.height);
 
         let timer = super::gpu_timing::GpuTimer::new(&device, &queue);
 
@@ -1709,10 +1714,13 @@ impl Window {
         }
         self.render_generation += 1;
 
+        // The targets at the image's size, which a pinned one keeps; at the
+        // window's they threw it away at the first resize.
+        let (w, h) = self.render_size;
         self.passes
             .render
-            .resize(&self.device, self.surface_config.format, width, height);
-        self.passes.depth.resize(&self.device, width, height);
+            .resize(&self.device, self.surface_config.format, w, h);
+        self.passes.depth.resize(&self.device, w, h);
 
         let is_surface_configured = self.is_surface_configured;
         self.is_surface_configured = true;

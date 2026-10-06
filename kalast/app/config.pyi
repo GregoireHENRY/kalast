@@ -580,7 +580,8 @@ class WireframeConfig:
     """the barycentrics are meaningless and the CPU side warns once."""
     @property
     def color(self) -> list[float]:
-        """Wireframe colour, `(r, g, b, a)`; alpha is dropped.
+        """Wireframe colour, `(r, g, b, a)`; alpha is dropped. Very dark grey
+        rather than black by default.
 
         Mode 2 blends by edge coverage and is antialiased; mode 1 thresholds instead,
         because the pipeline blend state is REPLACE and a fractional alpha would be
@@ -999,6 +1000,19 @@ class ImageConfig:
     exported frame measures.
     """
     height: int
+    flip_x: bool
+    """Mirror the image left to right: the camera's right drawn on the left.
+
+    For an instrument whose images are stored mirrored, so a frame
+    compares pixel for pixel: pixel `(0, 0)` of an image is its top-left
+    corner, which a camera fills with the top left of what it sees, and
+    these put another corner of the view there -- `flip_y` the bottom
+    left, both the bottom right. The scene is mirrored, on screen and in
+    an exported frame; the HUD and the colour bar are not. Picking, the
+    navigation gizmo and the mouse follow the mirror.
+    """
+    flip_y: bool
+    """Mirror the image top to bottom: the camera's up drawn at the bottom."""
 
 class DebugConfig:
     """Diagnostics and console output.

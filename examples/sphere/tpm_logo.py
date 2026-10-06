@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import pathlib
 import time
 from collections import deque
 
@@ -15,8 +16,8 @@ from kalast.util import AU
 # Kalast logo is the surface temperature of a sphere resized to Didymos extents
 # with its obliquity, spinning through the seasons of its orbit using inferno
 # colormap from 90 to 270 K.
-# The view is looking at southern winter near aphelion after 3 years of
-# simulation.
+# The view is looking at southern winter near aphelion after 30 years of
+# simulation, when the temperatures have settled.
 # Toggle off the wireframe and you have kalast logo.
 
 app = App()
@@ -59,8 +60,9 @@ dt = day / steps_per_spin  # time step (s), about 80
 steps_per_frame = steps_per_spin  # 1 frame = 1 spin
 # steps_per_frame = 1  # 1 frame = 1 TPM step
 
-temperature = core.columns(ground.layers, nf, 0.0)
-years = 3.31
+# 30 orbits for the columns, 11 m deep, to settle, and 0.31 more for the
+# logo's view.
+years = 30.31
 app.simulation.state.pause_after_iteration = round(years * year / (steps_per_frame * dt)) - 1
 
 # Didymos's obliquity: its spin axis 18 degrees from the orbit's pole, turning
@@ -71,11 +73,33 @@ lean = kalast.util.mat_axis_angle(spin_axis, numpy.radians(330.0))
 tilt = lean @ kalast.util.mat_axis_angle(numpy.array([0.0, 1.0, 0.0]), numpy.radians(obliquity))
 bod = app.simulation.bodies[0]
 
+# Each column starts at the temperature its facet's mean sunlight over an
+# orbit holds it at: above the yearly mean it settles to, but far nearer than
+# 0 K. The mean at 100 points of the orbit, 24 turns of the spin at each.
+sunlight = numpy.zeros(nf)  # cos(i) / distance^2 (AU), averaged
+for t in numpy.linspace(0.0, year, 100, endpoint=False):
+    pos = orbit.position(t)
+    app.simulation.sun.pos = -pos * AU
+    for turn in numpy.linspace(0.0, 2.0 * numpy.pi, 24, endpoint=False):
+        bod.mat[:3, :3] = tilt @ kalast.util.mat_axis_angle(spin_axis, turn) @ extents
+        sunlight += app.simulation.facet_incidence(0) / (pos @ pos) / 2400
+temperature = core.columns(ground.layers, nf, core.effective_temperature(1.0, sunlight, prop.albedo, prop.emissivity))
+
 # The logo's view, measured on it: 59 degrees off the south pole, the pole
 # low on the left.
 app.simulation.camera.pos = [0.35, 1.5, 0.9]
 app.simulation.camera.look_anchor()
 app.simulation.camera.up = [-0.04, 0.5, -0.85]
+
+# For tpm_plot.py: the columns under the meridian at longitude 0, pole to
+# pole, every 10 spins, and 24 times a spin through the last two, saved in
+# out/sphere/ when the run stops.
+bod.mat[:3, :3] = tilt @ extents  # the shape, as the pose stretches it
+meridian, latitudes = app.simulation.meridian_facets(0)
+# The graded layers' widths from the conductivity they carry, k dz / w.
+widths = dz * prop.conductivity / ground.conductivity[:, 0]
+history = []
+last_spins = deque(maxlen=48)
 
 step = 0
 t = 0.0  # simulated time (s), for the HUD before the first step
@@ -107,9 +131,32 @@ while app.running:
         core.solar_bc(temperature, dau, cosi, ground, dz)
         core.bottom_adiabatic(temperature)
         core.heat_conduction(temperature, ground, dt, dz)
+        if step * 24 % steps_per_spin < 24:
+            last_spins.append((t, temperature[:, meridian].astype(numpy.float32)))
         step += 1
 
     bod.mesh.values = temperature[0]
 
+    if step % (10 * steps_per_spin) < steps_per_frame:
+        history.append((t, temperature[:, meridian].astype(numpy.float32)))
+
     app.step()
 
+if history:
+    times, columns = zip(*history)
+    spin_times, spin_columns = zip(*last_spins)
+    pathlib.Path("out/sphere").mkdir(parents=True, exist_ok=True)
+    numpy.savez(
+        f"out/sphere/{pathlib.Path(__file__).stem}.npz",
+        time=times,
+        temperature=columns,
+        spin_time=spin_times,
+        spin_temperature=spin_columns,
+        latitude=latitudes,
+        depth=numpy.concatenate([[0.0], numpy.cumsum((widths[:-1] + widths[1:]) / 2.0)]),
+        period=day,
+        year=year,
+        obliquity=obliquity,
+        inertia=prop.thermal_inertia,
+        albedo=prop.albedo,
+    )

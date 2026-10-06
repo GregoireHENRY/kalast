@@ -5314,3 +5314,54 @@ the list of every example released up to v0.5.12 stays only for older
 generator and test are gone. The root `kalast.app` runs the repository
 (`python -m kalast`), so examples are edited in git directly. See
 `2026-10-01_examples_back_at_the_root.md`.
+
+## 2026-10-02 — v0.5.13 released
+
+Beta `881af45` green, then `60c38bf` (the section renamed) rehearsed green and
+tagged: GitHub release, crates.io and PyPI, the beta pre-release removed. Then
+for real: the published v0.5.12 bundle, `cube/color_map.py` edited and
+`examples/mine/` added, ran its own `kalast --update`, which installed v0.5.13
+and left `examples/` alone; v0.5.13's first start kept `cube` and `mine` in
+`scripts/backup/before-v0.5.13/`, left `scripts/test`, put `examples/` as the
+tag has it, "2 up to date, 0 built". One Windows runner was lost mid-build on
+the first beta run (GitHub: "lost communication with the server"); its re-run
+passed in 26 minutes from a cold cache.
+
+## 2026-10-02 — the sphere TPM runs, drawn
+
+`examples/sphere/tpm_plot.py` draws the last run of any sphere TPM script,
+which each now saves when it stops (`out/sphere/<script>.npz`, a meridian's
+columns 24 times a spin). Manifests at 0.5.14, `## v0.5.14-beta` opened.
+Write-up: `2026-10-02_sphere_tpm_plot.md`.
+
+## 2026-10-05 — the logo's run: a warm start, 30 orbits; float32 freezes graded depths
+
+`examples/sphere/tpm_logo.py` had not converged after its 3.31 orbits from
+0 K: at the equator a 95 K bottom under a 223 K surface mean, rising 34 K an
+orbit. Each column now starts at the temperature of its mean sunlight over an
+orbit, and the run lasts 30.31 orbits: the surface settles within 0.1 K by the
+10th. Below about 5 m the column does not: float32 rounds away the thick
+layers' steps, and it freezes a few kelvin off its mean. Open: the engine's
+fix -- a compensated sum, a step of their own for thick layers, or float64 --
+the user's call. Write-up: `2026-10-05_tpm_logo_convergence.md`.
+
+## 2026-10-06 — a `Ground` carries its remainder: graded columns settle
+
+A graded column's thick layers stepped by less than float32 holds near where
+they settle, so their steps were rounded away and they froze: the logo's 11 m
+columns 8-10 K off, its surface up to 1 K too warm near the poles. A `Ground`
+now carries what each step leaves over (Kahan), in the layers whose steps are
+under 1/16 of the differences around them, measured every 64 steps: the logo
+settles to within 0.1 K at every depth; graded steps cost 5-16 % more, equal
+layers nothing. Chosen by the user over float64. Write-up:
+`2026-10-05_tpm_logo_convergence.md`, "6 October".
+
+## 2026-10-06 — the image's mirrors; a pinned image size that holds
+
+`image.flip_x` and `image.flip_y` mirror the image, on screen and in exports,
+for an instrument whose images are stored mirrored -- TIRI's browse images are,
++X left and +Y down. In the camera's projection, so picking, the axes and the
+gizmo follow; with one mirror on, the scene pass culls the other side.
+`image.width`/`height` now hold in the editor and from a plain window's first
+frame: both had been ignored, and exports came out at the window's Retina size.
+Write-up: `2026-10-06_image_flip_and_pinned_size.md`.

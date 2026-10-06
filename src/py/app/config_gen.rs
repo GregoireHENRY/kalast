@@ -333,7 +333,8 @@ impl WireframeConfig {
     fn mode(&self) -> u32 { self.config.borrow().wireframe.mode }
     #[setter]
     fn set_mode(&mut self, v: u32) { self.config.borrow_mut().wireframe.mode = v; }
-    /// Wireframe colour, `(r, g, b, a)`; alpha is dropped.
+    /// Wireframe colour, `(r, g, b, a)`; alpha is dropped. Very dark grey
+    /// rather than black by default.
     ///
     /// Mode 2 blends by edge coverage and is antialiased; mode 1 thresholds instead,
     /// because the pipeline blend state is REPLACE and a fractional alpha would be
@@ -954,6 +955,24 @@ impl ImageConfig {
     fn height(&self) -> u32 { self.config.borrow().image.height }
     #[setter]
     fn set_height(&mut self, v: u32) { self.config.borrow_mut().image.height = v; }
+    /// Mirror the image left to right: the camera's right drawn on the left.
+    ///
+    /// For an instrument whose images are stored mirrored, so a frame
+    /// compares pixel for pixel: pixel `(0, 0)` of an image is its top-left
+    /// corner, which a camera fills with the top left of what it sees, and
+    /// these put another corner of the view there -- `flip_y` the bottom
+    /// left, both the bottom right. The scene is mirrored, on screen and in
+    /// an exported frame; the HUD and the colour bar are not. Picking, the
+    /// navigation gizmo and the mouse follow the mirror.
+    #[getter]
+    fn flip_x(&self) -> bool { self.config.borrow().image.flip_x }
+    #[setter]
+    fn set_flip_x(&mut self, v: bool) { self.config.borrow_mut().image.flip_x = v; }
+    /// Mirror the image top to bottom: the camera's up drawn at the bottom.
+    #[getter]
+    fn flip_y(&self) -> bool { self.config.borrow().image.flip_y }
+    #[setter]
+    fn set_flip_y(&mut self, v: bool) { self.config.borrow_mut().image.flip_y = v; }
     fn __repr__(&self) -> String {
         format!("{:?}", self.config.borrow().image)
     }

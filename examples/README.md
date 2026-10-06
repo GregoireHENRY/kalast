@@ -146,8 +146,11 @@ you have any question or want any feature added.
         - Seasonal effects are simulated by taking 1x 2pi yearly skin depth and
           Didymos obliquity.
         - Solar orbit with Keplerian parameters.
-        - After 3 Didymos years, the surface temperature has converged (yearly
-          polar variations and thermal printing at depth boundary).
+        - Each column starts at the temperature its facet's mean sunlight over
+          an orbit gives it, rather than 0 K.
+        - After 30 Didymos years, the temperatures have converged down to the
+          bottom of the columns (yearly polar variations and thermal printing
+          at depth boundary).
         - Several TPM steps are simulated between rendering steps to go faster.
         - Toggle off the wireframe and you have kalast logo re-generated.
     - [sphere/tpm_variable_1.py](sphere/tpm_variable_1.py):
@@ -159,6 +162,18 @@ you have any question or want any feature added.
         - Another way: ponds of dust fading into compact ground, and each
           column turning from its own surface to a deep material with depth,
           as regolith compacts.
+    - [sphere/tpm_plot.py](sphere/tpm_plot.py):
+        - Run it after any sphere TPM script above: each saves, when it
+          stops, the columns under the facets of the meridian at longitude 0
+          in `out/sphere/`, and this draws the last one in a PNG it opens.
+        - Surface temperature over the last two spins at each latitude, north
+          solid and south dashed, and for `tpm_logo.py`, which has an orbit,
+          over the last two years beside them.
+        - The equator's and the poles' columns spin after spin, with how much
+          they still move (converged when next to nothing), and through the
+          last spin: the daily wave going down, lagging and dying out with
+          depth; for `tpm_logo.py`, through the last year as well, the
+          seasons' wave down the whole column.
 - [two_spheres/main.py](two_spheres/main.py):
     - Showcase with two bodies and mutual shadows.
     - The second body is loaded with a custom 4D model matrix to change its
@@ -190,7 +205,7 @@ Look at [res/README.md](../res/README.md) to get Hera data.
           using camera dir and up vectors from the kernels.
           The camera can't really be moved manually between the steps to
           inspect around but you can always change camera pos/anchor point.
-        - Window is set at AFC resolution so it's 1 to 1 pixel simulation of
+        - Image is set at AFC resolution so it's 1 to 1 pixel simulation of
           what AFC will see at the corresponding dates.
         - If you want to export frames and then compile later yourself into
           a movie, you use `app.simulation.export_once()` in the main loop.
@@ -199,17 +214,26 @@ Look at [res/README.md](../res/README.md) to get Hera data.
           Images are numbered automatically, you need to clear the folder
           yourself before a future execution or you can also change the 
           folder where kalast exports.
+          You can also exclude HUD and axes from image export if you want.
     - [hera_didymos/afc_eclip_didy.py](hera_didymos/afc_eclip_didy.py):
         - Same as [hera_didymos/afc.py](hera_didymos/afc.py) but everything
           is simulated in ECLIPJ2000 frame centered on Didymos.
           This way it is easier to rotate around the camera to inspect.
           Both scripts produce the same output.
+- [hera_mars_swingby](hera_mars_swingby)
+    - [hera_mars_swingby/tiri_diffuse_light.py](hera_mars_swingby/tiri_diffuse_light.py):
+      - Simulate TIRI image similar to [hera_didymos/afc.py](hera_didymos/afc.py)
+        but for Mars swing-by.
+      - Apply flip Y axis to match real TIRI image already generated.
+      - Loading Mars DTM with features 10x exagerated, Deimos, and Phobos
+      - Can apply a 10x `LARGER` matrix to Deimos and Phobos to identify easier
+        where they are.
+      - Adaptative time step to observe Deimos closest images.
 - [landmark_tracking/main.py](landmark_tracking/main.py):
     - Load camera/sun and bodies info positions/orientations from a CSV file
       provided by GUBAS instead of SPICE kernels.
     - Create random landmarks locations by selecting facets.
     - Export landmarks screen-space X/Y positions in CSV file.
-
 ## Examples that worked but not ready for users
 
 - [analytical](analytical)

@@ -104,6 +104,12 @@ pub struct Projection {
     /// side panel always did. A camera's only: the Sun's never is anything
     /// but 1.
     pub(crate) viewport_scale: Float,
+
+    /// The image's mirrors, `config.image.flip_x` and `flip_y`, copied in
+    /// every frame: left to right, top to bottom. In the matrix itself, so
+    /// whatever the camera makes has them -- the render, a click's ray,
+    /// `project`. A camera's only: the Sun's are never set.
+    pub(crate) flip: [bool; 2],
 }
 
 impl Projection {
@@ -123,6 +129,7 @@ impl Projection {
                 offset: [0.0, 0.0],
             },
             viewport_scale: 1.0,
+            flip: [false, false],
         }
     }
 
@@ -159,9 +166,25 @@ impl Projection {
         self.resolve_with(current);
     }
 
+    /// `-1` along each axis of the image that is mirrored (`flip`), `1`
+    /// along the others: x, then y.
+    pub fn mirror(&self) -> (Float, Float) {
+        let sign = |flip: bool| if flip { -1.0 } else { 1.0 };
+        (sign(self.flip[0]), sign(self.flip[1]))
+    }
+
     // right-handed, Z axis points out of the screen
     // aspect: window width / height
     pub fn mat(&self, aspect: Float) -> Mat4 {
+        let projection = self.unmirrored(aspect);
+        if self.flip == [false, false] {
+            return projection;
+        }
+        let (x, y) = self.mirror();
+        Mat4::from_scale(Vec3::new(x, y, 1.0)) * projection
+    }
+
+    fn unmirrored(&self, aspect: Float) -> Mat4 {
         let Resolved {
             near,
             far,
@@ -941,10 +964,13 @@ impl Eye {
 
         // Pan moves the anchor with the eye, so the thing being orbited stays
         // the thing under the cursor.
+        // A mirrored image (`Projection::flip`) turns each of these round
+        // along its axis, so that a drag still takes the image with it.
+        let (mx, my) = self.projection.mirror();
         if ctrl.pan_horizontal != 0.0 || ctrl.pan_vertical != 0.0 {
             let scale = ctrl.sensitivity_move * SENSITIVITY_PAN * self.distance_anchor();
-            let offset = self.right() * (-ctrl.pan_horizontal * scale)
-                + self.up * (ctrl.pan_vertical * scale);
+            let offset = self.right() * (-ctrl.pan_horizontal * mx * scale)
+                + self.up * (ctrl.pan_vertical * my * scale);
 
             self.pos += offset;
             self.anchor += offset;
@@ -966,11 +992,11 @@ impl Eye {
             let reverse = if self.up.dot(self.up_world) < 0.0 { -1.0 } else { 1.0 };
             let m1 = Mat3::from_axis_angle(
                 self.up_world,
-                -reverse * ctrl.horizontal * ctrl.sensitivity_rotate * SENSITIVITY_ORBIT,
+                -reverse * ctrl.horizontal * mx * ctrl.sensitivity_rotate * SENSITIVITY_ORBIT,
             );
             let m2 = Mat3::from_axis_angle(
                 self.right(),
-                -ctrl.vertical * ctrl.sensitivity_rotate * SENSITIVITY_ORBIT,
+                -ctrl.vertical * my * ctrl.sensitivity_rotate * SENSITIVITY_ORBIT,
             );
             let m = m1 * m2;
 
@@ -986,10 +1012,15 @@ impl Eye {
     }
 
     pub fn wasd_with_conroller(&mut self, ctrl: &mut Controller, dt: Float) {
+        // Mirrored along an axis of the image, the keys and the look along
+        // it turn round, as the arcball's drag does: toward the side of the
+        // image they name.
+        let (mx, my) = self.projection.mirror();
+
         // movement
         self.pos += (self.dir * (ctrl.forward - ctrl.backward)
-            + self.right() * (ctrl.right - ctrl.left)
-            + self.up * (ctrl.up - ctrl.down))
+            + self.right() * ((ctrl.right - ctrl.left) * mx)
+            + self.up * ((ctrl.up - ctrl.down) * my))
             * ctrl.sensitivity_move
             * SENSITIVITY_MOVE
             * dt
@@ -1006,11 +1037,11 @@ impl Eye {
             let reverse = if self.up.dot(self.up_world) < 0.0 { -1.0 } else { 1.0 };
             let m1 = Mat3::from_axis_angle(
                 self.up_world,
-                -reverse * ctrl.horizontal * ctrl.sensitivity_look * SENSITIVITY_LOOK * dt,
+                -reverse * ctrl.horizontal * mx * ctrl.sensitivity_look * SENSITIVITY_LOOK * dt,
             );
             let m2 = Mat3::from_axis_angle(
                 self.right(),
-                -ctrl.vertical * ctrl.sensitivity_look * SENSITIVITY_LOOK * dt,
+                -ctrl.vertical * my * ctrl.sensitivity_look * SENSITIVITY_LOOK * dt,
             );
             let m = m1 * m2;
             self.up = m * self.up;
@@ -1527,6 +1558,34 @@ mod tests {
                 (got - want).length() < 1e-2,
                 "{name}: {got:?}, expected {want:?}"
             );
+        }
+    }
+
+    /// The image's mirrors put a point on the other side of the image along
+    /// each mirrored axis -- the top right of the view at the top left with
+    /// `flip_x`, at the bottom right with `flip_y`, at the bottom left with
+    /// both -- and a click's ray still goes through what is drawn under it.
+    #[test]
+    fn a_mirrored_image_puts_the_view_the_other_way_round() {
+        let size = (800, 400);
+        let mut eye = eye_at_distance(5.0);
+        eye.fit_projection(&aabb([-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]), None, None);
+        let half = 5.0 * (eye.projection.fovy / 2.0).tan();
+        let corner = eye.up * (half * 0.5) + eye.right() * half;
+        let plain = eye.project(corner, size).expect("in front");
+        assert!(plain.x > 400.0 && plain.y < 200.0, "the top right: {plain:?}");
+        for (flip, want) in [
+            ([true, false], Vec2::new(800.0 - plain.x, plain.y)),
+            ([false, true], Vec2::new(plain.x, 400.0 - plain.y)),
+            ([true, true], Vec2::new(800.0 - plain.x, 400.0 - plain.y)),
+        ] {
+            eye.projection.flip = flip;
+            let got = eye.project(corner, size).expect("in front");
+            assert!((got - want).length() < 1e-2, "{flip:?}: {got:?}, expected {want:?}");
+            let (x, y) = (2.0 * got.x / 800.0 - 1.0, 1.0 - 2.0 * got.y / 400.0);
+            let (origin, dir) = eye.ray_through_ndc(x, y, 2.0).expect("a ray");
+            let miss = (corner - origin).cross(dir).length();
+            assert!(miss < 1e-3, "{flip:?}: the ray misses the point by {miss}");
         }
     }
 

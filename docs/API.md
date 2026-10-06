@@ -1204,7 +1204,9 @@ camera, at the size the last frame was drawn at: the image spans `(0, 0)` to
 covers `i..i+1` by `j..j+1`, so `int(x), int(y)` is the pixel a point falls in
 -- `png[int(y), int(x)]`, `ids[int(y), int(x)]` for `facet_id_map` -- and the
 top-left pixel's centre is `(0.5, 0.5)`. Subtract 0.5 for the convention where
-pixel centres are integers.
+pixel centres are integers. A mirrored image (`config.image.flip_x`,
+`flip_y`) is measured as it is drawn: the point lands where the mirror puts
+it.
 
 - A body's centre is the origin of its own frame, where `mat` puts it: the
   SPICE position, for a body placed from SPICE.
@@ -1418,6 +1420,14 @@ T_{i-1}) / d_{i-1/2}`, `d` the mean of two widths -- and the top three are
 even for the surface's gradient. Checked against a column of equal layers
 half as thick over twenty spins: within half a kelvin at the surface.
 
+Its thick layers step by millionths of a kelvin once the column nears where
+it settles, under what float32 holds there. A `Ground` carries the part of a
+step the float cannot hold into the next one, in each layer stepping by less
+than a sixteenth of the differences around it, so a graded column settles as
+it would in float64, to a thousandth of a kelvin. It keeps that for each
+temperature array it steps, four at most. Equal layers do not need it and
+cost nothing more.
+
 The conduction keeps the heat flow continuous where the material changes:
 the balance of what crosses the boundaries above and below each layer,
 `rho c_i (T_i' - T_i) / dt = [k_{i+1/2} (T_{i+1} - T_i) - k_{i-1/2} (T_i - T_{i-1})] / dz^2`,
@@ -1443,6 +1453,24 @@ it, each normal turned by the pose's inverse transpose.
 `sim.facet_mean_incidence(body, spin_axis=None)` is its mean over a spin
 about the body's own axis, from the same pose: what a column's start takes,
 see "Where the columns start".
+
+### `sim.meridian_facets(body, longitude=0.0, step=15.0)` — a meridian, pole to pole
+
+```python
+meridian, latitudes = sim.meridian_facets(0)   # facet indices, their latitudes (deg)
+surface = temperature[0, meridian]             # pole to pole
+```
+
+For each latitude from -90 to 90 `step` degrees apart, the facet whose centre
+lies nearest it in direction from the body's centre, on the meridian at
+`longitude` -- each facet once, so a coarse mesh can give fewer -- and the
+latitude each actually has. In the body's own frame, `z` its spin axis and
+`x` longitude 0, on its shape as the pose stretches it: a spin or a tilt in
+the pose changes nothing, a scale along the body's own axes counts, so set a
+scaled pose first. Any shape centred on its origin; on a concave one, where a
+direction crosses the surface twice, the facet pointing most nearly along it.
+A `ValueError` for a `step` outside (0, 180] or a body with no mesh, an
+`IndexError` for a body that does not exist.
 
 ## `kalast.astro` — an orbit about the Sun
 

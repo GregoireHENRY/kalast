@@ -582,6 +582,52 @@ impl Simulation {
         }
     }
 
+    /// The facets along a meridian of `body`, pole to pole, and the latitude
+    /// each has (degrees), as two arrays: for each latitude from -90 to 90
+    /// `step` degrees apart, the facet whose centre lies nearest it in
+    /// direction from the body's centre on the meridian at `longitude` --
+    /// each facet once, so a coarse mesh can give fewer.
+    ///
+    /// ```python
+    /// meridian, latitudes = app.simulation.meridian_facets(0)
+    /// surface = temperature[0, meridian]        # pole to pole
+    /// ```
+    ///
+    /// In the body's own frame, `z` its spin axis and `x` longitude 0, and on
+    /// its shape as its pose stretches it: a spin or a tilt in the pose
+    /// changes nothing, a scale along the body's own axes counts -- set a
+    /// scaled pose first. Any shape centred on its origin; on a concave one,
+    /// the facet pointing most nearly along the direction. A `ValueError` for
+    /// a `step` outside (0, 180] or a body with no mesh, an `IndexError` for
+    /// a body that does not exist.
+    #[pyo3(signature = (body, longitude=0.0, step=15.0))]
+    fn meridian_facets<'py>(
+        slf: pyo3::Bound<'py, Self>,
+        body: usize,
+        longitude: Float,
+        step: Float,
+    ) -> PyResult<(pyo3::Bound<'py, numpy::PyArray1<i64>>, pyo3::Bound<'py, numpy::PyArray1<Float>>)> {
+        let py = slf.py();
+        let sim = slf.borrow();
+        let sim = sim.inner.borrow();
+        if !(step > 0.0 && step <= 180.0) {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "a meridian's step is in (0, 180] degrees: not {step}"
+            )));
+        }
+        match sim.meridian_facets(body, longitude, step) {
+            Some((facets, latitudes)) => Ok((
+                numpy::PyArray1::from_vec(py, facets.into_iter().map(|f| f as i64).collect()),
+                numpy::PyArray1::from_vec(py, latitudes),
+            )),
+            None if body >= sim.bodies.len() => Err(pyo3::exceptions::PyIndexError::new_err(format!(
+                "no body {body}: {} loaded",
+                sim.bodies.len()
+            ))),
+            None => Err(pyo3::exceptions::PyValueError::new_err(format!("body {body} has no mesh"))),
+        }
+    }
+
     /// Ask for hemicube view factors for `facets` of `body`, this frame.
     ///
     /// Request from `before_render`, read with `hemicube` from

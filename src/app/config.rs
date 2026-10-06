@@ -1195,6 +1195,20 @@ pub struct Image {
     /// :label: image height
     /// :range: 0..=4320
     pub height: u32,
+    /// Mirror the image left to right: the camera's right drawn on the left.
+    ///
+    /// For an instrument whose images are stored mirrored, so a frame
+    /// compares pixel for pixel: pixel `(0, 0)` of an image is its top-left
+    /// corner, which a camera fills with the top left of what it sees, and
+    /// these put another corner of the view there -- `flip_y` the bottom
+    /// left, both the bottom right. The scene is mirrored, on screen and in
+    /// an exported frame; the HUD and the colour bar are not. Picking, the
+    /// navigation gizmo and the mouse follow the mirror.
+    /// :label: mirror left to right
+    pub flip_x: bool,
+    /// Mirror the image top to bottom: the camera's up drawn at the bottom.
+    /// :label: mirror top to bottom
+    pub flip_y: bool,
 }
 
 impl Default for Image {
@@ -1202,6 +1216,8 @@ impl Default for Image {
         Self {
             width: 0,
             height: 0,
+            flip_x: false,
+            flip_y: false,
         }
     }
 }

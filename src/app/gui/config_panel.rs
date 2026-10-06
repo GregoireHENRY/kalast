@@ -308,6 +308,8 @@ pub fn group_controls(ui: &mut egui::Ui, c: &mut Config) {
 pub fn group_image(ui: &mut egui::Ui, c: &mut Config) {
     setting(ui, "image width", "Render size in physical pixels -- the *image*, not the window.", |ui| ui.add(egui::Slider::new(&mut c.image.width, 0..=7680).clamping(egui::SliderClamping::Edits)));
     setting(ui, "image height", "", |ui| ui.add(egui::Slider::new(&mut c.image.height, 0..=4320).clamping(egui::SliderClamping::Edits)));
+    setting(ui, "mirror left to right", "Mirror the image left to right: the camera's right drawn on the left.", |ui| ui.checkbox(&mut c.image.flip_x, ""));
+    setting(ui, "mirror top to bottom", "Mirror the image top to bottom: the camera's up drawn at the bottom.", |ui| ui.checkbox(&mut c.image.flip_y, ""));
 }
 
 /// `config.debug` -- Debug.

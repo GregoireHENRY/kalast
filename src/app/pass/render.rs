@@ -128,8 +128,15 @@ impl Pass {
         // geometry culls its back faces in both, and `render_back_face` turns
         // it off in both so non-closed geometry is seen -- and casts -- from
         // whichever side faces the camera or the light.
+        //
+        // A mirrored image (`image.flip_x` or `flip_y`, not both) turns every
+        // triangle's winding round on screen: the faces toward the camera
+        // then read as back ones, and it is the front ones that are culled.
+        let mirrored = config.image.flip_x != config.image.flip_y;
         let cull_mode = if config.shading.render_back_face {
             None
+        } else if mirrored {
+            Some(wgpu::Face::Front)
         } else {
             Some(wgpu::Face::Back)
         };

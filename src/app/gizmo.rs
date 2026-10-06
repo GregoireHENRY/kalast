@@ -178,6 +178,8 @@ pub fn build(
     let right = camera.right();
     let up = camera.up();
     let fwd = camera.dir;
+    // Mirrored with the image (`image.flip_x`, `flip_y`), as the scene is.
+    let (mx, my) = camera.projection.mirror();
 
     // Ball centres reach to the edge of the widget, not past it, or a corner
     // anchor would put half a ball off the image.
@@ -192,8 +194,8 @@ pub fn build(
         };
         for positive in [true, false] {
             let d = if positive { dir } else { -dir };
-            let sx = d.dot(right) as f32;
-            let sy = d.dot(up) as f32;
+            let sx = (d.dot(right) * mx) as f32;
+            let sy = (d.dot(up) * my) as f32;
             balls.push(Ball {
                 axis,
                 positive,
@@ -438,6 +440,24 @@ mod tests {
             .unwrap();
         assert!((z.center[0] - g.center[0]).abs() < 1e-3);
         assert!((z.center[1] - g.center[1]).abs() < 1e-3);
+    }
+
+    /// Mirrored with the image, the balls are: +X's on the other side of
+    /// the centre with `flip_x`, +Y's below it with `flip_y`.
+    #[test]
+    fn the_balls_are_mirrored_with_the_image() {
+        let mut eye = eye_looking_down_neg_z();
+        let ball = |eye: &Eye, axis: Axis| {
+            let g = build(eye, (800.0, 600.0), HudAnchor::TopLeft, 50.0, 16.0, None);
+            let b = g.balls.iter().find(|b| b.axis == axis && b.positive).unwrap().center;
+            [b[0] - g.center[0], b[1] - g.center[1]]
+        };
+        let (x, y) = (ball(&eye, Axis::X), ball(&eye, Axis::Y));
+        eye.projection.flip = [true, true];
+        let (fx, fy) = (ball(&eye, Axis::X), ball(&eye, Axis::Y));
+        assert!((fx[0] + x[0]).abs() < 1e-3 && (fx[1] - x[1]).abs() < 1e-3, "{x:?} mirrored to {fx:?}");
+        assert!((fy[1] + y[1]).abs() < 1e-3 && (fy[0] - y[0]).abs() < 1e-3, "{y:?} mirrored to {fy:?}");
+        assert!(x[0].abs() > 1.0 && y[1].abs() > 1.0, "nothing to mirror: {x:?} {y:?}");
     }
 
     #[test]

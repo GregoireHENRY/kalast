@@ -10,9 +10,8 @@ from kalast.entity import MARS, DIDYMOS, DIMORPHOS  # noqa
 
 
 app = App()
-app.config.width = 1020
-app.config.height = 1020
-app.config.panels_folded = True
+app.simulation.config.image.width = 1020
+app.simulation.config.image.height = 1020
 app.simulation.config.axes.style = "off"
 app.simulation.config.wireframe.mode = 0
 

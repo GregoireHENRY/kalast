@@ -611,6 +611,52 @@ impl Simulation {
         )
     }
 
+    /// The facets along a meridian of `body`, pole to pole, and the latitude
+    /// each has (degrees): for each latitude from -90 to 90 `step` apart, the
+    /// facet whose centre lies nearest it in direction from the body's centre
+    /// on the meridian at `longitude` (degrees) -- each facet once, so a
+    /// coarse mesh can give fewer.
+    ///
+    /// In the body's own frame, `z` its spin axis and `x` longitude 0, and on
+    /// its shape as its pose stretches it: the pose's rotation left out -- a
+    /// spin or a tilt changes nothing -- and a scale along the body's own axes
+    /// kept, which the pose's columns carry as their lengths. Any shape
+    /// centred on its origin; on a concave one, where a direction crosses the
+    /// surface twice, the facet pointing most nearly along it. `None` for a
+    /// body that does not exist or has no mesh, or a `step` outside (0, 180].
+    pub fn meridian_facets(
+        &self,
+        body: usize,
+        longitude: crate::Float,
+        step: crate::Float,
+    ) -> Option<(Vec<usize>, Vec<crate::Float>)> {
+        if !(step > 0.0 && step <= 180.0) {
+            return None;
+        }
+        let b = self.bodies.get(body)?;
+        let mesh = b.mesh.as_ref()?.borrow();
+        let pose = crate::Mat3::from_mat4(b.mat);
+        let turn = crate::Mat3::from_cols(
+            pose.x_axis.normalize_or_zero(),
+            pose.y_axis.normalize_or_zero(),
+            pose.z_axis.normalize_or_zero(),
+        );
+        let shape = turn.transpose() * pose;
+        let up: Vec<crate::Vec3> = mesh.facets.iter().map(|f| (shape * f.pos).normalize_or_zero()).collect();
+        let (sin_lon, cos_lon) = longitude.to_radians().sin_cos();
+        let mut facets = vec![];
+        for k in 0..=(180.0 / step).floor() as usize {
+            let (sin_lat, cos_lat) = (-90.0 + k as crate::Float * step).to_radians().sin_cos();
+            let along = crate::Vec3::new(cos_lat * cos_lon, cos_lat * sin_lon, sin_lat);
+            let nearest = (0..up.len()).max_by(|&i, &j| up[i].dot(along).total_cmp(&up[j].dot(along)))?;
+            if !facets.contains(&nearest) {
+                facets.push(nearest);
+            }
+        }
+        let latitudes = facets.iter().map(|&i| up[i].z.clamp(-1.0, 1.0).asin().to_degrees()).collect();
+        Some((facets, latitudes))
+    }
+
     /// Where a world point lands in the last frame drawn: `x` right and `y`
     /// down, in pixels from the image's top-left corner. See `Eye::project`
     /// for the pixel convention and for when there is no answer.
@@ -1238,6 +1284,53 @@ mod illumination_tests {
         let worst = mean.iter().zip(&averaged).map(|(m, a)| (m - a).abs()).fold(0.0, crate::Float::max);
         assert!(worst < 1e-3, "the mean and the spin's average differ by {worst}");
         assert!(mean.iter().any(|&m| m == 0.0), "no polar night, 25 degrees from the Sun");
+    }
+
+    /// The meridian's facets lie along it, pole to pole, at about the
+    /// latitudes asked for and with the ones they have; a spin and a tilt in
+    /// the pose change nothing, and a body flattened by its pose gets the
+    /// picks one flattened in its vertices gets. Compared by latitude: an
+    /// icosphere has facets mirrored about the meridian, as near as each
+    /// other, and rounding in a turned pose can take the other of the two.
+    #[test]
+    fn the_meridian_is_picked_on_the_shape_as_posed() {
+        let mut sim = Simulation::new();
+        sim.load_mesh("res/ico3.obj", crate::Mat4::IDENTITY, false);
+        let (facets, latitudes) = sim.meridian_facets(0, 0.0, 15.0).unwrap();
+        assert_eq!(facets.len(), 13);
+        for (k, (&f, &lat)) in facets.iter().zip(&latitudes).enumerate() {
+            let asked = -90.0 + 15.0 * k as crate::Float;
+            assert!((lat - asked).abs() < 6.0, "asked {asked}, facet {f} at {lat}");
+            let pos = sim.bodies[0].mesh.as_ref().unwrap().borrow().facets[f].pos;
+            if asked.abs() < 80.0 {
+                assert!(pos.y.atan2(pos.x).to_degrees().abs() < 6.0, "facet {f} off the meridian");
+            }
+        }
+        assert!(latitudes.windows(2).all(|w| w[0] < w[1]), "{latitudes:?}");
+
+        let close = |a: &[crate::Float], b: &[crate::Float]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-3);
+        let turned = crate::Mat4::from_rotation_y(0.4) * crate::Mat4::from_rotation_z(2.0);
+        sim.bodies[0].mat = turned;
+        assert!(close(&sim.meridian_facets(0, 0.0, 15.0).unwrap().1, &latitudes), "the pose's rotation counts");
+
+        let scale = crate::Vec3::new(1.0, 0.9, 0.5);
+        sim.bodies[0].mat = turned * crate::Mat4::from_scale(scale);
+        let (posed, posed_lat) = sim.meridian_facets(0, 0.0, 15.0).unwrap();
+        let mut shaped = Simulation::new();
+        shaped.load_mesh("res/ico3.obj", crate::Mat4::IDENTITY, false);
+        {
+            let mut mesh = shaped.bodies[0].mesh.as_ref().unwrap().borrow_mut();
+            for p in mesh.positions.iter_mut() {
+                *p *= scale;
+            }
+            mesh.recompute_facets();
+        }
+        let (flat, flat_lat) = shaped.meridian_facets(0, 0.0, 15.0).unwrap();
+        assert!(close(&posed_lat, &flat_lat), "the pose and the vertices disagree: {posed_lat:?} {flat_lat:?}");
+        assert_ne!(posed, facets, "flattened, other facets are nearest");
+        assert_ne!(flat, facets);
+
+        assert!(sim.meridian_facets(0, 0.0, 0.0).is_none() && sim.meridian_facets(1, 0.0, 15.0).is_none());
     }
 
     #[test]

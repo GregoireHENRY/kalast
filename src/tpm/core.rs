@@ -57,6 +57,8 @@
 //     Required to obtain thermal equilibrium and essential to derive Planck spectrum.
 //     a = 1 - e
 
+use std::cell::RefCell;
+
 use anyhow::{Result, anyhow, bail};
 use ndarray::{Array1, Array2, ArrayView1, ArrayView2, ArrayViewMut2, Zip, s};
 #[cfg(feature = "python")]
@@ -341,6 +343,9 @@ impl<'a> From<GroundView<'a>> for Thermal<'a> {
 /// same all the way down each column, `(layers, 1)` the same across the body
 /// at each depth -- a property that does not vary costs a value, a row or a
 /// column rather than the whole array.
+///
+/// It carries what its conduction steps leave over, `Remainder`, for each
+/// temperature array it steps.
 #[derive(Clone, Debug)]
 pub struct Ground {
     pub albedo: Array1<Float>,
@@ -350,7 +355,82 @@ pub struct Ground {
     pub heat_capacity: Array2<Float>,
     layers: usize,
     facets: usize,
+    remainder: RefCell<Remainder>,
 }
+
+/// What a `Ground` carries from one conduction step to the next: the part of
+/// each node's step too small for the float holding its temperature, which
+/// would otherwise be rounded away -- Kahan's compensated sum.
+///
+/// A thick layer of a graded column steps by millionths of a kelvin once the
+/// column is near where it settles, under half the spacing of float32 at
+/// 233 K (7.6e-6 K): every one of those steps was dropped, and the logo's
+/// columns froze a few kelvin off their mean below 5 m
+/// (`notes/2026-10-05_tpm_logo_convergence.md`). Carried, the steps add up
+/// as they would in float64, for a second float a node.
+///
+/// Only the layers that need it carry theirs (`CARRY_BELOW`): a column of
+/// equal layers costs nothing more.
+///
+/// Kept for each temperature array, by the address of its values: a few at
+/// once, for one `Ground` stepping several bodies' temperatures, the one
+/// stepped longest ago dropped past `SLOTS`. An array not seen before, or
+/// seen at another shape, starts from nothing.
+#[derive(Clone, Debug, Default)]
+pub struct Remainder {
+    slots: Vec<Carried>,
+}
+
+/// One temperature array's remainders, and each layer's smallest step
+/// against the differences around a node, measured every `MEASURE_EVERY`
+/// steps: which layers carry theirs.
+#[derive(Clone, Debug)]
+struct Carried {
+    key: usize,
+    values: Array2<Float>,
+    least: Vec<Float>,
+    steps: u32,
+}
+
+impl Remainder {
+    const SLOTS: usize = 4;
+
+    /// The remainders of the temperatures `t`, laid out as they are.
+    fn of(&mut self, t: &ArrayViewMut2<'_, Float>) -> &mut Carried {
+        let (key, dim) = (t.as_ptr() as usize, t.dim());
+        let kept = self.slots.iter().position(|c| c.key == key).map(|i| self.slots.remove(i));
+        let carried = match kept {
+            Some(c) if c.values.dim() == dim => c,
+            _ => {
+                if self.slots.len() >= Self::SLOTS {
+                    self.slots.remove(0);
+                }
+                // Every layer carries until its own step is known.
+                Carried { key, values: Array2::zeros(dim), least: vec![0.0; dim.0], steps: 0 }
+            }
+        };
+        self.slots.push(carried);
+        self.slots.last_mut().expect("just pushed")
+    }
+}
+
+/// A layer whose step is under this share of the differences around a node
+/// carries its remainder: there a step falls under the spacing of its float
+/// while the column is still far from settled -- a graded column's thick
+/// layers, at millionths of a share. Over it -- every layer of equal ones
+/// stepped near the stable limit, where the share is near 1 -- a float drops
+/// only differences under 3e-4 K, and the remainder is not read.
+const CARRY_BELOW: Float = 1.0 / 16.0;
+
+/// How often each layer's smallest step is measured again, in steps: a
+/// conductivity or a `dt` changed between them is followed within as many.
+/// Measured at every step, the extra comparison a node cost a tenth of the
+/// step on equal layers.
+const MEASURE_EVERY: u32 = 64;
+
+/// `step_layer` for one choice of carrying and measuring.
+type LayerStep =
+    fn(&mut [Float], &[Float], &mut [Float], &mut [Float], (&[Float], &[Float], &[Float], &[Float]), &mut [Float], Float) -> (Float, Float, Float);
 
 impl Ground {
     /// Every facet and layer as `prop` has them, in full arrays to be changed
@@ -372,6 +452,7 @@ impl Ground {
             heat_capacity: Array2::from_elem((layers, facets), prop.heat_capacity),
             layers,
             facets,
+            remainder: RefCell::default(),
         })
     }
 
@@ -427,6 +508,7 @@ impl Ground {
             conductivity: self.conductivity.view(),
             density: self.density.view(),
             heat_capacity: self.heat_capacity.view(),
+            remainder: Some(&self.remainder),
         }
     }
 
@@ -446,6 +528,9 @@ pub struct GroundView<'a> {
     pub conductivity: ArrayView2<'a, Float>,
     pub density: ArrayView2<'a, Float>,
     pub heat_capacity: ArrayView2<'a, Float>,
+    /// Where the conduction carries what its steps leave over: the
+    /// `Ground`'s own. Without one, nothing is carried past a step.
+    pub remainder: Option<&'a RefCell<Remainder>>,
 }
 
 impl<'a> GroundView<'a> {
@@ -656,7 +741,10 @@ pub fn bottom_adiabatic(mut t: ArrayViewMut2<'_, Float>) {
 /// with `k` at a boundary the harmonic mean of the two layers, what two
 /// half-layers conduct in series. A diffusivity per layer in the stencil
 /// above would not do: it drops the change of `k` with depth, and with it
-/// the flow across a boundary between two materials.
+/// the flow across a boundary between two materials. The part of a node's
+/// step too small for its float is carried to the next step by the
+/// `Ground` (`Remainder`), so a graded column's thick layers, stepping by
+/// millionths of a kelvin, settle as they would in float64.
 ///
 /// Refused past the scheme's stability, `D dt / dz^2 > 1/2`, where it does
 /// not lose accuracy so much as grow without bound; `stability_maxdt` gives
@@ -726,12 +814,25 @@ fn conduction_body(mut t: ArrayViewMut2<'_, Float>, prop: &Properties, dt: Float
 /// times the uniform step at 5120 facets by 51 layers. The stability is kept
 /// as a max and a min, reductions that vectorise too, and checked after each
 /// layer: a step past it stops there, with the layers down to it stepped.
+/// The layers whose steps are small carry their remainder (`Remainder`),
+/// through the same loop with it in (`step_layer`).
 fn conduction_ground(mut t: ArrayViewMut2<'_, Float>, g: GroundView<'_>, dt: Float, dz: Float) -> Result<()> {
     let (layers, facets) = t.dim();
     g.check(layers, facets)?;
     if layers < 3 {
         return Ok(());
     }
+    // What the steps before left over at each node, to add to this one's:
+    // the `Ground`'s, or, from a view without one, kept for this step only.
+    let mut kept = g.remainder.and_then(|r| r.try_borrow_mut().ok());
+    let mut alone = Remainder::default();
+    let carried = match kept.as_deref_mut() {
+        Some(r) => r,
+        None => &mut alone,
+    }
+    .of(&t);
+    let measure = carried.steps % MEASURE_EVERY == 0;
+    carried.steps = carried.steps.wrapping_add(1);
     let dtdz2 = dt / (dz * dz);
     // A few ulps over the limit are the rounding of a `dt` taken at it.
     let limit = 1.0 + 16.0 * Float::EPSILON;
@@ -753,37 +854,43 @@ fn conduction_ground(mut t: ArrayViewMut2<'_, Float>, g: GroundView<'_>, dt: Flo
         let k_next = row_of(&g.conductivity, i + 1, facets, &mut b_next);
         let rho = row_of(&g.density, i, facets, &mut b_rho);
         let c = row_of(&g.heat_capacity, i, facets, &mut b_c);
-        let (mut worst, mut lowest) = (0.0 as Float, 0.0 as Float);
         let (mut layer, below) = t.multi_slice_mut((s![i, ..], s![i + 1, ..]));
-        match (layer.as_slice_mut(), below.as_slice()) {
+        let mut rest = carried.values.row_mut(i);
+        let rest = rest.as_slice_mut().expect("an array of its own, in order");
+        let (worst, least, lowest) = match (layer.as_slice_mut(), below.as_slice()) {
             (Some(layer), Some(below)) => {
-                let (layer, below, above, k_up) =
-                    (&mut layer[..facets], &below[..facets], &mut above[..facets], &mut k_up[..facets]);
-                let (k_here, k_next, rho, c) = (&k_here[..facets], &k_next[..facets], &rho[..facets], &c[..facets]);
-                for f in 0..facets {
-                    let kd = harmonic(k_here[f], k_next[f]);
-                    let r = dtdz2 / (rho[f] * c[f]);
-                    worst = worst.max(r * (k_up[f] + kd));
-                    lowest = lowest.min(r.min(kd));
-                    let v = layer[f];
-                    layer[f] = v + r * (kd * (below[f] - v) - k_up[f] * (v - above[f]));
-                    above[f] = v;
-                    k_up[f] = kd;
-                }
+                let step: LayerStep = match (carried.least[i] < CARRY_BELOW, measure) {
+                    (true, true) => step_layer::<true, true>,
+                    (true, false) => step_layer::<true, false>,
+                    (false, true) => step_layer::<false, true>,
+                    (false, false) => step_layer::<false, false>,
+                };
+                step(&mut layer[..facets], below, &mut above, &mut k_up, (k_here, k_next, rho, c), rest, dtdz2)
             }
-            // A view with gaps between its values: the same, value by value.
+            // A view with gaps between its values: the same, value by value,
+            // the remainder always carried.
             _ => {
+                let (mut worst, mut least, mut lowest) = (0.0 as Float, Float::INFINITY, 0.0 as Float);
                 for f in 0..facets {
                     let kd = harmonic(k_here[f], k_next[f]);
                     let r = dtdz2 / (rho[f] * c[f]);
-                    worst = worst.max(r * (k_up[f] + kd));
+                    let share = r * (k_up[f] + kd);
+                    worst = worst.max(share);
+                    least = least.min(share);
                     lowest = lowest.min(r.min(kd));
                     let v = layer[f];
-                    layer[f] = v + r * (kd * (below[f] - v) - k_up[f] * (v - above[f]));
+                    let step = r * (kd * (below[f] - v) - k_up[f] * (v - above[f])) + rest[f];
+                    let next = v + step;
+                    rest[f] = step - (next - v);
+                    layer[f] = next;
                     above[f] = v;
                     k_up[f] = kd;
                 }
+                (worst, least, lowest)
             }
+        };
+        if measure {
+            carried.least[i] = least;
         }
         if worst > limit || lowest < 0.0 {
             bail!(
@@ -794,6 +901,51 @@ fn conduction_ground(mut t: ArrayViewMut2<'_, Float>, g: GroundView<'_>, dt: Flo
         }
     }
     Ok(())
+}
+
+/// One layer's nodes stepped, from slices as long as `layer`: each node's
+/// step, with, where `CARRY`, what the steps before could not add put back
+/// and what this one cannot kept in `rest` -- `next - v` is what the float
+/// took of it. Gives the largest share of the differences around a node
+/// that a step takes and, where `MEASURE`, the smallest, and the smallest
+/// rate or conductivity, for the checks.
+#[inline(always)]
+fn step_layer<const CARRY: bool, const MEASURE: bool>(
+    layer: &mut [Float],
+    below: &[Float],
+    above: &mut [Float],
+    k_up: &mut [Float],
+    (k_here, k_next, rho, c): (&[Float], &[Float], &[Float], &[Float]),
+    rest: &mut [Float],
+    dtdz2: Float,
+) -> (Float, Float, Float) {
+    let n = layer.len();
+    let (below, above, k_up, rest) = (&below[..n], &mut above[..n], &mut k_up[..n], &mut rest[..n]);
+    let (k_here, k_next, rho, c) = (&k_here[..n], &k_next[..n], &rho[..n], &c[..n]);
+    let (mut worst, mut least, mut lowest) = (0.0 as Float, Float::INFINITY, 0.0 as Float);
+    for f in 0..n {
+        let kd = harmonic(k_here[f], k_next[f]);
+        let r = dtdz2 / (rho[f] * c[f]);
+        let share = r * (k_up[f] + kd);
+        worst = worst.max(share);
+        if MEASURE {
+            least = least.min(share);
+        }
+        lowest = lowest.min(r.min(kd));
+        let v = layer[f];
+        let step = r * (kd * (below[f] - v) - k_up[f] * (v - above[f]));
+        layer[f] = if CARRY {
+            let step = step + rest[f];
+            let next = v + step;
+            rest[f] = step - (next - v);
+            next
+        } else {
+            v + step
+        };
+        above[f] = v;
+        k_up[f] = kd;
+    }
+    (worst, least, lowest)
 }
 
 /// A row filled out from a broadcast one, remembering the value it holds,
@@ -1050,7 +1202,10 @@ use pyo3::prelude::*;
     /// ```
     ///
     /// `k` at a boundary the harmonic mean of the two layers. Its limit is
-    /// `ground.stability_maxdt(dz)`.
+    /// `ground.stability_maxdt(dz)`. The `Ground` carries the part of each
+    /// node's step too small for float32 into the next one, so a graded
+    /// column's thick layers, stepping by millionths of a kelvin, still
+    /// settle -- kept for each temperature array it steps, four at most.
     ///
     /// `t` is what `columns` made, changed in place, and `prop` the body's
     /// `Properties` -- `D` their diffusivity -- or a `Ground`. The surface
@@ -1067,7 +1222,8 @@ use pyo3::prelude::*;
         let mut t = temperatures(t)?;
         if let Ok(g) = prop.extract::<PyRef<'_, Ground>>() {
             let arrays = g.readonly(prop.py())?;
-            return super::heat_conduction(t.as_array_mut(), arrays.view(), dt, dz).map_err(value_error);
+            let view = super::GroundView { remainder: Some(&g.remainder), ..arrays.view() };
+            return super::heat_conduction(t.as_array_mut(), view, dt, dz).map_err(value_error);
         }
         let prop = body(prop)?;
         super::heat_conduction(t.as_array_mut(), &*prop.inner.borrow(), dt, dz).map_err(value_error)
@@ -1117,6 +1273,8 @@ use pyo3::prelude::*;
         conductivity: Py<PyArray2<Float>>,
         density: Py<PyArray2<Float>>,
         heat_capacity: Py<PyArray2<Float>>,
+        /// What its conduction steps leave over: `super::Remainder`.
+        remainder: std::cell::RefCell<super::Remainder>,
     }
 
     /// The arrays borrowed for one call, read as the core reads a `Ground`.
@@ -1136,6 +1294,7 @@ use pyo3::prelude::*;
                 conductivity: self.conductivity.as_array(),
                 density: self.density.as_array(),
                 heat_capacity: self.heat_capacity.as_array(),
+                remainder: None,
             }
         }
     }
@@ -1152,6 +1311,7 @@ use pyo3::prelude::*;
                 conductivity: g.conductivity.into_pyarray(py).unbind(),
                 density: g.density.into_pyarray(py).unbind(),
                 heat_capacity: g.heat_capacity.into_pyarray(py).unbind(),
+                remainder: g.remainder,
             }
         }
 
@@ -1996,5 +2156,81 @@ mod tests {
 
         let err = solar_bc(t.view_mut(), 1.0, ndarray::array![1.0, 0.0].view(), &prop, dz).unwrap_err();
         assert!(err.to_string().contains("2 cosines of incidence for 3 facets"), "{err}");
+    }
+
+    /// The bottom of a graded column a third of a kelvin warmer than the
+    /// layers above, its surface held: the thick layers step by millionths
+    /// of a kelvin, under half the spacing of float32 at 234 K. With the
+    /// `Ground`'s remainder they settle as the same column does in float64;
+    /// in float32 without it nothing moves at all -- the logo's columns,
+    /// frozen below 5 m.
+    #[test]
+    fn a_graded_columns_thick_layers_settle_as_in_float64() {
+        let prop = surface(200.0);
+        let dz = 2e-3;
+        let (ground, widths) = Ground::graded(&prop, 1, dz, 1000.0 * dz, 2.0).unwrap();
+        let layers = widths.len();
+        let dt = ground.stability_maxdt(dz, 0.5).unwrap();
+        let start = |l: usize| if l >= layers - 2 { 234.0 } else { 233.7 };
+        let mut t = Array2::from_shape_fn((layers, 1), |(l, _)| start(l) as Float);
+        let mut plain = t.clone();
+        // The same conservative step in float64, from the ground's own
+        // coefficients.
+        let mut reference: Vec<f64> = (0..layers).map(start).collect();
+        let k: Vec<f64> = (0..layers).map(|l| ground.conductivity[[l, 0]] as f64).collect();
+        let rhoc: Vec<f64> = (0..layers).map(|l| (ground.density[[l, 0]] * ground.heat_capacity[[0, 0]]) as f64).collect();
+        let harmonic64 = |a: f64, b: f64| 2.0 * a * b / (a + b);
+        let dtdz2 = dt as f64 / (dz as f64 * dz as f64);
+        for _ in 0..40_000 {
+            heat_conduction(t.view_mut(), &ground, dt, dz).unwrap();
+            bottom_adiabatic(t.view_mut());
+            heat_conduction(plain.view_mut(), GroundView { remainder: None, ..ground.view() }, dt, dz).unwrap();
+            bottom_adiabatic(plain.view_mut());
+            let old = reference.clone();
+            for l in 1..layers - 1 {
+                let up = harmonic64(k[l - 1], k[l]) * (old[l - 1] - old[l]);
+                let down = harmonic64(k[l], k[l + 1]) * (old[l + 1] - old[l]);
+                reference[l] = old[l] + dtdz2 / rhoc[l] * (up + down);
+            }
+            reference[layers - 1] = reference[layers - 2];
+        }
+        let deepest = layers - 2;
+        let moved = 234.0 - reference[deepest];
+        assert!(moved > 0.03, "float64 moved it {moved} K: nothing to carry");
+        // The thin layers, stepping by a sixteenth or more of the
+        // differences around them, keep float32's own rounding.
+        for l in 0..layers {
+            let off = (t[[l, 0]] as f64 - reference[l]).abs();
+            assert!(off < 1e-3, "layer {l}: {} K where float64 has {} K", t[[l, 0]], reference[l]);
+        }
+        if std::mem::size_of::<Float>() == 4 {
+            assert_eq!(plain[[deepest, 0]], 234.0, "float32 alone moved it: no freeze to show");
+        }
+    }
+
+    /// One `Ground` stepping two bodies' temperatures carries each one's
+    /// remainder apart: the same, to the bit, as a `Ground` each.
+    #[test]
+    fn a_ground_carries_each_arrays_remainder_apart() {
+        let prop = surface(200.0);
+        let dz = 2e-3;
+        let (shared, _) = Ground::graded(&prop, 2, dz, 1000.0 * dz, 2.0).unwrap();
+        let (own_a, own_b) = (shared.clone(), shared.clone());
+        let dt = shared.stability_maxdt(dz, 0.5).unwrap();
+        let layers = shared.dim().0;
+        let start = |warm: Float| {
+            Array2::from_shape_fn((layers, 2), |(l, f)| 233.7 + if l >= layers - 2 { warm + 0.1 * f as Float } else { 0.0 })
+        };
+        let (mut a, mut b) = (start(0.3), start(-0.2));
+        let (mut a_own, mut b_own) = (a.clone(), b.clone());
+        for _ in 0..5_000 {
+            for (t, g) in [(&mut a, &shared), (&mut b, &shared), (&mut a_own, &own_a), (&mut b_own, &own_b)] {
+                heat_conduction(t.view_mut(), g, dt, dz).unwrap();
+                bottom_adiabatic(t.view_mut());
+            }
+        }
+        assert_eq!(a, a_own);
+        assert_eq!(b, b_own);
+        assert!(a != start(0.3), "nothing moved: no remainder to keep apart");
     }
 }

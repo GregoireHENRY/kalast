@@ -259,7 +259,10 @@ def heat_conduction(t: numpy.ndarray, prop: Properties | Ground, dt: float, dz: 
     ```
 
     `k` at a boundary the harmonic mean of the two layers. Its limit is
-    `ground.stability_maxdt(dz)`.
+    `ground.stability_maxdt(dz)`. The `Ground` carries the part of each
+    node's step too small for float32 into the next one, so a graded
+    column's thick layers, stepping by millionths of a kelvin, still
+    settle -- kept for each temperature array it steps, four at most.
 
     `t` is what `columns` made, changed in place, and `prop` the body's
     `Properties` -- `D` their diffusivity -- or a `Ground`. The surface

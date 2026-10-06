@@ -2016,6 +2016,10 @@ impl Editor {
         let (mut build_request, mut launch_request) = (false, false);
         let (mut restart_request, mut reset_request) = (false, false);
 
+        // A pinned image is fitted into the viewport rather than shown pixel
+        // for pixel: its size is its own, not the viewport's.
+        let pinned = (config.image.width, config.image.height) != (0, 0);
+
         let mut output = self.ctx.run_ui(raw, |ui_root| {
             let ppp = ui_root.ctx().pixels_per_point();
 
@@ -2031,7 +2035,22 @@ impl Editor {
                     // -- and stretched it would distort; unscaled it only
                     // shows or hides a sliver at the edge for one frame, the
                     // same colour as the sky around the bodies.
-                    let size = egui::vec2(scene_size.0 as f32, scene_size.1 as f32) / ppp;
+                    //
+                    // A pinned image fitted, letterboxed, as `cursor_in_image`
+                    // maps the pointer into it: its size is not the viewport's
+                    // and does not change as a panel slides.
+                    let size = if pinned {
+                        let aspect = scene_size.0 as f32 / scene_size.1.max(1) as f32;
+                        let mut size = into.size();
+                        if size.x / size.y > aspect {
+                            size.x = size.y * aspect;
+                        } else {
+                            size.y = size.x / aspect;
+                        }
+                        size
+                    } else {
+                        egui::vec2(scene_size.0 as f32, scene_size.1 as f32) / ppp
+                    };
                     let clip = into.intersect(ui.clip_rect());
                     ui.painter()
                         .with_clip_rect(clip)

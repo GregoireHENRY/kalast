@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+import pathlib
+
 import numpy
 
 import kalast
@@ -73,6 +75,11 @@ app.simulation.bodies[0].mat[:3, :3] = tilt
 cosi = app.simulation.facet_mean_incidence(0)
 temperature = core.columns(nz, nf, core.effective_temperature(dau, cosi, prop.albedo, prop.emissivity))
 
+# For tpm_plot.py: the columns under the meridian at longitude 0, pole to
+# pole, 24 times a spin, saved in out/sphere/ when the run stops.
+meridian, latitudes = app.simulation.meridian_facets(0)
+history = []
+
 while app.running:
     if app.simulation.state.is_paused:
         app.step()
@@ -90,4 +97,22 @@ while app.running:
 
     bod.mesh.values = temperature[0]
 
+    if app.simulation.state.iteration * 24 % steps_per_spin < 24:
+        history.append((t, temperature[:, meridian].astype(numpy.float32)))
+
     app.step()
+
+if history:
+    times, columns = zip(*history)
+    pathlib.Path("out/sphere").mkdir(parents=True, exist_ok=True)
+    numpy.savez(
+        f"out/sphere/{pathlib.Path(__file__).stem}.npz",
+        time=times,
+        temperature=columns,
+        latitude=latitudes,
+        depth=dz * numpy.arange(nz),
+        period=period,
+        inertia=prop.thermal_inertia,
+        albedo=prop.albedo,
+        obliquity=obliquity,
+    )
