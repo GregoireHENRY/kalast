@@ -17,6 +17,7 @@ released, and the gate refuses the tag until it has.
 - `app.simulation.config.image.width` and `height` pin the image in the editor too, rendered at that size and fitted into the viewport, and in a plain window from its first frame: a size set before the window opened was ignored, and the export came out at the window's physical size -- twice its size on a Retina screen.
 - `app.simulation.config.image.flip_x` and `flip_y` mirror the image, left to right and top to bottom, on screen and in exported frames, to match an instrument whose images are stored mirrored: any corner of the view can be pixel `(0, 0)`. The HUD and the colour bar are drawn as they are; picking, the axes, the navigation gizmo and the mouse follow the mirror.
 - `examples/sphere/tpm_logo.py` starts each column at the temperature its mean sunlight over an orbit gives it rather than 0 K, and runs 30 Didymos years rather than 3: its temperatures have converged down to the bottom of its columns, where after 3 years from 0 K they were still rising.
+- `examples/hera_mars_swingby/tiri_diffuse_light.py` simulates TIRI's images of the Mars swing-by on 2025-03-12, as `hera_didymos/afc.py` does AFC's: Mars from a DTM with its relief exaggerated ten times, Deimos and Phobos, at TIRI's 1018 x 768 and mirrored top to bottom to match its images, exported a minute apart from 05:52 to 16:00 UTC and every 5 s from 12:07 to 12:10, Deimos's closest pass. It replaces `diffuse_lighting_one_image.py`.
 
 ## v0.5.13
 
