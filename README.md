@@ -11,6 +11,9 @@ uses — viewing and interacting with meshes, generating lightcurves — see the
 Download the [latest version of kalast here](https://github.com/GregoireHENRY/kalast/releases).
 You can directly run the executable and open an example script from the UI.
 
+Kalast focus is doing sciences with highest performance possible (core written
+in Rust) while being accessible by everyone (wrapper written in Python + UI).
+
 ![The kalast UI app](res/kalast-ui.png)
 
 You can also run it in your terminal:
