@@ -12,7 +12,8 @@ Download the [latest version of kalast here](https://github.com/GregoireHENRY/ka
 You can directly run the executable and open an example script from the UI.
 
 Kalast focus is doing sciences with highest performance possible (core written
-in Rust) while being accessible by everyone (wrapper written in Python + UI).
+in Rust + GPU/shaders) while being accessible by everyone (wrapper written in
+Python + UI).
 
 ![The kalast UI app](res/kalast-ui.png)
 
