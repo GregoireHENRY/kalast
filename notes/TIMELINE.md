@@ -5365,3 +5365,12 @@ gizmo follow; with one mirror on, the scene pass culls the other side.
 `image.width`/`height` now hold in the editor and from a plain window's first
 frame: both had been ignored, and exports came out at the window's Retina size.
 Write-up: `2026-10-06_image_flip_and_pinned_size.md`.
+
+## 2026-10-06 — the Selection header crashed the UI app
+
+Opening it panicked since v0.5.12 (`fc57fff`): `selection_ui` read
+`sim.config`, the `RefCell` the panels are drawn with borrowed mutably --
+the hazard `gui/mod.rs` already warns about where it hands the panel its
+config. Its test drew it without that borrow held, so it passed. Now the panel
+takes the config it is given and `Simulation::color_range_with` reads it; the
+test holds the borrow as the editor does.

@@ -1433,10 +1433,16 @@ impl Simulation {
     /// the last frame's while the data map is drawn, else the one it would be
     /// drawn with -- `data_range`, a pass over every value.
     pub fn color_range(&self) -> (f32, f32) {
-        let config = self.config.borrow();
+        self.color_range_with(&self.config.borrow())
+    }
+
+    /// `color_range` with the config handed in: for the editor's panels,
+    /// which are drawn with `self.config` borrowed mutably, so that reading
+    /// it again panics.
+    pub fn color_range_with(&self, config: &crate::app::config::Config) -> (f32, f32) {
         match config.shading.color_mode {
             1 => self.value_range,
-            _ => data_range(&config, &self.bodies),
+            _ => data_range(config, &self.bodies),
         }
     }
 

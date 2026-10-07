@@ -11,6 +11,7 @@ released, and the gate refuses the tag until it has.
 
 ## v0.5.14-beta
 
+- The UI app no longer crashes when the Selection header is opened, which it had done since v0.5.12.
 - `app.simulation.meridian_facets(body)`: the facets along a meridian, pole to pole, and the latitude each has, on the body's shape as its pose stretches it.
 - `examples/sphere/tpm_plot.py` draws a sphere TPM run: the surface at each latitude over the last two spins, and the equator's and the poles' columns spin after spin, with whether they have converged, and through the last spin, the daily wave going down -- for `tpm_logo.py`, with its orbit, the last two years and the last year beside them, the seasons. Every sphere TPM script saves what it draws when its run stops.
 - A graded column (`core.Ground.graded`) settles all the way down. Its thick deep layers stepped by less than float32 holds near where they settle, every step was rounded away, and they stopped short: the logo's 11 m columns by up to 10 K, which left its surface up to 1 K too warm near the poles. A `Ground` now carries what a step leaves over into the next one; columns of equal layers are unchanged.

@@ -739,7 +739,10 @@ fn swatch(ui: &mut egui::Ui, c: [f32; 3]) -> egui::Response {
 /// The picked facets: what is selected -- each with its value, the colour the
 /// colormap gives it and its own -- and the two ways to change it that a
 /// pointer cannot do: clearing the lot, and naming one by index.
-fn selection_ui(ui: &mut egui::Ui, sim: &mut Simulation, color: crate::Vec3) {
+// The config is handed in, not read from `sim.config`: the panels are drawn
+// with that `RefCell` borrowed mutably, and reading it here crashed the UI app
+// the moment the Selection header opened.
+fn selection_ui(ui: &mut egui::Ui, sim: &mut Simulation, config: &Config, color: crate::Vec3) {
     note(ui, "click a facet in the scene to select it; click it again to drop it");
 
     if sim.selected_facets.is_empty() {
@@ -749,8 +752,6 @@ fn selection_ui(ui: &mut egui::Ui, sim: &mut Simulation, color: crate::Vec3) {
     // Applied after the loop: dropping one mid-iteration shifts the rest.
     let mut drop_it = None;
     let many = sim.bodies.len() > 1;
-    let config = sim.config.clone();
-    let config = config.borrow();
     // What a value's colour is read over: the range of the frame drawn while
     // the data map is shown, the one it would be drawn with otherwise.
     let mut range = None;
@@ -779,7 +780,7 @@ fn selection_ui(ui: &mut egui::Ui, sim: &mut Simulation, color: crate::Vec3) {
                 ui.label(egui::RichText::new(format_value(v)).monospace());
             });
             if v.is_finite() {
-                let r = *range.get_or_insert_with(|| sim.color_range());
+                let r = *range.get_or_insert_with(|| sim.color_range_with(config));
                 let c = crate::app::config::colormap_color(&config.data.colormap, r, v);
                 let hover = format!(
                     "Its colour in the colormap, red, green and blue from 0 to 1, over values {} to {}",
@@ -799,7 +800,6 @@ fn selection_ui(ui: &mut egui::Ui, sim: &mut Simulation, color: crate::Vec3) {
             });
         }
     }
-    drop(config);
     if let Some(i) = drop_it {
         let (body, facet) = {
             let s = &sim.selected_facets[i];
@@ -933,7 +933,7 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config) {
     let names: Vec<String> = sim.bodies.iter().map(body_name).collect();
 
     topic(ui, codicon::TARGET, palette::RED, "Selection", |ui| {
-        selection_ui(ui, sim, selection_color);
+        selection_ui(ui, sim, c, selection_color);
         subheading(ui, "settings");
         group_selection(ui, c);
     });
@@ -1126,7 +1126,12 @@ mod tests {
             screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0))),
             ..Default::default()
         };
-        let mut output = ctx.run_ui(raw, |ui| selection_ui(ui, &mut sim, crate::Vec3::X));
+        // Drawn as the editor draws it, with the config borrowed mutably:
+        // reading `sim.config` inside then panics, as it did in the app.
+        let config = sim.config.clone();
+        let c = config.borrow_mut();
+        let mut output = ctx.run_ui(raw, |ui| selection_ui(ui, &mut sim, &c, crate::Vec3::X));
+        drop(c);
         output.textures_delta.clear();
         let texts = texts(&output);
         assert!(texts.iter().any(|t| t == "facet 3"), "{texts:?}");
