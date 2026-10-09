@@ -138,11 +138,10 @@ class Simulation:
         computed this frame.
 
         One entry per facet, in `Mesh.facets` order: 0.0 fully lit, 1.0 fully
-        shadowed, quarter steps between for facets straddling a shadow
-        boundary (4 samples per facet). With the Sun a disc
-        (`light.sun_as_point = False`), the fraction of the disc the samples
-        do not see, averaged: graded across a penumbra, 1.0 facing away.
-        `1.0 - frac` is the lit fraction.
+        shadowed, the mean of its corners and centre looked up as the image's
+        pixels are, `shadows.pcf`'s kernel included; with the Sun a disc
+        (`light.sun_as_point = False`), the fraction of the disc they do not
+        see, graded across a penumbra. 1.0 facing away.
 
         Set `app.config.access_shadow_map = True` to have every body computed
         each frame, then read this from `after_render`.

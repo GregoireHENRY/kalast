@@ -5696,3 +5696,39 @@ A step within a pixel in front of the surface the camera sees has the stretch
 before it gone over pixel by pixel, as one that went behind it has: frame
 2574 lost 137 lit pixels, none gained, thin structures 101 to 98. Write-up:
 `2026-10-09_disc_gaps_hidden_relief/`.
+
+## 2026-10-09 — the TPM's shadows are the image's, PCF included; the shadow cache
+
+`sim.facet_shadow` goes through the image's own lookups for every Sun,
+`shadows.pcf`'s kernel included (`cs_facets`; `facet_shadow.wgsl` unused):
+the crater's agreement with rays at pcf 0 unchanged, 102-134 facets blurred
+at pcf 4-8; a step of the Didymos pair 88 to 69 a second at pcf 2.
+`shadows.cache` (off by default) keeps each layer, fitted to its whole body,
+until the Sun or another body moves about it past `cache_degrees`, its matrix
+moved with the body: the paused pair 1.87 to 1.34 ms (point), 6.74 to 2.55
+(disc). `tests/test_shadow_cache.py`. Write-up:
+`2026-10-09_shadow_cache_and_tpm_pcf/`.
+
+## 2026-10-09 — cascaded shadow maps; quality presets
+
+`shadows.cascades` (0 by default): cascades over the camera's view and one
+over the scene, a point's finest that holds it, the per-facet query per
+point; a wall's edge 1.6 px against 22 with one layer at 1024. Not quicker
+here than a layer per body, already fitted to what the camera sees (Didymos
+pair 550-577 frames/s against 518 per body and 773 for one layer over the
+scene). `config.quality`: "quick" (that one layer), "fast" (cached), "point"
+(defaults), "accurate" (disc); a button each in the settings.
+`tests/test_cascades.py`, `tests/test_quality.py`. Write-up:
+`2026-10-09_cascades_and_quality/`.
+
+## 2026-10-09 — Unreal Engine 5.8 against kalast, and PBR
+
+A comparison for the user: kalast's per-body layers, cache and disc walk
+against Virtual Shadow Maps and SMRT; Nanite's GPU culling the one piece
+still to take (frames are GPU-bound here); Lumen, MegaLights, TSR, Substrate
+not for a scientific renderer; UE's path tracer the template for a
+reference. PBR: kalast's laws (Hapke and others, fitted to AFC and TIRI) are
+the physically based part already; offered and not started: float exports,
+radiance in physical units, a tonemap for display only, the camera as an
+instrument (pixel area, PSF, noise), a white-furnace check of the laws,
+light from other facets. Write-up: `2026-10-09_ue58_and_pbr_for_kalast/`.

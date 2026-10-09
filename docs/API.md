@@ -1202,13 +1202,13 @@ frac = sim.facet_shadow(body)       # after_render -> array or None
 ```
 
 One entry per facet in `Mesh.facets` order: `0.0` nothing in the way, `1.0`
-fully blocked, quarter steps between (4 samples per facet). With
-`body.horizon_map`, a facet whose centre has the Sun below its horizon is
-`1.0`, and the samples answer only for the other bodies. With the Sun a disc
-(`light.sun_as_point = False`), the fraction of the limb-darkened disc the
-four samples do not see, averaged -- the penumbrae graded as the image has
-them -- with the horizon map's line across the disc, and `1.0` where the facet
-faces away from the Sun.
+fully blocked, the mean over its corners and centre, each looked up as the
+image's pixels are -- the same shadow maps and lookups, `shadows.pcf`'s
+kernel included -- so the model takes the shadows the image shows. With the
+Sun a disc (`light.sun_as_point = False`), the fraction of the limb-darkened
+disc they do not see, the penumbrae graded. With `body.horizon_map`, the
+horizon from the facet's centre, the disc's light above it with the Sun a
+disc. `1.0` where the facet faces away from the Sun.
 
 Set `config.shadows.access_shadow_map = True` to have every body computed every frame
 instead of requesting per body.

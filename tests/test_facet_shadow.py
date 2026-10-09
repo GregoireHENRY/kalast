@@ -1,29 +1,23 @@
 #!/usr/bin/env python
 """The shadow the thermophysical model runs on, pinned two ways.
 
-`shaders/facet_shadow.wgsl` is not the render's shadow term, and the two are
-easy to confuse -- the shader's own header claimed they "cannot disagree"
-until this test was written, which is false the moment `shadow_pcf > 0`. The
-render filters over a `(2N+1)^2` kernel; the compute path takes one tap and
-returns a binary occlusion.
-
-That divergence is deliberate. The Sun is a point source here, so occlusion
-is binary, and PCF is image-space antialiasing with nothing physical to
-contribute to a boundary condition. But "deliberate" was only ever a property
-of the code, never asserted anywhere, and the bias constants it depends on
-were fitted by a one-off sweep that lived in a note
-(`notes/2026-09-08_shadow_bias.md`: slope 1, floor 1, offset sqrt2).
+`sim.facet_shadow` is what the image shows, looked up at each facet's corners
+and centre (`cs_facets` in `mesh_shadow.wgsl`): the same shadow maps, the same
+lookups, the same `shadows.pcf` kernel. It used to be a compute pass of its
+own, one texel per point and blind to PCF on purpose -- PCF being image-space
+antialiasing with nothing physical in it. The user asked for the opposite on
+9 October: the model takes the shadows the user chose, the filter included.
 
 So two things are checked here:
 
-1. **Invariance to `shadow_pcf`.** If someone adds a kernel to the compute
-   path, or scales its normal offset the way the fragment shader does, the
-   physics silently changes under every existing result. This catches that.
+1. **The query follows `shadow_pcf`.** At 4 and 8, facets near a shadow's
+   edge take the kernel's blur, and the rest are as at 0.
 2. **Agreement with ray tracing.** The shadow map is a sampled approximation;
    a ray from a facet centroid to the Sun is not. This re-runs, in miniature,
-   the sweep that fitted the bias -- so a regression in the offset, the bias
-   or the projection shows up as facets the map calls lit that the ray says
-   are blocked.
+   the sweep that fitted the bias (`notes/2026-09-08_shadow_bias.md`: slope 1,
+   floor 1, offset sqrt2) -- so a regression in the offset, the bias or the
+   projection shows up as facets the map calls lit that the ray says are
+   blocked.
 
 Opens a real window: there is no way to exercise a compute pass against a
 shadow map without one. One `App` only -- constructing a second in the same
@@ -169,16 +163,16 @@ def main() -> int:
         print("FAIL could not read facet_shadow at all -- no GPU?")
         return 1
 
-    # 1. Invariance to shadow_pcf.
+    # 1. The query follows shadow_pcf: the facets near a shadow's edge are
+    # blurred as the image's pixels are, the others the same as at 0.
     for pcf in (4, 8):
         c.shadow_pcf = pcf
         got = settle(app, sim, 0)
-        same = got is not None and numpy.array_equal(base, got)
-        differing = int((base != got).sum()) if got is not None else -1
+        differing = int((numpy.abs(base - got) > 1e-6).sum()) if got is not None else -1
         check(
-            f"test_shadow_pcf_{pcf}_does_not_move_the_physics",
-            same,
-            f"{differing}/{base.size} facets differ; the compute path must not filter",
+            f"test_shadow_pcf_{pcf}_follows_the_image",
+            got is not None and 0 < differing < base.size // 2,
+            f"{differing}/{base.size} facets differ from pcf 0",
         )
     c.shadow_pcf = 0
 

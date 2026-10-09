@@ -312,6 +312,18 @@ class Config:
         ...
     @huds.setter
     def huds(self, value: Sequence[Hud]) -> None: ...
+    @property
+    def quality(self) -> str | None:
+        """The shadow settings for one use, by name: `"quick"` (one layer over the
+        whole scene, a point Sun), `"fast"` (a layer per body kept from frame
+        to frame), `"point"` (drawn every frame, the defaults) or `"accurate"`
+        (the Sun's disc and its second depth layer). Setting it sets the Sun,
+        the method, the cache, PCF and the resolution; read back, the name the
+        settings are now, or `None` once one of them is changed by hand.
+        """
+        ...
+    @quality.setter
+    def quality(self, value: str) -> None: ...
     shading: ShadingConfig
     """How the surface is coloured and the image encoded."""
     light: LightConfig
@@ -680,6 +692,42 @@ class ShadowsConfig:
     per layer, the pass slower than the first -- 2 to 7 ms a frame on
     Dimorphos up close -- for little where penumbrae are narrower than six
     texels and drawn hard, as at the default resolution.
+    """
+    cache: bool
+    """Keep each body's shadow layer from frame to frame, drawn again only
+    when the Sun has moved past `cache_degrees` in the body's own frame,
+    another body has moved about it, or the scene or the shadows' settings
+    changed.
+
+    A layer kept turns with its body, so its own shadows stay on it; a
+    camera that moves, or a simulation paused, then costs no shadow pass at
+    all. Each layer is fitted to its whole body rather than to what the
+    camera sees of it, and there is no near layer (`near_layer`), so a view
+    up close has coarser texels than without. The per-facet shadows the
+    thermophysical model reads are the kept layers too. Off by default:
+    the layers are drawn every frame, as fine as the view allows.
+    """
+    cache_degrees: float
+    """How far, in degrees, the Sun may move in a body's own frame, or another
+    body about it, before a kept layer is drawn again (`cache`). 0: only
+    when nothing has moved at all, the shadows as exact as without the
+    cache. Larger keeps layers through a running simulation -- Didymos
+    turns 0.044 deg a second of simulated time -- each shadow up to that
+    far behind the Sun.
+    """
+    cascades: int
+    """Cascaded shadow maps, for a quick look: this many layers over slices
+    of the camera's view, the nearer finer, and one over the whole scene,
+    in place of a layer per body. 0, the default: a layer per body.
+
+    As games draw the Sun's shadows: the cost is the cascades' whatever
+    the bodies, and the shadows are sharp where the camera looks closest.
+    Less exact than a layer per body: a body's own shadows and another's
+    share each cascade -- with the Sun a disc a penumbra can come through
+    where they meet -- there is no near layer, no horizon map and no cache,
+    and the edges between cascades can show. The per-facet shadows the
+    thermophysical model reads are each facet's cascade's, so they move
+    with the camera.
     """
     lod_texels: float
     """The size, in shadow-map texels, a large mesh's triangles are drawn at

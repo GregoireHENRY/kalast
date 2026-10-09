@@ -414,6 +414,29 @@ fn body_ui(ui: &mut egui::Ui, i: usize, body: &mut crate::app::body::Body) -> bo
     dirty
 }
 
+/// The shadow settings for one use (`Quality`): a button each, the one the
+/// settings are now picked out.
+fn quality_ui(ui: &mut egui::Ui, c: &mut Config) {
+    use crate::app::config::Quality;
+    let now = c.quality();
+    setting(
+        ui,
+        "quality",
+        "The shadow settings for one use, from the quickest look to the most exact: each sets the Sun, the method, \
+         the cache, PCF and the resolution",
+        |ui| {
+            ui.horizontal_wrapped(|ui| {
+                for q in Quality::ALL {
+                    if ui.selectable_label(now == Some(q), q.name()).on_hover_text(q.describe()).clicked() {
+                        c.set_quality(q);
+                    }
+                }
+            })
+            .response
+        },
+    );
+}
+
 /// How a body's surface reflects sunlight in the image (`body.scattering`):
 /// Lambert, the Lommel-Seeliger/Lambert mix or Hapke, and its numbers. A law
 /// chosen again comes back as it was; chosen first, it is its defaults. An
@@ -1110,7 +1133,10 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config) {
     });
 
     topic(ui, codicon::PAINTCAN, palette::MAUVE, "Shading", |ui| group_shading(ui, c));
-    topic(ui, codicon::COLOR_MODE, palette::LAVENDER, "Shadows", |ui| group_shadows(ui, c));
+    topic(ui, codicon::COLOR_MODE, palette::LAVENDER, "Shadows", |ui| {
+        quality_ui(ui, c);
+        group_shadows(ui, c);
+    });
     topic(ui, codicon::LAYERS, palette::TEAL, "Wireframe", |ui| group_wireframe(ui, c));
 
     topic(ui, codicon::SYMBOL_COLOR, palette::PINK, "Data colouring", |ui| {

@@ -1,6 +1,6 @@
 //! Per-facet shadow queries, read back from the GPU shadow map, with the Sun
-//! a point. With the Sun a disc, `pass::penumbra::Pass::facets` answers
-//! instead, by the image's own walk; `Window::facet_shadow_fractions` picks.
+//! a point -- no longer used: since 9 October `pass::penumbra::Pass::facets`
+//! answers for every Sun and filter, as the image has it.
 //!
 //! The renderer already builds a depth map from the light's point of view
 //! every frame. This runs a compute pass over a body's facets against that

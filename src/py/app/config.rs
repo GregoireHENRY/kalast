@@ -287,6 +287,27 @@ impl Config {
             v.into_iter().map(|h| h.inner).collect();
     }
 
+    /// The shadow settings for one use, by name: `"quick"` (one layer over the
+    /// whole scene, a point Sun), `"fast"` (a layer per body kept from frame
+    /// to frame), `"point"` (drawn every frame, the defaults) or `"accurate"`
+    /// (the Sun's disc and its second depth layer). Setting it sets the Sun,
+    /// the method, the cache, PCF and the resolution; read back, the name the
+    /// settings are now, or `None` once one of them is changed by hand.
+    #[getter]
+    fn quality(&self) -> Option<&'static str> {
+        self.config.borrow().quality().map(crate::app::config::Quality::name)
+    }
+
+    #[setter]
+    fn set_quality(&mut self, name: &str) -> PyResult<()> {
+        let quality = crate::app::config::Quality::from_name(name).ok_or_else(|| {
+            let names: Vec<_> = crate::app::config::Quality::ALL.iter().map(|q| q.name()).collect();
+            pyo3::exceptions::PyValueError::new_err(format!("quality is one of {}, got {name:?}", names.join(", ")))
+        })?;
+        self.config.borrow_mut().set_quality(quality);
+        Ok(())
+    }
+
     fn __repr__(&self) -> String {
         format!("{:?}", self.config.borrow())
     }

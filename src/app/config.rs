@@ -836,6 +836,42 @@ pub struct Shadows {
     /// texels and drawn hard, as at the default resolution.
     /// :when: light.sun_as_point == false
     pub second_depth: bool,
+    /// Keep each body's shadow layer from frame to frame, drawn again only
+    /// when the Sun has moved past `cache_degrees` in the body's own frame,
+    /// another body has moved about it, or the scene or the shadows' settings
+    /// changed.
+    ///
+    /// A layer kept turns with its body, so its own shadows stay on it; a
+    /// camera that moves, or a simulation paused, then costs no shadow pass at
+    /// all. Each layer is fitted to its whole body rather than to what the
+    /// camera sees of it, and there is no near layer (`near_layer`), so a view
+    /// up close has coarser texels than without. The per-facet shadows the
+    /// thermophysical model reads are the kept layers too. Off by default:
+    /// the layers are drawn every frame, as fine as the view allows.
+    pub cache: bool,
+    /// How far, in degrees, the Sun may move in a body's own frame, or another
+    /// body about it, before a kept layer is drawn again (`cache`). 0: only
+    /// when nothing has moved at all, the shadows as exact as without the
+    /// cache. Larger keeps layers through a running simulation -- Didymos
+    /// turns 0.044 deg a second of simulated time -- each shadow up to that
+    /// far behind the Sun.
+    /// :when: cache == true
+    /// :step: 0.01
+    pub cache_degrees: f32,
+    /// Cascaded shadow maps, for a quick look: this many layers over slices
+    /// of the camera's view, the nearer finer, and one over the whole scene,
+    /// in place of a layer per body. 0, the default: a layer per body.
+    ///
+    /// As games draw the Sun's shadows: the cost is the cascades' whatever
+    /// the bodies, and the shadows are sharp where the camera looks closest.
+    /// Less exact than a layer per body: a body's own shadows and another's
+    /// share each cascade -- with the Sun a disc a penumbra can come through
+    /// where they meet -- there is no near layer, no horizon map and no cache,
+    /// and the edges between cascades can show. The per-facet shadows the
+    /// thermophysical model reads are each facet's cascade's, so they move
+    /// with the camera.
+    /// :range: 0..=4
+    pub cascades: u32,
     /// The size, in shadow-map texels, a large mesh's triangles are drawn at
     /// in the shadow maps when `shading.lod` is on, outside the camera's
     /// view.
@@ -859,6 +895,110 @@ pub struct Shadows {
     pub lod_pixels: f32,
 }
 
+/// The shadow settings for one use, from the quickest look to the most exact
+/// (`Config::set_quality`): each sets the Sun, the method, the cache, the
+/// filter and the resolution, and leaves everything else.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Quality {
+    /// One layer over the whole scene (`per_body` off), a point Sun, 2048
+    /// texels, PCF 1: the fewest texels drawn, for an overview. Up close a
+    /// layer per body is sharper and as quick.
+    Quick,
+    /// A layer per body, kept from frame to frame, a point Sun.
+    Fast,
+    /// A layer per body drawn every frame, a point Sun: the defaults.
+    Point,
+    /// The Sun's disc with its second depth layer, a layer per body and a
+    /// near layer, drawn every frame.
+    Accurate,
+}
+
+impl Quality {
+    pub const ALL: [Quality; 4] = [Quality::Quick, Quality::Fast, Quality::Point, Quality::Accurate];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Quality::Quick => "quick",
+            Quality::Fast => "fast",
+            Quality::Point => "point",
+            Quality::Accurate => "accurate",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|q| q.name() == name)
+    }
+
+    /// What it is for, for a hover.
+    pub fn describe(self) -> &'static str {
+        match self {
+            Quality::Quick => "A quick look: one layer over the whole scene, a point Sun, 2048 texels, PCF 1",
+            Quality::Fast => "Fast: a layer per body kept from frame to frame (shadows.cache), a point Sun, PCF 2",
+            Quality::Point => "A point Sun, a layer per body drawn every frame, PCF 2: the defaults",
+            Quality::Accurate => "The Sun's disc and its penumbrae, a second depth layer, a layer per body and a near layer",
+        }
+    }
+
+    fn apply(self, c: &mut Config) {
+        let (point, per_body, cache, pcf, resolution) = match self {
+            Quality::Quick => (true, false, false, 1, 2048),
+            Quality::Fast => (true, true, true, 2, 4096),
+            Quality::Point => (true, true, false, 2, 4096),
+            Quality::Accurate => (false, true, false, 2, 4096),
+        };
+        c.light.sun_as_point = point;
+        c.shadows.per_body = per_body;
+        c.shadows.cascades = 0;
+        c.shadows.cache = cache;
+        c.shadows.pcf = pcf;
+        c.shadows.resolution = resolution;
+        if cache {
+            c.shadows.cache_degrees = 0.0;
+        }
+        if self == Quality::Accurate {
+            c.shadows.second_depth = true;
+            c.shadows.near_layer = true;
+        }
+    }
+}
+
+impl Config {
+    /// Set the shadow settings for one use (`Quality`).
+    pub fn set_quality(&mut self, quality: Quality) {
+        quality.apply(self);
+    }
+
+    /// Which `Quality` the settings are now, if they are one's.
+    pub fn quality(&self) -> Option<Quality> {
+        Quality::ALL.into_iter().find(|q| {
+            let mut c = self.clone();
+            q.apply(&mut c);
+            c.light.sun_as_point == self.light.sun_as_point
+                && c.shadows.per_body == self.shadows.per_body
+                && c.shadows.cascades == self.shadows.cascades
+                && c.shadows.cache == self.shadows.cache
+                && c.shadows.pcf == self.shadows.pcf
+                && c.shadows.resolution == self.shadows.resolution
+                && c.shadows.cache_degrees == self.shadows.cache_degrees
+                && c.shadows.second_depth == self.shadows.second_depth
+                && c.shadows.near_layer == self.shadows.near_layer
+        })
+    }
+}
+
+impl Shadows {
+    /// Whether each body has a layer of its own: `per_body`, unless cascades
+    /// take the layers' place (`cascades`).
+    pub fn per_body_layers(&self) -> bool {
+        self.per_body && self.cascades == 0
+    }
+
+    /// The cascades in use, as many as the layers allow beside the scene's.
+    pub fn cascades_used(&self) -> usize {
+        (self.cascades as usize).min(super::uniform::MAX_SHADOW_LAYERS - 1)
+    }
+}
+
 impl Default for Shadows {
     fn default() -> Self {
         Self {
@@ -871,6 +1011,9 @@ impl Default for Shadows {
             per_body: true,
             near_layer: true,
             second_depth: true,
+            cache: false,
+            cache_degrees: 0.0,
+            cascades: 0,
             lod_texels: 2.0,
             lod_pixels: 3.0,
         }

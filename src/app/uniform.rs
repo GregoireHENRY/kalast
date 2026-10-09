@@ -148,7 +148,10 @@ pub struct Light {
     /// behind its first (`shadow::Pass::peel`), after the others' slices in
     /// layer order. With the Sun a disc.
     pub peeled: u32,
-    pub _peel_pad: [u32; 3],
+    /// Cascaded shadow maps in use (`shadows.cascades`): the layers before
+    /// the scene's, which a point picks the finest of that holds it.
+    pub cascades: u32,
+    pub _peel_pad: [u32; 2],
 }
 
 /// Atmospheres whose shadows other bodies see: Mars's is the one there is.

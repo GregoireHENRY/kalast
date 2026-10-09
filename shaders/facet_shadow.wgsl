@@ -1,10 +1,10 @@
-// Per-facet shadow query, with the Sun a point.
+// Per-facet shadow query, with the Sun a point -- no longer used: since
+// 9 October the query is `cs_facets` in `mesh_shadow.wgsl`, which follows the
+// image's own lookups for every Sun and filter, PCF included.
 //
 // Answers, for every facet of one body, what fraction of its sample points
 // are occluded from the light, reading the same shadow map the render pass
-// samples, with the same projection and the same per-layer depth bias. With
-// the Sun a disc the query is `cs_facets` in `mesh_shadow.wgsl` instead: the
-// fraction of the disc each point sees, by the image's own walk.
+// samples, with the same projection and the same per-layer depth bias.
 //
 // It is NOT the render's shadow term, and must not be described as one. This
 // takes a single tap and returns a binary occlusion; `mesh_shadow.wgsl` takes

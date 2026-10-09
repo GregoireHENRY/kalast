@@ -70,6 +70,9 @@ struct Light {
     // 1: each layer has a second depth layer, the nearest surface behind its
     // first, after the others' slices (`peel_slice`).
     peeled: u32,
+    // Cascaded shadow maps (`shadows.cascades`): the layers over the camera's
+    // view before the scene's; 0, a layer per body.
+    cascades: u32,
 };
 
 struct View {
@@ -921,7 +924,6 @@ struct SunAt {
     uv: vec2<f32>,
     depth: f32,
     bias: f32,
-    grad: vec2<f32>,
     tan_uv: f32,
 };
 
@@ -954,11 +956,20 @@ fn sun_at(pos: vec3<f32>, normal: vec3<f32>, ndotl: f32, layer: u32) -> SunAt {
     at.uv = p.xy;
     at.depth = p.z;
     at.bias = max(lb.y * k * k, lb.z);
-    at.grad = receiver_plane_grad(m, offset_pos, normal);
     // `lb.w` is one texel's width in depth units.
     let tan_theta = view.light.sun_radius / max(length(view.light.pos - pos), 1.0e-30);
     at.tan_uv = tan_theta / max(lb.w * f32(globals.shadow_resolution), 1.0e-30);
     return at;
+}
+
+/// The receiver's plane at `pos`, facing `normal`, as `sun_at` moves it:
+/// depth per uv, for the walk (`sun_hidden`). Worked out where a walk is,
+/// not for every lookup: three projections a lookup that only the few
+/// receivers in a penumbra use.
+fn sun_grad(pos: vec3<f32>, normal: vec3<f32>, ndotl: f32, layer: u32) -> vec2<f32> {
+    let lb = view.light.layer_bias[layer];
+    let offset_pos = pos + normal * (lb.x * (1.0 - ndotl));
+    return receiver_plane_grad(view.light.view_proj_layers[layer], offset_pos, normal);
 }
 
 /// `SunKernel` for a receiver at `pos` facing `normal` in `layer`.
@@ -997,6 +1008,17 @@ fn body_layer() -> u32 {
 /// else its own. The penumbra prepass and the main pass both choose by this,
 /// so a walk is in the layer its pixel reads.
 fn shadow_layer_at(pos: vec3<f32>) -> u32 {
+    // Cascades: the finest that holds the point well inside, else the
+    // scene's, after them.
+    if view.light.cascades > 0u {
+        for (var k = 0u; k < view.light.cascades; k++) {
+            let p = project_light(view.light.view_proj_layers[k], pos);
+            if all(abs(p.xy - vec2<f32>(0.5)) <= vec2<f32>(0.5 * CASCADE_INNER)) && p.z >= 0.0 && p.z <= 1.0 {
+                return k;
+            }
+        }
+        return view.light.cascades;
+    }
     let own = body_layer();
     if body.near_layer >= view.light.n_layers {
         return own;
@@ -1007,6 +1029,11 @@ fn shadow_layer_at(pos: vec3<f32>) -> u32 {
     }
     return own;
 }
+
+/// How far into a cascade, as a fraction of its width about its centre, a
+/// point uses it: its rim is left to the next, whose PCF taps and walks
+/// would read past the edge.
+const CASCADE_INNER: f32 = 0.95;
 
 /// The slice the other bodies of `layer` are in: their own, after the
 /// layers, where its body and they are apart (`light.apart`), or `layer`.
@@ -1115,6 +1142,7 @@ fn cs_scan(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_invocati
     let z = textureLoad(t_surface_depth, pixel, 0);
     var code = 0u;
     var at: SunAt;
+    var grad = vec2<f32>(0.0);
     var layer = 0u;
     var reach = vec2<f32>(0.0);
     if inside && z != DEPTH_CLEAR {
@@ -1136,6 +1164,9 @@ fn cs_scan(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_invocati
             if code == 3u && near_blocked(pos, normal, layer) {
                 code = 2u;
             }
+            if code == 3u {
+                grad = sun_grad(pos, normal, ndotl, layer);
+            }
         }
     }
     var mine = 0u;
@@ -1151,7 +1182,7 @@ fn cs_scan(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_invocati
         let i = scan_first + mine;
         if i < arrayLength(&walks.entries) {
             walks.entries[i].uv = at.uv;
-            walks.entries[i].grad = at.grad;
+            walks.entries[i].grad = grad;
             walks.entries[i].depth = at.depth;
             walks.entries[i].bias = at.bias;
             walks.entries[i].tan_uv = at.tan_uv;
@@ -1295,13 +1326,13 @@ const NEAR_THICK: f32 = 2.0;
 /// of the ray has the stretch since the last gone over again too.
 const NEAR_CLOSE: f32 = 1.0;
 
-// The per-facet query with the Sun a disc (`app::facet_shadow`, the
-// thermophysical model's shadows): what each facet's corners and centre see
-// of the disc, as the image has it at `shadows.pcf = 0` -- the same layer,
-// slices, pyramid and walk -- and with a horizon map, over its horizon. A
-// point Sun's query is `facet_shadow.wgsl`, binary per point. Group 5 is
-// the body's own (`Body`, its horizons), 6 the query's: the walks queued as
-// the image's are (`walks`, `cs_walk`), what each is for (`facet_walks`).
+// The per-facet shadow query (`sim.facet_shadow`, the thermophysical
+// model's shadows): what each facet's corners and centre see of the Sun, as
+// the image has it -- the same layer, slices, lookups and kernel
+// (`shadows.pcf`), and with the Sun a disc the same pyramid and walk -- and
+// with a horizon map, over its horizon. Group 5 is the body's own (`Body`,
+// its horizons), 6 the query's: the walks queued as the image's are
+// (`walks`, `cs_walk`), what each is for (`facet_walks`).
 //
 // Walked where each point was found to need it, a lane for the 32 of its
 // directions in turn, the query took 19 ms a step of the Didymos pair's
@@ -1336,11 +1367,12 @@ fn facet_vertex(i: u32) -> vec3<f32> {
     return (m * vec4<f32>(p, 1.0)).xyz;
 }
 
-/// What a point `pos` of facet `f`, facing `n`, sees of the disc in `layer`,
-/// over its facet's `horizon`: the hardware's single comparison where no
-/// penumbra reaching it is `WALK_MIN_REACH` texels wide, whatever the
-/// image's PCF; -1 where its walk is queued, its share added once walked.
-fn facet_sun(f: u32, pos: vec3<f32>, n: vec3<f32>, layer: u32, horizon: f32, near: bool) -> f32 {
+/// What a point `pos` of facet `f`, facing `n`, sees of the Sun in `layer`,
+/// over its facet's `horizon`, as the image has it: its hard lookups, with
+/// the image's PCF kernel; with the Sun a disc, the walk where a penumbra
+/// reaching it is `WALK_MIN_REACH` texels wide (`near`: the facet may be in
+/// one), -1 where that walk is queued, its share added once walked.
+fn facet_sun(f: u32, pos: vec3<f32>, n: vec3<f32>, layer: u32, horizon: f32, near: bool, kernel: SunKernel) -> f32 {
     let ndotl = dot(n, normalize(view.light.pos - pos));
     if ndotl <= 0.0 {
         return 0.0;
@@ -1353,11 +1385,11 @@ fn facet_sun(f: u32, pos: vec3<f32>, n: vec3<f32>, layer: u32, horizon: f32, nea
     if reach.x < 0.0 {
         return 0.0;
     }
-    let own = textureSampleCompareLevel(t_shadow, s_shadow, at.uv, layer, at.depth - at.bias);
+    let own = sun_lookup(layer, at, kernel);
     var theirs = 1.0;
     let others = others_slice(layer);
     if others != layer {
-        theirs = textureSampleCompareLevel(t_shadow, s_shadow, at.uv, others, at.depth - at.bias);
+        theirs = sun_lookup(others, at, kernel);
     }
     if all(reach == vec2<f32>(0.0)) {
         return own * theirs * horizon;
@@ -1365,7 +1397,7 @@ fn facet_sun(f: u32, pos: vec3<f32>, n: vec3<f32>, layer: u32, horizon: f32, nea
     let i = atomicAdd(&walks.count, 1u);
     if i < arrayLength(&walks.entries) {
         walks.entries[i].uv = at.uv;
-        walks.entries[i].grad = at.grad;
+        walks.entries[i].grad = sun_grad(pos, n, ndotl, layer);
         walks.entries[i].reach = reach;
         walks.entries[i].depth = at.depth;
         walks.entries[i].bias = at.bias;
@@ -1376,7 +1408,7 @@ fn facet_sun(f: u32, pos: vec3<f32>, n: vec3<f32>, layer: u32, horizon: f32, nea
         return -1.0;
     }
     // No room in the queue: walked here.
-    let hidden = sun_hidden(layer, at.uv, at.depth, at.grad, at.bias, at.tan_uv, reach, 0u, 1u);
+    let hidden = sun_hidden(layer, at.uv, at.depth, sun_grad(pos, n, ndotl, layer), at.bias, at.tan_uv, reach, 0u, 1u);
     let seen = 1.0 - f32(hidden) / f32(32u * SUN_AZIMUTHS);
     return seen * select(own, 1.0, reach.x > 0.0) * select(theirs, 1.0, reach.y > 0.0) * horizon;
 }
@@ -1436,12 +1468,30 @@ fn cs_facets(@builtin(global_invocation_id) id: vec3<u32>) {
     var sum = 4.0 * horizon;
     // Nothing in its layer this frame (flag bit 5): nothing there to read.
     if (body.flags & 32u) == 0u {
-        let layer = body_layer();
-        let near = facet_near_penumbra(a, b, c, n, layer);
+        // The body's own layer; with cascades, each point the one that holds
+        // it -- a facet's corner can be past its centre's.
+        let cascaded = view.light.cascades > 0u;
+        let layer = select(body_layer(), shadow_layer_at(centre), cascaded);
+        let near = view.light.sun_radius > 0.0 && facet_near_penumbra(a, b, c, n, layer);
+        // The PCF kernel's steps, the same at the four points of a flat facet
+        // in one layer.
+        let ndotl = max(dot(n, normalize(view.light.pos - centre)), 0.0);
+        var kernel: SunKernel;
+        if globals.shadow_pcf > 0u {
+            kernel = sun_kernel(centre, n, ndotl, layer);
+        }
         sum = 0.0;
         for (var k = 0u; k < 4u; k++) {
             let p = select(select(select(centre, c, k == 2u), b, k == 1u), a, k == 0u);
-            sum += max(facet_sun(f, p, n, layer, horizon, near), 0.0);
+            var at_layer = layer;
+            var at_kernel = kernel;
+            if cascaded {
+                at_layer = shadow_layer_at(p);
+                if at_layer != layer && globals.shadow_pcf > 0u {
+                    at_kernel = sun_kernel(centre, n, ndotl, at_layer);
+                }
+            }
+            sum += max(facet_sun(f, p, n, at_layer, horizon, near, at_kernel), 0.0);
         }
     }
     atomicStore(&facet_out[f], u32(sum * FACET_FIXED + 0.5));
@@ -1969,7 +2019,7 @@ fn fs_shaded(in: Surface) -> vec4<f32> {
     if mapped && view.light.sun_radius > 0.0 && ndotl > 0.0 {
         var soft = sun_walked(in.frag, in.dz);
         if soft.x < -1.5 {
-            soft = sun_seen(layer, uv, depth, at.grad, bias, at.tan_uv);
+            soft = sun_seen(layer, uv, depth, sun_grad(in.world_pos, in.world_normal, ndotl, layer), bias, at.tan_uv);
         }
         if soft.x >= 0.0 {
             shadow = soft.x * select(own, 1.0, soft.y > 0.0) * select(theirs, 1.0, soft.z > 0.0);

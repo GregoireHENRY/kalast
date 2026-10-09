@@ -122,6 +122,11 @@ pub fn group_shadows(ui: &mut egui::Ui, c: &mut Config) {
     if c.light.sun_as_point == false {
         setting(ui, "second_depth", "With the Sun a disc, a second depth layer under each shadow layer: the nearest surface behind what the Sun sees first. Nothing with the Sun a point, whatever it is set to.", |ui| ui.checkbox(&mut c.shadows.second_depth, ""));
     }
+    setting(ui, "cache", "Keep each body's shadow layer from frame to frame, drawn again only when the Sun has moved past `cache_degrees` in the body's own frame, another body has moved about it, or the scene or the shadows' settings changed.", |ui| ui.checkbox(&mut c.shadows.cache, ""));
+    if c.shadows.cache == true {
+        setting(ui, "cache_degrees", "How far, in degrees, the Sun may move in a body's own frame, or another body about it, before a kept layer is drawn again (`cache`). 0: only when nothing has moved at all, the shadows as exact as without the cache. Larger keeps layers through a running simulation -- Didymos turns 0.044 deg a second of simulated time -- each shadow up to that far behind the Sun.", |ui| ui.add(egui::DragValue::new(&mut c.shadows.cache_degrees).speed(0.01)));
+    }
+    setting(ui, "cascades", "Cascaded shadow maps, for a quick look: this many layers over slices of the camera's view, the nearer finer, and one over the whole scene, in place of a layer per body. 0, the default: a layer per body.", |ui| ui.add(egui::Slider::new(&mut c.shadows.cascades, 0..=4).clamping(egui::SliderClamping::Edits)));
     setting(ui, "lod_texels", "The size, in shadow-map texels, a large mesh's triangles are drawn at in the shadow maps when `shading.lod` is on, outside the camera's view.", |ui| ui.add(egui::Slider::new(&mut c.shadows.lod_texels, 0.5..=16.0).clamping(egui::SliderClamping::Edits)));
     setting(ui, "lod_pixels", "The size, in the camera's pixels, a large mesh's triangles are drawn at in the shadow maps when `shading.lod` is on, outside the camera's view.", |ui| ui.add(egui::Slider::new(&mut c.shadows.lod_pixels, 0.5..=32.0).clamping(egui::SliderClamping::Edits)));
 }

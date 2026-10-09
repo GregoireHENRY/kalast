@@ -894,12 +894,12 @@ export. See `src/app/simulation.rs:70` and `src/app/window.rs:359`.
 Read the shadow map back per facet: computes solar occlusion for **every**
 body each frame, read from
 `after_render` with `sim.facet_shadow(body)` -- an array of occluded
-fractions in `Mesh.facets` order, `0.0` fully lit to `1.0` fully shadowed:
-with a point Sun in quarter steps, its corners and centre each lit or not;
-with the Sun a disc (`light.sun_as_point` off), the fraction of the
-limb-darkened disc they do not see, penumbrae graded, `1.0` where the facet
-faces away. Bodies not computed this frame return `None` rather than a stale
-array.
+fractions in `Mesh.facets` order, `0.0` fully lit to `1.0` fully shadowed,
+`1.0` where the facet faces away: its corners and centre looked up as the
+image's pixels are -- the same lookups, `shadows.pcf`'s kernel included, and
+with the Sun a disc (`light.sun_as_point` off) the fraction of the
+limb-darkened disc they do not see, penumbrae graded. Bodies not computed
+this frame return `None` rather than a stale array.
 
 Off by default because it is not free: ~1.6 ms per body at 100k facets and
 ~7.3 ms at 3.1M, dominated by the blocking readback. Turn it on for
@@ -1485,6 +1485,24 @@ Accepted: any float.
 
 ## Shadows
 
+### `quality: str | None` — default `"point"` *(live)*
+The shadow settings for one use, set together by name. Read back, the name
+the settings are now, or `None` once one of them is changed by hand. In the
+settings, a button each above the shadows' own rows.
+
+| `quality` | Sets | Didymos pair from 1 km, 1600 x 1000 | Dimorphos from 68 m, 3234 x 1774 |
+|---|---|---|---|
+| `"quick"` | one layer over the scene (`per_body` off), a point Sun, 2048, PCF 1 | 773 frames/s | 185 |
+| `"fast"` | a layer per body kept from frame to frame (`cache`), a point Sun, PCF 2 | 689 (paused) | 242 (paused) |
+| `"point"` | a layer per body drawn every frame, a point Sun, PCF 2: the defaults | 518 | 206 |
+| `"accurate"` | the Sun's disc, `second_depth`, a layer per body and a near layer | 146 | 66 |
+
+M1 Pro, GPU-bound frames. Each also sets `cascades` to 0, and `"fast"`
+`cache_degrees` to 0. `"quick"` draws the fewest texels and is the quickest
+over a whole scene; up close a layer per body, fitted to what the camera sees,
+is as quick and sharper. A ray-traced reference is to come.
+
+
 The shadow map is a depth texture **array** rendered from the light's point of
 view, then compared against during the main pass. Sizing happens at
 `src/app/window.rs:330-331`; the array is always allocated at
@@ -1575,6 +1593,48 @@ what it shades that the camera sees is found in the image without it (see
 at 16384, 163 pixels of thin gaps without it, 101 with it. Deeper still,
 three surfaces one behind the other, is missed where the camera does not see
 the third.
+
+### `shadows.cache: bool` — default `false` *(live)*
+Keep each body's shadow layer from frame to frame, and draw it again only when
+the Sun has moved past `shadows.cache_degrees` in the body's own frame, another
+body has moved about it past that, or the scene or the shadows' settings
+changed. A layer kept turns with its body, so its own shadows stay on it. A
+camera that moves, or a simulation paused, then costs no shadow pass: the
+Didymos pair from 1 km at 1600 x 1000, 1.9 to 1.3 ms a frame with a point Sun,
+6.7 to 2.6 with the disc (its depth pyramid kept too).
+
+Each layer is fitted to its whole body rather than to what the camera sees of
+it, and there is no near layer (`shadows.near_layer`): up close the texels are
+coarser than without. The per-facet shadows the thermophysical model reads
+(`shadows.access_shadow_map`) are the kept layers too.
+
+### `shadows.cache_degrees: float` — default `0.0` *(live)*
+How far the Sun may move in a body's own frame, or another body about it, in
+degrees, before a kept layer is drawn again (`shadows.cache`). `0`: only when
+nothing has moved at all, and the shadows are those drawn that frame, to the
+bit. Larger keeps layers through a running simulation -- Didymos turns 0.044 deg
+a second of simulated time -- each shadow up to that far behind the Sun: half a
+degree on a wall 3 high moved its shadow's edge on 0.4 % of a 300 x 200 image.
+
+### `shadows.cascades: u32` — default `0` *(live)*
+Cascaded shadow maps: this many layers over slices of the camera's view, the
+nearer finer -- split between evenly and logarithmically, three quarters the
+latter -- and one over the whole scene, in place of a layer per body. Each
+point uses the finest cascade that holds it well inside (the outer 5 % left to
+the next). As games draw the Sun's shadows: on a plate seen from 13 m at 1024
+texels, a wall's shadow edge 1.6 px wide with three cascades against 22 px with
+one layer over the scene.
+
+Not quicker than a layer per body here: each cascade draws every body, and a
+layer per body is already fitted to what the camera sees of it -- the Didymos
+pair from 1 km 550-577 frames/s with two or three cascades at 1024, against 518
+with a layer per body at 4096 and 773 with one layer over the scene; Dimorphos
+from 68 m 172-175 against 206. Less exact too: a body's own shadows and
+another's share each cascade (with the Sun a disc, a penumbra can come through
+where they meet), there is no near layer, no horizon map and no cache, and the
+per-facet shadows the thermophysical model reads are each point's cascade's,
+so they move with the camera. Up to 4: with the scene's, five of the eight
+layers.
 
 ### `shadows.resolution: u32` — default `4096` *(live, reallocates the shadow map)*
 Side length of the square shadow map, in texels. Used **twice** at

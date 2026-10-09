@@ -282,10 +282,10 @@ impl Pass {
         }
     }
 
-    /// What each facet of `mesh` hides of the Sun's disc, in `[0, 1]`, 0
-    /// wholly lit: the thermophysical model's shadows with the disc on, as
-    /// the image has them at `shadows.pcf = 0` -- the same layer, slices,
-    /// pyramid and walk -- averaged over the facet's corners and centre.
+    /// What each facet of `mesh` hides of the Sun, in `[0, 1]`, 0 wholly
+    /// lit: the thermophysical model's shadows, as the image has them -- the
+    /// same layer, slices, lookups and PCF kernel, and with the Sun a disc the
+    /// same pyramid and walk -- averaged over the facet's corners and centre.
     /// After a frame was drawn, from its maps; blocking, as
     /// `FacetShadowQuery::query` is.
     pub fn facets(
