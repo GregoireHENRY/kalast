@@ -54,3 +54,19 @@ cascades; the table made it the one layer. `tests/test_quality.py`.
 
 A `"reference"`, ray traced, waits for the ray tracing
 (`2026-10-09_HANDOFF_ray_tracing.md`).
+
+## PCF where it shows
+
+Profiled on Dimorphos from 68 m, 3234 x 1774, a point Sun (frames a second,
+the image's pass): MSAA 4 and PCF 2, 206 (4.38 ms); PCF 0, 307 (2.79); PCF 1,
+232 (3.83); MSAA 1 and PCF 2, 232 (3.85); the level of detail 2 or 4 pixels,
+the same -- PCF is most of it, its five first taps about 1 ms at this size.
+
+A kernel no wider than the image's pixel is not taken in the image
+(`fs_shaded`: `radius x texel <= pixel`, the pixel from `dpdx`, `dpdy` of the
+surface in `fs_main`): its blur is within the pixel. The per-facet query
+takes it always, having no pixels. The Didymos pair from 1 km at 1600 x 1000,
+texels finer than pixels: 518 to 677 frames/s at PCF 2. The close view above,
+texels 3 cm against 1.7 cm pixels: unchanged, 200 at PCF 2 -- 242 with the
+cache and nothing moving. The crater's PCF test sees the filter as before
+(the darkness integral -1.0 % at pcf 4, was -1.2 %).

@@ -235,6 +235,9 @@ struct Surface {
     dz: f32,
     // The mesh's facet, for its horizon (`horizon_seen`).
     facet: u32,
+    // How wide a pixel of the image is on the surface, world units: a PCF
+    // kernel narrower is not taken (`fs_shaded`).
+    pixel: f32,
 };
 
 // sRGB's own curve, decoding: the image is stored through its encoding, which
@@ -1074,13 +1077,13 @@ fn peel_slice(layer: u32) -> u32 {
 /// from the receiver would be: facets meet at a few degrees, and with the
 /// plane alone even the taps on the ground took its every hollow for an
 /// occluder (1 % of the lit pixels at pcf 16, 7 % darkened by over 5 %).
-fn sun_lookup(slice: u32, at: SunAt, kernel: SunKernel) -> f32 {
-    if globals.shadow_pcf == 0u {
+fn sun_lookup(slice: u32, at: SunAt, kernel: SunKernel, radius: u32) -> f32 {
+    if radius == 0u {
         return textureSampleCompareLevel(t_shadow, s_shadow, at.uv, slice, at.depth - at.bias);
     }
     // The corners and the middle first: where those agree, so would the
     // rest, and most of an image is wholly lit or wholly in shadow.
-    let n = i32(globals.shadow_pcf);
+    let n = i32(radius);
     let e = f32(n);
     let first = sun_tap(slice, at, kernel, vec2<f32>(-e, -e)) + sun_tap(slice, at, kernel, vec2<f32>(e, -e))
         + sun_tap(slice, at, kernel, vec2<f32>(-e, e)) + sun_tap(slice, at, kernel, vec2<f32>(e, e))
@@ -1385,11 +1388,11 @@ fn facet_sun(f: u32, pos: vec3<f32>, n: vec3<f32>, layer: u32, horizon: f32, nea
     if reach.x < 0.0 {
         return 0.0;
     }
-    let own = sun_lookup(layer, at, kernel);
+    let own = sun_lookup(layer, at, kernel, globals.shadow_pcf);
     var theirs = 1.0;
     let others = others_slice(layer);
     if others != layer {
-        theirs = sun_lookup(others, at, kernel);
+        theirs = sun_lookup(others, at, kernel, globals.shadow_pcf);
     }
     if all(reach == vec2<f32>(0.0)) {
         return own * theirs * horizon;
@@ -1686,9 +1689,11 @@ fn fs_main(vertex: VertexOutput) -> @location(0) vec4<f32> { //@noprim
     let prim = vertex.facet; //@noprim
     // Here, while every fragment of the quad is still running.
     let dz = fwidth(vertex.clip_position.z);
+    let pixel = max(length(dpdx(vertex.world_pos)), length(dpdy(vertex.world_pos)));
     var in = surface(vertex, prim);
     in.frag = vertex.clip_position;
     in.dz = dz;
+    in.pixel = pixel;
     // The barycentrics are corners' coordinates, which only a non-indexed
     // draw has (flag bit 2): a shared-vertex draw would be covered in noise,
     // so it is drawn shaded instead. The CPU side warns once for a smooth
@@ -1988,9 +1993,20 @@ fn fs_shaded(in: Surface) -> vec4<f32> {
 
     let layer = shadow_layer_at(in.world_pos);
     let at = sun_at(in.world_pos, in.world_normal, ndotl, layer);
+    // The PCF kernel, where it is wider than the image's pixel: narrower, its
+    // blur is within a pixel, and it cost 1.6 ms at 3234 x 1774 for nothing
+    // seen (the near layer's texels are half a pixel). The per-facet query,
+    // which has no pixels, takes it whole.
+    var radius = globals.shadow_pcf;
     var kernel: SunKernel;
-    if globals.shadow_pcf > 0u {
-        kernel = sun_kernel(in.world_pos, in.world_normal, ndotl, layer);
+    if radius > 0u {
+        let lm = view.light.view_proj_layers[layer];
+        let texel = 2.0 / (length(vec3<f32>(lm[0][0], lm[1][0], lm[2][0])) * f32(globals.shadow_resolution));
+        if f32(radius) * texel <= in.pixel {
+            radius = 0u;
+        } else {
+            kernel = sun_kernel(in.world_pos, in.world_normal, ndotl, layer);
+        }
     }
     let uv = at.uv;
     let depth = at.depth;
@@ -2003,9 +2019,9 @@ fn fs_shaded(in: Surface) -> vec4<f32> {
     var own = 1.0;
     var theirs = 1.0;
     if mapped {
-        own = sun_lookup(layer, at, kernel);
+        own = sun_lookup(layer, at, kernel, radius);
         if others != layer {
-            theirs = sun_lookup(others, at, kernel);
+            theirs = sun_lookup(others, at, kernel, radius);
         }
     }
     var shadow = own * theirs;

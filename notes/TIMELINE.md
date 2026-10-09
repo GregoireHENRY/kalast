@@ -5732,3 +5732,12 @@ the physically based part already; offered and not started: float exports,
 radiance in physical units, a tonemap for display only, the camera as an
 instrument (pixel area, PSF, noise), a white-furnace check of the laws,
 light from other facets. Write-up: `2026-10-09_ue58_and_pbr_for_kalast/`.
+
+## 2026-10-09 — PCF where it shows
+
+The close view at 3234 x 1774 profiled: PCF 2 is most of the image's pass
+(4.38 ms against 2.79 at 0), MSAA 0.3-0.5 ms, the level of detail nothing.
+The image skips a kernel no wider than its pixel (the TPM's query never does):
+the Didymos pair from 1 km 518 to 677 frames/s; the close view, texels coarser
+than pixels, unchanged at 200 (242 cached). Write-up:
+`2026-10-09_cascades_and_quality/`.

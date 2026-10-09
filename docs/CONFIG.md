@@ -1683,11 +1683,15 @@ up to 14° over the receiver's plane for the receiver's own. Measured in
 and `tests/test_pcf_filters.py`.
 
 Cost: five taps where they agree -- most of an image, wholly lit or wholly in
-shadow -- and the whole grid only where a shadow's edge is in reach. On
-Dimorphos at 3234 x 1774 on an M1 Pro, the image's pass 3.0 ms at `0`, 4.5
-at `2`, 7.4 at `4`. Where the map's texels are finer than the image's pixels
-(`resolution = 16384` up close) there are no stairs to smooth and `0` loses
-nothing. The per-facet shadow query never filters.
+shadow -- and the whole grid only where a shadow's edge is in reach. A kernel
+no wider than the image's pixel there is not taken in the image -- its blur
+would be within the pixel -- so where the map's texels are finer than the
+pixels (a near layer, `resolution = 16384` up close, a body seen from afar)
+PCF costs nothing: the Didymos pair from 1 km at 1600 x 1000, 518 to 677
+frames/s at `2`. Dimorphos from 68 m at 3234 x 1774 on an M1 Pro, texels
+3 cm against 1.7 cm pixels: the image's pass 2.8 ms at `0`, 3.8 at `1`, 4.5
+at `2` (200 frames/s; 242 with `shadows.cache` and nothing moving). The
+per-facet shadow query, which has no pixels, always takes the kernel.
 
 ### `shadows.normal_offset_scale: Optional[float]` — default `None` (automatic) *(live)*
 Pushes the sample position along the surface normal before projecting into
