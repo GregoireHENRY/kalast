@@ -57,7 +57,7 @@ RAY_EPS = 1e-4
 N_ANGLES = 15
 
 # Budgets, calibrated by measuring both a healthy build and a deliberately
-# broken one (bias x100 in `facet_shadow.wgsl`) rather than by picking round
+# broken one (bias x100 in the per-facet pass) rather than by picking round
 # numbers:
 #
 # |                       | healthy | bias x100 |

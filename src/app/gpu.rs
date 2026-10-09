@@ -65,8 +65,6 @@ pub const SHADER_LIGHT_RENDER: wgpu::ShaderModuleDescriptor =
 pub const SHADER_SHADOW: wgpu::ShaderModuleDescriptor =
     wgpu::include_wgsl!("../../shaders/shadow.wgsl");
 
-pub const SHADER_FACET_SHADOW: wgpu::ShaderModuleDescriptor =
-    wgpu::include_wgsl!("../../shaders/facet_shadow.wgsl");
 
 pub const SHADER_DEPTH_PYRAMID: wgpu::ShaderModuleDescriptor =
     wgpu::include_wgsl!("../../shaders/depth_pyramid.wgsl");
@@ -108,9 +106,9 @@ pub const DEPTH_CLEAR: f32 = 0.0;
 /// Its projection is orthographic, so stored depth is linear in view-space z
 /// and precision is already uniform over the range -- reversing it would buy
 /// nothing. Against that, the biases in `mesh_shadow.wgsl` are calibrated
-/// against this sense (`notes/2026-09-08_shadow_bias.md`) and
-/// `facet_shadow.wgsl` re-derives the same comparison in compute, so flipping
-/// it would move the illumination the thermophysical model runs on in exchange
+/// against this sense (`notes/2026-09-08_shadow_bias.md`) and the per-facet
+/// query (`cs_facets`) reads the maps with the same comparison, so flipping it
+/// would move the illumination the thermophysical model runs on in exchange
 /// for no precision at all.
 pub const SHADOW_COMPARE: wgpu::CompareFunction = wgpu::CompareFunction::Less;
 pub const SHADOW_CLEAR: f32 = 1.0;

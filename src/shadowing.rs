@@ -1,10 +1,11 @@
 //! Exact partial shadowing and visibility, by polygon clipping.
 //!
 //! The lit fraction of a facet, computed as an *area* rather than sampled at
-//! points. `app::facet_shadow` answers the same question by testing 4 points
-//! per facet against the GPU shadow map, so its answer is one of
-//! `{0, 1/4, 1/2, 3/4, 1}`; this answers it as a real number, exactly, up to
-//! the shape's own discretisation.
+//! points. The per-facet shadow query (`sim.facet_shadow`) answers the same
+//! question from 4 points per facet looked up in the GPU shadow maps, so a
+//! facet across a hard shadow's edge comes out in steps of about a quarter;
+//! this answers it as a real number, exactly, up to the shape's own
+//! discretisation.
 //!
 //! That difference is worth 0.7 to 40 mmag on a synthetic light curve --
 //! measured in `examples/analytical/shadow_quantisation.py`, and the reason

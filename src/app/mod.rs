@@ -6,7 +6,6 @@ pub mod settings;
 pub mod place;
 pub mod config;
 pub mod facet_id;
-pub mod facet_shadow;
 pub mod frame;
 pub mod gizmo;
 pub mod gui;

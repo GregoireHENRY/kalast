@@ -286,8 +286,8 @@ impl Pass {
     /// lit: the thermophysical model's shadows, as the image has them -- the
     /// same layer, slices, lookups and PCF kernel, and with the Sun a disc the
     /// same pyramid and walk -- averaged over the facet's corners and centre.
-    /// After a frame was drawn, from its maps; blocking, as
-    /// `FacetShadowQuery::query` is.
+    /// After a frame was drawn, from its maps; blocking, the answer read back
+    /// before it returns.
     pub fn facets(
         &self,
         device: &wgpu::Device,

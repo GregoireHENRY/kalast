@@ -10,8 +10,8 @@ use crate::{Float, Vec3};
 /// It is orthographic, so its depth is linear in view-space z and precision is
 /// already uniform across the range -- reversing gains it nothing. What it
 /// would cost is real: the biases in `mesh_shadow.wgsl` are calibrated against
-/// this sense (`notes/2026-09-08_shadow_bias.md`), and `facet_shadow.wgsl`
-/// re-derives the same comparison in compute to feed the thermophysical model.
+/// this sense (`notes/2026-09-08_shadow_bias.md`), and the per-facet query
+/// (`cs_facets`) reads the maps the same way to feed the thermophysical model.
 /// See `gpu::SHADOW_COMPARE`.
 pub fn light_view_proj(
     pos: Vec3,
