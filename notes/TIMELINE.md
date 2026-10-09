@@ -5741,3 +5741,11 @@ The image skips a kernel no wider than its pixel (the TPM's query never does):
 the Didymos pair from 1 km 518 to 677 frames/s; the close view, texels coarser
 than pixels, unchanged at 200 (242 cached). Write-up:
 `2026-10-09_cascades_and_quality/`.
+
+## 2026-10-09 — the disc up close, profiled
+
+Dimorphos from 68 m at 3234 x 1774, "accurate": 65 frames/s (76 without the
+second depth layer). No walk is queued there; the scan's pyramid look round
+per pixel is 4.5 ms, the prepass 1.7. Open: keep the penumbra pass when
+nothing changed, a coarse mask of where walks can be, the scan's reads shared
+per workgroup. Write-up: `2026-10-09_cascades_and_quality/`.

@@ -70,3 +70,25 @@ texels finer than pixels: 518 to 677 frames/s at PCF 2. The close view above,
 texels 3 cm against 1.7 cm pixels: unchanged, 200 at PCF 2 -- 242 with the
 cache and nothing moving. The crater's PCF test sees the filter as before
 (the darkness integral -1.0 % at pcf 4, was -1.2 %).
+
+## The disc up close: where its time goes
+
+The `"accurate"` preset on Dimorphos from 68 m, 3234 x 1774: 65 frames a
+second, 76 without `second_depth` (its peel pass 1.5 ms). GPU timings (passes
+overlap on this GPU, so they do not add up to the span of 13 ms):
+
+- the shadow pass 1.15 ms;
+- the penumbra prepass 1.7 ms, the bodies drawn again;
+- the scan and walks 4.5 ms -- with **no walk queued**: every penumbra in this
+  view is narrower than six texels at 4096, drawn hard. The time is the
+  pyramid's look round per pixel (`sun_reach`, up to 3 tries of 9 to 25
+  blocks, for the body's slice and the other bodies'), over 5.7 Mpx: Dimorphos
+  is 170 m deep and Didymos stands behind it, so the first, whole-layer test
+  never rules a pixel out;
+- the main pass about 2 ms more than with a point Sun (the other bodies'
+  slice looked up too, the pass's codes read).
+
+Open, offered: the penumbra pass kept when nothing has changed (camera,
+layers, settings); a coarse mask per layer of where a walk can be at all, read
+once per pixel before the pyramid; the scan's pyramid reads shared across its
+8 x 8 workgroup.
