@@ -2,6 +2,12 @@ use crate::app::gpu;
 
 pub struct Pass {
     pub pipeline: gpu::RenderPipeline,
+    /// A layer's second depth layer, with the Sun a disc: the pass again
+    /// with a fragment stage that drops whatever is not behind the layer's
+    /// first surface (`fs_peel`), so the depth test keeps the nearest surface
+    /// behind it. Group 3 is the first surface (`peel_layout`).
+    peel: wgpu::RenderPipeline,
+    pub peel_layout: wgpu::BindGroupLayout,
 }
 
 impl Pass {
@@ -42,7 +48,63 @@ impl Pass {
             ],
         );
 
-        Self { pipeline }
+        let peel_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("shadow peel"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Depth,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            }],
+        });
+        let mut peel_layouts = layouts.to_vec();
+        peel_layouts.resize(3, None);
+        peel_layouts.push(Some(&peel_layout));
+        let module = device.create_shader_module(gpu::SHADER_SHADOW);
+        let peel = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("shadow peel"),
+            layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                bind_group_layouts: &peel_layouts,
+                ..Default::default()
+            })),
+            vertex: wgpu::VertexState {
+                module: &module,
+                entry_point: Some("vs_main"),
+                buffers: &[
+                    Some(crate::mesh::Vertex::geometry_desc()),
+                    Some(gpu::MeshBuffer::desc()),
+                ],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &module,
+                entry_point: Some("fs_peel"),
+                targets: &[],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: gpu::DEPTH_FORMAT,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(gpu::SHADOW_COMPARE),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+
+        Self { pipeline, peel, peel_layout }
     }
 
     // pub fn resize(&self) {}
@@ -75,6 +137,9 @@ impl Pass {
         bindings: &super::Bindings,
         layer: u32,
         timestamps: Option<wgpu::RenderPassTimestampWrites<'_>>,
+        // The layer's first surface, for its second depth layer; `None` for
+        // the first.
+        peel: Option<&wgpu::BindGroup>,
     ) {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             timestamp_writes: timestamps,
@@ -90,9 +155,14 @@ impl Pass {
             ..Default::default()
         });
 
-        render_pass.set_pipeline(&self.pipeline.inner);
-
         bindings.for_shadow(&mut render_pass, layer);
+        match peel {
+            Some(first) => {
+                render_pass.set_pipeline(&self.peel);
+                render_pass.set_bind_group(3, Some(first), &[]);
+            }
+            None => render_pass.set_pipeline(&self.pipeline.inner),
+        }
 
         let everything;
         let casters = match casters {
@@ -110,7 +180,7 @@ impl Pass {
                 .get(ii)
                 .and_then(|m| m.as_ref())
                 .unwrap_or(mesh);
-            occluder.render_depth(&mut render_pass);
+            occluder.render_depth_layer(&mut render_pass, layer as usize);
         }
     }
 }

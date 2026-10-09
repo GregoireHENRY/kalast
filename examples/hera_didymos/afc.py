@@ -17,8 +17,8 @@ app.simulation.config.wireframe.mode = 0
 
 app.simulation.huds = [Hud("", size=16)]
 app.simulation.camera.pos = [0.0, 0.0, 0.0]
-app.simulation.camera.up = [1.0, 0.0, 0.0]
-app.simulation.camera.dir = [0.0, 0.0, 1.0]
+app.simulation.camera.up = [0.0, 0.0, 1.0]
+app.simulation.camera.dir = [0.0, 1.0, 0.0]
 app.simulation.camera.projection.fovy = 5.5 * RPD
 
 app.simulation.load_mesh(

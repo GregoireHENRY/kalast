@@ -268,6 +268,7 @@ pub fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     pyadd_f!(scattering, crate::scattering::opposition_surge);
     scattering.add_class::<crate::scattering::Hapke>()?;
     scattering.add_class::<crate::scattering::LommelSeeligerLambert>()?;
+    scattering.add_class::<crate::atmosphere::Atmosphere>()?;
     m.add_submodule(&scattering)?;
     py.import("sys")?
         .getattr("modules")?

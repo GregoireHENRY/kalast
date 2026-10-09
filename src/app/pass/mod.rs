@@ -4,12 +4,16 @@ pub mod depth;
 pub mod gizmo;
 pub mod grid;
 pub mod light_cube;
+pub mod penumbra;
 pub mod render;
 pub mod shadow;
+pub mod text_layer;
 
 pub struct Passes {
     pub shadow: shadow::Pass,
 
+    /// With the Sun a disc, what each pixel sees of it, before `render`.
+    pub penumbra: penumbra::Pass,
     pub render: render::Pass,
     pub light_cube: light_cube::Pass,
     pub axes: axes::Pass,
@@ -33,18 +37,27 @@ impl Passes {
         // the window and the image became two different sizes,
         // `config.image.width` is `0` whenever the image is following the window.
         size: (u32, u32),
+        // The GPU's sample counts, asked when the window was made.
+        msaa: &render::MsaaSupport,
     ) -> Self {
         let layouts_all = uniforms.layouts_all();
         let bindings = uniforms.bindings(device);
 
         // Resolved once, so the main pass and the light cube it draws inside
         // cannot disagree about it.
-        let samples = render::resolve_samples(device, format, config.shading.msaa);
+        let samples = msaa.resolve(config.shading.msaa);
+
+        let penumbra = penumbra::Pass::new(device, config, &uniforms.layouts_shaded());
+        // The main pass reads what the penumbra pass found, at group 6.
+        let mut shaded = uniforms.layouts_shaded();
+        shaded.push(Some(&penumbra.read_layout));
+        let render = render::Pass::new(device, format, config, &shaded, size, samples);
 
         Self {
             shadow: shadow::Pass::new(device, config, &uniforms.layouts_for_shadow()),
 
-            render: render::Pass::new(device, format, config, &uniforms.layouts_shaded(), size),
+            penumbra,
+            render,
             light_cube: light_cube::Pass::new(device, format, &layouts_all, samples),
             axes: axes::Pass::new(device, format, &layouts_all, samples),
             grid: grid::Pass::new(device, format, samples),
@@ -76,6 +89,8 @@ impl Passes {
         casters: Option<&[usize]>,
         layer: u32,
         timer: Option<&super::gpu_timing::GpuTimer>,
+        // The layer's first surface, to draw its second depth layer.
+        peel: Option<&wgpu::BindGroup>,
     ) {
         self.shadow.render(
             encoder,
@@ -86,11 +101,14 @@ impl Passes {
             &self.bindings,
             layer,
             timer.and_then(|t| t.scope(super::gpu_timing::Scope::Shadow)),
+            peel,
         );
     }
 
     pub fn render(
         &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
         view: &wgpu::TextureView,
         // Kept in the signature so every pass reads the same, and because
@@ -103,7 +121,13 @@ impl Passes {
         timer: Option<&super::gpu_timing::GpuTimer>,
         // `false`: the grid, axes and gizmo wait for `render_annotations`.
         annotations: bool,
+        // The image's size and the camera, which the penumbra pass draws with.
+        size: (u32, u32),
+        view_proj: crate::Mat4,
     ) {
+        if penumbra::wanted(config) {
+            self.penumbra.render(device, queue, encoder, meshes, &self.bindings, config, size, view_proj, timer);
+        }
         self.render.render(
             encoder,
             &self.depth.texture.view,
@@ -114,6 +138,7 @@ impl Passes {
             &self.colorbar,
             meshes,
             &self.bindings,
+            self.penumbra.read_group(),
             config,
             timer.and_then(|t| t.scope(super::gpu_timing::Scope::Render)),
             config.debug.occlusion_queries.then_some(&self.occlusion),

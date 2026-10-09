@@ -18,7 +18,16 @@ pub fn group_shading(ui: &mut egui::Ui, c: &mut Config) {
         }
     });
     setting(ui, "render_back_face", "Draw triangles facing away from the camera.", |ui| ui.checkbox(&mut c.shading.render_back_face, ""));
-    setting(ui, "msaa", "Multisample anti-aliasing for the main render pass: 1 (off), 2, 4 or 8.", |ui| ui.add(egui::Slider::new(&mut c.shading.msaa, 1..=8).clamping(egui::SliderClamping::Edits)));
+    setting(ui, "msaa", "Multisample anti-aliasing for the main render pass: 1 (off), 2, 4 or 8 samples a pixel.", |ui| {
+        egui::ComboBox::from_id_salt("c.shading.msaa")
+            .selected_text(c.shading.msaa.to_string())
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut c.shading.msaa, 1, "1").on_hover_text("off");
+                ui.selectable_value(&mut c.shading.msaa, 2, "2");
+                ui.selectable_value(&mut c.shading.msaa, 4, "4");
+                ui.selectable_value(&mut c.shading.msaa, 8, "8");
+            });
+    });
     setting(ui, "color", "Flat colour used when `color_mode` is 2, `(r, g, b, a)`.", |ui| {
         let mut rgba = [c.shading.color.r as f32, c.shading.color.g as f32,
                         c.shading.color.b as f32, c.shading.color.a as f32];
@@ -30,8 +39,27 @@ pub fn group_shading(ui: &mut egui::Ui, c: &mut Config) {
         }
     });
     setting(ui, "color_mode", "What the fragment shader outputs.", |ui| ui.add(egui::Slider::new(&mut c.shading.color_mode, 0..=3).clamping(egui::SliderClamping::Edits)));
-    setting(ui, "srgb_mode", "0 converts sRGB to linear before shading; 1 treats colours as already linear.", |ui| ui.add(egui::Slider::new(&mut c.shading.srgb_mode, 0..=2).clamping(egui::SliderClamping::Edits)));
-    setting(ui, "gamma", "Exponent used by the sRGB conversion when `srgb_mode` is 0.", |ui| ui.add(egui::Slider::new(&mut c.shading.gamma, 0.1..=4.0).clamping(egui::SliderClamping::Edits)));
+    setting(ui, "srgb_mode", "Which colours come out exactly in the image: the data's and the flat one (0), or the lit values (1).", |ui| {
+        egui::ComboBox::from_id_salt("c.shading.srgb_mode")
+            .selected_text(c.shading.srgb_mode.to_string())
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut c.shading.srgb_mode, 0, "0").on_hover_text("colours exact");
+                ui.selectable_value(&mut c.shading.srgb_mode, 1, "1").on_hover_text("lit values linear");
+            });
+    });
+    if c.shading.srgb_mode == 1 {
+        setting(ui, "gamma", "The power law the conversion uses instead of sRGB's own curve, unset by default.", |ui| {
+            let mut on = c.shading.gamma.is_some();
+            if ui.checkbox(&mut on, "").changed() {
+                c.shading.gamma = if on { Some(2.2) } else { None };
+            }
+            if let Some(v) = c.shading.gamma.as_mut() {
+                ui.add(egui::DragValue::new(v).speed(0.01));
+            }
+        });
+    }
+    setting(ui, "lod", "Draw a large mesh by the parts the camera can see, each only as fine as the image can show it.", |ui| ui.checkbox(&mut c.shading.lod, ""));
+    setting(ui, "lod_pixels", "The size, in pixels, a large mesh's triangles are drawn at when `lod` is on: smaller is finer and slower.", |ui| ui.add(egui::Slider::new(&mut c.shading.lod_pixels, 0.25..=16.0).clamping(egui::SliderClamping::Edits)));
 }
 
 /// `config.light` -- Light.
@@ -49,13 +77,18 @@ pub fn group_light(ui: &mut egui::Ui, c: &mut Config) {
             };
         }
     });
+    setting(ui, "exposure", "Scales the light by one number, `color`'s red, green and blue alike: a camera's exposure.", |ui| ui.add(egui::Slider::new(&mut c.light.exposure, 0.0..=10.0).clamping(egui::SliderClamping::Edits)));
+    setting(ui, "sun_as_point", "The Sun as a point, every shadow hard; on by default.", |ui| ui.checkbox(&mut c.light.sun_as_point, ""));
+    if c.light.sun_as_point == false {
+        setting(ui, "sun_radius", "The Sun's radius in the scene's units, with `sun_as_point` off: 695,700, the Sun's in km. A scene in metres wants 6.957e8.", |ui| ui.add(egui::DragValue::new(&mut c.light.sun_radius).speed(1000.0)));
+    }
     setting(ui, "cube_scale", "Size of the debug light cube, in world units.", |ui| ui.add(egui::Slider::new(&mut c.light.cube_scale, 0.0..=5.0).clamping(egui::SliderClamping::Edits)));
 }
 
 /// `config.shadows` -- Shadows.
 pub fn group_shadows(ui: &mut egui::Ui, c: &mut Config) {
     setting(ui, "resolution", "Side length of each square shadow map, in texels.", |ui| ui.add(egui::Slider::new(&mut c.shadows.resolution, 512..=16384).clamping(egui::SliderClamping::Edits)));
-    setting(ui, "pcf", "Percentage-closer-filtering kernel *radius*: 0 is a single hardware 2x2 comparison, N is a `(2N+1)^2` grid averaged.", |ui| ui.add(egui::Slider::new(&mut c.shadows.pcf, 0..=16).clamping(egui::SliderClamping::Edits)));
+    setting(ui, "pcf", "Smoothing of the shadows' edges, the percentage-closer-filtering kernel's *radius* in shadow-map texels: 0 is the hardware's single 2x2 comparison, N a `(2N+1)^2` grid of them averaged.", |ui| ui.add(egui::Slider::new(&mut c.shadows.pcf, 0..=16).clamping(egui::SliderClamping::Edits)));
     setting(ui, "normal_offset_scale", "Push the sample along the surface normal before the shadow lookup, in world units. `None` fits it per frame from the layer's own texel size.", |ui| {
         let mut on = c.shadows.normal_offset_scale.is_some();
         if ui.checkbox(&mut on, "").changed() {
@@ -85,6 +118,12 @@ pub fn group_shadows(ui: &mut egui::Ui, c: &mut Config) {
     });
     setting(ui, "access_shadow_map", "Read the shadow map back per facet: computes solar occlusion for every body each frame, readable from `after_render` via `Simulation::facet_shadow`.", |ui| ui.checkbox(&mut c.shadows.access_shadow_map, ""));
     setting(ui, "per_body", "Fit a shadow map per body instead of one fitted to the whole scene.", |ui| ui.checkbox(&mut c.shadows.per_body, ""));
+    setting(ui, "near_layer", "A finer shadow layer over where the camera looks closest, for a body seen up close.", |ui| ui.checkbox(&mut c.shadows.near_layer, ""));
+    if c.light.sun_as_point == false {
+        setting(ui, "second_depth", "With the Sun a disc, a second depth layer under each shadow layer: the nearest surface behind what the Sun sees first. Nothing with the Sun a point, whatever it is set to.", |ui| ui.checkbox(&mut c.shadows.second_depth, ""));
+    }
+    setting(ui, "lod_texels", "The size, in shadow-map texels, a large mesh's triangles are drawn at in the shadow maps when `shading.lod` is on, outside the camera's view.", |ui| ui.add(egui::Slider::new(&mut c.shadows.lod_texels, 0.5..=16.0).clamping(egui::SliderClamping::Edits)));
+    setting(ui, "lod_pixels", "The size, in the camera's pixels, a large mesh's triangles are drawn at in the shadow maps when `shading.lod` is on, outside the camera's view.", |ui| ui.add(egui::Slider::new(&mut c.shadows.lod_pixels, 0.5..=32.0).clamping(egui::SliderClamping::Edits)));
 }
 
 /// `config.wireframe` -- Wireframe.
@@ -102,6 +141,7 @@ pub fn group_wireframe(ui: &mut egui::Ui, c: &mut Config) {
     });
     setting(ui, "width", "Wireframe half-width in screen pixels.", |ui| ui.add(egui::Slider::new(&mut c.wireframe.width, 0.1..=10.0).clamping(egui::SliderClamping::Edits)));
     setting(ui, "fade", "Fade the wireframe out as a body recedes far enough that its facets stop being resolvable. **Off by default.**", |ui| ui.checkbox(&mut c.wireframe.fade, ""));
+    setting(ui, "antialias", "Smooth the wireframe's edges, or draw them hard.", |ui| ui.checkbox(&mut c.wireframe.antialias, ""));
 }
 
 /// `config.selection` -- Selection.
@@ -239,6 +279,7 @@ pub fn group_axes(ui: &mut egui::Ui, c: &mut Config) {
             });
     });
     setting(ui, "gizmo_size", "Half the widget's width, in pixels: a ball centre never sits further than this from the middle.", |ui| ui.add(egui::Slider::new(&mut c.axes.gizmo_size, 16.0..=200.0).clamping(egui::SliderClamping::Edits)));
+    setting(ui, "antialias", "Smooth the axes' lines, or draw them hard.", |ui| ui.checkbox(&mut c.axes.antialias, ""));
 }
 
 /// `config.grid` -- Grid.
@@ -283,6 +324,7 @@ pub fn group_grid(ui: &mut egui::Ui, c: &mut Config) {
 /// `config.hud` -- HUD.
 pub fn group_hud(ui: &mut egui::Ui, c: &mut Config) {
     setting(ui, "font", "Font for the HUD: a **name** or a **path**, or empty for the built-in DejaVu Sans.", |ui| ui.add(egui::TextEdit::singleline(&mut c.hud.font).desired_width(f32::INFINITY)));
+    setting(ui, "antialias", "Smooth the text drawn over the image, or draw it hard: the HUDs and every label -- the axes', the facets', the colour bar's, the gizmo's.", |ui| ui.checkbox(&mut c.hud.antialias, ""));
 }
 
 /// `config.export` -- Export.

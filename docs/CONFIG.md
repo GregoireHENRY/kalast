@@ -425,7 +425,7 @@ app.simulation.config.debug.gpu_timing = True
 ...
 t = app.simulation.gpu_timings()
 # {'shadow': 1.51, 'render': 1.74, 'depth': 0.0, 'text': 0.0, 'gui': 0.0,
-#  'span': 1.77, 'frame': 412.0}
+#  'penumbra': 0.0, 'span': 1.77, 'frame': 412.0}
 ```
 
 Off by default: the queries themselves are nearly free, but reading them back
@@ -728,9 +728,65 @@ intended value sitting in a comment. Wiring it up means the default `false`
 now culls -- a behaviour change, though as measured above an invisible one for
 closed meshes.
 
+### `shading.lod: bool` — default `True` *(live)*
+Draw a large mesh by the parts the camera can see, each only as fine as the
+image can show it.
+
+A flat mesh of 16,384 facets or more is split, on a thread of its own once
+loaded, into a tree of patches simplified a level at a time (a few seconds
+for 12.9M facets; until then the mesh is drawn whole). Each frame draws the
+patches in view and facing the camera, at the level whose triangles are about
+`shading.lod_pixels` across. A patch hangs a skirt below its edge, so patches
+at different levels leave no gap, and every triangle shows the colour, mode
+and value of an original facet. The shadow maps fit to what the camera sees.
+The facet-id pass and the per-facet shadow query always see the full mesh.
+
+On Mars from the Hera swing-by (12.9M facets, 1020 px, an M1 Pro), the GPU
+frame went from 100 ms drawn whole to 1.6 ms far away and 4 ms at closest
+approach.
+
+### `shading.lod_pixels: float` — default `2.0` *(live)*
+The size, in pixels, of the triangles a patch is drawn with: smaller is finer
+and slower. 2 is about a triangle per pixel. On Mars at Hera's closest, after
+a one-pixel blur, the image is 0.25 % from every facet drawn at 1.5, 0.35 % at
+2 and 0.76 % at 3.
+
+### `shadows.lod_pixels: float` — default `3.0` *(live)*
+### `shadows.lod_texels: float` — default `2.0` *(live)*
+How fine the shadow maps draw a large mesh **outside the camera's view**, in
+the camera's pixels and in shadow-map texels; whichever is coarser is used.
+Where the camera looks, the maps hold the very triangles it draws: a coarser
+caster above a finer receiver would shadow it wherever the coarse surface
+passes above the fine one, across every crater floor. With
+`shadows.access_shadow_map`, or a per-facet shadow query pending, the maps
+take the full mesh.
+
 ---
 
 ## Presentation
+
+### `wireframe.antialias`, `axes.antialias`, `hud.antialias`: `bool` — default `true` *(live)*
+Smooth the wireframe, the axes' lines and the text, each apart from the
+others and from `shading.msaa`, which smooths the bodies' own edges. Off, a
+pixel is line or not, text or not:
+
+```python
+app.simulation.config.wireframe.antialias = False
+app.simulation.config.axes.antialias = False
+app.simulation.config.hud.antialias = False   # the HUDs and every label
+```
+
+Each overlay smooths itself, so the mesh's MSAA was never what smoothed most
+of them: the mesh's shader blends the wireframe's edges in over a pixel, and
+the font's coverage smooths text. The axes were one-pixel lines smoothed by
+MSAA alone; each segment is now a strip widened on screen, whose shader blends
+the line's edges or cuts them, its own edges transparent so the mesh's MSAA
+changes nothing. Hard text is drawn on a layer of its own and copied over
+wherever a glyph covers half the pixel, opaque. A hard edge cuts where the
+smooth one is half, so a line keeps its width. The ground grid and the gizmo
+smooth themselves always. `hud.antialias` covers every piece of text drawn
+over the image: the HUDs, and the axes', facets', colour bar's and gizmo's
+labels.
 
 ### `wireframe.fade: bool` — default `false` *(live)*
 Fade the wireframe out as a body recedes far enough that its facets stop being
@@ -785,11 +841,19 @@ Before this option existed, `present_modes[0]` (typically `Fifo`) was the
 unconditional choice, so every run was vsync-capped.
 
 ### `shading.msaa: u32` — default `4` *(live, rebuilds pipelines)*
-Multisample anti-aliasing on the main render pass. `1` turns it off; `2`, `4`
-and `8` are the useful values.
-Accepted: any `int`, but a count the adapter does not support falls back to
-`4`, then to `1` (`resolve_samples`, `src/app/pass/render.rs`). Asking wgpu
-for an unsupported count would otherwise panic at pipeline creation.
+Multisample anti-aliasing on the main render pass: `1` turns it off, `2`, `4`
+and `8` take that many samples a pixel -- a list of those in the settings.
+MSAA takes powers of two, and which a GPU has is its own: an Apple M1 Pro has
+1x, 2x and 4x, no 8x. Accepted: any `int`, and a count the GPU lacks falls back
+to the largest it has below, the console naming the GPU and its counts:
+
+```text
+msaa: 8x is not supported by Apple M1 Pro (Metal), which has 1x, 2x and 4x: using 4x
+```
+
+(`MsaaSupport`, `src/app/pass/render.rs`, asked once when the window is made.
+Asking wgpu for a count the GPU lacks would otherwise panic at pipeline
+creation.)
 
 On by default because **every silhouette this renderer draws is a
 measurement** — a limb, a terminator, an apparent diameter. At one sample per
@@ -830,9 +894,12 @@ export. See `src/app/simulation.rs:70` and `src/app/window.rs:359`.
 Read the shadow map back per facet: computes solar occlusion for **every**
 body each frame, read from
 `after_render` with `sim.facet_shadow(body)` -- an array of occluded
-fractions in `Mesh.facets` order, `0.0` fully lit to `1.0` fully shadowed in
-quarter steps. Bodies not computed this frame return `None` rather than a
-stale array.
+fractions in `Mesh.facets` order, `0.0` fully lit to `1.0` fully shadowed:
+with a point Sun in quarter steps, its corners and centre each lit or not;
+with the Sun a disc (`light.sun_as_point` off), the fraction of the
+limb-darkened disc they do not see, penumbrae graded, `1.0` where the facet
+faces away. Bodies not computed this frame return `None` rather than a stale
+array.
 
 Off by default because it is not free: ~1.6 ms per body at 100k facets and
 ~7.3 ms at 3.1M, dominated by the blocking readback. Turn it on for
@@ -940,7 +1007,7 @@ is there.
 | `{ms}` | **frame time in milliseconds**, i.e. `1000 / fps` |
 | `{paused}` | `PAUSED` when paused, empty otherwise |
 | `{gpu}` | GPU time for the frame, first timestamp to last |
-| `{gpu_shadow}` `{gpu_render}` `{gpu_depth}` `{gpu_text}` `{gpu_gui}` | one pass each |
+| `{gpu_shadow}` `{gpu_render}` `{gpu_depth}` `{gpu_text}` `{gpu_gui}` `{gpu_penumbra}` | one pass each; `penumbra` the Sun's disc's |
 
 The `{gpu*}` set needs `gpu_timing = True` and reads `0.00` without it. They
 carry two decimals by default rather than one, since a pass often runs in
@@ -1281,20 +1348,34 @@ uniform layout.
 Accepted: any `int`.
 
 ### `shading.srgb_mode: u32` — default `0` *(live)*
-Controls where the sRGB/linear conversion happens. `src/app/window.rs:196`.
+Which colours come out exactly in the image. It is stored through the sRGB
+curve, which brightens dark values, and the shader undoes the curve on one
+side -- with the curve's exact formula, so on that side the stored value is the
+shader's to within one level of 255:
 
-| Value | Meaning |
-|---|---|
-| `0` | convert sRGB -> linear on the *input* color, to show raw color faithfully (applied inside the `color_mode == 1` and `== 2` branches) |
-| `1` | treat input as already linear and convert the *final lit* color instead (applied at the end of `fs_main`) |
+| Value | Exact | The other side |
+|---|---|---|
+| `0` | the colours of the unlit modes: a colormap, `shading.color`, a picked facet -- stored as given | lit shading through the curve, as a screen shows it: a lit 0.078 stored as 0.31 |
+| `1` | the lit value: an exported pixel reads I/F = value / 255, at any brightness | the unlit modes' colours come out lighter |
 
-Accepted: `0` or `1`. Both branches call `srgb_to_linear(color, gamma)`, so
-this picks which color gets converted, not whether conversion happens.
+So `0` for a figure coloured by data -- a temperature map keeps its colormap's
+colours -- and `1` for a lit image compared with a camera's. Accepted: `0` or
+`1`, a list in the settings; any other value converts nothing.
 
-### `shading.gamma: Float` — default `2.2` *(live)*
-Exponent used by `srgb_to_linear` in the shader. `src/app/window.rs:197`.
-Accepted: any positive float. `2.2` is the standard sRGB approximation; `1.0`
-makes the conversion a no-op.
+With `shading.msaa` above 1, in `1` a pixel stores the mean of its samples'
+values -- the mean I/F of what it covers, as a detector integrates it -- by a
+resolve pass of its own; the hardware's averages the light the values decode
+to, which stored a half-covered pixel of a plate at 160 as 117 rather than
+80.
+
+### `shading.gamma: Optional[float]` — default `None` *(live)*
+The power law the conversion uses instead of sRGB's own curve. Unset, the
+curve. `2.2` is how it was done before 7 October, and it parted from the curve
+in the dark: with `srgb_mode = 1` a lit 0.078 was stored as 0.047, 0.05 as
+0.018, against 101 % at 0.5; and with `0` a colormap's darkest colours came out
+darker than they are. Set it only to reproduce such an image. The settings show
+it with `srgb_mode` 1 only, where ticking it gives 2.2; with `0` it still applies
+to the unlit modes' colours when a script sets it.
 
 ---
 
@@ -1322,7 +1403,76 @@ Live only since 9 September: it was written when the window was made and never
 again, so it was documented as live and was not. A value set before `start()`
 reached the shader, and one set from a callback or from the config panel did
 nothing at all.
-Accepted: `(r, g, b, a)`; alpha dropped.
+Accepted: `(r, g, b, a)`; alpha dropped. For brightness, `light.exposure`.
+
+### `light.exposure: f32` — default `1.0` *(live)*
+Scales the light by one number, `light.color`'s red, green and blue alike: a
+camera's exposure. A lit pixel is `exposure * color * albedo * cos(i)`, the
+ambient term scaled with it, and the debug light cube is drawn as bright. With
+`shading.srgb_mode = 1` an exported pixel reads `exposure * I/F * 255`: `4.5`
+shows I/F 0 to 0.22 from black to white, and a brighter pixel clips at white.
+The unlit modes' colours -- a colormap's, the flat `shading.color` -- are data
+and are not scaled. Multiplied into the light's colour where the light uniform
+is filled, `src/app/window.rs`.
+Accepted: any float `>= 0.0`; the settings' slider stops at 10, a script does
+not.
+
+### `light.sun_as_point: bool` — default `True` *(live)*
+The Sun as a point: every shadow hard. `False` makes it a disc of
+`light.sun_radius` as each point sees it, and every shadow then has the
+penumbra that disc gives it, as soft as its occluder is far from what it falls
+on: a body's own shadows -- a boulder's blurring toward its tip -- and another
+body's alike, and where they overlap, the disc is hidden where either hides
+it. From Mars, Phobos's shadow becomes a spot at most 22 % deep and 50 km
+across instead of a black pixel, and Phobos leaving Mars's shadow brightens
+gradually instead of at once.
+
+The disc is limb-darkened (linear, 0.56). Each pixel finds, in a few reads of
+a depth pyramid of the shadow map, whether anything near it is far enough in
+front to cast a penumbra six texels wide; only there does it walk the map,
+along 32 directions, to what is hidden of the disc along each -- against the
+exact answer, 0.4 % rms for a sphere's antumbra, 0.5 % for a wall's own
+shadow, 1.1 % where a ball's antumbra crosses the wall's penumbra. A narrower
+penumbra is drawn as with a point: the map cannot place it, and walked, it lit
+gaps between shadows that meet and slivers in the dark near a terminator. So a
+close view wants texels a sixth of the penumbrae it should show -- a boulder's
+edge 10 m from its shadow casts one 4 cm wide at Didymos -- which
+`shadows.near_layer` gives where the camera looks closest, or
+`shadows.resolution` everywhere. A map holds what the Sun sees first, so a
+body's own shadows and the other bodies' are kept in maps of their own
+wherever both fall on it: Didymos's relief behind Dimorphos, as the Sun sees
+them, still hides its part of the disc. A rock in the shadow of a bigger one,
+behind it as the Sun sees them, is not in the map. Where it is near what it
+shades -- within the distance at which its penumbra would be two texels wide,
+3.7 m on Dimorphos at 16384 -- and the camera sees it, the penumbra pass finds
+it in the image instead: each pixel's ray to the Sun is followed through the
+camera's depth, and where it goes into the surface seen there, the pixel is in
+umbra. That took the thin gaps of light in Dimorphos's shadows up close from
+208 pixels of a frame to 101. Farther off, or out of the camera's sight,
+`shadows.second_depth`, on by default, keeps a second depth layer for it.
+
+It costs: the pyramid, read from every shadow layer each frame, and a pass of
+its own before the image (`"penumbra"` in `sim.gpu_timings()`): the bodies
+drawn once more, then what each pixel needs and its walk, 32 directions side by
+side -- on an M1 Pro, Didymos seen from 1 km with Dimorphos's shadow across it
+in 13 ms a frame against 5 with a point, 1 ms of it the other bodies' map,
+which takes `resolution^2 x 4` bytes more (67 MB at 4096) while one is wanted;
+Mars at AFC's closest frame of the swing-by in 9 against 5. A body with a
+horizon map (`body.horizon_map`, see [the API](API.md)) has its own shadows'
+penumbrae from that, at no cost per frame: Mars there in 4 ms.
+
+The per-facet shadow query the thermophysical model reads
+(`shadows.access_shadow_map`) takes the disc too, as the image has it at
+`shadows.pcf = 0`: each facet's corners and centre, the same layer, slices and
+walk, the walks queued and taken 32 directions side by side. Against rays to
+the disc over a wall's penumbra, 0.9 % rms per facet. A step of the Didymos
+pair with every facet queried, Dimorphos's shadow across Didymos, at
+1600 x 1000: 39 a second against 88 with a point Sun (46 without
+`second_depth`).
+
+### `light.sun_radius: float` — default `695700.0` *(live)*
+The Sun's radius in the scene's units, used with `light.sun_as_point` off:
+the Sun's in km. A scene in metres wants `6.957e8`.
 
 ### `light.cube_scale: Float` — default `0.25` *(live)*
 Size of the debug light cube, in world units. Only visible when
@@ -1384,18 +1534,61 @@ not wrong. Setting it to `False` restores the old single scene-fitted map,
 which is worth doing only to reproduce older output, or when every body is a
 similar size.
 
+### `shadows.near_layer: bool` — default `true` *(live)*
+A second, finer shadow layer for a body seen up close, over where the camera
+looks closest. A body's layer is fitted to every patch the camera draws of it
+(`shading.lod`), out to its horizon and behind its nearest hills, so a close
+view coarsens its texels: Dimorphos from 37 m had them at 3 cm, the camera's
+pixels there 1 cm, its boulders' penumbrae 4 cm -- hard-edged stairs, and too
+narrow for the Sun's disc to soften (`light.sun_as_point`). The near layer is
+fitted to the patches nearest the camera, as far out as keeps its texels half
+the image's pixels there; a point inside what it was fitted to, and no farther
+from the Sun, is looked up there, the rest in the body's own layer.
+
+On that view of Dimorphos its texels came out at 1 cm and every pixel used it.
+Against rays from the surface to the limb-darkened disc, the Sun's disc went
+from 0.24 rms to 0.14, and from 0.11 to 0.02 where shadows meet. It costs a
+layer's memory (67 MB at 4096) and a shadow pass: 0.4-0.9 ms a frame there
+with a point Sun, 2.6-2.8 with the disc.
+
+Only while it pays: the body's own layer at least twice as coarse as wanted,
+and the near layer at least twice as fine as it -- not from 95 m off the same
+boulders, where a texel is already a pixel. And only with a perspective
+camera, layers per body, the body drawn by its cut, without a horizon map, no
+per-facet reading of the maps (`access_shadow_map`), and up to eight layers in
+all.
+
+### `shadows.second_depth: bool` — default `true` *(live)*
+With the Sun a disc, a second depth layer under each shadow layer: the nearest
+surface behind what the Sun sees first. With the Sun a point it does nothing,
+whatever it is set to, and costs nothing. A rock in the shadow of a bigger one
+is not in a map, and where a penumbra is walked through such relief the disc
+came through it. Near Dimorphos's terminator, with texels fine enough to walk
+its penumbrae (16384), it lit slivers in the dark, 0.05-0.17 of the disc where
+rays to it reach none; with the second layer, none. It costs a second shadow
+pass and a slice per layer, the pass slower than the first since it drops
+what is not behind the first surface fragment by fragment: 2 to 7 ms a frame
+on Dimorphos up close. Little comes of it where penumbrae are narrower than
+six texels, which are drawn hard, as at the default resolution. A rock near
+what it shades that the camera sees is found in the image without it (see
+`light.sun_as_point`); the second layer adds the rest: on Dimorphos from 68 m
+at 16384, 163 pixels of thin gaps without it, 101 with it. Deeper still,
+three surfaces one behind the other, is missed where the camera does not see
+the third.
+
 ### `shadows.resolution: u32` — default `4096` *(live, reallocates the shadow map)*
 Side length of the square shadow map, in texels. Used **twice** at
 `src/app/window.rs:239,240` (width and height) and also passed into `Globals`
 at `src/app/window.rs:202`, where the shader uses it to compute
 `texel_size = 1.0 / shadow_resolution` for PCF offsets.
-Accepted: any positive integer the GPU can allocate as a depth texture;
-powers of two are the sane choice. Each layer is `resolution^2 x 4 bytes` --
-268 MB at `8192`, 67 MB at `4096`, 17 MB at `2048` -- and the array holds
-**one layer per body** (one in all with `shadows.per_body` off), grown as
-bodies are loaded. It used to hold the cap of eight for every scene, 2.1 GB at
-`8192` before a mesh was loaded; a two-body scene at `8192` takes 0.54 GB,
-at the default 0.13 GB. Measured in
+Accepted: any positive integer the GPU can allocate as a depth texture; powers
+of two are the sane choice. Each layer is `resolution^2 x 4 bytes` -- 268 MB
+at `8192`, 67 MB at `4096`, 17 MB at `2048` -- and the array holds **one layer
+per body** (one in all with `shadows.per_body` off), grown as bodies are
+loaded -- and with the Sun a disc, one more for each body with another in its
+layer (`light.sun_as_point`). It used to hold the cap of eight for every
+scene, 2.1 GB at `8192` before a mesh was loaded; a two-body scene at `8192`
+takes 0.54 GB, at the default 0.13 GB. Measured in
 `notes/2026-09-18_memory_meshes_and_shadow_maps.md`.
 
 The default was `8192` until 22 September. Every layer is stored every frame
@@ -1408,43 +1601,33 @@ the texel is 21 cm on Didymos and 4 cm on Dimorphos, against ~1.5 m facets.
 The bias follows the fit, so nothing else moves. Set `8192` back on a script
 that wants the finer texel. `notes/2026-09-22_indexed_main_pass_primitive_index.md`.
 
-### `shadows.pcf: u32` — default `0` *(live)*
-Percentage-closer-filtering kernel *radius*.
-
-**A filter, not a shift.** Each tap compares against the depth the receiver's
-own plane has *at that tap* (the receiver-plane term, with its slope capped at
-tan 85°), so the kernel blurs the shadow's edge without moving it. It used to
-work the other way round: the normal offset grew with the radius,
-`lb.x * (1 + N)`, and lifting the lookup `N` texels off the surface moves the
-edge -- at grazing incidence by `sqrt(2 R h)` along a body of radius `R`, far
-more than `N` texels. Dimorphos's shadow on Didymos, landing at the
-terminator, detached at `N = 7` and all but vanished at `N = 16` (at 512:
-78,042 -> 8,539 black px, darkness centroid moved 103 px). Now the centroid
-moves 6 px there and 3 px at 8192, the darkness integral is conserved to
-0.3 %, and false darkening at `N = 16` is a fifth of what it was. `N = 0` is
-bit-identical either way, so nothing rendered with the default changes.
-Measured in `notes/2026-09-17_pcf_erosion.md`; guarded by
-`tests/test_pcf_filters.py`.
+### `shadows.pcf: u32` — default `2` *(live)*
+Smoothing of the shadows' edges: the percentage-closer-filtering kernel's
+radius, in shadow-map texels.
 
 | Value | Behaviour |
 |---|---|
-| `0` | a single `textureSampleCompare` -- hardware 2x2 PCF only, hard edges |
-| `N > 0` | a `(2N+1) x (2N+1)` grid of comparison samples, averaged |
+| `0` | the hardware's single 2x2 comparison: hard edges, stairs where the map's texels are larger than the image's pixels |
+| `N > 0` | a `(2N+1) x (2N+1)` grid of those comparisons, averaged |
 
-So `1` = 9 taps, `2` = 25 taps, `3` = 49 taps. Cost grows quadratically.
-Accepted: any `int >= 0`.
+The grid lies on the ground around each point, a texel apart along it, so it
+blurs a shadow's edge as wide whatever the Sun's height, without moving it,
+and leaves lit ground lit. It used to be a square in the map's own view, each
+tap compared against the receiver's plane extended to it: at a low Sun that
+reached far along the ground, the relief there rose above the plane, and lit
+ground came out darkened as if by ambient occlusion -- on Dimorphos from 68 m,
+45 % of the lit pixels by more than 5 % at `16`, 8 % at `4`. Now none at `2`
+and `4`, and 0.04 % at `16` (16384) or 1.5 % (4096). A tap takes ground rising
+up to 14° over the receiver's plane for the receiver's own. Measured in
+`notes/2026-10-09_pcf_on_the_ground/`; guarded by `tests/test_pcf_relief.py`
+and `tests/test_pcf_filters.py`.
 
-The blur you actually see scales with kernel radius *in shadow-map texels*,
-which at the Hera geometry is only ~0.1 image pixels per unit of `shadows.pcf`
--- so small values look like no change at all. Softening becomes visible
-around `8` and obvious by `24`. Worked example, measurements and side-by-side
-renders in `notes/2026-08-25_pcf_shadow_comparison/`.
-
-**Previously buggy.** Before the current fix, the `N > 0` branch accumulated
-taps onto `var shadow = 1.0` instead of a zeroed sum, adding `1/(2N+1)^2` of
-unshadowed light to every filtered fragment -- the umbra measured 93/255
-instead of 7/255 at `shadow_pcf = 1`, a 13x over-brightening. If you have
-older rendered output with `shadow_pcf > 0`, its shadows are too light.
+Cost: five taps where they agree -- most of an image, wholly lit or wholly in
+shadow -- and the whole grid only where a shadow's edge is in reach. On
+Dimorphos at 3234 x 1774 on an M1 Pro, the image's pass 3.0 ms at `0`, 4.5
+at `2`, 7.4 at `4`. Where the map's texels are finer than the image's pixels
+(`resolution = 16384` up close) there are no stairs to smooth and `0` loses
+nothing. The per-facet shadow query never filters.
 
 ### `shadows.normal_offset_scale: Optional[float]` — default `None` (automatic) *(live)*
 Pushes the sample position along the surface normal before projecting into
@@ -1884,7 +2067,7 @@ selected keep the colour they were given.
 ### `selection.labels: bool` — default `False` *(live)*
 ### `selection.labels_max: int` — default `2000` *(live)*
 ### `selection.label_size: float` — default `12.0` *(live)*
-### `selection.label_color: list[float]` — default `(1, 1, 1, 0.9)` *(live)*
+### `selection.label_color: list[float]` — default `(1, 1, 1, 1)` *(live)*
 Draw each facet's index at its centre, for reading off which facet a number
 in a data product refers to:
 

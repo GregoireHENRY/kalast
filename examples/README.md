@@ -95,11 +95,10 @@ you have any question or want any feature added.
           resolution of the shadow mapping.
           Default is `4096` which might not be enough for detailed cases but
           runs really fast for fast iterations.
-        - `app.simulation.config.shadows.pcf = 2` play with cautious with this,
-          increase the value too much could yield strange results but low values
-          like `2` or `4` allows to smooth shadows.
-          PCF results is affected by shadow resolution.
-          You see larger effects at lower shadow resolutions.
+        - `app.simulation.config.shadows.pcf = 2` smooths the shadows' edges
+          (the default); `0` draws them hard, larger values blur more.
+          The blur is counted in shadow-map texels, so it is wider at lower
+          shadow resolutions.
         - `app.simulation.huds = [kalast.app.Hud("", size=16)]` let's  you
           create an HUD completely customizable in position/size/font/alignment.
           You can create multiple HUDs.

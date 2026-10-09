@@ -20,6 +20,7 @@ macro_rules! eprintln {
 }
 
 pub mod astro;
+pub mod atmosphere;
 pub mod entity;
 pub mod gpu;
 pub mod app;

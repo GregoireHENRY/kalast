@@ -722,6 +722,8 @@ TARGETS = {
     # the same either way and splitting it would put the parameter docs a
     # file away from the formula that uses them.
     "src/scattering.rs": "kalast/scattering.pyi",
+    # The atmosphere, registered in `kalast.scattering` beside the laws.
+    "src/atmosphere.rs": "kalast/scattering.pyi",
     "src/lightcurve.rs": "kalast/lightcurve.pyi",
     # The same, the orbit beside Kepler's equation.
     "src/astro.rs": "kalast/astro.pyi",

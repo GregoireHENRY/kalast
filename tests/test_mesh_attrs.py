@@ -124,7 +124,7 @@ def main() -> int:
     assert cols.shape == (n_flat, 3), f"a flat mesh is coloured per facet: {cols.shape}"
     painted = numpy.arange(0, n_flat, 4)
     cols[painted] = [1.0, 0.0, 0.0]
-    mesh.mark_colors_dirty()
+    mesh.update_gpu_colors()
     app.step()
     coloured = grab()
 

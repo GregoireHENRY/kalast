@@ -7,4 +7,5 @@ from kalast._rs.scattering import (  # noqa
     opposition_surge,
     Hapke,
     LommelSeeligerLambert,
+    Atmosphere,
 )

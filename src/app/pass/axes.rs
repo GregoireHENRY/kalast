@@ -2,8 +2,11 @@ use crate::app::gpu;
 
 /// Draws the reference axes: line segments in world space.
 ///
-/// Its own pass because it is the only line-topology geometry in the
-/// renderer, and because it must not write depth -- annotation should be
+/// Each segment is an instance of a four-vertex strip, widened on screen by
+/// the shader, which blends the line's edges in or cuts them
+/// (`axes.antialias`) -- its own antialiasing, whatever the main pass's MSAA.
+/// They were `LineList` lines, one pixel wide and smoothed by MSAA alone.
+/// Its own pass because it must not write depth: annotation should be
 /// occluded by the body it annotates without ever hiding it.
 pub struct Pass {
     pub pipeline: gpu::RenderPipeline,
@@ -33,12 +36,14 @@ impl Pass {
             // Annotation: occluded by the scene, never occluding it.
             false,
             gpu::DEPTH_COMPARE,
-            wgpu::PrimitiveTopology::LineList,
+            wgpu::PrimitiveTopology::TriangleStrip,
+            // A segment's two vertices read as one instance: the buffer is
+            // the line list it always was.
             &[Some(wgpu::VertexBufferLayout {
-                array_stride: std::mem::size_of::<crate::app::axes::LineVertex>()
+                array_stride: 2 * std::mem::size_of::<crate::app::axes::LineVertex>()
                     as wgpu::BufferAddress,
-                step_mode: wgpu::VertexStepMode::Vertex,
-                attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3],
+                step_mode: wgpu::VertexStepMode::Instance,
+                attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Float32x3],
             })],
         );
 
@@ -84,6 +89,6 @@ impl Pass {
         render_pass.set_pipeline(&self.pipeline.inner);
         bindings.all(render_pass);
         render_pass.set_vertex_buffer(0, buffer.slice(..));
-        render_pass.draw(0..self.n_vertices, 0..1);
+        render_pass.draw(0..4, 0..self.n_vertices / 2);
     }
 }

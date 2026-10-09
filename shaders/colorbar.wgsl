@@ -54,8 +54,17 @@ struct VertexOutput {
     @location(0) t: f32,
 };
 
+// sRGB's own curve, decoding: the image is stored through its encoding, which
+// then undoes this exactly. `shading.gamma` set (above 0) uses the power law
+// instead, which is how this was done before 7 October -- and 2.2 parted from
+// the curve in the dark: a lit 0.078 was stored as 0.047.
 fn srgb_to_linear(color: vec3<f32>, gamma: f32) -> vec3<f32> {
-    return pow(color, vec3<f32>(gamma));
+    if gamma > 0.0 {
+        return pow(color, vec3<f32>(gamma));
+    }
+    let low = color / 12.92;
+    let high = pow((max(color, vec3<f32>(0.0)) + 0.055) / 1.055, vec3<f32>(2.4));
+    return select(high, low, color <= vec3<f32>(0.04045));
 }
 
 @vertex

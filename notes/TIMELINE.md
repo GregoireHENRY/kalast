@@ -5374,3 +5374,325 @@ the hazard `gui/mod.rs` already warns about where it hands the panel its
 config. Its test drew it without that borrow held, so it passed. Now the panel
 takes the config it is given and `Simulation::color_range_with` reads it; the
 test holds the borrow as the editor does.
+
+## 2026-10-07 — the GPU's MSAA counts; each overlay's antialiasing
+
+`shading.msaa` from a list (off, 2x, 4x, 8x), the GPU's own counts asked once
+-- 2x had fallen to 4x everywhere -- and the console naming the GPU when a
+count falls back: an M1 Pro has 1x, 2x and 4x. `wireframe.antialias`,
+`axes.antialias` and `hud.antialias`, each overlay smooth or hard apart from
+the MSAA; the axes are strips now, smooth whatever the MSAA. `mesh.mark_colors_dirty()`
+renamed `update_gpu_colors()`, the old name deprecated. The sRGB conversion
+uses the curve's own formula, not a 2.2 power: `srgb_mode = 1` stores a lit
+image's value exactly, I/F = value / 255 (a lit 0.078 had come out 0.047);
+`shading.gamma` unset by default. Open: Hapke in the shader, after the user
+tries the normal albedo. Write-up:
+`2026-10-07_msaa_counts_and_overlay_antialiasing.md`.
+
+## 2026-10-07 — albedo maps for Mars and Deimos, tried on AFC 12:08:31
+
+There are no per-facet maps, only latitude-longitude grids, which a script
+can sample per facet. Mars: TES's Lambert albedo (7.4 km), sampled per
+facet onto a true-size Mars, raises the per-pixel correlation with AFC
+12:08:31 from 0.63 to 0.90. That is all the map gives: TES per pixel scores
+0.897. Its median in the view is the 0.16 found from AFC's I/F. Left over: a
+trend with incidence, Lambert plus the atmosphere. `mars_dtm_10x.obj` is 4 %
+too large for image comparisons: a place is drawn up to 66 px off. In its
+place, a true-size Mars from MOLA's 16 px/deg radii, 3.7 km facets where AFC
+12:08:31 looks and 1 deg elsewhere, 2.68M facets: Mars registers within 4 px
+and the craters show where AFC has them. Deimos: no published map; Wargnier
+et al. 2025's figures and Thomas et al. 1996 give 0.06-0.09 with a brighter
+ridge. Then `mesh.colors_from_map(map, west=-180)`, a map sampled onto a
+mesh's facets or vertices, and `light.exposure`, one number scaling the light.
+Open: Hapke. Write-up: `2026-10-07_albedo_maps_mars_deimos/`.
+
+## 2026-10-07 — meshes for every AFC image of the Mars swing-by
+
+327 AFC images (AFC-1 and AFC-2, 06:20-13:25), Mars from 19 km/px down to
+0.57 km/px, Deimos to 81 m/px, Phobos never over 20 px and eclipsed at
+13:00:58. A Mars for all of them and for `afc.py`'s clock, 05:52-16:00: an
+icosahedron split where the day's finest pixel needs it, 12.9M facets, about
+one per pixel in the close images (0.87 at the median), 29 km where AFC never
+looked, MOLA radii at 128 down to 4 px/deg; loads in 0.6 s, 3.1 GB. Deimos:
+Ernst et al. 2023's 83 m SPC model, 196,608 facets. Eleven images rendered:
+the geometry within 2 px all day, the brightness off by up to 45 % (Lambert
+at the limb and the terminator, haze over Hellas): the scattering law next,
+the albedo after it. Write-up: `2026-10-07_afc_swingby_meshes/`.
+
+## 2026-10-07 — scattering laws in the renderer
+
+`body.scattering` shades a body with a law from `kalast.scattering` --
+Lommel-Seeliger, the mix, Hapke with roughness -- seen from the camera; a lit
+pixel is the law's I/F times the facet's colour, and no law is Lambert as
+before. The shader's copy of each law agrees with the CPU's within one 8-bit
+count. `Hapke` takes `k`, Hapke's 2008 porosity factor, which the Martian
+moons' 2012 fits carry. Against AFC: Deimos at 4-6 deg phase within 2 % with
+Wargnier et al.'s fit, where Lambert is 25 % short; Phobos as a crescent,
+104-125 deg, half too dark, past its fit's phases. Found on the way: with
+`srgb_mode = 1`, MSAA averages decoded values rather than I/F (13 % on a 2 px
+Phobos); the shadow map's Sun is a point, so Phobos's shadow on Mars is a
+black pixel where the real one is a 22 %-deep, 6.6 px penumbra. Open: Mars's
+atmosphere, a penumbra, MSAA in mode 1. Write-up:
+`2026-10-07_scattering_laws_in_the_renderer/`.
+
+## 2026-10-07 — chunked level of detail; what a vertex carries
+
+`afc.py` drew its 12.9M-facet Mars whole, 100 ms a frame. Now a tree of
+patches, built on a thread once the mesh is loaded (4.5 s), drawn each frame
+only where the camera looks and only as fine as its pixels
+(`shading.lod`, `shading.lod_pixels` = 2: 0.35 % from every facet drawn,
+after a pixel's blur). Edge collapse, two surfaces a node (outline held for
+the parent, simplified for drawing) and skirts down the surface's normal: no
+hole at 12:08:31 against 238-1,500 before. Shadow layers fit to the drawn
+patches; inside the camera's view the shadow cut is the camera's own (false
+crater-floor shadows 229 to 19 pixels). The shading pass's vertex output
+went from 160 bytes to 28 for a flat mesh -- per-body constants read from
+the instance buffer, a lean shader build -- halving it. GPU span at p10: 1.6
+ms far, 4 ms at closest approach; the medians, 4-9 ms, are other apps' GPU
+work, which stalls even a 10k-facet scene. Open: horizon maps for the
+terrain's own shadows, averaged attributes per simplified triangle.
+Write-up: `2026-10-07_chunked_lod.md`.
+
+## 2026-10-07 — the Sun as a disc; MSAA averaging stored values
+
+`light.sun_radius` makes the Sun a disc: percentage-closer soft shadows,
+the occluders searched only where another body's penumbra can fall (bounded
+per layer from the CPU), the limb-darkened disc sampled at 128 points, each
+against the depth its ray has there. Within 0.8 % rms of the exact antumbra
+of a sphere; free where no other body casts. Phobos's shadow on Mars at
+09:20 is a 30 % dip instead of two black pixels; Phobos leaves Mars's
+shadow gradually, but a minute before AFC's: Mars's dusty limb makes its
+shadow ~30 km wider, for the atmosphere to carry. With `srgb_mode = 1` and
+MSAA, a resolve pass of its own averages the stored values, the I/F, where
+the hardware's had half a plate at 160 store 117. Write-up:
+`2026-10-07_penumbra_and_msaa_resolve/`.
+
+## 2026-10-07 — Mars's atmosphere over the surface in the image
+
+`body.atmosphere = kalast.scattering.Atmosphere(tau=0.45)`: the dust's own
+light, once and many times scattered (delta-Eddington two-stream with a
+Monte Carlo correction, Chapman airmasses over a sphere), plus the surface
+seen through it, lit by the beam that got through and by the sky, with
+twilight past the terminator and the column thinning with height above the
+IAU ellipsoid. Dust from Wolff et al. 2009 and Chen-Chen et al. 2019, tau
+from Perseverance on the swing-by sol. The shader matches the CPU model
+within 0.01 %, the CPU the research's code within 1e-5. On eleven AFC
+images: the limb from 4.7 times too dark to within 10 %, the spread a third
+narrower; left over, a trend with phase (Mars's surface is not Lambert:
+a Hapke law next) and a terminator 25-35 % too bright. Also fixed: a flat
+scene lit face-on far from the origin came out black (a shadow slab one
+epsilon deep). Write-up: `2026-10-07_mars_atmosphere/`.
+
+## 2026-10-08 — the Sun's disc for every shadow; LOD skirts; a planet's shadow through its air
+
+LOD's black dots were its skirts, lit at their own position under the
+surface, where every shadow map is dark: each skirt vertex now knows the
+outline vertex it hangs from and is lit as it (75 dots to 15 on Mars at
+12:08:45, 13 without LOD; Didymos's dashed lines gone). `light.sun_as_point`
+(default `True`) turns the disc on, `sun_radius` defaulting to the Sun's in
+km. The disc now softens every shadow, a body's own included, and an overlap
+hides what either hides: each texel a thin sheet hiding a band of the disc
+along each of 32 directions, the bands of one surface joined, 32 rings of
+equal light a bit each; a depth pyramid finds where a penumbra can reach and
+where the umbra is; the walk is hierarchical. 0.35-1.1 % rms against ray
+casts; every umbra black (Dimorphos's had been grey). The cost: +5 ms at
+AFC's closest frame, +28 ms on Didymos from 1 km with Dimorphos's shadow
+across it, with other GPU work running; a compute pass for the penumbra
+pixels is next. A body with an atmosphere shadows the others by its
+ellipsoid and its dust, not their layers: Phobos's egress, a minute early
+with a bare Mars, comes 15-20 s late with tau 0.45 and H 11 km and on time
+with H 8 km -- the dust 25-45 km over the limb measured. Also: under a
+scattering law the sky lights the law's diffuse albedo, not the colour; the
+per-facet shadow query no longer stops the app past 4.2M facets. Horizon
+maps: weighed, not built. Write-up: `2026-10-08_sun_disc_every_shadow/`.
+
+## 2026-10-08 — a Hapke law for Mars; the terminator; Deimos's albedo
+
+Vincendon et al. (2013)'s Hapke shape, `w` 0.70 for the red, colours 0.9 TES
+over the law's 0.2145: AFC's low-phase images within 1 % (Lambert 16-19 %
+short), the pixel residual halved. A trend with phase stays, the same with
+three published sets: 0.87-0.90 at 19-38 deg, 0.73 at 71. The terminator is
+not one: within each image AFC / kalast is flat with incidence to 3 %, and
+the 25-35 % was the 71 deg image's level. The trend is stronger on bright
+terrain (0.75-0.85) than dark (0.92-0.96): the dusty terrain's phase function,
+the dust's back lobe, or TES against 2025's red, to be told apart. Deimos:
+SPC's per-facet albedo covers a third of the side AFC saw closest and does
+not follow AFC's residual (correlation 0.11); the residual is a gradient
+across the body. Write-up: `2026-10-08_mars_hapke_terminator_deimos/`.
+
+## 2026-10-08 — the Sun's disc in a pass of its own; horizon maps
+
+The disc's penumbrae found before the image: a prepass draws the bodies'
+surfaces and depth, a compute scan does each pixel's look round and queues
+its walk, a compute pass walks a lane per direction, and the main pass reads
+its pixel's answer (or a neighbour's at an edge). Didymos from 1 km with
+Dimorphos's shadow across it: 31 to 12 ms a frame (5 with a point Sun);
+images the same to 705 edge pixels. `body.horizon_map = True`: per facet how
+high the terrain rises in 32 azimuths, from radius grids rasterized from the
+mesh and a march in Morton order (Mars's 12.9M facets in 7.8 s, 825 MB); the
+body leaves its own layer, a quarter-degree grid of highest horizons spares
+the read where the Sun is high. Mars at AFC: 4.7 to 2.8 ms (point), 8.9 to
+4.2 (disc), 12:45 7.0 to 4.5 and 12.2 to 5.9. Closer to rays than the shadow
+map, whose bias lights shadowed facets at a grazing Sun: 0.7 % against 2.0 %
+wrong on a test sphere; on Mars at the terminator the two disagree on 2.5 %
+of facets and rays side with the horizon map 146 times in 150. Phobos's
+shadow at 09:16 is 9 % deep under the dust (ten times Phobos) because only
+the ground's direct beam is shadowed, not the dust in the column Hera looks
+down. Write-up: `2026-10-08_penumbra_pass_horizon_map/`.
+
+## 2026-10-08 — Mars's phase trend, fitted to AFC
+
+43 AFC images (5-66 deg phase), kalast's shading written again in numpy,
+fitted, checked on kalast's renders. Neither the surface law nor the dust
+alone does it; both do: Hapke w 0.70, b 0.141, c 1, B0 1, h 0.052, theta-bar
+21.5 deg; the dust with a small backward lobe (g2 -0.248, q 0.929), tau 0.36
+and H 8.7 km (Phobos's egress); TES at 0.75 of its contrast. Every image
+within 0.93-1.04 of AFC (0.68-0.98 before); the earlier medians had left out
+saturated pixels. AFC-2 reads 1.5 % under AFC-1. Left: the limb at low phase
+5-9 % bright, regional residuals (TES's age and band). Write-up:
+`2026-10-08_mars_phase_fit/`.
+
+## 2026-10-08 — Deimos's photometry and albedo from AFC
+
+47 AFC-1 frames, 11:52-12:08 (2.5-17.5 deg). The gradient across Deimos is
+albedo: 22-32 % over 15 km in every frame, fixed to Deimos while the Sun's
+direction in the image turned 85 deg. Wargnier's surge is too strong; refit
+w 0.0929, B0 1.154, h 0.050 with the map. An AFC albedo map on 26 % of
+Deimos (`deimos_afc_albedo.npy`, `.tif`): residual spread 7.7-9.0 % to
+1.6-2.5 %, 86-98 % of the variance on frames left out. Deimos's position is
+2-3 km off in SPICE. Write-up: `2026-10-08_deimos_afc_photometry/`.
+
+## 2026-10-09 — a body's own shadows and another's, apart, with the Sun a disc
+
+A lit line along Dimorphos's shadow where it crossed Didymos's own (iteration
+707): the map holds what the Sun sees first, and in Dimorphos's penumbra
+Didymos's ridge lay behind Dimorphos, out of it. With the disc, a layer whose
+body and others both cast keeps them in slices of their own, the walk joining
+what each hides along each direction; the hard lookups and the per-facet
+query read both (Didymos's facets the same to the bit). The line is gone;
+`test_penumbra_self.py` puts its ball on the line it avoided (past the edge
++2.67 % to +1.06 %). 0.9-1.2 ms a frame and 67 MB at 4096 while another body
+is in a layer. The other line the user saw is the seam between two faces of
+the Didymos model's cube-sphere grid, normals turning 1-4 deg. Write-up:
+`2026-10-09_disc_shadows_apart/`.
+
+## 2026-10-09 — penumbrae narrower than four texels drawn as with a point
+
+Close views of Dimorphos (from 37 m): with the disc, lit gaps between
+shadows that meet. Rays to the disc against the mesh: 0-5 % seen where kalast
+gave 3-42 %, the occluders in the map. The view reaches far across the body,
+so its map has 3 cm texels against 4 cm penumbrae, and the walk at 1-3
+texels is no closer to rays than the hard lookup (rms 0.17-0.18 against
+0.14-0.18), 7-9 % too bright; from 4 texels it is (0.05-0.08 against
+0.09-0.15), and at 16384 the view's penumbrae come within 0.08. The walk is
+taken from 4 texels; narrower, the hard lookup. Open: a map fitted to where
+the camera looks closest. Write-up: `2026-10-09_disc_shadows_apart/`.
+
+## 2026-10-09 — one albedo map of Deimos, from AFC and SPC
+
+AFC where seen in the close frames (21 % of Deimos, unchanged but for the
+normalisation), Gaskell's SPC albedo levelled to it over their overlap (55 %;
+a level, not a fit: the fit gains 1.6 % and would raise SPC's contrast),
+blended over 1 km, and the rest filled by a Laplacian over the facets
+(20 %): no seam, AFC's range. Area-weighted median 1; the Hapke law keeps
+its I/F with w 0.0907. Write-up: `2026-10-09_deimos_albedo_combined/`.
+
+## 2026-10-09 — a near shadow layer for a body seen up close
+
+`shadows.near_layer`, on by default: a body's layer is fitted to every patch
+the camera draws, out to its horizon, which from 37 m over Dimorphos made it
+124 m wide, texels 3 cm against 1 cm pixels. A second layer per body over the
+patches nearest the camera, as far out as keeps texels half a pixel there,
+wanted only if the body's own is twice as coarse; a point uses it inside what
+it was fitted to and no farther from the Sun. There 1 cm texels, every pixel
+on it; against rays the disc went from 0.24 rms to 0.12 (16384 whole: 0.08).
+Cost there 0.4 ms (point) and 2.8 ms (disc, the penumbrae now walked), a
+67 MB slice. `tests/test_near_layer.py`. Open: the seam where a view has
+both; the user's lines of frames 2572-2573, not reproduced without their
+camera. Write-up: `2026-10-09_near_shadow_layer/`.
+
+## 2026-10-09 — slivers at Dimorphos's terminator: the walk from six texels; a second depth layer
+
+The user's view at iteration 0: thin lit curves in the dark with the disc.
+Traced: walks at 4.0-4.4 texels, 0.03-0.31 of the disc where rays give mostly
+0, further from the rays than the hard lookup (0.10 against 0.06); at 16384
+four stayed lit, their blockers hidden from the Sun behind other relief. The
+walk now needs penumbrae six texels wide (516 such pixels in the view to 14),
+and `shadows.second_depth` (off by default) keeps a second depth layer per
+shadow layer, the nearest surface behind the first, which takes those four to
+0 at 2-7 ms a frame. Write-up: `2026-10-09_near_shadow_layer/`.
+
+## 2026-10-09 — gaps in the disc's shadows behind relief the Sun cannot see
+
+The user's frame 2574 reproduced from their window (the pinned image's
+viewport scale, fovy x 0.827; 16384; second depth and near layer on; the UI's
+iteration 0 being iteration 1): 291 pixels of thin lit structures inside the
+point Sun's shadows. There both depth layers held ridges 12-16 m off, and what
+stops the rays is a bump a centimetre or two over them 0.1-2 m from the
+ground, a third surface; rays from 1 cm off the surface pass over it, from
+1 mm they do not. The receiver's own texel now counts in the walk (291 to
+208), and the penumbra pass's scan follows each queued pixel's ray to the
+Sun's centre through the camera's image, out to where a penumbra would be two
+texels wide, going over a step pixel by pixel where it goes behind what the
+camera sees: into that surface within two pixels, umbra (208 to 101). The 40
+pixels it darkened: rms 0.011 against rays, the walk alone 0.253. No cost
+measured. With `second_depth` off the frame has 163. Left: far relief at a
+grazing Sun (a real penumbra, within the rays' offset spread), rays that only
+graze the ground between steps, relief the camera does not see.
+`tests/test_penumbra_hidden.py`. Write-up:
+`2026-10-09_disc_gaps_hidden_relief/`.
+
+## 2026-10-09 — PCF on the ground; its default 2, `second_depth` on
+
+PCF darkened lit ground like ambient occlusion: on Dimorphos from 68 m, 45 %
+of the lit pixels by more than 5 % at pcf 16, 8 % at 4, worst at a low Sun.
+Its taps were a square in the map's view compared against the receiver's
+plane, which at a low Sun reach far along the ground. Now they lie on the
+plane, a texel apart along it, and take ground rising up to 0.25 per unit
+for the receiver's own: none darkened at 2 and 4, 0.04 % at 16 (16384), no
+shadow lit, the crater's centroid 0.02 %. Five taps first, the rest only
+where they disagree: on a 5.7 Mpx image +1.4 ms at 2, +4.3 at 4, where it
+was +8.3 and +23.8 (two texels apart was cheaper but streaked). `shadows.pcf`
+defaults to 2, `second_depth` to on -- it only acts with the disc, and the
+settings show it only then (`:when:` across groups). The Sun stays a point by
+default: the TPM runs in the render loop on the hard per-facet query, and the
+disc would only slow it. `tests/test_pcf_relief.py` (fails on the old kernel:
+35 % darkened at pcf 8). Write-up: `2026-10-09_pcf_on_the_ground/`.
+
+## 2026-10-09 — the thermophysical model's shadows with the Sun a disc; the body panel
+
+The per-facet query (`sim.facet_shadow`) took a point Sun whatever was
+chosen. With the disc it is now `cs_facets` beside the image's penumbra code:
+each facet's corners and centre through the same layer, slices, pyramid and
+walk, the horizon map's disc where the body has one; against rays across a
+wall's penumbra 0.92 % rms per facet, graded (`tests/test_facet_shadow_disc.py`).
+Its walks queued for `cs_walk` and the pyramid looked round once per facet:
+the Didymos pair, every facet every step, 27.5 steps/s to 38.8 (88 with a
+point Sun). The simulation panel sets each body's scattering law and its
+numbers, and its horizon map. The Sun stays a point by default: the disc
+costs 2.3x a step, 2.6x an image. Write-up:
+`2026-10-09_tpm_shadows_with_the_disc/`.
+
+## 2026-10-09 — survey: shadows, anti-aliasing, ray tracing, GI, 240 fps
+
+Asked how UE5/UE6 and the soft-shadow, anti-aliasing, ray-tracing and GI
+literature bear on kalast. kalast's disc walk is the backprojection /
+bitmask family, `second_depth` depth peeling, the screen-space march Bend's
+screen-space shadows; PCSS, VSM-type maps and UE's SMRT are less exact, and
+no shadow-map method is exact. UE6: early access end of 2027, no rendering
+technique announced. wgpu 30 has ray queries on Vulkan, DX12 and Metal,
+this M1 Pro included (driver traversal). Open, proposed, none started:
+quality presets (fast, accurate, reference); shadow layers cached in each
+body's frame, redrawn past a Sun-motion threshold; GPU culling into one
+indirect draw; a progressive ray-traced reference mode -- the disc sampled,
+light bounced into shadowed craters by radiosity over the TPM's view
+factors, jittered pixels, no denoiser -- validated on Ingersoll's bowl; for
+interactive use MSAA with SMAA or FXAA, for exports jittered accumulation.
+Write-up (sourced): `2026-10-09_rendering_survey/`.
+
+## 2026-10-09 — rays that graze the ground, in the near-field march
+
+A step within a pixel in front of the surface the camera sees has the stretch
+before it gone over pixel by pixel, as one that went behind it has: frame
+2574 lost 137 lit pixels, none gained, thin structures 101 to 98. Write-up:
+`2026-10-09_disc_gaps_hidden_relief/`.

@@ -62,3 +62,17 @@ fn vs_main(
     return view.light.view_proj_layers[shadow_layer.index]
         * model_matrix * vec4<f32>(vertex.pos, 1.0);
 }
+
+// The second depth layer (`shadow::Pass::peel`, the Sun a disc): the layer's
+// first surface bound, and a fragment kept only behind it, so the depth test
+// keeps the nearest surface behind what the Sun sees first. A rock in the
+// shadow of a bigger one, which the first layer cannot hold, is there.
+@group(3) @binding(0) var t_first: texture_depth_2d;
+
+@fragment
+fn fs_peel(@builtin(position) position: vec4<f32>) {
+    let first = textureLoad(t_first, vec2<i32>(position.xy), 0);
+    if position.z <= first + 1.0e-7 {
+        discard;
+    }
+}

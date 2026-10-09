@@ -48,7 +48,16 @@ class Hapke:
     radians. `0` is a smooth surface; the literature quotes 20-30 deg for
     most asteroids. Must be in `[0, pi/2)`.
     """
-    def __init__(self, w: float = ..., b: float = ..., c: float = ..., b0: float = ..., h: float = ..., theta_bar: float = ...) -> None:
+    k: float
+    """Hapke's (2008) porosity factor, `1` for none, the IMSA as it was: the
+    reflectance is `K` times larger and the `H` functions are taken at
+    `mu / K`. From the filling factor `phi`, one minus the porosity,
+    `K = -ln(1 - 1.209 phi^(2/3)) / (1.209 phi^(2/3))`. The Hapke 2012 fits
+    of the Martian moons carry it: 1.19 for Phobos (87 % porosity,
+    Fornasier et al. 2024) and 1.21 for Deimos (86 %, Wargnier et al.
+    2025). `[1, inf)`.
+    """
+    def __init__(self, w: float = ..., b: float = ..., c: float = ..., b0: float = ..., h: float = ..., theta_bar: float = ..., k: float = ...) -> None:
         ...
     def reflectance(self, mu0: float, mu: float, alpha: float) -> float:
         ...
@@ -60,6 +69,55 @@ class Hapke:
         `(mu0, mu, 1)` when `theta_bar` is zero. `S = 1` at zero azimuth when
         `i <= e`, which is the identity that pins which branch is which.
         """
+        ...
+
+class Atmosphere:
+    """A dusty atmosphere over a body, per `body.atmosphere`."""
+    tau: float
+    """Vertical optical depth at the surface."""
+    scale_height: float
+    """Scale height of the dust, in the scene's units."""
+    radius: float
+    """The planet's radius, in the scene's units: with the scale height, how
+    long a slanted path through the air is, and with `polar_radius` the
+    level the optical depth `tau` is given at -- the equatorial radius of
+    that ellipsoid.
+    """
+    polar_radius: float | None
+    """The ellipsoid's polar radius, about the body's own z axis; `None`, a
+    sphere of `radius`. Above the ellipsoid the air is thinner, below it
+    thicker: the dust's optical depth goes as the surface pressure,
+    `tau exp(-height / scale_height)` -- on Mars twice as much over
+    Hellas as over the uplands round it. A sphere would put the poles
+    20 km under it.
+    """
+    omega: float
+    """The dust's single-scattering albedo, `0..1`."""
+    g1: float
+    """The phase function's first forward lobe's asymmetry, `0..1`."""
+    g2: float
+    """The second's."""
+    q: float
+    """The first lobe's weight, `0..1`."""
+    albedo: float | None
+    """The surface's mean albedo round about, for the light the surface and
+    the atmosphere send each other. `None`: each facet's own.
+    """
+    def __init__(self, tau: float = ..., scale_height: float = ..., radius: float = ..., polar_radius: float | None = ..., omega: float = ..., g1: float = ..., g2: float = ..., q: float = ..., albedo: float | None = ...) -> None:
+        ...
+    def iof(self, mu0_facet: float, mu0: float, mu: float, alpha: float, albedo: float, lit: float = ..., height: float = ...) -> float:
+        """The I/F at a point of a Lambert surface of albedo `albedo` under this
+        atmosphere: `mu0_facet` the Sun's cosine from the facet's normal,
+        `mu0` and `mu` the Sun's and the camera's from the local vertical,
+        `alpha` the phase angle, `lit` how much of the direct beam reaches the
+        facet, `height` above the ellipsoid.
+        """
+        ...
+    def level(self, lat: float) -> float:
+        """The ellipsoid's radius at geocentric latitude `lat`, radians."""
+        ...
+    def airmass(self, mu: float) -> float:
+        """Chapman's airmass at `mu`, over a sphere."""
         ...
 
 def lambert(albedo: float) -> float:

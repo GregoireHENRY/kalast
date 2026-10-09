@@ -65,6 +65,7 @@ pub fn shadow_layers_wanted(config: &crate::app::config::Config, bodies: usize) 
 /// were 1 km across and the automatic normal offset came out at 0.35 m. The
 /// symptom was self-shadow acne over the whole disc that no automatic setting
 /// could clear.
+#[derive(Clone, Copy)]
 pub struct LightFit {
     pub view_proj: Mat4,
     /// The view the extents were measured in, eye included -- what a test
@@ -129,7 +130,10 @@ pub fn fit_light_view_proj(
         near = near.min(d);
         far = far.max(d);
     }
-    let pad = ((far - near) * 0.01).max(Float::EPSILON);
+    // A flat scene seen edge-on by the Sun has no depth at all, and a slab
+    // an epsilon thick is noise to the depth test: a plate lit face-on, a
+    // thousand units from the origin, came out black.
+    let pad = ((far - near) * 0.01).max(reach * 1e-4).max(Float::EPSILON);
     let (near, far) = (near - pad, far + pad);
 
     LightFit {
@@ -140,6 +144,197 @@ pub fn fit_light_view_proj(
         near,
         far,
     }
+}
+
+/// A shadow layer fitted to spheres rather than a box: aimed at the centre
+/// of their box, its lateral extent the spheres' own as the Sun sees them,
+/// its depth the scene's, as `fit_light_view_proj` has it.
+pub fn fit_light_to_spheres(
+    sun_pos: Vec3,
+    spheres: &[(Vec3, Float)],
+    scene: &crate::mesh::Aabb,
+    up_world: Vec3,
+) -> LightFit {
+    let mut boxed = crate::mesh::Aabb::empty();
+    for (c, r) in spheres {
+        boxed = boxed.union(&crate::mesh::Aabb { min: *c - Vec3::splat(*r), max: *c + Vec3::splat(*r) });
+    }
+    let target = boxed.center();
+    let to_body = target - sun_pos;
+    let dir = if to_body.length_squared() > 1e-20 { to_body.normalize() } else { Vec3::Z };
+    let up = if dir.dot(up_world).abs() > 0.999 { Vec3::X } else { up_world };
+    let reach = scene
+        .corners()
+        .into_iter()
+        .map(|c| (c - target).length())
+        .fold(0.0 as Float, Float::max)
+        .max(Float::EPSILON);
+    let eye = target - dir * (2.0 * reach);
+    let view = Mat4::look_to_rh(eye, dir, up);
+    let mut half = 0.0 as Float;
+    for (c, r) in spheres {
+        let p = view.transform_point3(*c);
+        half = half.max(p.x.abs() + r).max(p.y.abs() + r);
+    }
+    let side = (half * 1.02).max(Float::EPSILON);
+    let (mut near, mut far) = (Float::INFINITY, Float::NEG_INFINITY);
+    for c in scene.corners() {
+        let d = -view.transform_point3(c).z;
+        near = near.min(d);
+        far = far.max(d);
+    }
+    // A flat scene seen edge-on by the Sun has no depth at all, and a slab
+    // an epsilon thick is noise to the depth test: a plate lit face-on, a
+    // thousand units from the origin, came out black.
+    let pad = ((far - near) * 0.01).max(reach * 1e-4).max(Float::EPSILON);
+    let (near, far) = (near - pad, far + pad);
+    LightFit {
+        view_proj: Mat4::orthographic_rh(-side, side, -side, side, near, far) * view,
+        view,
+        side,
+        near,
+        far,
+    }
+}
+
+/// What a shadow layer is this frame (`Window::update`): the body it shades,
+/// its fit, the box it is fitted to, the box nothing beyond which -- from the
+/// Sun -- can shadow what it holds, and whether it is the body's near layer.
+#[derive(Clone, Copy)]
+struct LayerPlan {
+    own: usize,
+    fit: LightFit,
+    region: crate::mesh::Aabb,
+    far: Option<crate::mesh::Aabb>,
+    near: bool,
+}
+
+/// The patches the camera draws of a body (`MeshBuffer::lod_nodes`) as world
+/// spheres: centre and radius.
+fn drawn_spheres(mesh: &super::gpu::MeshBuffer, mat: &Mat4) -> Vec<(Vec3, Float)> {
+    let Some(lod) = mesh.lod.as_ref() else {
+        return vec![];
+    };
+    let s = max_scale(mat);
+    mesh.lod_nodes
+        .iter()
+        .map(|&k| {
+            let n = &lod.tree.nodes[k as usize];
+            let c = Vec3::new(n.center[0] as Float, n.center[1] as Float, n.center[2] as Float);
+            (mat.transform_point3(c), n.radius as Float * s)
+        })
+        .collect()
+}
+
+/// How fine a body's near layer is made: its texels this fraction of the
+/// image's pixel where the camera looks closest. Finer than a pixel, for the
+/// Sun's disc: a penumbra is walked from six texels (`WALK_MIN_REACH` in
+/// `mesh_shadow.wgsl`), and a boulder's on Dimorphos is 4 cm, three pixels
+/// from 37 m.
+pub const NEAR_TEXEL_PIXELS: Float = 0.5;
+
+/// A near layer for a body seen up close (`shadows.near_layer`): fitted to
+/// the patches the camera draws within some distance of it -- as far as keeps
+/// the texels `NEAR_TEXEL_PIXELS` of a pixel where it looks closest, of a few
+/// distances tried, the nearest if none does -- and the box round them.
+/// `None` when the body's own layer, `own`, is within twice that already, or
+/// the near layer would not be twice finer than it. `spheres`: each drawn
+/// patch's centre, radius and distance from the camera; `pixel` the camera's
+/// pixel, an angle.
+pub fn near_fit(
+    sun_pos: Vec3,
+    spheres: &[(Vec3, Float, Float)],
+    scene: &crate::mesh::Aabb,
+    up_world: Vec3,
+    pixel: Float,
+    resolution: u32,
+    own: &LightFit,
+) -> Option<(LightFit, crate::mesh::Aabb)> {
+    let nearest = spheres.iter().map(|s| s.2).fold(Float::INFINITY, Float::min);
+    if !nearest.is_finite() || nearest <= 0.0 {
+        return None;
+    }
+    let res = resolution.max(1) as Float;
+    let want = NEAR_TEXEL_PIXELS * pixel * nearest;
+    let own_texel = 2.0 * own.side / res;
+    if own_texel <= 2.0 * want {
+        return None;
+    }
+    let mut best: Option<(LightFit, Float, Vec<(Vec3, Float)>)> = None;
+    for out in [1.5, 2.0, 3.0, 4.0, 6.0, 8.0] {
+        let within: Vec<(Vec3, Float)> =
+            spheres.iter().filter(|s| s.2 <= out * nearest).map(|s| (s.0, s.1)).collect();
+        if within.is_empty() {
+            continue;
+        }
+        let fit = fit_light_to_spheres(sun_pos, &within, scene, up_world);
+        let texel = 2.0 * fit.side / res;
+        let fine = texel <= want;
+        if fine || best.is_none() {
+            best = Some((fit, texel, within));
+        }
+        if !fine {
+            break;
+        }
+    }
+    let (fit, texel, within) = best?;
+    if 2.0 * texel > own_texel {
+        return None;
+    }
+    let mut region = crate::mesh::Aabb::empty();
+    for (c, r) in &within {
+        region = region.union(&crate::mesh::Aabb { min: *c - Vec3::splat(*r), max: *c + Vec3::splat(*r) });
+    }
+    Some((fit, region))
+}
+
+/// A shadow layer `margin` wider on every side, its aim and depth the same.
+pub fn widen_light_fit(fit: LightFit, margin: Float) -> LightFit {
+    let side = fit.side + margin.max(0.0);
+    LightFit {
+        view_proj: Mat4::orthographic_rh(-side, side, -side, side, fit.near, fit.far) * fit.view,
+        side,
+        ..fit
+    }
+}
+
+/// The planes of a view's frustum, world frame, unnormalised: `p . (x, 1) >= 0`
+/// inside. The four sides always; `depth` adds near and far for a `[0, 1]`
+/// depth range -- a shadow layer's. A camera's reversed, endless depth is
+/// left out, which is the conservative side.
+pub fn frustum_planes(view_proj: &Mat4, depth: bool) -> Vec<crate::Vec4> {
+    let r = [view_proj.row(0), view_proj.row(1), view_proj.row(2), view_proj.row(3)];
+    let mut planes = vec![r[3] + r[0], r[3] - r[0], r[3] + r[1], r[3] - r[1]];
+    if depth {
+        planes.push(r[2]);
+        planes.push(r[3] - r[2]);
+    }
+    planes
+}
+
+/// World planes into a body's own frame, normalised there, for `lod::View`.
+pub fn planes_in(planes: &[crate::Vec4], model: &Mat4) -> Vec<[f32; 4]> {
+    let t = model.transpose();
+    planes
+        .iter()
+        .map(|p| {
+            let q = t * *p;
+            let l = q.truncate().length().max(Float::MIN_POSITIVE);
+            [(q.x / l) as f32, (q.y / l) as f32, (q.z / l) as f32, (q.w / l) as f32]
+        })
+        .collect()
+}
+
+/// The largest stretch a body's matrix applies, for turning a world length
+/// into its own frame's.
+pub fn max_scale(model: &Mat4) -> Float {
+    model
+        .x_axis
+        .truncate()
+        .length()
+        .max(model.y_axis.truncate().length())
+        .max(model.z_axis.truncate().length())
+        .max(Float::MIN_POSITIVE)
 }
 
 /// Whether anything inside `aabb` can rasterise under `view_proj`, an
@@ -932,6 +1127,8 @@ pub struct Window {
     /// Draws `Simulation::hud` over the swapchain. `None` if the font would
     /// not load, which is not worth failing a run over.
     pub hud: Option<HudBrush>,
+    /// For `hud.antialias` off: made the first time it is.
+    text_layer: Option<super::pass::text_layer::TextLayer>,
     /// A second brush on the same font, for a vertical colour bar's
     /// caption: a brush has one projection, and this one's is turned
     /// (`caption_matrix`).
@@ -986,9 +1183,19 @@ pub struct Window {
     // the bodies whose bounds can reach the layer's frustum at all. Filled
     // in `update` beside the layer's fit; see `aabb_may_hit_frustum`.
     pub shadow_casters: Vec<Vec<usize>>,
+    // Per shadow layer, with the Sun a disc, the other bodies where its own
+    // body casts into it too: drawn into a slice of their own after the
+    // layers (`light.apart`), so that neither hides the other from the map
+    // where one stands in front of the other. Empty where they share it.
+    pub shadow_others: Vec<Vec<usize>>,
+    // Each layer's first surface, bound for drawing its second depth layer
+    // (`shadow::Pass::peel`); made as wanted, dropped with the passes.
+    peel_groups: Vec<wgpu::BindGroup>,
 
     pub uniforms: super::uniform::Uniforms,
     pub passes: super::pass::Passes,
+    /// The MSAA sample counts this GPU has, asked once, for every rebuild.
+    msaa: super::pass::render::MsaaSupport,
 
     /// What the surface supports, kept from creation so `vsync` can be
     /// changed without an adapter to re-query.
@@ -1088,7 +1295,17 @@ impl Window {
         //     .next()
         //     .unwrap();
 
-        let features_wgpu = wgpu::FeaturesWGPU::empty();
+        let mut features_wgpu = wgpu::FeaturesWGPU::empty();
+
+        // The GPU's own MSAA sample counts beyond the 1 and 4 WebGPU
+        // guarantees -- 2, 8 -- where it has them (`MsaaSupport`): a texture
+        // of those counts is refused without this.
+        if adapter
+            .features()
+            .contains(wgpu::Features::from(wgpu::FeaturesWGPU::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES))
+        {
+            features_wgpu.insert(wgpu::FeaturesWGPU::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES);
+        }
         // features_wgpu.insert(wgpu::FeaturesWGPU::POLYGON_MODE_LINE);
 
         let mut features_webgpu = wgpu::FeaturesWebGPU::empty();
@@ -1103,6 +1320,16 @@ impl Window {
             .contains(wgpu::Features::from(wgpu::FeaturesWebGPU::TIMESTAMP_QUERY))
         {
             features_webgpu.insert(wgpu::FeaturesWebGPU::TIMESTAMP_QUERY);
+        }
+
+        // A few bytes set per draw, for a level-of-detail cut's draws to say
+        // where their triangles start (`gpu::LodBuffers`). Same policy: a
+        // device without them draws every mesh whole.
+        if adapter
+            .features()
+            .contains(wgpu::Features::from(wgpu::FeaturesWebGPU::IMMEDIATES))
+        {
+            features_webgpu.insert(wgpu::FeaturesWebGPU::IMMEDIATES);
         }
 
         // The facet of a fragment, for drawing a flat mesh indexed over its
@@ -1153,6 +1380,8 @@ impl Window {
             println!("{:?}", format);
         }
 
+        let msaa = super::pass::render::MsaaSupport::of(&adapter, &device, format);
+
         let size = window.inner_size();
 
         let surface_config = wgpu::SurfaceConfiguration {
@@ -1178,6 +1407,7 @@ impl Window {
             );
             println!("[WINDOW] adapter features: {}", adapter.features());
             println!("[WINDOW] device features: {}", device.features());
+            println!("[WINDOW] msaa sample counts: {:?}", msaa.counts);
             println!(
                 "[WINDOW] surface capabilities present modes: {:?}",
                 caps.present_modes
@@ -1262,7 +1492,9 @@ impl Window {
         let textures = vec![texture];
         */
 
-        let globals = super::gpu::UniformBuffer::new(&device, build_globals(config, None, (0.0, 1.0)));
+        let mut globals = build_globals(config, None, (0.0, 1.0), (surface_config.width, surface_config.height));
+        globals.camera_pos = camera_pos(&simulation.camera);
+        let globals = super::gpu::UniformBuffer::new(&device, globals);
 
         let camera = super::uniform::Camera {
             view_proj: simulation
@@ -1282,7 +1514,7 @@ impl Window {
                 .unwrap(),
 
             pos: simulation.sun.pos,
-            color: super::gpu::color_vec3(&config.light.color),
+            color: super::gpu::color_vec3(&config.light.color) * config.light.exposure as Float,
             ..Default::default()
         };
 
@@ -1320,7 +1552,7 @@ impl Window {
         // as the window's here, a size set before the window opened was never
         // applied -- the live config takes what it finds at the start as done.
         let render_size = image_size(config, (surface_config.width, surface_config.height));
-        let passes = super::pass::Passes::new(&device, surface_config.format, &config, &uniforms, render_size);
+        let passes = super::pass::Passes::new(&device, surface_config.format, &config, &uniforms, render_size, &msaa);
 
         // The font is embedded rather than read from `res/`, so the overlay
         // works from any working directory. A font that will not load leaves
@@ -1358,8 +1590,11 @@ impl Window {
             meshes,
             shadow_meshes,
             shadow_casters: Vec::new(),
+            shadow_others: Vec::new(),
+            peel_groups: Vec::new(),
             uniforms,
             passes,
+            msaa,
             present_modes: caps.present_modes.clone(),
             render_generation: 0,
             render_size,
@@ -1383,6 +1618,7 @@ impl Window {
             last_body_mats: vec![],
             hud,
             hud_turned,
+            text_layer: None,
         }
     }
 
@@ -1397,6 +1633,15 @@ impl Window {
     /// `shadow_path` proxy: the proxy decides what the *map* contains, but
     /// the answer is wanted per real facet.
     pub fn facet_shadow_fractions(&mut self, body: usize) -> Vec<f32> {
+        // With the Sun a disc, the fraction of it each facet does not see,
+        // as the image has it (`penumbra::Pass::facets`): the model takes the
+        // shadows the user chose.
+        if self.uniforms.view.uniform.light.sun_radius > 0.0 {
+            let Some(mesh) = self.meshes.get(1 + body) else {
+                return vec![];
+            };
+            return self.passes.penumbra.facets(&self.device, &self.queue, &self.passes.bindings, mesh);
+        }
         if self.facet_shadow.is_none() {
             self.facet_shadow = Some(super::facet_shadow::FacetShadowQuery::new(&self.device));
         }
@@ -1410,14 +1655,23 @@ impl Window {
         // It used to be `body` regardless, which with the per-body fit off
         // read body 1's occlusion from a layer nothing had rendered into;
         // and never past the allocation, which no longer pads to the cap.
+        let n_layers = self.uniforms.view.uniform.light.n_layers.max(1) as usize;
         let layer = body
-            .min(self.uniforms.view.uniform.light.n_layers.max(1) as usize - 1)
+            .min(n_layers - 1)
             .min(self.uniforms.shadow.layer_views.len().max(1) - 1);
+        // The other bodies' slice, where this body is apart from them.
+        let apart = self.uniforms.view.uniform.light.apart;
+        let others = if apart & 1 << layer != 0 {
+            n_layers + (apart & ((1 << layer) - 1)).count_ones() as usize
+        } else {
+            layer
+        };
         self.facet_shadow.as_ref().unwrap().query(
             &self.device,
             &self.queue,
             &self.uniforms.shadow,
             layer,
+            others,
             mesh,
             self.last_body_mats.get(body).copied().unwrap_or(Mat4::IDENTITY),
             // This body's own layer, not the shared scratch. Each layer is
@@ -1773,12 +2027,14 @@ impl Window {
     /// Also the way a new shadow texture reaches the shaders: `Passes::new`
     /// rebuilds the bind groups, which is where the texture view is bound.
     pub fn rebuild_passes(&mut self, config: &crate::app::config::Config) {
+        self.peel_groups.clear();
         self.passes = super::pass::Passes::new(
             &self.device,
             self.surface_config.format,
             config,
             &self.uniforms,
             self.render_size,
+            &self.msaa,
         );
         // `Passes::new` sizes the offscreen targets from `config.image.width`, which
         // is the *requested* size and need not be the window's current one.
@@ -1920,6 +2176,26 @@ impl Window {
         // Before anything indexes `meshes` against `bodies`.
         self.sync_meshes(simulation);
 
+        // The horizon maps the bodies ask for: worked out when one is turned
+        // on, a few seconds on the GPU for Mars's 12.9M facets, and let go
+        // when it is turned off. With one shadow layer for the scene a body
+        // is drawn into it whatever it has, so the map would shadow it twice.
+        for ii in 0..simulation.bodies.len() {
+            let want = simulation.bodies[ii].horizon_map && config.shadows.per_body;
+            let mesh = &mut self.meshes[1 + ii];
+            if want && mesh.horizon.is_none() {
+                if let Some(m) = simulation.bodies[ii].mesh.as_ref() {
+                    let m = m.borrow();
+                    if !m.indices.is_empty() {
+                        let map = super::horizon::HorizonMap::build(&self.device, &self.queue, &m.positions, &m.indices);
+                        mesh.set_horizon(&self.device, Some(map));
+                    }
+                }
+            } else if !want && mesh.horizon.is_some() {
+                mesh.set_horizon(&self.device, None);
+            }
+        }
+
         let (width, height) = self.render_size;
         // What `Simulation::project` measures in. Only the window knows the
         // size a frame is actually drawn at.
@@ -1994,7 +2270,8 @@ impl Window {
         };
         simulation.value_range = value_range;
 
-        self.uniforms.globals.uniform = build_globals(config, shadow_fit, value_range);
+        self.uniforms.globals.uniform = build_globals(config, shadow_fit, value_range, self.render_size);
+        self.uniforms.globals.uniform.camera_pos = camera_pos(&simulation.camera);
 
         // Resampled to the uniform's fixed 256 entries, so any length of table
         // works -- matplotlib's 256 passes through untouched.
@@ -2023,11 +2300,92 @@ impl Window {
             .view_proj(width as Float / height as Float)
             .unwrap();
 
+        // The level-of-detail cuts, the camera's first: what it can see of
+        // each large mesh, only as fine as the image can show it (`lod`).
+        // The box round each cut is what that body's shadow layer fits to
+        // below. Not with the wireframe, whose barycentrics need the facets'
+        // own corners, and a frame whose shadow maps are read for every facet
+        // (`access_shadow_map`, or a query pending) keeps those whole.
+        for mesh in &mut self.meshes {
+            mesh.poll_lod(&self.device);
+        }
+        let lod_on = config.shading.lod && config.wireframe.mode == 0;
+        let shadow_whole =
+            config.shadows.access_shadow_map || simulation.facet_shadow_request.is_some();
+        let n_bodies = simulation.bodies.len();
+        let mut lod_seen: Vec<Option<crate::mesh::Aabb>> = vec![None; n_bodies];
+        let mut lod_hidden = vec![false; n_bodies];
+        // Each large body's camera in its own frame, for its shadow cuts: the
+        // eye, and what the camera sees by its own measures.
+        let mut lod_camera: Vec<Option<([f32; 3], bool)>> = vec![None; n_bodies];
+        let mut lod_looks: Vec<Option<super::lod::Seen>> = (0..n_bodies).map(|_| None).collect();
+        let camera_pixel;
+        {
+            let vp = self.uniforms.view.uniform.camera.view_proj;
+            let proj = simulation.camera.projection.mat(width as Float / height as Float);
+            // A pixel, at the centre: an angle in perspective, a length in
+            // an orthographic view.
+            let pixel = 2.0 / (proj.y_axis.y.abs() * height as Float).max(Float::MIN_POSITIVE);
+            camera_pixel = pixel;
+            let perspective = matches!(
+                simulation.camera.projection.mode,
+                super::frame::ProjectionMode::Perspective
+            );
+            let planes = frustum_planes(&vp, false);
+            for ii in 0..n_bodies {
+                let mesh = &mut self.meshes[1 + ii];
+                let Some(lod) = mesh.lod.as_ref().filter(|_| lod_on) else {
+                    mesh.lod_draw = None;
+                    continue;
+                };
+                let m = simulation.bodies[ii].mat;
+                let eye = m.inverse().transform_point3(simulation.camera.pos);
+                let eye = [eye.x as f32, eye.y as f32, eye.z as f32];
+                let looking = m.inverse().transform_vector3(simulation.camera.dir).normalize();
+                let view = super::lod::View {
+                    planes: planes_in(&planes, &m),
+                    seen: None,
+                    // Both sides drawn (`render_back_face`): none culled.
+                    facing: if config.shading.render_back_face {
+                        super::lod::Facing::Any
+                    } else if perspective {
+                        super::lod::Facing::Point(eye)
+                    } else {
+                        super::lod::Facing::Along([looking.x as f32, looking.y as f32, looking.z as f32])
+                    },
+                    eye: perspective.then_some(eye),
+                    edge_per_distance: (config.shading.lod_pixels as Float * pixel) as f32,
+                    edge_max: if perspective {
+                        0.0
+                    } else {
+                        (config.shading.lod_pixels as Float * pixel / max_scale(&m)) as f32
+                    },
+                };
+                lod_camera[ii] = Some((eye, perspective));
+                lod_looks[ii] = Some(super::lod::Seen {
+                    planes: view.planes.clone(),
+                    edge_per_distance: view.edge_per_distance,
+                    edge_max: view.edge_max,
+                });
+                let mut ranges = mesh.lod_draw.take().unwrap_or_default();
+                let seen = lod.tree.select(&view, &mut ranges, Some(&mut mesh.lod_nodes));
+                lod_hidden[ii] = seen.is_none();
+                lod_seen[ii] = seen.map(|(lo, hi)| {
+                    crate::mesh::Aabb {
+                        min: Vec3::new(lo[0] as Float, lo[1] as Float, lo[2] as Float),
+                        max: Vec3::new(hi[0] as Float, hi[1] as Float, hi[2] as Float),
+                    }
+                    .transform(&m)
+                });
+                mesh.lod_draw = Some(ranges);
+            }
+        }
+
         // One shadow layer per body: aimed at it, sized to it, depth spanning
         // the scene so occluders still cast. `light.view_proj` is only the
         // scratch the shadow pass draws with, rewritten per layer at render
         // time; what the main pass samples is `view_proj_layers`.
-        let n_layers = if config.shadows.per_body {
+        let n_body_layers = if config.shadows.per_body {
             simulation
                 .bodies
                 .len()
@@ -2035,7 +2393,6 @@ impl Window {
         } else {
             1
         };
-        self.uniforms.view.uniform.light.n_layers = n_layers as u32;
 
         // The array grows to the layers in use and is never shrunk: a
         // Restart empties the scene for a frame, and shrinking then would
@@ -2046,14 +2403,25 @@ impl Window {
             self.rebuild_shadow(config, wanted as u32);
         }
 
-        self.shadow_casters.resize_with(n_layers, Vec::new);
-        if let Some(scene) = simulation.scene_bounds() {
-            for i in 0..n_layers {
-                // Cleared first: a layer whose body has no mesh this frame is
-                // sampled by nothing, so it gets no casters rather than last
-                // frame's.
-                self.shadow_casters[i].clear();
+        let keep_apart = config.shadows.per_body && config.light.disc_radius() > 0.0;
+        // The bodies whose own shadows are their horizon maps', which are not
+        // drawn into their own layers.
+        let horizon: Vec<bool> = (0..n_bodies).map(|j| self.meshes[1 + j].horizon.is_some()).collect();
+        // The bodies whose shadows on others are their ellipsoids' and their
+        // air's: the first `MAX_AIR` with an atmosphere.
+        let analytic: Vec<usize> = (0..n_bodies)
+            .filter(|&j| simulation.bodies[j].atmosphere.is_some())
+            .take(super::uniform::MAX_AIR)
+            .collect();
 
+        // What each layer is: the body it shades, its fit, the box of what
+        // it is fitted to, and the box nothing beyond which, from the Sun,
+        // can shadow; `None` for a layer sampled by nothing this frame. The
+        // bodies' own first, then their near layers.
+        let mut plans: Vec<Option<LayerPlan>> = vec![None; n_body_layers];
+        let scene = simulation.scene_bounds();
+        if let Some(scene) = scene {
+            for (i, plan) in plans.iter_mut().enumerate() {
                 // With per-body off, the single layer is fitted to the scene,
                 // which is the pre-layer behaviour.
                 let body = if config.shadows.per_body {
@@ -2064,48 +2432,266 @@ impl Window {
                 } else {
                     scene
                 };
-                let layer = fit_light_view_proj(
-                    simulation.sun.pos,
-                    &body,
-                    &scene,
-                    simulation.sun.up_world,
-                );
-                self.uniforms.view.uniform.light.view_proj_layers[i] = layer.view_proj;
-
-                // Which bodies to draw into this layer: those whose bounds
-                // can reach its frustum. Body `j` is `meshes[1 + j]`; the
-                // light cube at 0 never casts.
-                let casters = (0..simulation.bodies.len())
-                    .filter(|&j| {
-                        simulation
-                            .body_bounds(j)
-                            .is_some_and(|b| aabb_may_hit_frustum(&b, &layer.view_proj))
-                    })
-                    .map(|j| 1 + j);
-                self.shadow_casters[i].extend(casters);
-
-                // Bias from this layer's own extent, so each body gets the
-                // bias its texel size actually needs. Taken from the fit
-                // itself -- see `LightFit` for why it cannot be read back out
-                // of `view_proj`.
-                let fit = super::frame::fit_shadow(
-                    &super::frame::Resolved {
-                        near: layer.near,
-                        far: layer.far,
-                        side: layer.side,
-                        offset: [0.0, 0.0],
-                    },
-                    config.shadows.resolution,
-                );
-                self.uniforms.view.uniform.light.layer_bias[i] = crate::Vec4::new(
-                    config
-                        .shadows.normal_offset_scale
-                        .unwrap_or(fit.normal_offset_scale) as Float,
-                    config.shadows.bias_scale.unwrap_or(fit.bias_scale) as Float,
-                    config.shadows.bias_minimum.unwrap_or(fit.bias_minimum) as Float,
-                    fit.texel_depth as Float,
-                );
+                // A body drawn by its cut has its layer fitted to what the
+                // camera sees of it, which puts the texels where the image is;
+                // one the camera does not see at all is sampled by nothing.
+                let body = if config.shadows.per_body && !shadow_whole {
+                    if lod_hidden[i] {
+                        continue;
+                    }
+                    lod_seen[i].unwrap_or(body)
+                } else {
+                    body
+                };
+                // Fitted to the spheres of the patches the camera draws, as the
+                // Sun sees them, where there are any: a world box round a curved
+                // patch is far wider than the patch.
+                let fit = match (lod_seen[i].is_some() && !shadow_whole, self.meshes.get(1 + i)) {
+                    (true, Some(mesh)) if mesh.lod.is_some() && !mesh.lod_nodes.is_empty() => {
+                        let spheres = drawn_spheres(mesh, &simulation.bodies[i].mat);
+                        fit_light_to_spheres(simulation.sun.pos, &spheres, &scene, simulation.sun.up_world)
+                    }
+                    _ => fit_light_view_proj(simulation.sun.pos, &body, &scene, simulation.sun.up_world),
+                };
+                *plan = Some(LayerPlan {
+                    own: i,
+                    fit,
+                    region: body,
+                    far: if shadow_whole { None } else { lod_seen[i] },
+                    near: false,
+                });
             }
+
+            // A body seen up close: a layer of its own over where the camera
+            // looks closest, its texels finer than the image's pixels there,
+            // where the body's own layer, fitted to all the camera sees of
+            // it, has them coarser (`near_fit`).
+            let perspective = matches!(
+                simulation.camera.projection.mode,
+                super::frame::ProjectionMode::Perspective
+            );
+            if config.shadows.per_body && config.shadows.near_layer && !shadow_whole && perspective && lod_on {
+                for i in 0..n_body_layers {
+                    if plans.len() >= super::uniform::MAX_SHADOW_LAYERS {
+                        break;
+                    }
+                    let Some(own) = plans[i].as_ref().map(|p| p.fit) else {
+                        continue;
+                    };
+                    let Some(mesh) = self.meshes.get(1 + i).filter(|m| m.lod.is_some() && !m.lod_nodes.is_empty())
+                    else {
+                        continue;
+                    };
+                    if horizon[i] {
+                        continue;
+                    }
+                    let spheres: Vec<(Vec3, Float, Float)> = drawn_spheres(mesh, &simulation.bodies[i].mat)
+                        .into_iter()
+                        .map(|(c, r)| (c, r, ((c - simulation.camera.pos).length() - r).max(0.05 * r)))
+                        .collect();
+                    if let Some((fit, region)) = near_fit(
+                        simulation.sun.pos,
+                        &spheres,
+                        &scene,
+                        simulation.sun.up_world,
+                        camera_pixel,
+                        config.shadows.resolution,
+                        &own,
+                    ) {
+                        plans.push(Some(LayerPlan { own: i, fit, region, far: Some(region), near: true }));
+                    }
+                }
+            }
+        }
+        let n_layers = plans.len();
+        self.uniforms.view.uniform.light.n_layers = n_layers as u32;
+        self.shadow_casters.resize_with(n_layers, Vec::new);
+        self.shadow_others.resize_with(n_layers, Vec::new);
+        self.shadow_others.iter_mut().for_each(Vec::clear);
+        // Each body's near layer, and how far into it and how deep a point
+        // uses it.
+        let mut near_of: Vec<Option<(usize, Float, Float)>> = vec![None; n_bodies];
+
+        for (i, plan) in plans.iter().enumerate() {
+            // Cleared first: a layer whose body has no mesh this frame is
+            // sampled by nothing, so it gets no casters rather than last
+            // frame's.
+            self.shadow_casters[i].clear();
+            let Some(LayerPlan { own, fit: layer, region: body, far: seen, near }) = *plan else {
+                continue;
+            };
+
+            // Which bodies to draw into this layer: those whose bounds
+            // can reach its frustum. Body `j` is `meshes[1 + j]`; the
+            // light cube at 0 never casts.
+            // A body with an atmosphere casts on the others by its
+            // ellipsoid and its air (`through_air`), not into their
+            // layers: its shadow on a moon is far wider than the moon,
+            // and a layer widened to hold that penumbra lost the moon's
+            // texels.
+            let casters = (0..simulation.bodies.len())
+                .filter(|&j| {
+                    simulation
+                        .body_bounds(j)
+                        .is_some_and(|b| aabb_may_hit_frustum(&b, &layer.view_proj))
+                })
+                .filter(|&j| j == own || !config.shadows.per_body || !analytic.contains(&j))
+                .filter(|&j| j != own || !horizon[own])
+                .map(|j| 1 + j);
+            self.shadow_casters[i].extend(casters);
+            let light_dir = (body.center() - simulation.sun.pos).normalize();
+
+            // With the Sun a disc, a penumbra reaches past its occluder by
+            // the occluder's distance in front times the Sun's angular
+            // radius: the layer is widened by the widest it can hold --
+            // from as far in front as any caster is, another body or its
+            // own's far side -- up to its own size again.
+            let along = |b: &crate::mesh::Aabb| {
+                b.corners().into_iter().map(|c| light_dir.dot(c)).fold(
+                    (Float::INFINITY, Float::NEG_INFINITY),
+                    |(lo, hi), d| (lo.min(d), hi.max(d)),
+                )
+            };
+            let back = along(&body).1;
+            let tan = config.light.disc_radius() as Float
+                / (body.center() - simulation.sun.pos).length().max(Float::EPSILON);
+            let ahead = self.shadow_casters[i]
+                .iter()
+                .filter(|_| tan > 0.0)
+                .filter_map(|&m| simulation.body_bounds(m - 1))
+                .map(|b| back - along(&b).0)
+                .fold(0.0 as Float, Float::max);
+            let fitted = layer.side;
+            let layer = if ahead > 0.0 {
+                let margin = (ahead * tan).min(layer.side);
+                widen_light_fit(layer, margin)
+            } else {
+                layer
+            };
+            self.uniforms.view.uniform.light.view_proj_layers[i] = layer.view_proj;
+            // A point of the body uses its near layer only inside what the
+            // layer was fitted to: the widening holds the penumbrae reaching
+            // in, which a walk from nearer the edge would run past; and no
+            // farther from the Sun than it, past which the casters are left
+            // out of the layer (`far` below).
+            if near {
+                let deepest = body
+                    .corners()
+                    .into_iter()
+                    .max_by(|a, b| light_dir.dot(*a).total_cmp(&light_dir.dot(*b)))
+                    .unwrap_or(body.center());
+                near_of[own] = Some((i, fitted / layer.side, layer.view_proj.project_point3(deepest).z));
+            }
+
+            // Each large caster's cut for this layer: in the layer's
+            // frustum, facing the Sun, and no finer than either the
+            // camera's pixels where it is or `lod_texels` texels -- or
+            // every facet, when the map is read per facet. Nothing past
+            // the far side of what the camera sees of this layer's body
+            // can shadow it, so that goes too.
+            let texel = 2.0 * layer.side / config.shadows.resolution.max(1) as Float;
+            let mut planes = frustum_planes(&layer.view_proj, true);
+            if let Some(seen) = seen {
+                let far = seen
+                    .corners()
+                    .into_iter()
+                    .map(|c| light_dir.dot(c))
+                    .fold(Float::NEG_INFINITY, Float::max);
+                planes.push(crate::Vec4::new(-light_dir.x, -light_dir.y, -light_dir.z, far));
+            }
+            for j in 0..n_bodies {
+                let mesh = &mut self.meshes[1 + j];
+                if mesh.lod_shadow.len() < n_layers {
+                    mesh.lod_shadow.resize(n_layers, None);
+                }
+                let Some(lod) = mesh.lod.as_ref().filter(|_| lod_on) else {
+                    mesh.lod_shadow[i] = None;
+                    continue;
+                };
+                let m = simulation.bodies[j].mat;
+                let toward = m.inverse().transform_vector3(light_dir).normalize();
+                let camera = lod_camera[j].filter(|_| !shadow_whole);
+                let view = super::lod::View {
+                    planes: planes_in(&planes, &m),
+                    // Where the camera looks, its own cut: see `Seen`.
+                    seen: if shadow_whole {
+                        None
+                    } else {
+                        lod_looks[j].as_ref().map(|l| super::lod::Seen {
+                            planes: l.planes.clone(),
+                            edge_per_distance: l.edge_per_distance,
+                            edge_max: l.edge_max,
+                        })
+                    },
+                    facing: if config.shading.render_back_face {
+                        super::lod::Facing::Any
+                    } else {
+                        super::lod::Facing::Along([toward.x as f32, toward.y as f32, toward.z as f32])
+                    },
+                    eye: camera.and_then(|(eye, perspective)| perspective.then_some(eye)),
+                    edge_per_distance: (config.shadows.lod_pixels as Float * camera_pixel) as f32,
+                    edge_max: if shadow_whole {
+                        0.0
+                    } else {
+                        (config.shadows.lod_texels as Float * texel / max_scale(&m)) as f32
+                    },
+                };
+                let mut ranges = mesh.lod_shadow[i].take().unwrap_or_default();
+                lod.tree.select(&view, &mut ranges, None);
+                mesh.lod_shadow[i] = Some(ranges);
+            }
+
+            // Bias from this layer's own extent, so each body gets the
+            // bias its texel size actually needs. Taken from the fit
+            // itself -- see `LightFit` for why it cannot be read back out
+            // of `view_proj`.
+            let fit = super::frame::fit_shadow(
+                &super::frame::Resolved {
+                    near: layer.near,
+                    far: layer.far,
+                    side: layer.side,
+                    offset: [0.0, 0.0],
+                },
+                config.shadows.resolution,
+            );
+            self.uniforms.view.uniform.light.layer_bias[i] = crate::Vec4::new(
+                config
+                    .shadows.normal_offset_scale
+                    .unwrap_or(fit.normal_offset_scale) as Float,
+                config.shadows.bias_scale.unwrap_or(fit.bias_scale) as Float,
+                config.shadows.bias_minimum.unwrap_or(fit.bias_minimum) as Float,
+                fit.texel_depth as Float,
+            );
+
+            // With the Sun a disc, the body apart from the others: a map
+            // holds what the Sun sees first, and the disc walk read
+            // Didymos's own relief as not there where Dimorphos stood in
+            // front of it, lighting a line along Dimorphos's shadow
+            // across Didymos's own. Each in a slice of its own, the walk
+            // takes both.
+            let own = 1 + own;
+            if keep_apart && self.shadow_casters[i].contains(&own) && self.shadow_casters[i].len() > 1 {
+                let others = self.shadow_casters[i].iter().copied().filter(|&m| m != own);
+                self.shadow_others[i].extend(others);
+                self.shadow_casters[i].retain(|&m| m == own);
+            }
+        }
+        // The others' slices after the layers, in order: grown as for the
+        // layers, never shrunk.
+        let apart = (0..n_layers)
+            .filter(|&i| !self.shadow_others[i].is_empty())
+            .fold(0u32, |bits, i| bits | 1 << i);
+        self.uniforms.view.uniform.light.apart = apart;
+        // With the Sun a disc and `second_depth`, each layer's second depth
+        // layer after those: a map holds what the Sun sees first, and a rock
+        // in the shadow of a bigger one -- near Dimorphos's terminator most
+        // of what darkens the ground -- was not in it, and the disc came
+        // through.
+        let peel = config.light.disc_radius() > 0.0 && config.shadows.second_depth;
+        self.uniforms.view.uniform.light.peeled = peel as u32;
+        let slices = n_layers + apart.count_ones() as usize + if peel { n_layers } else { 0 };
+        if slices > self.uniforms.shadow.layer_views.len() {
+            self.rebuild_shadow(config, slices as u32);
         }
 
         // The Sun no longer needs aiming. It is a light source, not a camera:
@@ -2128,7 +2714,36 @@ impl Window {
         // and was not: setting it from the config panel, or from a callback,
         // did nothing, and only a value set before `start()` ever reached the
         // shader.
-        self.uniforms.view.uniform.light.color = super::gpu::color_vec3(&config.light.color);
+        self.uniforms.view.uniform.light.color =
+            super::gpu::color_vec3(&config.light.color) * config.light.exposure as Float;
+        self.uniforms.view.uniform.light.sun_radius = config.light.disc_radius();
+        // Whether `Passes::render` runs the penumbra pass this frame, for
+        // the main pass to read what it found.
+        self.uniforms.view.uniform.light.penumbra = super::pass::penumbra::wanted(config) as u32;
+        // The bodies with an atmosphere, the first two: sunlight passing
+        // one's limb on its way to another goes through its dust
+        // (`through_air` in `mesh_shadow.wgsl`).
+        {
+            let light = &mut self.uniforms.view.uniform.light;
+            light.air_count = 0;
+            light.air_solid = config.shadows.per_body as u32;
+            for body in &simulation.bodies {
+                let (Some(air), k) = (body.atmosphere.as_ref(), light.air_count as usize) else {
+                    continue;
+                };
+                if k == super::uniform::MAX_AIR {
+                    break;
+                }
+                let s = max_scale(&body.mat);
+                let centre = body.mat.transform_point3(Vec3::ZERO);
+                let axis = body.mat.transform_vector3(Vec3::Z).normalize_or_zero();
+                let polar = air.polar_radius.unwrap_or(air.radius);
+                light.air[3 * k] = [centre.x as f32, centre.y as f32, centre.z as f32, (air.radius * s) as f32];
+                light.air[3 * k + 1] = [axis.x as f32, axis.y as f32, axis.z as f32, (polar * s) as f32];
+                light.air[3 * k + 2] = [air.tau as f32, (air.scale_height * s) as f32, 0.0, 0.0];
+                light.air_count += 1;
+            }
+        }
 
         self.queue.write_buffer(
             &self.uniforms.view.buffer,
@@ -2355,6 +2970,57 @@ impl Window {
             if self.meshes[1 + ii].is_flat && config.wireframe.mode != 0 {
                 flags |= super::gpu::INSTANCE_FLAG_CORNERS;
             }
+            // Drawn by its level-of-detail cut: the fragment finds its facet
+            // through `facet_of` (`gpu::LodBuffers`).
+            if self.meshes[1 + ii].lod_draw.is_some() {
+                flags |= super::gpu::INSTANCE_FLAG_LOD;
+            }
+            // Its own shadows from its horizon map (`horizon`), and with
+            // nothing else between it and the Sun, its layer empty.
+            if self.meshes[1 + ii].horizon.is_some() {
+                flags |= super::gpu::INSTANCE_FLAG_HORIZON;
+            }
+            let own_layer = if config.shadows.per_body { ii.min(super::uniform::MAX_SHADOW_LAYERS - 1) } else { 0 };
+            let unshadowed = self.meshes[1 + ii].horizon.is_some()
+                && self.shadow_casters.get(own_layer).is_some_and(|c| c.is_empty());
+            self.meshes[1 + ii].unshadowed = unshadowed;
+            if unshadowed {
+                flags |= super::gpu::INSTANCE_FLAG_UNSHADOWED;
+            }
+            // `KALAST_LOD_STATS=1`: each large mesh's cut, every 60 frames.
+            if std::env::var_os("KALAST_LOD_STATS").is_some() && simulation.state.iteration % 60 == 0 {
+                if let Some(r) = &self.meshes[1 + ii].lod_draw {
+                    let shadow: Vec<String> = self.meshes[1 + ii]
+                        .lod_shadow
+                        .iter()
+                        .map(|l| l.as_ref().map_or("whole".into(), |r| {
+                            format!("{} tris in {} draws", super::lod::Lod::count(r), r.len())
+                        }))
+                        .collect();
+                    println!(
+                        "[LOD] body {ii}: camera {} tris in {} draws; shadow layers {:?}",
+                        super::lod::Lod::count(r),
+                        r.len(),
+                        shadow
+                    );
+                    if let Some(lod) = &self.meshes[1 + ii].lod {
+                        // The drawn nodes by level: how fine, how many, how heavy.
+                        let mut by: std::collections::BTreeMap<u32, (u32, u64, f32)> = Default::default();
+                        for &k in &self.meshes[1 + ii].lod_nodes {
+                            let n = &lod.tree.nodes[k as usize];
+                            let e = by.entry((n.edge * 10.0).round() as u32).or_default();
+                            e.0 += 1;
+                            e.1 += n.count as u64;
+                            e.2 = e.2.max(n.radius);
+                        }
+                        let rows: Vec<String> = by
+                            .iter()
+                            .map(|(e, (c, t, r))| format!("edge {:.1}: {c} nodes {t} tris r<={r:.0}", *e as f32 / 10.0))
+                            .collect();
+                        println!("[LOD]   nodes: {}", rows.join("; "));
+                    }
+                }
+            }
             let has_values = simulation.bodies[ii]
                 .mesh
                 .as_ref()
@@ -2375,7 +3041,11 @@ impl Window {
                 simulation.bodies[ii].mat,
                 flags,
                 layer,
-            );
+            )
+            .with_scattering(simulation.bodies[ii].scattering.as_ref())
+            .with_atmosphere(simulation.bodies[ii].atmosphere.as_ref(), simulation.bodies[ii].diffuse_albedo())
+            .with_horizon(self.meshes[1 + ii].horizon.as_ref())
+            .with_near(near_of.get(ii).copied().flatten());
             self.meshes[1 + ii].update_instance_buffer(&self.queue, &instance);
 
             // The shadow stand-in has to follow the same transform, or its
@@ -2606,6 +3276,22 @@ impl Window {
             .filter(|_| config.debug.gpu_timing)
             .and_then(|t| t.scope(super::gpu_timing::Scope::Text));
 
+        // `hud.antialias` off: drawn on a layer of its own, cleared to
+        // nothing, and copied over with a hard edge (`TextLayer`).
+        let format = self.surface_config.format;
+        let layer = match config.hud.antialias {
+            true => None,
+            false => Some(
+                self.text_layer
+                    .get_or_insert_with(|| super::pass::text_layer::TextLayer::new(&self.device, format))
+                    .prepare(&self.device, (w as u32, h as u32)),
+            ),
+        };
+        let (target, load) = match (layer, self.text_layer.as_ref()) {
+            (Some(i), Some(t)) => (t.view(i), wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)),
+            _ => (view, wgpu::LoadOp::Load),
+        };
+
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
@@ -2614,11 +3300,11 @@ impl Window {
                 label: Some(label),
                 timestamp_writes: timestamps,
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view,
+                    view: target,
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
+                        load,
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -2630,6 +3316,9 @@ impl Window {
             if let Some(turned) = turned {
                 turned.draw(&mut pass);
             }
+        }
+        if let (Some(i), Some(t)) = (layer, self.text_layer.as_ref()) {
+            t.copy(&mut encoder, view, i);
         }
         self.queue.submit([encoder.finish()]);
     }
@@ -2705,7 +3394,65 @@ impl Window {
                     self.shadow_casters.get(i).map(Vec::as_slice),
                     i as u32,
                     self.timer.as_ref().filter(|_| config.debug.gpu_timing),
+                    None,
                 );
+            }
+            // The other bodies of a layer whose body is apart from them, in
+            // their slice, with the layer's matrix and cuts.
+            let mut slices = n_layers;
+            for (i, others) in self.shadow_others.iter().enumerate().take(n_layers) {
+                if others.is_empty() {
+                    continue;
+                }
+                let Some(target) = self.uniforms.shadow.layer_views.get(slices) else {
+                    break;
+                };
+                self.passes.render_shadow_layer(
+                    &mut enc,
+                    target,
+                    &self.meshes,
+                    &self.shadow_meshes,
+                    Some(others),
+                    i as u32,
+                    self.timer.as_ref().filter(|_| config.debug.gpu_timing),
+                    None,
+                );
+                slices += 1;
+            }
+            // Each layer's second depth layer, the nearest surface behind its
+            // first, drawn by the same casters with that first bound.
+            if self.uniforms.view.uniform.light.peeled != 0 && slices + n_layers <= self.uniforms.shadow.layer_views.len() {
+                while self.peel_groups.len() < n_layers {
+                    let k = self.peel_groups.len();
+                    self.peel_groups.push(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("shadow peel"),
+                        layout: &self.passes.shadow.peel_layout,
+                        entries: &[wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&self.uniforms.shadow.layer_views[k]),
+                        }],
+                    }));
+                }
+                for i in 0..n_layers {
+                    self.passes.render_shadow_layer(
+                        &mut enc,
+                        &self.uniforms.shadow.layer_views[slices + i],
+                        &self.meshes,
+                        &self.shadow_meshes,
+                        self.shadow_casters.get(i).map(Vec::as_slice),
+                        i as u32,
+                        self.timer.as_ref().filter(|_| config.debug.gpu_timing),
+                        Some(&self.peel_groups[i]),
+                    );
+                }
+                slices += n_layers;
+            }
+            // With the Sun a disc, the slices' depth pyramid, which the main
+            // pass reads to find where a penumbra can be.
+            if config.light.disc_radius() > 0.0 {
+                if let Some(pyramid) = &self.uniforms.shadow.pyramid {
+                    pyramid.build(&mut enc, slices as u32);
+                }
             }
             self.queue.submit([enc.finish()]);
         }
@@ -2723,6 +3470,8 @@ impl Window {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
         self.passes.render(
+            &self.device,
+            &self.queue,
             &mut encoder,
             &surface_view,
             &self.uniforms.shadow,
@@ -2731,6 +3480,8 @@ impl Window {
             config,
             self.timer.as_ref().filter(|_| config.debug.gpu_timing),
             !axes_after_export,
+            self.render_size,
+            self.uniforms.view.uniform.camera.view_proj,
         );
 
         if let (Some(texture), false) = (&surface_texture, axes_after_export) {
@@ -2969,13 +3720,22 @@ impl Window {
 /// `shadow` is `None` before the first fit (or when there is no geometry to
 /// fit against), in which case an automatic parameter falls back to 0.0 --
 /// i.e. no bias, which shows acne rather than silently hiding a failed fit.
+/// Where the camera is, as the uniform holds it.
+fn camera_pos(camera: &super::frame::Eye) -> [f32; 3] {
+    [camera.pos.x as f32, camera.pos.y as f32, camera.pos.z as f32]
+}
+
 fn build_globals(
     config: &crate::app::config::Config,
     shadow: Option<super::frame::ShadowFit>,
     value_range: (f32, f32),
+    image: (u32, u32),
 ) -> super::uniform::Globals {
     super::uniform::Globals {
         wireframe_fade: config.wireframe.fade as u32,
+        wireframe_antialias: config.wireframe.antialias as u32,
+        axes_antialias: config.axes.antialias as u32,
+        image_size: [image.0.max(1) as f32, image.1.max(1) as f32],
         value_min: value_range.0,
         value_max: value_range.1,
 
@@ -2983,7 +3743,8 @@ fn build_globals(
         color_mode: config.shading.color_mode,
 
         srgb_mode: config.shading.srgb_mode,
-        gamma: config.shading.gamma,
+        // Unset is sRGB's own curve, which the shaders take as 0.
+        gamma: config.shading.gamma.unwrap_or(0.0) as f32,
 
         ambient_strength: config.light.ambient,
         light_cube_scale: config.light.cube_scale,

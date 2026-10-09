@@ -91,7 +91,10 @@
     Which groups share a header is decided there and nowhere else. The Rust doc
     comments carry what the type cannot: | marker | effect | |---|---| | `///
     :range: 0..=16` | a slider with those bounds instead of a drag field | |
-    `/// :step: 0.01` | drag speed | | `/// :skip:` | no widget; for things
+    `/// :step: 0.01` | drag speed | | `/// :choices: 1 = off, 2, 4` | a
+    list of those values (integers), what follows `=` on hover | | `/// :when:
+    srgb_mode == 1` | the row only while that holds, in its own group | | `/// :some: 2.2` |
+    an optional number's value when ticked | | `/// :skip:` | no widget; for things
     edited from a script, like `colormap` | | `/// :py_custom:` | no generated
     Python accessor; see the next section | Otherwise the widget follows the
     type, and the first sentence of the doc becomes the hover text -- so

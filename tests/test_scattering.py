@@ -237,4 +237,24 @@ check(
     f"> {h.reflectance(0.7, 0.7, 1.2):.5f}",
 )
 
+# --- 7. the porosity factor -------------------------------------------------
+# Hapke (2008): K times the reflectance, the H functions at mu / K. Written
+# out here from the module's own pieces, smooth and rough.
+for tb in (0.0, numpy.radians(20.0)):
+    base = sc.Hapke(w=0.07, b=0.27, c=1.0, b0=2.2, h=0.06, theta_bar=tb)
+    porous = sc.Hapke(w=0.07, b=0.27, c=1.0, b0=2.2, h=0.06, theta_bar=tb, k=1.2)
+    worst = 0.0
+    for m0, m, al in ((0.9, 0.7, 0.3), (0.5, 0.8, 0.9), (0.3, 0.3, 1.6)):
+        m0e, me, s_ = base.roughness_terms(m0, m, al)
+        bracket = lambda kk: (1 + sc.opposition_surge(2.2, 0.06, al)) * sc.henyey_greenstein(0.27, 1.0, al) + sc.h_function(0.07, m0e / kk) * sc.h_function(0.07, me / kk) - 1
+        want = 1.2 * 0.07 / (4 * numpy.pi) * m0e / (m0 * (m0e + me)) * bracket(1.2) * s_
+        worst = max(worst, abs(porous.reflectance(m0, m, al) / want - 1))
+    check(f"test_porosity_factor_scales_and_moves_h ({'rough' if tb else 'smooth'})", worst < 1e-5, f"worst {worst:.1e}")
+check("test_porosity_factor_one_is_the_imsa", sc.Hapke(k=1.0).reflectance(0.6, 0.5, 0.4) == sc.Hapke().reflectance(0.6, 0.5, 0.4))
+try:
+    sc.Hapke(k=0.9).reflectance(0.6, 0.5, 0.4)
+    check("test_porosity_factor_below_one_is_refused", False)
+except ValueError:
+    check("test_porosity_factor_below_one_is_refused", True)
+
 sys.exit(1 if failures else 0)

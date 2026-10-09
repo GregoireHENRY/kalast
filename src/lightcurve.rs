@@ -83,6 +83,49 @@ impl Law {
         }
     }
 
+    /// What the surface reflects of light coming from the whole sky, its
+    /// bihemispherical albedo: `2 int A(mu0) mu0 dmu0`, `A(mu0) = int r mu
+    /// dOmega` what it reflects of a beam at `mu0`. A Lambert surface's is its
+    /// albedo; this law's, with the facet's colour 1 -- how bright a colour
+    /// of 1 is under a diffuse sky (`mesh_shadow.wgsl`'s atmosphere). Gauss-
+    /// Legendre over both cosines, the azimuth by the midpoint rule, which
+    /// holds a Lambert surface to 1e-6.
+    pub fn diffuse_albedo(&self) -> Float {
+        // Gauss-Legendre on [0, 1], 12 points.
+        const X: [f64; 6] = [
+            0.125233408511469, 0.367831498998180, 0.587317954286617,
+            0.769902674194305, 0.904117256370475, 0.981560634246719,
+        ];
+        const W: [f64; 6] = [
+            0.249147045813403, 0.233492536538355, 0.203167426723066,
+            0.160078328543346, 0.106939325995318, 0.047175336386512,
+        ];
+        let node = |k: usize| {
+            let (x, w) = (X[k % 6], W[k % 6]);
+            (0.5 + if k < 6 { 0.5 * x } else { -0.5 * x }, 0.5 * w)
+        };
+        const AZIMUTHS: usize = 24;
+        let mut total = 0.0f64;
+        for a in 0..12 {
+            let (mu0, wa) = node(a);
+            let s0 = (1.0 - mu0 * mu0).sqrt();
+            let mut out = 0.0f64;
+            for b in 0..12 {
+                let (mu, wb) = node(b);
+                let s = (1.0 - mu * mu).sqrt();
+                for k in 0..AZIMUTHS {
+                    let psi = std::f64::consts::PI * (k as f64 + 0.5) / AZIMUTHS as f64;
+                    let alpha = (mu0 * mu + s0 * s * psi.cos()).clamp(-1.0, 1.0).acos();
+                    let r = self.reflectance(mu0 as Float, mu as Float, alpha as Float) as f64;
+                    // Both halves of the azimuth: 2 pi / AZIMUTHS each.
+                    out += wb * r * mu * 2.0 * std::f64::consts::PI / AZIMUTHS as f64;
+                }
+            }
+            total += 2.0 * wa * out * mu0;
+        }
+        total as Float
+    }
+
     /// Whether this law can be evaluated at all.
     ///
     /// Only Hapke can fail, and only on a `theta_bar` outside `[0, pi/2)`.
@@ -473,6 +516,23 @@ mod tests {
             }
         }
         tris
+    }
+
+    /// A Lambert surface's albedo under a diffuse sky is its albedo. An
+    /// isotropic smooth Hapke surface's is near Hapke's closed form for the
+    /// spherical albedo, the same integral approximated, where that is good,
+    /// at high `w` -- at 0.1 the closed form is 16 % over, where the integral
+    /// agrees with single scattering, `w (2/3)(1 - ln 2) H^2` -- and near 1
+    /// for one that absorbs nothing.
+    #[test]
+    fn a_diffuse_sky_sees_the_albedo() {
+        let lambert = Law::Mix(LommelSeeligerLambert { w: 0.3, c: 0.0 });
+        assert!((lambert.diffuse_albedo() - 0.3).abs() < 1e-5, "{}", lambert.diffuse_albedo());
+        let isotropic = |w| crate::scattering::Hapke { w, b: 0.0, c: 0.5, b0: 0.0, h: 0.05, theta_bar: 0.0, k: 1.0 };
+        let (got, closed) = (Law::Hapke(isotropic(0.9)).diffuse_albedo(), isotropic(0.9).bond_albedo());
+        assert!((got / closed - 1.0).abs() < 0.01, "{got} against {closed}");
+        let white = Law::Hapke(isotropic(1.0)).diffuse_albedo();
+        assert!((white - 1.0).abs() < 0.02, "{white}");
     }
 
     #[test]

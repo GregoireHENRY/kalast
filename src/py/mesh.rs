@@ -462,12 +462,6 @@ impl Mesh {
         self.inner.borrow_mut().recompute_facets();
     }
 
-    /// Call after mutating vertex color/color_mode/extra in place (e.g. a
-    /// per-facet colormap) to request a GPU re-upload on the next frame.
-    /// The renderer only re-uploads a mesh's color data when this has been
-    /// set, so a static-colored mesh never pays that cost after its
-    /// initial upload -- a script that recolors every frame needs to call
-    /// this every frame too, the same way sim.export_once() works.
     /// Per-facet scalars to colour by, one per facet.
     ///
     /// Set `config.value_mode = True` to use them. Pair with `config.colormap`
@@ -522,8 +516,67 @@ impl Mesh {
         Ok(())
     }
 
-    fn mark_colors_dirty(&mut self) {
+    /// Send the colours to the GPU again, on the next frame. `colors` is a
+    /// view onto the mesh's own memory, so writing into it in place changes
+    /// the mesh without anything noticing, and the GPU keeps drawing its old
+    /// copy until this is called. Not needed before the mesh is added to a
+    /// simulation, nor after assigning `values`, which does it itself.
+    fn update_gpu_colors(&mut self) {
         self.inner.borrow_mut().colors_dirty = true;
+    }
+
+    /// Colour the mesh from a latitude-longitude map of its whole body -- an
+    /// albedo map, a colour mosaic: each facet takes the map's mean over its
+    /// area, each vertex of a smooth mesh the map where it lies. Sends the
+    /// colours to the GPU itself.
+    ///
+    /// The mean is over `k * k` equal triangles the facet is cut into, `k` the
+    /// map pixels across it, up to 32: the middle alone for a facet within a
+    /// pixel.
+    ///
+    /// `map` is `(rows, columns)` for a grey value, or `(rows, columns, 3)`,
+    /// floats -- an 8-bit image divided by 255 first. Simple cylindrical: the
+    /// first row at 90 deg north and the last at 90 south, the columns 360
+    /// deg eastward from `west` -- -180 for USGS's mosaics, 0 for PDS's MOLA
+    /// grids. Latitude is planetocentric and longitude east, about the mesh's
+    /// own origin with `z` north and `x` at longitude 0: the body-fixed frame
+    /// SPICE calls IAU_MARS for Mars. Bilinear, across the 180 deg seam too.
+    /// NaN marks where the map has no data: a facet with nothing else keeps
+    /// its colour.
+    ///
+    /// ```python
+    /// from PIL import Image
+    /// tes = numpy.asarray(Image.open("Mars_MGS_TES_Albedo_mosaic_global_7410m.tif"))
+    /// mars.colors_from_map(tes)
+    /// ```
+    #[pyo3(signature = (map: "numpy.ndarray", west = -180.0))]
+    fn colors_from_map(&mut self, map: &Bound<'_, PyAny>, west: f64) -> PyResult<()> {
+        let mut mesh = self.inner.borrow_mut();
+        // Either float width: PIL hands a float32 GeoTIFF over as float32, and
+        // numpy's default is float64.
+        let done = if let Ok(a) = map.extract::<numpy::PyReadonlyArrayDyn<'_, f64>>() {
+            mesh.colors_from_map(map_as_3d(a.as_array())?, west)
+        } else if let Ok(a) = map.extract::<numpy::PyReadonlyArrayDyn<'_, f32>>() {
+            mesh.colors_from_map(map_as_3d(a.as_array())?, west)
+        } else {
+            return Err(pyo3::exceptions::PyTypeError::new_err(
+                "map must be a float array: divide an 8-bit image by 255 first",
+            ));
+        };
+        done.map_err(pyo3::exceptions::PyValueError::new_err)
+    }
+
+    /// `update_gpu_colors` by its old name, renamed on 7 October 2026 for
+    /// saying what it does: kept for one release, with a `DeprecationWarning`.
+    fn mark_colors_dirty(&mut self, py: Python<'_>) -> PyResult<()> {
+        PyErr::warn(
+            py,
+            &py.get_type::<pyo3::exceptions::PyDeprecationWarning>(),
+            c"mesh.mark_colors_dirty() is deprecated: use mesh.update_gpu_colors()",
+            1,
+        )?;
+        self.update_gpu_colors();
+        Ok(())
     }
 
     fn is_flat(&self) -> bool {
@@ -625,6 +678,18 @@ impl Mesh {
 }
 
 crate::impl_mesh_view!(FacetsView, FacetView, Facet, facets);
+
+/// A map as `colors_from_map` takes it: `(rows, columns)` given a channel
+/// axis of one, `(rows, columns, channels)` as it is.
+fn map_as_3d<T>(a: ndarray::ArrayViewD<'_, T>) -> PyResult<ndarray::ArrayView3<'_, T>> {
+    match a.ndim() {
+        2 => Ok(a.into_dimensionality::<ndarray::Ix2>().unwrap().insert_axis(ndarray::Axis(2))),
+        3 => Ok(a.into_dimensionality::<ndarray::Ix3>().unwrap()),
+        n => Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "map must be (rows, columns) or (rows, columns, 3), not {n}-D"
+        ))),
+    }
+}
 
 /// The mesh's vertices, as a sequence of cursors.
 ///

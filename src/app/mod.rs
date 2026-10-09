@@ -15,6 +15,8 @@ pub mod update;
 #[cfg(target_os = "macos")]
 pub mod macos;
 pub mod hemicube;
+pub mod horizon;
+pub mod lod;
 pub mod gpu;
 pub mod gpu_timing;
 pub mod occlusion;
@@ -913,7 +915,7 @@ pub(crate) fn expand_hud(
             // Two decimals by default, not the one `{ms}` uses: a pass often
             // runs in tenths of a millisecond, and rounding those to 0.1
             // would make half the passes read the same.
-            "gpu" | "gpu_shadow" | "gpu_render" | "gpu_depth" | "gpu_text" | "gpu_gui" => {
+            "gpu" | "gpu_shadow" | "gpu_render" | "gpu_depth" | "gpu_text" | "gpu_gui" | "gpu_penumbra" => {
                 let g = &diag.gpu;
                 let ms = match name.as_str() {
                     // The frame's span, not the sum of the passes: they
@@ -2950,6 +2952,8 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
         crate::app::macos::disable_native_fullscreen(&win);
         #[cfg(target_os = "macos")]
         crate::app::macos::watch_quit_keys();
+        #[cfg(target_os = "macos")]
+        crate::app::macos::hold_off_app_nap();
 
         // A window asked not to disturb does not take the screen either,
         // whatever the app remembers.

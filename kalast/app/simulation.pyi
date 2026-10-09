@@ -96,7 +96,7 @@ class Simulation:
         showing the geometry as it was, with no error to say so.
 
         Moving a body needs nothing: `body.mat` is uploaded every frame.
-        Colours have their own, cheaper route in `mesh.mark_colors_dirty()`.
+        Colours have their own, cheaper route in `mesh.update_gpu_colors()`.
         """
         ...
     export: bool
@@ -139,7 +139,10 @@ class Simulation:
 
         One entry per facet, in `Mesh.facets` order: 0.0 fully lit, 1.0 fully
         shadowed, quarter steps between for facets straddling a shadow
-        boundary (4 samples per facet). `1.0 - frac` is the lit fraction.
+        boundary (4 samples per facet). With the Sun a disc
+        (`light.sun_as_point = False`), the fraction of the disc the samples
+        do not see, averaged: graded across a penumbra, 1.0 facing away.
+        `1.0 - frac` is the lit fraction.
 
         Set `app.config.access_shadow_map = True` to have every body computed
         each frame, then read this from `after_render`.
@@ -149,8 +152,9 @@ class Simulation:
         """Milliseconds each GPU pass took, by name.
 
         `{"shadow": 0.42, "render": 3.10, "depth": 0.0, "text": 0.05,
-        "gui": 0.0}`, plus `"span"` -- first timestamp to last -- and
-        `"frame"`, the iteration they were measured on.
+        "gui": 0.0, "penumbra": 0.0}`, plus `"span"` -- first timestamp to
+        last -- and `"frame"`, the iteration they were measured on.
+        `"penumbra"` is the Sun's disc's own pass, 0 with a point Sun.
 
         Empty unless `config.gpu_timing` is on, and empty on an adapter
         without timestamp queries. **The numbers lag the current iteration**

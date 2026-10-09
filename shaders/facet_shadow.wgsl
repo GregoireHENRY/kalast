@@ -1,8 +1,10 @@
-// Per-facet shadow query.
+// Per-facet shadow query, with the Sun a point.
 //
 // Answers, for every facet of one body, what fraction of its sample points
 // are occluded from the light, reading the same shadow map the render pass
-// samples, with the same projection and the same per-layer depth bias.
+// samples, with the same projection and the same per-layer depth bias. With
+// the Sun a disc the query is `cs_facets` in `mesh_shadow.wgsl` instead: the
+// fraction of the disc each point sees, by the image's own walk.
 //
 // It is NOT the render's shadow term, and must not be described as one. This
 // takes a single tap and returns a binary occlusion; `mesh_shadow.wgsl` takes
@@ -49,13 +51,56 @@ struct Params {
     // 1 when the mesh is flat (vertices are already triangle-major, so facet
     // i is vertices 3i..3i+2); 0 when it is indexed and `indices` applies.
     is_flat: u32,
+    // Invocations per row: a large mesh is dispatched in rows, at most
+    // 65,535 workgroups to a dimension.
+    stride: u32,
+    // 1 when the body's own shadows are its horizon map's (`horizons`),
+    // and the layer holds only the other bodies.
+    horizon: u32,
 };
 
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var t_shadow: texture_depth_2d;
+// The other bodies' slice where the body and they are apart in its layer
+// (`others_slice` in `mesh_shadow.wgsl`), the layer again where not.
+@group(0) @binding(6) var t_shadow_others: texture_depth_2d;
 @group(0) @binding(2) var<storage, read> geometry: array<f32>;
 @group(0) @binding(3) var<storage, read> indices: array<u32>;
 @group(0) @binding(4) var<storage, read_write> out_fraction: array<f32>;
+// The body's horizon map (`app::horizon`), one word without one: per facet,
+// the sine of how high its terrain rises in each of `HORIZON_AZIMUTHS`
+// directions, a snorm16 each, two to a word.
+@group(0) @binding(5) var<storage, read> horizons: array<u32>;
+
+const HORIZON_AZIMUTHS: u32 = 32u;
+const PI: f32 = 3.14159265358979;
+
+fn horizon_sine(f: u32, k: u32) -> f32 {
+    let w = horizons[f * (HORIZON_AZIMUTHS / 2u) + k / 2u];
+    let bits = (w >> (16u * (k & 1u))) << 16u;
+    return f32(bitcast<i32>(bits) >> 16u) / 32767.0;
+}
+
+/// Whether the Sun stands below facet `f`'s horizon, seen from `pos` on it:
+/// `horizon_seen` in `mesh_shadow.wgsl` for a point Sun, the same frame --
+/// up the radius, east along the body's spin axis cross it.
+fn below_horizon(f: u32, pos: vec3<f32>) -> bool {
+    let up = normalize(pos - params.model[3].xyz);
+    var east = cross(normalize(params.model[2].xyz), up);
+    if dot(east, east) < 1.0e-12 {
+        east = normalize(params.model[1].xyz);
+    } else {
+        east = normalize(east);
+    }
+    let north = cross(up, east);
+    let to_sun = normalize(params.light_pos - pos);
+    let step = 2.0 * PI / f32(HORIZON_AZIMUTHS);
+    var x = atan2(dot(to_sun, east), dot(to_sun, north)) / step - 0.5;
+    x -= f32(HORIZON_AZIMUTHS) * floor(x / f32(HORIZON_AZIMUTHS));
+    let k = u32(x) % HORIZON_AZIMUTHS;
+    let h = mix(horizon_sine(f, k), horizon_sine(f, (k + 1u) % HORIZON_AZIMUTHS), fract(x));
+    return dot(to_sun, up) <= h;
+}
 
 fn vertex_pos(i: u32) -> vec3<f32> {
     let b = i * VERTEX_STRIDE;
@@ -93,7 +138,7 @@ fn occluded(world_pos: vec3<f32>, world_normal: vec3<f32>) -> f32 {
 
     let dims = textureDimensions(t_shadow);
     let texel = vec2<i32>(uv * vec2<f32>(dims));
-    let stored = textureLoad(t_shadow, texel, 0);
+    let stored = min(textureLoad(t_shadow, texel, 0), textureLoad(t_shadow_others, texel, 0));
 
     let bias = max(params.shadow_bias_scale * k2, params.shadow_bias_minimum);
 
@@ -107,7 +152,7 @@ fn occluded(world_pos: vec3<f32>, world_normal: vec3<f32>) -> f32 {
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let f = gid.x;
+    let f = gid.y * params.stride + gid.x;
     if f >= params.n_facets {
         return;
     }
@@ -137,5 +182,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         + occluded(c, n)
         + occluded(centroid, n);
 
+    // Below its horizon, the facet is in its own shadow whole: the map is
+    // the facet's, from its centre.
+    if params.horizon != 0u && below_horizon(f, centroid) {
+        out_fraction[f] = 1.0;
+        return;
+    }
     out_fraction[f] = occ * 0.25;
 }

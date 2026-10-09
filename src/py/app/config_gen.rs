@@ -55,7 +55,8 @@ impl ShadingConfig {
     fn render_back_face(&self) -> bool { self.config.borrow().shading.render_back_face }
     #[setter]
     fn set_render_back_face(&mut self, v: bool) { self.config.borrow_mut().shading.render_back_face = v; }
-    /// Multisample anti-aliasing for the main render pass: 1 (off), 2, 4 or 8.
+    /// Multisample anti-aliasing for the main render pass: 1 (off), 2, 4 or 8
+    /// samples a pixel.
     ///
     /// Geometry edges are the whole point here. Every silhouette in this
     /// renderer is a science measurement -- a limb, a terminator, a body's
@@ -69,9 +70,12 @@ impl ShadingConfig {
     /// meaningless. Exports are unaffected in shape or size -- the pass
     /// resolves into the same single-sample target that was always exported.
     ///
-    /// Counts the adapter does not support fall back to 4, then to 1. Note
-    /// that `debug_depth_show` only mirrors the main pass's depth at 1: above
-    /// that the pass writes its own multisampled depth buffer instead.
+    /// MSAA takes powers of two, and which of them a GPU has is its own: an
+    /// Apple M1 Pro has 1, 2 and 4, no 8. A count the GPU lacks falls back to
+    /// the largest it has below, and the console says so, naming the GPU and
+    /// its counts. Note that `debug_depth_show` only mirrors the main pass's
+    /// depth at 1: above that the pass writes its own multisampled depth
+    /// buffer instead.
     #[getter]
     fn msaa(&self) -> u32 { self.config.borrow().shading.msaa }
     #[setter]
@@ -100,17 +104,64 @@ impl ShadingConfig {
     fn color_mode(&self) -> u32 { self.config.borrow().shading.color_mode }
     #[setter]
     fn set_color_mode(&mut self, v: u32) { self.config.borrow_mut().shading.color_mode = v; }
-    /// 0 converts sRGB to linear before shading; 1 treats colours as already
-    /// linear.
+    /// Which colours come out exactly in the image: the data's and the flat
+    /// one (0), or the lit values (1).
+    ///
+    /// The image is stored through the sRGB curve, which brightens dark
+    /// values, and the shader undoes it on one side. 0: on the colours given
+    /// to the unlit modes -- a colormap, `color`, a picked facet -- which are
+    /// stored as they are; lit shading is stored through the curve, as a
+    /// screen shows it, a lit 0.078 as 0.31. 1: on the lit value, which is
+    /// stored as it is, so an exported pixel reads I/F = value / 255; the
+    /// unlit modes' colours then come out lighter. With MSAA in 1, a pixel
+    /// stores the mean of its samples' values, the mean I/F of what it
+    /// covers.
     #[getter]
     fn srgb_mode(&self) -> u32 { self.config.borrow().shading.srgb_mode }
     #[setter]
     fn set_srgb_mode(&mut self, v: u32) { self.config.borrow_mut().shading.srgb_mode = v; }
-    /// Exponent used by the sRGB conversion when `srgb_mode` is 0.
+    /// The power law the conversion uses instead of sRGB's own curve, unset
+    /// by default.
+    ///
+    /// 2.2 is how it was done before 7 October, and parted from the curve in
+    /// the dark: with `srgb_mode` 1 a lit 0.078 was stored as 0.047, and a
+    /// colormap's darkest colours came out darker than they are. Set it only
+    /// to reproduce such an image. In the settings with `srgb_mode` 1 only;
+    /// with 0 it applies to the unlit modes' colours, set from a script.
     #[getter]
-    fn gamma(&self) -> Float { self.config.borrow().shading.gamma }
+    fn gamma(&self) -> Option<Float> { self.config.borrow().shading.gamma }
     #[setter]
-    fn set_gamma(&mut self, v: Float) { self.config.borrow_mut().shading.gamma = v; }
+    fn set_gamma(&mut self, v: Option<Float>) { self.config.borrow_mut().shading.gamma = v; }
+    /// Draw a large mesh by the parts the camera can see, each only as fine
+    /// as the image can show it.
+    ///
+    /// A flat mesh of 16,384 facets or more is split, on a thread of its own
+    /// once loaded, into a tree of patches, each simplified a level at a
+    /// time; every frame draws the patches in view and facing the camera, at
+    /// the level whose triangles are about `lod_pixels` across. Each patch
+    /// hangs a skirt below its edge, so patches drawn at different levels
+    /// leave no gap between them, and every triangle drawn shows the colour,
+    /// mode and value of an original facet. The shadow maps hold the camera's
+    /// own triangles where the camera looks, coarser ones elsewhere
+    /// (`shadows.lod_pixels`), and fit to what the camera sees. The facet-id
+    /// pass and the per-facet shadow query always see the full mesh. Off,
+    /// or until the tree is built, every mesh is drawn whole, every frame.
+    #[getter]
+    fn lod(&self) -> bool { self.config.borrow().shading.lod }
+    #[setter]
+    fn set_lod(&mut self, v: bool) { self.config.borrow_mut().shading.lod = v; }
+    /// The size, in pixels, a large mesh's triangles are drawn at when `lod`
+    /// is on: smaller is finer and slower.
+    ///
+    /// A patch is drawn at the coarsest level whose triangles' edges come out
+    /// at most this many pixels; its full facets when even those are larger.
+    /// At 2, about a triangle per pixel: on Mars at Hera's closest, 0.35 %
+    /// from every facet drawn, after a pixel's blur; 0.25 % at 1.5, 0.76 %
+    /// at 3.
+    #[getter]
+    fn lod_pixels(&self) -> f32 { self.config.borrow().shading.lod_pixels }
+    #[setter]
+    fn set_lod_pixels(&mut self, v: f32) { self.config.borrow_mut().shading.lod_pixels = v; }
     fn __repr__(&self) -> String {
         format!("{:?}", self.config.borrow().shading)
     }
@@ -188,6 +239,40 @@ impl LightConfig {
             r: v[0] as f64, g: v[1] as f64, b: v[2] as f64, a: v[3] as f64,
         };
     }
+    /// Scales the light by one number, `color`'s red, green and blue alike:
+    /// a camera's exposure.
+    ///
+    /// A lit pixel is `exposure * color * albedo * cos(i)`, the ambient term
+    /// scaled with it, and the debug cube is drawn as bright. With
+    /// `shading.srgb_mode = 1` an exported pixel reads `exposure * I/F * 255`:
+    /// 4.5 shows I/F 0 to 0.22 from black to white, and anything brighter
+    /// clips at white. The unlit modes' colours -- a colormap's, the flat
+    /// `color` -- are data, and keep theirs.
+    #[getter]
+    fn exposure(&self) -> f32 { self.config.borrow().light.exposure }
+    #[setter]
+    fn set_exposure(&mut self, v: f32) { self.config.borrow_mut().light.exposure = v; }
+    /// The Sun as a point, every shadow hard; on by default.
+    ///
+    /// Off, the Sun is a disc of `sun_radius` as each point sees it, and a
+    /// shadow has the penumbra that disc gives it: as soft as its occluder
+    /// is far from what it falls on, a body's own shadows and another's
+    /// alike, and where they overlap, what both leave of the disc. A moon's
+    /// shadow on a planet is a soft spot, an eclipse comes on gradually --
+    /// from Mars, Phobos's shadow is at most 22 % deep and 50 km across --
+    /// and a boulder's shadow blurs toward its tip. The disc is
+    /// limb-darkened. A penumbra narrower than a shadow-map texel is drawn
+    /// as with a point.
+    #[getter]
+    fn sun_as_point(&self) -> bool { self.config.borrow().light.sun_as_point }
+    #[setter]
+    fn set_sun_as_point(&mut self, v: bool) { self.config.borrow_mut().light.sun_as_point = v; }
+    /// The Sun's radius in the scene's units, with `sun_as_point` off:
+    /// 695,700, the Sun's in km. A scene in metres wants 6.957e8.
+    #[getter]
+    fn sun_radius(&self) -> f32 { self.config.borrow().light.sun_radius }
+    #[setter]
+    fn set_sun_radius(&mut self, v: f32) { self.config.borrow_mut().light.sun_radius = v; }
     /// Size of the debug light cube, in world units.
     ///
     /// Only drawn when `debug_light_cube_show` is on.
@@ -228,19 +313,23 @@ impl ShadowsConfig {
     fn resolution(&self) -> u32 { self.config.borrow().shadows.resolution }
     #[setter]
     fn set_resolution(&mut self, v: u32) { self.config.borrow_mut().shadows.resolution = v; }
-    /// Percentage-closer-filtering kernel *radius*: 0 is a single hardware 2x2
-    /// comparison, N is a `(2N+1)^2` grid averaged.
+    /// Smoothing of the shadows' edges, the percentage-closer-filtering
+    /// kernel's *radius* in shadow-map texels: 0 is the hardware's single 2x2
+    /// comparison, N a `(2N+1)^2` grid of them averaged.
     ///
-    /// Cost grows quadratically and is per-fragment, so it scales with pixel count:
-    /// `shadow_pcf = 4` costs +2.5 ms at 800x600 and +7.8 ms at 3024x1964. Benchmark
-    /// it at the resolution you actually run.
+    /// The grid lies on the ground around each point, a texel apart along it,
+    /// and blurs a shadow's edge as wide whatever the Sun's height, without
+    /// moving it. It darkened lit ground as if by ambient occlusion before
+    /// 9 October -- on Dimorphos from 68 m, 45 % of the lit pixels by more than
+    /// 5 % at 16, 8 % at 4 -- its taps then a square in the map's view, which
+    /// at a low Sun reached far along the ground. See
+    /// `notes/2026-10-09_pcf_on_the_ground/`.
     ///
-    /// A filter, not a shift: every tap compares against the depth the
-    /// receiver's own plane has at that tap, so the kernel blurs the edge
-    /// without moving it. Until 17 September the normal offset grew with the
-    /// radius instead, which at grazing incidence pushed the shadow's edge
-    /// away from the terminator -- Dimorphos's shadow on Didymos detached
-    /// and shrank as the kernel grew. See `notes/2026-09-17_pcf_erosion.md`.
+    /// It costs where a shadow's edge is in reach -- elsewhere five taps agree
+    /// and the rest are skipped -- and grows with the image's pixels: on
+    /// Dimorphos at 3234 x 1774, 1.4 ms a frame at 2 and 4.3 at 4, on an M1
+    /// Pro. With the map's texels finer than the image's pixels (16384 up
+    /// close) there are no stairs to smooth.
     #[getter]
     fn pcf(&self) -> u32 { self.config.borrow().shadows.pcf }
     #[setter]
@@ -312,6 +401,67 @@ impl ShadowsConfig {
     fn per_body(&self) -> bool { self.config.borrow().shadows.per_body }
     #[setter]
     fn set_per_body(&mut self, v: bool) { self.config.borrow_mut().shadows.per_body = v; }
+    /// A finer shadow layer over where the camera looks closest, for a body
+    /// seen up close.
+    ///
+    /// A body's layer is fitted to all the camera sees of it, so a close view
+    /// reaching far across the body coarsens its texels: Dimorphos from 37 m
+    /// had them at 3 cm, its boulders' penumbrae 4 cm wide -- hard-edged
+    /// stairs, and too narrow for the Sun's disc to soften
+    /// (`light.sun_as_point`). The near layer covers the patches nearest the
+    /// camera, as far out as keeps its texels half the image's pixels there,
+    /// and a point inside it is looked up there. Only while the body's own
+    /// layer is twice coarser than that, with a perspective camera, layers
+    /// per body, the body drawn by its cut (`shading.lod`) and without a
+    /// horizon map, and up to eight layers in all; then it costs a layer's
+    /// memory and a shadow pass.
+    #[getter]
+    fn near_layer(&self) -> bool { self.config.borrow().shadows.near_layer }
+    #[setter]
+    fn set_near_layer(&mut self, v: bool) { self.config.borrow_mut().shadows.near_layer = v; }
+    /// With the Sun a disc, a second depth layer under each shadow layer: the
+    /// nearest surface behind what the Sun sees first. Nothing with the Sun a
+    /// point, whatever it is set to.
+    ///
+    /// A map holds what the Sun sees first, and a rock in the shadow of a
+    /// bigger one is not in it: where a penumbra is walked through such
+    /// relief, the disc comes through. Near Dimorphos's terminator, with
+    /// texels fine enough to walk its penumbrae (16384), it lit slivers in
+    /// the dark, 0.05-0.17 of the disc where rays reach none, which this
+    /// takes to 0; on Dimorphos from 68 m, it takes the thin gaps of light
+    /// left from 163 pixels to 101. It costs a second shadow pass and a slice
+    /// per layer, the pass slower than the first -- 2 to 7 ms a frame on
+    /// Dimorphos up close -- for little where penumbrae are narrower than six
+    /// texels and drawn hard, as at the default resolution.
+    #[getter]
+    fn second_depth(&self) -> bool { self.config.borrow().shadows.second_depth }
+    #[setter]
+    fn set_second_depth(&mut self, v: bool) { self.config.borrow_mut().shadows.second_depth = v; }
+    /// The size, in shadow-map texels, a large mesh's triangles are drawn at
+    /// in the shadow maps when `shading.lod` is on, outside the camera's
+    /// view.
+    ///
+    /// A shadow cast into the view needs its occluder's outline, not its
+    /// facets: 2 keeps the outline to a texel. With `access_shadow_map`, or a
+    /// per-facet shadow query pending, the maps take the full facets and the
+    /// whole body.
+    #[getter]
+    fn lod_texels(&self) -> f32 { self.config.borrow().shadows.lod_texels }
+    #[setter]
+    fn set_lod_texels(&mut self, v: f32) { self.config.borrow_mut().shadows.lod_texels = v; }
+    /// The size, in the camera's pixels, a large mesh's triangles are drawn
+    /// at in the shadow maps when `shading.lod` is on, outside the camera's
+    /// view.
+    ///
+    /// Where the camera looks, the maps hold the very triangles it draws: a
+    /// coarser caster over a finer receiver shadows it wherever the coarse
+    /// surface passes above the fine one, across every crater floor. Outside
+    /// it, a caster only casts into the view, and coarser does: whichever of
+    /// this and `lod_texels` is coarser is used.
+    #[getter]
+    fn lod_pixels(&self) -> f32 { self.config.borrow().shadows.lod_pixels }
+    #[setter]
+    fn set_lod_pixels(&mut self, v: f32) { self.config.borrow_mut().shadows.lod_pixels = v; }
     fn __repr__(&self) -> String {
         format!("{:?}", self.config.borrow().shadows)
     }
@@ -374,6 +524,15 @@ impl WireframeConfig {
     fn fade(&self) -> bool { self.config.borrow().wireframe.fade }
     #[setter]
     fn set_fade(&mut self, v: bool) { self.config.borrow_mut().wireframe.fade = v; }
+    /// Smooth the wireframe's edges, or draw them hard.
+    ///
+    /// Its own antialiasing, whatever `shading.msaa` is: the mesh's shader
+    /// draws the lines and blends each edge in over a pixel. Off, a pixel is
+    /// wire or surface. Mode 1 is always hard, having nothing to blend into.
+    #[getter]
+    fn antialias(&self) -> bool { self.config.borrow().wireframe.antialias }
+    #[setter]
+    fn set_antialias(&mut self, v: bool) { self.config.borrow_mut().wireframe.antialias = v; }
     fn __repr__(&self) -> String {
         format!("{:?}", self.config.borrow().wireframe)
     }
@@ -674,6 +833,16 @@ impl AxesConfig {
     fn gizmo_size(&self) -> f32 { self.config.borrow().axes.gizmo_size }
     #[setter]
     fn set_gizmo_size(&mut self, v: f32) { self.config.borrow_mut().axes.gizmo_size = v; }
+    /// Smooth the axes' lines, or draw them hard.
+    ///
+    /// Their own antialiasing, whatever `shading.msaa` is: each segment is a
+    /// thin strip whose shader blends its edges in over a pixel, or cuts them.
+    /// Before, the lines were one pixel wide and smoothed by the mesh's MSAA
+    /// alone. The ground grid has its own smoothing, and the gizmo's.
+    #[getter]
+    fn antialias(&self) -> bool { self.config.borrow().axes.antialias }
+    #[setter]
+    fn set_antialias(&mut self, v: bool) { self.config.borrow_mut().axes.antialias = v; }
     fn __repr__(&self) -> String {
         format!("{:?}", self.config.borrow().axes)
     }
@@ -796,6 +965,17 @@ impl HudConfig {
     fn font(&self) -> String { self.config.borrow().hud.font.clone() }
     #[setter]
     fn set_font(&mut self, v: &str) { self.config.borrow_mut().hud.font = v.to_string(); }
+    /// Smooth the text drawn over the image, or draw it hard: the HUDs and
+    /// every label -- the axes', the facets', the colour bar's, the gizmo's.
+    ///
+    /// Text has its own antialiasing, from the font, which `shading.msaa`
+    /// never touches. Off, a pixel is text or not: the text is drawn on a
+    /// layer of its own and copied over wherever it covers half the pixel,
+    /// opaque.
+    #[getter]
+    fn antialias(&self) -> bool { self.config.borrow().hud.antialias }
+    #[setter]
+    fn set_antialias(&mut self, v: bool) { self.config.borrow_mut().hud.antialias = v; }
     fn __repr__(&self) -> String {
         format!("{:?}", self.config.borrow().hud)
     }

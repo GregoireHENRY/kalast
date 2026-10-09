@@ -1,4 +1,6 @@
-//! Per-facet shadow queries, read back from the GPU shadow map.
+//! Per-facet shadow queries, read back from the GPU shadow map, with the Sun
+//! a point. With the Sun a disc, `pass::penumbra::Pass::facets` answers
+//! instead, by the image's own walk; `Window::facet_shadow_fractions` picks.
 //!
 //! The renderer already builds a depth map from the light's point of view
 //! every frame. This runs a compute pass over a body's facets against that
@@ -43,6 +45,13 @@ struct Params {
     shadow_bias_minimum: f32,
     shadow_normal_offset_scale: f32,
     is_flat: u32,
+    // Invocations per row of a dispatch split in two (`dispatch_2d`): past
+    // 65,535 workgroups a dispatch cannot be one row, and a 12.9M-facet Mars
+    // is 201,479 of them.
+    stride: u32,
+    // 1 when the mesh's own shadows are its horizon map's.
+    horizon: u32,
+    _pad: [u32; 2],
 }
 
 pub struct FacetShadowQuery {
@@ -91,6 +100,17 @@ impl FacetShadowQuery {
                 storage(2, true),
                 storage(3, true),
                 storage(4, false),
+                storage(5, true),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 6,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                    },
+                    count: None,
+                },
             ],
         });
 
@@ -129,6 +149,10 @@ impl FacetShadowQuery {
         // pair with `light_view_proj` -- reading another body's layer gives
         // occlusion for a volume this body is not in.
         shadow_layer: usize,
+        // The slice the other bodies of that layer are in, where the body
+        // and they are apart (`Window::shadow_others`); the layer again
+        // where not.
+        others_slice: usize,
         mesh: &super::gpu::MeshBuffer,
         model: crate::Mat4,
         light_view_proj: crate::Mat4,
@@ -148,6 +172,7 @@ impl FacetShadowQuery {
             return vec![];
         }
 
+        let (groups_x, groups_y, stride) = crate::gpu::Context::dispatch_2d(n_facets as u64);
         let params = Params {
             model: to_cols_f32(model),
             light_view_proj: to_cols_f32(light_view_proj),
@@ -157,6 +182,9 @@ impl FacetShadowQuery {
             shadow_bias_minimum: layer_bias.z as f32,
             shadow_normal_offset_scale: layer_bias.x as f32,
             is_flat: mesh.is_flat as u32,
+            stride,
+            horizon: mesh.horizon.is_some() as u32,
+            _pad: [0; 2],
         };
 
         let params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -215,6 +243,21 @@ impl FacetShadowQuery {
                     binding: 4,
                     resource: out_buffer.as_entire_binding(),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: mesh.horizon_or_none().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::TextureView(
+                        shadow
+                            .layer_views
+                            .get(others_slice)
+                            .or(shadow.layer_views.get(shadow_layer))
+                            .or(shadow.layer_views.last())
+                            .unwrap_or(&shadow.view),
+                    ),
+                },
             ],
         });
 
@@ -227,7 +270,7 @@ impl FacetShadowQuery {
             });
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, Some(&bind_group), &[]);
-            pass.dispatch_workgroups(n_facets.div_ceil(64), 1, 1);
+            pass.dispatch_workgroups(groups_x, groups_y, 1);
         }
         encoder.copy_buffer_to_buffer(&out_buffer, 0, &read_buffer, 0, size);
         queue.submit(Some(encoder.finish()));

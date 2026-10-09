@@ -279,6 +279,14 @@ pub struct Hapke {
     /// radians. `0` is a smooth surface; the literature quotes 20-30 deg for
     /// most asteroids. Must be in `[0, pi/2)`.
     pub theta_bar: Float,
+    /// Hapke's (2008) porosity factor, `1` for none, the IMSA as it was: the
+    /// reflectance is `K` times larger and the `H` functions are taken at
+    /// `mu / K`. From the filling factor `phi`, one minus the porosity,
+    /// `K = -ln(1 - 1.209 phi^(2/3)) / (1.209 phi^(2/3))`. The Hapke 2012 fits
+    /// of the Martian moons carry it: 1.19 for Phobos (87 % porosity,
+    /// Fornasier et al. 2024) and 1.21 for Deimos (86 %, Wargnier et al.
+    /// 2025). `[1, inf)`.
+    pub k: Float,
 }
 
 impl Default for Hapke {
@@ -294,6 +302,7 @@ impl Default for Hapke {
             b0: 1.0,
             h: 0.05,
             theta_bar: 0.0,
+            k: 1.0,
         }
     }
 }
@@ -319,6 +328,12 @@ impl Hapke {
     /// Separated from the reflectance so the hot loop of a disc integration
     /// can test once, outside, rather than per facet per epoch.
     pub fn check(&self) -> Result<(), String> {
+        if !(self.k >= 1.0 && self.k.is_finite()) {
+            return Err(format!(
+                "Hapke k, the porosity factor, is 1 or more -- 1 for none -- got {}",
+                self.k
+            ));
+        }
         if !(0.0..crate::consts::FRAC_PI_2).contains(&self.theta_bar) {
             return Err(format!(
                 "Hapke theta_bar must be in [0, pi/2) radians, got {}. It is a \
@@ -351,8 +366,8 @@ impl Hapke {
         }
         let p = henyey_greenstein(self.b, self.c, alpha);
         let bg = opposition_surge(self.b0, self.h, alpha);
-        let h0 = h_function(self.w, mu0);
-        let he = h_function(self.w, mu);
+        let h0 = h_function(self.w, mu0 / self.k);
+        let he = h_function(self.w, mu / self.k);
 
         // The `- 1` is not decoration: H(mu0) H(mu) counts the singly
         // scattered light as well as the multiply scattered, and the first
@@ -370,7 +385,7 @@ impl Hapke {
         // an error. The convention is stated once at the top of the module and
         // `test_hapke_reduces_to_lommel_seeliger` is what holds all four laws
         // to it.
-        self.w / (4.0 * crate::util::PI * (mu0 + mu)) * ((1.0 + bg) * p + h0 * he - 1.0)
+        self.k * self.w / (4.0 * crate::util::PI * (mu0 + mu)) * ((1.0 + bg) * p + h0 * he - 1.0)
     }
 
     /// The rough-surface reflectance: Hapke's 1984 macroscopic roughness.
@@ -421,8 +436,8 @@ impl Hapke {
         // Same bracket as the smooth case, on the *effective* cosines -- and
         // divided by the *true* `mu0`, because this module's convention keeps
         // the incidence cosine outside `r` while Hapke's own folds it in.
-        self.w / (4.0 * crate::util::PI) * mu0e / (mu0 * (mu0e + mue))
-            * ((1.0 + bg) * p + h_function(self.w, mu0e) * h_function(self.w, mue) - 1.0)
+        self.k * self.w / (4.0 * crate::util::PI) * mu0e / (mu0 * (mu0e + mue))
+            * ((1.0 + bg) * p + h_function(self.w, mu0e / self.k) * h_function(self.w, mue / self.k) - 1.0)
             * shadow
     }
 
@@ -546,8 +561,8 @@ impl Hapke {
 #[pymethods]
 impl Hapke {
     #[new]
-    #[pyo3(signature = (w=0.1, b=0.3, c=0.6, b0=1.0, h=0.05, theta_bar=0.0))]
-    fn py_new(w: Float, b: Float, c: Float, b0: Float, h: Float, theta_bar: Float) -> Self {
+    #[pyo3(signature = (w=0.1, b=0.3, c=0.6, b0=1.0, h=0.05, theta_bar=0.0, k=1.0))]
+    fn py_new(w: Float, b: Float, c: Float, b0: Float, h: Float, theta_bar: Float, k: Float) -> Self {
         Self {
             w,
             b,
@@ -555,6 +570,7 @@ impl Hapke {
             b0,
             h,
             theta_bar,
+            k,
         }
     }
 
@@ -580,8 +596,8 @@ impl Hapke {
 
     fn __repr__(&self) -> String {
         format!(
-            "Hapke(w={}, b={}, c={}, b0={}, h={}, theta_bar={})",
-            self.w, self.b, self.c, self.b0, self.h, self.theta_bar
+            "Hapke(w={}, b={}, c={}, b0={}, h={}, theta_bar={}, k={})",
+            self.w, self.b, self.c, self.b0, self.h, self.theta_bar, self.k
         )
     }
 }
@@ -820,6 +836,7 @@ mod tests {
                 b0: 0.0,
                 h: 0.0,
                 theta_bar: 0.0,
+                k: 1.0,
             };
             for (mu0, mu) in [(0.9, 0.7), (0.5, 0.5), (0.3, 0.9), (0.1, 0.2)] {
                 let got = h.reflectance_smooth(mu0, mu, 0.4);

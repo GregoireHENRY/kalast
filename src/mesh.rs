@@ -10,6 +10,10 @@ pub const ATTR_STRIDE: usize = 4;
 pub const ATTR_COLOR_OFFSET: usize = 0;
 pub const ATTR_MODE_OFFSET: usize = 3;
 
+/// The most map pixels `Mesh::colors_from_map` counts across one facet:
+/// `MAP_SPLIT_MAX` squared samples, 1024, for a facet larger still.
+pub const MAP_SPLIT_MAX: usize = 32;
+
 pub const MESH_CUBE: &'static str = include_str!("../res/cube.obj");
 
 // pub const EPSILON_INTERSECT_TRIANGLE: Float = 1e-3;
@@ -814,6 +818,120 @@ impl Mesh {
         }
     }
 
+    /// Colour the mesh from a latitude-longitude map of its whole body -- an
+    /// albedo map, a colour mosaic: each facet takes the map's mean over its
+    /// area, each vertex of a smooth mesh the map where it lies.
+    ///
+    /// `map` is `(rows, columns, channels)`, one channel for a grey value or
+    /// three for red, green and blue. Simple cylindrical: the first row at 90
+    /// deg north and the last at 90 south, the columns 360 deg eastward from
+    /// the left edge at `west` deg -- -180 for USGS's mosaics, 0 for PDS's
+    /// MOLA grids. Latitude is planetocentric and longitude east, about the
+    /// mesh's own origin with `z` north and `x` at longitude 0, the
+    /// body-fixed frame SPICE calls IAU_MARS for Mars. Bilinear between pixel
+    /// centres, across the 180 deg seam too.
+    ///
+    /// The mean is over `k * k` equal triangles the facet is cut into, one
+    /// sample at the middle of each, `k` the number of map pixels across the
+    /// facet's widest angle from the origin, up to [`MAP_SPLIT_MAX`]: the
+    /// middle alone for a facet within a pixel, 81 samples for a 66 km facet
+    /// of Mars on a 7.4 km map.
+    ///
+    /// A sample that is not finite is left out of the mean, and a facet with
+    /// none keeps its colour: NaN marks where a map has no data. Marks the
+    /// colours for the GPU. Fails on a map under 2 x 2, or with other than 1
+    /// or 3 channels.
+    pub fn colors_from_map<T: Copy + Into<f64>>(
+        &mut self,
+        map: ndarray::ArrayView3<'_, T>,
+        west: f64,
+    ) -> Result<(), String> {
+        let (rows, columns, channels) = map.dim();
+        if channels != 1 && channels != 3 {
+            return Err(format!("a map has 1 or 3 channels, not {channels}"));
+        }
+        if rows < 2 || columns < 2 {
+            return Err(format!("a map needs at least 2 x 2 pixels, not {rows} x {columns}"));
+        }
+
+        let sample = |p: glam::DVec3| -> Option<[f64; 3]> {
+            let r = p.length();
+            if r == 0.0 {
+                return None;
+            }
+            let lat = (p.z / r).clamp(-1.0, 1.0).asin().to_degrees();
+            let lon = p.y.atan2(p.x).to_degrees();
+
+            // Pixel centres sit half a pixel in, so a row's coordinate is its
+            // index plus a half; past the outer rows, the outer row.
+            let v = ((90.0 - lat) * rows as f64 / 180.0 - 0.5).clamp(0.0, (rows - 1) as f64);
+            let r0 = (v.floor() as usize).min(rows - 2);
+            let tv = v - r0 as f64;
+            let u = (lon - west).rem_euclid(360.0) * columns as f64 / 360.0 - 0.5;
+            let tu = u - u.floor();
+            let c0 = (u.floor() as i64).rem_euclid(columns as i64) as usize;
+            let c1 = (c0 + 1) % columns;
+
+            let mut out = [0.0; 3];
+            for (k, o) in out.iter_mut().enumerate().take(channels) {
+                let at = |r: usize, c: usize| -> f64 { map[[r, c, k]].into() };
+                *o = (1.0 - tv) * ((1.0 - tu) * at(r0, c0) + tu * at(r0, c1))
+                    + tv * ((1.0 - tu) * at(r0 + 1, c0) + tu * at(r0 + 1, c1));
+                if !o.is_finite() {
+                    return None;
+                }
+            }
+            if channels == 1 {
+                out = [out[0]; 3];
+            }
+            Some(out)
+        };
+        let to_color = |c: [f64; 3]| Vec3::new(c[0] as Float, c[1] as Float, c[2] as Float);
+        let wide = |p: Vec3| glam::DVec3::new(p.x as f64, p.y as f64, p.z as f64);
+
+        if self.flat {
+            // A map pixel, as an angle seen from the body's centre.
+            let pixel = (180.0 / rows as f64).min(360.0 / columns as f64).to_radians();
+            for f in 0..self.attrs.len().min(self.indices.len() / 3) {
+                let [a, b, c] = self.get_facet_positions(f).map(wide);
+                let widest = [a.angle_between(b), b.angle_between(c), c.angle_between(a)]
+                    .into_iter()
+                    .fold(0.0, f64::max);
+                // NaN, a corner at the origin, falls to 0 here and so to 1.
+                let k = ((widest / pixel).ceil() as usize).clamp(1, MAP_SPLIT_MAX);
+
+                // Cut into k * k: k * (k + 1) / 2 triangles the way up, each
+                // with its middle at (3i + 1, 3j + 1) / 3k along ab and ac, and
+                // k * (k - 1) / 2 upside down between them, at (3i + 2, 3j + 2).
+                let (ab, ac, third) = (b - a, c - a, 1.0 / (3 * k) as f64);
+                let (mut sum, mut n) = ([0.0; 3], 0);
+                for i in 0..k {
+                    for j in 0..k - i {
+                        let down = (i + j + 2 <= k).then_some((3 * i + 2, 3 * j + 2));
+                        for (u, v) in std::iter::once((3 * i + 1, 3 * j + 1)).chain(down) {
+                            let p = a + ab * (u as f64 * third) + ac * (v as f64 * third);
+                            if let Some(s) = sample(p) {
+                                sum.iter_mut().zip(s).for_each(|(t, s)| *t += s);
+                                n += 1;
+                            }
+                        }
+                    }
+                }
+                if n > 0 {
+                    self.attrs[f].color = to_color(sum.map(|s| s / n as f64));
+                }
+            }
+        } else {
+            for (a, p) in self.attrs.iter_mut().zip(&self.positions) {
+                if let Some(v) = sample(wide(*p)) {
+                    a.color = to_color(v);
+                }
+            }
+        }
+        self.colors_dirty = true;
+        Ok(())
+    }
+
     pub fn intersect(&self, p: &Vec3, u: &Vec3, exit_first: bool) -> Option<(usize, Vec3)> {
         intersect_mesh(self, p, u, exit_first)
     }
@@ -1543,6 +1661,92 @@ mod tests {
         assert_eq!(m.positions.len(), 4);
         assert_eq!(m.attrs.len(), 4, "a colour per vertex again");
         assert_eq!(m.normals.len(), 4, "and a normal per vertex");
+    }
+
+    /// The unit octahedron: the equator at longitudes 0, 90, 180 and -90,
+    /// then the north and south poles. Four facets north, four south. Smooth,
+    /// a colour per vertex, until flattened.
+    fn octahedron() -> Mesh {
+        let mut m = Mesh::new();
+        m.positions = vec![Vec3::X, Vec3::Y, Vec3::NEG_X, Vec3::NEG_Y, Vec3::Z, Vec3::NEG_Z];
+        m.attrs = vec![Attr::default(); 6];
+        m.indices = vec![
+            0, 1, 4, 1, 2, 4, 2, 3, 4, 3, 0, 4, //
+            1, 0, 5, 2, 1, 5, 3, 2, 5, 0, 3, 5,
+        ];
+        m.facets = compute_facets(&m.positions, &m.indices);
+        m
+    }
+
+    #[test]
+    fn a_map_is_read_with_its_first_row_at_the_north_pole() {
+        // Two rows, 1 then 0: the northern facets lighter, the southern
+        // darker, by as much -- the octahedron is symmetric about the equator.
+        let map = ndarray::Array3::from_shape_fn((2, 4, 1), |(r, _, _)| (r == 0) as u8 as f32);
+        let mut m = octahedron();
+        m.flatten();
+        m.colors_from_map(map.view(), -180.0).unwrap();
+        for f in 0..4 {
+            let (north, south) = (m.attrs[f].color, m.attrs[f + 4].color);
+            assert!(north.x > 0.6, "facet {f}: {north:?}");
+            assert!((north.x + south.x - 1.0).abs() < 1e-6, "{north:?} {south:?}");
+            assert!(north.x == north.y && north.y == north.z, "one channel is grey: {north:?}");
+        }
+        assert!(m.colors_dirty);
+    }
+
+    #[test]
+    fn a_facet_takes_the_mean_over_its_area_not_its_middle() {
+        // A 1 deg map, bright only from 30 to 40 deg north. A northern facet's
+        // middle is at 35.26 deg, inside the band, but most of the facet is
+        // not: what it gets is the band's share of its area.
+        let map = ndarray::Array3::from_shape_fn((180, 360, 1), |(r, _, _)| (50..60).contains(&r) as u8 as f32);
+        let mut m = octahedron();
+        m.flatten();
+        m.colors_from_map(map.view(), -180.0).unwrap();
+        // The share of the flat facet's area whose direction lies between 30
+        // and 40 deg, from a 4000-across grid in numpy: 0.1094. Its middle
+        // alone would say 1.
+        let share = 0.1094;
+        for f in 0..4 {
+            let got = m.attrs[f].color.x as f64;
+            assert!((got - share).abs() < 0.02, "facet {f}: {got}, the band covers {share}");
+            assert!(m.attrs[f + 4].color.x < 1e-6, "nothing south");
+        }
+    }
+
+    #[test]
+    fn a_map_runs_east_from_its_west_edge_and_wraps_at_the_seam() {
+        // Columns valued 0 to 3; the mesh is smooth, so a vertex is read
+        // where it lies.
+        let map = ndarray::Array3::from_shape_fn((2, 4, 1), |(_, c, _)| c as f64);
+        let equator = |m: &Mesh| -> Vec<f64> { (0..4).map(|v| m.attrs[v].color.x as f64).collect() };
+        let mut m = octahedron();
+        // From -180, column centres at -135, -45, 45, 135: longitude 0 halfway
+        // between the middle two, 90 at 2.5, -90 at 0.5, and 180 across the
+        // seam, halfway between the last column and the first.
+        m.colors_from_map(map.view(), -180.0).unwrap();
+        assert_eq!(equator(&m), vec![1.5, 2.5, 1.5, 0.5]);
+        // From 0, centres at 45, 135, 225, 315: the seam is at longitude 0.
+        m.colors_from_map(map.view(), 0.0).unwrap();
+        assert_eq!(equator(&m), vec![1.5, 0.5, 1.5, 2.5]);
+    }
+
+    #[test]
+    fn a_map_without_data_leaves_the_colour_and_a_bad_one_is_refused() {
+        let mut m = octahedron();
+        let nan = ndarray::Array3::from_elem((2, 4, 1), f32::NAN);
+        m.colors_from_map(nan.view(), -180.0).unwrap();
+        assert!(m.attrs.iter().all(|a| a.color == Vec3::ONE), "kept");
+
+        let rgb = ndarray::Array3::from_shape_fn((2, 4, 3), |(_, _, k)| 0.25 * k as f32);
+        m.colors_from_map(rgb.view(), -180.0).unwrap();
+        for a in &m.attrs {
+            assert!((a.color - Vec3::new(0.0, 0.25, 0.5)).length() < 1e-6, "{:?}", a.color);
+        }
+
+        assert!(m.colors_from_map(ndarray::Array3::<f32>::zeros((2, 4, 2)).view(), 0.0).is_err());
+        assert!(m.colors_from_map(ndarray::Array3::<f32>::zeros((1, 4, 1)).view(), 0.0).is_err());
     }
 }
 

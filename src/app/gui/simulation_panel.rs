@@ -365,6 +365,19 @@ fn body_ui(ui: &mut egui::Ui, i: usize, body: &mut crate::app::body::Body) -> bo
     }
     drop(mesh);
 
+    scattering_ui(ui, i, &mut body.scattering);
+    atmosphere_ui(ui, i, &mut body.atmosphere);
+
+    subheading(ui, "shadows");
+    setting(
+        ui,
+        "horizon_map",
+        "The body's own shadows from how high its terrain rises round each facet, worked out once on the GPU \
+         (seconds for millions of facets), instead of drawing it into its own shadow map every frame. For a \
+         body each direction from whose centre crosses its surface once, with shadows.per_body on",
+        |ui| ui.checkbox(&mut body.horizon_map, ""),
+    );
+
     if let Some(shadow) = body.shadow_mesh.as_ref() {
         let mut shadow = shadow.borrow_mut();
         subheading(ui, "shadow mesh");
@@ -399,6 +412,152 @@ fn body_ui(ui: &mut egui::Ui, i: usize, body: &mut crate::app::body::Body) -> bo
     }
 
     dirty
+}
+
+/// How a body's surface reflects sunlight in the image (`body.scattering`):
+/// Lambert, the Lommel-Seeliger/Lambert mix or Hapke, and its numbers. A law
+/// chosen again comes back as it was; chosen first, it is its defaults. An
+/// edit the law would refuse -- Hapke's roughness at 90 deg -- is not taken.
+fn scattering_ui(ui: &mut egui::Ui, i: usize, law: &mut Option<crate::lightcurve::Law>) {
+    use crate::lightcurve::Law;
+    use crate::scattering::{Hapke, LommelSeeligerLambert};
+    subheading(ui, "scattering");
+    let mix_id = ui.id().with(("scattering mix", i));
+    let hapke_id = ui.id().with(("scattering hapke", i));
+    match *law {
+        Some(Law::Mix(m)) => ui.data_mut(|d| {
+            d.insert_temp(mix_id, m);
+        }),
+        Some(Law::Hapke(h)) => ui.data_mut(|d| {
+            d.insert_temp(hapke_id, h);
+        }),
+        None => {}
+    }
+    let names = ["Lambert", "Lommel-Seeliger/Lambert", "Hapke"];
+    let mut kind = match law {
+        None => 0,
+        Some(Law::Mix(_)) => 1,
+        Some(Law::Hapke(_)) => 2,
+    };
+    setting(
+        ui,
+        "law",
+        "How the surface reflects sunlight in the image, seen from where the camera is. Lambert: a lit pixel is the \
+         colour times cos i. A law: the colour times the law's I/F, so a colour of 1 is the law's own albedo",
+        |ui| {
+            egui::ComboBox::from_id_salt(("scattering law", i))
+                .selected_text(names[kind])
+                .show_ui(ui, |ui| {
+                    for (k, name) in names.iter().enumerate() {
+                        ui.selectable_value(&mut kind, k, *name);
+                    }
+                })
+        },
+    );
+    *law = match (kind, *law) {
+        (0, _) => None,
+        (1, Some(Law::Mix(m))) => Some(Law::Mix(m)),
+        (1, _) => Some(Law::Mix(ui.data_mut(|d| d.get_temp::<LommelSeeligerLambert>(mix_id)).unwrap_or_default())),
+        (_, Some(Law::Hapke(h))) => Some(Law::Hapke(h)),
+        (_, _) => Some(Law::Hapke(ui.data_mut(|d| d.get_temp::<Hapke>(hapke_id)).unwrap_or_default())),
+    };
+    let number = |ui: &mut egui::Ui, name: &str, hover: &str, v: &mut Float, range: std::ops::RangeInclusive<f64>, speed: f64| {
+        setting(ui, name, hover, |ui| ui.add(egui::DragValue::new(v).range(range).speed(speed).max_decimals(4)));
+    };
+    match law {
+        Some(Law::Mix(m)) => {
+            number(ui, "w", "Single-scattering albedo", &mut m.w, 0.0..=1.0, 0.001);
+            number(ui, "c", "Lommel-Seeliger's share: 1 pure Lommel-Seeliger, 0 pure Lambert", &mut m.c, 0.0..=1.0, 0.001);
+        }
+        Some(Law::Hapke(h)) => {
+            let mut edit = *h;
+            number(ui, "w", "Single-scattering albedo", &mut edit.w, 0.0..=1.0, 0.001);
+            number(ui, "b", "The Henyey-Greenstein lobes' width", &mut edit.b, 0.0..=1.0, 0.001);
+            number(ui, "c", "The backward lobe's share", &mut edit.c, 0.0..=1.0, 0.001);
+            number(ui, "b0", "The opposition surge's amplitude", &mut edit.b0, 0.0..=10.0, 0.01);
+            number(ui, "h", "The opposition surge's angular width, radians", &mut edit.h, 1e-6..=2.0, 0.001);
+            // In degrees here, radians in scripts (`Hapke(theta_bar=...)`).
+            let mut deg = edit.theta_bar.to_degrees();
+            setting(
+                ui,
+                "theta_bar",
+                "Macroscopic roughness, the mean slope of the relief within a facet, in degrees here (radians in a \
+                 script): 0 a smooth surface, 20-30 for most asteroids",
+                |ui| ui.add(egui::DragValue::new(&mut deg).range(0.0..=89.9).speed(0.1).max_decimals(2).suffix(" deg")),
+            );
+            edit.theta_bar = deg.to_radians();
+            number(ui, "k", "Hapke's porosity factor, 1 for none: 1.19 for Phobos, 1.21 for Deimos", &mut edit.k, 1.0..=10.0, 0.001);
+            if edit.check().is_ok() {
+                *h = edit;
+            }
+        }
+        None => {}
+    }
+}
+
+/// The atmosphere over a body's surface in the image (`body.atmosphere`): on
+/// or off, and its numbers. Turned off and on again it comes back as it was;
+/// on for the first time, it is Mars's, in km. An edit the atmosphere would
+/// refuse -- a lobe's asymmetry of 1 -- is not taken.
+fn atmosphere_ui(ui: &mut egui::Ui, i: usize, atmosphere: &mut Option<crate::atmosphere::Atmosphere>) {
+    use crate::atmosphere::Atmosphere;
+    subheading(ui, "atmosphere");
+    let kept = ui.id().with(("atmosphere", i));
+    let mut on = atmosphere.is_some();
+    setting(
+        ui,
+        "on",
+        "A dusty atmosphere over the surface in the image: the dust's own light, and the surface seen \
+         through it, lit by the beam that got through and by the sky. Mars's, in km, when first turned on",
+        |ui| ui.checkbox(&mut on, ""),
+    );
+    match (on, atmosphere.take()) {
+        (true, None) => *atmosphere = Some(ui.data_mut(|d| d.get_temp::<Atmosphere>(kept)).unwrap_or_default()),
+        (false, Some(was)) => ui.data_mut(|d| {
+            d.insert_temp(kept, was);
+        }),
+        (_, was) => *atmosphere = was,
+    };
+    let Some(air) = atmosphere.as_mut() else {
+        return;
+    };
+    let mut edit = *air;
+    let number = |ui: &mut egui::Ui, name: &str, hover: &str, v: &mut Float, range: std::ops::RangeInclusive<f64>, speed: f64| {
+        setting(ui, name, hover, |ui| ui.add(egui::DragValue::new(v).range(range).speed(speed).max_decimals(4)));
+    };
+    number(ui, "tau", "Vertical optical depth of the dust at the surface", &mut edit.tau, 0.0..=10.0, 0.01);
+    number(ui, "scale_height", "The dust's scale height, in the scene's units", &mut edit.scale_height, 1e-6..=1e12, 0.1);
+    number(ui, "radius", "The planet's equatorial radius, in the scene's units", &mut edit.radius, 1e-6..=1e12, 1.0);
+    let mut ellipsoid = edit.polar_radius.is_some();
+    setting(ui, "polar_radius", "The ellipsoid's polar radius, about the body's own z axis; off, a sphere of `radius`", |ui| {
+        ui.checkbox(&mut ellipsoid, "");
+        edit.polar_radius = ellipsoid.then(|| {
+            let mut c = edit.polar_radius.unwrap_or(edit.radius);
+            ui.add(egui::DragValue::new(&mut c).range(1e-6..=1e12).speed(1.0).max_decimals(4));
+            c
+        });
+    });
+    number(ui, "omega", "The dust's single-scattering albedo", &mut edit.omega, 0.0..=1.0, 0.001);
+    number(ui, "g1", "The asymmetry of the phase function's first lobe", &mut edit.g1, -0.999..=0.999, 0.001);
+    number(ui, "g2", "The asymmetry of its second lobe", &mut edit.g2, -0.999..=0.999, 0.001);
+    number(ui, "q", "The first lobe's weight", &mut edit.q, 0.0..=1.0, 0.001);
+    let mut fixed = edit.albedo.is_some();
+    setting(
+        ui,
+        "albedo",
+        "The surface's mean albedo round about, for the light the surface and the dust send each other; off, each facet's own",
+        |ui| {
+            ui.checkbox(&mut fixed, "");
+            edit.albedo = fixed.then(|| {
+                let mut v = edit.albedo.unwrap_or(0.2);
+                ui.add(egui::DragValue::new(&mut v).range(0.0..=1.0).speed(0.001).max_decimals(4));
+                v
+            });
+        },
+    );
+    if edit.check().is_ok() {
+        *air = edit;
+    }
 }
 
 /// Counts, shading and extent for one mesh. Returns whether it was changed
@@ -1051,7 +1210,7 @@ mod tests {
     #[test]
     fn drawing_the_panel_changes_no_setting() {
         let mut c = Config::default();
-        c.shading.gamma = 9.0; // its slider: 0.1..=4
+        c.shading.srgb_mode = 2; // its list: 0 and 1
         c.light.ambient = 1.5; // 0..=1
         c.colorbar.ticks = 40; // 1..=20
         c.colorbar.length = 900.0;

@@ -28,6 +28,15 @@ What the Rust source cannot say, the doc comments can:
                                name alone is ambiguous
     /// :range: 0..=16          slider bounds instead of a drag field
     /// :step: 0.01             drag speed
+    /// :choices: 1 = off, 2, 4
+                               a list of those values instead of a slider
+                               (integers only), what follows `=` the
+                               value's hover text
+    /// :when: srgb_mode == 1   the row only while that holds, the field
+                               named in its own group, or with its group
+                               (`light.sun_as_point == false`) in another
+    /// :some: 2.2              an optional number: the value it takes when
+                               ticked (else 0)
     /// :skip:                  no widget (edited from a script, not by hand)
     /// :section: Editor        AppConfig only: this field and the ones after
                                it, up to the next marker, are the app tab's
@@ -115,20 +124,55 @@ def widget(path: str, name: str, rust: str, doc: str) -> list[str]:
     hover = summary(doc)
     rng = marker(doc, "range")
     step = marker(doc, "step")
+    choices = marker(doc, "choices")
+    when = marker(doc, "when")
     label = marker(doc, "label") or name
 
     def row(body: list[str]) -> list[str]:
         """`body` is the closure's lines, drawing the control."""
         if len(body) == 1:
-            return [f'    setting(ui, "{label}", "{hover}", |ui| {body[0]});']
-        return (
-            [f'    setting(ui, "{label}", "{hover}", |ui| {{']
-            + [f"        {line}" for line in body]
-            + ["    });"]
-        )
+            lines = [f'    setting(ui, "{label}", "{hover}", |ui| {body[0]});']
+        else:
+            lines = (
+                [f'    setting(ui, "{label}", "{hover}", |ui| {{']
+                + [f"        {line}" for line in body]
+                + ["    });"]
+            )
+        if when:
+            # Shown only while it means something: `shading.gamma` with
+            # `srgb_mode` 1. A field of another group is named with its group:
+            # `shadows.second_depth` with `light.sun_as_point == false`.
+            group = path.rsplit(".", 1)[0]
+            if "." in when.split()[0]:
+                group = path.split(".", 1)[0]
+            return [f"    if {group}.{when} {{"] + [f"    {line}" for line in lines] + ["    }"]
+        return lines
 
     if rust == "bool":
         return row([f'ui.checkbox(&mut {path}, "")'])
+
+    if choices is not None:
+        # The values that mean something and no others: a slider over
+        # `shading.msaa`'s 1..=8 offered 3, 5, 6 and 7, which no GPU has.
+        if rust not in ("u32", "usize"):
+            raise SystemExit(f"{path}: `:choices:` is for integers, not {rust}")
+        pairs = []
+        for item in choices.split(","):
+            value, _, meaning = item.partition("=")
+            pairs.append((value.strip(), meaning.strip()))
+        # Each value shown as it is, what it means on hover. A value set from
+        # a script that is not on the list is shown too, and kept: the panel
+        # never changes a setting by being drawn.
+        lines = [
+            f'egui::ComboBox::from_id_salt("{path}")',
+            f"    .selected_text({path}.to_string())",
+            "    .show_ui(ui, |ui| {",
+        ]
+        for v, meaning in pairs:
+            tip = f'.on_hover_text("{meaning}")' if meaning else ""
+            lines.append(f'        ui.selectable_value(&mut {path}, {v}, "{v}"){tip};')
+        lines += ["    });"]
+        return row(lines)
 
     if rust in ("u32", "usize", "f32", "f64", "Float"):
         if rng:
@@ -156,7 +200,8 @@ def widget(path: str, name: str, rust: str, doc: str) -> list[str]:
 
     if rust in ("Option<f32>", "Option<Float>"):
         # Ticked, a value; unticked, `None`, and the field beside it gone.
-        some, value = ("Some(0.0)", "ui.add(egui::DragValue::new(v).speed(1e-6));")
+        some = f"Some({marker(doc, 'some') or '0.0'})"
+        value = f"ui.add(egui::DragValue::new(v).speed({step or '1e-6'}));"
         return row([
             f"let mut on = {path}.is_some();",
             'if ui.checkbox(&mut on, "").changed() {',

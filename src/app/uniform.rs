@@ -53,11 +53,22 @@ pub struct Globals {
     pub value_min: f32,
     pub value_max: f32,
 
-    pub _padding1: u32,
-    // WGSL rounds the struct up to a multiple of 16; without this the Rust
-    // side is 92 bytes against the shader's 96 and the bind group is
-    // rejected at draw time.
-    pub _padding2: [u32; 1],
+    /// `wireframe.antialias`: `1` blends the wire's edges in over a pixel,
+    /// `0` cuts them. In what was padding, so nothing before it moves.
+    pub wireframe_antialias: u32,
+    /// `axes.antialias`, the same for the axes' strips.
+    pub axes_antialias: u32,
+    /// The image's size in pixels, which the axes' strips are widened in.
+    /// Appended: a shader declaring the struct without it still binds.
+    pub image_size: [f32; 2],
+    // WGSL rounds the struct up to a multiple of 16: 104 bytes to 112.
+    pub _padding: [u32; 2],
+    /// The camera in the world, for the direction a fragment is seen from,
+    /// which every scattering law but Lambert's needs. Appended at 112, where
+    /// WGSL puts a `vec3` after the padding, so a shader declaring the struct
+    /// without it still binds.
+    pub camera_pos: [f32; 3],
+    pub _padding2: u32,
 }
 
 #[repr(C)]
@@ -109,8 +120,39 @@ pub struct Light {
     pub n_layers: u32,
 
     pub color: Vec3,
-    pub _padding2: u32,
+    /// The Sun's radius, 0 for a point (`Light::disc_radius` in the config);
+    /// in the padding after `color`, so every shader's copy of this struct
+    /// still binds.
+    pub sun_radius: f32,
+    /// How many of `air` hold an atmosphere, the bodies' first two: such a
+    /// body's shadow on another is its ellipsoid's and its dust's
+    /// (`mesh_shadow.wgsl`, `through_air`). Last, with `air`, which the
+    /// shaders that do not read them leave out.
+    pub air_count: u32,
+    /// 1 when those bodies cast into no other body's layer, so their solid
+    /// shadow is the ellipsoid's too; 0 with one layer for the scene, which
+    /// holds them, and leaves the dust alone to `through_air`.
+    pub air_solid: u32,
+    /// 1 when the penumbra pass runs this frame (`pass::penumbra`), so the
+    /// main pass reads what it found.
+    pub penumbra: u32,
+    /// Bit `i`: layer `i`'s body and the other bodies cast into slices of
+    /// their own, the others' after the layers in order (`Window::update`,
+    /// `others_slice` in `mesh_shadow.wgsl`).
+    pub apart: u32,
+    /// Per atmosphere, three rows: the body's centre and equatorial radius;
+    /// its z axis and polar radius; the dust's optical depth at that
+    /// ellipsoid and its scale height -- world units.
+    pub air: [[f32; 4]; 3 * MAX_AIR],
+    /// 1 when each layer has a second depth layer, the nearest surface
+    /// behind its first (`shadow::Pass::peel`), after the others' slices in
+    /// layer order. With the Sun a disc.
+    pub peeled: u32,
+    pub _peel_pad: [u32; 3],
 }
+
+/// Atmospheres whose shadows other bodies see: Mars's is the one there is.
+pub const MAX_AIR: usize = 2;
 
 /// Number of entries in the colour lookup table.
 ///

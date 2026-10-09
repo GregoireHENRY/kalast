@@ -2,9 +2,11 @@
 
 import numpy
 import spiceypy as spice
+from PIL import Image
 
 import kalast  # noqa
 from kalast.app import App, Hud
+from kalast.scattering import Hapke, Atmosphere
 from kalast.util import DPR, RPD, AU, SOLAR_CONSTANT  # noqa
 
 
@@ -16,6 +18,9 @@ app.simulation.config.image.height = 768
 app.simulation.config.image.flip_y = True
 app.simulation.config.axes.style = "off"
 app.simulation.config.wireframe.mode = 0
+app.simulation.config.shading.srgb_mode = 1
+app.simulation.config.light.exposure = 4.5
+app.simulation.config.light.sun_radius = 695700.0
 
 app.simulation.huds = [Hud("", size=16, color=[0.0, 0.0, 0.0, 1.0])]
 app.simulation.camera.pos = [0.0, 0.0, 0.0]
@@ -33,9 +38,20 @@ app.simulation.load_mesh(
     # mat=LARGER,
 )
 
+# app.simulation.bodies[0].atmosphere = Atmosphere(tau=0.45)
+mars = app.simulation.bodies[0].mesh
+tes = numpy.asarray(Image.open("/Users/gregoireh/data/mars/Mars_MGS_TES_Albedo_mosaic_global_7410m.tif"))
+mars.colors_from_map(0.9 * tes)
+
+# Hapke 2012 fits, colours left at 1, the laws' own albedo: Deimos from
+# Wargnier et al. (2025), Phobos from Fornasier et al. (2024) at 655 nm.
+# app.simulation.bodies[1].scattering = Hapke(w=0.068, b=0.275, c=1.0, b0=2.14, h=0.065, theta_bar=19.4 * RPD, k=1.21)
+# app.simulation.bodies[2].scattering = Hapke(w=0.0743, b=0.252, c=1.0, b0=2.283, h=0.0573, theta_bar=22.9 * RPD, k=1.19)
+
 spice.kclear()
 spice.furnsh("/Users/gregoireh/data/spice/hera/kernels/mk/hera_ops.tm")
 et0 = spice.str2et("2025-03-12 05:52:00 UTC")
+# et0 = spice.str2et("2025-03-12 09:10:25 UTC")
 # et0 = spice.str2et("2025-03-12 12:09:18.7503")
 # et0 = spice.str2et("2025-03-12 12:08:58")
 et1 = spice.str2et("2025-03-12 12:07:00 UTC")
@@ -66,7 +82,7 @@ while app.running:
     elif et1 - et < 1.0:
         dt = dt1
 
-    app.simulation.export_once()
+    # app.simulation.export_once()
 
     (p_sun, _lt) = spice.spkpos("sun", et, instr, "none", instr)
     (p_earth, _lt) = spice.spkpos("earth", et, instr, "none", instr)

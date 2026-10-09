@@ -48,14 +48,17 @@ pub enum Scope {
     Text,
     /// The editor's panels.
     Gui,
+    /// With the Sun a disc, its prepass and walks (`pass::penumbra`).
+    Penumbra,
 }
 
-pub const SCOPES: [Scope; 5] = [
+pub const SCOPES: [Scope; 6] = [
     Scope::Shadow,
     Scope::Render,
     Scope::Depth,
     Scope::Text,
     Scope::Gui,
+    Scope::Penumbra,
 ];
 
 impl Scope {
@@ -66,6 +69,7 @@ impl Scope {
             Scope::Depth => 2,
             Scope::Text => 3,
             Scope::Gui => 4,
+            Scope::Penumbra => 5,
         }
     }
 
@@ -77,6 +81,7 @@ impl Scope {
             Scope::Depth => "depth",
             Scope::Text => "text",
             Scope::Gui => "gui",
+            Scope::Penumbra => "penumbra",
         }
     }
 }
@@ -216,6 +221,15 @@ impl GpuTimer {
             query_set: &self.query_set,
             beginning_of_pass_write_index: Some(slot as u32 * 2),
             end_of_pass_write_index: Some(slot as u32 * 2 + 1),
+        })
+    }
+
+    /// `scope`'s, for a compute pass.
+    pub fn compute_scope(&self, scope: Scope) -> Option<wgpu::ComputePassTimestampWrites<'_>> {
+        self.scope(scope).map(|w| wgpu::ComputePassTimestampWrites {
+            query_set: w.query_set,
+            beginning_of_pass_write_index: w.beginning_of_pass_write_index,
+            end_of_pass_write_index: w.end_of_pass_write_index,
         })
     }
 

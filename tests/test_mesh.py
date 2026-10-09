@@ -200,6 +200,112 @@ def test_the_crater_plane_corners_sit_on_the_grid():
         assert (m.get_facet_positions(f) == numpy.array(want)).all(), (f, m.get_facet_positions(f))
 
 
+ICO = "res/ico3.obj"
+
+
+def map_at(lat, lon, image, west):
+    """A simple cylindrical map's bilinear value at latitude and longitude
+    (degrees): written out again here rather than borrowed from the code it
+    checks. Rows from 90 N, columns east from `west`, pixel centres half a
+    pixel in, the outer row past the outer centres, and across the seam."""
+    rows, cols = image.shape[:2]
+    v = numpy.clip((90.0 - lat) * rows / 180.0 - 0.5, 0.0, rows - 1)
+    r0 = numpy.minimum(numpy.floor(v).astype(int), rows - 2)
+    tv = (v - r0)[..., None]
+    u = numpy.mod(lon - west, 360.0) * cols / 360.0 - 0.5
+    c0 = numpy.floor(u).astype(int)
+    tu = (u - c0)[..., None]
+    c1, c0 = (c0 + 1) % cols, c0 % cols
+    image = image.reshape(rows, cols, -1)
+    return ((1 - tv) * ((1 - tu) * image[r0, c0] + tu * image[r0, c1])
+            + tv * ((1 - tu) * image[r0 + 1, c0] + tu * image[r0 + 1, c1]))
+
+
+def lat_lon(p):
+    p = numpy.asarray(p, dtype=float)
+    r = numpy.linalg.norm(p, axis=-1)
+    return numpy.degrees(numpy.arcsin(p[..., 2] / r)), numpy.degrees(numpy.arctan2(p[..., 1], p[..., 0]))
+
+
+def facet_means(m, image, west):
+    """Each facet's mean over its area: cut into k x k equal triangles, k the
+    map pixels across its widest angle from the centre (at least 1, at most
+    32), one sample at the middle of each."""
+    rows, cols = image.shape[:2]
+    pixel = numpy.radians(min(180.0 / rows, 360.0 / cols))
+    tri = numpy.asarray(m.positions, dtype=float)[m.indices.reshape(-1, 3)]
+    means = []
+    for a, b, c in tri:
+        widest = max(
+            numpy.arccos(numpy.clip(p @ q / numpy.linalg.norm(p) / numpy.linalg.norm(q), -1, 1))
+            for p, q in ((a, b), (b, c), (c, a))
+        )
+        k = int(min(max(numpy.ceil(widest / pixel), 1), 32))
+        up = [(3 * i + 1, 3 * j + 1) for i in range(k) for j in range(k - i)]
+        down = [(3 * i + 2, 3 * j + 2) for i in range(k) for j in range(k - i) if i + j + 2 <= k]
+        uv = numpy.array(up + down, dtype=float) / (3 * k)
+        at = a + uv[:, :1] * (b - a) + uv[:, 1:] * (c - a)
+        means.append(map_at(*lat_lon(at), image, west).mean(axis=0))
+    return numpy.array(means)
+
+
+# 10 deg pixels varying both ways, nothing symmetric to hide a flip in.
+PATTERN = (numpy.add.outer(7 * numpy.arange(18), 3 * numpy.arange(36)) % 11) / 10.0
+
+
+def test_colors_from_map_colours_each_facet_from_where_it_is():
+    m = kalast.mesh.Mesh(ICO)
+    m.flatten()
+    for west in (-180.0, 0.0):
+        m.colors_from_map(PATTERN.astype(numpy.float32), west=west)
+        want = facet_means(m, PATTERN, west)
+        err = numpy.abs(m.colors - want).max()
+        assert err < 1e-5, (west, err)
+    # The left edge matters: a map read from the wrong one is another map.
+    assert numpy.abs(facet_means(m, PATTERN, -180.0) - facet_means(m, PATTERN, 0.0)).max() > 0.1
+
+
+def test_colors_from_map_averages_a_facet_wider_than_a_pixel():
+    """ico1's facets span about 4 of these 10 deg pixels, so each is the mean
+    of 16 samples, not its middle alone."""
+    m = kalast.mesh.Mesh("res/ico1.obj")
+    m.flatten()
+    m.colors_from_map(PATTERN)
+    want = facet_means(m, PATTERN, -180.0)
+    assert numpy.abs(m.colors - want).max() < 1e-5
+    middle = map_at(*lat_lon(numpy.asarray(m.positions, dtype=float)[m.indices.reshape(-1, 3)].mean(axis=1)), PATTERN, -180.0)
+    assert numpy.abs(m.colors - middle).max() > 0.1, "a facet's middle is not its mean"
+
+
+def test_colors_from_map_takes_three_channels_and_colours_a_smooth_mesh_per_vertex():
+    m = kalast.mesh.Mesh(ICO)
+    assert not m.is_flat()
+    rgb = numpy.stack([PATTERN, 1.0 - PATTERN, 0.5 * PATTERN], axis=-1)  # float64
+    m.colors_from_map(rgb)
+    assert m.colors.shape == (len(m.vertices), 3)
+    want = map_at(*lat_lon(m.positions), rgb, -180.0)
+    assert numpy.abs(m.colors - want).max() < 1e-5
+
+
+def test_colors_from_map_keeps_a_colour_where_there_is_no_data_and_refuses_what_is_not_a_map():
+    m = kalast.mesh.Mesh(ICO)
+    m.flatten()
+    m.colors[:] = 0.3
+    m.colors_from_map(numpy.full((18, 36), numpy.nan))
+    assert (m.colors == numpy.float32(0.3)).all()
+    for bad, error in (
+        ((255 * PATTERN).astype(numpy.uint8), TypeError),       # 8-bit, not divided
+        (numpy.zeros((18, 36, 2)), ValueError),                  # two channels
+        (numpy.zeros(36), ValueError),                            # one dimension
+        (numpy.zeros((1, 36)), ValueError),                       # one row
+    ):
+        try:
+            m.colors_from_map(bad)
+        except error:
+            continue
+        raise AssertionError(f"{bad.dtype} {bad.shape} was taken")
+
+
 if __name__ == "__main__":
     # Runnable without pytest, which is not installed here.
     failures = 0

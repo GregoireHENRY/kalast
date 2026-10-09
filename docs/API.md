@@ -426,7 +426,7 @@ covered:
 |---|---|
 | `facet_shadow`, `facet_id_map`, `hemicube` and their `request_*` | a query is only half of it -- a result needs somewhere to be looked at, and a per-facet array is not a side panel |
 | the camera's control mode and aiming helpers | bound to keys already (`T` cycles the mode), and `view_along` belongs to a figure being composed, not to a settings list |
-| `flip_facets`, `inward_facing_facets`, `recompute_facets`, `mark_colors_dirty`, `update_all_vertices_colors` | surgery on a mesh, done once when a shape model turns out to be wrong, not while a run is going. `intersect` is no longer among them -- it is what a click uses to pick a facet |
+| `flip_facets`, `inward_facing_facets`, `recompute_facets`, `update_gpu_colors`, `update_all_vertices_colors` | surgery on a mesh, done once when a shape model turns out to be wrong, not while a run is going. `intersect` is no longer among them -- it is what a click uses to pick a facet |
 
 **Some members are not panel-shaped at all** and are excluded from that count:
 program entry points (`start`, `start_editor`, `tick`), the editor's own
@@ -680,6 +680,8 @@ A list, in load order. Each `Body` has:
 |---|---|
 | `mat` | 4×4 model matrix as a numpy array — position and orientation |
 | `mesh` | the `Mesh` |
+| `scattering` | how the surface reflects sunlight in the image: `None` (Lambert) or a law from `kalast.scattering`, below |
+| `atmosphere` | a dusty atmosphere over the surface in the image: `None` or `kalast.scattering.Atmosphere`, below |
 
 ```python
 sim.bodies[0].mat[:3, :3] = spice.pxform("IAU_MARS", "HERA_TIRI", et)
@@ -696,6 +698,142 @@ sim.remove_body(1)          # IndexError if there is no body 1
 The bodies after it shift down, so an index held across the call means a
 different body — `camera.anchor_body` included, which follows by index and
 will quietly follow the neighbour.
+
+### `body.scattering` — the reflectance law the image is shaded with
+
+`None`, the default, is Lambert: a lit pixel is `light.exposure * colour *
+cos(i)`, the facet's colour standing for its albedo. A law from
+`kalast.scattering` makes it `light.exposure * colour * pi * r(i, e, alpha) *
+cos(i)` — the I/F the law gives, scaled by the colour — with `e` and `alpha`
+from where the camera is:
+
+```python
+from kalast.scattering import Hapke
+
+deimos = sim.bodies[1]
+deimos.scattering = Hapke(w=0.068, b=0.275, c=1.0, b0=2.14, h=0.065,
+                          theta_bar=math.radians(19.4), k=1.21)
+deimos.mesh.colors[:] = 1.0      # the law's own albedo
+deimos.mesh.update_gpu_colors()
+```
+
+So with a law, leave the colours at 1, or make them a map relative to the
+law's albedo. `Hapke(...)` and `LommelSeeligerLambert(...)` are taken, the
+same objects the light curves use; reading `scattering` gives a copy. The
+shader writes each law again in f32, held to the CPU one within 0.3 % by
+`tests/test_scattering_render.py`. A shadow is from the Sun's centre, a point,
+unless `light.sun_as_point = False` makes the Sun a disc (`docs/CONFIG.md`).
+
+Deimos above is Wargnier et al. (2025), Hapke 2012 with a 1T-HG phase function
+fitted to Mars Express images; it puts Deimos within 2 % of AFC's images at 4-6°
+phase, where Lambert is 25 % short. Phobos, Fornasier et al. (2024) at 655 nm:
+`Hapke(w=0.0743, b=0.252, c=1.0, b0=2.283, h=0.0573, theta_bar=math.radians(22.9), k=1.19)`.
+
+### `body.atmosphere` — a dusty atmosphere over the surface
+
+`None`, the default, is the bare surface. `kalast.scattering.Atmosphere` makes
+a pixel the I/F of the dust and of the surface seen through it:
+`light.exposure * (dust + surface)`, where the dust scatters sunlight back once
+and many times, and the surface -- Lambert, the facet's colour its albedo -- is
+lit by the beam that got through the dust (where the shadow map lets it) and by
+the sky, and seen directly and through the dust. With `scattering` set, the law
+reflects the beam, and the sky's light and the surroundings' are reflected by
+the colour times the law's albedo for a diffuse sky. In the UI app, the
+simulation panel switches it on and off per body, Mars's at first, and edits
+its numbers.
+
+```python
+from kalast.scattering import Atmosphere
+
+mars = sim.bodies[0]
+mars.atmosphere = Atmosphere(tau=0.45)     # Mars, clear season, km
+```
+
+| | default | |
+|---|---|---|
+| `tau` | 0.45 | vertical optical depth at the level |
+| `scale_height` | 11.0 | of the dust, scene units |
+| `radius`, `polar_radius` | 3396.19, 3376.20 | the level: an ellipsoid about the body's own z axis, scene units; `polar_radius=None` a sphere |
+| `omega` | 0.975 | the dust's single-scattering albedo |
+| `g1`, `g2`, `q` | 0.889, 0.094, 0.743 | its phase function: `q HG(g1) + (1 - q) HG(g2)`, two forward lobes |
+| `albedo` | `None` | the surface's mean albedo round about, for the light it and the air send each other; `None` each facet's own |
+
+The planet is taken as the ellipsoid, the air thinning with height above it as
+the pressure does: `tau * exp(-height / scale_height)`, twice as much dust over
+Hellas as over the uplands. Paths through the air are Chapman's over a sphere,
+22 airmasses at Mars's horizon rather than a slab's infinity, and past the
+terminator the dust fades as twilight does. The defaults are Mars at 655 nm in
+km. `Atmosphere.iof(mu0_facet, mu0, mu, alpha, albedo, lit=1.0, height=0.0)`
+gives the model's I/F at a point; the shader's agrees with it within one
+8-bit count (`tests/test_atmosphere_render.py`).
+
+Such a body shadows the others by its ellipsoid and its dust, not through their
+shadow maps: each ray toward the Sun (16 points of its disc, with
+`light.sun_as_point = False`) passing the ellipsoid is stopped, and one passing
+above it is dimmed by the dust's slant optical depth there, `tau exp(-z / H)
+sqrt(2 pi r / H)`. Phobos leaving Mars's shadow at the swing-by: a minute early
+with a bare Mars, about as late as AFC saw it with `scale_height=8`, 15-20 s
+late with the default 11.
+
+On the Hera swing-by's AFC images, against the bare surface with TES albedos:
+the limb went from 4.7 times too dark to within 10 %, and the spread of AFC over
+kalast, pixel by pixel, narrowed by a third. A Hapke law for Mars's surface and
+the dust's phase function fitted to AFC's 43 Mars images of the day bring
+every image within 7 % of AFC's brightness from 5 to 66 deg of phase, AFC
+over kalast 0.93-1.07 for 16-84 % of the pixels; with a published law alone
+it read 0.68-0.89 past 15 deg:
+
+```python
+law = Hapke(w=0.70, b=0.141, c=1.0, b0=1.0, h=0.052, theta_bar=math.radians(21.5), k=1.0)
+mars.scattering = law
+mars.atmosphere = Atmosphere(tau=0.36, scale_height=8.7, g2=-0.248, q=0.929)
+ref = math.pi * law.reflectance(math.cos(math.radians(45)), 1.0, math.radians(45))
+mars.mesh.colors_from_map(0.799 * (0.19 + 0.754 * (tes - 0.19)) / ref)  # TES at 0.75 of its contrast
+```
+
+The dust there has a small backward lobe (`g2 < 0`) and its depth matches
+Phobos's egress; it is an effective phase function for this model, not a
+retrieval of the dust's. Fit and its limits in
+`notes/2026-10-08_mars_phase_fit/`.
+
+### `body.horizon_map` — a body's own shadows from its horizons
+
+`False` by default: a body's own shadows come from drawing it into its own
+shadow layer every frame. `True` works out, once, on the GPU, how high its
+terrain rises from each facet in 32 directions, and its own shadows come from
+that: a facet is lit where the Sun stands above its horizon, and with
+`light.sun_as_point = False` by the part of the limb-darkened disc above it.
+Its shadow layer then holds only the other bodies that can shadow it, and is
+drawn empty when there are none.
+
+```python
+mars = sim.bodies[0]
+mars.horizon_map = True     # about 8 s for 12.9M facets, 825 MB on the GPU
+```
+
+On Mars at the Hera swing-by (12.9M facets, 1020 x 1020, an M1 Pro), a frame
+on the GPU:
+
+| | shadow map | horizon map |
+|---|---|---|
+| 12:08:31, closest approach, point Sun | 4.7 ms | 2.8 ms |
+| the same, the Sun a disc | 8.9 ms | 4.2 ms |
+| 12:45, the terminator in view, point Sun | 7.0 ms | 4.5 ms |
+| the same, the Sun a disc | 12.2 ms | 5.9 ms |
+
+It is closer to rays than the shadow map, whose bias lights what a ray says is
+dark: over a sphere of hills and craters under a low Sun, 0.7 % of facets
+wrongly lit or dark against 2.0 %, and with the Sun a disc 70 % of the facets
+in a penumbra within 0.05 of the rays against 40 % (`tests/test_horizon_map.py`).
+Its misses are a hill narrower than the 11 degrees between two directions,
+seen between them.
+
+What it is not: a shadow edge is a facet's, lit or not as its centre is, where
+the shadow map's edges cross facets -- fine at a facet a pixel, blocky up
+close. It is for a body each direction from whose centre crosses its surface
+once -- a planet, most asteroids -- in its own frame, z its spin axis; an
+overhang is said on the console. With `shadows.per_body = False` it is not
+used. The per-facet shadow query takes it too.
 
 `sim.reset()` empties the scene entirely: bodies, HUDs, the iteration counter
 and any pending GPU request. The config survives, deliberately — it is what a
@@ -908,7 +1046,7 @@ sim.rebuild_meshes()        # ...or the render keeps the old geometry
 
 `sim.remove_body` does it for you, since removing from the middle changes what
 every later index means. Colours have their own, cheaper route in
-`mesh.mark_colors_dirty()`.
+`mesh.update_gpu_colors()`.
 
 ### What a `Mesh` carries
 
@@ -969,8 +1107,9 @@ And the operations on one:
 | `is_flat()` | whether each facet owns its vertices — a method, not a property |
 | `flatten()`, `smoothen()` | switch the shading between per facet and per vertex. The geometry does not move, so either works on any mesh, any number of times. Follow with `sim.rebuild_meshes()` |
 | `recompute_facets()` | recompute centres, normals and areas after moving vertices |
-| `mark_colors_dirty()` | re-upload colours next frame, after writing `colors` in place |
+| `update_gpu_colors()` | send the colours to the GPU again next frame, after writing `colors` in place: `colors` is a view onto the mesh's memory, and the GPU keeps its old copy until then. `mark_colors_dirty()`, its old name, works for one more release with a `DeprecationWarning` |
 | `update_all_vertices_colors(mode, color)` | set every vertex to one colour and mode |
+| `colors_from_map(map, west=-180.0)` | colour from a latitude-longitude map of the body, below |
 | `get_facet_positions(i)` | the three corners of one facet |
 | `get_facet_normals(i)`, `get_facet_colors(i)` | the same three, other attributes |
 | `get_facet_indices(i)`, `get_facet_vertices(i)` | its indices, and its `Vertex` rows |
@@ -982,6 +1121,35 @@ A facet whose winding is reversed is permanently dark in the thermophysical
 model, and a hemicube placed on it reports a self view factor near 1 — which
 is what `inward_facing_facets` is for. It assumes a roughly star-shaped body,
 so read the result rather than trusting it.
+
+### `mesh.colors_from_map(map, west=-180.0)` — colours from a map of the body
+
+An albedo map or a colour mosaic of the whole body, read where each facet
+lies: a facet of a flat mesh takes the map's mean over its area, a vertex of a
+smooth mesh the map where it lies. The colours go to the GPU by themselves.
+The mean is over `k * k` equal triangles the facet is cut into, `k` the map
+pixels across it, up to 32: the middle alone for a facet within a pixel.
+
+```python
+from PIL import Image
+
+tes = numpy.asarray(Image.open("Mars_MGS_TES_Albedo_mosaic_global_7410m.tif"))
+mars.colors_from_map(tes)
+```
+
+- `map`: floats, `(rows, columns)` for a grey value or `(rows, columns, 3)`.
+  Divide an 8-bit image by 255 first.
+- Simple cylindrical over the whole body: the first row at 90° N and the
+  last at 90° S, the columns 360° eastward from `west` — `-180` for USGS's
+  mosaics, `0` for PDS's MOLA grids. Bilinear, across the 180° seam too.
+- Planetocentric latitude and east longitude, about the mesh's own origin
+  with `z` north and `x` at longitude 0: the body-fixed frame, IAU_MARS for
+  Mars.
+- NaN marks where the map has no data; a facet with nothing else keeps its
+  colour.
+
+With lit shading the colour is the albedo: a lit pixel is
+`light.exposure * albedo * cos(i)`.
 
 ### `mesh.values` — colouring facets from data
 
@@ -1034,7 +1202,13 @@ frac = sim.facet_shadow(body)       # after_render -> array or None
 ```
 
 One entry per facet in `Mesh.facets` order: `0.0` nothing in the way, `1.0`
-fully blocked, quarter steps between (4 samples per facet).
+fully blocked, quarter steps between (4 samples per facet). With
+`body.horizon_map`, a facet whose centre has the Sun below its horizon is
+`1.0`, and the samples answer only for the other bodies. With the Sun a disc
+(`light.sun_as_point = False`), the fraction of the limb-darkened disc the
+four samples do not see, averaged -- the penumbrae graded as the image has
+them -- with the horizon map's line across the disc, and `1.0` where the facet
+faces away from the Sun.
 
 Set `config.shadows.access_shadow_map = True` to have every body computed every frame
 instead of requesting per body.
@@ -1259,7 +1433,7 @@ app.simulation.config.debug.gpu_timing = True
 ...
 t = app.simulation.gpu_timings()
 # {'shadow': 1.51, 'render': 1.74, 'depth': 0.0, 'text': 0.0, 'gui': 0.0,
-#  'span': 1.77, 'frame': 412.0}
+#  'penumbra': 0.0, 'span': 1.77, 'frame': 412.0}
 ```
 
 `{}` when the option is off, and `{}` on an adapter without timestamp
@@ -1276,9 +1450,10 @@ Two things to hold on to, both measured rather than assumed:
   reading what has already finished, so `frame` carries the iteration they
   were measured on. Quote that, not `sim.state.iteration`.
 
-The same figures reach a HUD as `{gpu}` (the span) and `{gpu_shadow}`,
-`{gpu_render}`, `{gpu_depth}`, `{gpu_text}`, `{gpu_gui}`. Background in
-`notes/2026-09-09_gpu_pass_timings.md`.
+`penumbra` is the Sun's disc's own pass (`light.sun_as_point = False`), 0
+with a point Sun. The same figures reach a HUD as `{gpu}` (the span) and
+`{gpu_shadow}`, `{gpu_render}`, `{gpu_depth}`, `{gpu_text}`, `{gpu_gui}`,
+`{gpu_penumbra}`. Background in `notes/2026-09-09_gpu_pass_timings.md`.
 
 ## `sim.update()`
 
@@ -1521,7 +1696,7 @@ reduction test in `tests/test_scattering.py` is what holds all four to it.
 | `h_function(w, x)` | Chandrasekhar `H`, Hapke's 2002 approximation |
 | `henyey_greenstein(b, c, alpha)` | two-lobe particle phase function, `c` = backward fraction |
 | `opposition_surge(b0, h, alpha)` | shadow-hiding surge, `B0` at zero phase, half-width at `tan(a/2) = h` |
-| `Hapke(w, b, c, b0, h, theta_bar)` | the full IMSA model |
+| `Hapke(w, b, c, b0, h, theta_bar, k)` | the full IMSA model; `k` Hapke's (2008) porosity factor, 1 for none |
 
 ```python
 from kalast.scattering import Hapke, lommel_seeliger
@@ -1530,6 +1705,12 @@ h = Hapke(w=0.1, b=0.3, c=0.6, b0=1.0, h=0.05)
 r = h.reflectance(mu0=0.8, mu=0.6, alpha=0.1)   # radians
 a = h.bond_albedo()
 ```
+
+**`k` is Hapke's (2008) porosity factor**, `1` by default, which is the IMSA
+as it was: the reflectance is `k` times larger and the `H` functions are taken
+at `mu / k`. From the filling factor `phi`, one minus the porosity,
+`k = -ln(1 - 1.209 phi^(2/3)) / (1.209 phi^(2/3))`. Fits made with Hapke's 2012
+model carry it: 1.19 for Phobos (87 % porous), 1.21 for Deimos (86 %).
 
 **`theta_bar` is Hapke's macroscopic roughness**, the mean slope angle of
 relief the shape model does not resolve, in **radians** (the literature quotes

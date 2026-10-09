@@ -194,6 +194,7 @@ def _cases():
         ("kalast/scattering.pyi", "Hapke", kalast.scattering.Hapke()),
         ("kalast/scattering.pyi", "LommelSeeligerLambert",
          kalast.scattering.LommelSeeligerLambert()),
+        ("kalast/scattering.pyi", "Atmosphere", kalast.scattering.Atmosphere()),
         ("kalast/lightcurve.pyi", "Spin", kalast.lightcurve.Spin()),
         ("kalast/lightcurve.pyi", "Point", _a_point()),
         ("kalast/lightcurve.pyi", "Curve", _a_curve()),

@@ -33,6 +33,12 @@ pub const SHADER_COLORBAR: wgpu::ShaderModuleDescriptor =
 pub const SHADER_AXES: wgpu::ShaderModuleDescriptor =
     wgpu::include_wgsl!("../../shaders/axes.wgsl");
 
+pub const SHADER_TEXT_LAYER: wgpu::ShaderModuleDescriptor =
+    wgpu::include_wgsl!("../../shaders/text_layer.wgsl");
+
+pub const SHADER_MSAA_RESOLVE: wgpu::ShaderModuleDescriptor =
+    wgpu::include_wgsl!("../../shaders/msaa_resolve.wgsl");
+
 /// A `Mat4` as the column-major `[[f32; 4]; 4]` a uniform wants.
 ///
 /// `Float` may be `f64`, and a uniform never is.
@@ -61,6 +67,12 @@ pub const SHADER_SHADOW: wgpu::ShaderModuleDescriptor =
 
 pub const SHADER_FACET_SHADOW: wgpu::ShaderModuleDescriptor =
     wgpu::include_wgsl!("../../shaders/facet_shadow.wgsl");
+
+pub const SHADER_DEPTH_PYRAMID: wgpu::ShaderModuleDescriptor =
+    wgpu::include_wgsl!("../../shaders/depth_pyramid.wgsl");
+
+pub const SHADER_HORIZON: wgpu::ShaderModuleDescriptor =
+    wgpu::include_wgsl!("../../shaders/horizon.wgsl");
 
 pub const SHADER_FACET_ID: wgpu::ShaderModuleDescriptor =
     wgpu::include_wgsl!("../../shaders/facet_id.wgsl");
@@ -119,26 +131,47 @@ pub fn has_primitive_index(device: &wgpu::Device) -> bool {
         .contains(wgpu::Features::from(wgpu::FeaturesWebGPU::PRIMITIVE_INDEX))
 }
 
-/// One shader source, two builds. A line ending in `//@prim` is kept only
-/// when the device has `PRIMITIVE_INDEX`, one ending in `//@noprim` only
-/// when it does not; every other line is kept. The fallback thereby lives in
-/// the same file as the path it falls back from, three tagged lines apart,
-/// rather than in a second copy of four hundred.
+/// Whether the device took `IMMEDIATES`: a few bytes set per draw, which
+/// is how a level-of-detail cut tells the shader where each draw's triangles
+/// start in `facet_of` (`lod`).
+pub fn has_immediates(device: &wgpu::Device) -> bool {
+    device
+        .features()
+        .contains(wgpu::Features::from(wgpu::FeaturesWebGPU::IMMEDIATES))
+}
+
+/// One shader source, several builds. A line ending in `//@prim` is kept
+/// only when the device has `PRIMITIVE_INDEX`, one ending in `//@noprim`
+/// only when it does not; every other line is kept. The fallback thereby
+/// lives in the same file as the path it falls back from, three tagged lines
+/// apart, rather than in a second copy of four hundred. `lean` keeps the
+/// lines ending in `//@lean` instead of those ending in `//@full`: the
+/// mesh shader's build for a flat mesh without the wireframe.
 pub fn shader_for(
     device: &wgpu::Device,
     desc: &wgpu::ShaderModuleDescriptor<'static>,
+    lean: bool,
 ) -> wgpu::ShaderModuleDescriptor<'static> {
     let prim = has_primitive_index(device);
+    let imm = has_immediates(device);
     let wgpu::ShaderSource::Wgsl(src) = &desc.source else {
         unreachable!("every shader here is WGSL");
     };
     let mut out = String::with_capacity(src.len());
     for line in src.lines() {
         let t = line.trim_end();
+        // `//@imm` likewise for `IMMEDIATES`, which the level-of-detail
+        // draw needs.
         let keep = if t.ends_with("//@prim") {
             prim
         } else if t.ends_with("//@noprim") {
             !prim
+        } else if t.ends_with("//@imm") {
+            imm && prim
+        } else if t.ends_with("//@full") {
+            !lean
+        } else if t.ends_with("//@lean") {
+            lean
         } else {
             true
         };
@@ -189,6 +222,38 @@ impl RenderPipeline {
             topology,
             buffers,
             wgpu::BlendState::REPLACE,
+            0,
+        )
+    }
+
+    /// As `new`, with `immediate_size` bytes of immediates: the main pass's,
+    /// for a level-of-detail draw's first triangle.
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_immediates(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        cull_mode: Option<wgpu::Face>,
+        shader: wgpu::ShaderModuleDescriptor,
+        bind_group_layouts: &[Option<&wgpu::BindGroupLayout>],
+        samples: u32,
+        buffers: &[Option<wgpu::VertexBufferLayout>],
+        immediate_size: u32,
+    ) -> Self {
+        Self::build(
+            device,
+            format,
+            cull_mode,
+            shader,
+            bind_group_layouts,
+            true,
+            true,
+            samples,
+            true,
+            DEPTH_COMPARE,
+            wgpu::PrimitiveTopology::TriangleList,
+            buffers,
+            wgpu::BlendState::REPLACE,
+            immediate_size,
         )
     }
 
@@ -229,6 +294,7 @@ impl RenderPipeline {
             topology,
             buffers,
             wgpu::BlendState::ALPHA_BLENDING,
+            0,
         )
     }
 
@@ -259,6 +325,7 @@ impl RenderPipeline {
         // every pipeline.
         buffers: &[Option<wgpu::VertexBufferLayout>],
         blend: wgpu::BlendState,
+        immediate_size: u32,
     ) -> Self {
         // wireframe: bool,
 
@@ -266,6 +333,7 @@ impl RenderPipeline {
 
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             bind_group_layouts,
+            immediate_size,
             ..Default::default()
         });
 
@@ -349,10 +417,11 @@ impl<U: bytemuck::NoUninit> UniformBuffer<U> {
             label: None,
         });
 
+        // Compute too: the penumbra pass's walks read the globals.
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT | wgpu::ShaderStages::COMPUTE,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
@@ -447,18 +516,111 @@ pub const ATTRS_GROUP: u32 = 5;
 pub fn mesh_attrs_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("mesh attrs"),
-        entries: &[wgpu::BindGroupLayoutEntry {
-            binding: 0,
-            // The vertex stage reads it for a smooth mesh, the fragment
-            // stage for a flat one (by primitive index).
-            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                has_dynamic_offset: false,
-                min_binding_size: None,
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                // The vertex stage reads it for a smooth mesh, the fragment
+                // stage for a flat one (by primitive index).
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
             },
-            count: None,
-        }],
+            // The facet each triangle of a level-of-detail cut stands for
+            // (`lod`); one dummy word for a mesh drawn whole.
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            // The instance buffer, read by the fragment stage for the body's
+            // flags, layer, normal matrix and law: `Body` in
+            // `mesh_shadow.wgsl`. And by the per-facet query with the Sun a
+            // disc (`cs_facets`), for its pose and layer.
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::FRAGMENT.union(wgpu::ShaderStages::COMPUTE),
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            // A level-of-detail cut's vertices, and for each skirt vertex the
+            // outline vertex it hangs from: the vertex stage lights a skirt
+            // as the surface above it (`lod`). One dummy word each for a mesh
+            // drawn whole.
+            wgpu::BindGroupLayoutEntry {
+                binding: 3,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 4,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            // The body's horizon map (`horizon`), for its own shadows; one
+            // dummy word without one. The per-facet query reads it too.
+            wgpu::BindGroupLayoutEntry {
+                binding: 5,
+                visibility: wgpu::ShaderStages::FRAGMENT.union(wgpu::ShaderStages::COMPUTE),
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+        ],
+    })
+}
+
+/// A mesh's attributes bind group (`mesh_attrs_layout`): `lod` its cut's
+/// `facet_of`, vertices and skirt tops; `none` a word for what it lacks.
+fn attr_group(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    attrs: &wgpu::Buffer,
+    instance: &wgpu::Buffer,
+    lod: Option<(&wgpu::Buffer, &wgpu::Buffer, &wgpu::Buffer)>,
+    horizon: Option<&wgpu::Buffer>,
+    none: &wgpu::Buffer,
+) -> wgpu::BindGroup {
+    let (facet_of, vertices, tops) = lod.unwrap_or((none, none, none));
+    fn entry(binding: u32, buffer: &wgpu::Buffer) -> wgpu::BindGroupEntry<'_> {
+        wgpu::BindGroupEntry { binding, resource: buffer.as_entire_binding() }
+    }
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("mesh attrs"),
+        layout,
+        entries: &[
+            entry(0, attrs),
+            entry(1, facet_of),
+            entry(2, instance),
+            entry(3, vertices),
+            entry(4, tops),
+            entry(5, horizon.unwrap_or(none)),
+        ],
     })
 }
 
@@ -630,7 +792,35 @@ pub struct InstanceInput {
     /// rather than a shared map.
     pub shadow_layer: u32,
 
-    _padding: [u32; 2],
+    /// The body's scattering law: `0` Lambert, the colour times `cos i` it
+    /// always was; `1` the Lommel-Seeliger and Lambert mix; `2` Hapke.
+    pub law: u32,
+    /// The law's numbers: the mix's `(w, c, 0, 0)`, Hapke's `(w, b, c, b0)`.
+    pub law_params: [f32; 4],
+    /// Hapke's `(h, theta_bar, k, 0)`: the surge's width, the roughness, the
+    /// porosity factor.
+    pub law_params2: [f32; 4],
+
+    /// 1 with an atmosphere (`crate::atmosphere`), then its numbers: `tau,
+    /// scale_height, radius, omega, g1, g2, q`, the surroundings' albedo (-1
+    /// for each facet's own), and the polar radius. Read by the fragment
+    /// stage alone, from this buffer bound as storage; not vertex
+    /// attributes.
+    pub atmosphere_on: u32,
+    pub atmosphere: [f32; 12],
+    /// With a horizon map, the sine of the highest any facet's horizon
+    /// rises: a Sun above it lights every facet, and the fragment stage
+    /// skips the map (`horizon_seen`).
+    pub horizon_top: f32,
+    /// For a body seen up close, the layer fitted to where the camera looks
+    /// closest (`Window::update`, `shadows.near_layer`), `u32::MAX` without
+    /// one; how far into it, as a fraction of its half-side, a point may lie
+    /// and be looked up there -- the rest holds penumbrae reaching in -- and
+    /// how deep, in its depth: no farther from the Sun than what it was
+    /// fitted to, past which its casters are left out.
+    pub near_layer: u32,
+    pub near_inner: f32,
+    pub near_depth: f32,
     // instance color used in vertex if color mode is 1
     // pub color: Vec3,
 
@@ -660,6 +850,35 @@ pub const INSTANCE_FLAG_HAS_VALUES: u32 = 2;
 /// `Window::update` from the same config the draw path reads.
 pub const INSTANCE_FLAG_CORNERS: u32 = 4;
 
+/// The mesh is drawn by its level-of-detail cut (`lod`): a flat mesh's
+/// fragment then finds its facet through `facet_of`, not by primitive index.
+pub const INSTANCE_FLAG_LOD: u32 = 8;
+
+/// The body's own shadows are its horizon map's (`horizon`), and it is not
+/// drawn into its own shadow layer.
+pub const INSTANCE_FLAG_HORIZON: u32 = 16;
+
+/// Nothing is drawn into the body's shadow layer this frame -- its own
+/// shadows its horizon map's, and no other body between it and the Sun --
+/// so the fragment stage does not look the layer up, and the penumbra pass
+/// does not draw it.
+pub const INSTANCE_FLAG_UNSHADOWED: u32 = 32;
+
+/// A mesh's level-of-detail tree, and the GPU copies of its cuts' geometry:
+/// every node's triangles in one index buffer over the shared positions, and
+/// the facet each stands for.
+pub struct LodBuffers {
+    /// The nodes; their geometry lives on the GPU only.
+    pub tree: crate::app::lod::Lod,
+    /// The mesh's positions, then its skirts' vertices; read as storage by
+    /// the vertex stage too, for the skirts' tops.
+    pub vertex_buffer: wgpu::Buffer,
+    pub index_buffer: wgpu::Buffer,
+    pub facet_of: wgpu::Buffer,
+    /// For each skirt vertex, the vertex it hangs from (`Lod::skirt_top`).
+    pub skirt_top: wgpu::Buffer,
+}
+
 impl Default for InstanceInput {
     fn default() -> Self {
         Self {
@@ -667,7 +886,15 @@ impl Default for InstanceInput {
             normal: Mat4::IDENTITY,
             flags: 0,
             shadow_layer: 0,
-            _padding: [0; 2],
+            law: 0,
+            law_params: [0.0; 4],
+            law_params2: [0.0; 4],
+            atmosphere_on: 0,
+            atmosphere: [0.0; 12],
+            horizon_top: 1.0,
+            near_layer: u32::MAX,
+            near_inner: 0.0,
+            near_depth: 0.0,
             // color: Vec3::new(1.0, 1.0, 1.0),
             // color_mode: 0,
         }
@@ -696,6 +923,66 @@ impl InstanceInput {
 
     pub fn compute_normal(&mut self) {
         self.normal = self.mat.inverse().transpose();
+    }
+
+    /// The body's atmosphere, for `mesh_shadow.wgsl`.
+    /// The body's atmosphere, for `mesh_shadow.wgsl`, and `diffuse`, how
+    /// bright its surface is under a diffuse sky per unit of colour
+    /// (`Body::diffuse_albedo`): the sky and the surroundings light it so.
+    pub fn with_atmosphere(mut self, atmosphere: Option<&crate::atmosphere::Atmosphere>, diffuse: crate::Float) -> Self {
+        match atmosphere {
+            None => self.atmosphere_on = 0,
+            Some(a) => {
+                self.atmosphere_on = 1;
+                self.atmosphere = [
+                    a.tau as f32,
+                    a.scale_height as f32,
+                    a.radius as f32,
+                    a.omega as f32,
+                    a.g1 as f32,
+                    a.g2 as f32,
+                    a.q as f32,
+                    a.albedo.map_or(-1.0, |x| x as f32),
+                    a.polar_radius.unwrap_or(a.radius) as f32,
+                    diffuse as f32,
+                    0.0,
+                    0.0,
+                ];
+            }
+        }
+        self
+    }
+
+    /// The highest its horizon map's horizons rise, as a sine.
+    pub fn with_horizon(mut self, horizon: Option<&crate::app::horizon::HorizonMap>) -> Self {
+        self.horizon_top = horizon.map_or(1.0, |h| h.top);
+        self
+    }
+
+    /// The body's near layer and how far into it and how deep a point uses
+    /// it, or none.
+    pub fn with_near(mut self, near: Option<(usize, crate::Float, crate::Float)>) -> Self {
+        (self.near_layer, self.near_inner, self.near_depth) =
+            near.map_or((u32::MAX, 0.0, 0.0), |(layer, inner, depth)| (layer as u32, inner as f32, depth as f32));
+        self
+    }
+
+    /// The body's scattering law, for `mesh_shadow.wgsl`: `None` is Lambert.
+    pub fn with_scattering(mut self, law: Option<&crate::lightcurve::Law>) -> Self {
+        use crate::lightcurve::Law;
+        match law {
+            None => self.law = 0,
+            Some(Law::Mix(m)) => {
+                self.law = 1;
+                self.law_params = [m.w as f32, m.c as f32, 0.0, 0.0];
+            }
+            Some(Law::Hapke(h)) => {
+                self.law = 2;
+                self.law_params = [h.w as f32, h.b as f32, h.c as f32, h.b0 as f32];
+                self.law_params2 = [h.h as f32, h.theta_bar as f32, h.k as f32, 0.0];
+            }
+        }
+        self
     }
 }
 
@@ -728,11 +1015,33 @@ pub struct MeshBuffer {
     // Dynamic: the body's transform, changes every frame it moves.
     // Persistent buffer, updated in place via write_buffer.
     pub instance_buffer: wgpu::Buffer,
+
+    /// The level-of-detail tree, for a flat mesh of `lod::MIN_FACETS` or
+    /// more on a device with immediates and the primitive index, once its
+    /// thread has built it (`lod_pending`, `poll_lod`).
+    pub lod: Option<LodBuffers>,
+    pub lod_pending: Option<std::sync::mpsc::Receiver<(crate::app::lod::Lod, f64, usize)>>,
+    /// To bind `facet_of` when the tree comes in.
+    attrs_layout: wgpu::BindGroupLayout,
+    /// This frame's cut for the camera, set by `Window::update`; `None`
+    /// draws the mesh whole.
+    pub lod_draw: Option<Vec<[u32; 2]>>,
+    /// The nodes of that cut, which its shadow layer fits to.
+    pub lod_nodes: Vec<u32>,
+    /// This frame's cut for each shadow layer; `None` for a layer draws the
+    /// mesh whole into it.
+    pub lod_shadow: Vec<Option<Vec<[u32; 2]>>>,
+    /// Its horizon map, while the body wants one (`Body::horizon_map`).
+    pub horizon: Option<crate::app::horizon::HorizonMap>,
+    /// Its shadow layer is empty this frame (`INSTANCE_FLAG_UNSHADOWED`).
+    pub unshadowed: bool,
+    /// A word bound where a buffer it does not have would be.
+    none: wgpu::Buffer,
 }
 
 impl MeshBuffer {
     // matrix model
-    pub const ATTRIBS: [wgpu::VertexAttribute; 10] = wgpu::vertex_attr_array![
+    pub const ATTRIBS: [wgpu::VertexAttribute; 13] = wgpu::vertex_attr_array![
         8  => Float32x4,
         9  => Float32x4,
         10 => Float32x4,
@@ -743,7 +1052,11 @@ impl MeshBuffer {
         15 => Float32x4,
         16 => Uint32,
         17 => Uint32,
-        // 17 => Uint32,
+        // The scattering law: its kind, then its numbers. Contiguous, as
+        // `InstanceInput` lays them out from byte 136.
+        18 => Uint32,
+        19 => Float32x4,
+        20 => Float32x4,
     ];
 
     pub fn new(
@@ -783,7 +1096,27 @@ impl MeshBuffer {
             empty_buffer::<MeshAttr>(device, na, wgpu::BufferUsages::STORAGE, "mesh attributes");
         upload_chunked(queue, &attrib_buffer, na, |r| extract_attrs(mesh, r));
 
-        Self::with_vertex_buffers(
+        // The level-of-detail tree is built on its own thread, from copies:
+        // a 12.9M-facet mesh takes a second or two, which a frame must not
+        // wait for. Until it is in, the mesh is drawn whole.
+        let lod_pending = (mesh.flat
+            && mesh.facets.len() >= crate::app::lod::MIN_FACETS
+            && has_immediates(device)
+            && has_primitive_index(device))
+        .then(|| {
+            let positions = mesh.positions.clone();
+            let indices = mesh.indices.clone();
+            let normals: Vec<crate::Vec3> = mesh.facets.iter().map(|f| f.normal).collect();
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let started = std::time::Instant::now();
+                let tree = crate::app::lod::Lod::build(&positions, &indices, &normals);
+                let _ = tx.send((tree, started.elapsed().as_secs_f64(), normals.len()));
+            });
+            rx
+        });
+
+        let mut buffer = Self::with_vertex_buffers(
             device,
             attrs_layout,
             geometry_buffer,
@@ -793,7 +1126,99 @@ impl MeshBuffer {
             &mesh.indices,
             instance,
             mesh.flat,
-        )
+            None,
+        );
+        buffer.lod_pending = lod_pending;
+        buffer
+    }
+
+    /// Take the level-of-detail tree in if its thread has finished: upload
+    /// its geometry and bind the facets its triangles stand for. Called each
+    /// frame by `Window::update`; cheap while there is nothing to take.
+    pub fn poll_lod(&mut self, device: &wgpu::Device) {
+        let Some(rx) = &self.lod_pending else {
+            return;
+        };
+        let (mut tree, secs, facets) = match rx.try_recv() {
+            Ok(done) => done,
+            Err(std::sync::mpsc::TryRecvError::Empty) => return,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.lod_pending = None;
+                return;
+            }
+        };
+        self.lod_pending = None;
+        // The mesh's positions in the tree's order, then the skirts'.
+        let vertices: Vec<GeometryVertex> = tree
+            .positions
+            .iter()
+            .chain(&tree.skirt)
+            .map(|p| GeometryVertex { pos: *p })
+            .collect();
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            contents: bytemuck::cast_slice(&vertices),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::STORAGE,
+            label: Some("mesh lod vertices"),
+        });
+        drop(vertices);
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            contents: bytemuck::cast_slice(&tree.indices),
+            usage: wgpu::BufferUsages::INDEX,
+            label: Some("mesh lod indices"),
+        });
+        let facet_of = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            contents: bytemuck::cast_slice(&tree.facet_of),
+            usage: wgpu::BufferUsages::STORAGE,
+            label: Some("mesh lod facets"),
+        });
+        // Never empty: a binding needs a word.
+        let tops: &[u32] = if tree.skirt_top.is_empty() { &[0] } else { &tree.skirt_top };
+        let skirt_top = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            contents: bytemuck::cast_slice(tops),
+            usage: wgpu::BufferUsages::STORAGE,
+            label: Some("mesh lod skirt tops"),
+        });
+        println!(
+            "[LOD] {} facets: {} nodes, {} triangles at every level, built in {:.1} s",
+            facets,
+            tree.nodes.len(),
+            tree.facet_of.len(),
+            secs
+        );
+        // On the GPU now; the nodes are all the CPU keeps.
+        tree.indices = Vec::new();
+        tree.facet_of = Vec::new();
+        tree.skirt = Vec::new();
+        tree.skirt_top = Vec::new();
+        tree.positions = Vec::new();
+        self.lod = Some(LodBuffers { tree, vertex_buffer, index_buffer, facet_of, skirt_top });
+        self.rebind(device);
+    }
+
+    /// Its horizon map's buffer, or a word where it has none.
+    pub fn horizon_or_none(&self) -> &wgpu::Buffer {
+        self.horizon.as_ref().map_or(&self.none, |h| &h.buffer)
+    }
+
+    /// Give it a horizon map, or take it away.
+    pub fn set_horizon(&mut self, device: &wgpu::Device, horizon: Option<crate::app::horizon::HorizonMap>) {
+        self.horizon = horizon;
+        self.rebind(device);
+    }
+
+    /// Its attributes' bind group again, for what it has now: the
+    /// level-of-detail cut's buffers and the horizon map, or `none` where it
+    /// has not.
+    fn rebind(&mut self, device: &wgpu::Device) {
+        self.attr_bind_group = attr_group(
+            device,
+            &self.attrs_layout,
+            &self.attrib_buffer,
+            &self.instance_buffer,
+            self.lod.as_ref().map(|l| (&l.facet_of, &l.vertex_buffer, &l.skirt_top)),
+            self.horizon.as_ref().map(|h| &h.buffer),
+            &self.none,
+        );
     }
 
     /// For a mesh built into the program -- the light cube, the depth pass's
@@ -840,6 +1265,7 @@ impl MeshBuffer {
             indices,
             instance,
             false,
+            None,
         )
     }
 
@@ -853,24 +1279,31 @@ impl MeshBuffer {
         indices: &[u32],
         instance: &InstanceInput,
         is_flat: bool,
+        facet_of: Option<&wgpu::Buffer>,
     ) -> Self {
-        let attr_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("mesh attrs"),
-            layout: attrs_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: attrib_buffer.as_entire_binding(),
-            }],
+        let none = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("mesh attrs (none)"),
+            size: 4,
+            usage: wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
         });
+        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            contents: bytemuck::bytes_of(instance),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            label: None,
+        });
+        let attr_bind_group = attr_group(
+            device,
+            attrs_layout,
+            &attrib_buffer,
+            &instance_buffer,
+            facet_of.map(|f| (f, &none, &none)),
+            None,
+            &none,
+        );
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             contents: bytemuck::cast_slice(indices),
             usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::STORAGE,
-            label: None,
-        });
-
-        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            contents: bytemuck::bytes_of(instance),
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             label: None,
         });
 
@@ -886,6 +1319,16 @@ impl MeshBuffer {
             shared_positions,
 
             instance_buffer,
+
+            lod: None,
+            lod_pending: None,
+            attrs_layout: attrs_layout.clone(),
+            lod_draw: None,
+            lod_nodes: Vec::new(),
+            lod_shadow: Vec::new(),
+            horizon: None,
+            unshadowed: false,
+            none,
         }
     }
 
@@ -965,13 +1408,47 @@ impl MeshBuffer {
     /// from `vertex_index % 3`, which only a non-indexed draw has -- and
     /// which `Window::update` announces to the shader as
     /// `INSTANCE_FLAG_CORNERS` from the same config.
-    pub fn render_shaded(&self, pass: &mut wgpu::RenderPass, corners: bool) {
+    ///
+    /// With a level-of-detail cut (`lod_draw`), only its ranges, each with
+    /// its first triangle in the immediates so the fragment stage finds the
+    /// facet in `facet_of`, and the first skirt vertex. `immediates`:
+    /// whether the pipeline has them, in which case a whole draw sets them
+    /// to zero and no skirt.
+    pub fn render_shaded(&self, pass: &mut wgpu::RenderPass, corners: bool, immediates: bool) {
         pass.set_bind_group(ATTRS_GROUP, Some(&self.attr_bind_group), &[]);
+        if let (false, Some(lod), Some(ranges)) = (corners, &self.lod, &self.lod_draw) {
+            pass.set_vertex_buffer(0, lod.vertex_buffer.slice(..));
+            pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+            pass.set_index_buffer(lod.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            for r in ranges {
+                pass.set_immediates(0, bytemuck::cast_slice(&[r[0], lod.tree.n_positions]));
+                pass.draw_indexed(3 * r[0]..3 * (r[0] + r[1]), 0, 0..1);
+            }
+            return;
+        }
+        if immediates {
+            pass.set_immediates(0, bytemuck::cast_slice(&[0u32, u32::MAX]));
+        }
         if corners {
             self.render(pass);
         } else {
             self.render_depth(pass);
         }
+    }
+
+    /// Draw it for depth into shadow layer `layer`: that layer's cut when it
+    /// has one (`lod_shadow`), the whole mesh otherwise.
+    pub fn render_depth_layer(&self, pass: &mut wgpu::RenderPass, layer: usize) {
+        if let (Some(lod), Some(Some(ranges))) = (&self.lod, self.lod_shadow.get(layer)) {
+            pass.set_vertex_buffer(0, lod.vertex_buffer.slice(..));
+            pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+            pass.set_index_buffer(lod.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            for r in ranges {
+                pass.draw_indexed(3 * r[0]..3 * (r[0] + r[1]), 0, 0..1);
+            }
+            return;
+        }
+        self.render_depth(pass);
     }
 
     pub fn desc() -> wgpu::VertexBufferLayout<'static> {
@@ -993,6 +1470,114 @@ pub struct Texture {
     /// pass cannot target an array view, so it needs these. Empty for
     /// non-layered textures.
     pub layer_views: Vec<wgpu::TextureView>,
+    /// The shadow array's depth pyramid, bound beside it; `None` for every
+    /// other texture.
+    pub pyramid: Option<DepthPyramid>,
+}
+
+/// The shadow layers' depth pyramid (`shaders/depth_pyramid.wgsl`): mip `m`
+/// holds, per block of `4 * 2^m` texels of a layer, the depths nearest and
+/// farthest from the Sun in it. With the Sun a disc, the main pass reads it
+/// to know in a few loads whether anything near a receiver is far enough in
+/// front to cast a penumbra six texels wide -- which nearly nowhere is -- or
+/// whether everything within reach is in front, the umbra; only between
+/// does it walk the map. A quarter of the map's side at mip 0: 11 MB a layer
+/// at 4096.
+pub struct DepthPyramid {
+    _texture: wgpu::Texture,
+    /// Every mip, for the main pass.
+    pub view: wgpu::TextureView,
+    first: wgpu::ComputePipeline,
+    next: wgpu::ComputePipeline,
+    /// Per mip, what builds it and its size.
+    mips: Vec<(wgpu::BindGroup, [u32; 2])>,
+}
+
+impl DepthPyramid {
+    /// Over `depth`, the shadow array's view, `side` texels square.
+    pub fn new(device: &wgpu::Device, depth: &wgpu::TextureView, side: u32, layers: u32) -> Self {
+        let base = side.div_ceil(4).max(1);
+        let levels = u32::BITS - base.leading_zeros();
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            size: wgpu::Extent3d { width: base, height: base, depth_or_array_layers: layers },
+            mip_level_count: levels,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rg32Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+            label: Some("shadow depth pyramid"),
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
+        let mip = |m: u32| {
+            texture.create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2Array),
+                base_mip_level: m,
+                mip_level_count: Some(1),
+                ..Default::default()
+            })
+        };
+        let module = device.create_shader_module(SHADER_DEPTH_PYRAMID);
+        let pipeline = |entry: &str| {
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("shadow depth pyramid"),
+                layout: None,
+                module: &module,
+                entry_point: Some(entry),
+                compilation_options: Default::default(),
+                cache: None,
+            })
+        };
+        let (first, next) = (pipeline("from_depth"), pipeline("from_min"));
+        let gather = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("shadow depth pyramid"),
+            ..Default::default()
+        });
+        let mips = (0..levels)
+            .map(|m| {
+                let target = mip(m);
+                let group = if m == 0 {
+                    device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("shadow depth pyramid"),
+                        layout: &first.get_bind_group_layout(0),
+                        entries: &[
+                            wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(depth) },
+                            wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&target) },
+                            wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::Sampler(&gather) },
+                        ],
+                    })
+                } else {
+                    device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("shadow depth pyramid"),
+                        layout: &next.get_bind_group_layout(0),
+                        entries: &[
+                            wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&target) },
+                            wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&mip(m - 1)) },
+                        ],
+                    })
+                };
+                let n = (base >> m).max(1);
+                (group, [n, n])
+            })
+            .collect();
+        Self { _texture: texture, view, first, next, mips }
+    }
+
+    /// Build it from the shadow pass's `layers` layers.
+    pub fn build(&self, encoder: &mut wgpu::CommandEncoder, layers: u32) {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("shadow depth pyramid"),
+            timestamp_writes: None,
+        });
+        for (m, (group, [w, h])) in self.mips.iter().enumerate() {
+            pass.set_pipeline(if m == 0 { &self.first } else { &self.next });
+            pass.set_bind_group(0, Some(group), &[]);
+            pass.dispatch_workgroups(w.div_ceil(8), h.div_ceil(8), layers.max(1));
+        }
+    }
 }
 
 impl Texture {
@@ -1075,6 +1660,7 @@ impl Texture {
             sampler,
             layout: Some(layout),
             layer_views: vec![],
+            pyramid: None,
         }
     }
 
@@ -1114,6 +1700,8 @@ impl Texture {
 
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
+                // The layers and their pyramid are read by the penumbra
+                // pass's walks too, in compute.
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     count: None,
@@ -1122,18 +1710,32 @@ impl Texture {
                         multisampled: false,
                         view_dimension: wgpu::TextureViewDimension::D2Array,
                     },
-                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
                 },
+                // The comparison: the per-facet query with the Sun a disc
+                // takes it in compute, as the image does at `pcf = 0`.
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
                     count: None,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
-                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
+                },
+                // Its depth pyramid, for the Sun as a disc.
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    count: None,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
+                    },
+                    visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
                 },
             ],
             label: None,
         });
         texture.layout = Some(layout);
+        texture.pyramid = Some(DepthPyramid::new(device, &texture.view, width.max(height), layers));
 
         texture
     }
@@ -1266,6 +1868,7 @@ impl Texture {
             sampler,
             layout: None,
             layer_views,
+            pyramid: None,
         }
     }
 
@@ -1312,25 +1915,29 @@ impl Texture {
             sampler,
             layout: None,
             layer_views: vec![],
+            pyramid: None,
         }
     }
 
     pub fn bind_group(&self, device: &wgpu::Device) -> Option<wgpu::BindGroup> {
         self.layout.as_ref().map(|layout| {
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&self.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
-                    },
-                ],
-                label: None,
-            })
+            let mut entries = vec![
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&self.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ];
+            if let Some(pyramid) = &self.pyramid {
+                entries.push(wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&pyramid.view),
+                });
+            }
+            device.create_bind_group(&wgpu::BindGroupDescriptor { layout, entries: &entries, label: None })
         })
     }
 }

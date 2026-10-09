@@ -21,6 +21,26 @@ fn ns_window(window: &winit::window::Window) -> Option<Retained<NSWindow>> {
     view.window()
 }
 
+/// Keep macOS from napping the process. App Nap throttles an app none of
+/// whose windows can be seen -- its timers coalesced, its priority lowered --
+/// and a run behind the terminal, a window opened in the background, went at
+/// a quarter of its speed or less. A user-initiated activity is exempt; this
+/// one still lets the machine sleep when it is idle. Once per process: the
+/// activity lasts as long as it does.
+pub fn hold_off_app_nap() {
+    use objc2_foundation::{NSActivityOptions, NSProcessInfo, NSString};
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let reason = NSString::from_str("kalast: a simulation is running");
+        let activity = NSProcessInfo::processInfo().beginActivityWithOptions_reason(
+            NSActivityOptions::UserInitiatedAllowingIdleSystemSleep,
+            &reason,
+        );
+        // Ended by the process's exit, not before.
+        std::mem::forget(activity);
+    });
+}
+
 /// Set by the key monitor when `Cmd`-`Q` is pressed; taken by the window.
 static QUIT_KEYS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 

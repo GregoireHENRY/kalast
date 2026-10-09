@@ -118,13 +118,7 @@ class Mesh:
         ...
     @property
     def values(self) -> numpy.ndarray:
-        """Call after mutating vertex color/color_mode/extra in place (e.g. a
-        per-facet colormap) to request a GPU re-upload on the next frame.
-        The renderer only re-uploads a mesh's color data when this has been
-        set, so a static-colored mesh never pays that cost after its
-        initial upload -- a script that recolors every frame needs to call
-        this every frame too, the same way sim.export_once() works.
-        Per-facet scalars to colour by, one per facet.
+        """Per-facet scalars to colour by, one per facet.
 
         Set `config.value_mode = True` to use them. Pair with `config.colormap`
         and, for anything comparative, a pinned `config.value_min`/`value_max`
@@ -137,7 +131,45 @@ class Mesh:
         ...
     @values.setter
     def values(self, value: numpy.ndarray | Sequence[float]) -> None: ...
+    def update_gpu_colors(self) -> None:
+        """Send the colours to the GPU again, on the next frame. `colors` is a
+        view onto the mesh's own memory, so writing into it in place changes
+        the mesh without anything noticing, and the GPU keeps drawing its old
+        copy until this is called. Not needed before the mesh is added to a
+        simulation, nor after assigning `values`, which does it itself.
+        """
+        ...
+    def colors_from_map(self, map: numpy.ndarray, west: float = ...) -> None:
+        """Colour the mesh from a latitude-longitude map of its whole body -- an
+        albedo map, a colour mosaic: each facet takes the map's mean over its
+        area, each vertex of a smooth mesh the map where it lies. Sends the
+        colours to the GPU itself.
+
+        The mean is over `k * k` equal triangles the facet is cut into, `k` the
+        map pixels across it, up to 32: the middle alone for a facet within a
+        pixel.
+
+        `map` is `(rows, columns)` for a grey value, or `(rows, columns, 3)`,
+        floats -- an 8-bit image divided by 255 first. Simple cylindrical: the
+        first row at 90 deg north and the last at 90 south, the columns 360
+        deg eastward from `west` -- -180 for USGS's mosaics, 0 for PDS's MOLA
+        grids. Latitude is planetocentric and longitude east, about the mesh's
+        own origin with `z` north and `x` at longitude 0: the body-fixed frame
+        SPICE calls IAU_MARS for Mars. Bilinear, across the 180 deg seam too.
+        NaN marks where the map has no data: a facet with nothing else keeps
+        its colour.
+
+        ```python
+        from PIL import Image
+        tes = numpy.asarray(Image.open("Mars_MGS_TES_Albedo_mosaic_global_7410m.tif"))
+        mars.colors_from_map(tes)
+        ```
+        """
+        ...
     def mark_colors_dirty(self) -> None:
+        """`update_gpu_colors` by its old name, renamed on 7 October 2026 for
+        saying what it does: kept for one release, with a `DeprecationWarning`.
+        """
         ...
     def is_flat(self) -> bool:
         ...
