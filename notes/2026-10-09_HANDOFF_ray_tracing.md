@@ -2,12 +2,14 @@
 
 Work laptop to home PC. The user asked for the work to be split: the laptop
 session carries on with the raster side, and a session on the home PC takes
-ray tracing, which the RTX 5080 runs in hardware. The work of 7-9 October is
-on the branch `shadows-tpm-2026-10`. Start from it, on a branch of its own:
+ray tracing, which the RTX 5080 runs in hardware. Everything is on `main`
+(users only download releases, so `main` is where the work goes):
 
-    git fetch && git switch shadows-tpm-2026-10
-    git switch -c rt-2026-10
+    git pull
     python tools/develop.py --release      # Windows: not maturin directly (CLAUDE.md)
+
+Both sessions push to `main`: pull before starting, commit in small steps,
+and `git pull --rebase` before each push.
 
 Read `CLAUDE.md`, `notes/TIMELINE.md` (the entries of 7-9 October) and
 `notes/2026-10-09_rendering_survey/README.md` first. The survey's bottom line
@@ -80,15 +82,16 @@ bounces, 15-50 s against 6-28 min.
 
 ## What the laptop session is changing meanwhile
 
-On `shadows-tpm-2026-10`, so keep ray tracing in modules of its own
+Keep ray tracing in modules of its own
 (`src/app/raytrace.rs`, `shaders/raytrace.wgsl`) with small hooks:
 
-- the per-facet query following the image's PCF (`cs_facets` for every Sun,
-  `facet_shadow.wgsl` retired);
-- an option to cache the shadow layers (`shadows.cache`, off by default);
-- cascaded shadow maps for quick looks;
-- quality presets (point Sun uncached and cached, disc, reference);
-- GPU culling into one indirect draw where the GPU allows.
+- done since this note was first written: the per-facet query follows the
+  image's lookups, PCF included (`cs_facets` for every Sun; the old
+  `facet_shadow.wgsl` is deleted); `shadows.cache`; `shadows.cascades`;
+  `config.quality` ("quick", "fast", "point", "accurate" -- add "reference"
+  when ray tracing lands, in `Quality` in `src/app/config.rs`);
+- next on the laptop: the disc's penumbra pass skipped when nothing changed,
+  and cheaper image passes for 240 fps at 5.7 Mpx.
 
 `src/app/window.rs`, `src/app/config.rs` and `shaders/mesh_shadow.wgsl` are
 touched by both: merge often.
