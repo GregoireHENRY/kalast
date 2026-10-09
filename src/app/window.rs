@@ -1326,6 +1326,16 @@ pub struct Window {
     // Counts the times the meshes were sent to the GPU again
     // (`sync_meshes`): a kept layer of older meshes is dropped.
     mesh_epoch: u64,
+    /// The bodies' acceleration structures, on a device with ray queries
+    /// (`shadows.rays`); `None` without them.
+    raytrace: Option<super::raytrace::RayTracing>,
+    /// This frame's `shadows.rays` where the device can, and its rays per
+    /// point across the disc: what the per-facet query traces.
+    rays: bool,
+    ray_samples: u32,
+    ray_probe: u32,
+    /// Said once that `shadows.rays` cannot be had.
+    rays_refused: bool,
 
     pub uniforms: super::uniform::Uniforms,
     pub passes: super::pass::Passes,
@@ -1476,6 +1486,16 @@ impl Window {
             features_webgpu.insert(wgpu::FeaturesWebGPU::PRIMITIVE_INDEX);
         }
 
+        // Rays traced from shaders, for `shadows.rays` (`raytrace`). Same
+        // policy: taken when offered -- Vulkan, Metal on macOS 15+; DX12 only
+        // with DXC, which the default compiler choice does not find here, so
+        // on Windows it is Vulkan that has them. Experimental in wgpu, hence
+        // the opt-in below.
+        let ray_query = super::raytrace::supported(&adapter);
+        if ray_query {
+            features_wgpu.insert(wgpu::FeaturesWGPU::EXPERIMENTAL_RAY_QUERY);
+        }
+
         // Features::NON_FILL_POLYGON_MODE
         // Features::POLYGON_MODE_LINE
         // Features::POLYGON_MODE_POINT
@@ -1496,10 +1516,19 @@ impl Window {
                     features_webgpu,
                 },
                 required_limits: adapter.limits(),
+                // SAFETY: wgpu's experimental features may have bugs and
+                // change between releases; only ray queries are asked for,
+                // and only used with `shadows.rays` on.
+                experimental_features: if ray_query {
+                    unsafe { wgpu::ExperimentalFeatures::enabled() }
+                } else {
+                    wgpu::ExperimentalFeatures::disabled()
+                },
                 ..Default::default()
             })
             .await
             .unwrap();
+        let raytrace = ray_query.then(|| super::raytrace::RayTracing::new(&device));
 
         let caps = surface.get_capabilities(&adapter);
 
@@ -1730,6 +1759,11 @@ impl Window {
             shadow_cache_under: None,
             shadow_reuse: Vec::new(),
             mesh_epoch: 0,
+            raytrace,
+            rays: false,
+            ray_samples: 1,
+            ray_probe: 0,
+            rays_refused: false,
             uniforms,
             passes,
             msaa,
@@ -1776,6 +1810,14 @@ impl Window {
         let Some(mesh) = self.meshes.get(1 + body) else {
             return vec![];
         };
+        // Traced, with `shadows.rays` where the device can.
+        if self.rays {
+            if let Some(rt) = self.raytrace.as_ref() {
+                let light = &self.uniforms.view.uniform.light;
+                let sun = [light.pos.x as f32, light.pos.y as f32, light.pos.z as f32];
+                return rt.facet_shadows(&self.device, &self.queue, body, mesh, sun, light.sun_radius, self.ray_samples, self.ray_probe);
+            }
+        }
         self.passes.penumbra.facets(&self.device, &self.queue, &self.passes.bindings, mesh)
     }
 
@@ -2272,6 +2314,22 @@ impl Window {
     ) {
         // Before anything indexes `meshes` against `bodies`.
         self.sync_meshes(simulation);
+
+        // The bodies' acceleration structures, while rays are wanted: built
+        // again with the meshes, placed where the bodies are this frame.
+        self.rays = config.shadows.rays && self.raytrace.is_some();
+        simulation.rays = self.rays;
+        if config.shadows.rays && self.raytrace.is_none() && !self.rays_refused {
+            self.rays_refused = true;
+            println!("shadows.rays: this GPU has no ray queries here, so the shadow maps answer instead");
+        }
+        self.ray_samples = config.shadows.ray_samples;
+        self.ray_probe = config.shadows.ray_probe;
+        if self.rays {
+            if let Some(rt) = self.raytrace.as_mut() {
+                rt.update(&self.device, &self.queue, simulation, self.mesh_epoch);
+            }
+        }
 
         // The horizon maps the bodies ask for: worked out when one is turned
         // on, a few seconds on the GPU for Mars's 12.9M facets, and let go

@@ -504,6 +504,41 @@ impl ShadowsConfig {
     fn lod_pixels(&self) -> f32 { self.config.borrow().shadows.lod_pixels }
     #[setter]
     fn set_lod_pixels(&mut self, v: f32) { self.config.borrow_mut().shadows.lod_pixels = v; }
+    /// Trace the shadows the thermophysical model reads with rays, on a GPU
+    /// that has ray queries: each facet's corners and centre against every
+    /// body's full-resolution mesh, the Sun's disc sampled by
+    /// `ray_samples` rays. Off by default; without ray queries, the shadow
+    /// maps answer as before.
+    ///
+    /// No texel, filter or bias: a shadow is where the mesh is, a penumbra
+    /// what the rays see of the limb-darkened disc. Vulkan on Windows and
+    /// Linux, Metal on macOS 15 and later -- on an Apple M1 or M2 the
+    /// traversal is the driver's, slower than on hardware that has it.
+    #[getter]
+    fn rays(&self) -> bool { self.config.borrow().shadows.rays }
+    #[setter]
+    fn set_rays(&mut self, v: bool) { self.config.borrow_mut().shadows.rays = v; }
+    /// The rays each point traces across the Sun's disc, with `rays` on and
+    /// `light.sun_as_point` off: each carries the same share of the
+    /// limb-darkened disc's light, so a penumbra is resolved to about
+    /// 1/`ray_samples`. A point Sun takes one.
+    #[getter]
+    fn ray_samples(&self) -> u32 { self.config.borrow().shadows.ray_samples }
+    #[setter]
+    fn set_ray_samples(&mut self, v: u32) { self.config.borrow_mut().shadows.ray_samples = v; }
+    /// The rays a point tries first across the disc, with `rays` on: where
+    /// they all agree the point is wholly lit or wholly hidden and the rest
+    /// of `ray_samples` are not traced. Nearly every point is, so a step
+    /// costs about this many rays a point whatever `ray_samples` is.
+    ///
+    /// A part of the disc smaller than about 1/`ray_probe` of it, hidden or
+    /// seen with all of these rays missing it, is missed: the edge of a
+    /// penumbra by a sliver. 0 traces all of `ray_samples` everywhere,
+    /// exact to them.
+    #[getter]
+    fn ray_probe(&self) -> u32 { self.config.borrow().shadows.ray_probe }
+    #[setter]
+    fn set_ray_probe(&mut self, v: u32) { self.config.borrow_mut().shadows.ray_probe = v; }
     fn __repr__(&self) -> String {
         format!("{:?}", self.config.borrow().shadows)
     }

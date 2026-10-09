@@ -215,6 +215,15 @@ impl Simulation {
     }
 
     #[getter]
+    /// Whether the per-facet shadows (`facet_shadow`) are traced with rays:
+    /// `config.shadows.rays` on and the GPU able to trace them. False before
+    /// the first frame, and on a GPU without ray queries, where the shadow
+    /// maps answer instead.
+    fn rays(&self) -> bool {
+        self.inner.borrow().rays
+    }
+
+    #[getter]
     /// Whether every frame is exported. Destination is `config.export_dir`.
     fn export(&self) -> bool {
         self.inner.borrow().export

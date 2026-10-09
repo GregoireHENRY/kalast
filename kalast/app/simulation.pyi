@@ -99,6 +99,12 @@ class Simulation:
         Colours have their own, cheaper route in `mesh.update_gpu_colors()`.
         """
         ...
+    rays: bool
+    """Whether the per-facet shadows (`facet_shadow`) are traced with rays:
+    `config.shadows.rays` on and the GPU able to trace them. False before
+    the first frame, and on a GPU without ray queries, where the shadow
+    maps answer instead.
+    """
     export: bool
     """Whether every frame is exported. Destination is `config.export_dir`."""
     @property

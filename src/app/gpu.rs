@@ -69,6 +69,11 @@ pub const SHADER_SHADOW: wgpu::ShaderModuleDescriptor =
 pub const SHADER_DEPTH_PYRAMID: wgpu::ShaderModuleDescriptor =
     wgpu::include_wgsl!("../../shaders/depth_pyramid.wgsl");
 
+/// Ray-traced shadows (`app::raytrace`): made only on a device with ray
+/// queries, since it does not compile elsewhere.
+pub const SHADER_RAYTRACE: wgpu::ShaderModuleDescriptor =
+    wgpu::include_wgsl!("../../shaders/raytrace.wgsl");
+
 pub const SHADER_HORIZON: wgpu::ShaderModuleDescriptor =
     wgpu::include_wgsl!("../../shaders/horizon.wgsl");
 

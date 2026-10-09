@@ -80,6 +80,9 @@ pub struct Simulation {
     /// count. This is for everything that leaves the count the same, or
     /// shifts which body an index means.
     pub meshes_dirty: bool,
+    /// Whether this frame's per-facet shadows were traced with rays:
+    /// `shadows.rays` on and the GPU able to, set by the window each frame.
+    pub rays: bool,
 
     /// Facets picked by clicking, or added by index.
     ///
@@ -197,6 +200,7 @@ impl Simulation {
             huds: Vec::new(),
             selected_facets: Vec::new(),
             meshes_dirty: false,
+            rays: false,
             diagnostics: Diagnostics::default(),
             image_size: (0, 0),
             value_range: (0.0, 1.0),

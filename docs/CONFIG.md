@@ -1636,6 +1636,47 @@ per-facet shadows the thermophysical model reads are each point's cascade's,
 so they move with the camera. Up to 4: with the scene's, five of the eight
 layers.
 
+### `shadows.ray_probe: u32` — default `16` *(live)*
+With `shadows.rays`, the rays each point tries first across the Sun's disc,
+half on its rim and half inside: where they all agree the point is wholly lit
+or wholly hidden and the rest of `shadows.ray_samples` are not traced. Nearly
+every point is, so a step costs about this many rays a point whatever
+`ray_samples` is: the Didymos pair at full resolution, 256 rays, 58 ms a step
+against 322 without it, facets moving by 0.002 % rms (worst 0.9 %, one facet).
+An occluder's edge comes onto the disc across its rim, so what is missed is a
+sliver of the disc's edge between two rim rays, or an occluder smaller than
+the disc that every inner ray misses. `0` traces all of `ray_samples`
+everywhere, exact to them.
+
+### `shadows.ray_samples: u32` — default `64` *(live)*
+With `shadows.rays` and `light.sun_as_point` off, the rays each point traces
+across the Sun's disc. Each carries the same share of the limb-darkened disc's
+light -- radii at equal steps of its light, angles a golden spiral, turned per
+point -- so a penumbra is resolved to about `1/ray_samples` of the disc, and
+the same scene gives the same answer. Against the disc's light integrated on a
+401 x 401 grid across a wall's penumbra: rms 0.15 % at 256, 0.06 % at 1024,
+with no bias. A point Sun takes one ray.
+
+### `shadows.rays: bool` — default `false` *(live)*
+Trace the shadows the thermophysical model reads (`sim.facet_shadow`) with
+rays, on a GPU that has ray queries: each facet's corners and centre, as the
+shadow maps' query takes them, against every body's full-resolution mesh. No
+texel, filter or bias: a shadow is where the mesh is, and a penumbra what the
+rays see of the limb-darkened disc (`shadows.ray_samples`). The image is still
+shaded from the shadow maps.
+
+On Didymos at full resolution with Dimorphos's shadow on it, the shadow maps
+lit about 12,000 of its 3.1 million facets that rays find in shadow -- the
+long shadows of centimetre relief at grazing light, and ridges farther off --
+which a float64 ray test agreed with the rays on, facet for facet. With a
+point Sun a step of the pair costs what the shadow maps do (7.4 ms against 7.2
+on an RTX 5080); with the disc, about 31 ms at 64 rays, 58 at 256
+(`shadows.ray_probe`), against 8 for the maps.
+
+Vulkan on Windows and Linux, Metal on macOS 15 and later -- on an Apple M1 or
+M2 the traversal is the driver's, in software. Without ray queries the shadow
+maps answer, and the kalast tab says so once; `sim.rays` tells a script which.
+
 ### `shadows.resolution: u32` — default `4096` *(live, reallocates the shadow map)*
 Side length of the square shadow map, in texels. Used **twice** at
 `src/app/window.rs:239,240` (width and height) and also passed into `Globals`

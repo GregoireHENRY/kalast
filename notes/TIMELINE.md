@@ -5749,3 +5749,19 @@ second depth layer). No walk is queued there; the scan's pyramid look round
 per pixel is 4.5 ms, the prepass 1.7. Open: keep the penumbra pass when
 nothing changed, a coarse mask of where walks can be, the scan's reads shared
 per workgroup. Write-up: `2026-10-09_cascades_and_quality/`.
+
+## 2026-10-10 — ray-traced shadows for the thermophysical model (home PC)
+
+The handoff's first step, on the RTX 5080 (Vulkan has ray queries here, DX12
+does not without DXC). `shadows.rays` traces `sim.facet_shadow` -- each facet's
+corners and centre, as the shadow maps' query -- against a bottom-level
+acceleration structure per body from its full-resolution mesh and a top level
+rebuilt each frame (`src/app/raytrace.rs`, `shaders/raytrace.wgsl`); the
+disc sampled by `shadows.ray_samples` rays of equal light, a probe of 16
+(half on the rim) first (`shadows.ray_probe`); `sim.rays` says whether. The
+wall's penumbra: rms 0.15 % at 256 rays against 0.70 % for the maps, no
+bias; a point Sun exact. On the Didymos pair the maps light about 12,000 of
+Didymos's facets that rays shadow, and a float64 ray test sides with the rays
+on 295 of 300 sampled. A step of the pair: point Sun 7.4 ms (maps 7.2), disc
+31 ms at 64 rays, 58 at 256 (maps 8.1). The image is still the maps'.
+`tests/test_facet_shadow_rays.py`. Write-up: `2026-10-10_ray_traced_shadows/`.

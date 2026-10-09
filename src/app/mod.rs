@@ -20,6 +20,7 @@ pub mod gpu;
 pub mod gpu_timing;
 pub mod occlusion;
 pub mod pass;
+pub mod raytrace;
 pub mod simulation;
 pub mod uniform;
 pub mod window;

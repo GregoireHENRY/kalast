@@ -750,6 +750,35 @@ class ShadowsConfig:
     it, a caster only casts into the view, and coarser does: whichever of
     this and `lod_texels` is coarser is used.
     """
+    rays: bool
+    """Trace the shadows the thermophysical model reads with rays, on a GPU
+    that has ray queries: each facet's corners and centre against every
+    body's full-resolution mesh, the Sun's disc sampled by
+    `ray_samples` rays. Off by default; without ray queries, the shadow
+    maps answer as before.
+
+    No texel, filter or bias: a shadow is where the mesh is, a penumbra
+    what the rays see of the limb-darkened disc. Vulkan on Windows and
+    Linux, Metal on macOS 15 and later -- on an Apple M1 or M2 the
+    traversal is the driver's, slower than on hardware that has it.
+    """
+    ray_samples: int
+    """The rays each point traces across the Sun's disc, with `rays` on and
+    `light.sun_as_point` off: each carries the same share of the
+    limb-darkened disc's light, so a penumbra is resolved to about
+    1/`ray_samples`. A point Sun takes one.
+    """
+    ray_probe: int
+    """The rays a point tries first across the disc, with `rays` on: where
+    they all agree the point is wholly lit or wholly hidden and the rest
+    of `ray_samples` are not traced. Nearly every point is, so a step
+    costs about this many rays a point whatever `ray_samples` is.
+
+    A part of the disc smaller than about 1/`ray_probe` of it, hidden or
+    seen with all of these rays missing it, is missed: the edge of a
+    penumbra by a sliver. 0 traces all of `ray_samples` everywhere,
+    exact to them.
+    """
 
 class WireframeConfig:
     """Facet edges drawn over or instead of the surface.

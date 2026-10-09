@@ -129,6 +129,13 @@ pub fn group_shadows(ui: &mut egui::Ui, c: &mut Config) {
     setting(ui, "cascades", "Cascaded shadow maps, for a quick look: this many layers over slices of the camera's view, the nearer finer, and one over the whole scene, in place of a layer per body. 0, the default: a layer per body.", |ui| ui.add(egui::Slider::new(&mut c.shadows.cascades, 0..=4).clamping(egui::SliderClamping::Edits)));
     setting(ui, "lod_texels", "The size, in shadow-map texels, a large mesh's triangles are drawn at in the shadow maps when `shading.lod` is on, outside the camera's view.", |ui| ui.add(egui::Slider::new(&mut c.shadows.lod_texels, 0.5..=16.0).clamping(egui::SliderClamping::Edits)));
     setting(ui, "lod_pixels", "The size, in the camera's pixels, a large mesh's triangles are drawn at in the shadow maps when `shading.lod` is on, outside the camera's view.", |ui| ui.add(egui::Slider::new(&mut c.shadows.lod_pixels, 0.5..=32.0).clamping(egui::SliderClamping::Edits)));
+    setting(ui, "rays", "Trace the shadows the thermophysical model reads with rays, on a GPU that has ray queries: each facet's corners and centre against every body's full-resolution mesh, the Sun's disc sampled by `ray_samples` rays. Off by default; without ray queries, the shadow maps answer as before.", |ui| ui.checkbox(&mut c.shadows.rays, ""));
+    if c.shadows.rays == true {
+        setting(ui, "ray_samples", "The rays each point traces across the Sun's disc, with `rays` on and `light.sun_as_point` off: each carries the same share of the limb-darkened disc's light, so a penumbra is resolved to about 1/`ray_samples`. A point Sun takes one.", |ui| ui.add(egui::Slider::new(&mut c.shadows.ray_samples, 1..=1024).clamping(egui::SliderClamping::Edits)));
+    }
+    if c.shadows.rays == true {
+        setting(ui, "ray_probe", "The rays a point tries first across the disc, with `rays` on: where they all agree the point is wholly lit or wholly hidden and the rest of `ray_samples` are not traced. Nearly every point is, so a step costs about this many rays a point whatever `ray_samples` is.", |ui| ui.add(egui::Slider::new(&mut c.shadows.ray_probe, 0..=64).clamping(egui::SliderClamping::Edits)));
+    }
 }
 
 /// `config.wireframe` -- Wireframe.
