@@ -105,6 +105,31 @@ class Simulation:
     the first frame, and on a GPU without ray queries, where the shadow
     maps answer instead.
     """
+    reference_samples: int
+    """A reference image's samples of each pixel so far
+    (`config.reference.enabled`); 0 without one.
+    """
+    reference_error: float | None
+    """A reference image's standard error, last measured: the 99.9th
+    percentile of the pixels', in the image's values (0 to 1), from the
+    spread of four independent estimates of each. Measured every sixteen
+    samples; `None` before.
+    """
+    reference_done: bool
+    """Whether a reference image is done: its error under
+    `config.reference.error`, or its samples at `max_samples`.
+    """
+    def reference_image(self) -> numpy.ndarray | None:
+        """A reference image's mean, once done: `(height, width, 3)` floats, the
+        values the image stores before rounding to 8 bits, rows from the top.
+        `None` before it is done, or without one.
+        """
+        ...
+    def reference_error_image(self) -> numpy.ndarray | None:
+        """Each pixel's standard error in a done reference image: `(height,
+        width)` floats, its largest channel's. `None` before it is done.
+        """
+        ...
     export: bool
     """Whether every frame is exported. Destination is `config.export_dir`."""
     @property

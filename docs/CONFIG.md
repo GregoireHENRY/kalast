@@ -1841,6 +1841,49 @@ reverse-engineered from the matrix.
 
 ---
 
+## Reference image
+
+A still scene integrated, progressively, to a stated error: each pixel over
+its area and the Sun's disc. Each frame draws one sample of every pixel --
+the camera jittered within it (Halton's bases 2 and 3), one ray to a point of
+the limb-darkened disc (bases 5 and 7) -- with the same shading as any frame,
+into 32-bit floats, and adds it to one of four replicas' sums in turn; the
+window shows their mean. Each replica's sequences are shifted by a fixed
+random amount per pixel, so the four are independent estimates and their
+spread is an honest standard error. No denoiser, no history, no clamp: a
+plain mean of fixed sequences, the same image, to the bit, every run.
+
+Anything that changes what is drawn starts the sum again: the camera, the Sun,
+a body, a setting, the meshes, the image's size. A script stepping a still
+scene does not.
+
+Measured on the wall of `tests/test_reference.py` (600 x 400, the Sun 25 deg
+up): stopped by itself at 1,680 samples, 0.5 ms a sample on an RTX 5080;
+across the wall's penumbra each pixel within 0.0017 of the disc's light its
+ground sees, worked out in float64 (rms 0.0007), inside the image's own
+stated error.
+
+### `reference.enabled: bool` — default `false` *(live)*
+Integrate the image to a reference. The shadows are traced with rays where the
+GPU can, whatever `shadows.rays` says, against the full meshes; the level of
+detail and MSAA are off while it is on -- the image is integrated over its
+pixels instead -- and the probe (`shadows.ray_probe`) too, which would miss
+slivers. `sim.reference_samples`, `sim.reference_error` and
+`sim.reference_done` follow it; `sim.reference_image()` gives the mean as
+floats once done, `sim.reference_error_image()` each pixel's standard error.
+In the settings, under Shadows, with a line saying how far it has got.
+
+### `reference.error: float` — default `1/510` *(live)*
+The standard error the sum stops at, in the image's values (0 to 1): the
+99.9th percentile of the pixels', measured every sixteen samples, after 64.
+Half an 8-bit step by default. The error falls about as `n^-0.75`: a quarter
+of it takes about six times the samples.
+
+### `reference.max_samples: u32` — default `4096` *(live)*
+The most samples a pixel takes, the error reached or not.
+
+---
+
 ## Reference axes
 
 ### `axes.style: str` — default `"gizmo"` *(live)*

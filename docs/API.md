@@ -1220,6 +1220,25 @@ rays a point. Same array, same meaning. The image is traced too, its pixels
 the same way. `sim.rays` is `True` while they are -- `False` before the first
 frame, and on a GPU without ray queries, where the shadow maps answer.
 
+### A reference image
+
+```python
+sim.config.reference.enabled = True     # a still scene, integrated
+while not sim.reference_done:
+    app.step()
+mean = sim.reference_image()            # (height, width, 3) float32
+error = sim.reference_error_image()     # (height, width): each pixel's standard error
+```
+
+`sim.reference_samples` counts the samples summed, `sim.reference_error` is
+the 99.9th percentile of the pixels' standard error last measured (every
+sixteen samples), and `sim.reference_done` turns true once it is under
+`config.reference.error` or the samples reach `max_samples`. The mean is the
+values the image stores, before they are rounded to 8 bits: radiance, linear,
+with `shading.srgb_mode` 0 or 1 alike. Both arrays are `None` until the image
+is done; exporting a frame then (`sim.export_once()`) writes the mean as a
+PNG. See `CONFIG.md`, "Reference image".
+
 **`1.0 - frac` is not the lit fraction**, which is what it looks like and what
 this document used to say. It is the *unblocked* fraction. A facet with
 nothing between it and the Sun is still dark if it faces away, and nothing in

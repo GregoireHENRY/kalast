@@ -545,6 +545,51 @@ impl ShadowsConfig {
     }
 }
 
+/// A reference image, integrated progressively to a stated error.
+///
+/// `app.simulation.config.reference`. Reads and writes the live config
+/// through the same handle as every other view of it.
+#[pyclass(unsendable)]
+pub struct ReferenceConfig {
+    pub config: Rc<RefCell<crate::app::config::Config>>,
+}
+
+#[pymethods]
+impl ReferenceConfig {
+    /// Integrate the image to a reference: a sample of every pixel each frame
+    /// -- the camera jittered within it, one ray to a point of the Sun's
+    /// limb-darkened disc -- summed into a mean that stops once its error is
+    /// under `error`. For a still scene; anything that changes it starts the
+    /// sum again.
+    ///
+    /// The shadows are traced with rays where the GPU can (`shadows.rays`
+    /// needs not be on), against the full meshes: the level of detail and
+    /// MSAA are off while it is on, the frame being integrated over its
+    /// pixels instead. No denoiser, no history, no clamp: a plain mean of
+    /// fixed sequences, the same image every run. `sim.reference_samples`,
+    /// `sim.reference_error` and `sim.reference_done` follow it;
+    /// `sim.reference_image()` gives the mean as floats once done.
+    #[getter]
+    fn enabled(&self) -> bool { self.config.borrow().reference.enabled }
+    #[setter]
+    fn set_enabled(&mut self, v: bool) { self.config.borrow_mut().reference.enabled = v; }
+    /// The standard error the sum stops at, in the image's values (0 to 1):
+    /// the 99.9th percentile of the pixels', from the spread of four
+    /// independent estimates of each. Half an 8-bit step, 1/510, by default.
+    #[getter]
+    fn error(&self) -> f32 { self.config.borrow().reference.error }
+    #[setter]
+    fn set_error(&mut self, v: f32) { self.config.borrow_mut().reference.error = v; }
+    /// The most samples a pixel takes, the error reached or not.
+    #[getter]
+    fn max_samples(&self) -> u32 { self.config.borrow().reference.max_samples }
+    #[setter]
+    fn set_max_samples(&mut self, v: u32) { self.config.borrow_mut().reference.max_samples = v; }
+    fn __repr__(&self) -> String {
+        format!("{:?}", self.config.borrow().reference)
+    }
+}
+
 /// Facet edges drawn over or instead of the surface.
 ///
 /// `app.simulation.config.wireframe`. Reads and writes the live config
@@ -1330,6 +1375,9 @@ impl super::config::Config {
     /// The shadow map and its readback.
     #[getter]
     fn shadows(&self) -> ShadowsConfig { ShadowsConfig { config: self.config.clone() } }
+    /// A reference image, integrated progressively to a stated error.
+    #[getter]
+    fn reference(&self) -> ReferenceConfig { ReferenceConfig { config: self.config.clone() } }
     /// Facet edges drawn over or instead of the surface.
     #[getter]
     fn wireframe(&self) -> WireframeConfig { WireframeConfig { config: self.config.clone() } }

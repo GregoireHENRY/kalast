@@ -80,6 +80,9 @@ pub struct Simulation {
     /// count. This is for everything that leaves the count the same, or
     /// shifts which body an index means.
     pub meshes_dirty: bool,
+    /// A reference image's progress (`reference`), set by the window each
+    /// frame.
+    pub reference: ReferenceState,
     /// Whether this frame's shadows, the image's and the per-facet query's,
     /// were traced with rays:
     /// `shadows.rays` on and the GPU able to, set by the window each frame.
@@ -202,6 +205,7 @@ impl Simulation {
             selected_facets: Vec::new(),
             meshes_dirty: false,
             rays: false,
+            reference: ReferenceState::default(),
             diagnostics: Diagnostics::default(),
             image_size: (0, 0),
             value_range: (0.0, 1.0),
@@ -1931,4 +1935,28 @@ mod framing_tests {
         let (c, r) = enclosing((v(0.0), 1.0), (v(10.0), 2.0));
         assert!((r - 6.5).abs() < 1e-5 && (c - v(5.5)).length() < 1e-5, "{c:?} {r}");
     }
+}
+
+/// How far a reference image has got (`config.reference`).
+#[derive(Debug, Clone, Default)]
+pub struct ReferenceState {
+    /// Samples of each pixel summed so far.
+    pub samples: u32,
+    /// The 99.9th percentile of the pixels' standard error, last measured.
+    pub error: Option<f32>,
+    /// The sum has stopped: under `reference.error`, or at its last sample.
+    pub done: bool,
+    /// The mean and each pixel's standard error, once done.
+    pub image: Option<ReferenceImage>,
+}
+
+/// A reference image as floats: rows from the top.
+#[derive(Debug, Clone)]
+pub struct ReferenceImage {
+    pub width: u32,
+    pub height: u32,
+    /// Three channels a pixel, the values the image stores, unrounded.
+    pub mean: Vec<f32>,
+    /// A pixel's standard error, its largest channel's.
+    pub error: Vec<f32>,
 }

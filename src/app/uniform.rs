@@ -68,7 +68,9 @@ pub struct Globals {
     /// WGSL puts a `vec3` after the padding, so a shader declaring the struct
     /// without it still binds.
     pub camera_pos: [f32; 3],
-    pub _padding2: u32,
+    /// A reference image's sample, plus one (`reference`); 0 otherwise: where
+    /// `_padding2` was, so every shader's copy still binds.
+    pub ray_frame: u32,
 }
 
 #[repr(C)]

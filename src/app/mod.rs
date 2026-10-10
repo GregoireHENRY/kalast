@@ -21,6 +21,7 @@ pub mod gpu_timing;
 pub mod occlusion;
 pub mod pass;
 pub mod raytrace;
+pub mod reference;
 pub mod simulation;
 pub mod uniform;
 pub mod window;
@@ -3377,6 +3378,10 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     } else {
                         win.render(surface_texture, &sim_cfg.borrow(), &huds);
                     }
+
+                    // A reference image's progress, its error now and then,
+                    // its mean once done (`Window::reference_after_frame`).
+                    win.reference_after_frame(&sim_cfg.borrow(), &mut sim);
 
                     // After render: the shadow map now holds this frame's
                     // geometry, so a query here answers for the scene

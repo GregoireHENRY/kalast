@@ -34,6 +34,8 @@ struct Globals {
     // At 112, past the padding: the camera, for the direction each fragment
     // is seen from. See Globals in app/uniform.rs.
     camera_pos: vec3<f32>,
+    // A reference image's sample, plus one (`reference`); 0 otherwise.
+    ray_frame: u32,
 };
 @group(0) @binding(0)
 var<uniform> globals: Globals;
@@ -2068,7 +2070,13 @@ fn fs_shaded(in: Surface) -> vec4<f32> {
         // from eight of the surface's pixels in front: a level of detail's //@rt
         // cut is within about two of the full mesh. //@rt
         let p = ray_seen_point(globals.camera_pos, in.world_pos, 8.0 * in.pixel); //@rt
-        shadow = ray_sun_seen(p, in.world_normal, view.light.pos, view.light.sun_radius, view.light.rays, view.light.ray_probe, ray_turn(key)); //@rt
+        if globals.ray_frame > 0u { //@rt
+            // A reference image's sample: one ray, to the disc's point this //@rt
+            // sample of the progressive sum stands for (`ray_reference`). //@rt
+            shadow = ray_reference(p, in.world_normal, view.light.pos, view.light.sun_radius, globals.ray_frame - 1u, vec2<u32>(in.frag.xy)); //@rt
+        } else { //@rt
+            shadow = ray_sun_seen(p, in.world_normal, view.light.pos, view.light.sun_radius, view.light.rays, view.light.ray_probe, ray_turn(key)); //@rt
+        } //@rt
     } //@rt
     // The rays see the relief a horizon map stands for.
     if (body.flags & 16u) != 0u && ndotl > 0.0 && view.light.rays == 0u {

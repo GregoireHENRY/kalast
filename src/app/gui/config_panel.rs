@@ -138,6 +138,17 @@ pub fn group_shadows(ui: &mut egui::Ui, c: &mut Config) {
     }
 }
 
+/// `config.reference` -- Reference.
+pub fn group_reference(ui: &mut egui::Ui, c: &mut Config) {
+    setting(ui, "enabled", "Integrate the image to a reference: a sample of every pixel each frame -- the camera jittered within it, one ray to a point of the Sun's limb-darkened disc -- summed into a mean that stops once its error is under `error`. For a still scene; anything that changes it starts the sum again.", |ui| ui.checkbox(&mut c.reference.enabled, ""));
+    if c.reference.enabled == true {
+        setting(ui, "error", "The standard error the sum stops at, in the image's values (0 to 1): the 99.9th percentile of the pixels', from the spread of four independent estimates of each. Half an 8-bit step, 1/510, by default.", |ui| ui.add(egui::DragValue::new(&mut c.reference.error).speed(0.0001)));
+    }
+    if c.reference.enabled == true {
+        setting(ui, "max_samples", "The most samples a pixel takes, the error reached or not.", |ui| ui.add(egui::Slider::new(&mut c.reference.max_samples, 64..=65536).clamping(egui::SliderClamping::Edits)));
+    }
+}
+
 /// `config.wireframe` -- Wireframe.
 pub fn group_wireframe(ui: &mut egui::Ui, c: &mut Config) {
     setting(ui, "mode", "the barycentrics are meaningless and the CPU side warns once.", |ui| ui.add(egui::Slider::new(&mut c.wireframe.mode, 0..=2).clamping(egui::SliderClamping::Edits)));

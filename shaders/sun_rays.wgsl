@@ -165,3 +165,57 @@ fn ray_turn(key: u32) -> f32 {
     h = (h >> 22u) ^ h;
     return f32(h) * (RAY_TAU / 4294967296.0);
 }
+
+/// A number in [0, 1) from `key`, fixed: the random shift of a reference
+/// image's sequences for one pixel and one replica (`ray_reference`).
+fn ray_unit(key: u32) -> f32 {
+    return ray_turn(key) / RAY_TAU;
+}
+
+/// The radical inverse of `i` in `base`: the Halton sequence's coordinate,
+/// low discrepancy, the same on every run.
+fn ray_radical_inverse(i: u32, base: u32) -> f32 {
+    var n = i;
+    var inv = 1.0 / f32(base);
+    var f = inv;
+    var r = 0.0;
+    while n > 0u {
+        r += f32(n % base) * f;
+        n /= base;
+        f *= inv;
+    }
+    return r;
+}
+
+/// A reference image's share of the Sun a point sees, from one ray: to the
+/// point of the limb-darkened disc that sample `k` of the progressive sum
+/// stands for (`reference`), every ray the same share of its light. Sample
+/// `k` is replica `k % 4`'s `k / 4`-th: Halton's bases 5 and 7 -- 2 and 3
+/// jitter the pixel, on the CPU -- shifted by a fixed random amount per
+/// pixel and replica (Cranley-Patterson), so the four replicas are
+/// independent estimates and their spread an honest error. Radius and angle
+/// both drawn anew each sample: a fixed spiral's radii, only turned, would
+/// leave its quadrature error in the mean however long it ran.
+fn ray_reference(p: vec3<f32>, n: vec3<f32>, sun: vec3<f32>, radius: f32, k: u32, pixel: vec2<u32>) -> f32 {
+    let to_sun = sun - p;
+    let dist = length(to_sun);
+    let d = to_sun / dist;
+    if dot(n, d) <= 0.0 {
+        return 0.0;
+    }
+    let origin = ray_origin(p, n);
+    if radius <= 0.0 {
+        return select(1.0, 0.0, ray_blocked(origin, d, dist));
+    }
+    let replica = k % 4u;
+    let i = k / 4u + 1u;
+    let key = (pixel.x * 73856093u) ^ (pixel.y * 19349663u) ^ (replica * 83492791u);
+    let u = fract(vec2<f32>(ray_radical_inverse(i, 5u), ray_radical_inverse(i, 7u))
+        + vec2<f32>(ray_unit(key), ray_unit(key ^ 0x9e3779b9u)));
+    let r = sqrt(ray_limb_radius2(u.x));
+    let phi = RAY_TAU * u.y;
+    let side = select(vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(1.0, 0.0, 0.0), abs(d.z) > 0.9);
+    let t1 = normalize(cross(d, side));
+    let t2 = cross(d, t1);
+    return select(1.0, 0.0, ray_to_disc(origin, sun, radius, t1, t2, r * vec2<f32>(cos(phi), sin(phi))));
+}

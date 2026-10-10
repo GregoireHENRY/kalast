@@ -165,6 +165,7 @@ def _cases():
         ("kalast/app/config.pyi", "ShadingConfig", app.simulation.config.shading),
         ("kalast/app/config.pyi", "LightConfig", app.simulation.config.light),
         ("kalast/app/config.pyi", "ShadowsConfig", app.simulation.config.shadows),
+        ("kalast/app/config.pyi", "ReferenceConfig", app.simulation.config.reference),
         ("kalast/app/config.pyi", "WireframeConfig", app.simulation.config.wireframe),
         ("kalast/app/config.pyi", "SelectionConfig", app.simulation.config.selection),
         ("kalast/app/config.pyi", "DataConfig", app.simulation.config.data),

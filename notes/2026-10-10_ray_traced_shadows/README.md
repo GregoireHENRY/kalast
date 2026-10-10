@@ -245,6 +245,54 @@ card. wgpu treats it as fatal. Two fixes:
   The scenario with rays on: 4.4 GB at most, against more than 11 before the
   crash, 600 frames orbiting.
 
+## The reference image (`reference.enabled`)
+
+The handoff's progressive reference, built on the frame rather than beside
+it: every shading law, the atmosphere and the colours come along unchanged.
+
+- **A sample a frame.** The camera jittered within each pixel (Halton's bases
+  2 and 3, the projection shifted on the CPU) and one ray to a point of the
+  limb-darkened disc (bases 5 and 7, `ray_reference` in `sun_rays.wgsl`):
+  the radius and the angle both drawn anew each sample -- a fixed spiral's
+  radii, only turned, would leave its quadrature error in the mean however
+  long it ran. The main pass draws it single-sampled into 32-bit floats
+  (`render::Pass::render_reference`, a float build of its own pipelines);
+  `shaders/reference.wgsl` adds it to one of four replicas' sums.
+- **An honest error.** Each replica's sequences are shifted by a fixed random
+  amount per pixel (Cranley-Patterson), so the four are independent
+  estimates and their spread, over the square root of four, is the pixel's
+  standard error -- the naive one, from one low-discrepancy sequence's
+  samples, would be far too pessimistic. Every sixteen samples a histogram
+  of it (a third of an octave a bin) is read back; the sum stops once its
+  99.9th percentile is under `reference.error` (1/510, half an 8-bit step),
+  after 64 samples, or at `max_samples`, and the mean and each pixel's error
+  are read back for `sim.reference_image()` and `sim.reference_error_image()`.
+- **Summed as stored.** With `srgb_mode` 1 the samples are summed as the
+  values the image stores, encoded, the mean decoded for the target, as
+  `msaa_resolve.wgsl` averages; with 0, linear. Either way the sum is of
+  radiance.
+- **Exact by construction.** Rays whatever `shadows.rays` says, the probe off,
+  the level of detail and MSAA off -- the passes are built single-sampled
+  while it is on -- the full meshes.
+- **Begun again** when what is drawn changes: the settings but the
+  reference's own, the camera's pose and projection settings, the Sun, the
+  bodies, the image's size, the meshes (`reference_scene`). Two that looked
+  right and were not: the iteration, which a script stepping a still scene
+  moves every frame, and the camera's matrix, whose fitted near and far
+  planes alternate by a unit in the last place on Dimorphos up close (and
+  its basis, made orthonormal each frame, likewise) -- the sum never got
+  past its first sample. The numbers are compared to a millionth, relative.
+
+Measured (`tests/test_reference.py`): the wall from 30 above, 600 x 400, the
+Sun 25 deg up -- stopped by itself at 1,680 samples, error 0.00195, 0.5 ms a
+sample; the lit plate 0.42261, sin 25 deg; across the penumbra each pixel
+within 0.0017 of the disc's light its ground sees, in float64 (rms 0.0007),
+inside the image's own stated error (0.0019); summed again, the same image to
+the bit. The error falls about as `n^-0.75`. Dimorphos from 150 m, both
+bodies at full resolution, 1400 x 900: stopped at 976 samples, 1.5 s.
+
+![real time against the reference](dimorphos_reference.png)
+
 ## Compaction
 
 Each body's bottom level is built with `ALLOW_COMPACTION` and compacted once
@@ -266,7 +314,7 @@ allocator report: 1,312 MiB in use built, 1,055 compacted).
 
 ## Not done
 
-- **The progressive reference mode**, then bounces.
+- **Bounces** into shadowed ground, next.
 - **The Mac**: not run on Metal yet; the M1 Pro traverses in software.
 - A body's `shadow_mesh` stand-in is not used: rays see the body's own mesh.
 - A body with a horizon map: the rays see its relief directly, the map is

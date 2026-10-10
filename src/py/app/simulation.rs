@@ -224,6 +224,50 @@ impl Simulation {
     }
 
     #[getter]
+    /// A reference image's samples of each pixel so far
+    /// (`config.reference.enabled`); 0 without one.
+    fn reference_samples(&self) -> u32 {
+        self.inner.borrow().reference.samples
+    }
+
+    #[getter]
+    /// A reference image's standard error, last measured: the 99.9th
+    /// percentile of the pixels', in the image's values (0 to 1), from the
+    /// spread of four independent estimates of each. Measured every sixteen
+    /// samples; `None` before.
+    fn reference_error(&self) -> Option<f32> {
+        self.inner.borrow().reference.error
+    }
+
+    #[getter]
+    /// Whether a reference image is done: its error under
+    /// `config.reference.error`, or its samples at `max_samples`.
+    fn reference_done(&self) -> bool {
+        self.inner.borrow().reference.done
+    }
+
+    /// A reference image's mean, once done: `(height, width, 3)` floats, the
+    /// values the image stores before rounding to 8 bits, rows from the top.
+    /// `None` before it is done, or without one.
+    fn reference_image<'py>(&self, py: Python<'py>) -> Option<Bound<'py, numpy::PyArray3<f32>>> {
+        use numpy::PyArrayMethods;
+        let sim = self.inner.borrow();
+        let image = sim.reference.image.as_ref()?;
+        let (h, w) = (image.height as usize, image.width as usize);
+        numpy::PyArray1::from_slice(py, &image.mean).reshape([h, w, 3]).ok()
+    }
+
+    /// Each pixel's standard error in a done reference image: `(height,
+    /// width)` floats, its largest channel's. `None` before it is done.
+    fn reference_error_image<'py>(&self, py: Python<'py>) -> Option<Bound<'py, numpy::PyArray2<f32>>> {
+        use numpy::PyArrayMethods;
+        let sim = self.inner.borrow();
+        let image = sim.reference.image.as_ref()?;
+        let (h, w) = (image.height as usize, image.width as usize);
+        numpy::PyArray1::from_slice(py, &image.error).reshape([h, w]).ok()
+    }
+
+    #[getter]
     /// Whether every frame is exported. Destination is `config.export_dir`.
     fn export(&self) -> bool {
         self.inner.borrow().export

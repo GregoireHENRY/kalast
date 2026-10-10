@@ -5816,3 +5816,18 @@ Built with `ALLOW_COMPACTION` and compacted once built: rays on cost the
 Didymos pair 259 MiB of kalast's GPU memory instead of 770 -- once an empty
 submit and a wait after compacting let the first copies and their inputs go,
 without which nothing was saved. Write-up: `2026-10-10_ray_traced_shadows/`.
+
+## 2026-10-10 — a reference image, integrated to a stated error
+
+`reference.enabled`: a sample of every pixel a frame -- the camera jittered
+in it, one ray to a point of the limb-darkened disc, Halton sequences with a
+fixed random shift per pixel and replica -- summed in floats into four
+replicas, whose spread is each pixel's standard error; stops once the 99.9th
+percentile is under `reference.error` (half an 8-bit step), the mean read
+back by `sim.reference_image()`. Rays, no probe, no level of detail, no MSAA
+while on. The wall's penumbra within the image's own error of the exact
+profile, the same image to the bit twice; 0.5 ms a sample there, Dimorphos up
+close done in 1.5 s. The sum restarted every frame twice before it held: on
+the iteration, then on the camera's fitted planes and basis flipping a unit
+in the last place. `tests/test_reference.py`. Write-up:
+`2026-10-10_ray_traced_shadows/`.

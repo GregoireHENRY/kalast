@@ -332,6 +332,8 @@ class Config:
     """The Sun as a light: its colour, the ambient floor, the debug cube."""
     shadows: ShadowsConfig
     """The shadow map and its readback."""
+    reference: ReferenceConfig
+    """A reference image, integrated progressively to a stated error."""
     wireframe: WireframeConfig
     """Facet edges drawn over or instead of the surface."""
     selection: SelectionConfig
@@ -782,6 +784,35 @@ class ShadowsConfig:
     penumbra by a sliver. 0 traces all of `ray_samples` everywhere,
     exact to them.
     """
+
+class ReferenceConfig:
+    """A reference image, integrated progressively to a stated error.
+
+    `app.simulation.config.reference`. Reads and writes the live config
+    through the same handle as every other view of it.
+    """
+    enabled: bool
+    """Integrate the image to a reference: a sample of every pixel each frame
+    -- the camera jittered within it, one ray to a point of the Sun's
+    limb-darkened disc -- summed into a mean that stops once its error is
+    under `error`. For a still scene; anything that changes it starts the
+    sum again.
+
+    The shadows are traced with rays where the GPU can (`shadows.rays`
+    needs not be on), against the full meshes: the level of detail and
+    MSAA are off while it is on, the frame being integrated over its
+    pixels instead. No denoiser, no history, no clamp: a plain mean of
+    fixed sequences, the same image every run. `sim.reference_samples`,
+    `sim.reference_error` and `sim.reference_done` follow it;
+    `sim.reference_image()` gives the mean as floats once done.
+    """
+    error: float
+    """The standard error the sum stops at, in the image's values (0 to 1):
+    the 99.9th percentile of the pixels', from the spread of four
+    independent estimates of each. Half an 8-bit step, 1/510, by default.
+    """
+    max_samples: int
+    """The most samples a pixel takes, the error reached or not."""
 
 class WireframeConfig:
     """Facet edges drawn over or instead of the surface.

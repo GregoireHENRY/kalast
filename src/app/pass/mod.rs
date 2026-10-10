@@ -16,6 +16,11 @@ pub struct Passes {
     pub penumbra: penumbra::Pass,
     /// The shadows are traced this frame (`raytrace`): no penumbra pass.
     pub rays: bool,
+    /// Built for a reference image (`reference.enabled`, `Passes::new`).
+    pub reference_on: bool,
+    /// The reference image's sums, made at the image's size when first
+    /// drawn.
+    pub reference: Option<crate::app::reference::Reference>,
     pub render: render::Pass,
     pub light_cube: light_cube::Pass,
     pub axes: axes::Pass,
@@ -43,13 +48,17 @@ impl Passes {
         msaa: &render::MsaaSupport,
         // On a device that traces rays, the main pass's group 7.
         rays: Option<&wgpu::BindGroupLayout>,
+        // A reference image is being made (`reference.enabled`): everything
+        // single-sampled -- the image is integrated over its pixels instead
+        // -- and the float pipelines its samples are drawn with.
+        reference: bool,
     ) -> Self {
         let layouts_all = uniforms.layouts_all();
         let bindings = uniforms.bindings(device);
 
         // Resolved once, so the main pass and the light cube it draws inside
         // cannot disagree about it.
-        let samples = msaa.resolve(config.shading.msaa);
+        let samples = if reference { 1 } else { msaa.resolve(config.shading.msaa) };
 
         let penumbra = penumbra::Pass::new(device, config, &uniforms.layouts_shaded());
         // The main pass reads what the penumbra pass found, at group 6.
@@ -59,13 +68,15 @@ impl Passes {
         if let Some(rays) = rays {
             shaded.push(Some(rays));
         }
-        let render = render::Pass::new(device, format, config, &shaded, size, samples);
+        let render = render::Pass::new(device, format, config, &shaded, size, samples, reference);
 
         Self {
             shadow: shadow::Pass::new(device, config, &uniforms.layouts_for_shadow()),
 
             penumbra,
             rays: false,
+            reference_on: reference,
+            reference: None,
             render,
             light_cube: light_cube::Pass::new(device, format, &layouts_all, samples),
             axes: axes::Pass::new(device, format, &layouts_all, samples),
@@ -136,6 +147,51 @@ impl Passes {
     ) {
         if penumbra::wanted(config) && !self.rays {
             self.penumbra.render(device, queue, encoder, meshes, &self.bindings, config, size, view_proj, timer);
+        }
+        // A reference image: this frame's sample of every pixel added to the
+        // sum, the mean as the image, what the main pass draws over the
+        // scene drawn over the mean.
+        if self.reference_on {
+            let format = self.render.format();
+            if self.reference.as_ref().is_none_or(|r| r.size != size) {
+                self.reference = Some(crate::app::reference::Reference::new(device, size, format));
+            }
+            let reference = self.reference.as_mut().unwrap();
+            if !reference.done && reference.samples() < config.reference.max_samples {
+                self.render.render_reference(
+                    encoder,
+                    &reference.frame_view,
+                    &self.depth.texture.view,
+                    meshes,
+                    &self.bindings,
+                    self.penumbra.read_group(),
+                    config,
+                    timer.and_then(|t| t.scope(super::gpu_timing::Scope::Render)),
+                );
+                reference.accumulate(queue, encoder, config.shading.srgb_mode);
+            }
+            reference.resolve(encoder, &self.render.render_view);
+            self.render.render_reference_overlays(
+                encoder,
+                &self.depth.texture.view,
+                &self.light_cube,
+                &self.colorbar,
+                meshes,
+                &self.bindings,
+                config,
+            );
+            if annotations {
+                self.render.render_annotations(
+                    encoder,
+                    &self.depth.texture.view,
+                    &self.axes,
+                    &self.grid,
+                    &self.gizmo,
+                    &self.bindings,
+                    config,
+                );
+            }
+            return;
         }
         self.render.render(
             encoder,

@@ -1137,6 +1137,14 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config) {
     topic(ui, codicon::COLOR_MODE, palette::LAVENDER, "Shadows", |ui| {
         quality_ui(ui, c);
         group_shadows(ui, c);
+        subheading(ui, "reference");
+        group_reference(ui, c);
+        if c.reference.enabled {
+            let r = &sim.reference;
+            let error = r.error.map_or(String::from("not measured yet"), |e| format!("error {e:.2e}"));
+            let state = if r.done { "done" } else { "summing" };
+            note(ui, &format!("{state}: {} samples, {error}", r.samples));
+        }
     });
     topic(ui, codicon::LAYERS, palette::TEAL, "Wireframe", |ui| group_wireframe(ui, c));
 

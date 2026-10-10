@@ -1399,6 +1399,42 @@ impl Default for AxesConfig {
     }
 }
 
+/// A reference image (`app::reference`): each pixel integrated over its area
+/// and the Sun's disc, progressively, a sample a frame, to a stated error.
+#[derive(Clone, Debug)]
+pub struct Reference {
+    /// Integrate the image to a reference: a sample of every pixel each frame
+    /// -- the camera jittered within it, one ray to a point of the Sun's
+    /// limb-darkened disc -- summed into a mean that stops once its error is
+    /// under `error`. For a still scene; anything that changes it starts the
+    /// sum again.
+    ///
+    /// The shadows are traced with rays where the GPU can (`shadows.rays`
+    /// needs not be on), against the full meshes: the level of detail and
+    /// MSAA are off while it is on, the frame being integrated over its
+    /// pixels instead. No denoiser, no history, no clamp: a plain mean of
+    /// fixed sequences, the same image every run. `sim.reference_samples`,
+    /// `sim.reference_error` and `sim.reference_done` follow it;
+    /// `sim.reference_image()` gives the mean as floats once done.
+    pub enabled: bool,
+    /// The standard error the sum stops at, in the image's values (0 to 1):
+    /// the 99.9th percentile of the pixels', from the spread of four
+    /// independent estimates of each. Half an 8-bit step, 1/510, by default.
+    /// :when: enabled == true
+    /// :step: 0.0001
+    pub error: f32,
+    /// The most samples a pixel takes, the error reached or not.
+    /// :when: enabled == true
+    /// :range: 64..=65536
+    pub max_samples: u32,
+}
+
+impl Default for Reference {
+    fn default() -> Self {
+        Self { enabled: false, error: 1.0 / 510.0, max_samples: 4096 }
+    }
+}
+
 /// The shaded ground grid of the `blender` axes style.
 #[derive(Clone, Debug)]
 pub struct Grid {
@@ -1770,6 +1806,8 @@ pub struct Config {
     pub light: Light,
     /// The shadow map and its readback.
     pub shadows: Shadows,
+    /// A reference image, integrated progressively to a stated error.
+    pub reference: Reference,
     /// Facet edges drawn over or instead of the surface.
     pub wireframe: Wireframe,
     /// The picked facet and the facet labels.
@@ -1800,6 +1838,7 @@ impl Default for Config {
             shading: Shading::default(),
             light: Light::default(),
             shadows: Shadows::default(),
+            reference: Reference::default(),
             wireframe: Wireframe::default(),
             selection: Selection::default(),
             data: Data::default(),

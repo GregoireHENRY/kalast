@@ -1726,6 +1726,7 @@ impl Window {
             render_size,
             &msaa,
             raytrace.as_ref().map(|r| &r.image_layout),
+            config.reference.enabled,
         );
         passes.bindings.rays = raytrace.as_ref().map(|r| r.image_group.clone());
 
@@ -2187,6 +2188,7 @@ impl Window {
             self.render_size,
             &self.msaa,
             self.raytrace.as_ref().map(|r| &r.image_layout),
+            config.reference.enabled,
         );
         self.passes.bindings.rays = self.raytrace.as_ref().map(|r| r.image_group.clone());
         // `Passes::new` sizes the offscreen targets from `config.image.width`, which
@@ -2210,6 +2212,62 @@ impl Window {
         }
         let layers = self.uniforms.shadow.layer_views.len().max(1) as u32;
         self.rebuild_shadow(config, layers);
+    }
+
+    /// A reference image's sample this frame, its sums made at the image's
+    /// size and begun again whenever the scene is not the one they were
+    /// begun for; `None` without a reference, or once it is done.
+    fn reference_sample(&mut self, config: &crate::app::config::Config, simulation: &crate::app::simulation::Simulation) -> Option<u32> {
+        if !self.passes.reference_on {
+            return None;
+        }
+        let size = self.render_size;
+        let scene = reference_scene(config, simulation, size, self.mesh_epoch);
+        let format = self.passes.render.format();
+        if self.passes.reference.as_ref().is_none_or(|r| r.size != (size.0.max(1), size.1.max(1))) {
+            self.passes.reference = Some(super::reference::Reference::new(&self.device, size, format));
+        }
+        let reference = self.passes.reference.as_mut().unwrap();
+        if !reference.scene.as_ref().is_some_and(|s| s.same(&scene)) || reference.samples() == 0 {
+            let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("reference reset") });
+            reference.reset(&mut encoder, scene);
+            self.queue.submit(Some(encoder.finish()));
+        }
+        (!reference.done && reference.samples() < config.reference.max_samples).then(|| reference.samples())
+    }
+
+    /// After a frame of a reference image: every sixteen samples its error
+    /// measured, and the sum stopped once under `reference.error` -- after
+    /// 64 samples, for the four replicas' spread to mean something -- or at
+    /// `reference.max_samples`, the mean then read back; the simulation told
+    /// how far it is.
+    pub fn reference_after_frame(&mut self, config: &crate::app::config::Config, simulation: &mut crate::app::simulation::Simulation) {
+        let Some(reference) = self.passes.reference.as_mut().filter(|_| self.passes.reference_on) else {
+            simulation.reference = Default::default();
+            return;
+        };
+        let n = reference.samples();
+        let max = config.reference.max_samples;
+        if !reference.done && n > 0 && (n % 16 == 0 || n >= max) {
+            let (error, _) = reference.measure(&self.device, &self.queue);
+            reference.error = Some(error);
+            if (n >= 64 && error <= config.reference.error) || n >= max {
+                reference.done = true;
+                let (mean, error) = reference.read(&self.device, &self.queue);
+                simulation.reference.image = Some(super::simulation::ReferenceImage {
+                    width: reference.size.0,
+                    height: reference.size.1,
+                    mean,
+                    error,
+                });
+            }
+        }
+        if !reference.done {
+            simulation.reference.image = None;
+        }
+        simulation.reference.samples = n;
+        simulation.reference.error = reference.error;
+        simulation.reference.done = reference.done;
     }
 
     /// The shadow array's side: `shadows.resolution`, or with the shadows
@@ -2351,7 +2409,14 @@ impl Window {
 
         // The bodies' acceleration structures, while rays are wanted: built
         // again with the meshes, placed where the bodies are this frame.
-        self.rays = config.shadows.rays && self.raytrace.is_some();
+        // A reference image traces whatever `shadows.rays` says: it is
+        // nothing if not exact. Its passes are single-sampled and have its
+        // float pipelines, so they are built again when it turns on or off.
+        let reference = config.reference.enabled;
+        if reference != self.passes.reference_on {
+            self.rebuild_passes(config);
+        }
+        self.rays = (config.shadows.rays || reference) && self.raytrace.is_some();
         simulation.rays = self.rays;
         if config.shadows.rays && self.raytrace.is_none() && !self.rays_refused {
             self.rays_refused = true;
@@ -2370,7 +2435,8 @@ impl Window {
         // the disc, in place of the maps' lookups; 0, the maps.
         let light = &mut self.uniforms.view.uniform.light;
         light.rays = if self.rays { config.shadows.ray_samples.max(1) } else { 0 };
-        light.ray_probe = config.shadows.ray_probe;
+        // None tried first in a reference: it misses slivers.
+        light.ray_probe = if reference { 0 } else { config.shadows.ray_probe };
         // The shadow array as small as it goes while the rays answer, and
         // back to `shadows.resolution` when they stop.
         if self.shadow_side(config) != self.shadow_requested {
@@ -2474,6 +2540,7 @@ impl Window {
 
         self.uniforms.globals.uniform = build_globals(config, shadow_fit, value_range, self.render_size);
         self.uniforms.globals.uniform.shadow_resolution = self.shadow_resolution;
+        self.uniforms.globals.uniform.ray_frame = self.reference_sample(config, simulation).map_or(0, |k| k + 1);
         self.uniforms.globals.uniform.camera_pos = camera_pos(&simulation.camera);
 
         // Resampled to the uniform's fixed 256 entries, so any length of table
@@ -2502,6 +2569,17 @@ impl Window {
             .camera
             .view_proj(width as Float / height as Float)
             .unwrap();
+        // A reference image's sample: the camera moved within the pixel, the
+        // image's whole shifted by the sample's offset.
+        if let Some(r) = self.passes.reference.as_ref().filter(|r| self.passes.reference_on && !r.done) {
+            let (jx, jy) = r.jitter();
+            let shift = crate::Mat4::from_translation(crate::Vec3::new(
+                (2.0 * jx / width as f32) as Float,
+                (-2.0 * jy / height as f32) as Float,
+                0.0,
+            ));
+            self.uniforms.view.uniform.camera.view_proj = shift * self.uniforms.view.uniform.camera.view_proj;
+        }
 
         // The level-of-detail cuts, the camera's first: what it can see of
         // each large mesh, only as fine as the image can show it (`lod`).
@@ -2512,7 +2590,8 @@ impl Window {
         for mesh in &mut self.meshes {
             mesh.poll_lod(&self.device);
         }
-        let lod_on = config.shading.lod && config.wireframe.mode == 0;
+        // Not in a reference image, which is of the full meshes.
+        let lod_on = config.shading.lod && config.wireframe.mode == 0 && !config.reference.enabled;
         // Kept from frame to frame (`shadows.cache`), the layers are fitted
         // to their whole bodies too: what the camera sees changes with it.
         let shadow_whole = config.shadows.access_shadow_map
@@ -4020,6 +4099,41 @@ impl Window {
 /// Where the camera is, as the uniform holds it.
 fn camera_pos(camera: &super::frame::Eye) -> [f32; 3] {
     [camera.pos.x as f32, camera.pos.y as f32, camera.pos.z as f32]
+}
+
+/// What a reference image is of: the settings but its own, the camera, the
+/// Sun, the bodies, the image's size and the meshes. A sum is begun again
+/// when it changes -- not the iteration: a script stepping a still scene
+/// moves it every frame, and the sum never got past its first sample.
+fn reference_scene(
+    config: &crate::app::config::Config,
+    simulation: &crate::app::simulation::Simulation,
+    size: (u32, u32),
+    mesh_epoch: u64,
+) -> super::reference::Scene {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    let mut c = config.clone();
+    c.reference = Default::default();
+    format!("{c:?}").hash(&mut h);
+    // The camera's pose and its own projection settings, not its matrix:
+    // the near and far planes fitted each frame alternated by a unit in the
+    // last place on Dimorphos up close.
+    let camera = &simulation.camera;
+    let projection = &camera.projection;
+    format!("{:?}", projection.mode).hash(&mut h);
+    let mut values: Vec<f64> = Vec::new();
+    for v in [camera.pos, camera.dir, camera.up, simulation.sun.pos] {
+        values.extend(v.to_array().iter().map(|&x| x as f64));
+    }
+    values.extend([projection.fovy as f64, projection.viewport_scale as f64]);
+    for v in [projection.near, projection.far, projection.side] {
+        values.push(v.map_or(f64::NAN, |x| x as f64));
+    }
+    for body in &simulation.bodies {
+        values.extend(body.mat.to_cols_array().iter().map(|&x| x as f64));
+    }
+    super::reference::Scene { settings: h.finish(), size, mesh_epoch, values }
 }
 
 /// The shadow array at `wanted` texels a side, or the largest power of two

@@ -69,6 +69,10 @@ pub const SHADER_SHADOW: wgpu::ShaderModuleDescriptor =
 pub const SHADER_DEPTH_PYRAMID: wgpu::ShaderModuleDescriptor =
     wgpu::include_wgsl!("../../shaders/depth_pyramid.wgsl");
 
+/// A reference image's sum, mean and error (`app::reference`).
+pub const SHADER_REFERENCE: wgpu::ShaderModuleDescriptor =
+    wgpu::include_wgsl!("../../shaders/reference.wgsl");
+
 /// Ray-traced shadows (`app::raytrace`): made only on a device with ray
 /// queries, since it does not compile elsewhere.
 pub const SHADER_RAYTRACE: wgpu::ShaderModuleDescriptor =
@@ -390,7 +394,14 @@ impl RenderPipeline {
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
-                    blend: Some(blend),
+                    // None where the format cannot blend -- the reference's
+                    // float samples (`reference::FORMAT`) -- which REPLACE is
+                    // the same as, and which a float32 target refuses.
+                    blend: format
+                        .guaranteed_format_features(device.features())
+                        .flags
+                        .contains(wgpu::TextureFormatFeatureFlags::BLENDABLE)
+                        .then_some(blend),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
                 compilation_options: Default::default(),

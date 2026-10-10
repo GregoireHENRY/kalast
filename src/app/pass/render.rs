@@ -226,6 +226,9 @@ pub struct Pass {
     /// `None` on a device without `primitive_index`, where a flat mesh is
     /// always drawn by its corners.
     lean: Option<gpu::RenderPipeline>,
+    /// For a reference image's samples (`render_reference`): the main pass's
+    /// pipelines, full and lean, single-sampled into floats.
+    reference: Option<(gpu::RenderPipeline, Option<gpu::RenderPipeline>)>,
     /// Whether `pipeline` was built with `@builtin(primitive_index)`; see
     /// `gpu::has_primitive_index`. Read per draw to pick the corners path
     /// where the shader needs it.
@@ -253,6 +256,9 @@ impl Pass {
         size: (u32, u32),
         // `Passes::new`'s, resolved once for every pipeline in the pass.
         samples: u32,
+        // Whether to build the pipelines a reference image draws its samples
+        // with (`render_reference`).
+        reference: bool,
     ) -> Self {
         // The shadow pass reads the same flag (`shadow::Pass::new`): closed
         // geometry culls its back faces in both, and `render_back_face` turns
@@ -275,7 +281,7 @@ impl Pass {
         // level-of-detail draw's first triangle and first skirt vertex
         // (`gpu::LodBuffers`).
         let immediates = gpu::has_immediates(device) && gpu::has_primitive_index(device);
-        let build = |lean| {
+        let build = |lean, format, samples| {
             gpu::RenderPipeline::with_immediates(
                 &device,
                 format,
@@ -290,8 +296,13 @@ impl Pass {
                 if immediates { 8 } else { 0 },
             )
         };
-        let pipeline = build(false);
-        let lean = gpu::has_primitive_index(device).then(|| build(true));
+        let pipeline = build(false, format, samples);
+        let lean = gpu::has_primitive_index(device).then(|| build(true, format, samples));
+        // A reference image's samples are drawn single-sampled into floats.
+        let reference = reference.then(|| {
+            let float = crate::app::reference::FORMAT;
+            (build(false, float, 1), gpu::has_primitive_index(device).then(|| build(true, float, 1)))
+        });
 
         let (render_texture, render_view) =
             create_render_target(device, format, size.0, size.1);
@@ -303,6 +314,7 @@ impl Pass {
         Self {
             pipeline,
             lean,
+            reference,
             immediates,
             primitive_index: gpu::has_primitive_index(device),
             render_texture,
@@ -456,6 +468,108 @@ impl Pass {
         if by_hand {
             self.resolve_stored(encoder);
         }
+    }
+
+    /// A reference image's sample (`app::reference`): the bodies alone, with
+    /// the main pass's shading, single-sampled into `target` -- the
+    /// reference's float sample -- over `depth_view`. The light cube and the
+    /// colour bar are drawn over the mean after (`render_reference_overlays`),
+    /// the annotations after them.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_reference(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        depth_view: &wgpu::TextureView,
+        meshes: &[gpu::MeshBuffer],
+        bindings: &super::Bindings,
+        penumbra: &wgpu::BindGroup,
+        config: &crate::app::config::Config,
+        timestamps: Option<wgpu::RenderPassTimestampWrites<'_>>,
+    ) {
+        let Some((full, lean_pipeline)) = &self.reference else {
+            return;
+        };
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("reference sample"),
+            timestamp_writes: timestamps,
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: target,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations { load: wgpu::LoadOp::Clear(config.shading.background), store: wgpu::StoreOp::Store },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: depth_view,
+                depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(gpu::DEPTH_CLEAR), store: wgpu::StoreOp::Store }),
+                stencil_ops: None,
+            }),
+            ..Default::default()
+        });
+        render_pass.set_pipeline(&full.inner);
+        bindings.all(&mut render_pass);
+        render_pass.set_bind_group(6, Some(penumbra), &[]);
+        if let Some(rays) = &bindings.rays {
+            render_pass.set_bind_group(7, Some(rays), &[]);
+        }
+        // As the main pass picks them (`render`).
+        let corners = config.wireframe.mode != 0 || !self.primitive_index;
+        let mut lean_set = false;
+        for mesh in &meshes[1..] {
+            let lean = lean_pipeline.as_ref().filter(|_| mesh.is_flat && !corners);
+            if lean.is_some() != lean_set {
+                render_pass.set_pipeline(&lean.unwrap_or(full).inner);
+                lean_set = lean.is_some();
+            }
+            mesh.render_shaded(&mut render_pass, corners, self.immediates);
+        }
+    }
+
+    /// Over a reference image's mean: the light cube and the colour bar,
+    /// which the main pass draws inside itself, tested against the sample's
+    /// depth.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_reference_overlays(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        depth_view: &wgpu::TextureView,
+        light: &super::light_cube::Pass,
+        colorbar: &super::colorbar::Pass,
+        meshes: &[gpu::MeshBuffer],
+        bindings: &super::Bindings,
+        config: &crate::app::config::Config,
+    ) {
+        let cube = config.light.cube_show;
+        let bar = config.colorbar.enabled && config.shading.color_mode != 2;
+        if !cube && !bar {
+            return;
+        }
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("reference overlays"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &self.render_view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: depth_view,
+                depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store }),
+                stencil_ops: None,
+            }),
+            ..Default::default()
+        });
+        if cube {
+            light.render(&mut render_pass, &meshes[0], bindings);
+        }
+        if bar {
+            colorbar.render(&mut render_pass, bindings);
+        }
+    }
+
+    /// The image's format.
+    pub fn format(&self) -> wgpu::TextureFormat {
+        self.format
     }
 
     /// Whether this frame's samples are resolved by `Resolve` rather than by
