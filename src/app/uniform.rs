@@ -151,7 +151,13 @@ pub struct Light {
     /// Cascaded shadow maps in use (`shadows.cascades`): the layers before
     /// the scene's, which a point picks the finest of that holds it.
     pub cascades: u32,
-    pub _peel_pad: [u32; 2],
+    /// With `shadows.rays` on a device that traces them, the rays each pixel
+    /// traces across the Sun's disc (1 for a point), in place of the shadow
+    /// maps' lookups (`raytrace`); 0, the maps. Where `_peel_pad` was, so
+    /// the struct's size and every shader's copy are as before.
+    pub rays: u32,
+    /// The rays tried first (`shadows.ray_probe`).
+    pub ray_probe: u32,
 }
 
 /// Atmospheres whose shadows other bodies see: Mars's is the one there is.
@@ -332,6 +338,7 @@ impl Uniforms {
             bar: self.bar.bind_group(device),
             shadow_layer: self.layer_select.bind_group.clone(),
             layer_stride: self.layer_select.stride,
+            rays: None,
             // textures: self.textures[0].bind_group(device).unwrap(),
         }
     }

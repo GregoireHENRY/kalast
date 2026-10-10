@@ -1649,8 +1649,8 @@ the disc that every inner ray misses. `0` traces all of `ray_samples`
 everywhere, exact to them.
 
 ### `shadows.ray_samples: u32` — default `64` *(live)*
-With `shadows.rays` and `light.sun_as_point` off, the rays each point traces
-across the Sun's disc. Each carries the same share of the limb-darkened disc's
+With `shadows.rays` and `light.sun_as_point` off, the rays each point -- a
+pixel, a facet's corner or centre -- traces across the Sun's disc. Each carries the same share of the limb-darkened disc's
 light -- radii at equal steps of its light, angles a golden spiral, turned per
 point -- so a penumbra is resolved to about `1/ray_samples` of the disc, and
 the same scene gives the same answer. Against the disc's light integrated on a
@@ -1658,20 +1658,24 @@ the same scene gives the same answer. Against the disc's light integrated on a
 with no bias. A point Sun takes one ray.
 
 ### `shadows.rays: bool` — default `false` *(live)*
-Trace the shadows the thermophysical model reads (`sim.facet_shadow`) with
-rays, on a GPU that has ray queries: each facet's corners and centre, as the
-shadow maps' query takes them, against every body's full-resolution mesh. No
-texel, filter or bias: a shadow is where the mesh is, and a penumbra what the
-rays see of the limb-darkened disc (`shadows.ray_samples`). The image is still
-shaded from the shadow maps.
+Trace the Sun's shadows with rays, on a GPU that has ray queries, in place of
+the shadow maps: the image's, and those the thermophysical model reads
+(`sim.facet_shadow`) -- each facet's corners and centre, as the shadow maps'
+query takes them. Against every body's full-resolution mesh: no texel, filter
+or bias, a shadow is where the mesh is, and a penumbra what the rays see of
+the limb-darkened disc (`shadows.ray_samples`). With a level of detail
+(`shading.lod`) a pixel's rays start from the full mesh, found by a ray from
+the camera, not from the coarser surface drawn.
 
 On Didymos at full resolution with Dimorphos's shadow on it, the shadow maps
 lit about 12,000 of its 3.1 million facets that rays find in shadow -- the
 long shadows of centimetre relief at grazing light, and ridges farther off --
-which a float64 ray test agreed with the rays on, facet for facet. With a
-point Sun a step of the pair costs what the shadow maps do (7.4 ms against 7.2
-on an RTX 5080); with the disc, about 31 ms at 64 rays, 58 at 256
-(`shadows.ray_probe`), against 8 for the maps.
+which a float64 ray test agreed with the rays on, facet for facet. On an RTX
+5080, a step of the pair with every facet's shadow costs, with a point Sun,
+what the shadow maps do (7.4 ms against 7.2); with the disc about 31 ms at 64
+rays, 58 at 256 (`shadows.ray_probe`), against 8 for the maps. An image of the
+pair at 1200 x 800: 0.8 ms with a point Sun (maps 0.4), 5.2 with the disc
+(maps 1.0).
 
 Vulkan on Windows and Linux, Metal on macOS 15 and later -- on an Apple M1 or
 M2 the traversal is the driver's, in software. Without ray queries the shadow

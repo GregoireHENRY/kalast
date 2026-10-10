@@ -1216,9 +1216,9 @@ instead of requesting per body.
 With `config.shadows.rays = True`, on a GPU with ray queries, the same points
 are traced with rays against every body's full-resolution mesh instead:
 exact geometry, no texel or bias, the disc sampled by `shadows.ray_samples`
-rays a point. Same array, same meaning. `sim.rays` is `True` while they are
--- `False` before the first frame, and on a GPU without ray queries, where the
-shadow maps answer.
+rays a point. Same array, same meaning. The image is traced too, its pixels
+the same way. `sim.rays` is `True` while they are -- `False` before the first
+frame, and on a GPU without ray queries, where the shadow maps answer.
 
 **`1.0 - frac` is not the lit fraction**, which is what it looks like and what
 this document used to say. It is the *unblocked* fraction. A facet with

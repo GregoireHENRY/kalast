@@ -4,6 +4,9 @@
 // fragment stage finds the facet by the primitive index; without it, the
 // old non-indexed draw, where `vertex_index / 3` is the facet.
 enable primitive_index; //@prim
+// Lines tagged `//@rt` only on a device with ray queries, for `shadows.rays`;
+// the tracing itself is `sun_rays.wgsl`, put in at the `//@rays` line.
+enable wgpu_ray_query; //@rt
 
 struct Globals {
     color: vec3<f32>,
@@ -73,6 +76,11 @@ struct Light {
     // Cascaded shadow maps (`shadows.cascades`): the layers over the camera's
     // view before the scene's; 0, a layer per body.
     cascades: u32,
+    // With `shadows.rays`, the rays a pixel traces across the Sun's disc, 1
+    // for a point, in place of the maps' lookups; 0, the maps.
+    rays: u32,
+    // The rays tried first, the rest only where they disagree.
+    ray_probe: u32,
 };
 
 struct View {
@@ -81,6 +89,9 @@ struct View {
 };
 @group(1) @binding(0)
 var<uniform> view: View;
+
+// The bodies' acceleration structure (`raytrace`), for the main pass alone.
+@group(7) @binding(0) var tlas: acceleration_structure; //@rt
 
 struct InstanceInput {
     @location(8) mat_row_0: vec4<f32>,
@@ -2014,7 +2025,8 @@ fn fs_shaded(in: Surface) -> vec4<f32> {
 
     // Nothing in its layer this frame (flag bit 5): no lookup. Its body and
     // the other bodies apart (`others_slice`), each slice's, both to be lit.
-    let mapped = (body.flags & 32u) == 0u;
+    // None either while the shadows are traced (below).
+    let mapped = (body.flags & 32u) == 0u && view.light.rays == 0u;
     let others = others_slice(layer);
     var own = 1.0;
     var theirs = 1.0;
@@ -2041,7 +2053,25 @@ fn fs_shaded(in: Surface) -> vec4<f32> {
             shadow = soft.x * select(own, 1.0, soft.y > 0.0) * select(theirs, 1.0, soft.z > 0.0);
         }
     }
-    if (body.flags & 16u) != 0u && ndotl > 0.0 {
+    // Traced (`shadows.rays`): what this point's rays reach of the Sun,
+    // against the meshes themselves, in place of the maps' answer. A
+    // pattern of its own per pixel, fixed.
+    if view.light.rays > 0u && ndotl > 0.0 { //@rt
+        let key = u32(in.frag.x) * 73856093u ^ u32(in.frag.y) * 19349663u; //@rt
+        // From the point of the meshes the camera's ray finds through this //@rt
+        // pixel: the fragment's own position, rasterised and interpolated, is //@rt
+        // not on the triangle the rays are tested against -- rays from it //@rt
+        // speckled sunlit ground with black, and from a level of detail's cut //@rt
+        // they started under the relief. Off it along the surface's normal, //@rt
+        // not back toward the camera, which seen edge on is along the surface: //@rt
+        // 534 pixels of Didymos dark on facets lit throughout. Looked for //@rt
+        // from eight of the surface's pixels in front: a level of detail's //@rt
+        // cut is within about two of the full mesh. //@rt
+        let p = ray_seen_point(globals.camera_pos, in.world_pos, 8.0 * in.pixel); //@rt
+        shadow = ray_sun_seen(p, in.world_normal, view.light.pos, view.light.sun_radius, view.light.rays, view.light.ray_probe, ray_turn(key)); //@rt
+    } //@rt
+    // The rays see the relief a horizon map stands for.
+    if (body.flags & 16u) != 0u && ndotl > 0.0 && view.light.rays == 0u {
         shadow *= horizon_seen(in.facet, in.world_pos, light_dir);
     }
     if view.light.air_count > 0u && ndotl > 0.0 {
@@ -2101,3 +2131,6 @@ fn fs_shaded(in: Surface) -> vec4<f32> {
 
     return vec4<f32>(color, object_color.a);
 }
+
+// The tracing of the Sun's light, `sun_rays.wgsl`, on a device with ray queries.
+//@rays

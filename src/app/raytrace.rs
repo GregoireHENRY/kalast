@@ -45,11 +45,16 @@ pub struct RayTracing {
     mats: Vec<crate::Mat4>,
     facets_layout: wgpu::BindGroupLayout,
     facets_pipeline: wgpu::ComputePipeline,
+    /// The top level for the main pass, at group 7 (`mesh_shadow.wgsl`):
+    /// bound every frame on a device that traces, made again with the top
+    /// level.
+    pub image_layout: wgpu::BindGroupLayout,
+    pub image_group: wgpu::BindGroup,
 }
 
 impl RayTracing {
-    pub fn new(device: &wgpu::Device) -> Self {
-        let module = device.create_shader_module(crate::app::gpu::SHADER_RAYTRACE);
+    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
+        let module = device.create_shader_module(crate::app::gpu::shader_for(device, &crate::app::gpu::SHADER_RAYTRACE, false));
         let storage = |binding, read_only| wgpu::BindGroupLayoutEntry {
             binding,
             visibility: wgpu::ShaderStages::COMPUTE,
@@ -97,14 +102,40 @@ impl RayTracing {
             compilation_options: Default::default(),
             cache: None,
         });
+        let image_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("ray-traced shadows, the image"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::AccelerationStructure { vertex_return: false },
+                count: None,
+            }],
+        });
+        let tlas = Self::tlas_for(device, 8);
+        // Built empty at once: the main pass binds it every frame, rays or
+        // not, and a top level never built may not be bound.
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        encoder.build_acceleration_structures(std::iter::empty(), std::iter::once(&tlas));
+        queue.submit(Some(encoder.finish()));
+        let image_group = Self::image_group_for(device, &image_layout, &tlas);
         Self {
             blas: Vec::new(),
             epoch: None,
-            tlas: Self::tlas_for(device, 8),
+            tlas,
             mats: Vec::new(),
             facets_layout,
             facets_pipeline,
+            image_layout,
+            image_group,
         }
+    }
+
+    fn image_group_for(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, tlas: &wgpu::Tlas) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("ray-traced shadows, the image"),
+            layout,
+            entries: &[wgpu::BindGroupEntry { binding: 0, resource: tlas.as_binding() }],
+        })
     }
 
     fn tlas_for(device: &wgpu::Device, max_instances: u32) -> wgpu::Tlas {
@@ -133,6 +164,7 @@ impl RayTracing {
         }
         if self.tlas.get().len() < n {
             self.tlas = Self::tlas_for(device, (n as u32).next_power_of_two());
+            self.image_group = Self::image_group_for(device, &self.image_layout, &self.tlas);
         }
         self.mats = simulation.bodies.iter().map(|b| b.mat).collect();
         let slots = self.tlas.get().len();

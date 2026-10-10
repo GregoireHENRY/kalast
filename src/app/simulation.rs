@@ -80,7 +80,8 @@ pub struct Simulation {
     /// count. This is for everything that leaves the count the same, or
     /// shifts which body an index means.
     pub meshes_dirty: bool,
-    /// Whether this frame's per-facet shadows were traced with rays:
+    /// Whether this frame's shadows, the image's and the per-facet query's,
+    /// were traced with rays:
     /// `shadows.rays` on and the GPU able to, set by the window each frame.
     pub rays: bool,
 

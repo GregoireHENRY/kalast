@@ -893,19 +893,20 @@ pub struct Shadows {
     /// this and `lod_texels` is coarser is used.
     /// :range: 0.5..=32.0
     pub lod_pixels: f32,
-    /// Trace the shadows the thermophysical model reads with rays, on a GPU
-    /// that has ray queries: each facet's corners and centre against every
-    /// body's full-resolution mesh, the Sun's disc sampled by
-    /// `ray_samples` rays. Off by default; without ray queries, the shadow
-    /// maps answer as before.
+    /// Trace the Sun's shadows with rays, on a GPU that has ray queries: the
+    /// image's, and those the thermophysical model reads -- each facet's
+    /// corners and centre -- against every body's full-resolution mesh, the
+    /// Sun's disc sampled by `ray_samples` rays. Off by default; without ray
+    /// queries, the shadow maps answer as before.
     ///
     /// No texel, filter or bias: a shadow is where the mesh is, a penumbra
-    /// what the rays see of the limb-darkened disc. Vulkan on Windows and
+    /// what the rays see of the limb-darkened disc. With a level of detail, a
+    /// pixel's rays start from the full mesh, not the coarser surface drawn. Vulkan on Windows and
     /// Linux, Metal on macOS 15 and later -- on an Apple M1 or M2 the
     /// traversal is the driver's, slower than on hardware that has it.
     pub rays: bool,
-    /// The rays each point traces across the Sun's disc, with `rays` on and
-    /// `light.sun_as_point` off: each carries the same share of the
+    /// The rays each point -- a pixel, a facet's corner or centre -- traces
+    /// across the Sun's disc, with `rays` on and `light.sun_as_point` off: each carries the same share of the
     /// limb-darkened disc's light, so a penumbra is resolved to about
     /// 1/`ray_samples`. A point Sun takes one.
     /// :when: rays == true

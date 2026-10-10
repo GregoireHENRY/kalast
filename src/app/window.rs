@@ -1528,7 +1528,7 @@ impl Window {
             })
             .await
             .unwrap();
-        let raytrace = ray_query.then(|| super::raytrace::RayTracing::new(&device));
+        let raytrace = ray_query.then(|| super::raytrace::RayTracing::new(&device, &queue));
 
         let caps = surface.get_capabilities(&adapter);
 
@@ -1715,7 +1715,16 @@ impl Window {
         // as the window's here, a size set before the window opened was never
         // applied -- the live config takes what it finds at the start as done.
         let render_size = image_size(config, (surface_config.width, surface_config.height));
-        let passes = super::pass::Passes::new(&device, surface_config.format, &config, &uniforms, render_size, &msaa);
+        let mut passes = super::pass::Passes::new(
+            &device,
+            surface_config.format,
+            &config,
+            &uniforms,
+            render_size,
+            &msaa,
+            raytrace.as_ref().map(|r| &r.image_layout),
+        );
+        passes.bindings.rays = raytrace.as_ref().map(|r| r.image_group.clone());
 
         // The font is embedded rather than read from `res/`, so the overlay
         // works from any working directory. A font that will not load leaves
@@ -2172,7 +2181,9 @@ impl Window {
             &self.uniforms,
             self.render_size,
             &self.msaa,
+            self.raytrace.as_ref().map(|r| &r.image_layout),
         );
+        self.passes.bindings.rays = self.raytrace.as_ref().map(|r| r.image_group.clone());
         // `Passes::new` sizes the offscreen targets from `config.image.width`, which
         // is the *requested* size and need not be the window's current one.
         let (w, h) = self.render_size;
@@ -2328,8 +2339,15 @@ impl Window {
         if self.rays {
             if let Some(rt) = self.raytrace.as_mut() {
                 rt.update(&self.device, &self.queue, simulation, self.mesh_epoch);
+                // Made again when the top level grew.
+                self.passes.bindings.rays = Some(rt.image_group.clone());
             }
         }
+        // The image traced too: a ray for a point Sun, the samples across
+        // the disc, in place of the maps' lookups; 0, the maps.
+        let light = &mut self.uniforms.view.uniform.light;
+        light.rays = if self.rays { config.shadows.ray_samples.max(1) } else { 0 };
+        light.ray_probe = config.shadows.ray_probe;
 
         // The horizon maps the bodies ask for: worked out when one is turned
         // on, a few seconds on the GPU for Mars's 12.9M facets, and let go

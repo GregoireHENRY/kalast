@@ -1,9 +1,9 @@
-# Ray-traced shadows, step 1: the thermophysical model's (`shadows.rays`)
+# Ray-traced shadows: the thermophysical model's and the image's (`shadows.rays`)
 
 The handoff of 9 October (`2026-10-09_HANDOFF_ray_tracing.md`), on the home
-PC: RTX 5080, driver 610.88, Windows 11. This step traces the per-facet query
-the thermophysical model reads (`sim.facet_shadow`); the image is still
-shaded from the shadow maps.
+PC: RTX 5080, driver 610.88, Windows 11. Step 1 traces the per-facet query
+the thermophysical model reads (`sim.facet_shadow`); step 2, further down,
+the image.
 
 ## What the platform gives, here
 
@@ -137,12 +137,66 @@ About 10 billion rays a second without the probe, in line with the survey's
 a step. The bottom levels of the pair take a fraction of a second to build,
 once.
 
+## Step 2: the image
+
+`shadows.rays` shades the image too. `mesh_shadow.wgsl` has `//@rt` lines --
+`enable wgpu_ray_query`, the top level at group 7, the hook in the fragment
+stage -- that `gpu::shader_for` keeps only on a device with ray queries, and a
+`//@rays` line where it puts `shaders/sun_rays.wgsl`: the tracing, shared
+with `raytrace.wgsl`'s per-facet query, `ray_`-named to keep clear of the
+maps' `sun_seen` and `GOLDEN_ANGLE`. Elsewhere the shader is as before. The
+Light uniform's two words of padding became `rays` (samples a pixel, 0 for
+the maps) and `ray_probe`; the main pass binds group 7 on such a device every
+frame, the top level built empty at once so it may be. With rays on, the
+maps' lookups and the horizon map are skipped in the fragment stage (the
+shadow passes still run).
+
+Getting a pixel's ray to start in the right place took four tries, each
+caught by a check:
+
+1. **From the fragment's own position**, off along its normal by 16 ulps:
+   sunlit ground speckled black at full resolution -- a rasterised,
+   interpolated position is not on the triangle the hardware tests -- and
+   with the level of detail on, 61,816 pixels of Didymos darker than at full
+   resolution, the cut passing under the relief.
+2. **From the point a ray from the camera finds**, stepping back toward the
+   camera: the level of detail's false shadows gone (793 pixels left), but 534
+   pixels of Didymos dark on facets that rays from 40 points each across their
+   whole surface, in float64, find lit throughout. They were where the camera
+   sees the ground edge on, and "back toward the camera" is then along it.
+3. **The same point, off along the surface's normal**: Didymos clean. But a
+   plate at z = 0 seen from 45 above was ringed with black: a point found at
+   the camera's distance carries that distance's error in its last place,
+   far more than a coordinate near zero's own.
+4. **The camera's line, from eight of the surface's pixels in front of the
+   fragment** (`in.pixel`, its width on the surface; a level of detail's cut
+   is within about two): the point as exact as its own coordinates. Clean on
+   both.
+
+`tests/test_image_rays.py` holds it: the wall from above and obliquely, the
+Sun a point and a disc, each pixel against its facet's ray-traced answer
+through the facet map -- 0 of 480,000 pixels of wholly lit facets dark, 0 of
+184,000 of wholly hidden ones lit, the penumbra graded. On Didymos (1200 x 800,
+both bodies, the level of detail on or off): no dark pixel on a facet lit and
+facing the Sun; of the 1,363 dark pixels on facets at grazing light, 1,341 on
+facets the per-facet rays shadow too.
+
+An image of the pair at 1200 x 800 on the RTX 5080, median frame: a point Sun
+0.8 ms (maps 0.4), the disc 5.2 (maps 1.0).
+
+## Found on the way, not ray tracing's
+
+- `tests/test_horizon_map.py` fails one check, "and not more or less on the
+  whole" (mean +0.058), on `main` as pulled (1aa1420) as well: not this work.
+- The plate-and-wall mesh of the penumbra tests, drawn by its level of
+  detail from 45 above, has holes -- angled patches of the background in the
+  image, with the maps or with rays alike; with `shading.lod` off it is whole.
+
 ## Not done
 
-- **The image.** Ray-traced shadows in the main pass (a `//@rt` build of
-  `mesh_shadow.wgsl` with the top level bound, rays only where the penumbra
-  pass finds a penumbra can be), then the progressive reference mode, then
-  bounces.
+- **Rays only where needed**: the shadow passes still run with rays on, and
+  the disc's penumbra pass; skipping them is the next saving.
+- **The progressive reference mode**, then bounces.
 - **Compaction** of the bottom levels (`Queue::compact_blas`), for the Mac's
   memory.
 - **The Mac**: not run on Metal yet; the M1 Pro traverses in software.

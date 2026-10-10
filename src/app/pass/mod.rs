@@ -39,6 +39,8 @@ impl Passes {
         size: (u32, u32),
         // The GPU's sample counts, asked when the window was made.
         msaa: &render::MsaaSupport,
+        // On a device that traces rays, the main pass's group 7.
+        rays: Option<&wgpu::BindGroupLayout>,
     ) -> Self {
         let layouts_all = uniforms.layouts_all();
         let bindings = uniforms.bindings(device);
@@ -51,6 +53,10 @@ impl Passes {
         // The main pass reads what the penumbra pass found, at group 6.
         let mut shaded = uniforms.layouts_shaded();
         shaded.push(Some(&penumbra.read_layout));
+        // And the bodies' acceleration structure at group 7, where it is.
+        if let Some(rays) = rays {
+            shaded.push(Some(rays));
+        }
         let render = render::Pass::new(device, format, config, &shaded, size, samples);
 
         Self {
@@ -193,6 +199,9 @@ pub struct Bindings {
     /// Which layer the shadow pass is drawing, picked by dynamic offset.
     pub shadow_layer: wgpu::BindGroup,
     pub layer_stride: u32,
+    /// The bodies' acceleration structure for the main pass, at group 7, on
+    /// a device that traces rays (`raytrace`); set by the window.
+    pub rays: Option<wgpu::BindGroup>,
 }
 
 impl Bindings {

@@ -143,6 +143,18 @@ pub fn has_immediates(device: &wgpu::Device) -> bool {
         .contains(wgpu::Features::from(wgpu::FeaturesWebGPU::IMMEDIATES))
 }
 
+/// Whether the device took ray queries (`EXPERIMENTAL_RAY_QUERY`), for
+/// `shadows.rays` (`raytrace`).
+pub fn has_ray_query(device: &wgpu::Device) -> bool {
+    device
+        .features()
+        .contains(wgpu::Features::from(wgpu::FeaturesWGPU::EXPERIMENTAL_RAY_QUERY))
+}
+
+/// The tracing of the Sun's light the shaders that trace share, put in at
+/// their `//@rays` line (`shader_for`).
+const SUN_RAYS: &str = include_str!("../../shaders/sun_rays.wgsl");
+
 /// One shader source, several builds. A line ending in `//@prim` is kept
 /// only when the device has `PRIMITIVE_INDEX`, one ending in `//@noprim`
 /// only when it does not; every other line is kept. The fallback thereby
@@ -157,6 +169,11 @@ pub fn shader_for(
 ) -> wgpu::ShaderModuleDescriptor<'static> {
     let prim = has_primitive_index(device);
     let imm = has_immediates(device);
+    // `//@rt` likewise for ray queries, which no other device's compiler
+    // takes -- `enable wgpu_ray_query` included -- and a `//@rays` line is
+    // `sun_rays.wgsl`, there and only there. Last in a file, so the lines
+    // before it keep their numbers.
+    let rt = has_ray_query(device);
     let wgpu::ShaderSource::Wgsl(src) = &desc.source else {
         unreachable!("every shader here is WGSL");
     };
@@ -165,7 +182,16 @@ pub fn shader_for(
         let t = line.trim_end();
         // `//@imm` likewise for `IMMEDIATES`, which the level-of-detail
         // draw needs.
-        let keep = if t.ends_with("//@prim") {
+        if t.ends_with("//@rays") {
+            if rt {
+                out.push_str(SUN_RAYS);
+            }
+            out.push('\n');
+            continue;
+        }
+        let keep = if t.ends_with("//@rt") {
+            rt
+        } else if t.ends_with("//@prim") {
             prim
         } else if t.ends_with("//@noprim") {
             !prim

@@ -5763,5 +5763,21 @@ wall's penumbra: rms 0.15 % at 256 rays against 0.70 % for the maps, no
 bias; a point Sun exact. On the Didymos pair the maps light about 12,000 of
 Didymos's facets that rays shadow, and a float64 ray test sides with the rays
 on 295 of 300 sampled. A step of the pair: point Sun 7.4 ms (maps 7.2), disc
-31 ms at 64 rays, 58 at 256 (maps 8.1). The image is still the maps'.
+31 ms at 64 rays, 58 at 256 (maps 8.1).
 `tests/test_facet_shadow_rays.py`. Write-up: `2026-10-10_ray_traced_shadows/`.
+
+## 2026-10-10 — ray-traced shadows in the image
+
+`shadows.rays` shades the image too: `//@rt` lines in `mesh_shadow.wgsl` kept
+only on a device with ray queries, the tracing shared with the per-facet query
+in `shaders/sun_rays.wgsl`, the top level at group 7. A pixel's rays start
+from the full mesh, found by a short ray along the camera's line from eight of
+the surface's pixels in front of the fragment, off along its normal: from the
+fragment's own position they speckled sunlit ground black and, with a level of
+detail, shadowed 61,816 pixels of Didymos under the cut; from the camera, or
+stepping back toward it, they found the wrong place at grazing view and on a
+plate near z = 0. `tests/test_image_rays.py`: every pixel against its facet's
+ray-traced answer through the facet map, 0 wrong of 660,000. The pair at
+1200 x 800: 0.8 ms a frame with a point Sun, 5.2 with the disc (maps 0.4,
+1.0). `tests/test_horizon_map.py` fails one check on `main` from before this
+work. Write-up: `2026-10-10_ray_traced_shadows/`.

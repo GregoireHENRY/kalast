@@ -398,6 +398,9 @@ impl Pass {
 
         bindings.all(&mut render_pass);
         render_pass.set_bind_group(6, Some(penumbra), &[]);
+        if let Some(rays) = &bindings.rays {
+            render_pass.set_bind_group(7, Some(rays), &[]);
+        }
 
         // Non-indexed only while the wireframe is on (`Window::update` sets
         // `INSTANCE_FLAG_CORNERS` from the same field), or on a device whose

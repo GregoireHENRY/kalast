@@ -215,8 +215,8 @@ impl Simulation {
     }
 
     #[getter]
-    /// Whether the per-facet shadows (`facet_shadow`) are traced with rays:
-    /// `config.shadows.rays` on and the GPU able to trace them. False before
+    /// Whether the shadows -- the image's and `facet_shadow`'s -- are traced
+    /// with rays: `config.shadows.rays` on and the GPU able to trace them. False before
     /// the first frame, and on a GPU without ray queries, where the shadow
     /// maps answer instead.
     fn rays(&self) -> bool {
