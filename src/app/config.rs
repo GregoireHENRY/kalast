@@ -927,8 +927,8 @@ pub struct Shadows {
 }
 
 /// The shadow settings for one use, from the quickest look to the most exact
-/// (`Config::set_quality`): each sets the Sun, the method, the cache, the
-/// filter and the resolution, and leaves everything else.
+/// (`Config::set_quality`): each sets the fields `settings` lists, and leaves
+/// everything else.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Quality {
     /// One layer over the whole scene (`per_body` off), a point Sun, 2048
@@ -942,10 +942,31 @@ pub enum Quality {
     /// The Sun's disc with its second depth layer, a layer per body and a
     /// near layer, drawn every frame.
     Accurate,
+    /// The shadows traced with rays (`shadows.rays`), the Sun's disc sampled
+    /// by 64 a point, 16 tried first: on a GPU with ray queries.
+    Rays,
+}
+
+/// One field a `Quality` sets, and its value, as a script writes them.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Preset {
+    Bool(&'static str, bool),
+    U32(&'static str, u32),
+    F32(&'static str, f32),
+}
+
+impl std::fmt::Display for Preset {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            Preset::Bool(name, v) => write!(f, "{name} = {}", if v { "True" } else { "False" }),
+            Preset::U32(name, v) => write!(f, "{name} = {v}"),
+            Preset::F32(name, v) => write!(f, "{name} = {v:?}"),
+        }
+    }
 }
 
 impl Quality {
-    pub const ALL: [Quality; 4] = [Quality::Quick, Quality::Fast, Quality::Point, Quality::Accurate];
+    pub const ALL: [Quality; 5] = [Quality::Quick, Quality::Fast, Quality::Point, Quality::Accurate, Quality::Rays];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -953,6 +974,7 @@ impl Quality {
             Quality::Fast => "fast",
             Quality::Point => "point",
             Quality::Accurate => "accurate",
+            Quality::Rays => "rays",
         }
     }
 
@@ -960,35 +982,62 @@ impl Quality {
         Self::ALL.into_iter().find(|q| q.name() == name)
     }
 
-    /// What it is for, for a hover.
+    /// What it is for, in a line.
     pub fn describe(self) -> &'static str {
         match self {
-            Quality::Quick => "A quick look: one layer over the whole scene, a point Sun, 2048 texels, PCF 1",
-            Quality::Fast => "Fast: a layer per body kept from frame to frame (shadows.cache), a point Sun, PCF 2",
-            Quality::Point => "A point Sun, a layer per body drawn every frame, PCF 2: the defaults",
-            Quality::Accurate => "The Sun's disc and its penumbrae, a second depth layer, a layer per body and a near layer",
+            Quality::Quick => "A quick look over a whole scene: one shadow layer for it all",
+            Quality::Fast => "Fast: a shadow layer per body, kept from frame to frame",
+            Quality::Point => "The defaults: a shadow layer per body, drawn every frame, the Sun a point",
+            Quality::Accurate => "The Sun's disc and its penumbrae, from the shadow maps",
+            Quality::Rays => "The shadows traced with rays, the Sun's disc and its penumbrae: on a GPU with ray queries",
         }
     }
 
-    fn apply(self, c: &mut Config) {
-        let (point, per_body, cache, pcf, resolution) = match self {
-            Quality::Quick => (true, false, false, 1, 2048),
-            Quality::Fast => (true, true, true, 2, 4096),
-            Quality::Point => (true, true, false, 2, 4096),
-            Quality::Accurate => (false, true, false, 2, 4096),
+    /// What it sets, each field to its value: one table, so the hover
+    /// (`hover`), `apply` and `Config::quality` cannot disagree. The maps'
+    /// presets turn the rays off; the rays' leaves the maps' settings, which
+    /// nothing reads while they answer.
+    pub fn settings(self) -> Vec<Preset> {
+        use Preset::*;
+        let maps = |point, per_body, cache, pcf, resolution| {
+            vec![
+                Bool("shadows.rays", false),
+                Bool("light.sun_as_point", point),
+                Bool("shadows.per_body", per_body),
+                U32("shadows.cascades", 0),
+                Bool("shadows.cache", cache),
+                U32("shadows.pcf", pcf),
+                U32("shadows.resolution", resolution),
+            ]
         };
-        c.light.sun_as_point = point;
-        c.shadows.per_body = per_body;
-        c.shadows.cascades = 0;
-        c.shadows.cache = cache;
-        c.shadows.pcf = pcf;
-        c.shadows.resolution = resolution;
-        if cache {
-            c.shadows.cache_degrees = 0.0;
+        match self {
+            Quality::Quick => maps(true, false, false, 1, 2048),
+            Quality::Fast => [maps(true, true, true, 2, 4096), vec![F32("shadows.cache_degrees", 0.0)]].concat(),
+            Quality::Point => maps(true, true, false, 2, 4096),
+            Quality::Accurate => [
+                maps(false, true, false, 2, 4096),
+                vec![Bool("shadows.second_depth", true), Bool("shadows.near_layer", true)],
+            ]
+            .concat(),
+            Quality::Rays => vec![
+                Bool("shadows.rays", true),
+                Bool("light.sun_as_point", false),
+                U32("shadows.ray_samples", 64),
+                U32("shadows.ray_probe", 16),
+            ],
         }
-        if self == Quality::Accurate {
-            c.shadows.second_depth = true;
-            c.shadows.near_layer = true;
+    }
+
+    /// For the settings' button: what it is for, then each field it sets to
+    /// which value, a line each.
+    pub fn hover(self) -> String {
+        let lines: Vec<String> = self.settings().iter().map(Preset::to_string).collect();
+        format!("{}\n\n{}", self.describe(), lines.join("\n"))
+    }
+
+    fn apply(self, c: &mut Config) {
+        for s in self.settings() {
+            c.preset_set(s);
         }
     }
 }
@@ -999,21 +1048,97 @@ impl Config {
         quality.apply(self);
     }
 
-    /// Which `Quality` the settings are now, if they are one's.
+    /// Which `Quality` the settings are now, if they are one's: every field
+    /// it sets at its value.
     pub fn quality(&self) -> Option<Quality> {
-        Quality::ALL.into_iter().find(|q| {
-            let mut c = self.clone();
-            q.apply(&mut c);
-            c.light.sun_as_point == self.light.sun_as_point
-                && c.shadows.per_body == self.shadows.per_body
-                && c.shadows.cascades == self.shadows.cascades
-                && c.shadows.cache == self.shadows.cache
-                && c.shadows.pcf == self.shadows.pcf
-                && c.shadows.resolution == self.shadows.resolution
-                && c.shadows.cache_degrees == self.shadows.cache_degrees
-                && c.shadows.second_depth == self.shadows.second_depth
-                && c.shadows.near_layer == self.shadows.near_layer
-        })
+        Quality::ALL.into_iter().find(|q| q.settings().into_iter().all(|s| self.preset_holds(s)))
+    }
+
+    /// A `Quality`'s field set, by the name a script writes it with.
+    fn preset_set(&mut self, s: Preset) {
+        use Preset::*;
+        match s {
+            Bool("shadows.rays", v) => self.shadows.rays = v,
+            Bool("light.sun_as_point", v) => self.light.sun_as_point = v,
+            Bool("shadows.per_body", v) => self.shadows.per_body = v,
+            Bool("shadows.cache", v) => self.shadows.cache = v,
+            Bool("shadows.second_depth", v) => self.shadows.second_depth = v,
+            Bool("shadows.near_layer", v) => self.shadows.near_layer = v,
+            U32("shadows.cascades", v) => self.shadows.cascades = v,
+            U32("shadows.pcf", v) => self.shadows.pcf = v,
+            U32("shadows.resolution", v) => self.shadows.resolution = v,
+            U32("shadows.ray_samples", v) => self.shadows.ray_samples = v,
+            U32("shadows.ray_probe", v) => self.shadows.ray_probe = v,
+            F32("shadows.cache_degrees", v) => self.shadows.cache_degrees = v,
+            _ => unreachable!("a preset sets a field `preset_set` does not know: {s}"),
+        }
+    }
+
+    /// Whether a `Quality`'s field holds its value: set on a copy, the copy
+    /// no different there.
+    fn preset_holds(&self, s: Preset) -> bool {
+        let mut c = self.clone();
+        c.preset_set(s);
+        use Preset::*;
+        match s {
+            Bool("shadows.rays", _) => c.shadows.rays == self.shadows.rays,
+            Bool("light.sun_as_point", _) => c.light.sun_as_point == self.light.sun_as_point,
+            Bool("shadows.per_body", _) => c.shadows.per_body == self.shadows.per_body,
+            Bool("shadows.cache", _) => c.shadows.cache == self.shadows.cache,
+            Bool("shadows.second_depth", _) => c.shadows.second_depth == self.shadows.second_depth,
+            Bool("shadows.near_layer", _) => c.shadows.near_layer == self.shadows.near_layer,
+            U32("shadows.cascades", _) => c.shadows.cascades == self.shadows.cascades,
+            U32("shadows.pcf", _) => c.shadows.pcf == self.shadows.pcf,
+            U32("shadows.resolution", _) => c.shadows.resolution == self.shadows.resolution,
+            U32("shadows.ray_samples", _) => c.shadows.ray_samples == self.shadows.ray_samples,
+            U32("shadows.ray_probe", _) => c.shadows.ray_probe == self.shadows.ray_probe,
+            F32("shadows.cache_degrees", _) => c.shadows.cache_degrees == self.shadows.cache_degrees,
+            _ => unreachable!("a preset sets a field `preset_holds` does not know: {s}"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod quality_tests {
+    use super::{Config, Quality};
+
+    /// Each preset reads back as itself, from the defaults and from settings
+    /// another left, and no two are the same.
+    #[test]
+    fn each_preset_reads_back_as_itself() {
+        for start in Quality::ALL {
+            for q in Quality::ALL {
+                let mut c = Config::default();
+                c.set_quality(start);
+                c.set_quality(q);
+                assert_eq!(c.quality(), Some(q), "{} after {}", q.name(), start.name());
+            }
+        }
+    }
+
+    /// The hover names every field a preset sets, and its value, a line each.
+    #[test]
+    fn the_hover_lists_every_field_and_value() {
+        for q in Quality::ALL {
+            let hover = q.hover();
+            let lines: Vec<&str> = hover.lines().collect();
+            for s in q.settings() {
+                assert!(lines.contains(&s.to_string().as_str()), "{}: {s} not a line of {hover:?}", q.name());
+            }
+        }
+        assert!(Quality::Accurate.hover().contains("\nlight.sun_as_point = False\n"));
+        assert!(Quality::Point.hover().contains("\nshadows.rays = False\n"));
+    }
+
+    /// The maps' presets turn the rays off, so picking one after "rays"
+    /// gives what it says.
+    #[test]
+    fn a_maps_preset_turns_the_rays_off() {
+        let mut c = Config::default();
+        c.set_quality(Quality::Rays);
+        assert!(c.shadows.rays && !c.light.sun_as_point);
+        c.set_quality(Quality::Point);
+        assert!(!c.shadows.rays && c.light.sun_as_point);
     }
 }
 

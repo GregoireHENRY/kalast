@@ -415,26 +415,27 @@ fn body_ui(ui: &mut egui::Ui, i: usize, body: &mut crate::app::body::Body) -> bo
 }
 
 /// The shadow settings for one use (`Quality`): a button each, the one the
-/// settings are now picked out.
+/// settings are now picked out, its hover the fields it sets, a line each.
+///
+/// A row of its own across the panel, as many lines high as the buttons
+/// wrap to. As a `setting` they stood in the control's column, a button a
+/// line in a narrow panel, past the row's fixed height and over the
+/// resolution and PCF rows below.
 fn quality_ui(ui: &mut egui::Ui, c: &mut Config) {
     use crate::app::config::Quality;
     let now = c.quality();
-    setting(
-        ui,
-        "quality",
-        "The shadow settings for one use, from the quickest look to the most exact: each sets the Sun, the method, \
-         the cache, PCF and the resolution",
-        |ui| {
-            ui.horizontal_wrapped(|ui| {
-                for q in Quality::ALL {
-                    if ui.selectable_label(now == Some(q), q.name()).on_hover_text(q.describe()).clicked() {
-                        c.set_quality(q);
-                    }
-                }
-            })
-            .response
-        },
-    );
+    ui.horizontal_wrapped(|ui| {
+        ui.add_space(6.0);
+        ui.label(egui::RichText::new("quality").weak()).on_hover_text(
+            "The shadow settings for one use, from the quickest look to the most exact. \
+             Each button's hover lists the fields it sets.",
+        );
+        for q in Quality::ALL {
+            if ui.selectable_label(now == Some(q), q.name()).on_hover_text(q.hover()).clicked() {
+                c.set_quality(q);
+            }
+        }
+    });
 }
 
 /// How a body's surface reflects sunlight in the image (`body.scattering`):

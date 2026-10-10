@@ -316,10 +316,12 @@ class Config:
     def quality(self) -> str | None:
         """The shadow settings for one use, by name: `"quick"` (one layer over the
         whole scene, a point Sun), `"fast"` (a layer per body kept from frame
-        to frame), `"point"` (drawn every frame, the defaults) or `"accurate"`
-        (the Sun's disc and its second depth layer). Setting it sets the Sun,
-        the method, the cache, PCF and the resolution; read back, the name the
-        settings are now, or `None` once one of them is changed by hand.
+        to frame), `"point"` (drawn every frame, the defaults), `"accurate"`
+        (the Sun's disc and its second depth layer) or `"rays"` (traced, the
+        Sun's disc, on a GPU with ray queries). Setting it sets the fields
+        `CONFIG.md` lists for it -- the maps' presets turn `shadows.rays` off;
+        read back, the name the settings are now, or `None` once one of them
+        is changed by hand.
         """
         ...
     @quality.setter

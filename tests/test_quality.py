@@ -39,6 +39,12 @@ def main() -> int:
         check(f"and reads back '{name}'", c.quality == name, f"{c.quality!r}")
     c.quality = "accurate"
     check("'accurate' has the second depth layer and the near layer", c.shadows.second_depth and c.shadows.near_layer)
+    c.quality = "rays"
+    check("'rays' traces the disc", c.shadows.rays and not c.light.sun_as_point
+          and (c.shadows.ray_samples, c.shadows.ray_probe) == (64, 16) and c.quality == "rays",
+          f"rays {c.shadows.rays}, point {c.light.sun_as_point}, {c.shadows.ray_samples}, {c.shadows.ray_probe}, {c.quality!r}")
+    c.quality = "point"
+    check("and a maps' preset after it turns the rays off", not c.shadows.rays and c.quality == "point", f"rays {c.shadows.rays}")
     c.shadows.pcf = 4
     check("changed by hand, it is none", c.quality is None, f"{c.quality!r}")
     try:

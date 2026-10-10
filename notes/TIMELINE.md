@@ -5791,3 +5791,21 @@ fits, said once in the kalast tab, the window using the side it got
 (`shadow_array_that_fits`). With rays on no shadow layer or penumbra pass is
 drawn and the array is 512 a side: 4.4 GB at most in the scenario, against
 more than 11. Write-up: `2026-10-10_ray_traced_shadows/`.
+
+## 2026-10-10 — Dimorphos's self-shadows, maps against rays; the presets' row
+
+Asked why the rays find so much more self-shadow on Dimorphos. From 150 m,
+the Sun about 4 deg up: 29,346 pixels the maps light are shadowed by rays, a
+band along the whole edge of every cast shadow. A float64 ray test on the
+facets under them sides with the rays (99 and 100 of 100 exact; the maps 0
+and 60); the shadows lost are short ones, cast by relief 0.5-7 m away. The
+normal offset and bias lose about half, the texels and PCF most of the rest
+(3,198 left without bias at 16384, PCF 0). Figure and tables:
+`2026-10-10_ray_traced_shadows/`.
+
+The quality presets overlapped the rows under them: a `setting` row of fixed
+height, the buttons wrapping a line each in the control's narrow column. They
+are a row of their own across the panel now, wrapping. The presets are one
+table of fields and values (`Quality::settings`), which applies them, reads
+them back and makes each button's hover, a field a line; a `"rays"` preset,
+and the maps' four turn the rays off.

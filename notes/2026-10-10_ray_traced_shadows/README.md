@@ -184,6 +184,44 @@ facets the per-facet rays shadow too.
 An image of the pair at 1200 x 800 on the RTX 5080, median frame: a point Sun
 0.8 ms (maps 0.4), the disc 5.2 (maps 1.0).
 
+## Dimorphos up close: the shadows the maps lose
+
+Asked why the rays find so much more self-shadow on Dimorphos. Seen from 150 m
+at 1400 x 900, the Sun a point, Dimorphos 1.19 km off Didymos, the maps at
+their defaults (4096, PCF 2, near layer): 29,346 pixels of Dimorphos that the
+maps light are black with rays (3.9 % of what the maps light), and 211 the
+other way; with the disc, 30,072 and 67.
+
+![maps, rays, and in red the shadow only the rays find](dimorphos_maps_vs_rays.png)
+
+Not scattered acne: a band along the whole edge of every cast shadow, the
+maps' shadows eroded and blurred by a few pixels. Who is right, from the
+facet under each such pixel (`sim.facet_id_map`), against a float64 ray from
+its corners and centre (every facet of both bodies within 2 m of the ray's
+line), points on a facet facing away counted shadowed as the query counts
+them:
+
+| Facets under pixels only the rays shadow | float64 | rays | maps | exact, of 100 (rays, maps) |
+|---|---|---|---|---|
+| facing the Sun, cos > 0.05: 2,634 | 0.720 | 0.718 | 0.413 | 99, 0 |
+| grazing or away: 1,254 | 0.892 | 0.892 | 0.660 | 100, 60 |
+
+The rays are right. The shadows lost are short ones at a low Sun -- the cos
+of its angle 0.07 at the median, about 4 deg up -- cast by relief 0.5 to 7 m
+away (median 1.4 m). Where they go, from the same view:
+
+| The maps | pixels only the rays shadow |
+|---|---|
+| defaults | 29,346 |
+| `normal_offset_scale = 0`, `bias_scale = 0`, `bias_minimum = 1e-7` | 15,838 |
+| and `resolution = 16384`, `pcf = 0` | 3,198 |
+
+About half is the normal offset and depth bias -- a lookup lifted a few
+centimetres sees past a caster that close, and at 4 deg the ground it clears
+is fourteen times as long -- most of the rest the texels and the PCF kernel,
+which blur an edge a few texels wide away; 11 % is lost even then. With no
+bias the maps showed no acne here.
+
 ## The crash at 16384, and the maps put away while the rays answer
 
 Reported: `examples/didymos/main.py`, close to Dimorphos, `shadows.resolution`

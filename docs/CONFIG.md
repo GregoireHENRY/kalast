@@ -1496,11 +1496,15 @@ settings, a button each above the shadows' own rows.
 | `"fast"` | a layer per body kept from frame to frame (`cache`), a point Sun, PCF 2 | 689 (paused) | 242 (paused) |
 | `"point"` | a layer per body drawn every frame, a point Sun, PCF 2: the defaults | 518 | 206 |
 | `"accurate"` | the Sun's disc, `second_depth`, a layer per body and a near layer | 146 | 66 |
+| `"rays"` | `shadows.rays` on, the Sun's disc, `ray_samples` 64, `ray_probe` 16 | | |
 
-M1 Pro, GPU-bound frames. Each also sets `cascades` to 0, and `"fast"`
-`cache_degrees` to 0. `"quick"` draws the fewest texels and is the quickest
-over a whole scene; up close a layer per body, fitted to what the camera sees,
-is as quick and sharper. A ray-traced reference is to come.
+The frame rates: M1 Pro, GPU-bound frames. The maps' four each also set
+`shadows.rays` to `False` and `cascades` to 0, and `"fast"` `cache_degrees` to
+0; `"rays"` leaves the maps' settings, which nothing reads while the rays
+answer. In the settings, each button's hover lists the fields it sets and
+their values, a line each, from the same table the preset applies. `"quick"`
+draws the fewest texels and is the quickest over a whole scene; up close a
+layer per body, fitted to what the camera sees, is as quick and sharper.
 
 
 The shadow map is a depth texture **array** rendered from the light's point of
