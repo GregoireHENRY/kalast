@@ -1427,11 +1427,23 @@ pub struct Reference {
     /// :when: enabled == true
     /// :range: 64..=65536
     pub max_samples: u32,
+    /// Sunlight bounced off the surfaces this many times on its way to the
+    /// camera, up to 4: what lights a crater's floor in its own shadow.
+    ///
+    /// Each sample follows a ray from the point seen in a direction drawn
+    /// as the surface scatters (cosine-weighted), to whatever surface it
+    /// meets, adds that surface's own sunlight -- one ray to the disc -- as it
+    /// reflects it, and goes on from there. A body reflects as a Lambert
+    /// surface of the mean of its facets' colours; the light that leaves
+    /// for space is gone. 0, the default: the Sun's direct light alone.
+    /// :when: enabled == true
+    /// :range: 0..=4
+    pub bounces: u32,
 }
 
 impl Default for Reference {
     fn default() -> Self {
-        Self { enabled: false, error: 1.0 / 510.0, max_samples: 4096 }
+        Self { enabled: false, error: 1.0 / 510.0, max_samples: 4096, bounces: 0 }
     }
 }
 

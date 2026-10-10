@@ -1882,6 +1882,22 @@ of it takes about six times the samples.
 ### `reference.max_samples: u32` — default `4096` *(live)*
 The most samples a pixel takes, the error reached or not.
 
+### `reference.bounces: u32` — default `0` *(live)*
+Sunlight bounced off the surfaces this many times on its way to the camera,
+up to 4: what lights a crater's floor in its own shadow. Each sample follows a
+path from the point seen, in directions drawn as a Lambert surface scatters,
+to the surfaces it meets, adding each one's own sunlight (one ray to the
+disc) as it reflects it; light leaving for space is gone. A body reflects as
+a Lambert surface of the mean of its facets' colours, and the point seen
+takes the bounced light as a Lambert surface of its colour -- exact for a
+body of one albedo, an approximation for a coloured map or another law.
+Changing it begins the sum again.
+
+Against Ingersoll's spherical bowl (`tests/test_reference_bounce.py`): a
+white hemisphere, the Sun 30 deg up, the light in its own shadow 0.12497 of
+the Sun's with one bounce (Ingersoll: 1/8) and 0.18763 with two (3/16), the
+same across the shadow.
+
 ---
 
 ## Reference axes

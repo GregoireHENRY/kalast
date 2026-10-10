@@ -1239,6 +1239,11 @@ with `shading.srgb_mode` 0 or 1 alike. Both arrays are `None` until the image
 is done; exporting a frame then (`sim.export_once()`) writes the mean as a
 PNG. See `CONFIG.md`, "Reference image".
 
+After changing anything -- a setting, the camera, `reference.bounces` --
+step once before reading `sim.reference_done`: the change is seen, and the
+sum begun again, when the next frame is drawn, and until then
+`reference_done` still speaks of the last sum.
+
 **`1.0 - frac` is not the lit fraction**, which is what it looks like and what
 this document used to say. It is the *unblocked* fraction. A facet with
 nothing between it and the Sun is still dark if it faces away, and nothing in

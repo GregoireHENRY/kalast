@@ -585,6 +585,19 @@ impl ReferenceConfig {
     fn max_samples(&self) -> u32 { self.config.borrow().reference.max_samples }
     #[setter]
     fn set_max_samples(&mut self, v: u32) { self.config.borrow_mut().reference.max_samples = v; }
+    /// Sunlight bounced off the surfaces this many times on its way to the
+    /// camera, up to 4: what lights a crater's floor in its own shadow.
+    ///
+    /// Each sample follows a ray from the point seen in a direction drawn
+    /// as the surface scatters (cosine-weighted), to whatever surface it
+    /// meets, adds that surface's own sunlight -- one ray to the disc -- as it
+    /// reflects it, and goes on from there. A body reflects as a Lambert
+    /// surface of the mean of its facets' colours; the light that leaves
+    /// for space is gone. 0, the default: the Sun's direct light alone.
+    #[getter]
+    fn bounces(&self) -> u32 { self.config.borrow().reference.bounces }
+    #[setter]
+    fn set_bounces(&mut self, v: u32) { self.config.borrow_mut().reference.bounces = v; }
     fn __repr__(&self) -> String {
         format!("{:?}", self.config.borrow().reference)
     }

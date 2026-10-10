@@ -293,6 +293,37 @@ bodies at full resolution, 1400 x 900: stopped at 976 samples, 1.5 s.
 
 ![real time against the reference](dimorphos_reference.png)
 
+## Bounces (`reference.bounces`)
+
+In the reference only, sunlight bounced off the surfaces up to four times: a
+path from the point seen, each direction drawn as a Lambert surface scatters
+(cosine-weighted, Halton bases from 11 up, four a bounce), to the surface it
+meets, whose own sunlight -- one ray to a point of the disc -- it reflects by
+its albedo, the albedos met multiplied in. The hit's facet and body come from
+the ray (`primitive_index`, the instance's custom data); its corners from
+`raytrace::Geometry` -- every body's vertices and facets in shared buffers,
+built only while bounces are wanted, bound beside the top level at group 7;
+its normal through `object_to_world`. A body reflects as a Lambert surface of
+the mean of its facets' colours; the point seen takes the bounced light as a
+Lambert surface of its own. Exact for bodies of one albedo; a coloured map or
+Hapke's law is approximated. No sky: light leaving for space is gone. The
+sample word carries the bounces in its top eight bits.
+
+Against Ingersoll's spherical bowl (`tests/test_reference_bounce.py`): inside
+a sphere two points see each other with `cos a cos b / r^2 = 1/(4 R^2)`, so
+the light a Lambert bowl scatters once is the same everywhere in it,
+`rho mu0 r_o^2 / (4 R^2)`, each further bounce rho times the bowl's share of
+the sphere of the last. A white hemisphere of 57,600 facets, the Sun 30 deg
+up: in its shadow 0.12497 with one bounce (1/8, -0.02 %) and 0.18763 with
+two (3/16, +0.07 %), the two halves of the shadow alike to 0.1 %. The direct
+light alone puts the shadow where the geometry says on every one of 83,762
+pixels.
+
+Two slips on the way: a change of `bounces` did not begin the sum again (the
+scene's key left out the reference's own settings; the bounces are in it
+now), and right after a change `reference_done` still speaks of the last sum
+until a frame is drawn, which `API.md` now says.
+
 ## Compaction
 
 Each body's bottom level is built with `ALLOW_COMPACTION` and compacted once
@@ -314,7 +345,10 @@ allocator report: 1,312 MiB in use built, 1,055 compacted).
 
 ## Not done
 
-- **Bounces** into shadowed ground, next.
+- **Bounces in the thermophysical model's** shadows and in the real-time
+  image: only the reference has them.
+- **Coloured surfaces in bounces**: a body's mean colour stands for all of
+  it, and every law for Lambert's.
 - **The Mac**: not run on Metal yet; the M1 Pro traverses in software.
 - A body's `shadow_mesh` stand-in is not used: rays see the body's own mesh.
 - A body with a horizon map: the rays see its relief directly, the map is

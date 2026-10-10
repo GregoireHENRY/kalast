@@ -2058,7 +2058,8 @@ fn fs_shaded(in: Surface) -> vec4<f32> {
     // Traced (`shadows.rays`): what this point's rays reach of the Sun,
     // against the meshes themselves, in place of the maps' answer. A
     // pattern of its own per pixel, fixed.
-    if view.light.rays > 0u && ndotl > 0.0 { //@rt
+    var bounced = vec3<f32>(0.0);
+    if view.light.rays > 0u { //@rt
         let key = u32(in.frag.x) * 73856093u ^ u32(in.frag.y) * 19349663u; //@rt
         // From the point of the meshes the camera's ray finds through this //@rt
         // pixel: the fragment's own position, rasterised and interpolated, is //@rt
@@ -2070,12 +2071,22 @@ fn fs_shaded(in: Surface) -> vec4<f32> {
         // from eight of the surface's pixels in front: a level of detail's //@rt
         // cut is within about two of the full mesh. //@rt
         let p = ray_seen_point(globals.camera_pos, in.world_pos, 8.0 * in.pixel); //@rt
-        if globals.ray_frame > 0u { //@rt
-            // A reference image's sample: one ray, to the disc's point this //@rt
-            // sample of the progressive sum stands for (`ray_reference`). //@rt
-            shadow = ray_reference(p, in.world_normal, view.light.pos, view.light.sun_radius, globals.ray_frame - 1u, vec2<u32>(in.frag.xy)); //@rt
-        } else { //@rt
-            shadow = ray_sun_seen(p, in.world_normal, view.light.pos, view.light.sun_radius, view.light.rays, view.light.ray_probe, ray_turn(key)); //@rt
+        // A reference image's sample, plus one, in the low 24 bits; its //@rt
+        // bounces in the top eight. //@rt
+        let frame = globals.ray_frame & 0xffffffu; //@rt
+        if ndotl > 0.0 { //@rt
+            if frame > 0u { //@rt
+                // One ray, to the disc's point this sample of the progressive //@rt
+                // sum stands for (`ray_reference`). //@rt
+                shadow = ray_reference(p, in.world_normal, view.light.pos, view.light.sun_radius, frame - 1u, vec2<u32>(in.frag.xy)); //@rt
+            } else { //@rt
+                shadow = ray_sun_seen(p, in.world_normal, view.light.pos, view.light.sun_radius, view.light.rays, view.light.ray_probe, ray_turn(key)); //@rt
+            } //@rt
+        } //@rt
+        // Light bounced off the surfaces, whichever way this one faces: a //@rt
+        // crater's floor in its own shadow is lit by its walls. //@rt
+        if frame > 0u && (globals.ray_frame >> 24u) > 0u { //@rt
+            bounced = ray_bounced(p, in.world_normal, view.light.pos, view.light.sun_radius, frame - 1u, vec2<u32>(in.frag.xy), globals.ray_frame >> 24u); //@rt
         } //@rt
     } //@rt
     // The rays see the relief a horizon map stands for.
@@ -2100,6 +2111,9 @@ fn fs_shaded(in: Surface) -> vec4<f32> {
     let ambient_color = view.light.color * globals.ambient_strength;
     let diffuse_color = view.light.color * reflected;
     var color = (ambient_color + diffuse_color * shadow) * object_color.xyz;
+    // Bounced light, reflected as a Lambert surface reflects light from
+    // every side (`reference.bounces`): irradiance in units of the Sun's.
+    color += view.light.color * bounced * object_color.xyz;
 
     // Under an atmosphere: the dust's own light, and the surface seen
     // through it, lit by the beam that got through -- where the shadow lets
@@ -2142,3 +2156,5 @@ fn fs_shaded(in: Surface) -> vec4<f32> {
 
 // The tracing of the Sun's light, `sun_rays.wgsl`, on a device with ray queries.
 //@rays
+// Light bounced off the surfaces, the main pass's own.
+//@rays_image

@@ -5831,3 +5831,12 @@ close done in 1.5 s. The sum restarted every frame twice before it held: on
 the iteration, then on the camera's fitted planes and basis flipping a unit
 in the last place. `tests/test_reference.py`. Write-up:
 `2026-10-10_ray_traced_shadows/`.
+
+## 2026-10-10 — bounced light in the reference
+
+`reference.bounces` (up to 4): a path from the point seen, cosine-weighted, to
+the surfaces it meets, adding each one's sunlight through a ray to the disc;
+the hit's corners from the bodies' geometry kept while bounces are wanted, a
+body Lambert of its mean colour. Ingersoll's bowl: one bounce 0.12497 of the
+Sun's in the shadow against 1/8, two 0.18763 against 3/16.
+`tests/test_reference_bounce.py`. Write-up: `2026-10-10_ray_traced_shadows/`.

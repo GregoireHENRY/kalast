@@ -147,6 +147,9 @@ pub fn group_reference(ui: &mut egui::Ui, c: &mut Config) {
     if c.reference.enabled == true {
         setting(ui, "max_samples", "The most samples a pixel takes, the error reached or not.", |ui| ui.add(egui::Slider::new(&mut c.reference.max_samples, 64..=65536).clamping(egui::SliderClamping::Edits)));
     }
+    if c.reference.enabled == true {
+        setting(ui, "bounces", "Sunlight bounced off the surfaces this many times on its way to the camera, up to 4: what lights a crater's floor in its own shadow.", |ui| ui.add(egui::Slider::new(&mut c.reference.bounces, 0..=4).clamping(egui::SliderClamping::Edits)));
+    }
 }
 
 /// `config.wireframe` -- Wireframe.

@@ -813,6 +813,17 @@ class ReferenceConfig:
     """
     max_samples: int
     """The most samples a pixel takes, the error reached or not."""
+    bounces: int
+    """Sunlight bounced off the surfaces this many times on its way to the
+    camera, up to 4: what lights a crater's floor in its own shadow.
+
+    Each sample follows a ray from the point seen in a direction drawn
+    as the surface scatters (cosine-weighted), to whatever surface it
+    meets, adds that surface's own sunlight -- one ray to the disc -- as it
+    reflects it, and goes on from there. A body reflects as a Lambert
+    surface of the mean of its facets' colours; the light that leaves
+    for space is gone. 0, the default: the Sun's direct light alone.
+    """
 
 class WireframeConfig:
     """Facet edges drawn over or instead of the surface.

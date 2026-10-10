@@ -159,6 +159,10 @@ pub fn has_ray_query(device: &wgpu::Device) -> bool {
 /// their `//@rays` line (`shader_for`).
 const SUN_RAYS: &str = include_str!("../../shaders/sun_rays.wgsl");
 
+/// The main pass's own: light bounced off the surfaces, whose geometry only
+/// it binds; put in at its `//@rays_image` line.
+const SUN_RAYS_IMAGE: &str = include_str!("../../shaders/sun_rays_image.wgsl");
+
 /// One shader source, several builds. A line ending in `//@prim` is kept
 /// only when the device has `PRIMITIVE_INDEX`, one ending in `//@noprim`
 /// only when it does not; every other line is kept. The fallback thereby
@@ -186,9 +190,9 @@ pub fn shader_for(
         let t = line.trim_end();
         // `//@imm` likewise for `IMMEDIATES`, which the level-of-detail
         // draw needs.
-        if t.ends_with("//@rays") {
+        if t.ends_with("//@rays") || t.ends_with("//@rays_image") {
             if rt {
-                out.push_str(SUN_RAYS);
+                out.push_str(if t.ends_with("//@rays") { SUN_RAYS } else { SUN_RAYS_IMAGE });
             }
             out.push('\n');
             continue;

@@ -2426,7 +2426,7 @@ impl Window {
         self.ray_probe = config.shadows.ray_probe;
         if self.rays {
             if let Some(rt) = self.raytrace.as_mut() {
-                rt.update(&self.device, &self.queue, simulation, self.mesh_epoch);
+                rt.update(&self.device, &self.queue, simulation, self.mesh_epoch, reference && config.reference.bounces > 0);
                 // Made again when the top level grew.
                 self.passes.bindings.rays = Some(rt.image_group.clone());
             }
@@ -2540,7 +2540,10 @@ impl Window {
 
         self.uniforms.globals.uniform = build_globals(config, shadow_fit, value_range, self.render_size);
         self.uniforms.globals.uniform.shadow_resolution = self.shadow_resolution;
-        self.uniforms.globals.uniform.ray_frame = self.reference_sample(config, simulation).map_or(0, |k| k + 1);
+        // The sample, plus one, and in the top eight bits the bounces.
+        let bounces = config.reference.bounces.min(4);
+        self.uniforms.globals.uniform.ray_frame =
+            self.reference_sample(config, simulation).map_or(0, |k| (bounces << 24) | (k + 1));
         self.uniforms.globals.uniform.camera_pos = camera_pos(&simulation.camera);
 
         // Resampled to the uniform's fixed 256 entries, so any length of table
@@ -4113,8 +4116,10 @@ fn reference_scene(
 ) -> super::reference::Scene {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
+    // The reference's own settings but its bounces, which change the image:
+    // a new error or sample limit carries on from the sum there is.
     let mut c = config.clone();
-    c.reference = Default::default();
+    c.reference = crate::app::config::Reference { bounces: config.reference.bounces, ..Default::default() };
     format!("{c:?}").hash(&mut h);
     // The camera's pose and its own projection settings, not its matrix:
     // the near and far planes fitted each frame alternated by a unit in the

@@ -50,6 +50,73 @@ pub struct RayTracing {
     /// level.
     pub image_layout: wgpu::BindGroupLayout,
     pub image_group: wgpu::BindGroup,
+    /// The bodies' surfaces while light bounced off them is wanted, and a
+    /// placeholder for the bindings otherwise.
+    geometry: Option<Geometry>,
+    empty: Geometry,
+}
+
+/// Every body's surface as the rays meet it, for light bounced off it
+/// (`ray_bounced` in `sun_rays_image.wgsl`): the vertices of all of them in
+/// one buffer, the facets' indices into it, where each body's facets begin,
+/// and each body's reflectance -- the mean of its facets' colours, a Lambert
+/// surface's albedo. A ray's hit names its body (the instance's custom
+/// data) and its facet, which find the facet's corners, its normal in the
+/// body's frame, and its body's albedo.
+struct Geometry {
+    positions: wgpu::Buffer,
+    indices: wgpu::Buffer,
+    index_base: wgpu::Buffer,
+    albedo: wgpu::Buffer,
+}
+
+impl Geometry {
+    fn of(device: &wgpu::Device, simulation: &crate::app::simulation::Simulation) -> Self {
+        let mut positions: Vec<f32> = Vec::new();
+        let mut indices: Vec<u32> = Vec::new();
+        let mut index_base: Vec<u32> = Vec::new();
+        let mut albedo: Vec<[f32; 4]> = Vec::new();
+        for body in &simulation.bodies {
+            index_base.push(indices.len() as u32);
+            let Some(mesh) = body.mesh.as_ref() else {
+                albedo.push([0.0; 4]);
+                continue;
+            };
+            let mesh = mesh.borrow();
+            let base = (positions.len() / 3) as u32;
+            positions.extend(mesh.positions.iter().flat_map(|p| [p.x as f32, p.y as f32, p.z as f32]));
+            let whole = mesh.indices.len() / 3 * 3;
+            indices.extend(mesh.indices[..whole].iter().map(|&i| base + i));
+            let n = mesh.attrs.len().max(1) as f32;
+            let sum = mesh.attrs.iter().fold([0.0f32; 3], |s, a| {
+                [s[0] + a.color.x as f32, s[1] + a.color.y as f32, s[2] + a.color.z as f32]
+            });
+            albedo.push([sum[0] / n, sum[1] / n, sum[2] / n, 1.0]);
+        }
+        let buffer = |label, contents: &[u8]| {
+            let contents = if contents.is_empty() { &[0u8; 16][..] } else { contents };
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some(label), contents, usage: wgpu::BufferUsages::STORAGE })
+        };
+        Self {
+            positions: buffer("the bodies' vertices, for bounced light", bytemuck::cast_slice(&positions)),
+            indices: buffer("the bodies' facets, for bounced light", bytemuck::cast_slice(&indices)),
+            index_base: buffer("where each body's facets begin", bytemuck::cast_slice(&index_base)),
+            albedo: buffer("each body's albedo", bytemuck::cast_slice(&albedo)),
+        }
+    }
+
+    /// Bindings with nothing in them, while no light is bounced.
+    fn empty(device: &wgpu::Device) -> Self {
+        let buffer = |label| {
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some(label), contents: &[0u8; 16], usage: wgpu::BufferUsages::STORAGE })
+        };
+        Self {
+            positions: buffer("no vertices"),
+            indices: buffer("no facets"),
+            index_base: buffer("no bodies"),
+            albedo: buffer("no albedo"),
+        }
+    }
 }
 
 impl RayTracing {
@@ -102,14 +169,32 @@ impl RayTracing {
             compilation_options: Default::default(),
             cache: None,
         });
+        let fragment_storage = |binding| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Storage { read_only: true },
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        };
         let image_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("ray-traced shadows, the image"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::AccelerationStructure { vertex_return: false },
-                count: None,
-            }],
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::AccelerationStructure { vertex_return: false },
+                    count: None,
+                },
+                // The bodies' surfaces, for light bounced off them
+                // (`Geometry`, `sun_rays_image.wgsl`).
+                fragment_storage(1),
+                fragment_storage(2),
+                fragment_storage(3),
+                fragment_storage(4),
+            ],
         });
         let tlas = Self::tlas_for(device, 8);
         // Built empty at once: the main pass binds it every frame, rays or
@@ -117,7 +202,8 @@ impl RayTracing {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         encoder.build_acceleration_structures(std::iter::empty(), std::iter::once(&tlas));
         queue.submit(Some(encoder.finish()));
-        let image_group = Self::image_group_for(device, &image_layout, &tlas);
+        let empty = Geometry::empty(device);
+        let image_group = Self::image_group_for(device, &image_layout, &tlas, &empty);
         Self {
             blas: Vec::new(),
             epoch: None,
@@ -127,15 +213,28 @@ impl RayTracing {
             facets_pipeline,
             image_layout,
             image_group,
+            geometry: None,
+            empty,
         }
     }
 
-    fn image_group_for(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, tlas: &wgpu::Tlas) -> wgpu::BindGroup {
+    fn image_group_for(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, tlas: &wgpu::Tlas, geometry: &Geometry) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("ray-traced shadows, the image"),
             layout,
-            entries: &[wgpu::BindGroupEntry { binding: 0, resource: tlas.as_binding() }],
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: tlas.as_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: geometry.positions.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 2, resource: geometry.indices.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 3, resource: geometry.index_base.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 4, resource: geometry.albedo.as_entire_binding() },
+            ],
         })
+    }
+
+    fn rebind(&mut self, device: &wgpu::Device) {
+        let geometry = self.geometry.as_ref().unwrap_or(&self.empty);
+        self.image_group = Self::image_group_for(device, &self.image_layout, &self.tlas, geometry);
     }
 
     fn tlas_for(device: &wgpu::Device, max_instances: u32) -> wgpu::Tlas {
@@ -156,15 +255,31 @@ impl RayTracing {
         queue: &wgpu::Queue,
         simulation: &crate::app::simulation::Simulation,
         epoch: u64,
+        // Light bounced off the surfaces is wanted (`reference.bounces`):
+        // their geometry kept, for the hits' normals and reflectance.
+        bounces: bool,
     ) {
         let n = simulation.bodies.len();
+        let mut rebind = false;
         if self.epoch != Some(epoch) || self.blas.len() != n {
             self.build_bodies(device, queue, simulation);
             self.epoch = Some(epoch);
+            self.geometry = None;
+            rebind = true;
+        }
+        if bounces && self.geometry.is_none() {
+            self.geometry = Some(Geometry::of(device, simulation));
+            rebind = true;
+        } else if !bounces && self.geometry.is_some() {
+            self.geometry = None;
+            rebind = true;
         }
         if self.tlas.get().len() < n {
             self.tlas = Self::tlas_for(device, (n as u32).next_power_of_two());
-            self.image_group = Self::image_group_for(device, &self.image_layout, &self.tlas);
+            rebind = true;
+        }
+        if rebind {
+            self.rebind(device);
         }
         self.mats = simulation.bodies.iter().map(|b| b.mat).collect();
         let slots = self.tlas.get().len();
