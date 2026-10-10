@@ -226,7 +226,8 @@ impl RayTracing {
             let blas = device.create_blas(
                 &wgpu::CreateBlasDescriptor {
                     label: Some("a body"),
-                    flags: wgpu::AccelerationStructureFlags::PREFER_FAST_TRACE,
+                    flags: wgpu::AccelerationStructureFlags::PREFER_FAST_TRACE
+                        | wgpu::AccelerationStructureFlags::ALLOW_COMPACTION,
                     update_mode: wgpu::AccelerationStructureUpdateMode::Build,
                 },
                 wgpu::BlasGeometrySizeDescriptors::Triangles { descriptors: vec![size.clone()] },
@@ -258,6 +259,27 @@ impl RayTracing {
         });
         encoder.build_acceleration_structures(entries.iter(), std::iter::empty());
         queue.submit(Some(encoder.finish()));
+        drop(entries);
+
+        // Compacted, once built: a build reserves for the worst case, and
+        // the copy holds what the bodies took. Turning the rays on cost the
+        // Didymos pair, two of 3.1 million triangles, 770 MiB of the GPU's
+        // memory, and costs 258 compacted -- which the Mac, sharing its
+        // memory with everything, needs most.
+        for blas in self.blas.iter().flatten() {
+            blas.prepare_compaction_async(|_| {});
+        }
+        let _ = device.poll(wgpu::PollType::Wait { submission_index: None, timeout: None });
+        for slot in self.blas.iter_mut() {
+            if let Some(blas) = slot.as_ref().filter(|b| b.ready_for_compaction()) {
+                *slot = Some(queue.compact_blas(blas));
+            }
+        }
+        // And waited for, so the copies built first, and their inputs, are
+        // let go now: without this they stayed, and the rays cost as much
+        // as before compacting.
+        queue.submit(None);
+        let _ = device.poll(wgpu::PollType::Wait { submission_index: None, timeout: None });
     }
 
     /// Per facet of `body`, the share of the Sun's light that does not reach

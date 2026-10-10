@@ -245,6 +245,17 @@ card. wgpu treats it as fatal. Two fixes:
   The scenario with rays on: 4.4 GB at most, against more than 11 before the
   crash, 600 frames orbiting.
 
+## Compaction
+
+Each body's bottom level is built with `ALLOW_COMPACTION` and compacted once
+built (`prepare_compaction_async`, a wait, `Queue::compact_blas`). Measured as
+kalast's own dedicated GPU memory (Windows' per-process counter; the card's
+total, from `nvidia-smi`, moved with other programs), the Didymos pair with
+rays turned on: +770 MiB before, +259 compacted. The first compacted version
+saved nothing: the copies built first and the input buffers stayed allocated
+until an empty submit and a wait after compacting let them go (wgpu's
+allocator report: 1,312 MiB in use built, 1,055 compacted).
+
 ## Found on the way, not ray tracing's
 
 - `tests/test_horizon_map.py` fails one check, "and not more or less on the
@@ -256,8 +267,6 @@ card. wgpu treats it as fatal. Two fixes:
 ## Not done
 
 - **The progressive reference mode**, then bounces.
-- **Compaction** of the bottom levels (`Queue::compact_blas`), for the Mac's
-  memory.
 - **The Mac**: not run on Metal yet; the M1 Pro traverses in software.
 - A body's `shadow_mesh` stand-in is not used: rays see the body's own mesh.
 - A body with a horizon map: the rays see its relief directly, the map is

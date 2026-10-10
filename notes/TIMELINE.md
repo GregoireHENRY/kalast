@@ -5809,3 +5809,10 @@ are a row of their own across the panel now, wrapping. The presets are one
 table of fields and values (`Quality::settings`), which applies them, reads
 them back and makes each button's hover, a field a line; a `"rays"` preset,
 and the maps' four turn the rays off.
+
+## 2026-10-10 — the bodies' acceleration structures compacted
+
+Built with `ALLOW_COMPACTION` and compacted once built: rays on cost the
+Didymos pair 259 MiB of kalast's GPU memory instead of 770 -- once an empty
+submit and a wait after compacting let the first copies and their inputs go,
+without which nothing was saved. Write-up: `2026-10-10_ray_traced_shadows/`.
