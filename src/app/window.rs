@@ -1326,6 +1326,13 @@ pub struct Window {
     // Counts the times the meshes were sent to the GPU again
     // (`sync_meshes`): a kept layer of older meshes is dropped.
     mesh_epoch: u64,
+    /// The shadow array's side as allocated: `shadows.resolution`, or less
+    /// where that did not fit in the GPU's memory (`shadow_array_that_fits`).
+    /// What every fit and lookup uses.
+    shadow_resolution: u32,
+    /// The side the array was last asked for (`shadow_side`), so one that did
+    /// not fit is not asked for again every frame.
+    shadow_requested: u32,
     /// The bodies' acceleration structures, on a device with ray queries
     /// (`shadows.rays`); `None` without them.
     raytrace: Option<super::raytrace::RayTracing>,
@@ -1687,12 +1694,8 @@ impl Window {
         // to it. Allocated at the body count and grown as bodies arrive, not
         // at the cap: eight layers at 8192 are 2.1 GB whatever the scene, and
         // a two-body scene uses two. See `shadow_layers_wanted`.
-        let shadow = super::gpu::Texture::create_depth_texture_shadow_pass(
-            &device,
-            config.shadows.resolution,
-            config.shadows.resolution,
-            shadow_layers_wanted(config, simulation.bodies.len()),
-        );
+        let (shadow, shadow_resolution) =
+            shadow_array_that_fits(&device, config.shadows.resolution, shadow_layers_wanted(config, simulation.bodies.len()));
 
         let colormap = super::gpu::UniformBuffer::new(
             &device,
@@ -1768,6 +1771,8 @@ impl Window {
             shadow_cache_under: None,
             shadow_reuse: Vec::new(),
             mesh_epoch: 0,
+            shadow_resolution,
+            shadow_requested: config.shadows.resolution,
             raytrace,
             rays: false,
             ray_samples: 1,
@@ -2200,19 +2205,37 @@ impl Window {
     /// to be rebuilt with it -- hence the cost of a pipeline recompile on top
     /// of the allocation.
     pub fn set_shadow_resolution(&mut self, config: &crate::app::config::Config) {
+        if self.shadow_side(config) == self.shadow_requested {
+            return;
+        }
         let layers = self.uniforms.shadow.layer_views.len().max(1) as u32;
         self.rebuild_shadow(config, layers);
+    }
+
+    /// The shadow array's side: `shadows.resolution`, or with the shadows
+    /// traced, where nothing reads it, the least there is -- at 16384 the
+    /// array was gigabytes the rays left unused, beside their acceleration
+    /// structures, and the GPU ran out of memory.
+    fn shadow_side(&self, config: &crate::app::config::Config) -> u32 {
+        if self.rays {
+            512
+        } else {
+            config.shadows.resolution
+        }
     }
 
     /// Reallocate the shadow array at `config.shadows.resolution` with
     /// `layers` layers and rebind it, which means rebuilding the passes.
     fn rebuild_shadow(&mut self, config: &crate::app::config::Config, layers: u32) {
-        self.uniforms.shadow = super::gpu::Texture::create_depth_texture_shadow_pass(
-            &self.device,
-            config.shadows.resolution,
-            config.shadows.resolution,
-            layers,
-        );
+        // The old array let go first: at 16384 it is a gigabyte a layer, and
+        // the new one may only fit without it. The passes holding it are
+        // rebuilt below, before anything draws.
+        self.uniforms.shadow.destroy();
+        let side = self.shadow_side(config);
+        let (shadow, resolution) = shadow_array_that_fits(&self.device, side, layers);
+        self.uniforms.shadow = shadow;
+        self.shadow_resolution = resolution;
+        self.shadow_requested = side;
         self.rebuild_passes(config);
     }
 
@@ -2348,6 +2371,12 @@ impl Window {
         let light = &mut self.uniforms.view.uniform.light;
         light.rays = if self.rays { config.shadows.ray_samples.max(1) } else { 0 };
         light.ray_probe = config.shadows.ray_probe;
+        // The shadow array as small as it goes while the rays answer, and
+        // back to `shadows.resolution` when they stop.
+        if self.shadow_side(config) != self.shadow_requested {
+            let layers = self.uniforms.shadow.layer_views.len().max(1) as u32;
+            self.rebuild_shadow(config, layers);
+        }
 
         // The horizon maps the bodies ask for: worked out when one is turned
         // on, a few seconds on the GPU for Mars's 12.9M facets, and let go
@@ -2414,11 +2443,11 @@ impl Window {
                 .fit_projection(&bounds, cube_bounds.as_ref(), None);
             simulation
                 .sun
-                .fit_projection(&bounds, None, Some(config.shadows.resolution));
+                .fit_projection(&bounds, None, Some(self.shadow_resolution));
 
             Some(super::frame::fit_shadow(
                 &simulation.sun.projection.resolved(),
-                config.shadows.resolution,
+                self.shadow_resolution,
             ))
         } else {
             // Nothing to fit, but an orthographic camera still sizes its box
@@ -2444,6 +2473,7 @@ impl Window {
         simulation.value_range = value_range;
 
         self.uniforms.globals.uniform = build_globals(config, shadow_fit, value_range, self.render_size);
+        self.uniforms.globals.uniform.shadow_resolution = self.shadow_resolution;
         self.uniforms.globals.uniform.camera_pos = camera_pos(&simulation.camera);
 
         // Resampled to the uniform's fixed 256 entries, so any length of table
@@ -2691,7 +2721,7 @@ impl Window {
                         &scene,
                         simulation.sun.up_world,
                         camera_pixel,
-                        config.shadows.resolution,
+                        self.shadow_resolution,
                         &own,
                     ) {
                         plans.push(Some(LayerPlan { own: i, fit, region, far: Some(region), near: true }));
@@ -2785,7 +2815,7 @@ impl Window {
             // every facet, when the map is read per facet. Nothing past
             // the far side of what the camera sees of this layer's body
             // can shadow it, so that goes too.
-            let texel = 2.0 * layer.side / config.shadows.resolution.max(1) as Float;
+            let texel = 2.0 * layer.side / self.shadow_resolution.max(1) as Float;
             let mut planes = frustum_planes(&layer.view_proj, true);
             if let Some(seen) = seen {
                 let far = seen
@@ -2848,7 +2878,7 @@ impl Window {
                     side: layer.side,
                     offset: [0.0, 0.0],
                 },
-                config.shadows.resolution,
+                self.shadow_resolution,
             );
             self.uniforms.view.uniform.light.layer_bias[i] = crate::Vec4::new(
                 config
@@ -2897,7 +2927,7 @@ impl Window {
         self.shadow_reuse.clear();
         self.shadow_reuse.resize(n_layers, false);
         let under = CacheUnder {
-            resolution: config.shadows.resolution,
+            resolution: self.shadow_resolution,
             layer_views: self.uniforms.shadow.layer_views.len(),
             n_layers,
             apart,
@@ -2912,8 +2942,9 @@ impl Window {
             ],
             meshes: self.mesh_epoch,
         };
-        // Not with cascades, which move with the camera.
-        let cache = config.shadows.cache && cascades == 0;
+        // Not with cascades, which move with the camera; nor while the shadows
+        // are traced, when no layer is drawn to be kept.
+        let cache = config.shadows.cache && cascades == 0 && !self.rays;
         if !cache || self.shadow_cache_under.as_ref() != Some(&under) {
             self.shadow_cache.clear();
         }
@@ -2975,7 +3006,7 @@ impl Window {
         self.uniforms.view.uniform.light.sun_radius = config.light.disc_radius();
         // Whether `Passes::render` runs the penumbra pass this frame, for
         // the main pass to read what it found.
-        self.uniforms.view.uniform.light.penumbra = super::pass::penumbra::wanted(config) as u32;
+        self.uniforms.view.uniform.light.penumbra = (super::pass::penumbra::wanted(config) && !self.rays) as u32;
         // The bodies with an atmosphere, the first two: sunlight passing
         // one's limb on its way to another goes through its dust
         // (`through_air` in `mesh_shadow.wgsl`).
@@ -3635,8 +3666,13 @@ impl Window {
         // with whichever matrix was written last. The layer index reaches the
         // shader as a dynamic offset now (`uniform::LayerSelect`), nothing is
         // rewritten between passes, and the submits collapse into one.
-        let n_layers = (self.uniforms.view.uniform.light.n_layers as usize)
-            .min(self.uniforms.shadow.layer_views.len());
+        // None while the shadows are traced: nothing reads them.
+        self.passes.rays = self.rays;
+        let n_layers = if self.rays {
+            0
+        } else {
+            (self.uniforms.view.uniform.light.n_layers as usize).min(self.uniforms.shadow.layer_views.len())
+        };
         if n_layers > 0 {
             let mut enc = self
                 .device
@@ -3984,6 +4020,35 @@ impl Window {
 /// Where the camera is, as the uniform holds it.
 fn camera_pos(camera: &super::frame::Eye) -> [f32; 3] {
     [camera.pos.x as f32, camera.pos.y as f32, camera.pos.z as f32]
+}
+
+/// The shadow array at `wanted` texels a side, or the largest power of two
+/// under it that the GPU's memory holds, and its side. At 16384 a layer is
+/// a gigabyte, and with the second depth layers, the near layer and two
+/// bodies' acceleration structures it did not fit: wgpu's out-of-memory was
+/// fatal, and the app crashed as the resolution was raised up close.
+fn shadow_array_that_fits(device: &wgpu::Device, wanted: u32, layers: u32) -> (super::gpu::Texture, u32) {
+    let mut side = wanted.max(1);
+    loop {
+        // Both kinds: the views and the pyramid made of a texture that did
+        // not fit fail validation, which was as fatal as the memory.
+        let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let memory = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+        let texture = super::gpu::Texture::create_depth_texture_shadow_pass(device, side, side, layers);
+        let out_of_memory = pollster::block_on(memory.pop()).is_some();
+        let invalid = pollster::block_on(validation.pop()).is_some();
+        let failed = out_of_memory || invalid;
+        if !failed || side <= 512 {
+            if side != wanted {
+                println!(
+                    "shadows.resolution {wanted} does not fit in the GPU's memory with {layers} layers: {side} instead"
+                );
+            }
+            return (texture, side);
+        }
+        drop(texture);
+        side /= 2;
+    }
 }
 
 fn build_globals(

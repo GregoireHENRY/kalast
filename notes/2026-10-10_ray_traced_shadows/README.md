@@ -184,6 +184,29 @@ facets the per-facet rays shadow too.
 An image of the pair at 1200 x 800 on the RTX 5080, median frame: a point Sun
 0.8 ms (maps 0.4), the disc 5.2 (maps 1.0).
 
+## The crash at 16384, and the maps put away while the rays answer
+
+Reported: `examples/didymos/main.py`, close to Dimorphos, `shadows.resolution`
+and `shadows.pcf` at their maxima, rays on -- the app crashed, at once or after
+a few turns of the camera. Reproduced from a script, the Sun a disc: `wgpu
+error: Out of Memory` from `create_depth_texture_shadow_pass` -- nine layers of
+1 GB at 16384 (two bodies, their second depth layers, the other bodies'
+slices, the near layer), beside the meshes and two bottom levels, on a 16 GB
+card. wgpu treats it as fatal. Two fixes:
+
+- **`shadow_array_that_fits`**: the array made inside error scopes for
+  out-of-memory and validation -- the views and pyramid of a texture that did
+  not fit fail validation, which was just as fatal -- and halved until it
+  fits, the kalast tab saying so once; the window keeps the side it got
+  (`shadow_resolution`) and every fit and lookup uses it, and what was asked
+  (`shadow_requested`), so a side that did not fit is not tried every frame.
+  The old array is destroyed first, not left to its bind groups. The scenario
+  with rays off: 16384 refused, 8192 taken, 600 frames orbiting.
+- **With rays on, the maps put away**: no shadow layer drawn, no penumbra
+  pass, no cache, and the array 512 a side until the rays are turned off.
+  The scenario with rays on: 4.4 GB at most, against more than 11 before the
+  crash, 600 frames orbiting.
+
 ## Found on the way, not ray tracing's
 
 - `tests/test_horizon_map.py` fails one check, "and not more or less on the
@@ -194,8 +217,6 @@ An image of the pair at 1200 x 800 on the RTX 5080, median frame: a point Sun
 
 ## Not done
 
-- **Rays only where needed**: the shadow passes still run with rays on, and
-  the disc's penumbra pass; skipping them is the next saving.
 - **The progressive reference mode**, then bounces.
 - **Compaction** of the bottom levels (`Queue::compact_blas`), for the Mac's
   memory.

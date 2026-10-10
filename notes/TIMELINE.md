@@ -5781,3 +5781,13 @@ ray-traced answer through the facet map, 0 wrong of 660,000. The pair at
 1200 x 800: 0.8 ms a frame with a point Sun, 5.2 with the disc (maps 0.4,
 1.0). `tests/test_horizon_map.py` fails one check on `main` from before this
 work. Write-up: `2026-10-10_ray_traced_shadows/`.
+
+## 2026-10-10 — the crash at 16384; the shadow maps put away while rays answer
+
+Reported: Dimorphos up close, resolution and PCF at their maxima, rays on --
+crashes. wgpu's out-of-memory, fatal, allocating nine 1 GB layers on a 16 GB
+card. The shadow array is now made inside error scopes and halved until it
+fits, said once in the kalast tab, the window using the side it got
+(`shadow_array_that_fits`). With rays on no shadow layer or penumbra pass is
+drawn and the array is 512 a side: 4.4 GB at most in the scenario, against
+more than 11. Write-up: `2026-10-10_ray_traced_shadows/`.

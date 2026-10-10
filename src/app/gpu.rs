@@ -1522,6 +1522,18 @@ pub struct DepthPyramid {
     mips: Vec<(wgpu::BindGroup, [u32; 2])>,
 }
 
+impl Texture {
+    /// Let the GPU's memory go now, not when the last bind group holding it
+    /// does: a shadow array at 16384 is a gigabyte a layer, and its
+    /// replacement may only fit without it. Nothing may use it after.
+    pub fn destroy(&self) {
+        self.inner.destroy();
+        if let Some(pyramid) = &self.pyramid {
+            pyramid._texture.destroy();
+        }
+    }
+}
+
 impl DepthPyramid {
     /// Over `depth`, the shadow array's view, `side` texels square.
     pub fn new(device: &wgpu::Device, depth: &wgpu::TextureView, side: u32, layers: u32) -> Self {

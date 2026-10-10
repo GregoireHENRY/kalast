@@ -14,6 +14,8 @@ pub struct Passes {
 
     /// With the Sun a disc, what each pixel sees of it, before `render`.
     pub penumbra: penumbra::Pass,
+    /// The shadows are traced this frame (`raytrace`): no penumbra pass.
+    pub rays: bool,
     pub render: render::Pass,
     pub light_cube: light_cube::Pass,
     pub axes: axes::Pass,
@@ -63,6 +65,7 @@ impl Passes {
             shadow: shadow::Pass::new(device, config, &uniforms.layouts_for_shadow()),
 
             penumbra,
+            rays: false,
             render,
             light_cube: light_cube::Pass::new(device, format, &layouts_all, samples),
             axes: axes::Pass::new(device, format, &layouts_all, samples),
@@ -131,7 +134,7 @@ impl Passes {
         size: (u32, u32),
         view_proj: crate::Mat4,
     ) {
-        if penumbra::wanted(config) {
+        if penumbra::wanted(config) && !self.rays {
             self.penumbra.render(device, queue, encoder, meshes, &self.bindings, config, size, view_proj, timer);
         }
         self.render.render(

@@ -1677,6 +1677,12 @@ rays, 58 at 256 (`shadows.ray_probe`), against 8 for the maps. An image of the
 pair at 1200 x 800: 0.8 ms with a point Sun (maps 0.4), 5.2 with the disc
 (maps 1.0).
 
+While the rays answer, the shadow maps are neither drawn nor kept at
+`shadows.resolution`: no shadow pass, no penumbra pass, and the shadow array
+the least it can be, back when the rays are turned off. The Didymos pair up
+close with the disc at `16384`, PCF 16: 4.4 GB of the GPU's memory instead of
+more than 11.
+
 Vulkan on Windows and Linux, Metal on macOS 15 and later -- on an Apple M1 or
 M2 the traversal is the driver's, in software. Without ray queries the shadow
 maps answer, and the kalast tab says so once; `sim.rays` tells a script which.
@@ -1695,6 +1701,13 @@ layer (`light.sun_as_point`). It used to hold the cap of eight for every
 scene, 2.1 GB at `8192` before a mesh was loaded; a two-body scene at `8192`
 takes 0.54 GB, at the default 0.13 GB. Measured in
 `notes/2026-09-18_memory_meshes_and_shadow_maps.md`.
+
+A resolution the GPU's memory cannot hold is not taken: the largest power of
+two under it that fits is, and the kalast tab says which. At `16384` a layer
+is 1 GB, and the Didymos pair with the Sun a disc wants nine -- two bodies,
+their second depth layers, the other bodies' slices, the near layer -- which
+on a 16 GB card ran out, and the app crashed; it now takes `8192`. With
+`shadows.rays` on, the array is the least it can be, since nothing reads it.
 
 The default was `8192` until 22 September. Every layer is stored every frame
 and the main pass cannot start its fragment stage until it is, so the store
