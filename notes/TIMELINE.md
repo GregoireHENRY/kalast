@@ -5859,3 +5859,18 @@ slower, the disc's 64 rays 74-95 times (a step of the Didymos pair 2.9 s, an
 image at 1200 x 800 386 ms). Next for the Mac: rays across the disc only where
 the maps' pyramid says a penumbra can be. Write-up:
 `2026-10-12_ray_tracing_on_metal/`.
+
+## 2026-10-12 — one shadow method, colour modes by name, the console's own names
+
+`shadows.method` -- `"maps"`, `"cascades"`, `"rays"`, `"none"` -- in place of
+the `rays` switch, the `cascades` count as a switch and `color_mode = 3`;
+in the settings a list with only the chosen method's rows under it. `"none"`
+plans no layer at all and the shaders read "no layer, no rays" as no shadows,
+the per-facet query answering by facing alone. `shading.color_mode` is
+`"shaded"`, `"data"` or `"flat"` (the flat mode kept, offered for removal);
+numbers still taken for a release with a warning, 3 as `"none"`. The Shadows
+topic shows in the shaded mode only, and in the others while
+`access_shadow_map` reads them. The reference image's box is **render**, its
+hover saying what it is for. The console keeps the names it binds:
+`examples/cube/light.py` set `a` every frame in the shared namespace. Write-up:
+`2026-10-12_shadow_method_and_colour_modes/`.

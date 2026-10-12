@@ -43,9 +43,9 @@ you have any question or want any feature added.
           always printed.
           You can also change the color of the selected facet.
     - [cube/color_default.py](cube/color_default.py):
-        - `app.simulation.config.shading.color_mode = 1` default value is `0`
-          and auto compute diffuse lighting from light source and mesh normals.
-          Using value `1` shows facet/vertex colors.
+        - `app.simulation.config.shading.color_mode = "data"`: the default,
+          `"shaded"`, computes diffuse lighting from the light source and the
+          mesh normals; `"data"` shows the facet/vertex colors as they are.
           Default color is white.
         - main while loop is not even needed here
     - [cube/color_map.py](cube/color_map.py):

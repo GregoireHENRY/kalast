@@ -85,7 +85,7 @@ pub struct Simulation {
     pub reference: ReferenceState,
     /// Whether this frame's shadows, the image's and the per-facet query's,
     /// were traced with rays:
-    /// `shadows.rays` on and the GPU able to, set by the window each frame.
+    /// `shadows.method` "rays" and the GPU able to, set by the window each frame.
     pub rays: bool,
 
     /// Facets picked by clicking, or added by index.
@@ -1450,7 +1450,7 @@ impl Simulation {
     /// it again panics.
     pub fn color_range_with(&self, config: &crate::app::config::Config) -> (f32, f32) {
         match config.shading.color_mode {
-            1 => self.value_range,
+            crate::app::config::ColorMode::Data => self.value_range,
             _ => data_range(config, &self.bodies),
         }
     }

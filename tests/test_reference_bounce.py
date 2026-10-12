@@ -120,14 +120,14 @@ def main() -> int:
     sim.load_mesh(path=path)
     sim.sun.pos = (1e6 * TO_SUN).tolist()
     sim.camera.pos, sim.camera.dir, sim.camera.up = [0.0, 0.0, HEIGHT], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]
-    c.shadows.rays = True
+    c.shadows.method = "rays"
     for _ in range(3):
         app.step()
     if not sim.rays:
         print("skip: this GPU traces no rays here (sim.rays is False)")
         app.close()
         return 0
-    c.shadows.rays = False
+    c.shadows.method = "maps"
     c.reference.enabled = True
     c.reference.max_samples = 512
 

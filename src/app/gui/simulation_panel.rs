@@ -438,6 +438,43 @@ fn quality_ui(ui: &mut egui::Ui, c: &mut Config) {
     });
 }
 
+/// The shadows, where they show: in the shaded colour mode. The data and
+/// flat modes are unlit, and the settings would change nothing on screen --
+/// except the per-facet shadows the thermophysical model reads, which follow
+/// them whatever the image shows, so they stay while those are read every
+/// frame (`access_shadow_map`).
+fn shadows_ui(ui: &mut egui::Ui, sim: &Simulation, c: &mut Config) {
+    let shaded = c.shading.color_mode == crate::app::config::ColorMode::Shaded;
+    if !shaded {
+        if !c.shadows.access_shadow_map {
+            note(ui, "unlit colour mode: shadows show in \"Shaded\"");
+            return;
+        }
+        note(ui, "unlit image: these are the per-facet shadows'");
+    }
+    quality_ui(ui, c);
+    group_shadows(ui, c);
+    if !shaded {
+        return;
+    }
+    subheading(ui, "reference image").on_hover_text(
+        "A still drawn as exactly as kalast can, ray traced and summed a sample of every pixel a frame \
+         until its error is under `error`, then held: for a figure, or to check a faster setting against.",
+    );
+    group_reference(ui, c);
+    if c.reference.enabled {
+        let r = &sim.reference;
+        let error = r.error.map_or(String::from("error not measured yet"), |e| {
+            format!("error {e:.1e}, stops at {:.1e}", c.reference.error)
+        });
+        let state = if r.done { "done" } else { "rendering" };
+        note(ui, &format!("{state}: {} samples a pixel, {error}", r.samples));
+        if !sim.rays {
+            note(ui, "no ray queries on this GPU: shadows from the maps");
+        }
+    }
+}
+
 /// How a body's surface reflects sunlight in the image (`body.scattering`):
 /// Lambert, the Lommel-Seeliger/Lambert mix or Hapke, and its numbers. A law
 /// chosen again comes back as it was; chosen first, it is its defaults. An
@@ -1134,18 +1171,7 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config) {
     });
 
     topic(ui, codicon::PAINTCAN, palette::MAUVE, "Shading", |ui| group_shading(ui, c));
-    topic(ui, codicon::COLOR_MODE, palette::LAVENDER, "Shadows", |ui| {
-        quality_ui(ui, c);
-        group_shadows(ui, c);
-        subheading(ui, "reference");
-        group_reference(ui, c);
-        if c.reference.enabled {
-            let r = &sim.reference;
-            let error = r.error.map_or(String::from("not measured yet"), |e| format!("error {e:.2e}"));
-            let state = if r.done { "done" } else { "summing" };
-            note(ui, &format!("{state}: {} samples, {error}", r.samples));
-        }
-    });
+    topic(ui, codicon::COLOR_MODE, palette::LAVENDER, "Shadows", |ui| shadows_ui(ui, sim, c));
     topic(ui, codicon::LAYERS, palette::TEAL, "Wireframe", |ui| group_wireframe(ui, c));
 
     topic(ui, codicon::SYMBOL_COLOR, palette::PINK, "Data colouring", |ui| {
@@ -1310,7 +1336,7 @@ mod tests {
             let n = mesh.facets.len();
             mesh.values = (0..n).map(|i| 100.0 + 10.0 * i as Float).collect();
         }
-        sim.config.borrow_mut().shading.color_mode = 1;
+        sim.config.borrow_mut().shading.color_mode = crate::app::config::ColorMode::Data;
         sim.value_range = (100.0, 200.0);
         sim.toggle_facet(0, 3, crate::Vec3::X);
         let own = crate::app::config::rgb(sim.selected_facets[0].color().unwrap());

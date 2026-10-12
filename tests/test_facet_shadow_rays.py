@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""With `shadows.rays`, the per-facet shadow query -- the thermophysical
+"""With `shadows.method = "rays"`, the per-facet shadow query -- the thermophysical
 model's shadows -- is traced with rays against the meshes themselves.
 
 The scene of `tests/test_facet_shadow_disc.py`: a plate of 80,000 facets with
@@ -95,7 +95,7 @@ def open_app(path: str) -> App:
     app.config.open_in_background = True
     c = app.simulation.config
     c.image.width = c.image.height = 200
-    c.shadows.rays = True
+    c.shadows.method = "rays"
     c.shadows.ray_samples = 256
     sim = app.simulation
     sim.load_mesh(path=path)

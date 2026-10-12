@@ -21,7 +21,7 @@ from kalast.util import AU
 # Toggle off the wireframe and you have kalast logo.
 
 app = App()
-app.simulation.config.shading.color_mode = 1
+app.simulation.config.shading.color_mode = "data"
 app.simulation.config.data.colormap = "inferno"
 app.simulation.config.data.value_min = 90.0
 app.simulation.config.data.value_max = 270.0

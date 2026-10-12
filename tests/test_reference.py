@@ -113,13 +113,13 @@ def main() -> int:
     sim.camera.pos, sim.camera.dir, sim.camera.up = [CAMERA[0], 0.0, CAMERA[1]], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]
     for _ in range(3):
         app.step()
-    c.shadows.rays = True
+    c.shadows.method = "rays"
     app.step()
     if not sim.rays:
         print("skip: this GPU traces no rays here (sim.rays is False)")
         app.close()
         return 0
-    c.shadows.rays = False
+    c.shadows.method = "maps"
     c.reference.enabled = True
     c.reference.max_samples = 8192
     target = c.reference.error

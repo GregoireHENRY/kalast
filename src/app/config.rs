@@ -188,7 +188,7 @@ pub struct Colorbar {
     /// the scale -- at its end, when a pinned range leaves them outside it --
     /// and name them, on the side away from the tick numbers: above a
     /// horizontal bar, left of a vertical one. The data map's only
-    /// (`shading.color_mode` 1).
+    /// (`shading.color_mode` "data").
     pub min_max: bool,
     /// How `min_max` writes the two values, as a Python format spec: `.0f`
     /// whole numbers, `.3f` three decimals, `.2e` in powers of ten, `d` an
@@ -471,6 +471,56 @@ pub fn colormap_from_file(path: &std::path::Path) -> Result<Vec<[f32; 3]>, Strin
     Ok(rows)
 }
 
+/// What the surface shows (`shading.color_mode`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ColorMode {
+    /// Lit by the Sun through the body's scattering law, with the shadows
+    /// `shadows.method` draws. The default.
+    Shaded,
+    /// The data, unlit: a mesh's `values` through the colormap, else its own
+    /// colours as they are. What a quantitative figure wants: shading a data
+    /// map makes one value read as two colours.
+    Data,
+    /// Every body the one flat `shading.color`, unlit: a silhouette.
+    Flat,
+}
+
+impl ColorMode {
+    pub const ALL: [ColorMode; 3] = [Self::Shaded, Self::Data, Self::Flat];
+
+    /// Parsed from Python, where these are plain strings.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "shaded" | "shader" => Some(Self::Shaded),
+            "data" => Some(Self::Data),
+            "flat" => Some(Self::Flat),
+            _ => None,
+        }
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Shaded => "shaded",
+            Self::Data => "data",
+            Self::Flat => "flat",
+        }
+    }
+
+    /// The number the shaders take (`Globals.color_mode`), which is also
+    /// what scripts wrote before the names: 0, 1 and 2.
+    pub fn code(&self) -> u32 {
+        match self {
+            Self::Shaded => 0,
+            Self::Data => 1,
+            Self::Flat => 2,
+        }
+    }
+
+    pub fn from_code(code: u32) -> Option<Self> {
+        Self::ALL.into_iter().find(|m| m.code() == code)
+    }
+}
+
 /// How the surface is coloured and the image encoded.
 #[derive(Clone, Debug)]
 pub struct Shading {
@@ -518,18 +568,19 @@ pub struct Shading {
     /// :choices: 1 = off, 2, 4, 8
     pub msaa: u32,
     // See app/uniform.rs Globals struct for shader
-    /// Flat colour used when `color_mode` is 2, `(r, g, b, a)`.
-    pub color: wgpu::Color,
-    /// What the fragment shader outputs.
+    /// What the surface shows: "shaded", lit by the Sun with the shadows
+    /// `shadows.method` draws (the default); "data", unlit, a mesh's values
+    /// through the colormap, else its own colours; "flat", every body the
+    /// one `color`.
     ///
-    /// | | |
-    /// |---|---|
-    /// | 0 | vertex/instance colour, lit, with shadows (the default) |
-    /// | 1 | raw vertex/instance colour, no lighting |
-    /// | 2 | the flat `color` |
-    /// | 3 | as 0 but with shadows disabled |
-    /// :range: 0..=3
-    pub color_mode: u32,
+    /// The numbers scripts set before 12 October still work for a release,
+    /// with a deprecation warning: 0 is "shaded", 1 "data", 2 "flat", and 3,
+    /// shaded without shadows, is `shadows.method = "none"`.
+    /// :py_custom:
+    pub color_mode: ColorMode,
+    /// Every body's colour with `color_mode` "flat", `(r, g, b, a)`.
+    /// :when: color_mode == ColorMode::Flat
+    pub color: wgpu::Color,
     /// Which colours come out exactly in the image: the data's and the flat
     /// one (0), or the lit values (1).
     ///
@@ -590,7 +641,7 @@ impl Default for Shading {
             render_back_face: false,
             msaa: 4,
             color: wgpu::Color::WHITE,
-            color_mode: 0,
+            color_mode: ColorMode::Shaded,
             srgb_mode: 0,
             gamma: None,
             lod: true,
@@ -711,9 +762,70 @@ impl Default for Light {
     }
 }
 
+/// How the Sun's shadows are drawn (`shadows.method`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShadowMethod {
+    /// Shadow maps: a layer per body, fitted to what the camera sees of it,
+    /// drawn from the Sun every frame. The default.
+    Maps,
+    /// Cascaded shadow maps, as games draw the Sun's: layers over slices of
+    /// the camera's view, the nearer finer, and one over the scene. For a
+    /// quick look, less exact than a layer per body.
+    Cascades,
+    /// Traced with rays against the full meshes, the Sun's disc sampled by
+    /// `ray_samples` rays a point: no texel, filter or bias. On a GPU with ray
+    /// queries; without, the shadow maps answer.
+    Rays,
+    /// No shadows: every point facing the Sun sees all of it, and nothing is
+    /// drawn for them.
+    None,
+}
+
+impl ShadowMethod {
+    pub const ALL: [ShadowMethod; 4] = [Self::Maps, Self::Cascades, Self::Rays, Self::None];
+
+    /// Parsed from Python, where these are plain strings.
+    pub fn parse(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|m| m.name() == s.to_ascii_lowercase())
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Maps => "maps",
+            Self::Cascades => "cascades",
+            Self::Rays => "rays",
+            Self::None => "none",
+        }
+    }
+
+    /// Drawn into shadow maps: the maps and the cascades.
+    pub fn uses_maps(&self) -> bool {
+        matches!(self, Self::Maps | Self::Cascades)
+    }
+}
+
 /// The shadow map and its readback.
 #[derive(Clone, Debug)]
 pub struct Shadows {
+    /// How the Sun's shadows are drawn: "maps", a shadow map per body (the
+    /// default); "cascades", cascaded shadow maps over the camera's view, for
+    /// a quick look; "rays", traced against the full meshes, on a GPU with
+    /// ray queries; "none", no shadows at all. The image's and those the
+    /// thermophysical model reads (`sim.facet_shadow`) alike.
+    pub method: ShadowMethod,
+    /// How many cascades, with `method` "cascades": layers over slices of the
+    /// camera's view, the nearer finer, and one more over the whole scene.
+    ///
+    /// The cost is the cascades' whatever the bodies, and the shadows are
+    /// sharp where the camera looks closest. Less exact than a layer per
+    /// body: a body's own shadows and another's share each cascade -- with
+    /// the Sun a disc a penumbra can come through where they meet -- there is
+    /// no near layer, no horizon map and no cache, and the edges between
+    /// cascades can show. The per-facet shadows the thermophysical model reads
+    /// are each facet's cascade's, so they move with the camera.
+    /// :when: method == ShadowMethod::Cascades
+    /// :range: 1..=4
+    pub cascades: u32,
     /// Side length of each square shadow map, in texels.
     ///
     /// One layer per body (one in all with `per_body` off), each
@@ -727,6 +839,7 @@ pub struct Shadows {
     ///
     /// It also feeds the automatic bias, which is expressed relative to one texel,
     /// so changing it changes the shadow bias with it.
+    /// :when: method.uses_maps()
     /// :range: 512..=16384
     pub resolution: u32,
     /// Smoothing of the shadows' edges, the percentage-closer-filtering
@@ -746,6 +859,7 @@ pub struct Shadows {
     /// Dimorphos at 3234 x 1774, 1.4 ms a frame at 2 and 4.3 at 4, on an M1
     /// Pro. With the map's texels finer than the image's pixels (16384 up
     /// close) there are no stairs to smooth.
+    /// :when: method.uses_maps()
     /// :range: 0..=16
     pub pcf: u32,
     // None means "derive from the fitted light frustum and shadow_resolution"
@@ -765,12 +879,14 @@ pub struct Shadows {
     /// layers a pinned value replaces the fitted one on *every* layer, and
     /// those differ by the ratio of the bodies' sizes -- 403x between Mars and
     /// Deimos in the same scene.
+    /// :when: method.uses_maps()
     pub normal_offset_scale: Option<f32>,
     /// Slope-dependent term of the depth-comparison bias. `None` fits it per
     /// frame. Combined in the shader as
     /// `max(shadow_bias_scale * k, shadow_bias_minimum)`.
     ///
     /// See `shadow_normal_offset_scale` for why pinning is discouraged.
+    /// :when: method.uses_maps()
     pub bias_scale: Option<f32>,
     /// Floor on the depth-comparison bias, for surfaces facing the light
     /// head-on. `None` fits it per frame.
@@ -778,19 +894,15 @@ pub struct Shadows {
     /// Measured to be the *ineffective* knob for the crater-floor PCF leak --
     /// auto, 1e-4 and 1e-3 all gave identical results, while the normal offset
     /// moved it 9x. Reach for that one first.
+    /// :when: method.uses_maps()
     pub bias_minimum: Option<f32>,
-    /// Read the shadow map back per facet: computes solar occlusion for every
-    /// body each frame, readable from `after_render` via
-    /// `Simulation::facet_shadow`.
+    /// Compute every body's per-facet shadows every frame, as `method` draws
+    /// them, read back with `sim.facet_shadow(body)` from `after_render`.
     ///
     /// Off by default because it is not free: the query costs ~1.6 ms per
     /// body at 100k facets and ~7.3 ms at 3.1M, dominated by the blocking
     /// readback. Turn it on for thermophysical or radiance work; leave it off
     /// when you only want images.
-    /// Compute per-facet solar occlusion for every body, every frame.
-    ///
-    /// Read it back with `sim.facet_shadow(body)` from `after_render`. Leave it off
-    /// unless something consumes it: it is a compute pass and a readback per frame.
     pub access_shadow_map: bool,
     /// Fit a shadow map per body instead of one fitted to the whole scene.
     ///
@@ -804,6 +916,7 @@ pub struct Shadows {
     /// Costs one shadow pass per body. Turn it off to get the old single
     /// scene-fitted map back, which is only worth doing to reproduce older
     /// output or when every body is a similar size.
+    /// :when: method == ShadowMethod::Maps
     pub per_body: bool,
     /// A finer shadow layer over where the camera looks closest, for a body
     /// seen up close.
@@ -819,6 +932,7 @@ pub struct Shadows {
     /// per body, the body drawn by its cut (`shading.lod`) and without a
     /// horizon map, and up to eight layers in all; then it costs a layer's
     /// memory and a shadow pass.
+    /// :when: method == ShadowMethod::Maps
     pub near_layer: bool,
     /// With the Sun a disc, a second depth layer under each shadow layer: the
     /// nearest surface behind what the Sun sees first. Nothing with the Sun a
@@ -834,7 +948,7 @@ pub struct Shadows {
     /// per layer, the pass slower than the first -- 2 to 7 ms a frame on
     /// Dimorphos up close -- for little where penumbrae are narrower than six
     /// texels and drawn hard, as at the default resolution.
-    /// :when: light.sun_as_point == false
+    /// :when: method.uses_maps() && light.sun_as_point == false
     pub second_depth: bool,
     /// Keep each body's shadow layer from frame to frame, drawn again only
     /// when the Sun has moved past `cache_degrees` in the body's own frame,
@@ -848,6 +962,7 @@ pub struct Shadows {
     /// up close has coarser texels than without. The per-facet shadows the
     /// thermophysical model reads are the kept layers too. Off by default:
     /// the layers are drawn every frame, as fine as the view allows.
+    /// :when: method == ShadowMethod::Maps
     pub cache: bool,
     /// How far, in degrees, the Sun may move in a body's own frame, or another
     /// body about it, before a kept layer is drawn again (`cache`). 0: only
@@ -855,23 +970,9 @@ pub struct Shadows {
     /// cache. Larger keeps layers through a running simulation -- Didymos
     /// turns 0.044 deg a second of simulated time -- each shadow up to that
     /// far behind the Sun.
-    /// :when: cache == true
+    /// :when: method == ShadowMethod::Maps && cache == true
     /// :step: 0.01
     pub cache_degrees: f32,
-    /// Cascaded shadow maps, for a quick look: this many layers over slices
-    /// of the camera's view, the nearer finer, and one over the whole scene,
-    /// in place of a layer per body. 0, the default: a layer per body.
-    ///
-    /// As games draw the Sun's shadows: the cost is the cascades' whatever
-    /// the bodies, and the shadows are sharp where the camera looks closest.
-    /// Less exact than a layer per body: a body's own shadows and another's
-    /// share each cascade -- with the Sun a disc a penumbra can come through
-    /// where they meet -- there is no near layer, no horizon map and no cache,
-    /// and the edges between cascades can show. The per-facet shadows the
-    /// thermophysical model reads are each facet's cascade's, so they move
-    /// with the camera.
-    /// :range: 0..=4
-    pub cascades: u32,
     /// The size, in shadow-map texels, a large mesh's triangles are drawn at
     /// in the shadow maps when `shading.lod` is on, outside the camera's
     /// view.
@@ -880,6 +981,7 @@ pub struct Shadows {
     /// facets: 2 keeps the outline to a texel. With `access_shadow_map`, or a
     /// per-facet shadow query pending, the maps take the full facets and the
     /// whole body.
+    /// :when: method.uses_maps()
     /// :range: 0.5..=16.0
     pub lod_texels: f32,
     /// The size, in the camera's pixels, a large mesh's triangles are drawn
@@ -891,28 +993,23 @@ pub struct Shadows {
     /// surface passes above the fine one, across every crater floor. Outside
     /// it, a caster only casts into the view, and coarser does: whichever of
     /// this and `lod_texels` is coarser is used.
+    /// :when: method.uses_maps()
     /// :range: 0.5..=32.0
     pub lod_pixels: f32,
-    /// Trace the Sun's shadows with rays, on a GPU that has ray queries: the
-    /// image's, and those the thermophysical model reads -- each facet's
-    /// corners and centre -- against every body's full-resolution mesh, the
-    /// Sun's disc sampled by `ray_samples` rays. Off by default; without ray
-    /// queries, the shadow maps answer as before.
+    /// The rays each point -- a pixel, a facet's corner or centre -- traces
+    /// across the Sun's disc, with `method` "rays" and `light.sun_as_point`
+    /// off: each carries the same share of the limb-darkened disc's light, so
+    /// a penumbra is resolved to about 1/`ray_samples`. A point Sun takes one.
     ///
     /// No texel, filter or bias: a shadow is where the mesh is, a penumbra
-    /// what the rays see of the limb-darkened disc. With a level of detail, a
-    /// pixel's rays start from the full mesh, not the coarser surface drawn. Vulkan on Windows and
-    /// Linux, Metal on macOS 15 and later -- on an Apple M1 or M2 the
-    /// traversal is the driver's, slower than on hardware that has it.
-    pub rays: bool,
-    /// The rays each point -- a pixel, a facet's corner or centre -- traces
-    /// across the Sun's disc, with `rays` on and `light.sun_as_point` off: each carries the same share of the
-    /// limb-darkened disc's light, so a penumbra is resolved to about
-    /// 1/`ray_samples`. A point Sun takes one.
-    /// :when: rays == true
+    /// what the rays see of the disc. With a level of detail, a pixel's rays
+    /// start from the full mesh, not the coarser surface drawn. Vulkan on
+    /// Windows and Linux, Metal on macOS 15 and later -- on an Apple M1 or M2
+    /// the traversal is the driver's, slower than on hardware that has it.
+    /// :when: method == ShadowMethod::Rays
     /// :range: 1..=1024
     pub ray_samples: u32,
-    /// The rays a point tries first across the disc, with `rays` on: where
+    /// The rays a point tries first across the disc, with `method` "rays": where
     /// they all agree the point is wholly lit or wholly hidden and the rest
     /// of `ray_samples` are not traced. Nearly every point is, so a step
     /// costs about this many rays a point whatever `ray_samples` is.
@@ -921,7 +1018,7 @@ pub struct Shadows {
     /// seen with all of these rays missing it, is missed: the edge of a
     /// penumbra by a sliver. 0 traces all of `ray_samples` everywhere,
     /// exact to them.
-    /// :when: rays == true
+    /// :when: method == ShadowMethod::Rays
     /// :range: 0..=64
     pub ray_probe: u32,
 }
@@ -942,8 +1039,8 @@ pub enum Quality {
     /// The Sun's disc with its second depth layer, a layer per body and a
     /// near layer, drawn every frame.
     Accurate,
-    /// The shadows traced with rays (`shadows.rays`), the Sun's disc sampled
-    /// by 64 a point, 16 tried first: on a GPU with ray queries.
+    /// The shadows traced with rays (`shadows.method` "rays"), the Sun's disc
+    /// sampled by 64 a point, 16 tried first: on a GPU with ray queries.
     Rays,
 }
 
@@ -953,6 +1050,7 @@ pub enum Preset {
     Bool(&'static str, bool),
     U32(&'static str, u32),
     F32(&'static str, f32),
+    Method(&'static str, ShadowMethod),
 }
 
 impl std::fmt::Display for Preset {
@@ -961,6 +1059,7 @@ impl std::fmt::Display for Preset {
             Preset::Bool(name, v) => write!(f, "{name} = {}", if v { "True" } else { "False" }),
             Preset::U32(name, v) => write!(f, "{name} = {v}"),
             Preset::F32(name, v) => write!(f, "{name} = {v:?}"),
+            Preset::Method(name, v) => write!(f, "{name} = \"{}\"", v.name()),
         }
     }
 }
@@ -995,16 +1094,15 @@ impl Quality {
 
     /// What it sets, each field to its value: one table, so the hover
     /// (`hover`), `apply` and `Config::quality` cannot disagree. The maps'
-    /// presets turn the rays off; the rays' leaves the maps' settings, which
+    /// presets pick the maps; the rays' leaves the maps' settings, which
     /// nothing reads while they answer.
     pub fn settings(self) -> Vec<Preset> {
         use Preset::*;
         let maps = |point, per_body, cache, pcf, resolution| {
             vec![
-                Bool("shadows.rays", false),
+                Method("shadows.method", ShadowMethod::Maps),
                 Bool("light.sun_as_point", point),
                 Bool("shadows.per_body", per_body),
-                U32("shadows.cascades", 0),
                 Bool("shadows.cache", cache),
                 U32("shadows.pcf", pcf),
                 U32("shadows.resolution", resolution),
@@ -1020,7 +1118,7 @@ impl Quality {
             ]
             .concat(),
             Quality::Rays => vec![
-                Bool("shadows.rays", true),
+                Method("shadows.method", ShadowMethod::Rays),
                 Bool("light.sun_as_point", false),
                 U32("shadows.ray_samples", 64),
                 U32("shadows.ray_probe", 16),
@@ -1043,6 +1141,13 @@ impl Quality {
 }
 
 impl Config {
+    /// Whether anything casts a shadow: every `shadows.method` but "none" --
+    /// and a reference image, which is nothing if not exact, whatever the
+    /// method.
+    pub fn shadows_on(&self) -> bool {
+        self.shadows.method != ShadowMethod::None || self.reference.enabled
+    }
+
     /// Set the shadow settings for one use (`Quality`).
     pub fn set_quality(&mut self, quality: Quality) {
         quality.apply(self);
@@ -1058,13 +1163,12 @@ impl Config {
     fn preset_set(&mut self, s: Preset) {
         use Preset::*;
         match s {
-            Bool("shadows.rays", v) => self.shadows.rays = v,
+            Method("shadows.method", v) => self.shadows.method = v,
             Bool("light.sun_as_point", v) => self.light.sun_as_point = v,
             Bool("shadows.per_body", v) => self.shadows.per_body = v,
             Bool("shadows.cache", v) => self.shadows.cache = v,
             Bool("shadows.second_depth", v) => self.shadows.second_depth = v,
             Bool("shadows.near_layer", v) => self.shadows.near_layer = v,
-            U32("shadows.cascades", v) => self.shadows.cascades = v,
             U32("shadows.pcf", v) => self.shadows.pcf = v,
             U32("shadows.resolution", v) => self.shadows.resolution = v,
             U32("shadows.ray_samples", v) => self.shadows.ray_samples = v,
@@ -1081,13 +1185,12 @@ impl Config {
         c.preset_set(s);
         use Preset::*;
         match s {
-            Bool("shadows.rays", _) => c.shadows.rays == self.shadows.rays,
+            Method("shadows.method", _) => c.shadows.method == self.shadows.method,
             Bool("light.sun_as_point", _) => c.light.sun_as_point == self.light.sun_as_point,
             Bool("shadows.per_body", _) => c.shadows.per_body == self.shadows.per_body,
             Bool("shadows.cache", _) => c.shadows.cache == self.shadows.cache,
             Bool("shadows.second_depth", _) => c.shadows.second_depth == self.shadows.second_depth,
             Bool("shadows.near_layer", _) => c.shadows.near_layer == self.shadows.near_layer,
-            U32("shadows.cascades", _) => c.shadows.cascades == self.shadows.cascades,
             U32("shadows.pcf", _) => c.shadows.pcf == self.shadows.pcf,
             U32("shadows.resolution", _) => c.shadows.resolution == self.shadows.resolution,
             U32("shadows.ray_samples", _) => c.shadows.ray_samples == self.shadows.ray_samples,
@@ -1100,7 +1203,7 @@ impl Config {
 
 #[cfg(test)]
 mod quality_tests {
-    use super::{Config, Quality};
+    use super::{Config, Quality, ShadowMethod};
 
     /// Each preset reads back as itself, from the defaults and from settings
     /// another left, and no two are the same.
@@ -1127,37 +1230,47 @@ mod quality_tests {
             }
         }
         assert!(Quality::Accurate.hover().contains("\nlight.sun_as_point = False\n"));
-        assert!(Quality::Point.hover().contains("\nshadows.rays = False\n"));
+        assert!(Quality::Point.hover().contains("\nshadows.method = \"maps\"\n"));
     }
 
-    /// The maps' presets turn the rays off, so picking one after "rays"
-    /// gives what it says.
+    /// The maps' presets pick the maps, so picking one after "rays", or with
+    /// the cascades, gives what it says.
     #[test]
-    fn a_maps_preset_turns_the_rays_off() {
+    fn a_maps_preset_picks_the_maps() {
         let mut c = Config::default();
         c.set_quality(Quality::Rays);
-        assert!(c.shadows.rays && !c.light.sun_as_point);
+        assert!(c.shadows.method == ShadowMethod::Rays && !c.light.sun_as_point);
         c.set_quality(Quality::Point);
-        assert!(!c.shadows.rays && c.light.sun_as_point);
+        assert!(c.shadows.method == ShadowMethod::Maps && c.light.sun_as_point);
+        c.shadows.method = ShadowMethod::Cascades;
+        c.set_quality(Quality::Fast);
+        assert_eq!(c.shadows.method, ShadowMethod::Maps);
     }
 }
 
 impl Shadows {
     /// Whether each body has a layer of its own: `per_body`, unless cascades
-    /// take the layers' place (`cascades`).
+    /// take the layers' place.
     pub fn per_body_layers(&self) -> bool {
-        self.per_body && self.cascades == 0
+        self.per_body && self.cascades_used() == 0
     }
 
-    /// The cascades in use, as many as the layers allow beside the scene's.
+    /// The cascades in use with `method` "cascades", at least one and as many
+    /// as the layers allow beside the scene's; none with any other method.
     pub fn cascades_used(&self) -> usize {
-        (self.cascades as usize).min(super::uniform::MAX_SHADOW_LAYERS - 1)
+        if self.method == ShadowMethod::Cascades {
+            (self.cascades as usize).clamp(1, super::uniform::MAX_SHADOW_LAYERS - 1)
+        } else {
+            0
+        }
     }
 }
 
 impl Default for Shadows {
     fn default() -> Self {
         Self {
+            method: ShadowMethod::Maps,
+            cascades: 3,
             resolution: 4096,
             pcf: 2,
             normal_offset_scale: None,
@@ -1169,10 +1282,8 @@ impl Default for Shadows {
             second_depth: true,
             cache: false,
             cache_degrees: 0.0,
-            cascades: 0,
             lod_texels: 2.0,
             lod_pixels: 3.0,
-            rays: false,
             ray_samples: 64,
             ray_probe: 16,
         }
@@ -1403,19 +1514,24 @@ impl Default for AxesConfig {
 /// and the Sun's disc, progressively, a sample a frame, to a stated error.
 #[derive(Clone, Debug)]
 pub struct Reference {
-    /// Integrate the image to a reference: a sample of every pixel each frame
-    /// -- the camera jittered within it, one ray to a point of the Sun's
-    /// limb-darkened disc -- summed into a mean that stops once its error is
-    /// under `error`. For a still scene; anything that changes it starts the
-    /// sum again.
+    /// Render a reference image: a still drawn as exactly as kalast can, for
+    /// a figure or to check a faster setting against. Every frame adds a
+    /// sample of every pixel and the image sharpens, until its error is under
+    /// `error`; then it holds.
     ///
-    /// The shadows are traced with rays where the GPU can (`shadows.rays`
-    /// needs not be on), against the full meshes: the level of detail and
+    /// A sample jitters the camera within the pixel and traces one ray to a
+    /// point of the Sun's limb-darkened disc -- with `bounces`, the light
+    /// bounced off the surfaces too -- into the mean of all the samples so
+    /// far. For a still scene: anything that changes it starts the sum again.
+    ///
+    /// The shadows are traced with rays where the GPU can, whatever
+    /// `shadows.method` says, against the full meshes: the level of detail and
     /// MSAA are off while it is on, the frame being integrated over its
     /// pixels instead. No denoiser, no history, no clamp: a plain mean of
     /// fixed sequences, the same image every run. `sim.reference_samples`,
     /// `sim.reference_error` and `sim.reference_done` follow it;
     /// `sim.reference_image()` gives the mean as floats once done.
+    /// :label: render
     pub enabled: bool,
     /// The standard error the sum stops at, in the image's values (0 to 1):
     /// the 99.9th percentile of the pixels', from the spread of four

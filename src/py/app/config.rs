@@ -292,9 +292,9 @@ impl Config {
     /// to frame), `"point"` (drawn every frame, the defaults), `"accurate"`
     /// (the Sun's disc and its second depth layer) or `"rays"` (traced, the
     /// Sun's disc, on a GPU with ray queries). Setting it sets the fields
-    /// `CONFIG.md` lists for it -- the maps' presets turn `shadows.rays` off;
-    /// read back, the name the settings are now, or `None` once one of them
-    /// is changed by hand.
+    /// `CONFIG.md` lists for it -- `shadows.method` among them, "maps" for all
+    /// but the rays; read back, the name the settings are now, or `None` once
+    /// one of them is changed by hand.
     #[getter]
     fn quality(&self) -> Option<&'static str> {
         self.config.borrow().quality().map(crate::app::config::Quality::name)
@@ -418,4 +418,68 @@ impl super::config_gen::DataConfig {
         self.config.borrow_mut().data.colormap = table;
         Ok(())
     }
+}
+
+/// The colour mode, by hand: a name, and for a release the numbers scripts
+/// wrote before the names -- 3 among them, which is `shadows.method = "none"`
+/// now -- each with a deprecation warning. The field is marked `:py_custom:`.
+#[pymethods]
+impl super::config_gen::ShadingConfig {
+    /// What the surface shows: "shaded", lit by the Sun with the shadows
+    /// `shadows.method` draws (the default); "data", unlit, a mesh's values
+    /// through the colormap, else its own colours; "flat", every body the
+    /// one `color`.
+    #[getter]
+    fn color_mode(&self) -> &'static str {
+        self.config.borrow().shading.color_mode.name()
+    }
+
+    /// The numbers of before still work for a release, with a deprecation
+    /// warning: 0 is "shaded", with shadows -- a method of "none" goes back
+    /// to "maps", as 0 meant after 3 -- 1 "data", 2 "flat", and 3, shaded
+    /// without shadows, is `shadows.method = "none"`.
+    ///
+    /// :pytype: str
+    #[setter]
+    fn set_color_mode(&mut self, v: &Bound<'_, PyAny>) -> PyResult<()> {
+        use crate::app::config::{ColorMode, ShadowMethod};
+        let names = "\"shaded\", \"data\" or \"flat\"";
+        if let Ok(name) = v.extract::<String>() {
+            let mode = ColorMode::parse(&name).ok_or_else(|| {
+                pyo3::exceptions::PyValueError::new_err(format!("color_mode is one of {names}, got {name:?}"))
+            })?;
+            self.config.borrow_mut().shading.color_mode = mode;
+            return Ok(());
+        }
+        let code: u32 = v
+            .extract()
+            .map_err(|_| pyo3::exceptions::PyTypeError::new_err(format!("color_mode is one of {names}")))?;
+        if code == 3 {
+            deprecated_value(v.py(), "config.shading.color_mode = 3 is deprecated; use config.shadows.method = \"none\"")?;
+            let mut c = self.config.borrow_mut();
+            c.shading.color_mode = ColorMode::Shaded;
+            c.shadows.method = ShadowMethod::None;
+            return Ok(());
+        }
+        let mode = ColorMode::from_code(code).ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err(format!("color_mode is one of {names}, got {code}"))
+        })?;
+        deprecated_value(
+            v.py(),
+            &format!("config.shading.color_mode = {code} is deprecated; use \"{}\"", mode.name()),
+        )?;
+        let mut c = self.config.borrow_mut();
+        c.shading.color_mode = mode;
+        if mode == ColorMode::Shaded && c.shadows.method == ShadowMethod::None {
+            c.shadows.method = ShadowMethod::Maps;
+        }
+        Ok(())
+    }
+}
+
+/// A `DeprecationWarning` at the script's line, as the renamed fields' are
+/// (`config_gen.rs`).
+fn deprecated_value(py: Python<'_>, message: &str) -> PyResult<()> {
+    let message = std::ffi::CString::new(message)?;
+    PyErr::warn(py, &py.get_type::<pyo3::exceptions::PyDeprecationWarning>(), message.as_c_str(), 1)
 }

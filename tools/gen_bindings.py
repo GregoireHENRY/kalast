@@ -43,6 +43,8 @@ SOURCE = ROOT / "src/app/config.rs"
 TARGET = ROOT / "src/py/app/config_gen.rs"
 
 RUST_CONFIG = "crate::app::config::Config"
+# Enums of `config.rs` with `ALL`, `name()` and `parse()`: a name from Python.
+NAMED_ENUMS = {"ShadowMethod", "ColorMode"}
 RUST_APP = "crate::app::config::AppConfig"
 
 
@@ -142,6 +144,25 @@ def accessor(path: str, name: str, rust: str, doc):
             "            ))",
             "        })?;",
             f"        {cfg_mut}.{g} = t;",
+            "        Ok(())",
+            "    }",
+        ]
+    elif rust in NAMED_ENUMS:
+        # A list of names, as `ALL`, `name()` and `parse()` give them.
+        ty = f"crate::app::config::{rust}"
+        lines += [
+            "    #[getter]",
+            f"    fn {name}(&self) -> &'static str {{ {cfg}.{g}.name() }}",
+            "    #[setter]",
+            f"    fn set_{name}(&mut self, v: &str) -> PyResult<()> {{",
+            f"        let m = {ty}::parse(v).ok_or_else(|| {{",
+            f"            let names: Vec<String> = {ty}::ALL.iter().map(|m| format!(\"{{:?}}\", m.name())).collect();",
+            "            pyo3::exceptions::PyValueError::new_err(format!(",
+            f'                "{name} is one of {{}}, got {{v:?}}",',
+            '                names.join(", ")',
+            "            ))",
+            "        })?;",
+            f"        {cfg_mut}.{g} = m;",
             "        Ok(())",
             "    }",
         ]

@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""With `shadows.rays`, the image is shaded by rays too, and it agrees with
+"""With `shadows.method = "rays"`, the image is shaded by rays too, and it agrees with
 the per-facet query's rays (`tests/test_facet_shadow_rays.py`), pixel by
 pixel through the facet map.
 
@@ -74,7 +74,7 @@ def main() -> int:
     c.wireframe.mode = 0
     c.axes.style = "off"
     c.shading.lod = False
-    c.shadows.rays = True
+    c.shadows.method = "rays"
     c.shadows.ray_samples = 256
     sim = app.simulation
     sim.load_mesh(path=path)

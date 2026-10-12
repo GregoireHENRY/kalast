@@ -1315,29 +1315,27 @@ Clear color for the render pass. Used as `LoadOp::Clear(config.shading.backgroun
 `src/app/pass/render.rs:85`.
 Accepted: `(r, g, b, a)` floats, normally 0.0-1.0.
 
-### `shading.color: wgpu::Color` — default `WHITE` *(live)*
-A single global color. **Only used when `color_mode == 2`.** Passed as
-`color_vec3(&config.shading.color)` at `src/app/window.rs:193`; read in the shader's
-`color_mode == 2` branch.
-Accepted: `(r, g, b, a)`; alpha is dropped (converted to `Vec3`).
+### `shading.color_mode: str` — default `"shaded"` *(live)*
+What the surface shows.
 
-### `shading.color_mode: u32` — default `0` *(live)*
-Selects the fragment color path. Documented on the `Globals` struct in
-`src/app/uniform.rs` and branched in `shaders/mesh_shadow.wgsl:117-128` (and `:175` for mode 3).
-
-| Value | Meaning |
+| Name | The surface |
 |---|---|
-| `0` | vertex/instance color + lighting + shadow (the normal path) |
-| `1` | vertex/instance color, raw -- no lighting, no shadow |
-| `2` | the global `shading.color` field, raw -- no lighting, no shadow |
-| `3` | same as `0` but with shadowing forced off (`shadow = 1.0`) |
-| other | falls through to `0` |
+| `"shaded"` | lit by the Sun through the body's scattering law, with the shadows `shadows.method` draws |
+| `"data"` | unlit: the mesh's `values` through the colormap, else its own colours as they are |
+| `"flat"` | every body the one `shading.color`, unlit: a silhouette |
 
-Accepted: any `int`; anything outside 0-3 behaves as `0`.
+The editor shows the shadow settings in `"shaded"` only, since the unlit modes
+show no shadow -- and in the others too while the per-facet shadows are read
+every frame (`shadows.access_shadow_map`), which follow them whatever the
+image shows.
 
-Mode `3` is the cheap way to answer "how much is the shadow pass costing me?"
-without touching code -- though note it only disables the shadow *lookup* in
-the fragment shader, it does not skip rendering the shadow map.
+The numbers of before still work for a release, with a `DeprecationWarning`:
+`0` is `"shaded"`, `1` `"data"`, `2` `"flat"`, and `3`, shaded without
+shadows, is `shadows.method = "none"`; a `0` after it brings the maps back.
+
+### `shading.color: wgpu::Color` — default `WHITE` *(live)*
+Every body's colour with `color_mode = "flat"`, and only then in the editor.
+Accepted: `(r, g, b, a)`; alpha is dropped.
 
 ### `debug.extra: u32` — default `0` *(live)*
 A spare uniform slot. Plumbed all the way through -- config ->
@@ -1485,6 +1483,22 @@ Accepted: any float.
 
 ## Shadows
 
+### `shadows.method: str` — default `"maps"` *(live)*
+How the Sun's shadows are drawn, the image's and those the thermophysical
+model reads (`sim.facet_shadow`) alike. In the editor, a list under the
+presets, and under it only the settings the method reads.
+
+| Method | The shadows |
+|---|---|
+| `"maps"` | shadow maps: a layer per body fitted to what the camera sees (`per_body`, `near_layer`, `second_depth`, `cache`, `pcf`, `resolution`) |
+| `"cascades"` | cascaded shadow maps over the camera's view, `shadows.cascades` of them and one over the scene: for a quick look, less exact |
+| `"rays"` | traced against the full meshes (`ray_samples`, `ray_probe`), on a GPU with ray queries; without, the maps answer |
+| `"none"` | no shadows: every point facing the Sun sees all of it, nothing is drawn for them, and the per-facet shadows hide only what faces away |
+
+With `"none"` the shadow array gives back its memory, as with the rays. A
+reference image (`reference.enabled`) is traced with its shadows whatever the
+method. It replaces `shading.color_mode = 3`.
+
 ### `quality: str | None` — default `"point"` *(live)*
 The shadow settings for one use, set together by name. Read back, the name
 the settings are now, or `None` once one of them is changed by hand. In the
@@ -1496,12 +1510,11 @@ settings, a button each above the shadows' own rows.
 | `"fast"` | a layer per body kept from frame to frame (`cache`), a point Sun, PCF 2 | 689 (paused) | 242 (paused) |
 | `"point"` | a layer per body drawn every frame, a point Sun, PCF 2: the defaults | 518 | 206 |
 | `"accurate"` | the Sun's disc, `second_depth`, a layer per body and a near layer | 146 | 66 |
-| `"rays"` | `shadows.rays` on, the Sun's disc, `ray_samples` 64, `ray_probe` 16 | | |
+| `"rays"` | `shadows.method = "rays"`, the Sun's disc, `ray_samples` 64, `ray_probe` 16 | | |
 
 The frame rates: M1 Pro, GPU-bound frames. The maps' four each also set
-`shadows.rays` to `False` and `cascades` to 0, and `"fast"` `cache_degrees` to
-0; `"rays"` leaves the maps' settings, which nothing reads while the rays
-answer. In the settings, each button's hover lists the fields it sets and
+`shadows.method` to `"maps"`, and `"fast"` `cache_degrees` to 0; `"rays"`
+leaves the maps' settings, which nothing reads while the rays answer. In the settings, each button's hover lists the fields it sets and
 their values, a line each, from the same table the preset applies. `"quick"`
 draws the fewest texels and is the quickest over a whole scene; up close a
 layer per body, fitted to what the camera sees, is as quick and sharper.
@@ -1620,9 +1633,9 @@ bit. Larger keeps layers through a running simulation -- Didymos turns 0.044 deg
 a second of simulated time -- each shadow up to that far behind the Sun: half a
 degree on a wall 3 high moved its shadow's edge on 0.4 % of a 300 x 200 image.
 
-### `shadows.cascades: u32` — default `0` *(live)*
-Cascaded shadow maps: this many layers over slices of the camera's view, the
-nearer finer -- split between evenly and logarithmically, three quarters the
+### `shadows.cascades: u32` — default `3` *(live)*
+With `shadows.method = "cascades"`, 1 to 4: this many layers over slices of
+the camera's view, the nearer finer -- split between evenly and logarithmically, three quarters the
 latter -- and one over the whole scene, in place of a layer per body. Each
 point uses the finest cascade that holds it well inside (the outer 5 % left to
 the next). As games draw the Sun's shadows: on a plate seen from 13 m at 1024
@@ -1641,7 +1654,7 @@ so they move with the camera. Up to 4: with the scene's, five of the eight
 layers.
 
 ### `shadows.ray_probe: u32` — default `16` *(live)*
-With `shadows.rays`, the rays each point tries first across the Sun's disc,
+With `shadows.method = "rays"`, the rays each point tries first across the Sun's disc,
 half on its rim and half inside: where they all agree the point is wholly lit
 or wholly hidden and the rest of `shadows.ray_samples` are not traced. Nearly
 every point is, so a step costs about this many rays a point whatever
@@ -1653,7 +1666,7 @@ the disc that every inner ray misses. `0` traces all of `ray_samples`
 everywhere, exact to them.
 
 ### `shadows.ray_samples: u32` — default `64` *(live)*
-With `shadows.rays` and `light.sun_as_point` off, the rays each point -- a
+With `shadows.method = "rays"` and `light.sun_as_point` off, the rays each point -- a
 pixel, a facet's corner or centre -- traces across the Sun's disc. Each carries the same share of the limb-darkened disc's
 light -- radii at equal steps of its light, angles a golden spiral, turned per
 point -- so a penumbra is resolved to about `1/ray_samples` of the disc, and
@@ -1661,9 +1674,9 @@ the same scene gives the same answer. Against the disc's light integrated on a
 401 x 401 grid across a wall's penumbra: rms 0.15 % at 256, 0.06 % at 1024,
 with no bias. A point Sun takes one ray.
 
-### `shadows.rays: bool` — default `false` *(live)*
-Trace the Sun's shadows with rays, on a GPU that has ray queries, in place of
-the shadow maps: the image's, and those the thermophysical model reads
+### Rays
+With `shadows.method = "rays"`, the Sun's shadows are traced with rays, on a
+GPU that has ray queries, in place of the shadow maps: the image's, and those the thermophysical model reads
 (`sim.facet_shadow`) -- each facet's corners and centre, as the shadow maps'
 query takes them. Against every body's full-resolution mesh: no texel, filter
 or bias, a shadow is where the mesh is, and a penumbra what the rays see of
@@ -1683,7 +1696,7 @@ pair at 1200 x 800: 0.8 ms with a point Sun (maps 0.4), 5.2 with the disc
 
 While the rays answer, the shadow maps are neither drawn nor kept at
 `shadows.resolution`: no shadow pass, no penumbra pass, and the shadow array
-the least it can be, back when the rays are turned off. The Didymos pair up
+the least it can be, back when the method is the maps again. The Didymos pair up
 close with the disc at `16384`, PCF 16: 4.4 GB of the GPU's memory instead of
 more than 11.
 
@@ -1711,7 +1724,8 @@ two under it that fits is, and the kalast tab says which. At `16384` a layer
 is 1 GB, and the Didymos pair with the Sun a disc wants nine -- two bodies,
 their second depth layers, the other bodies' slices, the near layer -- which
 on a 16 GB card ran out, and the app crashed; it now takes `8192`. With
-`shadows.rays` on, the array is the least it can be, since nothing reads it.
+`shadows.method` `"rays"` or `"none"`, the array is the least it can be, since
+nothing reads it.
 
 The default was `8192` until 22 September. Every layer is stored every frame
 and the main pass cannot start its fragment stage until it is, so the store
@@ -1864,14 +1878,19 @@ ground sees, worked out in float64 (rms 0.0007), inside the image's own
 stated error.
 
 ### `reference.enabled: bool` — default `false` *(live)*
-Integrate the image to a reference. The shadows are traced with rays where the
-GPU can, whatever `shadows.rays` says, against the full meshes; the level of
+Render a reference image: a still drawn as exactly as kalast can, for a figure
+or to check a faster setting against. Every frame adds a sample of every
+pixel and the image sharpens, until its error is under `reference.error`;
+then it holds. In the editor, the **render** box under Shadows, "reference
+image", with a line saying how far it has got.
+
+The shadows are traced with rays where the GPU can, whatever `shadows.method`
+says, against the full meshes; the level of
 detail and MSAA are off while it is on -- the image is integrated over its
 pixels instead -- and the probe (`shadows.ray_probe`) too, which would miss
 slivers. `sim.reference_samples`, `sim.reference_error` and
 `sim.reference_done` follow it; `sim.reference_image()` gives the mean as
 floats once done, `sim.reference_error_image()` each pixel's standard error.
-In the settings, under Shadows, with a line saying how far it has got.
 
 ### `reference.error: float` — default `1/510` *(live)*
 The standard error the sum stops at, in the image's values (0 to 1): the
@@ -2131,10 +2150,9 @@ in its own documentation failed — numpy's default is float64 — with
 `'ndarray' object is not an instance of 'ndarray'`, which does not suggest a
 dtype problem.
 
-**There is no switch to turn data colouring on.** `color_mode = 1` — the
-unlit mode — *is* the data map, for any mesh that carries `mesh.values`; a
-mesh without values falls back to its vertex colours, which is what mode 1
-always meant.
+**There is no switch to turn data colouring on.** `color_mode = "data"` —
+the unlit mode — *is* the data map, for any mesh that carries `mesh.values`;
+a mesh without values falls back to its vertex colours.
 
 That is deliberate. Unlit is what a quantitative figure wants anyway, since
 shading a data map makes one value read as two colours, so a separate
@@ -2143,9 +2161,9 @@ One setting decides what you are looking at:
 
 | `shading.color_mode` | the surface shows | the colour bar shows |
 |---|---|---|
-| 0, 3 | diffuse lighting | lighting, 0..1 |
-| 1 | the data | the data, `data.value_min`..`data.value_max` |
-| 2 | one flat colour | nothing — the bar is not drawn |
+| `"shaded"` | diffuse lighting | lighting, 0..1 |
+| `"data"` | the data | the data, `data.value_min`..`data.value_max` |
+| `"flat"` | one flat colour | nothing — the bar is not drawn |
 
 ### `data.value_min: float | None` — default `None` *(live)*
 ### `data.value_max: float | None` — default `None` *(live)*
@@ -2171,8 +2189,8 @@ temperature, and it carries the `light.ambient` floor, so label it for what
 it is. In the unlit mode it is the data map, over `data.value_min`..`data.value_max`,
 read from the same lookup table the surface uses so the two cannot disagree.
 
-With `color_mode = 2` the bar is not drawn at all: every body is one flat
-colour, so there is no scale to label.
+With `color_mode = "flat"` the bar is not drawn at all: every body is one
+flat colour, so there is no scale to label.
 
 ### `colorbar.label: str` *(live)*
 Caption, e.g. `"Surface temperature (K)"`. Same warning as `axes.unit`:
@@ -2220,7 +2238,7 @@ one — each centred on its own mark, as the tick numbers are, and pushed apart
 only where the two would touch. A value off a pinned range is marked at the
 end it lies past. The ticks fall on round
 numbers; these are what the surface actually reached. Data map only
-(`shading.color_mode = 1`).
+(`shading.color_mode = "data"`).
 
 ### `colorbar.min_max_format: str` — default `".0f"` *(live)*
 How `min_max` writes its two values, as a Python format spec: `".0f"` whole

@@ -34,7 +34,11 @@ What the Rust source cannot say, the doc comments can:
                                value's hover text
     /// :when: srgb_mode == 1   the row only while that holds, the field
                                named in its own group, or with its group
-                               (`light.sun_as_point == false`) in another
+                               (`light.sun_as_point == false`) in another;
+                               clauses joined by `&&` each so, a method of
+                               the field's (`method.uses_maps()`) as well,
+                               and an enum's variant by its own name
+                               (`method == ShadowMethod::Rays`)
     /// :some: 2.2              an optional number: the value it takes when
                                ticked (else 0)
     /// :skip:                  no widget (edited from a script, not by hand)
@@ -42,7 +46,8 @@ What the Rust source cannot say, the doc comments can:
                                it, up to the next marker, are the app tab's
                                section of that name
 
-Everything else is inferred from the type.
+Everything else is inferred from the type. An enum's field is a list of its
+variants, each variant's doc its hover.
 
 `AppConfig` is flat -- `app.config.theme`, not `app.config.window.theme` --
 so it cannot group by nesting the way `Config` does, and `:section:` is how
@@ -61,7 +66,12 @@ ENUMS = {
     "AxesStyle": ("src/app/axes.rs", "AxesStyle"),
     "HudAnchor": ("src/app/config.rs", "HudAnchor"),
     "UiTheme": ("src/app/config.rs", "UiTheme"),
+    "ShadowMethod": ("src/app/config.rs", "ShadowMethod"),
+    "ColorMode": ("src/app/config.rs", "ColorMode"),
 }
+# Config's groups, `shading`, `light`, ...: a `:when:` clause naming one
+# first is about a field of that group. Filled in by `main`.
+GROUPS: set[str] = set()
 SOURCE = ROOT / "src/app/config.rs"
 TARGET = ROOT / "src/app/gui/config_panel.rs"
 
@@ -77,7 +87,9 @@ TITLES = {
 }
 
 
-def variants(rust: str) -> list[str] | None:
+def variants(rust: str) -> list[tuple[str, str]] | None:
+    """-> [(variant, hover)] for an enum the panel knows, the hover its doc's
+    first paragraph; None for any other type."""
     if rust not in ENUMS:
         return None
     path, name = ENUMS[rust]
@@ -85,8 +97,31 @@ def variants(rust: str) -> list[str] | None:
     m = re.search(r"pub enum %s \{(.*?)\n\}" % name, text, re.S)
     if not m:
         return None
-    body = re.sub(r"//[^\n]*", "", m.group(1))
-    return re.findall(r"^\s*(\w+)\s*,", body, re.M)
+    out = []
+    for vm in re.finditer(r"((?:^[ \t]*///[^\n]*\n)*)[ \t]*(\w+)\s*,", m.group(1), re.M):
+        doc = "\n".join(line.strip().removeprefix("///").strip() for line in vm.group(1).splitlines())
+        out.append((vm.group(2), summary(doc)))
+    return out
+
+
+def condition(path: str, when: str) -> str:
+    """A `:when:` marker as the Rust it tests: each clause about a field of
+    the row's own group, or of the group it names first, and an enum's
+    variants by their full path."""
+    own = path.rsplit(".", 1)[0]
+    root = path.split(".", 1)[0]
+    clauses = []
+    for clause in when.split("&&"):
+        clause = clause.strip()
+        head = re.match(r"\w+", clause).group(0)
+        # `light.sun_as_point == false`: another group's field.
+        group = root if head in GROUPS and clause[len(head):].startswith(".") else own
+        clauses.append(f"{group}.{clause}")
+    text = " && ".join(clauses)
+    for rust, (file, name) in ENUMS.items():
+        if file == "src/app/config.rs":
+            text = re.sub(rf"(?<![\w:]){name}::", f"crate::app::config::{name}::", text)
+    return text
 
 
 def fields(struct: str, src: str):
@@ -142,10 +177,7 @@ def widget(path: str, name: str, rust: str, doc: str) -> list[str]:
             # Shown only while it means something: `shading.gamma` with
             # `srgb_mode` 1. A field of another group is named with its group:
             # `shadows.second_depth` with `light.sun_as_point == false`.
-            group = path.rsplit(".", 1)[0]
-            if "." in when.split()[0]:
-                group = path.split(".", 1)[0]
-            return [f"    if {group}.{when} {{"] + [f"    {line}" for line in lines] + ["    }"]
+            return [f"    if {condition(path, when)} {{"] + [f"    {line}" for line in lines] + ["    }"]
         return lines
 
     if rust == "bool":
@@ -255,8 +287,9 @@ def widget(path: str, name: str, rust: str, doc: str) -> list[str]:
             f"    .selected_text(format!(\"{{:?}}\", {path}))",
             "    .show_ui(ui, |ui| {",
         ]
-        for v in vs:
-            lines.append(f'        ui.selectable_value(&mut {path}, {use}::{v}, "{v}");')
+        for v, tip in vs:
+            on_hover = f'.on_hover_text("{tip}")' if tip else ""
+            lines.append(f'        ui.selectable_value(&mut {path}, {use}::{v}, "{v}"){on_hover};')
         lines += ["    });"]
         return row(lines)
 
@@ -302,6 +335,7 @@ def main() -> int:
         "",
     ]
     fns = []
+    GROUPS.update(gfield for gfield, _, _ in fields("Config", src))
     for gfield, _, title, members in groups(src):
         fn = f"group_{gfield}"
         fns.append((fn, title))

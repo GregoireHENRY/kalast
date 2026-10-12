@@ -30,21 +30,21 @@ def main() -> int:
         "point": (True, True, False, 2, 4096),
         "accurate": (False, True, False, 2, 4096),
     }
-    c.shadows.cascades = 3
     for name, (point, per_body, cache, pcf, resolution) in want.items():
+        c.shadows.method = "cascades"
         c.quality = name
         got = (c.light.sun_as_point, c.shadows.per_body, c.shadows.cache, c.shadows.pcf, c.shadows.resolution)
-        check(f"'{name}' sets the Sun, the layers, cache, PCF and resolution, cascades off",
-              got == (point, per_body, cache, pcf, resolution) and c.shadows.cascades == 0, f"{got}, cascades {c.shadows.cascades}")
+        check(f"'{name}' sets the Sun, the layers, cache, PCF and resolution, the maps",
+              got == (point, per_body, cache, pcf, resolution) and c.shadows.method == "maps", f"{got}, {c.shadows.method!r}")
         check(f"and reads back '{name}'", c.quality == name, f"{c.quality!r}")
     c.quality = "accurate"
     check("'accurate' has the second depth layer and the near layer", c.shadows.second_depth and c.shadows.near_layer)
     c.quality = "rays"
-    check("'rays' traces the disc", c.shadows.rays and not c.light.sun_as_point
+    check("'rays' traces the disc", c.shadows.method == "rays" and not c.light.sun_as_point
           and (c.shadows.ray_samples, c.shadows.ray_probe) == (64, 16) and c.quality == "rays",
-          f"rays {c.shadows.rays}, point {c.light.sun_as_point}, {c.shadows.ray_samples}, {c.shadows.ray_probe}, {c.quality!r}")
+          f"{c.shadows.method!r}, point {c.light.sun_as_point}, {c.shadows.ray_samples}, {c.shadows.ray_probe}, {c.quality!r}")
     c.quality = "point"
-    check("and a maps' preset after it turns the rays off", not c.shadows.rays and c.quality == "point", f"rays {c.shadows.rays}")
+    check("and a maps' preset after it picks the maps", c.shadows.method == "maps" and c.quality == "point", f"{c.shadows.method!r}")
     c.shadows.pcf = 4
     check("changed by hand, it is none", c.quality is None, f"{c.quality!r}")
     try:

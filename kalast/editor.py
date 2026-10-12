@@ -23,6 +23,7 @@ import inspect
 import io
 import keyword
 import re
+import symtable
 import sys
 import traceback
 import types
@@ -40,11 +41,18 @@ from kalast._rs.app._core import console_write as _console_write
 from kalast._rs.app._core import editor_set_python as _editor_set_python
 from kalast._rs.app._core import script_write as _script_write
 
-# The namespace of the script running now, for the console to read and write:
-# `app` and whatever the script defined. `None` until a script has run.
+# The namespace of the script running now, for the console to read: `app` and
+# whatever the script defined. `None` until a script has run.
 _script_globals: dict[str, Any] | None = None
 # The console's namespace before any script has run.
 _idle_globals: dict[str, Any] | None = None
+# The console's own namespace: the script's variables, copied in before each
+# line, and over them the names the console bound itself (`_console_namespace`).
+_console_globals: dict[str, Any] | None = None
+# The namespace it copies -- the script's, or the idle one -- and the names
+# the console bound, which the copy leaves alone.
+_console_source: dict[str, Any] | None = None
+_console_bound: set[str] = set()
 # Its interpreter, made again when the namespace changes.
 _console: code.InteractiveConsole | None = None
 # Whether the python tab has had the banner `python` greets with.
@@ -297,6 +305,30 @@ def make_runner() -> Callable[[Any, str, str], None]:
     return run
 
 
+class _Console(code.InteractiveConsole):
+    """`code.InteractiveConsole`, noting the names each statement binds as
+    the console's own (`_console_namespace`)."""
+
+    def runsource(self, source: str, filename: str = "<input>", symbol: str = "single") -> bool:
+        more = super().runsource(source, filename, symbol)
+        if not more:
+            _console_bound.update(_bound_names(source))
+            # Deleted, or never bound because the line failed: the script's
+            # name, if it has one, shows through again.
+            _console_bound.intersection_update(self.locals)
+        return more
+
+
+def _bound_names(source: str) -> set[str]:
+    """The names a console statement binds at its top level: assigned,
+    defined, imported, a loop's or a `with`'s."""
+    try:
+        table = symtable.symtable(source, "<console>", "exec")
+    except SyntaxError:
+        return set()
+    return {s.get_name() for s in table.get_symbols() if s.is_assigned() or s.is_imported()}
+
+
 class _ConsoleStream(io.TextIOBase):
     """`sys.stdout` and `sys.stderr` while a console line runs: the python tab."""
 
@@ -314,15 +346,18 @@ def console_push(app: Any, line: str) -> None:
     Between frames, so what it changes is drawn by the next one -- which is
     how a paused scene is looked at and moved about. Among the running
     script's variables, `app` one of them; before any script, `app` and
-    `kalast`. An expression's value is printed, a line opening a block waits
-    for the rest of it, and an empty line closes it: `code.InteractiveConsole`.
+    `kalast`. A name the console binds is its own: a script whose loop sets
+    `a` every frame no longer takes the console's `a` with it, and the
+    script does not see the console's. An expression's value is printed, a
+    line opening a block waits for the rest of it, and an empty line closes
+    it: `code.InteractiveConsole`.
 
     Not something a script calls: the loop does, for each line typed.
     """
     global _console
     namespace = _console_namespace(app)
     if _console is None or _console.locals is not namespace:
-        _console = code.InteractiveConsole(locals=namespace)
+        _console = _Console(locals=namespace)
 
     _console_write(("... " if _console.buffer else ">>> ") + line + "\n")
     out, err = sys.stdout, sys.stderr
@@ -340,13 +375,29 @@ def console_push(app: Any, line: str) -> None:
 
 
 def _console_namespace(app: Any) -> dict[str, Any]:
-    """The running script's variables, or before any script `app` and `kalast`."""
-    global _idle_globals
-    if _script_globals is not None:
-        return _script_globals
-    if _idle_globals is None:
-        _idle_globals = {"app": app, "kalast": kalast, "__name__": "__console__"}
-    return _idle_globals
+    """The console's namespace: the running script's variables -- or before
+    any script `app` and `kalast` -- as they are now, and over them the names
+    the console bound itself.
+
+    The script's are copied in each time, but for those: a script whose loop
+    sets `a` every frame took the console's `a` with it -- a mesh kept there
+    read as the loop's float a line later. A run of a script starts the
+    console afresh, as the script is.
+    """
+    global _idle_globals, _console_globals, _console_source
+    source = _script_globals
+    if source is None:
+        if _idle_globals is None:
+            _idle_globals = {"app": app, "kalast": kalast, "__name__": "__console__"}
+        source = _idle_globals
+    if _console_globals is None or _console_source is not source:
+        _console_globals = {}
+        _console_source = source
+        _console_bound.clear()
+    for name, value in source.items():
+        if name not in _console_bound:
+            _console_globals[name] = value
+    return _console_globals
 
 
 # What ends the word Tab completes -- readline's delimiters. Not `.`, so

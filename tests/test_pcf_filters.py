@@ -83,10 +83,10 @@ def main() -> int:
 
     for _ in range(3):
         app.step()
-    c.shading.color_mode = 3  # shadow test off, shading otherwise the same
+    c.shadows.method = "none"  # shadow test off, shading otherwise the same
     app.step()
     ref = grab("noshadow")
-    c.shading.color_mode = 0
+    c.shadows.method = "maps"
     lit = ref > 24.0
     yy, xx = numpy.mgrid[0 : ref.shape[0], 0 : ref.shape[1]]
 

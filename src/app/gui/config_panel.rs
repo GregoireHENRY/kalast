@@ -28,17 +28,27 @@ pub fn group_shading(ui: &mut egui::Ui, c: &mut Config) {
                 ui.selectable_value(&mut c.shading.msaa, 8, "8");
             });
     });
-    setting(ui, "color", "Flat colour used when `color_mode` is 2, `(r, g, b, a)`.", |ui| {
-        let mut rgba = [c.shading.color.r as f32, c.shading.color.g as f32,
-                        c.shading.color.b as f32, c.shading.color.a as f32];
-        if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
-            c.shading.color = wgpu::Color {
-                r: rgba[0] as f64, g: rgba[1] as f64,
-                b: rgba[2] as f64, a: rgba[3] as f64,
-            };
-        }
+    setting(ui, "color_mode", "What the surface shows: \"shaded\", lit by the Sun with the shadows `shadows.method` draws (the default); \"data\", unlit, a mesh's values through the colormap, else its own colours; \"flat\", every body the one `color`.", |ui| {
+        egui::ComboBox::from_id_salt("c.shading.color_mode")
+            .selected_text(format!("{:?}", c.shading.color_mode))
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut c.shading.color_mode, crate::app::config::ColorMode::Shaded, "Shaded").on_hover_text("Lit by the Sun through the body's scattering law, with the shadows `shadows.method` draws. The default.");
+                ui.selectable_value(&mut c.shading.color_mode, crate::app::config::ColorMode::Data, "Data").on_hover_text("The data, unlit: a mesh's `values` through the colormap, else its own colours as they are. What a quantitative figure wants: shading a data map makes one value read as two colours.");
+                ui.selectable_value(&mut c.shading.color_mode, crate::app::config::ColorMode::Flat, "Flat").on_hover_text("Every body the one flat `shading.color`, unlit: a silhouette.");
+            });
     });
-    setting(ui, "color_mode", "What the fragment shader outputs.", |ui| ui.add(egui::Slider::new(&mut c.shading.color_mode, 0..=3).clamping(egui::SliderClamping::Edits)));
+    if c.shading.color_mode == crate::app::config::ColorMode::Flat {
+        setting(ui, "color", "Every body's colour with `color_mode` \"flat\", `(r, g, b, a)`.", |ui| {
+            let mut rgba = [c.shading.color.r as f32, c.shading.color.g as f32,
+                            c.shading.color.b as f32, c.shading.color.a as f32];
+            if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
+                c.shading.color = wgpu::Color {
+                    r: rgba[0] as f64, g: rgba[1] as f64,
+                    b: rgba[2] as f64, a: rgba[3] as f64,
+                };
+            }
+        });
+    }
     setting(ui, "srgb_mode", "Which colours come out exactly in the image: the data's and the flat one (0), or the lit values (1).", |ui| {
         egui::ComboBox::from_id_salt("c.shading.srgb_mode")
             .selected_text(c.shading.srgb_mode.to_string())
@@ -87,60 +97,91 @@ pub fn group_light(ui: &mut egui::Ui, c: &mut Config) {
 
 /// `config.shadows` -- Shadows.
 pub fn group_shadows(ui: &mut egui::Ui, c: &mut Config) {
-    setting(ui, "resolution", "Side length of each square shadow map, in texels.", |ui| ui.add(egui::Slider::new(&mut c.shadows.resolution, 512..=16384).clamping(egui::SliderClamping::Edits)));
-    setting(ui, "pcf", "Smoothing of the shadows' edges, the percentage-closer-filtering kernel's *radius* in shadow-map texels: 0 is the hardware's single 2x2 comparison, N a `(2N+1)^2` grid of them averaged.", |ui| ui.add(egui::Slider::new(&mut c.shadows.pcf, 0..=16).clamping(egui::SliderClamping::Edits)));
-    setting(ui, "normal_offset_scale", "Push the sample along the surface normal before the shadow lookup, in world units. `None` fits it per frame from the layer's own texel size.", |ui| {
-        let mut on = c.shadows.normal_offset_scale.is_some();
-        if ui.checkbox(&mut on, "").changed() {
-            c.shadows.normal_offset_scale = if on { Some(0.0) } else { None };
-        }
-        if let Some(v) = c.shadows.normal_offset_scale.as_mut() {
-            ui.add(egui::DragValue::new(v).speed(1e-6));
-        }
+    setting(ui, "method", "How the Sun's shadows are drawn: \"maps\", a shadow map per body (the default); \"cascades\", cascaded shadow maps over the camera's view, for a quick look; \"rays\", traced against the full meshes, on a GPU with ray queries; \"none\", no shadows at all. The image's and those the thermophysical model reads (`sim.facet_shadow`) alike.", |ui| {
+        egui::ComboBox::from_id_salt("c.shadows.method")
+            .selected_text(format!("{:?}", c.shadows.method))
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut c.shadows.method, crate::app::config::ShadowMethod::Maps, "Maps").on_hover_text("Shadow maps: a layer per body, fitted to what the camera sees of it, drawn from the Sun every frame. The default.");
+                ui.selectable_value(&mut c.shadows.method, crate::app::config::ShadowMethod::Cascades, "Cascades").on_hover_text("Cascaded shadow maps, as games draw the Sun's: layers over slices of the camera's view, the nearer finer, and one over the scene. For a quick look, less exact than a layer per body.");
+                ui.selectable_value(&mut c.shadows.method, crate::app::config::ShadowMethod::Rays, "Rays").on_hover_text("Traced with rays against the full meshes, the Sun's disc sampled by `ray_samples` rays a point: no texel, filter or bias. On a GPU with ray queries; without, the shadow maps answer.");
+                ui.selectable_value(&mut c.shadows.method, crate::app::config::ShadowMethod::None, "None").on_hover_text("No shadows: every point facing the Sun sees all of it, and nothing is drawn for them.");
+            });
     });
-    setting(ui, "bias_scale", "Slope-dependent term of the depth-comparison bias. `None` fits it per frame. Combined in the shader as `max(shadow_bias_scale * k, shadow_bias_minimum)`.", |ui| {
-        let mut on = c.shadows.bias_scale.is_some();
-        if ui.checkbox(&mut on, "").changed() {
-            c.shadows.bias_scale = if on { Some(0.0) } else { None };
-        }
-        if let Some(v) = c.shadows.bias_scale.as_mut() {
-            ui.add(egui::DragValue::new(v).speed(1e-6));
-        }
-    });
-    setting(ui, "bias_minimum", "Floor on the depth-comparison bias, for surfaces facing the light head-on. `None` fits it per frame.", |ui| {
-        let mut on = c.shadows.bias_minimum.is_some();
-        if ui.checkbox(&mut on, "").changed() {
-            c.shadows.bias_minimum = if on { Some(0.0) } else { None };
-        }
-        if let Some(v) = c.shadows.bias_minimum.as_mut() {
-            ui.add(egui::DragValue::new(v).speed(1e-6));
-        }
-    });
-    setting(ui, "access_shadow_map", "Read the shadow map back per facet: computes solar occlusion for every body each frame, readable from `after_render` via `Simulation::facet_shadow`.", |ui| ui.checkbox(&mut c.shadows.access_shadow_map, ""));
-    setting(ui, "per_body", "Fit a shadow map per body instead of one fitted to the whole scene.", |ui| ui.checkbox(&mut c.shadows.per_body, ""));
-    setting(ui, "near_layer", "A finer shadow layer over where the camera looks closest, for a body seen up close.", |ui| ui.checkbox(&mut c.shadows.near_layer, ""));
-    if c.light.sun_as_point == false {
+    if c.shadows.method == crate::app::config::ShadowMethod::Cascades {
+        setting(ui, "cascades", "How many cascades, with `method` \"cascades\": layers over slices of the camera's view, the nearer finer, and one more over the whole scene.", |ui| ui.add(egui::Slider::new(&mut c.shadows.cascades, 1..=4).clamping(egui::SliderClamping::Edits)));
+    }
+    if c.shadows.method.uses_maps() {
+        setting(ui, "resolution", "Side length of each square shadow map, in texels.", |ui| ui.add(egui::Slider::new(&mut c.shadows.resolution, 512..=16384).clamping(egui::SliderClamping::Edits)));
+    }
+    if c.shadows.method.uses_maps() {
+        setting(ui, "pcf", "Smoothing of the shadows' edges, the percentage-closer-filtering kernel's *radius* in shadow-map texels: 0 is the hardware's single 2x2 comparison, N a `(2N+1)^2` grid of them averaged.", |ui| ui.add(egui::Slider::new(&mut c.shadows.pcf, 0..=16).clamping(egui::SliderClamping::Edits)));
+    }
+    if c.shadows.method.uses_maps() {
+        setting(ui, "normal_offset_scale", "Push the sample along the surface normal before the shadow lookup, in world units. `None` fits it per frame from the layer's own texel size.", |ui| {
+            let mut on = c.shadows.normal_offset_scale.is_some();
+            if ui.checkbox(&mut on, "").changed() {
+                c.shadows.normal_offset_scale = if on { Some(0.0) } else { None };
+            }
+            if let Some(v) = c.shadows.normal_offset_scale.as_mut() {
+                ui.add(egui::DragValue::new(v).speed(1e-6));
+            }
+        });
+    }
+    if c.shadows.method.uses_maps() {
+        setting(ui, "bias_scale", "Slope-dependent term of the depth-comparison bias. `None` fits it per frame. Combined in the shader as `max(shadow_bias_scale * k, shadow_bias_minimum)`.", |ui| {
+            let mut on = c.shadows.bias_scale.is_some();
+            if ui.checkbox(&mut on, "").changed() {
+                c.shadows.bias_scale = if on { Some(0.0) } else { None };
+            }
+            if let Some(v) = c.shadows.bias_scale.as_mut() {
+                ui.add(egui::DragValue::new(v).speed(1e-6));
+            }
+        });
+    }
+    if c.shadows.method.uses_maps() {
+        setting(ui, "bias_minimum", "Floor on the depth-comparison bias, for surfaces facing the light head-on. `None` fits it per frame.", |ui| {
+            let mut on = c.shadows.bias_minimum.is_some();
+            if ui.checkbox(&mut on, "").changed() {
+                c.shadows.bias_minimum = if on { Some(0.0) } else { None };
+            }
+            if let Some(v) = c.shadows.bias_minimum.as_mut() {
+                ui.add(egui::DragValue::new(v).speed(1e-6));
+            }
+        });
+    }
+    setting(ui, "access_shadow_map", "Compute every body's per-facet shadows every frame, as `method` draws them, read back with `sim.facet_shadow(body)` from `after_render`.", |ui| ui.checkbox(&mut c.shadows.access_shadow_map, ""));
+    if c.shadows.method == crate::app::config::ShadowMethod::Maps {
+        setting(ui, "per_body", "Fit a shadow map per body instead of one fitted to the whole scene.", |ui| ui.checkbox(&mut c.shadows.per_body, ""));
+    }
+    if c.shadows.method == crate::app::config::ShadowMethod::Maps {
+        setting(ui, "near_layer", "A finer shadow layer over where the camera looks closest, for a body seen up close.", |ui| ui.checkbox(&mut c.shadows.near_layer, ""));
+    }
+    if c.shadows.method.uses_maps() && c.light.sun_as_point == false {
         setting(ui, "second_depth", "With the Sun a disc, a second depth layer under each shadow layer: the nearest surface behind what the Sun sees first. Nothing with the Sun a point, whatever it is set to.", |ui| ui.checkbox(&mut c.shadows.second_depth, ""));
     }
-    setting(ui, "cache", "Keep each body's shadow layer from frame to frame, drawn again only when the Sun has moved past `cache_degrees` in the body's own frame, another body has moved about it, or the scene or the shadows' settings changed.", |ui| ui.checkbox(&mut c.shadows.cache, ""));
-    if c.shadows.cache == true {
+    if c.shadows.method == crate::app::config::ShadowMethod::Maps {
+        setting(ui, "cache", "Keep each body's shadow layer from frame to frame, drawn again only when the Sun has moved past `cache_degrees` in the body's own frame, another body has moved about it, or the scene or the shadows' settings changed.", |ui| ui.checkbox(&mut c.shadows.cache, ""));
+    }
+    if c.shadows.method == crate::app::config::ShadowMethod::Maps && c.shadows.cache == true {
         setting(ui, "cache_degrees", "How far, in degrees, the Sun may move in a body's own frame, or another body about it, before a kept layer is drawn again (`cache`). 0: only when nothing has moved at all, the shadows as exact as without the cache. Larger keeps layers through a running simulation -- Didymos turns 0.044 deg a second of simulated time -- each shadow up to that far behind the Sun.", |ui| ui.add(egui::DragValue::new(&mut c.shadows.cache_degrees).speed(0.01)));
     }
-    setting(ui, "cascades", "Cascaded shadow maps, for a quick look: this many layers over slices of the camera's view, the nearer finer, and one over the whole scene, in place of a layer per body. 0, the default: a layer per body.", |ui| ui.add(egui::Slider::new(&mut c.shadows.cascades, 0..=4).clamping(egui::SliderClamping::Edits)));
-    setting(ui, "lod_texels", "The size, in shadow-map texels, a large mesh's triangles are drawn at in the shadow maps when `shading.lod` is on, outside the camera's view.", |ui| ui.add(egui::Slider::new(&mut c.shadows.lod_texels, 0.5..=16.0).clamping(egui::SliderClamping::Edits)));
-    setting(ui, "lod_pixels", "The size, in the camera's pixels, a large mesh's triangles are drawn at in the shadow maps when `shading.lod` is on, outside the camera's view.", |ui| ui.add(egui::Slider::new(&mut c.shadows.lod_pixels, 0.5..=32.0).clamping(egui::SliderClamping::Edits)));
-    setting(ui, "rays", "Trace the Sun's shadows with rays, on a GPU that has ray queries: the image's, and those the thermophysical model reads -- each facet's corners and centre -- against every body's full-resolution mesh, the Sun's disc sampled by `ray_samples` rays. Off by default; without ray queries, the shadow maps answer as before.", |ui| ui.checkbox(&mut c.shadows.rays, ""));
-    if c.shadows.rays == true {
-        setting(ui, "ray_samples", "The rays each point -- a pixel, a facet's corner or centre -- traces across the Sun's disc, with `rays` on and `light.sun_as_point` off: each carries the same share of the limb-darkened disc's light, so a penumbra is resolved to about 1/`ray_samples`. A point Sun takes one.", |ui| ui.add(egui::Slider::new(&mut c.shadows.ray_samples, 1..=1024).clamping(egui::SliderClamping::Edits)));
+    if c.shadows.method.uses_maps() {
+        setting(ui, "lod_texels", "The size, in shadow-map texels, a large mesh's triangles are drawn at in the shadow maps when `shading.lod` is on, outside the camera's view.", |ui| ui.add(egui::Slider::new(&mut c.shadows.lod_texels, 0.5..=16.0).clamping(egui::SliderClamping::Edits)));
     }
-    if c.shadows.rays == true {
-        setting(ui, "ray_probe", "The rays a point tries first across the disc, with `rays` on: where they all agree the point is wholly lit or wholly hidden and the rest of `ray_samples` are not traced. Nearly every point is, so a step costs about this many rays a point whatever `ray_samples` is.", |ui| ui.add(egui::Slider::new(&mut c.shadows.ray_probe, 0..=64).clamping(egui::SliderClamping::Edits)));
+    if c.shadows.method.uses_maps() {
+        setting(ui, "lod_pixels", "The size, in the camera's pixels, a large mesh's triangles are drawn at in the shadow maps when `shading.lod` is on, outside the camera's view.", |ui| ui.add(egui::Slider::new(&mut c.shadows.lod_pixels, 0.5..=32.0).clamping(egui::SliderClamping::Edits)));
+    }
+    if c.shadows.method == crate::app::config::ShadowMethod::Rays {
+        setting(ui, "ray_samples", "The rays each point -- a pixel, a facet's corner or centre -- traces across the Sun's disc, with `method` \"rays\" and `light.sun_as_point` off: each carries the same share of the limb-darkened disc's light, so a penumbra is resolved to about 1/`ray_samples`. A point Sun takes one.", |ui| ui.add(egui::Slider::new(&mut c.shadows.ray_samples, 1..=1024).clamping(egui::SliderClamping::Edits)));
+    }
+    if c.shadows.method == crate::app::config::ShadowMethod::Rays {
+        setting(ui, "ray_probe", "The rays a point tries first across the disc, with `method` \"rays\": where they all agree the point is wholly lit or wholly hidden and the rest of `ray_samples` are not traced. Nearly every point is, so a step costs about this many rays a point whatever `ray_samples` is.", |ui| ui.add(egui::Slider::new(&mut c.shadows.ray_probe, 0..=64).clamping(egui::SliderClamping::Edits)));
     }
 }
 
 /// `config.reference` -- Reference.
 pub fn group_reference(ui: &mut egui::Ui, c: &mut Config) {
-    setting(ui, "enabled", "Integrate the image to a reference: a sample of every pixel each frame -- the camera jittered within it, one ray to a point of the Sun's limb-darkened disc -- summed into a mean that stops once its error is under `error`. For a still scene; anything that changes it starts the sum again.", |ui| ui.checkbox(&mut c.reference.enabled, ""));
+    setting(ui, "render", "Render a reference image: a still drawn as exactly as kalast can, for a figure or to check a faster setting against. Every frame adds a sample of every pixel and the image sharpens, until its error is under `error`; then it holds.", |ui| ui.checkbox(&mut c.reference.enabled, ""));
     if c.reference.enabled == true {
         setting(ui, "error", "The standard error the sum stops at, in the image's values (0 to 1): the 99.9th percentile of the pixels', from the spread of four independent estimates of each. Half an 8-bit step, 1/510, by default.", |ui| ui.add(egui::DragValue::new(&mut c.reference.error).speed(0.0001)));
     }
@@ -257,7 +298,7 @@ pub fn group_colorbar(ui: &mut egui::Ui, c: &mut Config) {
         }
     });
     setting(ui, "border", "Outline drawn around the strip, in the text's colour, so it reads as a scale rather than as part of the scene when it sits over a dark body.", |ui| ui.checkbox(&mut c.colorbar.border, ""));
-    setting(ui, "min_max", "Mark the lowest and highest value the bodies carry where they fall on the scale -- at its end, when a pinned range leaves them outside it -- and name them, on the side away from the tick numbers: above a horizontal bar, left of a vertical one. The data map's only (`shading.color_mode` 1).", |ui| ui.checkbox(&mut c.colorbar.min_max, ""));
+    setting(ui, "min_max", "Mark the lowest and highest value the bodies carry where they fall on the scale -- at its end, when a pinned range leaves them outside it -- and name them, on the side away from the tick numbers: above a horizontal bar, left of a vertical one. The data map's only (`shading.color_mode` \"data\").", |ui| ui.checkbox(&mut c.colorbar.min_max, ""));
     setting(ui, "min_max_format", "How `min_max` writes the two values, as a Python format spec: `.0f` whole numbers, `.3f` three decimals, `.2e` in powers of ten, `d` an integer. Anything else reads as `.0f`.", |ui| ui.add(egui::TextEdit::singleline(&mut c.colorbar.min_max_format).desired_width(f32::INFINITY)));
 }
 
@@ -267,11 +308,11 @@ pub fn group_axes(ui: &mut egui::Ui, c: &mut Config) {
         egui::ComboBox::from_id_salt("c.axes.style")
             .selected_text(format!("{:?}", c.axes.style))
             .show_ui(ui, |ui| {
-                ui.selectable_value(&mut c.axes.style, crate::app::axes::AxesStyle::Off, "Off");
-                ui.selectable_value(&mut c.axes.style, crate::app::axes::AxesStyle::Box, "Box");
-                ui.selectable_value(&mut c.axes.style, crate::app::axes::AxesStyle::Panes, "Panes");
-                ui.selectable_value(&mut c.axes.style, crate::app::axes::AxesStyle::Gizmo, "Gizmo");
-                ui.selectable_value(&mut c.axes.style, crate::app::axes::AxesStyle::Blender, "Blender");
+                ui.selectable_value(&mut c.axes.style, crate::app::axes::AxesStyle::Off, "Off").on_hover_text("Nothing.");
+                ui.selectable_value(&mut c.axes.style, crate::app::axes::AxesStyle::Box, "Box").on_hover_text("A closed box around the scene, ticked on the near edges. What MATLAB's `box on` draws, and what a profile figure wants: every edge is a ruler.");
+                ui.selectable_value(&mut c.axes.style, crate::app::axes::AxesStyle::Panes, "Panes").on_hover_text("The three far panes, gridded, with ticks on their outer edges -- matplotlib's `Axes3D`. Reads as a room the body sits in, so the grid gives depth cues a bare box does not.");
+                ui.selectable_value(&mut c.axes.style, crate::app::axes::AxesStyle::Gizmo, "Gizmo").on_hover_text("The navigation gizmo in a corner and nothing in the scene. For fly-throughs and movies, where a box would occlude the subject every time the camera swings.");
+                ui.selectable_value(&mut c.axes.style, crate::app::axes::AxesStyle::Blender, "Blender").on_hover_text("Blender's viewport: an infinite ground grid on the XY plane, the Z axis picked out as a vertical line, plus the navigation gizmo in a corner. Best for judging orientation while moving around a scene.");
             });
     });
     setting(ui, "color", "Colour of the axis lines and grid.", |ui| {
@@ -408,8 +449,8 @@ pub fn app_window(ui: &mut egui::Ui, a: &mut AppConfig) {
         egui::ComboBox::from_id_salt("a.theme")
             .selected_text(format!("{:?}", a.theme))
             .show_ui(ui, |ui| {
-                ui.selectable_value(&mut a.theme, crate::app::config::UiTheme::CatppuccinMocha, "CatppuccinMocha");
-                ui.selectable_value(&mut a.theme, crate::app::config::UiTheme::Dark, "Dark");
+                ui.selectable_value(&mut a.theme, crate::app::config::UiTheme::CatppuccinMocha, "CatppuccinMocha").on_hover_text("Catppuccin's Mocha, its darkest flavour. The default.");
+                ui.selectable_value(&mut a.theme, crate::app::config::UiTheme::Dark, "Dark").on_hover_text("egui's dark theme, whatever the system's appearance.");
             });
     });
     setting(ui, "remember last window", "Open the UI app's window where it was left: on its screen, at its place and size, fullscreen if it was.", |ui| ui.checkbox(&mut a.remember_window, ""));

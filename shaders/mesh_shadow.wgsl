@@ -1013,6 +1013,12 @@ fn light_step(m: mat4x4<f32>, v: vec3<f32>) -> vec3<f32> {
     return vec3<f32>(d.x * 0.5, -d.y * 0.5, d.z);
 }
 
+/// No shadows this frame (`shadows.method` "none"): no layer drawn and no
+/// rays, every point facing the Sun seeing all of it.
+fn shadowless() -> bool {
+    return view.light.n_layers == 0u && view.light.rays == 0u;
+}
+
 /// A body's shadow layer, the last when there are more bodies than layers.
 fn body_layer() -> u32 {
     return min(body.shadow_layer, max(view.light.n_layers, 1u) - 1u);
@@ -1475,6 +1481,16 @@ fn cs_facets(@builtin(global_invocation_id) id: vec3<u32>) {
     // The facet as a flat plate, as the thermophysical model has it.
     let n = normalize(cross(b - a, c - a));
     let centre = (a + b + c) / 3.0;
+    // No shadows: each point facing the Sun sees all of it, as the image has it.
+    if shadowless() {
+        var lit = 0.0;
+        for (var k = 0u; k < 4u; k++) {
+            let p = select(select(select(centre, c, k == 2u), b, k == 1u), a, k == 0u);
+            lit += select(0.0, 1.0, dot(n, view.light.pos - p) > 0.0);
+        }
+        atomicStore(&facet_out[f], u32(lit * FACET_FIXED + 0.5));
+        return;
+    }
     // A body with a horizon map is not in its own layer: its own shadows are
     // the map's, from the facet's centre.
     var horizon = 1.0;
@@ -2004,102 +2020,102 @@ fn fs_shaded(in: Surface) -> vec4<f32> {
     let light_dir = normalize(view.light.pos - in.world_pos);
     let ndotl = max(dot(in.world_normal, light_dir), 0.0);
 
-    let layer = shadow_layer_at(in.world_pos);
-    let at = sun_at(in.world_pos, in.world_normal, ndotl, layer);
-    // The PCF kernel, where it is wider than the image's pixel: narrower, its
-    // blur is within a pixel, and it cost 1.6 ms at 3234 x 1774 for nothing
-    // seen (the near layer's texels are half a pixel). The per-facet query,
-    // which has no pixels, takes it whole.
-    var radius = globals.shadow_pcf;
-    var kernel: SunKernel;
-    if radius > 0u {
-        let lm = view.light.view_proj_layers[layer];
-        let texel = 2.0 / (length(vec3<f32>(lm[0][0], lm[1][0], lm[2][0])) * f32(globals.shadow_resolution));
-        if f32(radius) * texel <= in.pixel {
-            radius = 0u;
-        } else {
-            kernel = sun_kernel(in.world_pos, in.world_normal, ndotl, layer);
-        }
-    }
-    let uv = at.uv;
-    let depth = at.depth;
-    let bias = at.bias;
-
-    // Nothing in its layer this frame (flag bit 5): no lookup. Its body and
-    // the other bodies apart (`others_slice`), each slice's, both to be lit.
-    // None either while the shadows are traced (below).
-    let mapped = (body.flags & 32u) == 0u && view.light.rays == 0u;
-    let others = others_slice(layer);
-    var own = 1.0;
-    var theirs = 1.0;
-    if mapped {
-        own = sun_lookup(layer, at, kernel, radius);
-        if others != layer {
-            theirs = sun_lookup(others, at, kernel, radius);
-        }
-    }
-    var shadow = own * theirs;
-
-    // The Sun a disc: what the receiver sees of it, where a penumbra
-    // reaching it is `WALK_MIN_REACH` texels wide; the hard lookup above
-    // stands elsewhere. As the penumbra pass found it, or found here where it
-    // did not; its plane unclamped, the disc's horizon being the plane's own.
-    // A slice the walk did not take, nothing in it in reach, answers by its
-    // hard lookup.
-    if mapped && view.light.sun_radius > 0.0 && ndotl > 0.0 {
-        var soft = sun_walked(in.frag, in.dz);
-        if soft.x < -1.5 {
-            soft = sun_seen(layer, uv, depth, sun_grad(in.world_pos, in.world_normal, ndotl, layer), bias, at.tan_uv);
-        }
-        if soft.x >= 0.0 {
-            shadow = soft.x * select(own, 1.0, soft.y > 0.0) * select(theirs, 1.0, soft.z > 0.0);
-        }
-    }
-    // Traced (`shadows.rays`): what this point's rays reach of the Sun,
-    // against the meshes themselves, in place of the maps' answer. A
-    // pattern of its own per pixel, fixed.
+    // Without shadows (`shadows.method` "none"), the whole Sun: nothing
+    // looked up, traced or walked.
+    var shadow = 1.0;
     var bounced = vec3<f32>(0.0);
-    if view.light.rays > 0u { //@rt
-        let key = u32(in.frag.x) * 73856093u ^ u32(in.frag.y) * 19349663u; //@rt
-        // From the point of the meshes the camera's ray finds through this //@rt
-        // pixel: the fragment's own position, rasterised and interpolated, is //@rt
-        // not on the triangle the rays are tested against -- rays from it //@rt
-        // speckled sunlit ground with black, and from a level of detail's cut //@rt
-        // they started under the relief. Off it along the surface's normal, //@rt
-        // not back toward the camera, which seen edge on is along the surface: //@rt
-        // 534 pixels of Didymos dark on facets lit throughout. Looked for //@rt
-        // from eight of the surface's pixels in front: a level of detail's //@rt
-        // cut is within about two of the full mesh. //@rt
-        let p = ray_seen_point(globals.camera_pos, in.world_pos, 8.0 * in.pixel); //@rt
-        // A reference image's sample, plus one, in the low 24 bits; its //@rt
-        // bounces in the top eight. //@rt
-        let frame = globals.ray_frame & 0xffffffu; //@rt
-        if ndotl > 0.0 { //@rt
-            if frame > 0u { //@rt
-                // One ray, to the disc's point this sample of the progressive //@rt
-                // sum stands for (`ray_reference`). //@rt
-                shadow = ray_reference(p, in.world_normal, view.light.pos, view.light.sun_radius, frame - 1u, vec2<u32>(in.frag.xy)); //@rt
-            } else { //@rt
-                shadow = ray_sun_seen(p, in.world_normal, view.light.pos, view.light.sun_radius, view.light.rays, view.light.ray_probe, ray_turn(key)); //@rt
+    if !shadowless() {
+        let layer = shadow_layer_at(in.world_pos);
+        let at = sun_at(in.world_pos, in.world_normal, ndotl, layer);
+        // The PCF kernel, where it is wider than the image's pixel: narrower, its
+        // blur is within a pixel, and it cost 1.6 ms at 3234 x 1774 for nothing
+        // seen (the near layer's texels are half a pixel). The per-facet query,
+        // which has no pixels, takes it whole.
+        var radius = globals.shadow_pcf;
+        var kernel: SunKernel;
+        if radius > 0u {
+            let lm = view.light.view_proj_layers[layer];
+            let texel = 2.0 / (length(vec3<f32>(lm[0][0], lm[1][0], lm[2][0])) * f32(globals.shadow_resolution));
+            if f32(radius) * texel <= in.pixel {
+                radius = 0u;
+            } else {
+                kernel = sun_kernel(in.world_pos, in.world_normal, ndotl, layer);
+            }
+        }
+        let uv = at.uv;
+        let depth = at.depth;
+        let bias = at.bias;
+
+        // Nothing in its layer this frame (flag bit 5): no lookup. Its body and
+        // the other bodies apart (`others_slice`), each slice's, both to be lit.
+        // None either while the shadows are traced (below).
+        let mapped = (body.flags & 32u) == 0u && view.light.rays == 0u;
+        let others = others_slice(layer);
+        var own = 1.0;
+        var theirs = 1.0;
+        if mapped {
+            own = sun_lookup(layer, at, kernel, radius);
+            if others != layer {
+                theirs = sun_lookup(others, at, kernel, radius);
+            }
+        }
+        shadow = own * theirs;
+
+        // The Sun a disc: what the receiver sees of it, where a penumbra
+        // reaching it is `WALK_MIN_REACH` texels wide; the hard lookup above
+        // stands elsewhere. As the penumbra pass found it, or found here where it
+        // did not; its plane unclamped, the disc's horizon being the plane's own.
+        // A slice the walk did not take, nothing in it in reach, answers by its
+        // hard lookup.
+        if mapped && view.light.sun_radius > 0.0 && ndotl > 0.0 {
+            var soft = sun_walked(in.frag, in.dz);
+            if soft.x < -1.5 {
+                soft = sun_seen(layer, uv, depth, sun_grad(in.world_pos, in.world_normal, ndotl, layer), bias, at.tan_uv);
+            }
+            if soft.x >= 0.0 {
+                shadow = soft.x * select(own, 1.0, soft.y > 0.0) * select(theirs, 1.0, soft.z > 0.0);
+            }
+        }
+        // Traced (`shadows.method` "rays"): what this point's rays reach of the
+        // Sun, against the meshes themselves, in place of the maps' answer. A
+        // pattern of its own per pixel, fixed.
+        if view.light.rays > 0u { //@rt
+            let key = u32(in.frag.x) * 73856093u ^ u32(in.frag.y) * 19349663u; //@rt
+            // From the point of the meshes the camera's ray finds through this //@rt
+            // pixel: the fragment's own position, rasterised and interpolated, is //@rt
+            // not on the triangle the rays are tested against -- rays from it //@rt
+            // speckled sunlit ground with black, and from a level of detail's cut //@rt
+            // they started under the relief. Off it along the surface's normal, //@rt
+            // not back toward the camera, which seen edge on is along the surface: //@rt
+            // 534 pixels of Didymos dark on facets lit throughout. Looked for //@rt
+            // from eight of the surface's pixels in front: a level of detail's //@rt
+            // cut is within about two of the full mesh. //@rt
+            let p = ray_seen_point(globals.camera_pos, in.world_pos, 8.0 * in.pixel); //@rt
+            // A reference image's sample, plus one, in the low 24 bits; its //@rt
+            // bounces in the top eight. //@rt
+            let frame = globals.ray_frame & 0xffffffu; //@rt
+            if ndotl > 0.0 { //@rt
+                if frame > 0u { //@rt
+                    // One ray, to the disc's point this sample of the progressive //@rt
+                    // sum stands for (`ray_reference`). //@rt
+                    shadow = ray_reference(p, in.world_normal, view.light.pos, view.light.sun_radius, frame - 1u, vec2<u32>(in.frag.xy)); //@rt
+                } else { //@rt
+                    shadow = ray_sun_seen(p, in.world_normal, view.light.pos, view.light.sun_radius, view.light.rays, view.light.ray_probe, ray_turn(key)); //@rt
+                } //@rt
+            } //@rt
+            // Light bounced off the surfaces, whichever way this one faces: a //@rt
+            // crater's floor in its own shadow is lit by its walls. //@rt
+            if frame > 0u && (globals.ray_frame >> 24u) > 0u { //@rt
+                bounced = ray_bounced(p, in.world_normal, view.light.pos, view.light.sun_radius, frame - 1u, vec2<u32>(in.frag.xy), globals.ray_frame >> 24u); //@rt
             } //@rt
         } //@rt
-        // Light bounced off the surfaces, whichever way this one faces: a //@rt
-        // crater's floor in its own shadow is lit by its walls. //@rt
-        if frame > 0u && (globals.ray_frame >> 24u) > 0u { //@rt
-            bounced = ray_bounced(p, in.world_normal, view.light.pos, view.light.sun_radius, frame - 1u, vec2<u32>(in.frag.xy), globals.ray_frame >> 24u); //@rt
-        } //@rt
-    } //@rt
-    // The rays see the relief a horizon map stands for.
-    if (body.flags & 16u) != 0u && ndotl > 0.0 && view.light.rays == 0u {
-        shadow *= horizon_seen(in.facet, in.world_pos, light_dir);
-    }
-    if view.light.air_count > 0u && ndotl > 0.0 {
-        shadow *= through_air(in.world_pos, light_dir);
-    }
-
-    // no shadow
-    if globals.color_mode == 3 {
-        shadow = 1.0;
+        // The rays see the relief a horizon map stands for.
+        if (body.flags & 16u) != 0u && ndotl > 0.0 && view.light.rays == 0u {
+            shadow *= horizon_seen(in.facet, in.world_pos, light_dir);
+        }
+        if view.light.air_count > 0u && ndotl > 0.0 {
+            shadow *= through_air(in.world_pos, light_dir);
+        }
     }
 
     // lighting: the body's law, from where the Sun and the camera are

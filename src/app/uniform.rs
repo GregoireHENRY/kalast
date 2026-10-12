@@ -6,12 +6,12 @@ pub struct Globals {
     // global color used in fragment if color mode is 1
     pub color: Vec3,
 
-    // Control fragment color
+    // Control fragment color (`ColorMode::code`)
     // - 0: vertex/instance color + lighting + shadow
     // - 1: vertex/instance color, no lighting, show raw color
     // - 2: globals color
-    // - 3: same as 0 but without shadow
     // - else: default to 0
+    // Shadows off is no layer and no rays (`shadows.method = "none"`).
     pub color_mode: u32,
 
     // 0: convert srgb to linear to show raw color
@@ -150,10 +150,10 @@ pub struct Light {
     /// behind its first (`shadow::Pass::peel`), after the others' slices in
     /// layer order. With the Sun a disc.
     pub peeled: u32,
-    /// Cascaded shadow maps in use (`shadows.cascades`): the layers before
-    /// the scene's, which a point picks the finest of that holds it.
+    /// Cascaded shadow maps in use (`shadows.method` "cascades"): the layers
+    /// before the scene's, which a point picks the finest of that holds it.
     pub cascades: u32,
-    /// With `shadows.rays` on a device that traces them, the rays each pixel
+    /// With `shadows.method` "rays" on a device that traces them, the rays each pixel
     /// traces across the Sun's disc (1 for a point), in place of the shadow
     /// maps' lookups (`raytrace`); 0, the maps. Where `_peel_pad` was, so
     /// the struct's size and every shader's copy are as before.

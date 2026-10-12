@@ -95,9 +95,9 @@ def main() -> int:
         assert len(new) == 1, new
         return read_png(new.pop())[..., 0].astype(float)
 
-    c.shading.color_mode = 3
+    c.shadows.method = "none"
     flat = grab()
-    c.shading.color_mode = 0
+    c.shadows.method = "maps"
     images = {}
     for pcf in (0, 4, 8):
         c.shadows.pcf = pcf

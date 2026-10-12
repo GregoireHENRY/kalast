@@ -5,7 +5,7 @@
 //! -- and a top level placing the bodies, rebuilt every frame from their
 //! matrices. Coordinates stay body-local in the bottom levels.
 //!
-//! On by `shadows.rays`, where the device has ray queries: Vulkan on Windows
+//! On by `shadows.method` "rays", where the device has ray queries: Vulkan on Windows
 //! and Linux (DX12 has them only with DXC, which kalast does not ship), Metal
 //! on macOS 15 and later. Elsewhere the shadow maps answer as before. See
 //! `notes/2026-10-10_ray_traced_shadows/`.

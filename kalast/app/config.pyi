@@ -319,9 +319,9 @@ class Config:
         to frame), `"point"` (drawn every frame, the defaults), `"accurate"`
         (the Sun's disc and its second depth layer) or `"rays"` (traced, the
         Sun's disc, on a GPU with ray queries). Setting it sets the fields
-        `CONFIG.md` lists for it -- the maps' presets turn `shadows.rays` off;
-        read back, the name the settings are now, or `None` once one of them
-        is changed by hand.
+        `CONFIG.md` lists for it -- `shadows.method` among them, "maps" for all
+        but the rays; read back, the name the settings are now, or `None` once
+        one of them is changed by hand.
         """
         ...
     @quality.setter
@@ -362,6 +362,12 @@ class ShadingConfig:
 
     `app.simulation.config.shading`. Reads and writes the live config
     through the same handle as every other view of it.
+    """
+    color_mode: str
+    """What the surface shows: "shaded", lit by the Sun with the shadows
+    `shadows.method` draws (the default); "data", unlit, a mesh's values
+    through the colormap, else its own colours; "flat", every body the
+    one `color`.
     """
     @property
     def background(self) -> list[float]:
@@ -414,20 +420,10 @@ class ShadingConfig:
     """
     @property
     def color(self) -> list[float]:
-        """Flat colour used when `color_mode` is 2, `(r, g, b, a)`."""
+        """Every body's colour with `color_mode` "flat", `(r, g, b, a)`."""
         ...
     @color.setter
     def color(self, value: Sequence[float] | numpy.ndarray) -> None: ...
-    color_mode: int
-    """What the fragment shader outputs.
-
-    | | |
-    |---|---|
-    | 0 | vertex/instance colour, lit, with shadows (the default) |
-    | 1 | raw vertex/instance colour, no lighting |
-    | 2 | the flat `color` |
-    | 3 | as 0 but with shadows disabled |
-    """
     srgb_mode: int
     """Which colours come out exactly in the image: the data's and the flat
     one (0), or the lit values (1).
@@ -574,6 +570,25 @@ class ShadowsConfig:
     `app.simulation.config.shadows`. Reads and writes the live config
     through the same handle as every other view of it.
     """
+    method: str
+    """How the Sun's shadows are drawn: "maps", a shadow map per body (the
+    default); "cascades", cascaded shadow maps over the camera's view, for
+    a quick look; "rays", traced against the full meshes, on a GPU with
+    ray queries; "none", no shadows at all. The image's and those the
+    thermophysical model reads (`sim.facet_shadow`) alike.
+    """
+    cascades: int
+    """How many cascades, with `method` "cascades": layers over slices of the
+    camera's view, the nearer finer, and one more over the whole scene.
+
+    The cost is the cascades' whatever the bodies, and the shadows are
+    sharp where the camera looks closest. Less exact than a layer per
+    body: a body's own shadows and another's share each cascade -- with
+    the Sun a disc a penumbra can come through where they meet -- there is
+    no near layer, no horizon map and no cache, and the edges between
+    cascades can show. The per-facet shadows the thermophysical model reads
+    are each facet's cascade's, so they move with the camera.
+    """
     resolution: int
     """Side length of each square shadow map, in texels.
 
@@ -638,18 +653,13 @@ class ShadowsConfig:
     moved it 9x. Reach for that one first.
     """
     access_shadow_map: bool
-    """Read the shadow map back per facet: computes solar occlusion for every
-    body each frame, readable from `after_render` via
-    `Simulation::facet_shadow`.
+    """Compute every body's per-facet shadows every frame, as `method` draws
+    them, read back with `sim.facet_shadow(body)` from `after_render`.
 
     Off by default because it is not free: the query costs ~1.6 ms per
     body at 100k facets and ~7.3 ms at 3.1M, dominated by the blocking
     readback. Turn it on for thermophysical or radiance work; leave it off
     when you only want images.
-    Compute per-facet solar occlusion for every body, every frame.
-
-    Read it back with `sim.facet_shadow(body)` from `after_render`. Leave it off
-    unless something consumes it: it is a compute pass and a readback per frame.
     """
     per_body: bool
     """Fit a shadow map per body instead of one fitted to the whole scene.
@@ -719,20 +729,6 @@ class ShadowsConfig:
     turns 0.044 deg a second of simulated time -- each shadow up to that
     far behind the Sun.
     """
-    cascades: int
-    """Cascaded shadow maps, for a quick look: this many layers over slices
-    of the camera's view, the nearer finer, and one over the whole scene,
-    in place of a layer per body. 0, the default: a layer per body.
-
-    As games draw the Sun's shadows: the cost is the cascades' whatever
-    the bodies, and the shadows are sharp where the camera looks closest.
-    Less exact than a layer per body: a body's own shadows and another's
-    share each cascade -- with the Sun a disc a penumbra can come through
-    where they meet -- there is no near layer, no horizon map and no cache,
-    and the edges between cascades can show. The per-facet shadows the
-    thermophysical model reads are each facet's cascade's, so they move
-    with the camera.
-    """
     lod_texels: float
     """The size, in shadow-map texels, a large mesh's triangles are drawn at
     in the shadow maps when `shading.lod` is on, outside the camera's
@@ -754,27 +750,20 @@ class ShadowsConfig:
     it, a caster only casts into the view, and coarser does: whichever of
     this and `lod_texels` is coarser is used.
     """
-    rays: bool
-    """Trace the Sun's shadows with rays, on a GPU that has ray queries: the
-    image's, and those the thermophysical model reads -- each facet's
-    corners and centre -- against every body's full-resolution mesh, the
-    Sun's disc sampled by `ray_samples` rays. Off by default; without ray
-    queries, the shadow maps answer as before.
-
-    No texel, filter or bias: a shadow is where the mesh is, a penumbra
-    what the rays see of the limb-darkened disc. With a level of detail, a
-    pixel's rays start from the full mesh, not the coarser surface drawn. Vulkan on Windows and
-    Linux, Metal on macOS 15 and later -- on an Apple M1 or M2 the
-    traversal is the driver's, slower than on hardware that has it.
-    """
     ray_samples: int
     """The rays each point -- a pixel, a facet's corner or centre -- traces
-    across the Sun's disc, with `rays` on and `light.sun_as_point` off: each carries the same share of the
-    limb-darkened disc's light, so a penumbra is resolved to about
-    1/`ray_samples`. A point Sun takes one.
+    across the Sun's disc, with `method` "rays" and `light.sun_as_point`
+    off: each carries the same share of the limb-darkened disc's light, so
+    a penumbra is resolved to about 1/`ray_samples`. A point Sun takes one.
+
+    No texel, filter or bias: a shadow is where the mesh is, a penumbra
+    what the rays see of the disc. With a level of detail, a pixel's rays
+    start from the full mesh, not the coarser surface drawn. Vulkan on
+    Windows and Linux, Metal on macOS 15 and later -- on an Apple M1 or M2
+    the traversal is the driver's, slower than on hardware that has it.
     """
     ray_probe: int
-    """The rays a point tries first across the disc, with `rays` on: where
+    """The rays a point tries first across the disc, with `method` "rays": where
     they all agree the point is wholly lit or wholly hidden and the rest
     of `ray_samples` are not traced. Nearly every point is, so a step
     costs about this many rays a point whatever `ray_samples` is.
@@ -792,14 +781,18 @@ class ReferenceConfig:
     through the same handle as every other view of it.
     """
     enabled: bool
-    """Integrate the image to a reference: a sample of every pixel each frame
-    -- the camera jittered within it, one ray to a point of the Sun's
-    limb-darkened disc -- summed into a mean that stops once its error is
-    under `error`. For a still scene; anything that changes it starts the
-    sum again.
+    """Render a reference image: a still drawn as exactly as kalast can, for
+    a figure or to check a faster setting against. Every frame adds a
+    sample of every pixel and the image sharpens, until its error is under
+    `error`; then it holds.
 
-    The shadows are traced with rays where the GPU can (`shadows.rays`
-    needs not be on), against the full meshes: the level of detail and
+    A sample jitters the camera within the pixel and traces one ray to a
+    point of the Sun's limb-darkened disc -- with `bounces`, the light
+    bounced off the surfaces too -- into the mean of all the samples so
+    far. For a still scene: anything that changes it starts the sum again.
+
+    The shadows are traced with rays where the GPU can, whatever
+    `shadows.method` says, against the full meshes: the level of detail and
     MSAA are off while it is on, the frame being integrated over its
     pixels instead. No denoiser, no history, no clamp: a plain mean of
     fixed sequences, the same image every run. `sim.reference_samples`,
@@ -1003,7 +996,7 @@ class ColorbarConfig:
     the scale -- at its end, when a pinned range leaves them outside it --
     and name them, on the side away from the tick numbers: above a
     horizontal bar, left of a vertical one. The data map's only
-    (`shading.color_mode` 1).
+    (`shading.color_mode` "data").
     """
     min_max_format: str
     """How `min_max` writes the two values, as a Python format spec: `.0f`

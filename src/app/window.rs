@@ -43,7 +43,7 @@ pub fn shadow_layers_wanted(config: &crate::app::config::Config, bodies: usize) 
     n.max(1) as u32
 }
 
-/// Cascade `k` of `n` (`shadows.cascades`): the box round the camera's view
+/// Cascade `k` of `n` (`shadows.method` "cascades"): the box round the camera's view
 /// between two of its splits, within the scene's box; `None` where the slice
 /// misses the scene. The splits are spaced between even and logarithmic
 /// (three quarters the latter), nearer cascades thinner, from the camera's
@@ -600,8 +600,8 @@ fn image_size(config: &crate::app::config::Config, window: (u32, u32)) -> (u32, 
     }
 }
 
-fn colorbar_range(color_mode: u32, lo: f32, hi: f32) -> (f32, f32) {
-    if color_mode == 1 { (lo, hi) } else { (0.0, 1.0) }
+fn colorbar_range(color_mode: crate::app::config::ColorMode, lo: f32, hi: f32) -> (f32, f32) {
+    if color_mode == crate::app::config::ColorMode::Data { (lo, hi) } else { (0.0, 1.0) }
 }
 
 /// The ticks: their values, from the same rounding the axes use -- a scale
@@ -791,7 +791,7 @@ fn colorbar_at(v: f32, lo: f32, hi: f32) -> f32 {
 /// them, measured when drawn, is added to.
 fn colorbar_labels(
     cb: &crate::app::config::Colorbar,
-    color_mode: u32,
+    color_mode: crate::app::config::ColorMode,
     rect: (f32, f32, f32, f32),
     lo: f32,
     hi: f32,
@@ -916,7 +916,7 @@ fn bar_section<'a>(
 /// antialiased bars.
 fn colorbar_lines(
     cb: &crate::app::config::Colorbar,
-    color_mode: u32,
+    color_mode: crate::app::config::ColorMode,
     rect: (f32, f32, f32, f32),
     range: (f32, f32),
     extremes: Option<(f32, f32)>,
@@ -1334,14 +1334,14 @@ pub struct Window {
     /// not fit is not asked for again every frame.
     shadow_requested: u32,
     /// The bodies' acceleration structures, on a device with ray queries
-    /// (`shadows.rays`); `None` without them.
+    /// (`shadows.method` "rays"); `None` without them.
     raytrace: Option<super::raytrace::RayTracing>,
-    /// This frame's `shadows.rays` where the device can, and its rays per
+    /// This frame's rays (`shadows.method` "rays") where the device can, and its rays per
     /// point across the disc: what the per-facet query traces.
     rays: bool,
     ray_samples: u32,
     ray_probe: u32,
-    /// Said once that `shadows.rays` cannot be had.
+    /// Said once that rays (`shadows.method` "rays") cannot be had.
     rays_refused: bool,
 
     pub uniforms: super::uniform::Uniforms,
@@ -1493,7 +1493,7 @@ impl Window {
             features_webgpu.insert(wgpu::FeaturesWebGPU::PRIMITIVE_INDEX);
         }
 
-        // Rays traced from shaders, for `shadows.rays` (`raytrace`). Same
+        // Rays traced from shaders, for `shadows.method` "rays" (`raytrace`). Same
         // policy: taken when offered -- Vulkan, Metal on macOS 15+; DX12 only
         // with DXC, which the default compiler choice does not find here, so
         // on Windows it is Vulkan that has them. Experimental in wgpu, hence
@@ -1525,7 +1525,7 @@ impl Window {
                 required_limits: adapter.limits(),
                 // SAFETY: wgpu's experimental features may have bugs and
                 // change between releases; only ray queries are asked for,
-                // and only used with `shadows.rays` on.
+                // and only used with the rays (`shadows.method` "rays").
                 experimental_features: if ray_query {
                     unsafe { wgpu::ExperimentalFeatures::enabled() }
                 } else {
@@ -1825,7 +1825,7 @@ impl Window {
         let Some(mesh) = self.meshes.get(1 + body) else {
             return vec![];
         };
-        // Traced, with `shadows.rays` where the device can.
+        // Traced, with `shadows.method` "rays" where the device can.
         if self.rays {
             if let Some(rt) = self.raytrace.as_ref() {
                 let light = &self.uniforms.view.uniform.light;
@@ -2271,11 +2271,11 @@ impl Window {
     }
 
     /// The shadow array's side: `shadows.resolution`, or with the shadows
-    /// traced, where nothing reads it, the least there is -- at 16384 the
-    /// array was gigabytes the rays left unused, beside their acceleration
-    /// structures, and the GPU ran out of memory.
+    /// traced or off, where nothing reads it, the least there is -- at 16384
+    /// the array was gigabytes the rays left unused, beside their
+    /// acceleration structures, and the GPU ran out of memory.
     fn shadow_side(&self, config: &crate::app::config::Config) -> u32 {
-        if self.rays {
+        if self.rays || !config.shadows_on() {
             512
         } else {
             config.shadows.resolution
@@ -2409,18 +2409,19 @@ impl Window {
 
         // The bodies' acceleration structures, while rays are wanted: built
         // again with the meshes, placed where the bodies are this frame.
-        // A reference image traces whatever `shadows.rays` says: it is
+        // A reference image traces whatever `shadows.method` says: it is
         // nothing if not exact. Its passes are single-sampled and have its
         // float pipelines, so they are built again when it turns on or off.
         let reference = config.reference.enabled;
         if reference != self.passes.reference_on {
             self.rebuild_passes(config);
         }
-        self.rays = (config.shadows.rays || reference) && self.raytrace.is_some();
+        let rays_wanted = config.shadows.method == crate::app::config::ShadowMethod::Rays;
+        self.rays = (rays_wanted || reference) && self.raytrace.is_some();
         simulation.rays = self.rays;
-        if config.shadows.rays && self.raytrace.is_none() && !self.rays_refused {
+        if rays_wanted && self.raytrace.is_none() && !self.rays_refused {
             self.rays_refused = true;
-            println!("shadows.rays: this GPU has no ray queries here, so the shadow maps answer instead");
+            println!("shadows.method = \"rays\": this GPU has no ray queries here, so the shadow maps answer instead");
         }
         self.ray_samples = config.shadows.ray_samples;
         self.ray_probe = config.shadows.ray_probe;
@@ -2531,7 +2532,7 @@ impl Window {
         // independently, so half the scale can be fixed and the other fitted.
         // Fitted only while the data map is what is drawn: it is a pass over
         // every value.
-        let value_range = if config.shading.color_mode == 1 {
+        let value_range = if config.shading.color_mode == crate::app::config::ColorMode::Data {
             crate::app::simulation::data_range(config, &simulation.bodies)
         } else {
             (config.data.value_min.unwrap_or(0.0), config.data.value_max.unwrap_or(1.0))
@@ -2599,7 +2600,7 @@ impl Window {
         // to their whole bodies too: what the camera sees changes with it.
         let shadow_whole = config.shadows.access_shadow_map
             || simulation.facet_shadow_request.is_some()
-            || (config.shadows.cache && config.shadows.cascades == 0);
+            || (config.shadows.cache && config.shadows.cascades_used() == 0);
         let n_bodies = simulation.bodies.len();
         let mut lod_seen: Vec<Option<crate::mesh::Aabb>> = vec![None; n_bodies];
         let mut lod_hidden = vec![false; n_bodies];
@@ -2673,10 +2674,14 @@ impl Window {
         // the scene so occluders still cast. `light.view_proj` is only the
         // scratch the shadow pass draws with, rewritten per layer at render
         // time; what the main pass samples is `view_proj_layers`.
-        // Cascades (`shadows.cascades`): those over the camera's view and one
-        // over the scene, in place of a layer per body.
+        // Cascades (`shadows.method` "cascades"): those over the camera's view
+        // and one over the scene, in place of a layer per body. None at all
+        // without shadows: nothing is drawn for them, and the shaders take
+        // no layer and no rays to mean every point sees the whole Sun.
         let cascades = config.shadows.cascades_used();
-        let n_body_layers = if cascades > 0 {
+        let n_body_layers = if !config.shadows_on() {
+            0
+        } else if cascades > 0 {
             cascades + 1
         } else if config.shadows.per_body {
             simulation
@@ -3236,9 +3241,9 @@ impl Window {
             Vec::new()
         };
 
-        // `color_mode == 2` paints every body one flat colour, so there is
-        // no scale to label.
-        if config.colorbar.enabled && config.shading.color_mode != 2 {
+        // The flat colour mode paints every body one colour, so there is no
+        // scale to label.
+        if config.colorbar.enabled && config.shading.color_mode != crate::app::config::ColorMode::Flat {
             let (w, h) = (
                 self.render_size.0.max(1) as f32,
                 self.render_size.1.max(1) as f32,
@@ -3261,7 +3266,7 @@ impl Window {
                 // 0 = the colormap, 1 = the lighting ramp. Follows
                 // `color_mode` rather than a setting of its own, so the
                 // legend cannot describe something the surface is not.
-                source: if config.shading.color_mode == 1 { 0 } else { 1 },
+                source: if config.shading.color_mode == crate::app::config::ColorMode::Data { 0 } else { 1 },
                 _pad: [0; 2],
             };
             self.queue.write_buffer(
@@ -3270,7 +3275,7 @@ impl Window {
                 bytemuck::bytes_of(&self.uniforms.bar.uniform),
             );
             self.colorbar_px = Some((left, top, bw, bh));
-            self.colorbar_extremes = (cb.min_max && config.shading.color_mode == 1)
+            self.colorbar_extremes = (cb.min_max && config.shading.color_mode == crate::app::config::ColorMode::Data)
                 .then(|| crate::app::simulation::data_extremes(&simulation.bodies))
                 .flatten();
             let lines = colorbar_lines(
@@ -3899,7 +3904,7 @@ impl Window {
         // twice is deliberate -- the window keeps its HUD either way, and the
         // cost is one text pass on exported frames only.
         let (bar_labels, bar_caption) = match (
-            config.colorbar.enabled && config.shading.color_mode != 2,
+            config.colorbar.enabled && config.shading.color_mode != crate::app::config::ColorMode::Flat,
             self.colorbar_px,
         ) {
             (true, Some(rect)) => colorbar_labels(
@@ -4185,7 +4190,7 @@ fn build_globals(
         value_max: value_range.1,
 
         color: super::gpu::color_vec3(&config.shading.color),
-        color_mode: config.shading.color_mode,
+        color_mode: config.shading.color_mode.code(),
 
         srgb_mode: config.shading.srgb_mode,
         // Unset is sRGB's own curve, which the shaders take as 0.
@@ -4288,7 +4293,7 @@ mod colorbar_tests {
         let ticks = colorbar_ticks(&cb, 100.0, 380.0).len();
         assert!(ticks >= 3, "{ticks}");
         let quads = |cb: &crate::app::config::Colorbar, extremes| {
-            colorbar_lines(cb, 1, rect, (100.0, 380.0), extremes, (800.0, 600.0)).len() / 6
+            colorbar_lines(cb, crate::app::config::ColorMode::Data, rect, (100.0, 380.0), extremes, (800.0, 600.0)).len() / 6
         };
         assert_eq!(quads(&cb, None), 4 + ticks);
         assert_eq!(quads(&cb, Some((128.6, 371.0))), 4 + ticks + 2);
@@ -4304,14 +4309,14 @@ mod colorbar_tests {
         let (left, top, w, h) = (100.0, 500.0, 320.0, 18.0);
         let size = (800.0, 600.0);
         let cb = crate::app::config::Colorbar { tick_size: 10.0, border: false, ..bar(false, false) };
-        let lines = colorbar_lines(&cb, 1, (left, top, w, h), (100.0, 380.0), None, size);
+        let lines = colorbar_lines(&cb, crate::app::config::ColorMode::Data, (left, top, w, h), (100.0, 380.0), None, size);
         // The first tick's quad, its corners back to pixels: across the
         // bottom edge, 5 above it and 5 below.
         let ys: Vec<f32> = lines[..6].iter().map(|v| (1.0 - v.pos[1]) * 0.5 * size.1).collect();
         let (low, high) = ys.iter().fold((f32::MAX, f32::MIN), |(l, h), &y| (l.min(y), h.max(y)));
         assert!((low - (top + h - 5.0)).abs() < 1e-3 && (high - (top + h + 5.0)).abs() < 1e-3, "{low}..{high}");
 
-        let (labels, _) = colorbar_labels(&cb, 1, (left, top, w, h), 100.0, 380.0, None);
+        let (labels, _) = colorbar_labels(&cb, crate::app::config::ColorMode::Data, (left, top, w, h), 100.0, 380.0, None);
         let number = labels.iter().find(|l| l.0 == "200").expect("a tick number");
         assert_eq!(number.1.1, top + h + 5.0 + COLORBAR_GAP + cb.text_size * 0.5, "past the mark's outer half");
     }
@@ -4326,7 +4331,7 @@ mod colorbar_tests {
         // A pinned 200..380 and data from 183.97 to 370.93: the lowest is
         // off the scale's low end.
         let cb = crate::app::config::Colorbar { min_max_format: ".3f".into(), ..bar(false, true) };
-        let (labels, caption) = colorbar_labels(&cb, 1, (left, top, w, h), 200.0, 380.0, Some((183.9666, 370.9291)));
+        let (labels, caption) = colorbar_labels(&cb, crate::app::config::ColorMode::Data, (left, top, w, h), 200.0, 380.0, Some((183.9666, 370.9291)));
         assert!(caption.is_none(), "a horizontal bar's caption is one of its labels");
         let find = |t: &str| labels.iter().find(|l| l.0 == t).unwrap_or_else(|| panic!("{t}: {labels:?}")).clone();
         let (min, max, caption) = (find("183.967"), find("370.929"), find("Surface temperature (K)"));
@@ -4339,7 +4344,7 @@ mod colorbar_tests {
 
         // Values off the ticks' round numbers, which are written bare too.
         let cb = crate::app::config::Colorbar { min_max_format: ".0f".into(), ..bar(true, true) };
-        let (labels, _) = colorbar_labels(&cb, 1, (left, top, 18.0, 320.0), 200.0, 380.0, Some((262.4, 311.8)));
+        let (labels, _) = colorbar_labels(&cb, crate::app::config::ColorMode::Data, (left, top, 18.0, 320.0), 200.0, 380.0, Some((262.4, 311.8)));
         let find = |t: &str| labels.iter().find(|l| l.0 == t).unwrap_or_else(|| panic!("{t}: {labels:?}")).clone();
         let (min, max) = (find("262"), find("312"));
         assert!(min.1.0 < left && max.1.0 < left && min.2 == HorizontalAlign::Right, "{labels:?}");
@@ -4347,13 +4352,13 @@ mod colorbar_tests {
         assert!((min.1.1 - level(262.4)).abs() < 1e-3 && (max.1.1 - level(311.8)).abs() < 1e-3, "level with their marks");
         assert!(labels.iter().filter(|l| l.2 == HorizontalAlign::Left).all(|l| l.1.0 > left + 18.0));
 
-        let (plain, _) = colorbar_labels(&bar(false, false), 1, (left, top, w, h), 200.0, 380.0, None);
+        let (plain, _) = colorbar_labels(&bar(false, false), crate::app::config::ColorMode::Data, (left, top, w, h), 200.0, 380.0, None);
         assert!(plain.iter().all(|l| l.0 != "184" && l.0 != "371"), "only when asked for: {plain:?}");
 
         // A surface all at one temperature: both marks on one spot, the two
         // numbers pushed apart about it, far enough not to touch.
         let cb = crate::app::config::Colorbar { min_max_format: ".1f".into(), ..bar(false, true) };
-        let (labels, _) = colorbar_labels(&cb, 1, (left, top, w, h), 200.0, 380.0, Some((280.0, 280.4)));
+        let (labels, _) = colorbar_labels(&cb, crate::app::config::ColorMode::Data, (left, top, w, h), 200.0, 380.0, Some((280.0, 280.4)));
         let (a, b) = (find_in(&labels, "280.0"), find_in(&labels, "280.4"));
         let mark = left + w * 80.2 / 180.0;
         assert!(b.1.0 - a.1.0 >= 4.0 * 0.55 * 13.0 && ((a.1.0 + b.1.0) * 0.5 - mark).abs() < 0.5, "{a:?} {b:?}");
@@ -4368,7 +4373,7 @@ mod colorbar_tests {
     #[test]
     fn a_vertical_bars_caption_comes_apart_to_be_turned() {
         let (left, top, w, h) = (40.0, 100.0, 18.0, 320.0);
-        let (labels, caption) = colorbar_labels(&bar(true, false), 1, (left, top, w, h), 200.0, 380.0, None);
+        let (labels, caption) = colorbar_labels(&bar(true, false), crate::app::config::ColorMode::Data, (left, top, w, h), 200.0, 380.0, None);
         let (text, (x, y)) = caption.expect("turned apart");
         assert_eq!(text, "Surface temperature (K)");
         assert!(x > left + w && (y - (top + h * 0.5)).abs() < 1e-4, "{x} {y}");

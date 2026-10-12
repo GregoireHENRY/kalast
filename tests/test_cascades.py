@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Cascaded shadow maps (`shadows.cascades`): finer where the camera looks
+"""Cascaded shadow maps (`shadows.method = "cascades"`): finer where the camera looks
 closest, and every facet still in one.
 
 A plate 200 wide of 20,000 facets, and a wall on it, a body of its own (in
@@ -124,6 +124,7 @@ def main() -> int:
     c.shadows.per_body = False
     shared = edge_width(grab()[H // 2])
     c.shadows.per_body = True
+    c.shadows.method = "cascades"
     c.shadows.cascades = 3
     cascaded = edge_width(grab()[H // 2])
     check("three cascades draw the near edge sharper than one layer",

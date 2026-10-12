@@ -14,7 +14,7 @@ app.simulation.config.wireframe.mode = 2
 app.simulation.config.axes.style = "gizmo"
 
 # Colormap for surface temperature.
-app.simulation.config.shading.color_mode = 1
+app.simulation.config.shading.color_mode = "data"
 app.simulation.config.data.colormap = "inferno"
 app.simulation.config.data.value_min = 180.0
 app.simulation.config.data.value_max = 380.0

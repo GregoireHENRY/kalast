@@ -80,7 +80,7 @@ impl ShadingConfig {
     fn msaa(&self) -> u32 { self.config.borrow().shading.msaa }
     #[setter]
     fn set_msaa(&mut self, v: u32) { self.config.borrow_mut().shading.msaa = v; }
-    /// Flat colour used when `color_mode` is 2, `(r, g, b, a)`.
+    /// Every body's colour with `color_mode` "flat", `(r, g, b, a)`.
     #[getter]
     fn color(&self) -> [Float; 4] {
         let c = self.config.borrow().shading.color;
@@ -92,18 +92,6 @@ impl ShadingConfig {
             r: v[0] as f64, g: v[1] as f64, b: v[2] as f64, a: v[3] as f64,
         };
     }
-    /// What the fragment shader outputs.
-    ///
-    /// | | |
-    /// |---|---|
-    /// | 0 | vertex/instance colour, lit, with shadows (the default) |
-    /// | 1 | raw vertex/instance colour, no lighting |
-    /// | 2 | the flat `color` |
-    /// | 3 | as 0 but with shadows disabled |
-    #[getter]
-    fn color_mode(&self) -> u32 { self.config.borrow().shading.color_mode }
-    #[setter]
-    fn set_color_mode(&mut self, v: u32) { self.config.borrow_mut().shading.color_mode = v; }
     /// Which colours come out exactly in the image: the data's and the flat
     /// one (0), or the lit values (1).
     ///
@@ -296,6 +284,39 @@ pub struct ShadowsConfig {
 
 #[pymethods]
 impl ShadowsConfig {
+    /// How the Sun's shadows are drawn: "maps", a shadow map per body (the
+    /// default); "cascades", cascaded shadow maps over the camera's view, for
+    /// a quick look; "rays", traced against the full meshes, on a GPU with
+    /// ray queries; "none", no shadows at all. The image's and those the
+    /// thermophysical model reads (`sim.facet_shadow`) alike.
+    #[getter]
+    fn method(&self) -> &'static str { self.config.borrow().shadows.method.name() }
+    #[setter]
+    fn set_method(&mut self, v: &str) -> PyResult<()> {
+        let m = crate::app::config::ShadowMethod::parse(v).ok_or_else(|| {
+            let names: Vec<String> = crate::app::config::ShadowMethod::ALL.iter().map(|m| format!("{:?}", m.name())).collect();
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "method is one of {}, got {v:?}",
+                names.join(", ")
+            ))
+        })?;
+        self.config.borrow_mut().shadows.method = m;
+        Ok(())
+    }
+    /// How many cascades, with `method` "cascades": layers over slices of the
+    /// camera's view, the nearer finer, and one more over the whole scene.
+    ///
+    /// The cost is the cascades' whatever the bodies, and the shadows are
+    /// sharp where the camera looks closest. Less exact than a layer per
+    /// body: a body's own shadows and another's share each cascade -- with
+    /// the Sun a disc a penumbra can come through where they meet -- there is
+    /// no near layer, no horizon map and no cache, and the edges between
+    /// cascades can show. The per-facet shadows the thermophysical model reads
+    /// are each facet's cascade's, so they move with the camera.
+    #[getter]
+    fn cascades(&self) -> u32 { self.config.borrow().shadows.cascades }
+    #[setter]
+    fn set_cascades(&mut self, v: u32) { self.config.borrow_mut().shadows.cascades = v; }
     /// Side length of each square shadow map, in texels.
     ///
     /// One layer per body (one in all with `per_body` off), each
@@ -369,18 +390,13 @@ impl ShadowsConfig {
     fn bias_minimum(&self) -> Option<f32> { self.config.borrow().shadows.bias_minimum }
     #[setter]
     fn set_bias_minimum(&mut self, v: Option<f32>) { self.config.borrow_mut().shadows.bias_minimum = v; }
-    /// Read the shadow map back per facet: computes solar occlusion for every
-    /// body each frame, readable from `after_render` via
-    /// `Simulation::facet_shadow`.
+    /// Compute every body's per-facet shadows every frame, as `method` draws
+    /// them, read back with `sim.facet_shadow(body)` from `after_render`.
     ///
     /// Off by default because it is not free: the query costs ~1.6 ms per
     /// body at 100k facets and ~7.3 ms at 3.1M, dominated by the blocking
     /// readback. Turn it on for thermophysical or radiance work; leave it off
     /// when you only want images.
-    /// Compute per-facet solar occlusion for every body, every frame.
-    ///
-    /// Read it back with `sim.facet_shadow(body)` from `after_render`. Leave it off
-    /// unless something consumes it: it is a compute pass and a readback per frame.
     #[getter]
     fn access_shadow_map(&self) -> bool { self.config.borrow().shadows.access_shadow_map }
     #[setter]
@@ -463,22 +479,6 @@ impl ShadowsConfig {
     fn cache_degrees(&self) -> f32 { self.config.borrow().shadows.cache_degrees }
     #[setter]
     fn set_cache_degrees(&mut self, v: f32) { self.config.borrow_mut().shadows.cache_degrees = v; }
-    /// Cascaded shadow maps, for a quick look: this many layers over slices
-    /// of the camera's view, the nearer finer, and one over the whole scene,
-    /// in place of a layer per body. 0, the default: a layer per body.
-    ///
-    /// As games draw the Sun's shadows: the cost is the cascades' whatever
-    /// the bodies, and the shadows are sharp where the camera looks closest.
-    /// Less exact than a layer per body: a body's own shadows and another's
-    /// share each cascade -- with the Sun a disc a penumbra can come through
-    /// where they meet -- there is no near layer, no horizon map and no cache,
-    /// and the edges between cascades can show. The per-facet shadows the
-    /// thermophysical model reads are each facet's cascade's, so they move
-    /// with the camera.
-    #[getter]
-    fn cascades(&self) -> u32 { self.config.borrow().shadows.cascades }
-    #[setter]
-    fn set_cascades(&mut self, v: u32) { self.config.borrow_mut().shadows.cascades = v; }
     /// The size, in shadow-map texels, a large mesh's triangles are drawn at
     /// in the shadow maps when `shading.lod` is on, outside the camera's
     /// view.
@@ -504,30 +504,21 @@ impl ShadowsConfig {
     fn lod_pixels(&self) -> f32 { self.config.borrow().shadows.lod_pixels }
     #[setter]
     fn set_lod_pixels(&mut self, v: f32) { self.config.borrow_mut().shadows.lod_pixels = v; }
-    /// Trace the Sun's shadows with rays, on a GPU that has ray queries: the
-    /// image's, and those the thermophysical model reads -- each facet's
-    /// corners and centre -- against every body's full-resolution mesh, the
-    /// Sun's disc sampled by `ray_samples` rays. Off by default; without ray
-    /// queries, the shadow maps answer as before.
+    /// The rays each point -- a pixel, a facet's corner or centre -- traces
+    /// across the Sun's disc, with `method` "rays" and `light.sun_as_point`
+    /// off: each carries the same share of the limb-darkened disc's light, so
+    /// a penumbra is resolved to about 1/`ray_samples`. A point Sun takes one.
     ///
     /// No texel, filter or bias: a shadow is where the mesh is, a penumbra
-    /// what the rays see of the limb-darkened disc. With a level of detail, a
-    /// pixel's rays start from the full mesh, not the coarser surface drawn. Vulkan on Windows and
-    /// Linux, Metal on macOS 15 and later -- on an Apple M1 or M2 the
-    /// traversal is the driver's, slower than on hardware that has it.
-    #[getter]
-    fn rays(&self) -> bool { self.config.borrow().shadows.rays }
-    #[setter]
-    fn set_rays(&mut self, v: bool) { self.config.borrow_mut().shadows.rays = v; }
-    /// The rays each point -- a pixel, a facet's corner or centre -- traces
-    /// across the Sun's disc, with `rays` on and `light.sun_as_point` off: each carries the same share of the
-    /// limb-darkened disc's light, so a penumbra is resolved to about
-    /// 1/`ray_samples`. A point Sun takes one.
+    /// what the rays see of the disc. With a level of detail, a pixel's rays
+    /// start from the full mesh, not the coarser surface drawn. Vulkan on
+    /// Windows and Linux, Metal on macOS 15 and later -- on an Apple M1 or M2
+    /// the traversal is the driver's, slower than on hardware that has it.
     #[getter]
     fn ray_samples(&self) -> u32 { self.config.borrow().shadows.ray_samples }
     #[setter]
     fn set_ray_samples(&mut self, v: u32) { self.config.borrow_mut().shadows.ray_samples = v; }
-    /// The rays a point tries first across the disc, with `rays` on: where
+    /// The rays a point tries first across the disc, with `method` "rays": where
     /// they all agree the point is wholly lit or wholly hidden and the rest
     /// of `ray_samples` are not traced. Nearly every point is, so a step
     /// costs about this many rays a point whatever `ray_samples` is.
@@ -556,14 +547,18 @@ pub struct ReferenceConfig {
 
 #[pymethods]
 impl ReferenceConfig {
-    /// Integrate the image to a reference: a sample of every pixel each frame
-    /// -- the camera jittered within it, one ray to a point of the Sun's
-    /// limb-darkened disc -- summed into a mean that stops once its error is
-    /// under `error`. For a still scene; anything that changes it starts the
-    /// sum again.
+    /// Render a reference image: a still drawn as exactly as kalast can, for
+    /// a figure or to check a faster setting against. Every frame adds a
+    /// sample of every pixel and the image sharpens, until its error is under
+    /// `error`; then it holds.
     ///
-    /// The shadows are traced with rays where the GPU can (`shadows.rays`
-    /// needs not be on), against the full meshes: the level of detail and
+    /// A sample jitters the camera within the pixel and traces one ray to a
+    /// point of the Sun's limb-darkened disc -- with `bounces`, the light
+    /// bounced off the surfaces too -- into the mean of all the samples so
+    /// far. For a still scene: anything that changes it starts the sum again.
+    ///
+    /// The shadows are traced with rays where the GPU can, whatever
+    /// `shadows.method` says, against the full meshes: the level of detail and
     /// MSAA are off while it is on, the frame being integrated over its
     /// pixels instead. No denoiser, no history, no clamp: a plain mean of
     /// fixed sequences, the same image every run. `sim.reference_samples`,
@@ -864,7 +859,7 @@ impl ColorbarConfig {
     /// the scale -- at its end, when a pinned range leaves them outside it --
     /// and name them, on the side away from the tick numbers: above a
     /// horizontal bar, left of a vertical one. The data map's only
-    /// (`shading.color_mode` 1).
+    /// (`shading.color_mode` "data").
     #[getter]
     fn min_max(&self) -> bool { self.config.borrow().colorbar.min_max }
     #[setter]

@@ -86,9 +86,11 @@ struct Targets {
 }
 
 /// Whether the disc is walked this frame: on, and the image shaded with
-/// shadows -- the unlit modes and `color_mode = 3` read no shadow.
+/// shadows -- the unlit modes and `shadows.method = "none"` read none.
 pub fn wanted(config: &crate::app::config::Config) -> bool {
-    config.light.disc_radius() > 0.0 && !matches!(config.shading.color_mode, 1..=3)
+    config.light.disc_radius() > 0.0
+        && config.shading.color_mode == crate::app::config::ColorMode::Shaded
+        && config.shadows_on()
 }
 
 impl Pass {

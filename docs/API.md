@@ -1157,7 +1157,7 @@ One float per facet, in `Mesh.facets` order:
 
 ```python
 sim.bodies[0].mesh.values = temperatures      # numpy array, one per facet
-app.simulation.config.shading.color_mode = 1                     # unlit: this *is* the data map
+app.simulation.config.shading.color_mode = "data"                # unlit: this *is* the data map
 app.simulation.config.data.colormap = "inferno"
 app.simulation.config.data.value_min, app.simulation.config.data.value_max = 90.0, 290.0
 ```
@@ -1170,7 +1170,7 @@ range refits every frame, so two images of the same scene sit on different
 colour scales and the difference between them reads as physics rather than as
 bookkeeping.
 
-`shading.color_mode = 1` is what shows them: the unlit mode *is* the data map for any
+`shading.color_mode = "data"` is what shows them: the unlit mode *is* the data map for any
 mesh carrying values, and a mesh without values falls back to its vertex
 colours. There is no separate switch, because unlit is what a quantitative
 figure wants anyway — shading a data map makes one value read as two colours.
@@ -1213,12 +1213,15 @@ disc. `1.0` where the facet faces away from the Sun.
 Set `config.shadows.access_shadow_map = True` to have every body computed every frame
 instead of requesting per body.
 
-With `config.shadows.rays = True`, on a GPU with ray queries, the same points
+With `config.shadows.method = "rays"`, on a GPU with ray queries, the same points
 are traced with rays against every body's full-resolution mesh instead:
 exact geometry, no texel or bias, the disc sampled by `shadows.ray_samples`
 rays a point. Same array, same meaning. The image is traced too, its pixels
 the same way. `sim.rays` is `True` while they are -- `False` before the first
 frame, and on a GPU without ray queries, where the shadow maps answer.
+
+With `config.shadows.method = "none"`, no shadows: `0.0` for each point facing
+the Sun, `1.0` for each facing away, as the image has it.
 
 ### A reference image
 

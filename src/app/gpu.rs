@@ -148,7 +148,7 @@ pub fn has_immediates(device: &wgpu::Device) -> bool {
 }
 
 /// Whether the device took ray queries (`EXPERIMENTAL_RAY_QUERY`), for
-/// `shadows.rays` (`raytrace`).
+/// `shadows.method` "rays" (`raytrace`).
 pub fn has_ray_query(device: &wgpu::Device) -> bool {
     device
         .features()

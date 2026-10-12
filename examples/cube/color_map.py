@@ -6,7 +6,7 @@ import kalast
 
 
 app = kalast.app.App()
-app.simulation.config.shading.color_mode = 1
+app.simulation.config.shading.color_mode = "data"
 app.simulation.config.wireframe.width = 2.0
 app.simulation.config.wireframe.color = [1.0, 0.0, 1.0, 1.0]
 app.simulation.camera.pos = [18.0, 5.0, 10.0]

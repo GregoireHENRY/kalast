@@ -4244,7 +4244,7 @@ mod editor_tests {
     #[test]
     fn opening_a_mesh_forgets_the_last_scripts_settings() {
         let mut app = App::new();
-        app.sim_config().borrow_mut().shading.color_mode = 1;
+        app.sim_config().borrow_mut().shading.color_mode = crate::app::config::ColorMode::Data;
         app.open_mesh(std::path::Path::new("res/ico1.obj"));
         let fresh = crate::app::config::Config::default();
         assert_eq!(app.sim_config().borrow().shading.color_mode, fresh.shading.color_mode);
