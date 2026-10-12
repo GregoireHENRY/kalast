@@ -5848,3 +5848,14 @@ the reference image (`reference.enabled`) with bounces, compaction, the
 presets row, the crash at 16384 fixed. None of it has run on Metal. What to
 try first on the M1 Pro, the Metal risks, and what is open:
 `2026-10-12_HANDOFF_ray_tracing_to_laptop.md`.
+
+## 2026-10-12 — ray tracing on Metal (M1 Pro)
+
+Pulled the home PC's ray tracing. On Metal the main pass did not build: a
+`ray_query` declared in the bounce loop, which naga resets by assignment and
+Metal forbids; declared before the loop. Then the four ray-tracing tests pass,
+and the suite's 42. Cost against the RTX 5080: point-Sun rays 20-34 times
+slower, the disc's 64 rays 74-95 times (a step of the Didymos pair 2.9 s, an
+image at 1200 x 800 386 ms). Next for the Mac: rays across the disc only where
+the maps' pyramid says a penumbra can be. Write-up:
+`2026-10-12_ray_tracing_on_metal/`.

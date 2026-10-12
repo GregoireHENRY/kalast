@@ -43,6 +43,10 @@ fn ray_bounced(p: vec3<f32>, n: vec3<f32>, sun: vec3<f32>, radius: f32, k: u32, 
     var normal = n;
     var carried = vec3<f32>(1.0);
     var light = vec3<f32>(0.0);
+    // Declared once, outside the loop: inside it naga resets it on each pass
+    // by assigning a fresh query, and Metal's has no assignment -- the main
+    // pass did not build on the M1 Pro.
+    var rq: ray_query;
     for (var b = 0u; b < min(bounces, 4u); b++) {
         let key = base_key ^ ((b + 1u) * 0x632be5abu);
         let ud = ray_pair(i, RAY_BOUNCE_BASES[4u * b], RAY_BOUNCE_BASES[4u * b + 1u], key);
@@ -55,7 +59,6 @@ fn ray_bounced(p: vec3<f32>, n: vec3<f32>, sun: vec3<f32>, radius: f32, k: u32, 
         let phi = RAY_TAU * ud.y;
         let dir = normalize(r * cos(phi) * t1 + r * sin(phi) * t2 + sqrt(max(1.0 - ud.x, 0.0)) * normal);
         let origin = ray_origin(at, normal);
-        var rq: ray_query;
         rayQueryInitialize(&rq, tlas, RayDesc(RAY_FLAG_FORCE_OPAQUE, 0xffu, 0.0, 1.0e30, origin, dir));
         rayQueryProceed(&rq);
         let hit = rayQueryGetCommittedIntersection(&rq);
