@@ -225,3 +225,13 @@ mod tests {
         assert!(Locked::ptr_eq(&a, &a.clone()));
     }
 }
+
+#[cfg(test)]
+#[allow(dead_code)]
+fn the_scene_crosses_threads() {
+    fn send<T: Send>() {}
+    send::<crate::app::simulation::Simulation>();
+    send::<crate::app::config::Config>();
+    send::<crate::app::config::AppConfig>();
+    send::<crate::app::Shared>();
+}

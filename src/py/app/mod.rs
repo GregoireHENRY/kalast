@@ -3,6 +3,7 @@ pub mod frame;
 pub mod config;
 pub mod config_gen;
 pub mod gpu;
+pub mod script;
 pub mod simulation;
 
 use std::{cell::RefCell, rc::Rc};
@@ -93,7 +94,10 @@ pub fn console_set_more(more: bool) {
 #[pyclass(from_py_object, unsendable)]
 #[derive(Clone)]
 pub struct App {
-    pub inner: Rc<RefCell<crate::app::App>>,
+    /// The engine's app, on the thread that runs its loop. `None` for the
+    /// handle a script gets on the UI app's scripts' thread (`script`): the
+    /// window is the main thread's, and `step()` asks it for a frame.
+    pub inner: Option<Rc<RefCell<crate::app::App>>>,
     /// Everything a script may touch while the loop runs.
     ///
     /// Held beside `inner`, never through it: `start()` borrows `inner` for
@@ -111,6 +115,27 @@ pub struct App {
     pub simulation: crate::locked::Locked<crate::app::simulation::Simulation>,
 }
 
+/// An app's handles on what scripts touch -- everything but the engine's app
+/// itself -- which may cross to the scripts' thread (`script`).
+#[derive(Clone)]
+pub struct Handles {
+    pub shared: crate::locked::Locked<crate::app::Shared>,
+    pub config: crate::locked::Locked<crate::app::config::AppConfig>,
+    pub sim_config: crate::locked::Locked<crate::app::config::Config>,
+    pub simulation: crate::locked::Locked<crate::app::simulation::Simulation>,
+}
+
+impl Handles {
+    pub fn of(app: &crate::app::App) -> Self {
+        Self {
+            shared: app.shared.clone(),
+            config: app.config.clone(),
+            sim_config: app.simulation.borrow().config.clone(),
+            simulation: app.simulation.clone(),
+        }
+    }
+}
+
 impl App {
     /// A Python handle onto an app that already exists.
     ///
@@ -118,21 +143,28 @@ impl App {
     /// it is already showing, rather than one the script makes for itself --
     /// the same thing `python -m kalast` passes to `editor.run_toplevel`.
     pub fn wrap(inner: Rc<RefCell<crate::app::App>>) -> Self {
-        let (config, simulation, shared, sim_config) = {
-            let app = inner.borrow();
-            (
-                app.config.clone(),
-                app.simulation.clone(),
-                app.shared.clone(),
-                app.simulation.borrow().config.clone(),
-            )
-        };
+        let handles = Handles::of(&inner.borrow());
+        Self { inner: Some(inner), ..Self::remote(handles) }
+    }
+
+    /// The handle a script gets on the scripts' thread: the scene's, and no
+    /// window.
+    pub fn remote(handles: Handles) -> Self {
         Self {
-            inner,
-            shared,
-            config,
-            sim_config,
-            simulation,
+            inner: None,
+            shared: handles.shared,
+            config: handles.config,
+            sim_config: handles.sim_config,
+            simulation: handles.simulation,
+        }
+    }
+
+    pub fn handles(&self) -> Handles {
+        Handles {
+            shared: self.shared.clone(),
+            config: self.config.clone(),
+            sim_config: self.sim_config.clone(),
+            simulation: self.simulation.clone(),
         }
     }
 }
@@ -140,10 +172,10 @@ impl App {
 /// What the log's python tab has for Python -- lines typed, a Tab -- run by
 /// `kalast.editor.serve_console` against `app`. Its own errors are the
 /// console's to show; one reaching here is shown there.
-fn serve_console(py: Python<'_>, app: &App) {
+pub(crate) fn serve_console<'py>(py: Python<'py>, app: impl IntoPyObject<'py>) {
     let served = py
         .import("kalast.editor")
-        .and_then(|m| m.call_method1("serve_console", (app.clone(),)));
+        .and_then(|m| m.call_method1("serve_console", (app,)));
     if let Err(e) = served {
         crate::app::gui::console_write(&format!("{e}\n"));
     }
@@ -153,23 +185,7 @@ fn serve_console(py: Python<'_>, app: &App) {
 impl App {
     #[new]
     fn new() -> Self {
-        let inner = Rc::new(RefCell::new(crate::app::App::new()));
-        let (config, simulation, shared, sim_config) = {
-            let app = inner.borrow();
-            (
-                app.config.clone(),
-                app.simulation.clone(),
-                app.shared.clone(),
-                app.simulation.borrow().config.clone(),
-            )
-        };
-        Self {
-            inner,
-            shared,
-            config,
-            sim_config,
-            simulation,
-        }
+        Self::wrap(Rc::new(RefCell::new(crate::app::App::new())))
     }
 
     #[getter]
@@ -187,17 +203,16 @@ impl App {
     #[getter]
     /// The scene: bodies, camera, Sun, iteration state and HUDs.
     fn get_simulation(&self) -> simulation::Simulation {
-        // The app's own, as it stands: a Rust example the editor loads
-        // brings a simulation of its own, which the window shows and the
-        // python tab has to see. Through the handles held beside `inner`
-        // while the app is borrowed -- inside a frame, from a callback --
-        // where the simulation is the app's own again: a script's run puts it
-        // back (`App::begin_script`).
-        let current = self.inner.try_borrow().ok().and_then(|app| {
-            let config = app.simulation.try_borrow().ok()?.config.clone();
-            Some((app.simulation.clone(), config))
-        });
-        let (inner, config) = current.unwrap_or_else(|| (self.simulation.clone(), self.sim_config.clone()));
+        // The one on screen: a Rust example the editor loads brings a
+        // simulation of its own, which the window shows and the python tab
+        // has to see (`Shared::shown`). Otherwise the app's own, which a
+        // script's run puts back (`App::begin_script`). Its config through
+        // the handle held beside it while the simulation is borrowed here --
+        // inside a frame, from a callback.
+        let shown = self.shared.borrow().shown.clone();
+        let inner = shown.unwrap_or_else(|| self.simulation.clone());
+        let config = inner.try_borrow().ok().map(|s| s.config.clone());
+        let config = config.unwrap_or_else(|| self.sim_config.clone());
         simulation::Simulation { inner, config }
     }
 
@@ -207,8 +222,13 @@ impl App {
     /// and do per-frame work in `before_render`/`after_render`.
     ///
     /// Use `step()` instead to keep the loop in your own script.
-    fn start(&self) {
-        self.inner.borrow_mut().start();
+    fn start(&self, py: Python<'_>) {
+        match &self.inner {
+            Some(inner) => inner.borrow_mut().start(),
+            // On the scripts' thread the loop is the UI app's: its frames,
+            // a step at a time, until the window closes.
+            None => while script::step(py, self) {},
+        }
     }
 
     /// Open the editor: the renderer as one panel in a Blender-style layout.
@@ -229,7 +249,10 @@ impl App {
     ///
     /// `python -m kalast` opens it on an empty scene.
     fn start_editor(&self) {
-        self.inner.borrow_mut().start_editor();
+        // On the scripts' thread the editor is open already.
+        if let Some(inner) = &self.inner {
+            inner.borrow_mut().start_editor();
+        }
     }
 
     /// Install what the editor's `Run` button calls.
@@ -243,10 +266,11 @@ impl App {
     /// its own, not through the object whose `start_editor` is running.
     #[setter]
     /// :pytype: Callable[[str, str], None]
-    fn set_script_runner(&self, callback: Py<PyAny>) {
-        let app = self.clone();
+    fn set_script_runner(&self, py: Python<'_>, callback: Py<PyAny>) -> PyResult<()> {
+        let app = Py::new(py, self.clone())?;
         self.shared.borrow_mut().script_runner =
             Some(crate::app::ScriptRunner { callback, app });
+        Ok(())
     }
 
     /// Put a script in the editor's buffer, and name the file it came from.
@@ -296,49 +320,57 @@ impl App {
     /// `run_script(app, source, path)` is called whenever Play or Restart
     /// asks for a script, and is the one piece Rust cannot do for itself --
     /// executing Python needs CPython. Everything else about the loop is in
-    /// the engine.
+    /// the engine. It is called on the scripts' thread, as are the callbacks
+    /// and the python tab: the window goes on while a script works.
     #[pyo3(signature = (args, run_script))]
     fn run_editor(&self, py: Python<'_>, args: Vec<String>, run_script: Py<PyAny>) -> PyResult<()> {
-        // The callback takes the *Python* app, which the caller already holds,
-        // rather than being handed one back: `self` here is a handle onto the
-        // same `Rc<RefCell<App>>`, so a second wrapper would be a second name
-        // for the thing the script is about to reconfigure.
-        let this = self.clone();
+        let Some(inner) = self.inner.clone() else {
+            return Err(pyo3::exceptions::PyRuntimeError::new_err("the UI app is open already"));
+        };
 
         // Driven a turn at a time rather than handing the loop to
         // `run_editor`, because that would hold `inner` borrowed for the whole
-        // session -- and a script is free to call back into the app, which is
-        // the same `RefCell`. A `while app.step():` script did exactly that
-        // and could not: the borrow was the obstacle, not the frame.
-        //
-        // The policy is still the engine's; only the handle is turned here.
-        self.inner.borrow_mut().editor_start(&args);
-        loop {
-            let tick = self.inner.borrow_mut().editor_tick();
-            match tick {
-                crate::app::EditorTick::Closed => break,
-                crate::app::EditorTick::Frame => {}
-                // Nothing of ours is borrowed here. The script may step the
-                // app, load meshes, reconfigure it -- all of which reach
-                // `inner` -- and it runs to completion before the next turn.
-                crate::app::EditorTick::Run { path, source } => {
-                    run_script.call1(py, (this.clone(), source, path))?;
-                }
-                // The log's python tab: lines typed, a Tab.
-                crate::app::EditorTick::Console => serve_console(py, &this),
-                // A Rust example holds the flow until its loop ends, so the
-                // python tab is served between its frames instead -- with
-                // nothing of ours borrowed, as for a script.
-                crate::app::EditorTick::Example { path, release } => {
-                    let mut between = || {
-                        if crate::app::gui::console_pending() {
-                            serve_console(py, &this);
-                        }
-                    };
-                    crate::app::App::run_example(&self.inner, &path, release, &mut between);
+        // session -- and an example run in it reaches the app between its
+        // frames. The policy is still the engine's; only the handle is
+        // turned here.
+        inner.borrow_mut().editor_start(&args);
+
+        // Scripts, their callbacks and the python tab on a thread of their
+        // own (`script`), so a slow one holds that thread and not the
+        // window. The loop below never runs Python: it lets go of the
+        // interpreter for the whole session, and the thread takes it.
+        let (main, thread) = crate::app::script::link();
+        let ended = script::spawn(thread, self.handles(), Box::new(move |py, _app| Ok(run_script.clone_ref(py))));
+        inner.borrow_mut().set_script_thread(main);
+
+        let looped = script::OnThisThread(inner.clone());
+        py.detach(move || {
+            let inner = looped.into_inner();
+            loop {
+                let tick = inner.borrow_mut().editor_tick();
+                match tick {
+                    crate::app::EditorTick::Closed => break,
+                    // With the thread, a script and the console are its:
+                    // neither comes back here.
+                    crate::app::EditorTick::Frame
+                    | crate::app::EditorTick::Run { .. }
+                    | crate::app::EditorTick::Console => {}
+                    // A Rust example runs here, holding the flow until its
+                    // loop ends, and the python tab is served between its
+                    // frames -- on the thread, waited for, with nothing of
+                    // ours borrowed.
+                    crate::app::EditorTick::Example { path, release } => {
+                        let mut between = || {
+                            inner.borrow_mut().console_on_thread();
+                        };
+                        crate::app::App::run_example(&inner, &path, release, &mut between);
+                    }
                 }
             }
-        }
+            // The thread ends with its link, letting go of what it made.
+            inner.borrow_mut().end_script_thread();
+            ended.wait(std::time::Duration::from_secs(2));
+        });
         Ok(())
     }
 
@@ -433,7 +465,10 @@ impl App {
     /// `kalast.editor.capture_output` registers this with `atexit`, so a
     /// script's last words reach the terminal. Safe to call more than once.
     fn flush_output(&self) {
-        self.inner.borrow_mut().flush_output();
+        // The capture is the main thread's, which flushes it as it closes.
+        if let Some(inner) = &self.inner {
+            inner.borrow_mut().flush_output();
+        }
     }
 
     /// Append a line to the editor's log panel, or to stdout without one.
@@ -489,8 +524,12 @@ impl App {
     ///
     /// Not usable after `start()`: a platform event loop cannot be created
     /// twice in one process, and `start()` consumes it. Pick one.
-    fn step(&self) -> bool {
-        self.inner.borrow_mut().step()
+    fn step(&self, py: Python<'_>) -> bool {
+        match &self.inner {
+            Some(inner) => inner.borrow_mut().step(),
+            // On the scripts' thread: the main thread draws it.
+            None => script::step(py, self),
+        }
     }
 
     /// Ask the window to close, ending a `while app.step():` loop.

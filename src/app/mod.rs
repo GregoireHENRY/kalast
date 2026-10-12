@@ -22,6 +22,7 @@ pub mod occlusion;
 pub mod pass;
 pub mod raytrace;
 pub mod reference;
+pub mod script;
 pub mod simulation;
 pub mod uniform;
 pub mod window;
@@ -291,6 +292,10 @@ pub struct Shared {
     /// A mesh sent to the renderer, shown between frames after the reset
     /// that came with it -- inside the frame, the reset would clear it.
     pub mesh_requested: Option<std::path::PathBuf>,
+    /// The simulation on screen when it is not the app's own: a Rust
+    /// example's (`App::adopt_scene`). What `app.simulation` gives Python,
+    /// from whichever thread asks.
+    pub shown: Option<crate::locked::Locked<simulation::Simulation>>,
 }
 
 impl Shared {
@@ -343,6 +348,7 @@ impl Shared {
             script_ran: false,
             reset_requested: false,
             mesh_requested: None,
+            shown: None,
         }
     }
 }
@@ -407,6 +413,19 @@ pub struct App {
     /// ends on a later turn of the loop, and its callbacks and its step go
     /// by how it began.
     frame_paused: bool,
+    /// Where the frame being drawn is, across the turns it takes.
+    phase: Phase,
+    /// When the last turn of the loop began, for the rate's window, and how
+    /// many have: `step()` gives up on a loop whose turns stop.
+    turn_now: std::time::Instant,
+    turns: u64,
+    /// When the camera last moved with the controller: it moves by the time
+    /// since, the turns waiting for the scripts' thread included.
+    camera_now: std::time::Instant,
+    /// The UI app's scripts' thread, when its front door started one: Python
+    /// callbacks are called there, and the frames of a script running there
+    /// are the ones it steps. See `script`.
+    script: Option<script::Main>,
 
     /// Held only while the caller drives the loop with `step()`. `start()`
     /// takes it and hands it to `run_app`, which never gives it back --
@@ -425,6 +444,11 @@ pub struct App {
     /// redraw handler for what presenting more often than that costs.
     last_present: std::time::Instant,
     present_interval: Option<std::time::Duration>,
+    /// When the swapchain was last asked for a frame, given or refused: it
+    /// is asked again an interval later. A covered window refuses every one,
+    /// and asking every turn spun the loop of a paused scene, or of one
+    /// waiting for its script, at twenty thousand turns a second.
+    present_tried: std::time::Instant,
     /// Presents, frames, refused acquisitions and the longest gap between
     /// two presents (ms) since the last `debug.window` report.
     present_count: (u32, u32, u32, f64, std::time::Instant, f64),
@@ -503,6 +527,22 @@ const INPUT_HOLD: std::time::Duration = std::time::Duration::from_millis(300);
 /// often: a mesh's level of detail finished on its thread, a horizon map
 /// worked out, anything else that changes it without input.
 const IDLE_REDRAW: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Where the scene's frame is, across the turns of the loop it may take: one
+/// drawn in bands takes several (`Window::render`), and in the UI app one
+/// whose callback runs on the scripts' thread waits for it (`script`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Phase {
+    /// None begun. The next turn begins one -- unless a script running on
+    /// the scripts' thread has not asked for it.
+    Idle,
+    /// Begun: its `before_render` is called, or being.
+    Before,
+    /// Drawn this turn, or being drawn in bands, or left as it is.
+    Draw,
+    /// Drawn: its `after_render` is called, or being.
+    After,
+}
 
 /// Where the camera is and what it shows, as numbers.
 fn camera_key(camera: &crate::app::frame::Eye) -> [f64; 13] {
@@ -1070,11 +1110,17 @@ impl App {
 
             last_input: std::time::Instant::now() - std::time::Duration::from_secs(60),
             frame_paused: false,
+            phase: Phase::Idle,
+            turn_now: std::time::Instant::now(),
+            turns: 0,
+            camera_now: std::time::Instant::now(),
+            script: None,
 
             event_loop: None,
             frame_drawn: false,
             update_rx: None,
             last_present: std::time::Instant::now(),
+            present_tried: std::time::Instant::now(),
             present_interval: None,
             present_count: (0, 0, 0, 0.0, std::time::Instant::now(), 0.0),
             gave_scene: false,
@@ -1284,8 +1330,6 @@ impl App {
     /// window and configuring the surface, so the first `step()` costs more
     /// than the rest.
     pub fn step(&mut self) -> bool {
-        use winit::platform::pump_events::EventLoopExtPumpEvents;
-
         // Hosted: this app is an example the editor loaded, and the window
         // belongs to the host. Hand over the scene the example has built so
         // far, then let the host draw -- from its own copy of the crate, so
@@ -1306,6 +1350,17 @@ impl App {
         if self.shared.borrow().superseded() {
             return false;
         }
+        self.turn()
+    }
+
+    /// Pump the platform's events until a frame is drawn -- or, in the UI
+    /// app with its scripts' thread, until a turn of the loop has drawn the
+    /// panels while a script runs there -- and return whether the window is
+    /// still open. `step()` without its check for another run: the UI app
+    /// turns its loop while a script there is being asked to end.
+    fn turn(&mut self) -> bool {
+        use winit::platform::pump_events::EventLoopExtPumpEvents;
+
         if !self.shared.borrow().running {
             return false;
         }
@@ -1325,12 +1380,20 @@ impl App {
         // A frame that never arrives would hang the caller's loop with no
         // way out, so give up rather than spin forever -- a window that
         // cannot configure its surface is a real failure, not a slow frame.
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        // Five seconds without a turn of the loop, then: a frame drawn in
+        // bands, or waiting for a callback on the scripts' thread, turns it
+        // all along, and may take longer than that.
+        let mut deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let mut turns = self.turns;
         while self.shared.borrow().running && !self.frame_drawn {
             if let winit::platform::pump_events::PumpStatus::Exit(_) =
                 ev.pump_app_events(Some(std::time::Duration::ZERO), self)
             {
                 self.shared.borrow_mut().running = false;
+            }
+            if self.turns != turns {
+                turns = self.turns;
+                deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
             }
             if !self.frame_drawn && std::time::Instant::now() > deadline {
                 eprintln!("[APP] step() saw no frame in 5 s; giving up on the loop");
@@ -2108,11 +2171,36 @@ impl App {
     /// the script runs, so the script gets the app to itself. The policy stays
     /// here, in one copy, whoever is turning the handle.
     pub fn editor_tick(&mut self) -> EditorTick {
+        // With a scripts' thread: a script named on the command line runs
+        // before the window exists, so the window it opens is the one it
+        // asked for. Until it steps, or ends, there is no window to keep
+        // going -- so no turn of the loop, which would make one.
+        if let Some(script) = self.script.as_mut() {
+            script.poll();
+            if self.window.is_none() && script.running() && !script.step_asked() {
+                script.wait(std::time::Duration::from_millis(20));
+                return EditorTick::Frame;
+            }
+        }
         // `step()` also says "over" while another run is pending -- that is
         // how a driven script's loop is asked to end -- and here that is not
         // an end but the request itself, taken below. Closed means closed.
-        if !self.step() && !self.shared.borrow().running {
+        // While the scripts' thread is busy the request waits for it, and
+        // the loop turns meanwhile.
+        let busy = self.script.as_ref().is_some_and(|s| !s.idle());
+        let alive = if busy { self.turn() } else { self.step() };
+        if !alive && !self.shared.borrow().running {
             return EditorTick::Closed;
+        }
+        // The scripts' thread busy -- a script, a callback, the console --
+        // what changes the scene waits for it, a turn at a time: a run, a
+        // reset, a mesh, an example. Lines typed at the console go to it, to
+        // be served when it is free, or by a running script's next `step()`.
+        if let Some(script) = self.script.as_mut().filter(|_| busy) {
+            if crate::app::gui::console_pending() {
+                script.console();
+            }
+            return EditorTick::Frame;
         }
         // Reset, once the run it ended has returned: here, between frames,
         // like the requests below.
@@ -2133,16 +2221,60 @@ impl App {
         let Some((path, source, paused)) = self.take_script_request() else {
             // The console, between frames like a script: one that drives its
             // own loop serves it from its `step()` instead.
-            return if crate::app::gui::console_pending() {
-                EditorTick::Console
-            } else {
-                EditorTick::Frame
+            if !crate::app::gui::console_pending() {
+                return EditorTick::Frame;
+            }
+            return match self.script.as_mut() {
+                Some(script) => {
+                    script.console();
+                    EditorTick::Frame
+                }
+                None => EditorTick::Console,
             };
         };
         self.renew_for(&path);
         self.begin_script(paused);
         self.mark_script_log();
-        EditorTick::Run { path, source }
+        match self.script.as_mut() {
+            // On the thread, while this one goes on drawing.
+            Some(script) => {
+                script.run(path, source);
+                EditorTick::Frame
+            }
+            None => EditorTick::Run { path, source },
+        }
+    }
+
+    /// Run the UI app's scripts, their callbacks and its python tab on a
+    /// thread of their own, through `main` (`script::link`): the bindings
+    /// start the thread with the other end, before the loop's first turn.
+    /// A slow script then holds that thread, and the panels go on.
+    pub fn set_script_thread(&mut self, main: script::Main) {
+        self.script = Some(main);
+    }
+
+    /// Let go of the scripts' thread, which then ends: once the window has
+    /// closed. A script still running there is told so by its next `step()`.
+    pub fn end_script_thread(&mut self) {
+        self.script = None;
+    }
+
+    /// The python tab served on the scripts' thread, waited for: between the
+    /// frames of a Rust example, which holds the flow until its loop ends.
+    /// The thread is free then -- the example waited for it -- and the
+    /// example is not running while it serves, so the two never touch the
+    /// scene at once. False without a thread, the caller's to serve then.
+    pub fn console_on_thread(&mut self) -> bool {
+        let Some(script) = self.script.as_mut() else {
+            return false;
+        };
+        if crate::app::gui::console_pending() {
+            script.console();
+            while script.serving() {
+                script.wait(std::time::Duration::from_millis(100));
+            }
+        }
+        true
     }
 
     /// A mesh sent to the renderer, shown: between frames, after the reset
@@ -2246,6 +2378,7 @@ impl App {
         self.simulation = simulation;
         // The GPU buffers were built from the bodies that are being replaced.
         self.simulation.borrow_mut().meshes_dirty = true;
+        self.shared.borrow_mut().shown = Some(self.simulation.clone());
 
         // Only the callbacks. The rest of `Shared` is this window's -- its
         // log, its panel state, the request flags the editor sets -- and
@@ -2334,6 +2467,7 @@ impl App {
             // The GPU buffers were built from the example's bodies.
             self.simulation.borrow_mut().meshes_dirty = true;
         }
+        self.shared.borrow_mut().shown = None;
     }
 
     /// Keep the library the example ran from: the callbacks it installed
@@ -2725,14 +2859,14 @@ impl App {
     /// nor when it happened.
     pub fn set_before_render<F>(&mut self, f: F)
     where
-        F: Fn(&mut simulation::Simulation, Float) + 'static,
+        F: Fn(&mut simulation::Simulation, Float) + Send + 'static,
     {
         self.shared.borrow_mut().before_render = Some(Tick::Rust(Box::new(f)));
     }
 
     pub fn with_before_render<F>(mut self, f: F) -> Self
     where
-        F: Fn(&mut simulation::Simulation, Float) + 'static,
+        F: Fn(&mut simulation::Simulation, Float) + Send + 'static,
     {
         self.set_before_render(f);
         self
@@ -2740,9 +2874,29 @@ impl App {
 
     pub fn set_after_render<F>(&mut self, f: F)
     where
-        F: Fn(&mut simulation::Simulation, Float) + 'static,
+        F: Fn(&mut simulation::Simulation, Float) + Send + 'static,
     {
         self.shared.borrow_mut().after_render = Some(Tick::Rust(Box::new(f)));
+    }
+
+    /// Runs `before_render` (or `after_render`) for the frame being drawn:
+    /// true once it has returned. A Python one goes to the scripts' thread
+    /// when the UI app has one, and the frame waits for it a turn at a time;
+    /// otherwise, and a Rust one always, it is called here and now.
+    fn call_back(&mut self, before: bool) -> bool {
+        #[cfg(feature = "python")]
+        if let Some(script) = self.script.as_mut() {
+            let python = {
+                let shared = self.shared.borrow();
+                let tick = if before { &shared.before_render } else { &shared.after_render };
+                matches!(tick, Some(Tick::Python { .. }))
+            };
+            if python || script.calling() {
+                return script.call(before, self.dt);
+            }
+        }
+        Self::run_callback(&self.shared, before, &self.simulation, self.dt);
+        true
     }
 
     /// Invokes one of the two frame callbacks. Both take the same arguments
@@ -2753,7 +2907,7 @@ impl App {
     /// inside itself, and holding the borrow across the call would panic the
     /// moment one did; putting it back only when the slot is still empty
     /// means a callback that replaces itself keeps the replacement.
-    fn run_callback(
+    pub(crate) fn run_callback(
         shared: &crate::locked::Locked<Shared>,
         before: bool,
         sim: &crate::locked::Locked<simulation::Simulation>,
@@ -3242,17 +3396,27 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
 
                 self.apply_live_config();
 
+                // The turn's clock, for the rate's window. A frame's own,
+                // `dt`, is read where the frame begins: a frame may take
+                // several turns.
                 let now = std::time::Instant::now();
-                self.dt = (now - self.now).as_secs_f64() as _;
-                self.now = now;
+                let turn_dt = (now - self.turn_now).as_secs_f64() as Float;
+                self.turn_now = now;
+                self.turns = self.turns.wrapping_add(1);
 
                 // Frames counted as they draw the scene (below): a paused
                 // scene left undrawn is no frame.
-                self.fps_window_secs += self.dt;
+                self.fps_window_secs += turn_dt;
                 if self.fps_window_secs >= HUD_RATE_WINDOW {
                     self.fps_shown = self.fps_window_frames as Float / self.fps_window_secs;
                     self.fps_window_secs = 0.0;
                     self.fps_window_frames = 0;
+                }
+
+                // What the scripts' thread has said: a callback returned, a
+                // step asked for, a script ended.
+                if let Some(script) = self.script.as_mut() {
+                    script.poll();
                 }
 
                 // Pause has to gate the callbacks, not just the iteration
@@ -3269,13 +3433,18 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 // being one frame -- runs at `rate_limit` frames a second.
                 // Holding the counter while the frame ran free gave an
                 // `it/s` beside an `fps`; now there is one rate.
-                // A frame drawn in bands carries on (`Window::render_continue`):
-                // nothing of a new frame -- no clock, no callback -- until it
-                // is drawn, the panels drawn every turn meanwhile.
-                let continuing = self.window.as_ref().is_some_and(|w| w.frame_in_progress());
-                let paused = if continuing {
-                    self.frame_paused
-                } else {
+                // A frame drawn in bands carries on (`Window::render_continue`),
+                // and one whose callback runs on the scripts' thread waits for
+                // it (`Phase`): nothing of a new frame -- no clock, no
+                // callback -- until it is done, the panels drawn every turn
+                // meanwhile. Nor, while a script runs on that thread, before
+                // it steps: its frames are the ones it asks for, one a
+                // `step()`, and between two the scene is what it is building.
+                let banded = self.window.as_ref().is_some_and(|w| w.frame_in_progress());
+                let held = self.script.as_ref().is_some_and(|s| s.running() && !s.step_asked());
+                if self.phase == Phase::Idle && !banded && !held {
+                    self.dt = (now - self.now).as_secs_f64() as _;
+                    self.now = now;
                     let wait = self
                         .simulation
                         .borrow_mut()
@@ -3300,20 +3469,29 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     }
                     self.was_paused = Some(paused);
                     self.frame_paused = paused;
-                    paused
-                };
+                    self.phase = Phase::Before;
+                }
+                let paused = self.frame_paused;
 
                 // Held across the borrow below: the editor draws after it,
                 // because the UI needs `&mut Simulation::state` for its
                 // play/pause buttons and cannot take it while the frame does.
                 let mut editor_surface: Option<wgpu::SurfaceTexture> = None;
 
-                if !continuing && !paused {
-                    Self::run_callback(&self.shared, true, &self.simulation, self.dt);
+                if self.phase == Phase::Before && (paused || self.call_back(true)) {
+                    self.phase = Phase::Draw;
                 }
-                // The scene's frame drawn this turn, and one still being drawn.
+                // The scene's turn: its frame drawn now, carried on in bands,
+                // or left as it is, paused and untouched. Otherwise the turn
+                // waits for the scripts' thread, and draws only the panels.
+                let drawing = self.phase == Phase::Draw;
+                let continuing = drawing && banded;
+                let fresh = drawing && !banded;
+                // The scene's frame drawn this turn, one still being drawn,
+                // and one left as it is.
                 let mut frame_done = false;
                 let in_progress;
+                let idle;
 
                 {
                     // Before the mutable borrow of the window: this reads
@@ -3324,38 +3502,45 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     let mut sim = self.simulation.borrow_mut();
                     let win = self.window.as_mut().unwrap();
 
-                    // Before the camera spends it: the empty scene's welcome
-                    // goes when the user reaches for the camera, whether or
-                    // not it can move. See `Controller::asks_to_move`.
-                    if self.controller.asks_to_move(sim.camera.control) {
-                        if let Some(editor) = self.editor.as_mut() {
-                            editor.camera_asked = true;
-                        }
-                    }
-                    let camera_before = camera_key(&sim.camera);
-                    sim.camera
-                        .update_with_controller(&mut self.controller, self.dt);
                     // A key held, or the camera animated: it moves with no
-                    // event between frames.
-                    let camera_moved = camera_moved(&camera_before, &camera_key(&sim.camera));
+                    // event between frames. Moved on the scene's turns, by the
+                    // time since it last was.
+                    let mut moved = false;
+                    if drawing {
+                        // Before the camera spends it: the empty scene's
+                        // welcome goes when the user reaches for the camera,
+                        // whether or not it can move. See
+                        // `Controller::asks_to_move`.
+                        if self.controller.asks_to_move(sim.camera.control) {
+                            if let Some(editor) = self.editor.as_mut() {
+                                editor.camera_asked = true;
+                            }
+                        }
+                        let camera_dt = (now - self.camera_now).as_secs_f64() as Float;
+                        self.camera_now = now;
+                        let camera_before = camera_key(&sim.camera);
+                        sim.camera.update_with_controller(&mut self.controller, camera_dt);
+                        moved = camera_moved(&camera_before, &camera_key(&sim.camera));
 
-                    // Out of the plane view the gizmo put us in? Then the
-                    // orthographic it turned on has served its purpose. Keyed
-                    // on the same `plane_view` the Z reference line uses, so
-                    // the two flip together and leaving reads as one action.
-                    if let Some((axis, positive, restore)) = self.snap {
-                        if sim.camera.plane_view() != Some((axis, positive)) {
-                            sim.camera.projection.mode = restore;
-                            // And release the extent the wheel may have pinned
-                            // while we were in there, so the next fit is free
-                            // to size itself to the scene again.
-                            sim.camera.projection.side = None;
-                            self.snap = None;
+                        // Out of the plane view the gizmo put us in? Then the
+                        // orthographic it turned on has served its purpose.
+                        // Keyed on the same `plane_view` the Z reference line
+                        // uses, so the two flip together and leaving reads as
+                        // one action.
+                        if let Some((axis, positive, restore)) = self.snap {
+                            if sim.camera.plane_view() != Some((axis, positive)) {
+                                sim.camera.projection.mode = restore;
+                                // And release the extent the wheel may have
+                                // pinned while we were in there, so the next
+                                // fit is free to size itself to the scene again.
+                                sim.camera.projection.side = None;
+                                self.snap = None;
+                            }
                         }
                     }
 
                     win.pointer = pointer;
-                    let interacting = camera_moved || self.last_input.elapsed() < INPUT_HOLD;
+                    let interacting = moved || self.last_input.elapsed() < INPUT_HOLD;
                     // Paused, untouched, and drawn exactly already: the scene
                     // is left as it is, and only the panels are drawn -- at
                     // the display's pace whatever the scene costs. Not while
@@ -3369,7 +3554,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         || sim.facet_pick_request.is_some();
                     let summing = sim_cfg.borrow().shadows.method == crate::app::config::ShadowMethod::Reference
                         && !sim.reference.done;
-                    let idle = !continuing
+                    idle = fresh
                         && paused
                         && self.editor.is_some()
                         && !interacting
@@ -3377,7 +3562,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         && !summing
                         && win.drawn_generation == win.render_generation
                         && win.last_drawn.elapsed() < IDLE_REDRAW;
-                    if !idle && !continuing {
+                    if fresh && !idle {
                         win.update(&mut sim, &sim_cfg.borrow());
                         // The per-facet shadows this frame is asked for, which
                         // the window works out once it is drawn.
@@ -3404,7 +3589,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     let huds: Vec<crate::app::config::Hud> = sim
                         .huds
                         .iter()
-                        .filter(|_| !continuing)
+                        .filter(|_| fresh && !idle)
                         .map(|h| {
                             let h = h.borrow();
                             crate::app::config::Hud {
@@ -3454,11 +3639,12 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     // `Window::render` now bounds
                     // (`notes/2026-09-23_presenter_thread.md`).
                     let present_due = match self.present_interval {
-                        Some(interval) => self.last_present.elapsed() >= interval,
+                        Some(interval) => self.present_tried.elapsed() >= interval,
                         None => true,
                     };
                     let acquire_started = std::time::Instant::now();
                     let surface_texture = if present_due {
+                        self.present_tried = acquire_started;
                         win.get_surface_texture(&sim_cfg.borrow())
                     } else {
                         None
@@ -3486,13 +3672,16 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         // offscreen.
                         frame_done = win.render_continue(&sim_cfg.borrow());
                         editor_surface = surface_texture;
-                    } else if idle {
-                        // Nothing drawn: the panels have the frame. Until the
-                        // next present is due, no loop round it either.
+                    } else if idle || !fresh {
+                        // Nothing drawn: the panels have the frame -- the
+                        // scene left as it is, or its frame waiting for the
+                        // scripts' thread. Until the next present is due, no
+                        // loop round it either (and the wait for the thread,
+                        // below).
                         editor_surface = surface_texture;
-                        if !present_due {
+                        if idle && !present_due {
                             if let Some(interval) = self.present_interval {
-                                let wait = interval.saturating_sub(self.last_present.elapsed());
+                                let wait = interval.saturating_sub(self.present_tried.elapsed());
                                 std::thread::sleep(wait.min(std::time::Duration::from_millis(8)));
                             }
                         }
@@ -3582,13 +3771,22 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
 
                     }
 
-                    sim.export_once = false;
+                    // Taken by the frame that began drawing (`Window::update`);
+                    // one asked while a frame waits is the next frame's.
+                    if fresh && !idle {
+                        sim.export_once = false;
+                    }
                 }
 
+                // Drawn, or left as it was: on to the frame's `after_render`.
+                if drawing && !in_progress && (frame_done || idle) {
+                    self.phase = Phase::After;
+                }
                 // Outside the borrow above: the callback takes the
                 // Simulation itself, so it cannot run while it is held.
-                if frame_done && !paused {
-                    Self::run_callback(&self.shared, false, &self.simulation, self.dt);
+                let mut finished = false;
+                if self.phase == Phase::After && (paused || self.call_back(false)) {
+                    finished = true;
                 }
 
                 if let (Some(editor), Some(texture)) = (self.editor.as_mut(), editor_surface) {
@@ -3661,7 +3859,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 // one past what is on screen -- taking it there would report
                 // the number the pause stopped *at* rather than the one being
                 // shown, which is exactly the off-by-one this is here to fix.
-                if frame_done && !paused {
+                if finished && !paused {
                     self.shared.borrow_mut().drawn_iteration =
                         self.simulation.borrow().state.iteration;
                 }
@@ -3683,23 +3881,52 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 // Skipping it here leaves the change to the next frame, which
                 // does run the callbacks and render, which is what Step
                 // means.
-                if frame_done && !paused {
+                if finished && !paused {
                     self.simulation.borrow_mut().update();
+                }
+                if finished {
+                    self.phase = Phase::Idle;
+                    // The script whose `step()` asked for this frame has it.
+                    if let Some(script) = self.script.as_mut() {
+                        let running = {
+                            let shared = self.shared.borrow();
+                            shared.running && !shared.superseded()
+                        };
+                        script.answer_step(running);
+                    }
                 }
                 // Step or `K`, granted now that this frame has decided: the
                 // next one runs the iteration, and a driven script's loop
                 // gets its turn between the two (`State::grant_step`).
-                if !in_progress {
+                if self.phase == Phase::Idle {
                     self.simulation.borrow_mut().state.grant_step();
+                }
+
+                // Waiting for the scripts' thread -- a callback to return, a
+                // script to step -- the turn has drawn the panels if their
+                // present was due, and there is nothing else to do until it
+                // says something: it is waited for, rather than the loop
+                // turned round to nothing, until the next present.
+                let waiting = matches!(self.phase, Phase::Before | Phase::After)
+                    || self.script.as_ref().is_some_and(|s| s.running() && !s.step_asked());
+                if let Some(script) = self.script.as_mut().filter(|_| waiting) {
+                    let until_present = match self.present_interval {
+                        Some(interval) => interval.saturating_sub(self.present_tried.elapsed()),
+                        None => std::time::Duration::from_millis(8),
+                    };
+                    let wait = until_present.min(std::time::Duration::from_millis(8));
+                    if !wait.is_zero() {
+                        script.wait(wait);
+                    }
                 }
 
                 // Reached only by a frame that actually rendered: the
                 // early return above, for a surface that is not configured
                 // yet, deliberately leaves this unset so `step()` keeps
                 // pumping rather than reporting a frame that did nothing.
-                // Nor while a frame is drawn in bands: it ends on a later
-                // turn.
-                self.frame_drawn = !in_progress;
+                // Nor while a frame is drawn in bands, or waits for the
+                // scripts' thread: it ends on a later turn.
+                self.frame_drawn = self.phase == Phase::Idle;
             }
 
             winit::event::WindowEvent::KeyboardInput {
@@ -3990,11 +4217,13 @@ pub struct ScriptRunner {
     /// one. Handing the script the object it was installed from would work
     /// only until that object's own method is on the stack -- which, during
     /// `start_editor`, it always is.
-    pub app: crate::py::app::App,
+    pub app: Py<crate::py::app::App>,
 }
 
 pub enum Tick {
-    Rust(Box<dyn for<'a> Fn(&'a mut simulation::Simulation, Float)>),
+    /// `Send`: the UI app's scene is shared with its scripts' thread
+    /// (`locked`), and a callback is part of it.
+    Rust(Box<dyn for<'a> Fn(&'a mut simulation::Simulation, Float) + Send>),
     // Only exists with the bindings: it holds a `Py<PyAny>`, and the engine
     // built without them has no Python to call.
     #[cfg(feature = "python")]

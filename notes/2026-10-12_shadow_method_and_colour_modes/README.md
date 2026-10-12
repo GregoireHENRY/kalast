@@ -189,6 +189,89 @@ plain window apiece: rays in 24-26 bands of 150-190 ms, the image the same to
 a level (0 of 240,000 pixels); a reference with two bounces summed to 32
 samples, the same; 80,012 facets' shadows by ranges, the same to the bit.
 
+**The scripts' thread.** Stage two. In the UI app -- `python -m kalast` and
+the `kalast` binary, its interpreter linked in -- scripts, their
+`before_render` and `after_render`, and the python tab run on a thread of
+their own (`app::script`, `py::app::script`); the main thread keeps the
+window, the panels and the scene's drawing, and never takes Python's lock:
+`App.run_editor` lets go of it for the session. A script working between two
+steps, or a slow callback, holds that thread, and the panels go on.
+
+- **The scene shared.** Everything both reach went from `Rc<RefCell<..>>` to
+  `Locked` (`src/locked.rs`, `e9746e5`): an `Arc` around the same `RefCell`,
+  every borrow of any of them under one lock for the whole process,
+  reentrant, so a thread borrows as it did -- nested, the same value twice --
+  and only the other waits. One lock, no order to take two in; the main
+  thread never takes Python's, so no deadlock with that either. Callbacks
+  are `Send`.
+- **Messages.** The main thread asks for a script to run, the python tab to
+  be served, a callback to be called; the scripts' thread asks for a frame --
+  a script's `app.step()` -- and says when what it was asked is done
+  (`ToScript`, `ToMain`). `step()` there waits for its frame with the
+  interpreter let go, serving its callbacks and the console meanwhile.
+- **The frame in phases** (`Phase`): begun, its `before_render`, drawn (or in
+  bands), its `after_render`. A Python callback goes to the thread and the
+  frame waits for it a turn of the loop at a time, as for its bands, the
+  panels drawn every turn; most return within the 2 ms the frame waits before
+  its turn ends. A script running there has its frames when it steps, one a
+  `step()`; between two, the panels only, over the last image. A run, a
+  reset, a mesh or an example wait for the thread to be free; lines typed go
+  to it, served when it is free or at the running script's next `step()`.
+  `dt` is the time between two frames' beginnings now, not between two turns.
+- **A script named on the command line** still runs before the window
+  exists: no turn of the loop, which would make one, until it steps or ends.
+- **Rust examples** stay on the main thread: a hosted library carries its own
+  copy of the lock. The thread is free while one runs, and the python tab is
+  served on it between the example's frames, waited for, the example not
+  running meanwhile -- so the two never touch the scene at once. What the
+  console calls `app.simulation` is the example's, on screen
+  (`Shared::shown`).
+
+Found on the way:
+
+- **A callback called again.** The end of a turn reads what the thread says,
+  and took a callback's answer before the frame did, which then asked again:
+  `after_render` ran six times over one frame. An answer is kept until the
+  frame takes it (`Main::called`).
+- **The loop spun.** Waiting for the thread, the loop waits for what it says
+  until the next present. A covered window refuses every present, so the
+  next one was always due: 20,000 turns a second, a paused scene's as well,
+  before this. The swapchain is asked once an interval since the last time
+  it was asked, given or refused (`present_tried`): about 115 turns a second
+  covered.
+- **A mesh read under the lock.** `load_mesh` held the simulation while it
+  read the file -- seconds for a large mesh, the window's turn waiting on the
+  lock. The body is read first and added after (`Simulation::read_body`).
+- **Freed on the wrong thread.** Python objects kalast makes belong to the
+  thread that made them. Restart left the first run's module as a cycle,
+  freed by the interpreter's last collection on the main thread at exit, and
+  pyo3 said so ("State is unsendable, but is being dropped on another
+  thread"). As the window closes the thread lets go of the callbacks, its app
+  and the editor's namespaces, and collects, the front door waiting up to 2 s
+  (`script::Ended`, `kalast.editor.forget_scripts`).
+- **`step()` gave up after 5 s** without a frame, meant for a surface that
+  never configures. A frame in bands, or waiting for a callback, takes
+  longer: 5 s without a turn of the loop now.
+- **matplotlib** draws to files on the thread (`MPLBACKEND` defaults to
+  `agg` there): macOS takes the process down over a window opened off the
+  main thread.
+
+Limits: Restart waits for a script that never steps -- a long computation at
+its top level -- to end; the panels go on meanwhile. `app.step()` from a
+thread of the script's own raises, as it did. The plain window (`App.step()`
+or `start()` from a terminal) is as it was: one thread, its callbacks called
+in the frame. Measured after, plain windows on the M1 Pro: the Didymos pair
+1425-1433 frames a second without shadows (1421 before), 690-693 with the
+maps (685), Dimorphos from 68 m 204 (201). `tests/test_script_thread.py`,
+through `python -m kalast`: the script, its callbacks and the console off the
+main thread, the loop turning 98-113 times a second while a script sleeps
+3 s, each callback once a frame with `dt` the frame's (0.21 s for a 0.2 s
+callback), Restart ending a driven script at its next step and running it
+again, nothing freed off its thread. By hand: a slow `after_render` and a
+driven script through the binary; the crater example loaded from a script,
+the console served between its frames and seeing its scene, Play and close
+from the console.
+
 ## The reference image a method
 
 "i maintain that render reference image as a separate option that is not part
@@ -226,5 +309,5 @@ script; mutating the objects it holds still does, `app` included.
 the 48 facets behind the wall hidden. None: no facet of the plate hidden, the
 wall's facets facing away hidden either way, and the image the maps' outside
 the shadow to the level, 14,694 pixels lit inside it, none dim. The colour
-mode's names and numbers with their warnings. On the M1 Pro the suite's 44
-scripts pass, and the Rust tests' 334.
+mode's names and numbers with their warnings. On the M1 Pro the suite's 45
+scripts pass, and the Rust tests' 335.

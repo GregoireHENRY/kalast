@@ -179,10 +179,20 @@ straight to the swapchain exactly as before; the editor is a second entry
 point, not a mode the other two acquired. A script run from a terminal is
 unaffected.
 
-A script that drives `while app.step():` keeps driving it here too. It runs
-*between* the editor's frames, so its loop nests inside the editor's rather
-than fighting it -- `start()` and `close()` are the calls that become no-ops,
-because those ask to own a loop the script is already inside.
+A script that drives `while app.step():` keeps driving it here too --
+`start()` and `close()` are the calls that become no-ops, because those ask to
+own a loop the script is already inside.
+
+**Scripts run on a thread of their own** in the UI app (`python -m kalast`
+and the `kalast` program): the script, its `before_render` and
+`after_render`, and the python tab. The window -- its panels, the mouse, the
+camera's keys -- goes on while a script works. `step()` asks the window for a
+frame and waits for it; between two steps the panels are drawn over the last
+image. A callback is called on that thread too, and its frame waits for it.
+What a script makes is its thread's: handed to a thread of the script's own,
+it raises. There, matplotlib draws to files (`agg`) unless the script chooses
+another backend -- a window of its own opened off the main thread takes the
+process down on macOS.
 
 What differs inside is only where the scene lands. It has always been rendered
 into `render_texture` and blitted to the swapchain at the end — the editor

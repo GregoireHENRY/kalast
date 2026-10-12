@@ -147,13 +147,15 @@ impl Simulation {
             }
             None => smooth,
         };
-        self.inner.borrow_mut().load_mesh_with_shadow(
+        // Read first, added after: the simulation is held only to add it.
+        let body = crate::app::simulation::Simulation::read_body(
             path,
             mat.map(|m| Mat4::from_cols_array_2d(&m).transpose())
                 .unwrap_or(Mat4::IDENTITY),
             smooth,
             shadow_path,
         );
+        self.inner.borrow_mut().bodies.push(body);
         Ok(())
     }
 

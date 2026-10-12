@@ -429,6 +429,12 @@ the camera, edit a setting, resize the window -- and once a second besides;
 between, only the panels are drawn. A frame asked for, an export or a
 per-facet query, is drawn as ever, and a reference image sums until done.
 
+A slow script holds only its own thread: scripts, their callbacks and the
+python tab run beside the window, not in it. While a script works between two
+steps, or a callback runs, the panels go on over the last image; the scene is
+drawn again when the script steps. Restart or Reset asked meanwhile is taken
+when the script reaches its next step, or ends.
+
 ## Details
 
 - **Keys are matched on physical position** (`PhysicalKey::Code`). On AZERTY

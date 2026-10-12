@@ -138,30 +138,38 @@ fn main() {
     let app = Rc::new(RefCell::new(kalast::app::App::new()));
 
     app.borrow_mut().editor_start(&args);
+    #[cfg(feature = "embed")]
+    let ended = start_script_thread(&app);
     loop {
         let tick = app.borrow_mut().editor_tick();
         match tick {
             kalast::app::EditorTick::Closed => break,
             kalast::app::EditorTick::Frame => {}
-            // Nothing of ours is borrowed here: the script is free to step
-            // the app, load meshes and reconfigure it, and it runs to
-            // completion before the next turn.
-            kalast::app::EditorTick::Run { path, source } => {
-                run_script(&app, &path, &source)
-            }
-            kalast::app::EditorTick::Console => console_serve(&app),
+            // With the interpreter linked in, scripts and the python tab are
+            // the scripts' thread's, and never come back here.
+            #[cfg(feature = "embed")]
+            kalast::app::EditorTick::Run { .. } | kalast::app::EditorTick::Console => {}
+            // Without, the script is handed to an interpreter that has one.
+            #[cfg(not(feature = "embed"))]
+            kalast::app::EditorTick::Run { path, source } => run_script(&app, &path, &source),
+            #[cfg(not(feature = "embed"))]
+            kalast::app::EditorTick::Console => console_serve(),
             // A Rust example holds the flow until its loop ends, so the
             // python tab is served between its frames instead.
             kalast::app::EditorTick::Example { path, release } => {
                 let mut between = || {
-                    if kalast::app::gui::console_pending() {
-                        console_serve(&app);
+                    if !app.borrow_mut().console_on_thread() && kalast::app::gui::console_pending() {
+                        console_serve();
                     }
                 };
                 kalast::app::App::run_example(&app, &path, release, &mut between);
             }
         }
     }
+    // The scripts' thread ends with its link, letting go of what it made.
+    app.borrow_mut().end_script_thread();
+    #[cfg(feature = "embed")]
+    ended.wait(std::time::Duration::from_secs(2));
 
     // Not left to `Drop`, which does not run once a script has held the app:
     // its globals keep it alive through Python. Hands stdout and stderr back
@@ -387,11 +395,40 @@ fn start_python() {
     });
 }
 
+/// Scripts, their callbacks and the python tab on a thread of their own
+/// (`kalast::py::app::script`), with the interpreter linked in here: a slow
+/// script holds that thread, and the window goes on. The interpreter itself
+/// starts with the first script or line typed (`prepare_python`).
+#[cfg(feature = "embed")]
+fn start_script_thread(app: &Rc<RefCell<kalast::app::App>>) -> kalast::py::app::script::Ended {
+    use pyo3::prelude::*;
+
+    start_python();
+    let (main, thread) = kalast::app::script::link();
+    let handles = kalast::py::app::Handles::of(&app.borrow());
+    let ended = kalast::py::app::script::spawn(
+        thread,
+        handles,
+        Box::new(|py, app| {
+            prepare_python(py, app)?;
+            // The same call `python -m kalast` makes: the script runs
+            // against this app, with `start()` a loop of its own steps,
+            // because the editor owns the window it is already inside.
+            Ok(py.import("kalast.editor")?.getattr("run_toplevel")?.unbind())
+        }),
+    );
+    app.borrow_mut().set_script_thread(main);
+    ended
+}
+
 /// Make `import kalast` work in the embedded interpreter and point its
 /// `sys.stdout` at the log, for whichever comes first: a script, or a line
 /// typed at the console. Each step is skipped once it is done.
 #[cfg(feature = "embed")]
-fn prepare_python(py: pyo3::Python<'_>, app: &Rc<RefCell<kalast::app::App>>) -> pyo3::PyResult<()> {
+fn prepare_python(
+    py: pyo3::Python<'_>,
+    app: &pyo3::Bound<'_, kalast::py::app::App>,
+) -> pyo3::PyResult<()> {
     use pyo3::prelude::*;
 
     // `import kalast._rs` looks for a submodule of the package, which
@@ -434,59 +471,13 @@ fn prepare_python(py: pyo3::Python<'_>, app: &Rc<RefCell<kalast::app::App>>) -> 
     static LINE_BUFFERED: std::sync::atomic::AtomicBool =
         std::sync::atomic::AtomicBool::new(false);
     if !LINE_BUFFERED.swap(true, std::sync::atomic::Ordering::Relaxed) {
-        py.import("kalast.editor")?
-            .call_method1("capture_output", (kalast::py::app::App::wrap(app.clone()),))?;
+        py.import("kalast.editor")?.call_method1("capture_output", (app,))?;
     }
     Ok(())
 }
 
-/// Execute a `.py` against the app already on screen.
-#[cfg(feature = "embed")]
-fn run_script(app: &Rc<RefCell<kalast::app::App>>, path: &str, source: &str) {
-    use pyo3::prelude::*;
-
-    start_python();
-    let handle = kalast::py::app::App::wrap(app.clone());
-    let result = Python::attach(|py| -> PyResult<()> {
-        prepare_python(py, app)?;
-        // The same call `python -m kalast` makes: the script runs against
-        // this app, with `start()` and `close()` neutralised, because the
-        // editor owns the loop it is already inside.
-        py.import("kalast.editor")?
-            .call_method1("run_toplevel", (handle, source, path))?;
-        Ok(())
-    });
-
-    if let Err(e) = result {
-        // The library's route, not std's `eprintln!`: in the UI app stdout
-        // is not kalast's alone, and this line is the one that says why a
-        // script did nothing.
-        kalast::app::gui::engine_write(format_args!("cannot run {path}: {e}\n"), true);
-    }
-}
-
-/// The log's python tab -- lines typed, a Tab -- served by the embedded
-/// interpreter among the running script's variables; see
-/// `kalast.editor.serve_console`.
-#[cfg(feature = "embed")]
-fn console_serve(app: &Rc<RefCell<kalast::app::App>>) {
-    use pyo3::prelude::*;
-
-    start_python();
-    let handle = kalast::py::app::App::wrap(app.clone());
-    let result = Python::attach(|py| -> PyResult<()> {
-        prepare_python(py, app)?;
-        py.import("kalast.editor")?.call_method1("serve_console", (handle,))?;
-        Ok(())
-    });
-    if let Err(e) = result {
-        kalast::app::gui::console_write(&format!("{e}\n"));
-    }
-}
-
 /// Without an interpreter there is nothing to run a line with.
-#[cfg(not(feature = "embed"))]
-fn console_serve(_app: &Rc<RefCell<kalast::app::App>>) {
+fn console_serve() {
     while kalast::app::gui::console_take().is_some() {
         kalast::app::gui::console_write("this build of kalast has no Python to run the line with\n");
     }

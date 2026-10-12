@@ -458,6 +458,18 @@ def console_complete(namespace: dict[str, Any], line: str) -> tuple[str, list[st
     return head, sorted(matches)
 
 
+def forget_scripts() -> None:
+    """Let go of the scripts' namespaces and the console's.
+
+    The UI app's scripts' thread calls it as the window closes: what a
+    script made is that thread's, and freed by another -- the interpreter's
+    exit, on the main thread -- each object says so.
+    """
+    global _script_globals, _idle_globals, _console_globals, _console_source, _console
+    _script_globals = _idle_globals = _console_globals = _console_source = _console = None
+    _console_bound.clear()
+
+
 def serve_console(app: Any) -> None:
     """Run the lines typed at the console since the last frame, and answer
     a Tab. The loop calls this between frames -- the editor's, or a script's

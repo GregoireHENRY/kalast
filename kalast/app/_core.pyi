@@ -100,7 +100,8 @@ class App:
         `run_script(app, source, path)` is called whenever Play or Restart
         asks for a script, and is the one piece Rust cannot do for itself --
         executing Python needs CPython. Everything else about the loop is in
-        the engine.
+        the engine. It is called on the scripts' thread, as are the callbacks
+        and the python tab: the window goes on while a script works.
         """
         ...
     def take_script_request(self) -> tuple[str, str, bool] | None:

@@ -5941,3 +5941,21 @@ the facets to the bit (`tests/test_banded_frames.py`). Next: the scripts and
 their callbacks on a thread of their own. Write-up:
 `2026-10-12_shadow_method_and_colour_modes/`.
 
+
+## 2026-10-12 — the UI app's scripts on a thread of their own
+
+Stage two: in the UI app -- `python -m kalast` and the binary -- scripts,
+their callbacks and the python tab run on a thread of their own; the main
+thread keeps the window, the panels and the drawing, and never takes Python's
+lock. The scene shared through `Locked`, one process-wide lock. A frame waits
+for a Python callback a turn of the loop at a time, the panels drawn every
+turn; a script running there has its frames when it steps. Rust examples stay
+on the main thread, the console served on the thread between their frames.
+On the way: a callback's answer read early made the frame call it again; a
+covered window's refused presents spun the loop at 20,000 turns a second
+(paced on the last request now); `load_mesh` read the file under the
+simulation's lock; objects a script made were freed on the main thread at
+exit. matplotlib draws to files on the thread. Plain windows as they were:
+1425-1433, 690-693 and 204 frames a second against 1421, 685 and 201.
+`tests/test_script_thread.py`. Open: Restart cannot stop a script that never
+steps; it waits for it. Write-up: `2026-10-12_shadow_method_and_colour_modes/`.

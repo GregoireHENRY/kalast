@@ -258,6 +258,18 @@ impl Simulation {
         P: AsRef<std::path::Path>,
         S: AsRef<std::path::Path>,
     {
+        let body = Self::read_body(path, mat, smooth, shadow_path);
+        self.bodies.push(body);
+    }
+
+    /// The body `load_mesh_with_shadow` adds, read without the simulation:
+    /// in the UI app a script holding the simulation holds the window too
+    /// (`locked`), and reading a large mesh takes seconds.
+    pub fn read_body<P, S>(path: P, mat: Mat4, smooth: bool, shadow_path: Option<S>) -> super::body::Body
+    where
+        P: AsRef<std::path::Path>,
+        S: AsRef<std::path::Path>,
+    {
         // Flat is built as flat, with nothing kept to smoothen back to;
         // smooth is the shared mesh the file describes. Neither is made
         // from the other.
@@ -279,12 +291,12 @@ impl Simulation {
             crate::locked::Locked::new(shadow)
         });
 
-        self.bodies.push(super::body::Body {
+        super::body::Body {
             mesh: Some(crate::locked::Locked::new(mesh)),
             shadow_mesh,
             mat,
             ..Default::default()
-        });
+        }
     }
 
     pub fn add_mesh(&mut self, mesh: crate::mesh::Mesh, mat: Mat4) {
