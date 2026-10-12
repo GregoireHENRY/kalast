@@ -150,9 +150,9 @@ pub struct Light {
     /// behind its first (`shadow::Pass::peel`), after the others' slices in
     /// layer order. With the Sun a disc.
     pub peeled: u32,
-    /// Cascaded shadow maps in use (`shadows.method` "cascades"): the layers
-    /// before the scene's, which a point picks the finest of that holds it.
-    pub cascades: u32,
+    /// Where the cascades' count was until they went, 12 October: the
+    /// struct keeps its size, and every shader's copy with it.
+    pub _spare: u32,
     /// With `shadows.method` "rays" on a device that traces them, the rays each pixel
     /// traces across the Sun's disc (1 for a point), in place of the shadow
     /// maps' lookups (`raytrace`); 0, the maps. Where `_peel_pad` was, so

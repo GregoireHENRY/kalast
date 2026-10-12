@@ -89,6 +89,42 @@ read. So while `access_shadow_map` is on, the settings stay in the data mode
 too, under a line saying they are the per-facet shadows'. Otherwise a line
 says shadows show in "Shaded".
 
+## The cascades removed, "quick" made quick
+
+The user, trying the methods: "CSM seems to be slower and less accurate than
+shadow mapping. It is supposed to be ok to be less accurate only if it is
+much faster to render". Measured -- once the main pass's ray code was out of
+the way, which had halved everything on the M1 Pro
+(`2026-10-12_ray_tracing_on_metal/`) -- it was slower in both views, frames a
+second:
+
+| | maps | none | cascades, 3 x 4096, PCF 2 | cascades, 3 x 1024, PCF 1 | one layer, 2048, PCF 1 | maps, 2048, PCF 0 |
+|---|---|---|---|---|---|---|
+| the Didymos pair from 1 km, 1600 x 1000 | 685 | 1421 | 479 | 595 | 901 | 868 |
+| Dimorphos from 68 m, 3234 x 1774 | 201 | 686 | 127 | 168 | 179 | 331 |
+
+"isnt it possible to improve the CSM method?" Not into something much quicker
+here. Up close the maps' 3.5 ms is mostly their lookups -- 3.1 ms of PCF over
+5.7 million pixels, the shadow pass 1.15 -- which cascades pay as much; and each
+cascade draws every body (3.2 ms of shadow passes at 1024, 6.3 at 4096). What
+cascades do in a game's world, putting texels where the camera looks, a layer
+per body fitted to what the camera sees of it, with the near layer up close,
+does already. What is much quicker is hard edges at 2048. The user chose:
+the method gone, and `"quick"` that.
+
+`ShadowMethod::Cascades`, `shadows.cascades`, `cascade_region`, the cascade
+choice in `shadow_layer_at` and in `cs_facets`, and `tests/test_cascades.py`
+went; `Shadows::per_body_layers` was `per_body` again; the uniform keeps the
+count's slot (`_spare`). `"quick"` is a layer per body at 2048, PCF 0, a point
+Sun. The presets, measured after it:
+
+| | Didymos pair from 1 km | Dimorphos from 68 m |
+|---|---|---|
+| `"quick"` | 879 | 339 |
+| `"fast"`, nothing moving | 1078 | 239 |
+| `"point"`, the defaults | 692 | 204 |
+| `"accurate"` | 161 | 66 |
+
 ## The reference image's box
 
 It was a checkbox named `enabled` under "reference", its hover starting

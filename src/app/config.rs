@@ -759,10 +759,6 @@ pub enum ShadowMethod {
     /// Shadow maps: a layer per body, fitted to what the camera sees of it,
     /// drawn from the Sun every frame. The default.
     Maps,
-    /// Cascaded shadow maps, as games draw the Sun's: layers over slices of
-    /// the camera's view, the nearer finer, and one over the scene. For a
-    /// quick look, less exact than a layer per body.
-    Cascades,
     /// Traced with rays against the full meshes, the Sun's disc sampled by
     /// `ray_samples` rays a point: no texel, filter or bias. On a GPU with ray
     /// queries; without, the shadow maps answer.
@@ -773,7 +769,7 @@ pub enum ShadowMethod {
 }
 
 impl ShadowMethod {
-    pub const ALL: [ShadowMethod; 4] = [Self::Maps, Self::Cascades, Self::Rays, Self::None];
+    pub const ALL: [ShadowMethod; 3] = [Self::Maps, Self::Rays, Self::None];
 
     /// Parsed from Python, where these are plain strings.
     pub fn parse(s: &str) -> Option<Self> {
@@ -783,15 +779,9 @@ impl ShadowMethod {
     pub fn name(&self) -> &'static str {
         match self {
             Self::Maps => "maps",
-            Self::Cascades => "cascades",
             Self::Rays => "rays",
             Self::None => "none",
         }
-    }
-
-    /// Drawn into shadow maps: the maps and the cascades.
-    pub fn uses_maps(&self) -> bool {
-        matches!(self, Self::Maps | Self::Cascades)
     }
 }
 
@@ -799,24 +789,10 @@ impl ShadowMethod {
 #[derive(Clone, Debug)]
 pub struct Shadows {
     /// How the Sun's shadows are drawn: "maps", a shadow map per body (the
-    /// default); "cascades", cascaded shadow maps over the camera's view, for
-    /// a quick look; "rays", traced against the full meshes, on a GPU with
-    /// ray queries; "none", no shadows at all. The image's and those the
+    /// default); "rays", traced against the full meshes, on a GPU with ray
+    /// queries; "none", no shadows at all. The image's and those the
     /// thermophysical model reads (`sim.facet_shadow`) alike.
     pub method: ShadowMethod,
-    /// How many cascades, with `method` "cascades": layers over slices of the
-    /// camera's view, the nearer finer, and one more over the whole scene.
-    ///
-    /// The cost is the cascades' whatever the bodies, and the shadows are
-    /// sharp where the camera looks closest. Less exact than a layer per
-    /// body: a body's own shadows and another's share each cascade -- with
-    /// the Sun a disc a penumbra can come through where they meet -- there is
-    /// no near layer, no horizon map and no cache, and the edges between
-    /// cascades can show. The per-facet shadows the thermophysical model reads
-    /// are each facet's cascade's, so they move with the camera.
-    /// :when: method == ShadowMethod::Cascades
-    /// :range: 1..=4
-    pub cascades: u32,
     /// Side length of each square shadow map, in texels.
     ///
     /// One layer per body (one in all with `per_body` off), each
@@ -830,7 +806,7 @@ pub struct Shadows {
     ///
     /// It also feeds the automatic bias, which is expressed relative to one texel,
     /// so changing it changes the shadow bias with it.
-    /// :when: method.uses_maps()
+    /// :when: method == ShadowMethod::Maps
     /// :range: 512..=16384
     pub resolution: u32,
     /// Smoothing of the shadows' edges, the percentage-closer-filtering
@@ -850,7 +826,7 @@ pub struct Shadows {
     /// Dimorphos at 3234 x 1774, 1.4 ms a frame at 2 and 4.3 at 4, on an M1
     /// Pro. With the map's texels finer than the image's pixels (16384 up
     /// close) there are no stairs to smooth.
-    /// :when: method.uses_maps()
+    /// :when: method == ShadowMethod::Maps
     /// :range: 0..=16
     pub pcf: u32,
     // None means "derive from the fitted light frustum and shadow_resolution"
@@ -870,14 +846,14 @@ pub struct Shadows {
     /// layers a pinned value replaces the fitted one on *every* layer, and
     /// those differ by the ratio of the bodies' sizes -- 403x between Mars and
     /// Deimos in the same scene.
-    /// :when: method.uses_maps()
+    /// :when: method == ShadowMethod::Maps
     pub normal_offset_scale: Option<f32>,
     /// Slope-dependent term of the depth-comparison bias. `None` fits it per
     /// frame. Combined in the shader as
     /// `max(shadow_bias_scale * k, shadow_bias_minimum)`.
     ///
     /// See `shadow_normal_offset_scale` for why pinning is discouraged.
-    /// :when: method.uses_maps()
+    /// :when: method == ShadowMethod::Maps
     pub bias_scale: Option<f32>,
     /// Floor on the depth-comparison bias, for surfaces facing the light
     /// head-on. `None` fits it per frame.
@@ -885,7 +861,7 @@ pub struct Shadows {
     /// Measured to be the *ineffective* knob for the crater-floor PCF leak --
     /// auto, 1e-4 and 1e-3 all gave identical results, while the normal offset
     /// moved it 9x. Reach for that one first.
-    /// :when: method.uses_maps()
+    /// :when: method == ShadowMethod::Maps
     pub bias_minimum: Option<f32>,
     /// Compute every body's per-facet shadows every frame, as `method` draws
     /// them, read back with `sim.facet_shadow(body)` from `after_render`.
@@ -939,7 +915,7 @@ pub struct Shadows {
     /// per layer, the pass slower than the first -- 2 to 7 ms a frame on
     /// Dimorphos up close -- for little where penumbrae are narrower than six
     /// texels and drawn hard, as at the default resolution.
-    /// :when: method.uses_maps() && light.sun_as_point == false
+    /// :when: method == ShadowMethod::Maps && light.sun_as_point == false
     pub second_depth: bool,
     /// Keep each body's shadow layer from frame to frame, drawn again only
     /// when the Sun has moved past `cache_degrees` in the body's own frame,
@@ -972,7 +948,7 @@ pub struct Shadows {
     /// facets: 2 keeps the outline to a texel. With `access_shadow_map`, or a
     /// per-facet shadow query pending, the maps take the full facets and the
     /// whole body.
-    /// :when: method.uses_maps()
+    /// :when: method == ShadowMethod::Maps
     /// :range: 0.5..=16.0
     pub lod_texels: f32,
     /// The size, in the camera's pixels, a large mesh's triangles are drawn
@@ -984,7 +960,7 @@ pub struct Shadows {
     /// surface passes above the fine one, across every crater floor. Outside
     /// it, a caster only casts into the view, and coarser does: whichever of
     /// this and `lod_texels` is coarser is used.
-    /// :when: method.uses_maps()
+    /// :when: method == ShadowMethod::Maps
     /// :range: 0.5..=32.0
     pub lod_pixels: f32,
     /// The rays each point -- a pixel, a facet's corner or centre -- traces
@@ -1019,9 +995,11 @@ pub struct Shadows {
 /// everything else.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Quality {
-    /// One layer over the whole scene (`per_body` off), a point Sun, 2048
-    /// texels, PCF 1: the fewest texels drawn, for an overview. Up close a
-    /// layer per body is sharper and as quick.
+    /// A layer per body at 2048 texels, hard-edged (PCF 0), a point Sun: the
+    /// quickest shadows, the Didymos pair from 1 km at 868 frames a second
+    /// against the defaults' 685, Dimorphos from 68 m at 331 against 201, on
+    /// an M1 Pro. One layer over the whole scene, which it was until 12
+    /// October, was slower up close (179).
     Quick,
     /// A layer per body, kept from frame to frame, a point Sun.
     Fast,
@@ -1075,7 +1053,7 @@ impl Quality {
     /// What it is for, in a line.
     pub fn describe(self) -> &'static str {
         match self {
-            Quality::Quick => "A quick look over a whole scene: one shadow layer for it all",
+            Quality::Quick => "The quickest shadows: a layer per body at 2048 texels, hard-edged, the Sun a point",
             Quality::Fast => "Fast: a shadow layer per body, kept from frame to frame",
             Quality::Point => "The defaults: a shadow layer per body, drawn every frame, the Sun a point",
             Quality::Accurate => "The Sun's disc and its penumbrae, from the shadow maps",
@@ -1100,7 +1078,7 @@ impl Quality {
             ]
         };
         match self {
-            Quality::Quick => maps(true, false, false, 1, 2048),
+            Quality::Quick => maps(true, true, false, 0, 2048),
             Quality::Fast => [maps(true, true, true, 2, 4096), vec![F32("shadows.cache_degrees", 0.0)]].concat(),
             Quality::Point => maps(true, true, false, 2, 4096),
             Quality::Accurate => [
@@ -1225,7 +1203,7 @@ mod quality_tests {
     }
 
     /// The maps' presets pick the maps, so picking one after "rays", or with
-    /// the cascades, gives what it says.
+    /// none, gives what it says.
     #[test]
     fn a_maps_preset_picks_the_maps() {
         let mut c = Config::default();
@@ -1233,27 +1211,9 @@ mod quality_tests {
         assert!(c.shadows.method == ShadowMethod::Rays && !c.light.sun_as_point);
         c.set_quality(Quality::Point);
         assert!(c.shadows.method == ShadowMethod::Maps && c.light.sun_as_point);
-        c.shadows.method = ShadowMethod::Cascades;
+        c.shadows.method = ShadowMethod::None;
         c.set_quality(Quality::Fast);
         assert_eq!(c.shadows.method, ShadowMethod::Maps);
-    }
-}
-
-impl Shadows {
-    /// Whether each body has a layer of its own: `per_body`, unless cascades
-    /// take the layers' place.
-    pub fn per_body_layers(&self) -> bool {
-        self.per_body && self.cascades_used() == 0
-    }
-
-    /// The cascades in use with `method` "cascades", at least one and as many
-    /// as the layers allow beside the scene's; none with any other method.
-    pub fn cascades_used(&self) -> usize {
-        if self.method == ShadowMethod::Cascades {
-            (self.cascades as usize).clamp(1, super::uniform::MAX_SHADOW_LAYERS - 1)
-        } else {
-            0
-        }
     }
 }
 
@@ -1261,7 +1221,6 @@ impl Default for Shadows {
     fn default() -> Self {
         Self {
             method: ShadowMethod::Maps,
-            cascades: 3,
             resolution: 4096,
             pcf: 2,
             normal_offset_scale: None,

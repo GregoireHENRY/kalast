@@ -25,13 +25,13 @@ def main() -> int:
     c = app.simulation.config
     check("the defaults are 'point'", c.quality == "point", f"{c.quality!r}")
     want = {
-        "quick": (True, False, False, 1, 2048),
+        "quick": (True, True, False, 0, 2048),
         "fast": (True, True, True, 2, 4096),
         "point": (True, True, False, 2, 4096),
         "accurate": (False, True, False, 2, 4096),
     }
     for name, (point, per_body, cache, pcf, resolution) in want.items():
-        c.shadows.method = "cascades"
+        c.shadows.method = "none"
         c.quality = name
         got = (c.light.sun_as_point, c.shadows.per_body, c.shadows.cache, c.shadows.pcf, c.shadows.resolution)
         check(f"'{name}' sets the Sun, the layers, cache, PCF and resolution, the maps",

@@ -5886,3 +5886,13 @@ a reference image), rebuilt when that changes: 201, and 690 without shadows.
 Measured after it, cascades are slower than the maps in both views; per-body
 maps at 2048 with PCF 0, 868 and 331 against the maps' 685 and 201. Write-up:
 `2026-10-12_ray_tracing_on_metal/`.
+
+## 2026-10-12 — cascades removed, "quick" made quick
+
+Measured after the fix above, cascades were slower than the maps in both views
+(595 and 168 frames a second at their best, against 685 and 201): each draws
+every body, and up close the cost is the PCF lookups, which they pay as much.
+The user's rule -- less exact only if much faster -- had them go. `"quick"` is
+a layer per body at 2048 with hard edges: 879 and 339, where one layer over
+the scene gave 901 and 179. Write-up:
+`2026-10-12_shadow_method_and_colour_modes/`.

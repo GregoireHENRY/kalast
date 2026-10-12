@@ -1487,7 +1487,6 @@ presets, and under it only the settings the method reads.
 | Method | The shadows |
 |---|---|
 | `"maps"` | shadow maps: a layer per body fitted to what the camera sees (`per_body`, `near_layer`, `second_depth`, `cache`, `pcf`, `resolution`) |
-| `"cascades"` | cascaded shadow maps over the camera's view, `shadows.cascades` of them and one over the scene: for a quick look, less exact |
 | `"rays"` | traced against the full meshes (`ray_samples`, `ray_probe`), on a GPU with ray queries; without, the maps answer |
 | `"none"` | no shadows: every point facing the Sun sees all of it, nothing is drawn for them, and the per-facet shadows hide only what faces away |
 
@@ -1502,18 +1501,24 @@ settings, a button each above the shadows' own rows.
 
 | `quality` | Sets | Didymos pair from 1 km, 1600 x 1000 | Dimorphos from 68 m, 3234 x 1774 |
 |---|---|---|---|
-| `"quick"` | one layer over the scene (`per_body` off), a point Sun, 2048, PCF 1 | 773 frames/s | 185 |
-| `"fast"` | a layer per body kept from frame to frame (`cache`), a point Sun, PCF 2 | 689 (paused) | 242 (paused) |
-| `"point"` | a layer per body drawn every frame, a point Sun, PCF 2: the defaults | 518 | 206 |
-| `"accurate"` | the Sun's disc, `second_depth`, a layer per body and a near layer | 146 | 66 |
+| `"quick"` | a layer per body at 2048, hard-edged (PCF 0), a point Sun | 879 frames/s | 339 |
+| `"fast"` | a layer per body kept from frame to frame (`cache`), a point Sun, PCF 2 | 1078 (nothing moving) | 239 (nothing moving) |
+| `"point"` | a layer per body drawn every frame, a point Sun, PCF 2: the defaults | 692 | 204 |
+| `"accurate"` | the Sun's disc, `second_depth`, a layer per body and a near layer | 161 | 66 |
 | `"rays"` | `shadows.method = "rays"`, the Sun's disc, `ray_samples` 64, `ray_probe` 16 | | |
 
 The frame rates: M1 Pro, GPU-bound frames. The maps' four each also set
 `shadows.method` to `"maps"`, and `"fast"` `cache_degrees` to 0; `"rays"`
 leaves the maps' settings, which nothing reads while the rays answer. In the settings, each button's hover lists the fields it sets and
-their values, a line each, from the same table the preset applies. `"quick"`
-draws the fewest texels and is the quickest over a whole scene; up close a
-layer per body, fitted to what the camera sees, is as quick and sharper.
+their values, a line each, from the same table the preset applies.
+
+`"quick"` is less exact for being much quicker: up close, most of what the
+shadows cost is the PCF kernel's lookups over every pixel -- on Dimorphos 3.1
+ms of the maps' 3.5 -- and hard edges skip it. Until 12 October it was one
+layer over the whole scene, quicker from afar (901) and slower up close (179).
+Cascaded shadow maps, a method until then, were slower than the maps in both
+views (595 and 168 at their best): each cascade draws every body, and a layer
+per body already puts its texels where the camera looks.
 
 
 The shadow map is a depth texture **array** rendered from the light's point of
@@ -1628,26 +1633,6 @@ nothing has moved at all, and the shadows are those drawn that frame, to the
 bit. Larger keeps layers through a running simulation -- Didymos turns 0.044 deg
 a second of simulated time -- each shadow up to that far behind the Sun: half a
 degree on a wall 3 high moved its shadow's edge on 0.4 % of a 300 x 200 image.
-
-### `shadows.cascades: u32` — default `3` *(live)*
-With `shadows.method = "cascades"`, 1 to 4: this many layers over slices of
-the camera's view, the nearer finer -- split between evenly and logarithmically, three quarters the
-latter -- and one over the whole scene, in place of a layer per body. Each
-point uses the finest cascade that holds it well inside (the outer 5 % left to
-the next). As games draw the Sun's shadows: on a plate seen from 13 m at 1024
-texels, a wall's shadow edge 1.6 px wide with three cascades against 22 px with
-one layer over the scene.
-
-Not quicker than a layer per body here: each cascade draws every body, and a
-layer per body is already fitted to what the camera sees of it -- the Didymos
-pair from 1 km 550-577 frames/s with two or three cascades at 1024, against 518
-with a layer per body at 4096 and 773 with one layer over the scene; Dimorphos
-from 68 m 172-175 against 206. Less exact too: a body's own shadows and
-another's share each cascade (with the Sun a disc, a penumbra can come through
-where they meet), there is no near layer, no horizon map and no cache, and the
-per-facet shadows the thermophysical model reads are each point's cascade's,
-so they move with the camera. Up to 4: with the scene's, five of the eight
-layers.
 
 ### `shadows.ray_probe: u32` — default `16` *(live)*
 With `shadows.method = "rays"`, the rays each point tries first across the Sun's disc,

@@ -75,9 +75,8 @@ struct Light {
     // 1: each layer has a second depth layer, the nearest surface behind its
     // first, after the others' slices (`peel_slice`).
     peeled: u32,
-    // Cascaded shadow maps (`shadows.cascades`): the layers over the camera's
-    // view before the scene's; 0, a layer per body.
-    cascades: u32,
+    // Where the cascades' count was, 12 October, so the struct keeps its size.
+    _spare: u32,
     // With `shadows.rays`, the rays a pixel traces across the Sun's disc, 1
     // for a point, in place of the maps' lookups; 0, the maps.
     rays: u32,
@@ -1030,17 +1029,6 @@ fn body_layer() -> u32 {
 /// else its own. The penumbra prepass and the main pass both choose by this,
 /// so a walk is in the layer its pixel reads.
 fn shadow_layer_at(pos: vec3<f32>) -> u32 {
-    // Cascades: the finest that holds the point well inside, else the
-    // scene's, after them.
-    if view.light.cascades > 0u {
-        for (var k = 0u; k < view.light.cascades; k++) {
-            let p = project_light(view.light.view_proj_layers[k], pos);
-            if all(abs(p.xy - vec2<f32>(0.5)) <= vec2<f32>(0.5 * CASCADE_INNER)) && p.z >= 0.0 && p.z <= 1.0 {
-                return k;
-            }
-        }
-        return view.light.cascades;
-    }
     let own = body_layer();
     if body.near_layer >= view.light.n_layers {
         return own;
@@ -1051,11 +1039,6 @@ fn shadow_layer_at(pos: vec3<f32>) -> u32 {
     }
     return own;
 }
-
-/// How far into a cascade, as a fraction of its width about its centre, a
-/// point uses it: its rim is left to the next, whose PCF taps and walks
-/// would read past the edge.
-const CASCADE_INNER: f32 = 0.95;
 
 /// The slice the other bodies of `layer` are in: their own, after the
 /// layers, where its body and they are apart (`light.apart`), or `layer`.
@@ -1502,8 +1485,7 @@ fn cs_facets(@builtin(global_invocation_id) id: vec3<u32>) {
     if (body.flags & 32u) == 0u {
         // The body's own layer; with cascades, each point the one that holds
         // it -- a facet's corner can be past its centre's.
-        let cascaded = view.light.cascades > 0u;
-        let layer = select(body_layer(), shadow_layer_at(centre), cascaded);
+        let layer = body_layer();
         let near = view.light.sun_radius > 0.0 && facet_near_penumbra(a, b, c, n, layer);
         // The PCF kernel's steps, the same at the four points of a flat facet
         // in one layer.
@@ -1515,15 +1497,7 @@ fn cs_facets(@builtin(global_invocation_id) id: vec3<u32>) {
         sum = 0.0;
         for (var k = 0u; k < 4u; k++) {
             let p = select(select(select(centre, c, k == 2u), b, k == 1u), a, k == 0u);
-            var at_layer = layer;
-            var at_kernel = kernel;
-            if cascaded {
-                at_layer = shadow_layer_at(p);
-                if at_layer != layer && globals.shadow_pcf > 0u {
-                    at_kernel = sun_kernel(centre, n, ndotl, at_layer);
-                }
-            }
-            sum += max(facet_sun(f, p, n, at_layer, horizon, near, at_kernel), 0.0);
+            sum += max(facet_sun(f, p, n, layer, horizon, near, kernel), 0.0);
         }
     }
     atomicStore(&facet_out[f], u32(sum * FACET_FIXED + 0.5));

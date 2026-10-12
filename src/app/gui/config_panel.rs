@@ -84,26 +84,22 @@ pub fn group_light(ui: &mut egui::Ui, c: &mut Config) {
 
 /// `config.shadows` -- Shadows.
 pub fn group_shadows(ui: &mut egui::Ui, c: &mut Config) {
-    setting(ui, "method", "How the Sun's shadows are drawn: \"maps\", a shadow map per body (the default); \"cascades\", cascaded shadow maps over the camera's view, for a quick look; \"rays\", traced against the full meshes, on a GPU with ray queries; \"none\", no shadows at all. The image's and those the thermophysical model reads (`sim.facet_shadow`) alike.", |ui| {
+    setting(ui, "method", "How the Sun's shadows are drawn: \"maps\", a shadow map per body (the default); \"rays\", traced against the full meshes, on a GPU with ray queries; \"none\", no shadows at all. The image's and those the thermophysical model reads (`sim.facet_shadow`) alike.", |ui| {
         egui::ComboBox::from_id_salt("c.shadows.method")
             .selected_text(format!("{:?}", c.shadows.method))
             .show_ui(ui, |ui| {
                 ui.selectable_value(&mut c.shadows.method, crate::app::config::ShadowMethod::Maps, "Maps").on_hover_text("Shadow maps: a layer per body, fitted to what the camera sees of it, drawn from the Sun every frame. The default.");
-                ui.selectable_value(&mut c.shadows.method, crate::app::config::ShadowMethod::Cascades, "Cascades").on_hover_text("Cascaded shadow maps, as games draw the Sun's: layers over slices of the camera's view, the nearer finer, and one over the scene. For a quick look, less exact than a layer per body.");
                 ui.selectable_value(&mut c.shadows.method, crate::app::config::ShadowMethod::Rays, "Rays").on_hover_text("Traced with rays against the full meshes, the Sun's disc sampled by `ray_samples` rays a point: no texel, filter or bias. On a GPU with ray queries; without, the shadow maps answer.");
                 ui.selectable_value(&mut c.shadows.method, crate::app::config::ShadowMethod::None, "None").on_hover_text("No shadows: every point facing the Sun sees all of it, and nothing is drawn for them.");
             });
     });
-    if c.shadows.method == crate::app::config::ShadowMethod::Cascades {
-        setting(ui, "cascades", "How many cascades, with `method` \"cascades\": layers over slices of the camera's view, the nearer finer, and one more over the whole scene.", |ui| ui.add(egui::Slider::new(&mut c.shadows.cascades, 1..=4).clamping(egui::SliderClamping::Edits)));
-    }
-    if c.shadows.method.uses_maps() {
+    if c.shadows.method == crate::app::config::ShadowMethod::Maps {
         setting(ui, "resolution", "Side length of each square shadow map, in texels.", |ui| ui.add(egui::Slider::new(&mut c.shadows.resolution, 512..=16384).clamping(egui::SliderClamping::Edits)));
     }
-    if c.shadows.method.uses_maps() {
+    if c.shadows.method == crate::app::config::ShadowMethod::Maps {
         setting(ui, "pcf", "Smoothing of the shadows' edges, the percentage-closer-filtering kernel's *radius* in shadow-map texels: 0 is the hardware's single 2x2 comparison, N a `(2N+1)^2` grid of them averaged.", |ui| ui.add(egui::Slider::new(&mut c.shadows.pcf, 0..=16).clamping(egui::SliderClamping::Edits)));
     }
-    if c.shadows.method.uses_maps() {
+    if c.shadows.method == crate::app::config::ShadowMethod::Maps {
         setting(ui, "normal_offset_scale", "Push the sample along the surface normal before the shadow lookup, in world units. `None` fits it per frame from the layer's own texel size.", |ui| {
             let mut on = c.shadows.normal_offset_scale.is_some();
             if ui.checkbox(&mut on, "").changed() {
@@ -114,7 +110,7 @@ pub fn group_shadows(ui: &mut egui::Ui, c: &mut Config) {
             }
         });
     }
-    if c.shadows.method.uses_maps() {
+    if c.shadows.method == crate::app::config::ShadowMethod::Maps {
         setting(ui, "bias_scale", "Slope-dependent term of the depth-comparison bias. `None` fits it per frame. Combined in the shader as `max(shadow_bias_scale * k, shadow_bias_minimum)`.", |ui| {
             let mut on = c.shadows.bias_scale.is_some();
             if ui.checkbox(&mut on, "").changed() {
@@ -125,7 +121,7 @@ pub fn group_shadows(ui: &mut egui::Ui, c: &mut Config) {
             }
         });
     }
-    if c.shadows.method.uses_maps() {
+    if c.shadows.method == crate::app::config::ShadowMethod::Maps {
         setting(ui, "bias_minimum", "Floor on the depth-comparison bias, for surfaces facing the light head-on. `None` fits it per frame.", |ui| {
             let mut on = c.shadows.bias_minimum.is_some();
             if ui.checkbox(&mut on, "").changed() {
@@ -143,7 +139,7 @@ pub fn group_shadows(ui: &mut egui::Ui, c: &mut Config) {
     if c.shadows.method == crate::app::config::ShadowMethod::Maps {
         setting(ui, "near_layer", "A finer shadow layer over where the camera looks closest, for a body seen up close.", |ui| ui.checkbox(&mut c.shadows.near_layer, ""));
     }
-    if c.shadows.method.uses_maps() && c.light.sun_as_point == false {
+    if c.shadows.method == crate::app::config::ShadowMethod::Maps && c.light.sun_as_point == false {
         setting(ui, "second_depth", "With the Sun a disc, a second depth layer under each shadow layer: the nearest surface behind what the Sun sees first. Nothing with the Sun a point, whatever it is set to.", |ui| ui.checkbox(&mut c.shadows.second_depth, ""));
     }
     if c.shadows.method == crate::app::config::ShadowMethod::Maps {
@@ -152,10 +148,10 @@ pub fn group_shadows(ui: &mut egui::Ui, c: &mut Config) {
     if c.shadows.method == crate::app::config::ShadowMethod::Maps && c.shadows.cache == true {
         setting(ui, "cache_degrees", "How far, in degrees, the Sun may move in a body's own frame, or another body about it, before a kept layer is drawn again (`cache`). 0: only when nothing has moved at all, the shadows as exact as without the cache. Larger keeps layers through a running simulation -- Didymos turns 0.044 deg a second of simulated time -- each shadow up to that far behind the Sun.", |ui| ui.add(egui::DragValue::new(&mut c.shadows.cache_degrees).speed(0.01)));
     }
-    if c.shadows.method.uses_maps() {
+    if c.shadows.method == crate::app::config::ShadowMethod::Maps {
         setting(ui, "lod_texels", "The size, in shadow-map texels, a large mesh's triangles are drawn at in the shadow maps when `shading.lod` is on, outside the camera's view.", |ui| ui.add(egui::Slider::new(&mut c.shadows.lod_texels, 0.5..=16.0).clamping(egui::SliderClamping::Edits)));
     }
-    if c.shadows.method.uses_maps() {
+    if c.shadows.method == crate::app::config::ShadowMethod::Maps {
         setting(ui, "lod_pixels", "The size, in the camera's pixels, a large mesh's triangles are drawn at in the shadow maps when `shading.lod` is on, outside the camera's view.", |ui| ui.add(egui::Slider::new(&mut c.shadows.lod_pixels, 0.5..=32.0).clamping(egui::SliderClamping::Edits)));
     }
     if c.shadows.method == crate::app::config::ShadowMethod::Rays {

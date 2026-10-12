@@ -565,22 +565,9 @@ class ShadowsConfig:
     """
     method: str
     """How the Sun's shadows are drawn: "maps", a shadow map per body (the
-    default); "cascades", cascaded shadow maps over the camera's view, for
-    a quick look; "rays", traced against the full meshes, on a GPU with
-    ray queries; "none", no shadows at all. The image's and those the
+    default); "rays", traced against the full meshes, on a GPU with ray
+    queries; "none", no shadows at all. The image's and those the
     thermophysical model reads (`sim.facet_shadow`) alike.
-    """
-    cascades: int
-    """How many cascades, with `method` "cascades": layers over slices of the
-    camera's view, the nearer finer, and one more over the whole scene.
-
-    The cost is the cascades' whatever the bodies, and the shadows are
-    sharp where the camera looks closest. Less exact than a layer per
-    body: a body's own shadows and another's share each cascade -- with
-    the Sun a disc a penumbra can come through where they meet -- there is
-    no near layer, no horizon map and no cache, and the edges between
-    cascades can show. The per-facet shadows the thermophysical model reads
-    are each facet's cascade's, so they move with the camera.
     """
     resolution: int
     """Side length of each square shadow map, in texels.

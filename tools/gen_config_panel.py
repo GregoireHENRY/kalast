@@ -36,8 +36,8 @@ What the Rust source cannot say, the doc comments can:
                                named in its own group, or with its group
                                (`light.sun_as_point == false`) in another;
                                clauses joined by `&&` each so, a method of
-                               the field's (`method.uses_maps()`) as well,
-                               and an enum's variant by its own name
+                               the field's (`gamma.is_some()`) as well, and
+                               an enum's variant by its own name
                                (`method == ShadowMethod::Rays`)
     /// :some: 2.2              an optional number: the value it takes when
                                ticked (else 0)
@@ -114,7 +114,8 @@ def condition(path: str, when: str) -> str:
     for clause in when.split("&&"):
         clause = clause.strip()
         head = re.match(r"\w+", clause).group(0)
-        # `light.sun_as_point == false`: another group's field.
+        # `light.sun_as_point == false`: another group's field; a method of
+        # the row's own, `gamma.is_some()`, is not.
         group = root if head in GROUPS and clause[len(head):].startswith(".") else own
         clauses.append(f"{group}.{clause}")
     text = " && ".join(clauses)
