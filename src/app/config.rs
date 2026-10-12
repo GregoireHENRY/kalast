@@ -481,19 +481,16 @@ pub enum ColorMode {
     /// colours as they are. What a quantitative figure wants: shading a data
     /// map makes one value read as two colours.
     Data,
-    /// Every body the one flat `shading.color`, unlit: a silhouette.
-    Flat,
 }
 
 impl ColorMode {
-    pub const ALL: [ColorMode; 3] = [Self::Shaded, Self::Data, Self::Flat];
+    pub const ALL: [ColorMode; 2] = [Self::Shaded, Self::Data];
 
     /// Parsed from Python, where these are plain strings.
     pub fn parse(s: &str) -> Option<Self> {
         match s.to_ascii_lowercase().as_str() {
             "shaded" | "shader" => Some(Self::Shaded),
             "data" => Some(Self::Data),
-            "flat" => Some(Self::Flat),
             _ => None,
         }
     }
@@ -502,17 +499,15 @@ impl ColorMode {
         match self {
             Self::Shaded => "shaded",
             Self::Data => "data",
-            Self::Flat => "flat",
         }
     }
 
     /// The number the shaders take (`Globals.color_mode`), which is also
-    /// what scripts wrote before the names: 0, 1 and 2.
+    /// what scripts wrote before the names: 0 and 1.
     pub fn code(&self) -> u32 {
         match self {
             Self::Shaded => 0,
             Self::Data => 1,
-            Self::Flat => 2,
         }
     }
 
@@ -569,28 +564,25 @@ pub struct Shading {
     pub msaa: u32,
     // See app/uniform.rs Globals struct for shader
     /// What the surface shows: "shaded", lit by the Sun with the shadows
-    /// `shadows.method` draws (the default); "data", unlit, a mesh's values
-    /// through the colormap, else its own colours; "flat", every body the
-    /// one `color`.
+    /// `shadows.method` draws (the default), or "data", unlit, a mesh's
+    /// values through the colormap, else its own colours.
     ///
     /// The numbers scripts set before 12 October still work for a release,
-    /// with a deprecation warning: 0 is "shaded", 1 "data", 2 "flat", and 3,
-    /// shaded without shadows, is `shadows.method = "none"`.
+    /// with a deprecation warning: 0 is "shaded", 1 "data", and 3, shaded
+    /// without shadows, is `shadows.method = "none"`. 2, every body one flat
+    /// colour, is gone.
     /// :py_custom:
     pub color_mode: ColorMode,
-    /// Every body's colour with `color_mode` "flat", `(r, g, b, a)`.
-    /// :when: color_mode == ColorMode::Flat
-    pub color: wgpu::Color,
-    /// Which colours come out exactly in the image: the data's and the flat
-    /// one (0), or the lit values (1).
+    /// Which colours come out exactly in the image: the data's (0), or the lit
+    /// values (1).
     ///
     /// The image is stored through the sRGB curve, which brightens dark
-    /// values, and the shader undoes it on one side. 0: on the colours given
-    /// to the unlit modes -- a colormap, `color`, a picked facet -- which are
-    /// stored as they are; lit shading is stored through the curve, as a
-    /// screen shows it, a lit 0.078 as 0.31. 1: on the lit value, which is
-    /// stored as it is, so an exported pixel reads I/F = value / 255; the
-    /// unlit modes' colours then come out lighter. With MSAA in 1, a pixel
+    /// values, and the shader undoes it on one side. 0: on the data's colours
+    /// -- a colormap's, a picked facet's -- which are stored as they are; lit
+    /// shading is stored through the curve, as a screen shows it, a lit 0.078
+    /// as 0.31. 1: on the lit value, which is stored as it is, so an exported
+    /// pixel reads I/F = value / 255; the data's colours then come out
+    /// lighter. With MSAA in 1, a pixel
     /// stores the mean of its samples' values, the mean I/F of what it
     /// covers.
     /// :choices: 0 = colours exact, 1 = lit values linear
@@ -602,7 +594,7 @@ pub struct Shading {
     /// the dark: with `srgb_mode` 1 a lit 0.078 was stored as 0.047, and a
     /// colormap's darkest colours came out darker than they are. Set it only
     /// to reproduce such an image. In the settings with `srgb_mode` 1 only;
-    /// with 0 it applies to the unlit modes' colours, set from a script.
+    /// with 0 it applies to the data's colours, set from a script.
     /// :when: srgb_mode == 1
     /// :some: 2.2
     /// :step: 0.01
@@ -640,7 +632,6 @@ impl Default for Shading {
             background: wgpu::Color::BLACK,
             render_back_face: false,
             msaa: 4,
-            color: wgpu::Color::WHITE,
             color_mode: ColorMode::Shaded,
             srgb_mode: 0,
             gamma: None,
@@ -703,8 +694,8 @@ pub struct Light {
     /// scaled with it, and the debug cube is drawn as bright. With
     /// `shading.srgb_mode = 1` an exported pixel reads `exposure * I/F * 255`:
     /// 4.5 shows I/F 0 to 0.22 from black to white, and anything brighter
-    /// clips at white. The unlit modes' colours -- a colormap's, the flat
-    /// `color` -- are data, and keep theirs.
+    /// clips at white. The data mode's colours -- a colormap's -- are data,
+    /// and keep theirs.
     /// :range: 0.0..=10.0
     pub exposure: f32,
     /// The Sun as a point, every shadow hard; on by default.

@@ -365,9 +365,8 @@ class ShadingConfig:
     """
     color_mode: str
     """What the surface shows: "shaded", lit by the Sun with the shadows
-    `shadows.method` draws (the default); "data", unlit, a mesh's values
-    through the colormap, else its own colours; "flat", every body the
-    one `color`.
+    `shadows.method` draws (the default), or "data", unlit, a mesh's
+    values through the colormap, else its own colours.
     """
     @property
     def background(self) -> list[float]:
@@ -418,23 +417,17 @@ class ShadingConfig:
     depth at 1: above that the pass writes its own multisampled depth
     buffer instead.
     """
-    @property
-    def color(self) -> list[float]:
-        """Every body's colour with `color_mode` "flat", `(r, g, b, a)`."""
-        ...
-    @color.setter
-    def color(self, value: Sequence[float] | numpy.ndarray) -> None: ...
     srgb_mode: int
-    """Which colours come out exactly in the image: the data's and the flat
-    one (0), or the lit values (1).
+    """Which colours come out exactly in the image: the data's (0), or the lit
+    values (1).
 
     The image is stored through the sRGB curve, which brightens dark
-    values, and the shader undoes it on one side. 0: on the colours given
-    to the unlit modes -- a colormap, `color`, a picked facet -- which are
-    stored as they are; lit shading is stored through the curve, as a
-    screen shows it, a lit 0.078 as 0.31. 1: on the lit value, which is
-    stored as it is, so an exported pixel reads I/F = value / 255; the
-    unlit modes' colours then come out lighter. With MSAA in 1, a pixel
+    values, and the shader undoes it on one side. 0: on the data's colours
+    -- a colormap's, a picked facet's -- which are stored as they are; lit
+    shading is stored through the curve, as a screen shows it, a lit 0.078
+    as 0.31. 1: on the lit value, which is stored as it is, so an exported
+    pixel reads I/F = value / 255; the data's colours then come out
+    lighter. With MSAA in 1, a pixel
     stores the mean of its samples' values, the mean I/F of what it
     covers.
     """
@@ -446,7 +439,7 @@ class ShadingConfig:
     the dark: with `srgb_mode` 1 a lit 0.078 was stored as 0.047, and a
     colormap's darkest colours came out darker than they are. Set it only
     to reproduce such an image. In the settings with `srgb_mode` 1 only;
-    with 0 it applies to the unlit modes' colours, set from a script.
+    with 0 it applies to the data's colours, set from a script.
     """
     lod: bool
     """Draw a large mesh by the parts the camera can see, each only as fine
@@ -538,8 +531,8 @@ class LightConfig:
     scaled with it, and the debug cube is drawn as bright. With
     `shading.srgb_mode = 1` an exported pixel reads `exposure * I/F * 255`:
     4.5 shows I/F 0 to 0.22 from black to white, and anything brighter
-    clips at white. The unlit modes' colours -- a colormap's, the flat
-    `color` -- are data, and keep theirs.
+    clips at white. The data mode's colours -- a colormap's -- are data,
+    and keep theirs.
     """
     sun_as_point: bool
     """The Sun as a point, every shadow hard; on by default.

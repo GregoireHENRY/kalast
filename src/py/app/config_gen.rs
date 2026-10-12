@@ -80,28 +80,16 @@ impl ShadingConfig {
     fn msaa(&self) -> u32 { self.config.borrow().shading.msaa }
     #[setter]
     fn set_msaa(&mut self, v: u32) { self.config.borrow_mut().shading.msaa = v; }
-    /// Every body's colour with `color_mode` "flat", `(r, g, b, a)`.
-    #[getter]
-    fn color(&self) -> [Float; 4] {
-        let c = self.config.borrow().shading.color;
-        [c.r as Float, c.g as Float, c.b as Float, c.a as Float]
-    }
-    #[setter]
-    fn set_color(&mut self, v: [Float; 4]) {
-        self.config.borrow_mut().shading.color = wgpu::Color {
-            r: v[0] as f64, g: v[1] as f64, b: v[2] as f64, a: v[3] as f64,
-        };
-    }
-    /// Which colours come out exactly in the image: the data's and the flat
-    /// one (0), or the lit values (1).
+    /// Which colours come out exactly in the image: the data's (0), or the lit
+    /// values (1).
     ///
     /// The image is stored through the sRGB curve, which brightens dark
-    /// values, and the shader undoes it on one side. 0: on the colours given
-    /// to the unlit modes -- a colormap, `color`, a picked facet -- which are
-    /// stored as they are; lit shading is stored through the curve, as a
-    /// screen shows it, a lit 0.078 as 0.31. 1: on the lit value, which is
-    /// stored as it is, so an exported pixel reads I/F = value / 255; the
-    /// unlit modes' colours then come out lighter. With MSAA in 1, a pixel
+    /// values, and the shader undoes it on one side. 0: on the data's colours
+    /// -- a colormap's, a picked facet's -- which are stored as they are; lit
+    /// shading is stored through the curve, as a screen shows it, a lit 0.078
+    /// as 0.31. 1: on the lit value, which is stored as it is, so an exported
+    /// pixel reads I/F = value / 255; the data's colours then come out
+    /// lighter. With MSAA in 1, a pixel
     /// stores the mean of its samples' values, the mean I/F of what it
     /// covers.
     #[getter]
@@ -115,7 +103,7 @@ impl ShadingConfig {
     /// the dark: with `srgb_mode` 1 a lit 0.078 was stored as 0.047, and a
     /// colormap's darkest colours came out darker than they are. Set it only
     /// to reproduce such an image. In the settings with `srgb_mode` 1 only;
-    /// with 0 it applies to the unlit modes' colours, set from a script.
+    /// with 0 it applies to the data's colours, set from a script.
     #[getter]
     fn gamma(&self) -> Option<Float> { self.config.borrow().shading.gamma }
     #[setter]
@@ -234,8 +222,8 @@ impl LightConfig {
     /// scaled with it, and the debug cube is drawn as bright. With
     /// `shading.srgb_mode = 1` an exported pixel reads `exposure * I/F * 255`:
     /// 4.5 shows I/F 0 to 0.22 from black to white, and anything brighter
-    /// clips at white. The unlit modes' colours -- a colormap's, the flat
-    /// `color` -- are data, and keep theirs.
+    /// clips at white. The data mode's colours -- a colormap's -- are data,
+    /// and keep theirs.
     #[getter]
     fn exposure(&self) -> f32 { self.config.borrow().light.exposure }
     #[setter]
@@ -1477,7 +1465,6 @@ fn renamed(name: &str) -> Option<(&'static str, &'static str)> {
         "axes_ticks" => Some(("axes", "ticks")),
         "axes_unit" => Some(("axes", "unit")),
         "background" => Some(("shading", "background")),
-        "color" => Some(("shading", "color")),
         "color_mode" => Some(("shading", "color_mode")),
         "colorbar" => Some(("colorbar", "enabled")),
         "colorbar_anchor" => Some(("colorbar", "anchor")),

@@ -9,8 +9,9 @@ lit throughout -- the image the maps' outside the shadow, and as bright in it
 -- and no facet facing the Sun is hidden; those facing away, the wall's back
 and underside, are hidden as with the maps.
 
-`shading.color_mode` reads back a name and takes one; 0 to 3 still work with a
-`DeprecationWarning`, 3 as `shadows.method = "none"` and 0 back to the maps.
+`shading.color_mode` reads back a name and takes one, "shaded" or "data"; 0, 1
+and 3 still work with a `DeprecationWarning`, 3 as `shadows.method = "none"`
+and 0 back to the maps; the flat mode is gone, by its name or as 2.
 
 Opens a window, in the background.
 """
@@ -93,13 +94,13 @@ def colour_mode(c) -> None:
     check("1 is the data", one == "data", repr(one))
     check("each number with a deprecation warning", len(deprecated) == 3 and 'shadows.method = "none"' in deprecated[0],
           repr(deprecated))
-    for field, value in (("color_mode", "lit"), ("method", "bogus")):
-        group = c.shading if field == "color_mode" else c.shadows
+    for group, field, value in ((c.shading, "color_mode", "flat"), (c.shading, "color_mode", 2), (c.shadows, "method", "bogus")):
         try:
             setattr(group, field, value)
-            check(f"an unknown {field} is refused", False)
+            check(f"{field} = {value!r} is refused", False)
         except ValueError as e:
-            check(f"an unknown {field} is refused", True, str(e))
+            check(f"{field} = {value!r} is refused", True, str(e))
+    check("and the flat colour is gone", not hasattr(c.shading, "color"))
     c.shading.color_mode = "shaded"
 
 

@@ -447,9 +447,7 @@ impl Pass {
             draw_ground_and_axes(&mut render_pass, axes, grid, bindings, config);
         }
 
-        // Not in the flat mode, where there is no scale to show -- the bar was
-        // drawn there all the same, from the last frame that had one.
-        if config.colorbar.enabled && config.shading.color_mode != crate::app::config::ColorMode::Flat {
+        if config.colorbar.enabled {
             colorbar.render(&mut render_pass, bindings);
         }
 
@@ -540,7 +538,7 @@ impl Pass {
         config: &crate::app::config::Config,
     ) {
         let cube = config.light.cube_show;
-        let bar = config.colorbar.enabled && config.shading.color_mode != crate::app::config::ColorMode::Flat;
+        let bar = config.colorbar.enabled;
         if !cube && !bar {
             return;
         }

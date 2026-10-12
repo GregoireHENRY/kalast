@@ -28,28 +28,15 @@ pub fn group_shading(ui: &mut egui::Ui, c: &mut Config) {
                 ui.selectable_value(&mut c.shading.msaa, 8, "8");
             });
     });
-    setting(ui, "color_mode", "What the surface shows: \"shaded\", lit by the Sun with the shadows `shadows.method` draws (the default); \"data\", unlit, a mesh's values through the colormap, else its own colours; \"flat\", every body the one `color`.", |ui| {
+    setting(ui, "color_mode", "What the surface shows: \"shaded\", lit by the Sun with the shadows `shadows.method` draws (the default), or \"data\", unlit, a mesh's values through the colormap, else its own colours.", |ui| {
         egui::ComboBox::from_id_salt("c.shading.color_mode")
             .selected_text(format!("{:?}", c.shading.color_mode))
             .show_ui(ui, |ui| {
                 ui.selectable_value(&mut c.shading.color_mode, crate::app::config::ColorMode::Shaded, "Shaded").on_hover_text("Lit by the Sun through the body's scattering law, with the shadows `shadows.method` draws. The default.");
                 ui.selectable_value(&mut c.shading.color_mode, crate::app::config::ColorMode::Data, "Data").on_hover_text("The data, unlit: a mesh's `values` through the colormap, else its own colours as they are. What a quantitative figure wants: shading a data map makes one value read as two colours.");
-                ui.selectable_value(&mut c.shading.color_mode, crate::app::config::ColorMode::Flat, "Flat").on_hover_text("Every body the one flat `shading.color`, unlit: a silhouette.");
             });
     });
-    if c.shading.color_mode == crate::app::config::ColorMode::Flat {
-        setting(ui, "color", "Every body's colour with `color_mode` \"flat\", `(r, g, b, a)`.", |ui| {
-            let mut rgba = [c.shading.color.r as f32, c.shading.color.g as f32,
-                            c.shading.color.b as f32, c.shading.color.a as f32];
-            if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
-                c.shading.color = wgpu::Color {
-                    r: rgba[0] as f64, g: rgba[1] as f64,
-                    b: rgba[2] as f64, a: rgba[3] as f64,
-                };
-            }
-        });
-    }
-    setting(ui, "srgb_mode", "Which colours come out exactly in the image: the data's and the flat one (0), or the lit values (1).", |ui| {
+    setting(ui, "srgb_mode", "Which colours come out exactly in the image: the data's (0), or the lit values (1).", |ui| {
         egui::ComboBox::from_id_salt("c.shading.srgb_mode")
             .selected_text(c.shading.srgb_mode.to_string())
             .show_ui(ui, |ui| {

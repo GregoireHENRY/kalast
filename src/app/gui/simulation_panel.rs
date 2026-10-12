@@ -438,8 +438,8 @@ fn quality_ui(ui: &mut egui::Ui, c: &mut Config) {
     });
 }
 
-/// The shadows, where they show: in the shaded colour mode. The data and
-/// flat modes are unlit, and the settings would change nothing on screen --
+/// The shadows, where they show: in the shaded colour mode. The data mode is
+/// unlit, and the settings would change nothing on screen --
 /// except the per-facet shadows the thermophysical model reads, which follow
 /// them whatever the image shows, so they stay while those are read every
 /// frame (`access_shadow_map`).

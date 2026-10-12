@@ -1064,7 +1064,7 @@ the digits change faster than they can be read. The window is
 color=None)`.
 
 `size` is the font size in pixels and is **per HUD**, so a large counter and a
-small frame-rate readout cost nothing extra. `shading.color` is `(r, g, b, a)`.
+small frame-rate readout cost nothing extra. `color` is `(r, g, b, a)`.
 
 `anchor` is one of nine: `top-left`, `top-center`, `top-right`,
 `middle-left`, `middle-center`, `middle-right`, `bottom-left`,
@@ -1322,20 +1322,17 @@ What the surface shows.
 |---|---|
 | `"shaded"` | lit by the Sun through the body's scattering law, with the shadows `shadows.method` draws |
 | `"data"` | unlit: the mesh's `values` through the colormap, else its own colours as they are |
-| `"flat"` | every body the one `shading.color`, unlit: a silhouette |
 
-The editor shows the shadow settings in `"shaded"` only, since the unlit modes
-show no shadow -- and in the others too while the per-facet shadows are read
-every frame (`shadows.access_shadow_map`), which follow them whatever the
-image shows.
+The editor shows the shadow settings in `"shaded"` only, since `"data"` shows
+no shadow -- and in `"data"` too while the per-facet shadows are read every
+frame (`shadows.access_shadow_map`), which follow them whatever the image
+shows.
 
 The numbers of before still work for a release, with a `DeprecationWarning`:
-`0` is `"shaded"`, `1` `"data"`, `2` `"flat"`, and `3`, shaded without
-shadows, is `shadows.method = "none"`; a `0` after it brings the maps back.
-
-### `shading.color: wgpu::Color` — default `WHITE` *(live)*
-Every body's colour with `color_mode = "flat"`, and only then in the editor.
-Accepted: `(r, g, b, a)`; alpha is dropped.
+`0` is `"shaded"`, `1` `"data"`, and `3`, shaded without shadows, is
+`shadows.method = "none"`; a `0` after it brings the maps back. `2`, every
+body one flat colour, is refused: that mode is gone, and `shading.color` with
+it.
 
 ### `debug.extra: u32` — default `0` *(live)*
 A spare uniform slot. Plumbed all the way through -- config ->
@@ -1353,8 +1350,8 @@ shader's to within one level of 255:
 
 | Value | Exact | The other side |
 |---|---|---|
-| `0` | the colours of the unlit modes: a colormap, `shading.color`, a picked facet -- stored as given | lit shading through the curve, as a screen shows it: a lit 0.078 stored as 0.31 |
-| `1` | the lit value: an exported pixel reads I/F = value / 255, at any brightness | the unlit modes' colours come out lighter |
+| `0` | the data's colours: a colormap's, a picked facet's -- stored as given | lit shading through the curve, as a screen shows it: a lit 0.078 stored as 0.31 |
+| `1` | the lit value: an exported pixel reads I/F = value / 255, at any brightness | the data's colours come out lighter |
 
 So `0` for a figure coloured by data -- a temperature map keeps its colormap's
 colours -- and `1` for a lit image compared with a camera's. Accepted: `0` or
@@ -1373,7 +1370,7 @@ in the dark: with `srgb_mode = 1` a lit 0.078 was stored as 0.047, 0.05 as
 0.018, against 101 % at 0.5; and with `0` a colormap's darkest colours came out
 darker than they are. Set it only to reproduce such an image. The settings show
 it with `srgb_mode` 1 only, where ticking it gives 2.2; with `0` it still applies
-to the unlit modes' colours when a script sets it.
+to the data's colours when a script sets it.
 
 ---
 
@@ -1409,8 +1406,7 @@ camera's exposure. A lit pixel is `exposure * color * albedo * cos(i)`, the
 ambient term scaled with it, and the debug light cube is drawn as bright. With
 `shading.srgb_mode = 1` an exported pixel reads `exposure * I/F * 255`: `4.5`
 shows I/F 0 to 0.22 from black to white, and a brighter pixel clips at white.
-The unlit modes' colours -- a colormap's, the flat `shading.color` -- are data
-and are not scaled. Multiplied into the light's colour where the light uniform
+The data mode's colours -- a colormap's -- are data and are not scaled. Multiplied into the light's colour where the light uniform
 is filled, `src/app/window.rs`.
 Accepted: any float `>= 0.0`; the settings' slider stops at 10, a script does
 not.
@@ -2163,7 +2159,6 @@ One setting decides what you are looking at:
 |---|---|---|
 | `"shaded"` | diffuse lighting | lighting, 0..1 |
 | `"data"` | the data | the data, `data.value_min`..`data.value_max` |
-| `"flat"` | one flat colour | nothing — the bar is not drawn |
 
 ### `data.value_min: float | None` — default `None` *(live)*
 ### `data.value_max: float | None` — default `None` *(live)*
@@ -2183,14 +2178,11 @@ Draw the colour scale over the render.
 
 **What the bar describes follows `shading.color_mode`**, and is not a setting of its
 own: the legend cannot be made to describe something the surface is not. In
-the lit modes it is the diffuse shading, `ambient + cos(i) * visibility` —
+`"shaded"` it is the diffuse shading, `ambient + cos(i) * visibility` —
 normalised direct insolation including shadowing, **not** radiance and **not**
 temperature, and it carries the `light.ambient` floor, so label it for what
-it is. In the unlit mode it is the data map, over `data.value_min`..`data.value_max`,
+it is. In `"data"` it is the data map, over `data.value_min`..`data.value_max`,
 read from the same lookup table the surface uses so the two cannot disagree.
-
-With `color_mode = "flat"` the bar is not drawn at all: every body is one
-flat colour, so there is no scale to label.
 
 ### `colorbar.label: str` *(live)*
 Caption, e.g. `"Surface temperature (K)"`. Same warning as `axes.unit`:
@@ -2311,7 +2303,7 @@ decimated mesh.
 
 ### `wireframe.color: wgpu::Color` — default `(0.01, 0.01, 0.01, 1.0)` *(live)*
 Accepted: any 4-element sequence of floats — tuple, list or `numpy.array` —
-as `(r, g, b, a)`; alpha is dropped. Same as `shading.background`, `shading.color` and
+as `(r, g, b, a)`; alpha is dropped. Same as `shading.background` and
 `light.color`.
 
 It took a Python tuple *only* until 4 September, because it was typed as a

@@ -22,7 +22,8 @@ RENAMES = {
     "occlusion_queries": ("debug", "occlusion_queries"),
     "extra": ("debug", "extra"),
     # shading
-    "color": ("shading", "color"),
+    # "color" went to shading.color, which went with the flat colour mode on
+    # 12 October.
     "color_mode": ("shading", "color_mode"),
     "srgb_mode": ("shading", "srgb_mode"),
     "gamma": ("shading", "gamma"),

@@ -3,13 +3,13 @@ use crate::{Mat4, Vec3};
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Default, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Globals {
-    // global color used in fragment if color mode is 1
+    // Unused since the flat colour mode went, 12 October: kept so every
+    // shader's copy of `Globals` still binds.
     pub color: Vec3,
 
     // Control fragment color (`ColorMode::code`)
     // - 0: vertex/instance color + lighting + shadow
     // - 1: vertex/instance color, no lighting, show raw color
-    // - 2: globals color
     // - else: default to 0
     // Shadows off is no layer and no rays (`shadows.method = "none"`).
     pub color_mode: u32,

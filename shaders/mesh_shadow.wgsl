@@ -2003,12 +2003,6 @@ fn fs_shaded(in: Surface) -> vec4<f32> {
             color = srgb_to_linear(color, globals.gamma);
         }
         return vec4<f32>(color, 1.0);
-    } else if globals.color_mode == 2 {
-        var color = globals.color;
-        if globals.srgb_mode == 0 {
-            color = srgb_to_linear(color, globals.gamma);
-        }
-        return vec4<f32>(color, 1.0);
     }
     // } else if globals.color_mode == ??? {
 

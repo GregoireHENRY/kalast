@@ -426,9 +426,8 @@ impl super::config_gen::DataConfig {
 #[pymethods]
 impl super::config_gen::ShadingConfig {
     /// What the surface shows: "shaded", lit by the Sun with the shadows
-    /// `shadows.method` draws (the default); "data", unlit, a mesh's values
-    /// through the colormap, else its own colours; "flat", every body the
-    /// one `color`.
+    /// `shadows.method` draws (the default), or "data", unlit, a mesh's
+    /// values through the colormap, else its own colours.
     #[getter]
     fn color_mode(&self) -> &'static str {
         self.config.borrow().shading.color_mode.name()
@@ -436,14 +435,15 @@ impl super::config_gen::ShadingConfig {
 
     /// The numbers of before still work for a release, with a deprecation
     /// warning: 0 is "shaded", with shadows -- a method of "none" goes back
-    /// to "maps", as 0 meant after 3 -- 1 "data", 2 "flat", and 3, shaded
-    /// without shadows, is `shadows.method = "none"`.
+    /// to "maps", as 0 meant after 3 -- 1 "data", and 3, shaded without
+    /// shadows, is `shadows.method = "none"`. 2, every body one flat colour,
+    /// is refused: that mode is gone.
     ///
     /// :pytype: str
     #[setter]
     fn set_color_mode(&mut self, v: &Bound<'_, PyAny>) -> PyResult<()> {
         use crate::app::config::{ColorMode, ShadowMethod};
-        let names = "\"shaded\", \"data\" or \"flat\"";
+        let names = "\"shaded\" or \"data\"";
         if let Ok(name) = v.extract::<String>() {
             let mode = ColorMode::parse(&name).ok_or_else(|| {
                 pyo3::exceptions::PyValueError::new_err(format!("color_mode is one of {names}, got {name:?}"))
@@ -460,6 +460,12 @@ impl super::config_gen::ShadingConfig {
             c.shading.color_mode = ColorMode::Shaded;
             c.shadows.method = ShadowMethod::None;
             return Ok(());
+        }
+        if code == 2 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "config.shading.color_mode = 2, every body one flat colour, is gone: \"data\" shows each \
+                 mesh's own colours, unlit",
+            ));
         }
         let mode = ColorMode::from_code(code).ok_or_else(|| {
             pyo3::exceptions::PyValueError::new_err(format!("color_mode is one of {names}, got {code}"))

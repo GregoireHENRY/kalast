@@ -5867,8 +5867,9 @@ the `rays` switch, the `cascades` count as a switch and `color_mode = 3`;
 in the settings a list with only the chosen method's rows under it. `"none"`
 plans no layer at all and the shaders read "no layer, no rays" as no shadows,
 the per-facet query answering by facing alone. `shading.color_mode` is
-`"shaded"`, `"data"` or `"flat"` (the flat mode kept, offered for removal);
-numbers still taken for a release with a warning, 3 as `"none"`. The Shadows
+`"shaded"` or `"data"`: the flat mode and `shading.color` went, at the user's
+word; numbers still taken for a release with a warning, 3 as `"none"`, 2
+refused. The Shadows
 topic shows in the shaded mode only, and in the others while
 `access_shadow_map` reads them. The reference image's box is **render**, its
 hover saying what it is for. The console keeps the names it binds:

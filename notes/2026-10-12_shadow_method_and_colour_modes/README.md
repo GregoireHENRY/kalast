@@ -45,15 +45,20 @@ whatever the method (`Config::shadows_on`), as it was whatever `rays` said.
 
 ## `shading.color_mode` by name
 
-`ColorMode`: `"shaded"`, `"data"`, `"flat"`, its `code()` the 0-2 the shaders
-always took. The user counted two modes once 3 went; there were three -- 2 is
+`ColorMode`: `"shaded"` and `"data"`, its `code()` the 0 and 1 the shaders
+always took. The user counted two modes once 3 went; there were three -- 2 was
 the flat `shading.color`, a silhouette, which nothing in the examples or tests
-used. It is kept, as `"flat"`, and offered for removal rather than removed.
+used. Kept as `"flat"` at first and offered for removal: "flat color mode is
+pointless, there is only shaded or data". It went, and `shading.color` with it
+-- nothing else read it; the uniform keeps its slot, unwritten, so every
+shader's copy of `Globals` still binds, and `config_renames.py` no longer
+forwards the old flat name `config.color`.
 
 The numbers were released, and every data example set `color_mode = 1`, so
 Python still takes them for a release, with a `DeprecationWarning` naming the
 name (`set_color_mode` in `src/py/app/config.rs`, the field `:py_custom:`).
-3 sets `shadows.method = "none"` and `"shaded"`. A 0 after it, which in the
+3 sets `shadows.method = "none"` and `"shaded"`; 2 is refused, saying the flat
+mode is gone and `"data"` shows each mesh's own colours. A 0 after 3, which in the
 old world meant shadows back on, sets `"maps"` again when the method is
 `"none"` -- `tests/test_pcf_filters.py` and `test_pcf_relief.py` toggled 3
 and 0 to get an image without shadows to compare with, and a script that does
@@ -80,9 +85,9 @@ The Shadows topic (`shadows_ui` in `simulation_panel.rs`) shows in the shaded
 mode only, as asked -- with one exception the request did not foresee: the
 per-facet shadows the thermophysical model reads follow the method whatever
 the image shows, and a data map of temperatures is exactly when they are
-read. So while `access_shadow_map` is on, the settings stay in the unlit
-modes too, under a line saying they are the per-facet shadows'. Otherwise a
-line says shadows show in "Shaded".
+read. So while `access_shadow_map` is on, the settings stay in the data mode
+too, under a line saying they are the per-facet shadows'. Otherwise a line
+says shadows show in "Shaded".
 
 ## The reference image's box
 

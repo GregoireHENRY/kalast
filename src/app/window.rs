@@ -588,9 +588,6 @@ fn diagnose(
 /// mark's own length is `colorbar.tick_size`, centred on the bar's edge.
 const COLORBAR_GAP: f32 = 3.0;
 
-/// The range the bar spans: the data's in the unlit mode, which shows the data
-/// map; `0..1` in the lit ones, whose `ambient + cos(i) * visibility` is a
-/// fraction by construction, whatever the data spans.
 /// The size the image is rendered at: `config.image`'s when one is pinned,
 /// else the window's -- `(0, 0)` follows the window.
 fn image_size(config: &crate::app::config::Config, window: (u32, u32)) -> (u32, u32) {
@@ -600,6 +597,9 @@ fn image_size(config: &crate::app::config::Config, window: (u32, u32)) -> (u32, 
     }
 }
 
+/// The range the bar spans: the data's in the data mode, which shows the data
+/// map; `0..1` in the shaded one, whose `ambient + cos(i) * visibility` is a
+/// fraction by construction, whatever the data spans.
 fn colorbar_range(color_mode: crate::app::config::ColorMode, lo: f32, hi: f32) -> (f32, f32) {
     if color_mode == crate::app::config::ColorMode::Data { (lo, hi) } else { (0.0, 1.0) }
 }
@@ -3241,9 +3241,7 @@ impl Window {
             Vec::new()
         };
 
-        // The flat colour mode paints every body one colour, so there is no
-        // scale to label.
-        if config.colorbar.enabled && config.shading.color_mode != crate::app::config::ColorMode::Flat {
+        if config.colorbar.enabled {
             let (w, h) = (
                 self.render_size.0.max(1) as f32,
                 self.render_size.1.max(1) as f32,
@@ -3904,7 +3902,7 @@ impl Window {
         // twice is deliberate -- the window keeps its HUD either way, and the
         // cost is one text pass on exported frames only.
         let (bar_labels, bar_caption) = match (
-            config.colorbar.enabled && config.shading.color_mode != crate::app::config::ColorMode::Flat,
+            config.colorbar.enabled,
             self.colorbar_px,
         ) {
             (true, Some(rect)) => colorbar_labels(
@@ -4189,7 +4187,7 @@ fn build_globals(
         value_min: value_range.0,
         value_max: value_range.1,
 
-        color: super::gpu::color_vec3(&config.shading.color),
+        color: Default::default(),
         color_mode: config.shading.color_mode.code(),
 
         srgb_mode: config.shading.srgb_mode,

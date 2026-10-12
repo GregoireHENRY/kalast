@@ -652,7 +652,7 @@ Each `Hud` carries:
 | `anchor` | which corner `x`/`y` are measured from |
 | `x`, `y` | inset from the anchor, in pixels |
 | `size` | font size in pixels |
-| `shading.color` | `(r, g, b, a)`, each 0–1 |
+| `color` | `(r, g, b, a)`, each 0–1 |
 
 All of them are editable in the editor's HUDs section, which can also add and
 remove HUDs.
