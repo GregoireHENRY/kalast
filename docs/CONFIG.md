@@ -1488,11 +1488,11 @@ presets, and under it only the settings the method reads.
 |---|---|
 | `"maps"` | shadow maps: a layer per body fitted to what the camera sees (`per_body`, `near_layer`, `second_depth`, `cache`, `pcf`, `resolution`) |
 | `"rays"` | traced against the full meshes (`ray_samples`, `ray_probe`), on a GPU with ray queries; without, the maps answer |
+| `"reference"` | a reference image: a still summed with rays to a stated error (`reference.error`, `max_samples`, `bounces`), its per-facet shadows the rays' -- see *Reference image* |
 | `"none"` | no shadows: every point facing the Sun sees all of it, nothing is drawn for them, and the per-facet shadows hide only what faces away |
 
-With `"none"` the shadow array gives back its memory, as with the rays. A
-reference image (`reference.enabled`) is traced with its shadows whatever the
-method. It replaces `shading.color_mode = 3`.
+With `"none"` the shadow array gives back its memory, as with the rays. It
+replaces `shading.color_mode = 3`.
 
 ### `quality: str | None` — default `"point"` *(live)*
 The shadow settings for one use, set together by name. Read back, the name
@@ -1656,8 +1656,7 @@ none of it, and one ray says which. Exact wherever the maps hold what casts
 the penumbra; relief finer than their texels is not in them, and its penumbra
 is drawn hard -- on a plate with a wall standing on it, the image is the
 rays' own to the pixel, and 4 of 80,000 facets, where the wall meets the
-plate, are off by up to 6 %. A body with a horizon map is traced throughout,
-as is a reference image.
+plate, are off by up to 6 %. A body with a horizon map is traced throughout.
 
 On the Didymos pair from 1 km with Dimorphos's shadow across it, an M1 Pro:
 an image at 1200 x 800 in 143 ms instead of 384, a step with every facet's
@@ -1694,10 +1693,10 @@ rays, 58 at 256 (`shadows.ray_probe`), against 8 for the maps. An image of the
 pair at 1200 x 800: 0.8 ms with a point Sun (maps 0.4), 5.2 with the disc
 (maps 1.0).
 
-While the rays answer, the shadow maps are not drawn -- but for a preview
-while you work the window (`CONTROLS.md`) and the guide (`shadows.ray_guide`)
--- nor kept at `shadows.resolution`: no more than 2048 texels a side, enough
-for a preview, back to the resolution when the method is the maps again. The Didymos pair up
+While the rays answer, the shadow maps are neither drawn -- but for the guide
+(`shadows.ray_guide`) -- nor kept at `shadows.resolution`: no shadow pass, no
+penumbra pass, and the shadow array the least it can be, back when the method
+is the maps again. The Didymos pair up
 close with the disc at `16384`, PCF 16: 4.4 GB of the GPU's memory instead of
 more than 11.
 
@@ -1725,8 +1724,8 @@ two under it that fits is, and the kalast tab says which. At `16384` a layer
 is 1 GB, and the Didymos pair with the Sun a disc wants nine -- two bodies,
 their second depth layers, the other bodies' slices, the near layer -- which
 on a 16 GB card ran out, and the app crashed; it now takes `8192`. With
-`shadows.method = "none"` the array is the least it can be, since nothing
-reads it, and with `"rays"` no more than 2048 a side, for a preview.
+`shadows.method` `"rays"` (unguided), `"reference"` or `"none"`, the array is
+the least it can be, since nothing reads it.
 
 The default was `8192` until 22 September. Every layer is stored every frame
 and the main pass cannot start its fragment stage until it is, so the store
@@ -1858,6 +1857,12 @@ reverse-engineered from the matrix.
 
 ## Reference image
 
+`shadows.method = "reference"`: a still drawn as exactly as kalast can, for a
+figure or to check a faster method against. Every frame adds a sample of every
+pixel and the image sharpens, until its error is under `reference.error`; then
+it holds. In the editor, "Reference" in the shadows' method list, its rows
+under it with a line saying how far it has got.
+
 A still scene integrated, progressively, to a stated error: each pixel over
 its area and the Sun's disc. Each frame draws one sample of every pixel --
 the camera jittered within it (Halton's bases 2 and 3), one ray to a point of
@@ -1878,20 +1883,14 @@ across the wall's penumbra each pixel within 0.0017 of the disc's light its
 ground sees, worked out in float64 (rms 0.0007), inside the image's own
 stated error.
 
-### `reference.enabled: bool` — default `false` *(live)*
-Render a reference image: a still drawn as exactly as kalast can, for a figure
-or to check a faster setting against. Every frame adds a sample of every
-pixel and the image sharpens, until its error is under `reference.error`;
-then it holds. In the editor, the **render** box under Shadows, "reference
-image", with a line saying how far it has got.
-
-The shadows are traced with rays where the GPU can, whatever `shadows.method`
-says, against the full meshes; the level of
-detail and MSAA are off while it is on -- the image is integrated over its
+The shadows are traced with rays where the GPU can, against the full meshes;
+the level of detail and MSAA are off -- the image is integrated over its
 pixels instead -- and the probe (`shadows.ray_probe`) too, which would miss
-slivers. `sim.reference_samples`, `sim.reference_error` and
-`sim.reference_done` follow it; `sim.reference_image()` gives the mean as
-floats once done, `sim.reference_error_image()` each pixel's standard error.
+slivers. The per-facet shadows the thermophysical model reads are the rays'
+(`shadows.ray_samples`, `ray_probe`): a sum over frames is no answer for a
+step. `sim.reference_samples`, `sim.reference_error` and `sim.reference_done`
+follow it; `sim.reference_image()` gives the mean as floats once done,
+`sim.reference_error_image()` each pixel's standard error.
 
 ### `reference.error: float` — default `1/510` *(live)*
 The standard error the sum stops at, in the image's values (0 to 1): the

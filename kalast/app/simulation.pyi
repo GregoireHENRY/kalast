@@ -107,7 +107,7 @@ class Simulation:
     """
     reference_samples: int
     """A reference image's samples of each pixel so far
-    (`config.reference.enabled`); 0 without one.
+    (`config.shadows.method = "reference"`); 0 without one.
     """
     reference_error: float | None
     """A reference image's standard error, last measured: the 99.9th

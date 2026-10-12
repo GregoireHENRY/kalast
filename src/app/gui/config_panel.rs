@@ -84,12 +84,13 @@ pub fn group_light(ui: &mut egui::Ui, c: &mut Config) {
 
 /// `config.shadows` -- Shadows.
 pub fn group_shadows(ui: &mut egui::Ui, c: &mut Config) {
-    setting(ui, "method", "How the Sun's shadows are drawn: \"maps\", a shadow map per body (the default); \"rays\", traced against the full meshes, on a GPU with ray queries; \"none\", no shadows at all. The image's and those the thermophysical model reads (`sim.facet_shadow`) alike.", |ui| {
+    setting(ui, "method", "How the Sun's shadows are drawn: \"maps\", a shadow map per body (the default); \"rays\", traced against the full meshes, on a GPU with ray queries; \"reference\", a still image summed with rays to a stated error (`reference`); \"none\", no shadows at all. The image's and those the thermophysical model reads (`sim.facet_shadow`) alike -- a reference image's, the rays'.", |ui| {
         egui::ComboBox::from_id_salt("c.shadows.method")
             .selected_text(format!("{:?}", c.shadows.method))
             .show_ui(ui, |ui| {
                 ui.selectable_value(&mut c.shadows.method, crate::app::config::ShadowMethod::Maps, "Maps").on_hover_text("Shadow maps: a layer per body, fitted to what the camera sees of it, drawn from the Sun every frame. The default.");
                 ui.selectable_value(&mut c.shadows.method, crate::app::config::ShadowMethod::Rays, "Rays").on_hover_text("Traced with rays against the full meshes, the Sun's disc sampled by `ray_samples` rays a point: no texel, filter or bias. On a GPU with ray queries; without, the shadow maps answer.");
+                ui.selectable_value(&mut c.shadows.method, crate::app::config::ShadowMethod::Reference, "Reference").on_hover_text("A reference image: a still drawn as exactly as kalast can, for a figure or to check a faster method against -- every pixel summed over its area and the Sun's disc with rays, a sample a frame, until its error is under `reference.error`, then held. For a still scene: anything that moves starts the sum again.");
                 ui.selectable_value(&mut c.shadows.method, crate::app::config::ShadowMethod::None, "None").on_hover_text("No shadows: every point facing the Sun sees all of it, and nothing is drawn for them.");
             });
     });
@@ -154,10 +155,10 @@ pub fn group_shadows(ui: &mut egui::Ui, c: &mut Config) {
     if c.shadows.method == crate::app::config::ShadowMethod::Maps {
         setting(ui, "lod_pixels", "The size, in the camera's pixels, a large mesh's triangles are drawn at in the shadow maps when `shading.lod` is on, outside the camera's view.", |ui| ui.add(egui::Slider::new(&mut c.shadows.lod_pixels, 0.5..=32.0).clamping(egui::SliderClamping::Edits)));
     }
-    if c.shadows.method == crate::app::config::ShadowMethod::Rays {
-        setting(ui, "ray_samples", "The rays each point -- a pixel, a facet's corner or centre -- traces across the Sun's disc, with `method` \"rays\" and `light.sun_as_point` off: each carries the same share of the limb-darkened disc's light, so a penumbra is resolved to about 1/`ray_samples`. A point Sun takes one.", |ui| ui.add(egui::Slider::new(&mut c.shadows.ray_samples, 1..=1024).clamping(egui::SliderClamping::Edits)));
+    if c.shadows.method.traces() {
+        setting(ui, "ray_samples", "The rays each point -- a pixel, a facet's corner or centre -- traces across the Sun's disc, with `method` \"rays\" and `light.sun_as_point` off, and with \"reference\" each facet's: each carries the same share of the limb-darkened disc's light, so a penumbra is resolved to about 1/`ray_samples`. A point Sun takes one.", |ui| ui.add(egui::Slider::new(&mut c.shadows.ray_samples, 1..=1024).clamping(egui::SliderClamping::Edits)));
     }
-    if c.shadows.method == crate::app::config::ShadowMethod::Rays {
+    if c.shadows.method.traces() {
         setting(ui, "ray_probe", "The rays a point tries first across the disc, with `method` \"rays\": where they all agree the point is wholly lit or wholly hidden and the rest of `ray_samples` are not traced. Nearly every point is, so a step costs about this many rays a point whatever `ray_samples` is.", |ui| ui.add(egui::Slider::new(&mut c.shadows.ray_probe, 0..=64).clamping(egui::SliderClamping::Edits)));
     }
     if c.shadows.method == crate::app::config::ShadowMethod::Rays {
@@ -167,14 +168,13 @@ pub fn group_shadows(ui: &mut egui::Ui, c: &mut Config) {
 
 /// `config.reference` -- Reference.
 pub fn group_reference(ui: &mut egui::Ui, c: &mut Config) {
-    setting(ui, "render", "Render a reference image: a still drawn as exactly as kalast can, for a figure or to check a faster setting against. Every frame adds a sample of every pixel and the image sharpens, until its error is under `error`; then it holds.", |ui| ui.checkbox(&mut c.reference.enabled, ""));
-    if c.reference.enabled == true {
+    if c.shadows.method == crate::app::config::ShadowMethod::Reference {
         setting(ui, "error", "The standard error the sum stops at, in the image's values (0 to 1): the 99.9th percentile of the pixels', from the spread of four independent estimates of each. Half an 8-bit step, 1/510, by default.", |ui| ui.add(egui::DragValue::new(&mut c.reference.error).speed(0.0001)));
     }
-    if c.reference.enabled == true {
+    if c.shadows.method == crate::app::config::ShadowMethod::Reference {
         setting(ui, "max_samples", "The most samples a pixel takes, the error reached or not.", |ui| ui.add(egui::Slider::new(&mut c.reference.max_samples, 64..=65536).clamping(egui::SliderClamping::Edits)));
     }
-    if c.reference.enabled == true {
+    if c.shadows.method == crate::app::config::ShadowMethod::Reference {
         setting(ui, "bounces", "Sunlight bounced off the surfaces this many times on its way to the camera, up to 4: what lights a crater's floor in its own shadow.", |ui| ui.add(egui::Slider::new(&mut c.reference.bounces, 0..=4).clamping(egui::SliderClamping::Edits)));
     }
 }

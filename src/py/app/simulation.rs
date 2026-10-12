@@ -225,7 +225,7 @@ impl Simulation {
 
     #[getter]
     /// A reference image's samples of each pixel so far
-    /// (`config.reference.enabled`); 0 without one.
+    /// (`config.shadows.method = "reference"`); 0 without one.
     fn reference_samples(&self) -> u32 {
         self.inner.borrow().reference.samples
     }

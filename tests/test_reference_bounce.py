@@ -127,8 +127,7 @@ def main() -> int:
         print("skip: this GPU traces no rays here (sim.rays is False)")
         app.close()
         return 0
-    c.shadows.method = "maps"
-    c.reference.enabled = True
+    c.shadows.method = "reference"
     c.reference.max_samples = 512
 
     p, on_bowl = bowl_points()

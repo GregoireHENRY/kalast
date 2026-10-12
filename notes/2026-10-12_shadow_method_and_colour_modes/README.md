@@ -140,42 +140,46 @@ says when the GPU has no ray queries, its shadows then the maps'.
 "when the HUD has low FPS like 10 or less the UI is unusable cus mouse is
 laggy and teleports" -- the user had rays or a reference running. The panels,
 the mouse and the scene share one loop, so every frame the panels wait for the
-scene's: rays across the disc on the M1 Pro, 0.14-0.4 s. The user chose three
-remedies: the paused scene drawn only on change, a preview while the camera
-moves, and cheaper rays as an option (`2026-10-12_ray_tracing_on_metal/`,
-`shadows.ray_guide`).
+scene's: rays across the disc on the M1 Pro, 0.14-0.4 s.
 
-**A preview while the user works the window.** `last_input` in `App`, set by
-the pointer, the wheel, the keys, touch and gestures -- not by a window's own
-resizes and uncovers, which arrive as it opens: counted, a script stepping
-fast had its first 300 ms previewed, and a reference summed nothing through
-them. Within `PREVIEW_HOLD` (0.3 s) of it, or while the controller moves the
-camera (a key held sends nothing between its repeats), and when the last
-exact frames took longer than 1/30 s, the app asks the window for a preview
-(`Window::preview`). The window makes one only of an image that traces and
-nothing to export (`previewing`): the main pass by the untraced pipelines
-`render::Pass::untraced` keeps beside the traced ones -- the ray code there
-and untaken halves the pass, so a preview with it would be half as quick --
-the maps drawn, with the disc's penumbra pass, no second depth layer; a
-reference image neither summed, jittered nor shown. The per-facet shadows
-stay traced. With the rays the shadow array keeps up to 2048 a side for it
-(it was 512). Forced on every frame, the Didymos pair's disc drew in 2.2 ms
-against 384 traced; `tests/test_image_rays.py` passes so, its exported frames
-exact.
+A preview was tried first (`0c40844`): while the user worked the mouse or the
+keyboard, a traced image slower than 1/30 s drawn with the maps by untraced
+pipelines, exact again 0.3 s after. It worked -- 2.2 ms a frame against 384 --
+and the user did not want it: "i dont like that when moving my mouse the
+method changes, it should instead be a separate thread for the UI". It is gone.
 
-**Paused, drawn only on change**, in the UI app: no input within the hold, no
-camera move, the last frame exact and into the target there is now
-(`Window::drawn_generation`, made anew by a resize or a rebuild), nothing
-asked of the frame (an export, a per-facet query, a pick) and no reference
-summing -- then neither `Window::update` nor `render` runs, nor the queries,
-whose answers are the last frame's still; the panels draw onto the scene as
-it was, and the loop sleeps to the next present. Once a second
-(`IDLE_REDRAW`) it is drawn anyway, for what changes without input: a level of
-detail finished on its thread. The frame rate counts the frames that draw.
+What stays is what changes nothing on screen: **paused, the scene drawn only
+on change**, in the UI app -- no input within 0.3 s (`INPUT_HOLD`), no camera
+move by the controller (a key held sends nothing between its repeats), the
+last frame drawn into the target there is now (`Window::drawn_generation`,
+made anew by a resize or a rebuild), nothing asked of the frame (an export, a
+per-facet query, a pick) and no reference summing -- then neither
+`Window::update` nor `render` runs, nor the queries, whose answers are the
+last frame's still; the panels draw onto the scene as it was, and the loop
+sleeps to the next present. Once a second (`IDLE_REDRAW`) it is drawn anyway,
+for what changes without input: a level of detail finished on its thread. Only
+input counts: a window opening sends resizes and uncovers of its own, which
+counted at first and made a script stepping fast lose its first frames. The
+frame rate counts the frames that draw.
 
-Not seen on screen: a window opened behind the others, as tests open them, is
-occluded, and macOS gives it a frame a second, whatever the app does. Asked
-of the user to try.
+A thread for the UI alone would not have kept the panels going under the
+rays: their frame is one draw on the GPU's one queue, 0.14-0.4 s, and the UI's
+draws queue behind it whichever thread sends them. What does is cutting the
+scene's GPU work into slices of a few milliseconds, the UI drawn between them
+with the last finished image; a UI thread besides frees the panels from what
+holds the CPU -- a script's step, the TPM. Put to the user, open.
+
+## The reference image a method
+
+"i maintain that render reference image as a separate option that is not part
+of method is confusing, i can have method None no shadow and reference image
+render, i can also have reference image as shadow map. It makes no sense". It
+is `shadows.method = "reference"` now (`ShadowMethod::Reference`, `traces()`
+with the rays); `reference.enabled` went, unreleased, and `reference.error`,
+`max_samples` and `bounces` show under the method in the list. Its per-facet
+shadows are the rays' (`ray_samples` and `ray_probe` show under both), a sum
+over frames being no answer for a step. A GPU without ray queries draws it
+with the maps, the kalast tab saying so.
 
 ## The console
 

@@ -763,13 +763,19 @@ pub enum ShadowMethod {
     /// `ray_samples` rays a point: no texel, filter or bias. On a GPU with ray
     /// queries; without, the shadow maps answer.
     Rays,
+    /// A reference image: a still drawn as exactly as kalast can, for a figure
+    /// or to check a faster method against -- every pixel summed over its
+    /// area and the Sun's disc with rays, a sample a frame, until its error is
+    /// under `reference.error`, then held. For a still scene: anything that
+    /// moves starts the sum again.
+    Reference,
     /// No shadows: every point facing the Sun sees all of it, and nothing is
     /// drawn for them.
     None,
 }
 
 impl ShadowMethod {
-    pub const ALL: [ShadowMethod; 3] = [Self::Maps, Self::Rays, Self::None];
+    pub const ALL: [ShadowMethod; 4] = [Self::Maps, Self::Rays, Self::Reference, Self::None];
 
     /// Parsed from Python, where these are plain strings.
     pub fn parse(s: &str) -> Option<Self> {
@@ -780,8 +786,14 @@ impl ShadowMethod {
         match self {
             Self::Maps => "maps",
             Self::Rays => "rays",
+            Self::Reference => "reference",
             Self::None => "none",
         }
+    }
+
+    /// Traced with rays, where the GPU can: the rays and a reference image.
+    pub fn traces(&self) -> bool {
+        matches!(self, Self::Rays | Self::Reference)
     }
 }
 
@@ -790,8 +802,10 @@ impl ShadowMethod {
 pub struct Shadows {
     /// How the Sun's shadows are drawn: "maps", a shadow map per body (the
     /// default); "rays", traced against the full meshes, on a GPU with ray
-    /// queries; "none", no shadows at all. The image's and those the
-    /// thermophysical model reads (`sim.facet_shadow`) alike.
+    /// queries; "reference", a still image summed with rays to a stated error
+    /// (`reference`); "none", no shadows at all. The image's and those the
+    /// thermophysical model reads (`sim.facet_shadow`) alike -- a reference
+    /// image's, the rays'.
     pub method: ShadowMethod,
     /// Side length of each square shadow map, in texels.
     ///
@@ -965,15 +979,16 @@ pub struct Shadows {
     pub lod_pixels: f32,
     /// The rays each point -- a pixel, a facet's corner or centre -- traces
     /// across the Sun's disc, with `method` "rays" and `light.sun_as_point`
-    /// off: each carries the same share of the limb-darkened disc's light, so
-    /// a penumbra is resolved to about 1/`ray_samples`. A point Sun takes one.
+    /// off, and with "reference" each facet's: each carries the same share of
+    /// the limb-darkened disc's light, so a penumbra is resolved to about
+    /// 1/`ray_samples`. A point Sun takes one.
     ///
     /// No texel, filter or bias: a shadow is where the mesh is, a penumbra
     /// what the rays see of the disc. With a level of detail, a pixel's rays
     /// start from the full mesh, not the coarser surface drawn. Vulkan on
     /// Windows and Linux, Metal on macOS 15 and later -- on an Apple M1 or M2
     /// the traversal is the driver's, slower than on hardware that has it.
-    /// :when: method == ShadowMethod::Rays
+    /// :when: method.traces()
     /// :range: 1..=1024
     pub ray_samples: u32,
     /// The rays a point tries first across the disc, with `method` "rays": where
@@ -985,7 +1000,7 @@ pub struct Shadows {
     /// seen with all of these rays missing it, is missed: the edge of a
     /// penumbra by a sliver. 0 traces all of `ray_samples` everywhere,
     /// exact to them.
-    /// :when: method == ShadowMethod::Rays
+    /// :when: method.traces()
     /// :range: 0..=64
     pub ray_probe: u32,
     /// Trace the disc's rays only where the shadow maps see a penumbra can
@@ -999,7 +1014,7 @@ pub struct Shadows {
     /// one ray says which; where something does, `ray_samples` rays are
     /// traced across the disc. Relief finer than the maps' texels is not in
     /// them, and its penumbra is drawn hard. A body with a horizon map is
-    /// traced throughout, as is a reference image. Off by default.
+    /// traced throughout. Off by default.
     /// :when: method == ShadowMethod::Rays
     pub ray_guide: bool,
 }
@@ -1124,11 +1139,9 @@ impl Quality {
 }
 
 impl Config {
-    /// Whether anything casts a shadow: every `shadows.method` but "none" --
-    /// and a reference image, which is nothing if not exact, whatever the
-    /// method.
+    /// Whether anything casts a shadow: every `shadows.method` but "none".
     pub fn shadows_on(&self) -> bool {
-        self.shadows.method != ShadowMethod::None || self.reference.enabled
+        self.shadows.method != ShadowMethod::None
     }
 
     /// Set the shadow settings for one use (`Quality`).
@@ -1475,37 +1488,30 @@ impl Default for AxesConfig {
     }
 }
 
-/// A reference image (`app::reference`): each pixel integrated over its area
+/// A reference image (`shadows.method` "reference", `app::reference`): a
+/// still drawn as exactly as kalast can, each pixel integrated over its area
 /// and the Sun's disc, progressively, a sample a frame, to a stated error.
+///
+/// A sample jitters the camera within the pixel and traces one ray to a point
+/// of the Sun's limb-darkened disc -- with `bounces`, the light bounced off the
+/// surfaces too -- into the mean of all the samples so far. For a still scene:
+/// anything that changes it starts the sum again. The shadows are traced with
+/// rays where the GPU can, against the full meshes: the level of detail and
+/// MSAA are off, the frame being integrated over its pixels instead. No
+/// denoiser, no history, no clamp: a plain mean of fixed sequences, the same
+/// image every run. `sim.reference_samples`, `sim.reference_error` and
+/// `sim.reference_done` follow it; `sim.reference_image()` gives the mean as
+/// floats once done.
 #[derive(Clone, Debug)]
 pub struct Reference {
-    /// Render a reference image: a still drawn as exactly as kalast can, for
-    /// a figure or to check a faster setting against. Every frame adds a
-    /// sample of every pixel and the image sharpens, until its error is under
-    /// `error`; then it holds.
-    ///
-    /// A sample jitters the camera within the pixel and traces one ray to a
-    /// point of the Sun's limb-darkened disc -- with `bounces`, the light
-    /// bounced off the surfaces too -- into the mean of all the samples so
-    /// far. For a still scene: anything that changes it starts the sum again.
-    ///
-    /// The shadows are traced with rays where the GPU can, whatever
-    /// `shadows.method` says, against the full meshes: the level of detail and
-    /// MSAA are off while it is on, the frame being integrated over its
-    /// pixels instead. No denoiser, no history, no clamp: a plain mean of
-    /// fixed sequences, the same image every run. `sim.reference_samples`,
-    /// `sim.reference_error` and `sim.reference_done` follow it;
-    /// `sim.reference_image()` gives the mean as floats once done.
-    /// :label: render
-    pub enabled: bool,
     /// The standard error the sum stops at, in the image's values (0 to 1):
     /// the 99.9th percentile of the pixels', from the spread of four
     /// independent estimates of each. Half an 8-bit step, 1/510, by default.
-    /// :when: enabled == true
+    /// :when: shadows.method == ShadowMethod::Reference
     /// :step: 0.0001
     pub error: f32,
     /// The most samples a pixel takes, the error reached or not.
-    /// :when: enabled == true
+    /// :when: shadows.method == ShadowMethod::Reference
     /// :range: 64..=65536
     pub max_samples: u32,
     /// Sunlight bounced off the surfaces this many times on its way to the
@@ -1517,14 +1523,14 @@ pub struct Reference {
     /// reflects it, and goes on from there. A body reflects as a Lambert
     /// surface of the mean of its facets' colours; the light that leaves
     /// for space is gone. 0, the default: the Sun's direct light alone.
-    /// :when: enabled == true
+    /// :when: shadows.method == ShadowMethod::Reference
     /// :range: 0..=4
     pub bounces: u32,
 }
 
 impl Default for Reference {
     fn default() -> Self {
-        Self { enabled: false, error: 1.0 / 510.0, max_samples: 4096, bounces: 0 }
+        Self { error: 1.0 / 510.0, max_samples: 4096, bounces: 0 }
     }
 }
 

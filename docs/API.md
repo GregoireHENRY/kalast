@@ -1226,7 +1226,7 @@ the Sun, `1.0` for each facing away, as the image has it.
 ### A reference image
 
 ```python
-sim.config.reference.enabled = True     # a still scene, integrated
+sim.config.shadows.method = "reference" # a still scene, integrated
 while not sim.reference_done:
     app.step()
 mean = sim.reference_image()            # (height, width, 3) float32

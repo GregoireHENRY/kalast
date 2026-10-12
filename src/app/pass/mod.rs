@@ -18,10 +18,7 @@ pub struct Passes {
     pub rays: bool,
     /// The main pass built to trace rays, group 7 bound (`Passes::new`).
     pub traced: bool,
-    /// This frame a preview (`Window::preview`): the main pass untraced, and
-    /// a reference image neither summed nor shown.
-    pub preview: bool,
-    /// Built for a reference image (`reference.enabled`, `Passes::new`).
+    /// Built for a reference image (`shadows.method` "reference", `Passes::new`).
     pub reference_on: bool,
     /// The reference image's sums, made at the image's size when first
     /// drawn.
@@ -54,7 +51,7 @@ impl Passes {
         // The main pass's group 7, the bodies to trace rays against, when it
         // traces them; `None` builds it without (`gpu::shader_for_traced`).
         rays: Option<&wgpu::BindGroupLayout>,
-        // A reference image is being made (`reference.enabled`): everything
+        // A reference image is being made (`shadows.method` "reference"): everything
         // single-sampled -- the image is integrated over its pixels instead
         // -- and the float pipelines its samples are drawn with.
         reference: bool,
@@ -82,7 +79,6 @@ impl Passes {
             penumbra,
             rays: false,
             traced: rays.is_some(),
-            preview: false,
             reference_on: reference,
             reference: None,
             render,
@@ -158,8 +154,8 @@ impl Passes {
         }
         // A reference image: this frame's sample of every pixel added to the
         // sum, the mean as the image, what the main pass draws over the
-        // scene drawn over the mean. Not in a preview, drawn as any frame.
-        if self.reference_on && !self.preview {
+        // scene drawn over the mean.
+        if self.reference_on {
             let format = self.render.format();
             if self.reference.as_ref().is_none_or(|r| r.size != size) {
                 self.reference = Some(crate::app::reference::Reference::new(device, size, format));
@@ -216,7 +212,6 @@ impl Passes {
             timer.and_then(|t| t.scope(super::gpu_timing::Scope::Render)),
             config.debug.occlusion_queries.then_some(&self.occlusion),
             annotations,
-            self.preview,
         );
 
         // Over everything, so after the annotations when those come later.

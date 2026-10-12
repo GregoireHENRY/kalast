@@ -454,15 +454,17 @@ fn shadows_ui(ui: &mut egui::Ui, sim: &Simulation, c: &mut Config) {
     }
     quality_ui(ui, c);
     group_shadows(ui, c);
-    if !shaded {
+    // The reference image's own rows, under the method that makes one.
+    if !shaded || c.shadows.method != crate::app::config::ShadowMethod::Reference {
         return;
     }
     subheading(ui, "reference image").on_hover_text(
         "A still drawn as exactly as kalast can, ray traced and summed a sample of every pixel a frame \
-         until its error is under `error`, then held: for a figure, or to check a faster setting against.",
+         until its error is under `error`, then held: for a figure, or to check a faster method against. \
+         Anything that moves starts it again.",
     );
     group_reference(ui, c);
-    if c.reference.enabled {
+    {
         let r = &sim.reference;
         let error = r.error.map_or(String::from("error not measured yet"), |e| {
             format!("error {e:.1e}, stops at {:.1e}", c.reference.error)

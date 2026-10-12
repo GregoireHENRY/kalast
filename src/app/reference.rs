@@ -1,4 +1,4 @@
-//! A reference image (`reference.enabled`): the image integrated, progressively,
+//! A reference image (`shadows.method` "reference"): the image integrated, progressively,
 //! over each pixel's area and the Sun's disc, to a stated error.
 //!
 //! Each frame draws one sample of every pixel -- the camera jittered within

@@ -401,15 +401,8 @@ pub struct App {
     fps_window_frames: u32,
 
     /// When the user last worked the mouse or the keyboard: for
-    /// `PREVIEW_HOLD` after it, an image that traces slowly is drawn as a
-    /// preview (`Window::preview`), and a paused scene is drawn at all.
+    /// `INPUT_HOLD` after it, a paused scene is drawn.
     last_input: std::time::Instant,
-    /// How long the last exact frames took, one after another: a traced
-    /// image slower than `PREVIEW_SLOWER_THAN` is previewed.
-    exact_frame_secs: f64,
-    /// The last frame drew the scene exactly, so the next one's interval is
-    /// an exact frame's.
-    last_frame_exact: bool,
 
     /// Held only while the caller drives the loop with `step()`. `start()`
     /// takes it and hands it to `run_app`, which never gives it back --
@@ -499,15 +492,8 @@ pub struct App {
 const HUD_RATE_WINDOW: Float = 1.0;
 
 /// How long after the last mouse or keyboard input the user still counts as
-/// working the window: a slow traced image is previewed, and a paused scene
-/// is drawn, for this long after it.
-const PREVIEW_HOLD: std::time::Duration = std::time::Duration::from_millis(300);
-
-/// An exact frame slower than this, in seconds -- under 30 a second -- is
-/// previewed while the user works the window: rays across the Sun's disc on
-/// an M1 Pro take 0.14 to 0.4 s an image, and the panels and the mouse went
-/// at that pace with them, "laggy and teleports".
-const PREVIEW_SLOWER_THAN: f64 = 1.0 / 30.0;
+/// working the window, a paused scene drawn: what the input changed shows.
+const INPUT_HOLD: std::time::Duration = std::time::Duration::from_millis(300);
 
 /// A paused scene not drawn again while nothing changes is drawn anyway this
 /// often: a mesh's level of detail finished on its thread, a horizon map
@@ -1079,8 +1065,6 @@ impl App {
             fps_window_frames: 0,
 
             last_input: std::time::Instant::now() - std::time::Duration::from_secs(60),
-            exact_frame_secs: 0.0,
-            last_frame_exact: false,
 
             event_loop: None,
             frame_drawn: false,
@@ -3089,9 +3073,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
         // the scene -- but obtaining it cannot, since it reads the field.
         let sim_cfg = self.sim_config();
 
-        // The user working the window, for previews and paused redraws. Its
-        // input only: a window opening sends resizes and uncovers of its own,
-        // and a script stepping fast then had its first frames previewed. A
+        // The user working the window, for paused redraws. Its input only: a
         // resize makes a new target for the image, which is drawn anyway
         // (`Window::drawn_generation`).
         if matches!(
@@ -3355,12 +3337,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     }
 
                     win.pointer = pointer;
-                    // While the user works the mouse or the keyboard, an
-                    // image that traces slowly is a preview (`Window::
-                    // preview`), the panels and the camera at the display's
-                    // pace rather than the rays'.
-                    let interacting = camera_moved || self.last_input.elapsed() < PREVIEW_HOLD;
-                    win.preview = interacting && self.exact_frame_secs > PREVIEW_SLOWER_THAN;
+                    let interacting = camera_moved || self.last_input.elapsed() < INPUT_HOLD;
                     // Paused, untouched, and drawn exactly already: the scene
                     // is left as it is, and only the panels are drawn -- at
                     // the display's pace whatever the scene costs. Not while
@@ -3372,13 +3349,13 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         || sim.facet_id_request
                         || sim.hemicube_request.is_some()
                         || sim.facet_pick_request.is_some();
-                    let summing = sim_cfg.borrow().reference.enabled && !sim.reference.done;
+                    let summing = sim_cfg.borrow().shadows.method == crate::app::config::ShadowMethod::Reference
+                        && !sim.reference.done;
                     let idle = paused
                         && self.editor.is_some()
                         && !interacting
                         && !asked
                         && !summing
-                        && win.exact_drawn
                         && win.drawn_generation == win.render_generation
                         && win.last_drawn.elapsed() < IDLE_REDRAW;
                     if !idle {
@@ -3483,7 +3460,6 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         // Nothing drawn: the panels have the frame. Until the
                         // next present is due, no loop round it either.
                         editor_surface = surface_texture;
-                        self.last_frame_exact = false;
                         if !present_due {
                             if let Some(interval) = self.present_interval {
                                 let wait = interval.saturating_sub(self.last_present.elapsed());
@@ -3502,12 +3478,6 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     }
                     if !idle {
                         self.fps_window_frames += 1;
-                        // An exact frame after an exact frame: how long one
-                        // takes, which decides whether to preview.
-                        if win.exact_drawn && self.last_frame_exact {
-                            self.exact_frame_secs = self.dt as f64;
-                        }
-                        self.last_frame_exact = win.exact_drawn;
 
                         // A reference image's progress, its error now and
                         // then, its mean once done

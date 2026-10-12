@@ -566,8 +566,10 @@ class ShadowsConfig:
     method: str
     """How the Sun's shadows are drawn: "maps", a shadow map per body (the
     default); "rays", traced against the full meshes, on a GPU with ray
-    queries; "none", no shadows at all. The image's and those the
-    thermophysical model reads (`sim.facet_shadow`) alike.
+    queries; "reference", a still image summed with rays to a stated error
+    (`reference`); "none", no shadows at all. The image's and those the
+    thermophysical model reads (`sim.facet_shadow`) alike -- a reference
+    image's, the rays'.
     """
     resolution: int
     """Side length of each square shadow map, in texels.
@@ -733,8 +735,9 @@ class ShadowsConfig:
     ray_samples: int
     """The rays each point -- a pixel, a facet's corner or centre -- traces
     across the Sun's disc, with `method` "rays" and `light.sun_as_point`
-    off: each carries the same share of the limb-darkened disc's light, so
-    a penumbra is resolved to about 1/`ray_samples`. A point Sun takes one.
+    off, and with "reference" each facet's: each carries the same share of
+    the limb-darkened disc's light, so a penumbra is resolved to about
+    1/`ray_samples`. A point Sun takes one.
 
     No texel, filter or bias: a shadow is where the mesh is, a penumbra
     what the rays see of the disc. With a level of detail, a pixel's rays
@@ -765,7 +768,7 @@ class ShadowsConfig:
     one ray says which; where something does, `ray_samples` rays are
     traced across the disc. Relief finer than the maps' texels is not in
     them, and its penumbra is drawn hard. A body with a horizon map is
-    traced throughout, as is a reference image. Off by default.
+    traced throughout. Off by default.
     """
 
 class ReferenceConfig:
@@ -773,25 +776,6 @@ class ReferenceConfig:
 
     `app.simulation.config.reference`. Reads and writes the live config
     through the same handle as every other view of it.
-    """
-    enabled: bool
-    """Render a reference image: a still drawn as exactly as kalast can, for
-    a figure or to check a faster setting against. Every frame adds a
-    sample of every pixel and the image sharpens, until its error is under
-    `error`; then it holds.
-
-    A sample jitters the camera within the pixel and traces one ray to a
-    point of the Sun's limb-darkened disc -- with `bounces`, the light
-    bounced off the surfaces too -- into the mean of all the samples so
-    far. For a still scene: anything that changes it starts the sum again.
-
-    The shadows are traced with rays where the GPU can, whatever
-    `shadows.method` says, against the full meshes: the level of detail and
-    MSAA are off while it is on, the frame being integrated over its
-    pixels instead. No denoiser, no history, no clamp: a plain mean of
-    fixed sequences, the same image every run. `sim.reference_samples`,
-    `sim.reference_error` and `sim.reference_done` follow it;
-    `sim.reference_image()` gives the mean as floats once done.
     """
     error: float
     """The standard error the sum stops at, in the image's values (0 to 1):

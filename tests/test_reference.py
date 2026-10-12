@@ -119,8 +119,7 @@ def main() -> int:
         print("skip: this GPU traces no rays here (sim.rays is False)")
         app.close()
         return 0
-    c.shadows.method = "maps"
-    c.reference.enabled = True
+    c.shadows.method = "reference"
     c.reference.max_samples = 8192
     target = c.reference.error
 
@@ -144,9 +143,9 @@ def main() -> int:
           f"{band.sum()} pixels: rms {numpy.sqrt((e**2).mean()):.5f}, worst {abs(e).max():.5f}, the image's own error up to {stated:.5f}")
 
     # Again from the start: off and on.
-    c.reference.enabled = False
+    c.shadows.method = "maps"
     app.step()
-    c.reference.enabled = True
+    c.shadows.method = "reference"
     again, _, n2, _ = run(app)
     same = again is not None and img.shape == again.shape and bool((again == img).all())
     check("summed again, the same image to the bit", same and n2 == n,

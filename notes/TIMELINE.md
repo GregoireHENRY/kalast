@@ -5919,3 +5919,13 @@ and stalled a fast script's reference -- input only now. Not seen on screen
 here (a background window is occluded and throttled); the user to try.
 Write-up: `2026-10-12_shadow_method_and_colour_modes/`.
 
+## 2026-10-12 — the reference image a method; no preview under the mouse
+
+`shadows.method = "reference"` in place of `reference.enabled`: a reference
+with no shadows, or with the maps, could be set and meant nothing. The preview
+under the mouse removed at the user's word -- the method must not change as
+the mouse moves; the paused scene drawn only on change kept. Open, put to the
+user: the scene's GPU work in slices so the panels keep their pace under the
+rays, and a thread for the UI against CPU stalls. Write-up:
+`2026-10-12_shadow_method_and_colour_modes/`.
+
