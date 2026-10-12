@@ -1694,9 +1694,10 @@ rays, 58 at 256 (`shadows.ray_probe`), against 8 for the maps. An image of the
 pair at 1200 x 800: 0.8 ms with a point Sun (maps 0.4), 5.2 with the disc
 (maps 1.0).
 
-While the rays answer, the shadow maps are neither drawn nor kept at
-`shadows.resolution`: no shadow pass, no penumbra pass, and the shadow array
-the least it can be, back when the method is the maps again. The Didymos pair up
+While the rays answer, the shadow maps are not drawn -- but for a preview
+while you work the window (`CONTROLS.md`) and the guide (`shadows.ray_guide`)
+-- nor kept at `shadows.resolution`: no more than 2048 texels a side, enough
+for a preview, back to the resolution when the method is the maps again. The Didymos pair up
 close with the disc at `16384`, PCF 16: 4.4 GB of the GPU's memory instead of
 more than 11.
 
@@ -1724,8 +1725,8 @@ two under it that fits is, and the kalast tab says which. At `16384` a layer
 is 1 GB, and the Didymos pair with the Sun a disc wants nine -- two bodies,
 their second depth layers, the other bodies' slices, the near layer -- which
 on a 16 GB card ran out, and the app crashed; it now takes `8192`. With
-`shadows.method` `"rays"` or `"none"`, the array is the least it can be, since
-nothing reads it.
+`shadows.method = "none"` the array is the least it can be, since nothing
+reads it, and with `"rays"` no more than 2048 a side, for a preview.
 
 The default was `8192` until 22 September. Every layer is stored every frame
 and the main pass cannot start its fragment stage until it is, so the store

@@ -5907,3 +5907,15 @@ On the way, `sun_reach_about` looked round too little about a facet's corners,
 which gave the maps' per-facet disc hard edges along occluders' ends. Write-up:
 `2026-10-12_ray_tracing_on_metal/`.
 
+## 2026-10-12 — previews while the user works the window, paused frames on change
+
+The UI app went at the rays' pace, "laggy and teleports". While the user works
+the mouse or the keyboard, a traced image slower than 1/30 s is drawn with
+the maps by untraced pipelines, exact again 0.3 s after; never an exported
+frame, nor the per-facet shadows, nor a reference's sum. Paused, the scene is
+drawn only when something changes, once a second besides; the panels at the
+display's pace. A window's own resizes as it opens first counted as input
+and stalled a fast script's reference -- input only now. Not seen on screen
+here (a background window is occluded and throttled); the user to try.
+Write-up: `2026-10-12_shadow_method_and_colour_modes/`.
+

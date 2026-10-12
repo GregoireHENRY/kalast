@@ -400,6 +400,17 @@ pub struct App {
     fps_window_secs: Float,
     fps_window_frames: u32,
 
+    /// When the user last worked the mouse or the keyboard: for
+    /// `PREVIEW_HOLD` after it, an image that traces slowly is drawn as a
+    /// preview (`Window::preview`), and a paused scene is drawn at all.
+    last_input: std::time::Instant,
+    /// How long the last exact frames took, one after another: a traced
+    /// image slower than `PREVIEW_SLOWER_THAN` is previewed.
+    exact_frame_secs: f64,
+    /// The last frame drew the scene exactly, so the next one's interval is
+    /// an exact frame's.
+    last_frame_exact: bool,
+
     /// Held only while the caller drives the loop with `step()`. `start()`
     /// takes it and hands it to `run_app`, which never gives it back --
     /// a platform event loop cannot be created twice in one process, so
@@ -486,6 +497,50 @@ pub struct App {
 
 /// How long `{fps}` and `{its}` average over before updating, in seconds.
 const HUD_RATE_WINDOW: Float = 1.0;
+
+/// How long after the last mouse or keyboard input the user still counts as
+/// working the window: a slow traced image is previewed, and a paused scene
+/// is drawn, for this long after it.
+const PREVIEW_HOLD: std::time::Duration = std::time::Duration::from_millis(300);
+
+/// An exact frame slower than this, in seconds -- under 30 a second -- is
+/// previewed while the user works the window: rays across the Sun's disc on
+/// an M1 Pro take 0.14 to 0.4 s an image, and the panels and the mouse went
+/// at that pace with them, "laggy and teleports".
+const PREVIEW_SLOWER_THAN: f64 = 1.0 / 30.0;
+
+/// A paused scene not drawn again while nothing changes is drawn anyway this
+/// often: a mesh's level of detail finished on its thread, a horizon map
+/// worked out, anything else that changes it without input.
+const IDLE_REDRAW: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Where the camera is and what it shows, as numbers.
+fn camera_key(camera: &crate::app::frame::Eye) -> [f64; 13] {
+    let p = &camera.projection;
+    [
+        camera.pos.x as f64,
+        camera.pos.y as f64,
+        camera.pos.z as f64,
+        camera.dir.x as f64,
+        camera.dir.y as f64,
+        camera.dir.z as f64,
+        camera.up.x as f64,
+        camera.up.y as f64,
+        camera.up.z as f64,
+        p.fovy as f64,
+        p.side.map_or(f64::NAN, |x| x as f64),
+        p.viewport_scale as f64,
+        matches!(p.mode, crate::app::frame::ProjectionMode::Perspective) as u8 as f64,
+    ]
+}
+
+/// Whether the camera moved: by more than a millionth, relative -- its basis
+/// is made orthonormal every frame, and its last place does not hold still.
+fn camera_moved(a: &[f64; 13], b: &[f64; 13]) -> bool {
+    a.iter().zip(b).any(|(a, b)| {
+        !(a.is_nan() && b.is_nan()) && !((a - b).abs() <= 1e-6 * a.abs().max(b.abs()).max(1.0))
+    })
+}
 
 /// What the window and its GPU resources were actually built with.
 ///
@@ -1022,6 +1077,10 @@ impl App {
             fps_shown: 0.0,
             fps_window_secs: 0.0,
             fps_window_frames: 0,
+
+            last_input: std::time::Instant::now() - std::time::Duration::from_secs(60),
+            exact_frame_secs: 0.0,
+            last_frame_exact: false,
 
             event_loop: None,
             frame_drawn: false,
@@ -3030,6 +3089,25 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
         // the scene -- but obtaining it cannot, since it reads the field.
         let sim_cfg = self.sim_config();
 
+        // The user working the window, for previews and paused redraws. Its
+        // input only: a window opening sends resizes and uncovers of its own,
+        // and a script stepping fast then had its first frames previewed. A
+        // resize makes a new target for the image, which is drawn anyway
+        // (`Window::drawn_generation`).
+        if matches!(
+            event,
+            winit::event::WindowEvent::CursorMoved { .. }
+                | winit::event::WindowEvent::MouseInput { .. }
+                | winit::event::WindowEvent::MouseWheel { .. }
+                | winit::event::WindowEvent::KeyboardInput { .. }
+                | winit::event::WindowEvent::Touch(_)
+                | winit::event::WindowEvent::PinchGesture { .. }
+                | winit::event::WindowEvent::PanGesture { .. }
+                | winit::event::WindowEvent::RotationGesture { .. }
+        ) {
+            self.last_input = std::time::Instant::now();
+        }
+
         // `Cmd`-`Q` on macOS, seen by the AppKit monitor -- see `macos`.
         #[cfg(target_os = "macos")]
         if crate::app::macos::take_quit_keys() {
@@ -3181,8 +3259,9 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 self.dt = (now - self.now).as_secs_f64() as _;
                 self.now = now;
 
+                // Frames counted as they draw the scene (below): a paused
+                // scene left undrawn is no frame.
                 self.fps_window_secs += self.dt;
-                self.fps_window_frames += 1;
                 if self.fps_window_secs >= HUD_RATE_WINDOW {
                     self.fps_shown = self.fps_window_frames as Float / self.fps_window_secs;
                     self.fps_window_secs = 0.0;
@@ -3253,8 +3332,12 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                             editor.camera_asked = true;
                         }
                     }
+                    let camera_before = camera_key(&sim.camera);
                     sim.camera
                         .update_with_controller(&mut self.controller, self.dt);
+                    // A key held, or the camera animated: it moves with no
+                    // event between frames.
+                    let camera_moved = camera_moved(&camera_before, &camera_key(&sim.camera));
 
                     // Out of the plane view the gizmo put us in? Then the
                     // orthographic it turned on has served its purpose. Keyed
@@ -3272,7 +3355,35 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     }
 
                     win.pointer = pointer;
-                    win.update(&mut sim, &sim_cfg.borrow());
+                    // While the user works the mouse or the keyboard, an
+                    // image that traces slowly is a preview (`Window::
+                    // preview`), the panels and the camera at the display's
+                    // pace rather than the rays'.
+                    let interacting = camera_moved || self.last_input.elapsed() < PREVIEW_HOLD;
+                    win.preview = interacting && self.exact_frame_secs > PREVIEW_SLOWER_THAN;
+                    // Paused, untouched, and drawn exactly already: the scene
+                    // is left as it is, and only the panels are drawn -- at
+                    // the display's pace whatever the scene costs. Not while
+                    // something is asked of the frame, nor while a reference
+                    // image sums, and drawn again now and then for what
+                    // changes without input.
+                    let asked = sim.export_once
+                        || sim.facet_shadow_request.is_some()
+                        || sim.facet_id_request
+                        || sim.hemicube_request.is_some()
+                        || sim.facet_pick_request.is_some();
+                    let summing = sim_cfg.borrow().reference.enabled && !sim.reference.done;
+                    let idle = paused
+                        && self.editor.is_some()
+                        && !interacting
+                        && !asked
+                        && !summing
+                        && win.exact_drawn
+                        && win.drawn_generation == win.render_generation
+                        && win.last_drawn.elapsed() < IDLE_REDRAW;
+                    if !idle {
+                        win.update(&mut sim, &sim_cfg.borrow());
+                    }
 
                     // Which iteration this frame is *for*. Running, that is
                     // the counter as it stands -- it moves on only after the
@@ -3368,7 +3479,18 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         );
                         self.present_count = (0, 0, 0, 0.0, std::time::Instant::now(), 0.0);
                     }
-                    if self.editor.is_some() {
+                    if idle {
+                        // Nothing drawn: the panels have the frame. Until the
+                        // next present is due, no loop round it either.
+                        editor_surface = surface_texture;
+                        self.last_frame_exact = false;
+                        if !present_due {
+                            if let Some(interval) = self.present_interval {
+                                let wait = interval.saturating_sub(self.last_present.elapsed());
+                                std::thread::sleep(wait.min(std::time::Duration::from_millis(8)));
+                            }
+                        }
+                    } else if self.editor.is_some() {
                         // The scene goes offscreen and the swapchain is left
                         // to the UI. `render(None, ..)` is exactly that, and
                         // it is the same path an occluded window already
@@ -3378,75 +3500,90 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     } else {
                         win.render(surface_texture, &sim_cfg.borrow(), &huds);
                     }
-
-                    // A reference image's progress, its error now and then,
-                    // its mean once done (`Window::reference_after_frame`).
-                    win.reference_after_frame(&sim_cfg.borrow(), &mut sim);
-
-                    // After render: the shadow map now holds this frame's
-                    // geometry, so a query here answers for the scene
-                    // before_render just set up.
-                    let one_off = sim.facet_shadow_request.take();
-                    if sim_cfg.borrow().shadows.access_shadow_map || one_off.is_some() {
-                        let n = sim.bodies.len();
-                        sim.facet_shadow_result.resize(n, vec![]);
-
-                        for body in 0..n {
-                            let wanted =
-                                sim_cfg.borrow().shadows.access_shadow_map || one_off == Some(body);
-                            if wanted {
-                                sim.facet_shadow_result[body] =
-                                    win.facet_shadow_fractions(body);
-                            } else {
-                                // Stale results would silently describe an
-                                // older frame's geometry.
-                                sim.facet_shadow_result[body].clear();
-                            }
+                    if !idle {
+                        self.fps_window_frames += 1;
+                        // An exact frame after an exact frame: how long one
+                        // takes, which decides whether to preview.
+                        if win.exact_drawn && self.last_frame_exact {
+                            self.exact_frame_secs = self.dt as f64;
                         }
-                    } else if !sim.facet_shadow_result.is_empty() {
-                        sim.facet_shadow_result.clear();
+                        self.last_frame_exact = win.exact_drawn;
+
+                        // A reference image's progress, its error now and
+                        // then, its mean once done
+                        // (`Window::reference_after_frame`).
+                        win.reference_after_frame(&sim_cfg.borrow(), &mut sim);
                     }
 
-                    // Same reasoning as the shadow query: the ID pass draws
-                    // the scene the callbacks just positioned, so it belongs
-                    // after the render, and its result is dropped when not
-                    // requested rather than left to describe an older frame.
-                    if let Some((body, facets, res, batch)) = sim.hemicube_request.take() {
-                        let mesh = sim
-                            .bodies
-                            .get(body)
-                            .and_then(|b| b.mesh.as_ref())
-                            .map(|m| m.borrow().clone());
-                        // Same scene fit the shadow pass uses: the frustum has
-                        // to cover the companion, not just the body it sits on.
-                        let scene = sim.scene_bounds();
-                        sim.hemicube_result = mesh.map(|m| {
-                            let (rows, offsets, n_total) =
-                                win.hemicube_rows(body, &m, scene, &facets, res, batch);
-                            (rows, facets.len(), n_total as usize, offsets)
-                        });
-                    } else {
-                        sim.hemicube_result = None;
-                    }
+                    // Left undrawn, the scene's answers are the last frame's
+                    // still: nothing has changed.
+                    if !idle {
+                        // After render: the shadow map now holds this frame's
+                        // geometry, so a query here answers for the scene
+                        // before_render just set up.
+                        let one_off = sim.facet_shadow_request.take();
+                        if sim_cfg.borrow().shadows.access_shadow_map || one_off.is_some() {
+                            let n = sim.bodies.len();
+                            sim.facet_shadow_result.resize(n, vec![]);
 
-                    if sim.facet_id_request {
-                        sim.facet_id_request = false;
-                        sim.facet_id_result = Some(win.facet_id_map());
-                    } else {
-                        sim.facet_id_result = None;
-                    }
+                            for body in 0..n {
+                                let wanted =
+                                    sim_cfg.borrow().shadows.access_shadow_map || one_off == Some(body);
+                                if wanted {
+                                    sim.facet_shadow_result[body] =
+                                        win.facet_shadow_fractions(body);
+                                } else {
+                                    // Stale results would silently describe an
+                                    // older frame's geometry.
+                                    sim.facet_shadow_result[body].clear();
+                                }
+                            }
+                        } else if !sim.facet_shadow_result.is_empty() {
+                            sim.facet_shadow_result.clear();
+                        }
 
-                    if let Some((x, y)) = sim.facet_pick_request.take() {
-                        let (id, offsets) = win.facet_id_at(x, y);
-                        sim.facet_pick_result =
-                            Some(crate::app::simulation::FacetPick {
-                                pixel: (x, y),
-                                id,
-                                offsets,
-                                size: win.render_size,
+                        // Same reasoning as the shadow query: the ID pass draws
+                        // the scene the callbacks just positioned, so it belongs
+                        // after the render, and its result is dropped when not
+                        // requested rather than left to describe an older frame.
+                        if let Some((body, facets, res, batch)) = sim.hemicube_request.take() {
+                            let mesh = sim
+                                .bodies
+                                .get(body)
+                                .and_then(|b| b.mesh.as_ref())
+                                .map(|m| m.borrow().clone());
+                            // Same scene fit the shadow pass uses: the frustum has
+                            // to cover the companion, not just the body it sits on.
+                            let scene = sim.scene_bounds();
+                            sim.hemicube_result = mesh.map(|m| {
+                                let (rows, offsets, n_total) =
+                                    win.hemicube_rows(body, &m, scene, &facets, res, batch);
+                                (rows, facets.len(), n_total as usize, offsets)
                             });
-                    } else {
-                        sim.facet_pick_result = None;
+                        } else {
+                            sim.hemicube_result = None;
+                        }
+
+                        if sim.facet_id_request {
+                            sim.facet_id_request = false;
+                            sim.facet_id_result = Some(win.facet_id_map());
+                        } else {
+                            sim.facet_id_result = None;
+                        }
+
+                        if let Some((x, y)) = sim.facet_pick_request.take() {
+                            let (id, offsets) = win.facet_id_at(x, y);
+                            sim.facet_pick_result =
+                                Some(crate::app::simulation::FacetPick {
+                                    pixel: (x, y),
+                                    id,
+                                    offsets,
+                                    size: win.render_size,
+                                });
+                        } else {
+                            sim.facet_pick_result = None;
+                        }
+
                     }
 
                     sim.export_once = false;

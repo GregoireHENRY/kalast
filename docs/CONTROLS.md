@@ -413,6 +413,23 @@ Sensitivities are config rather than bindings — `config.controls.sensitivity_m
 `controls.sensitivity_look`, `controls.sensitivity_rotate`, `controls.sensitivity_zoom`, all default `1.0`
 and all startup-only. See `CONFIG.md`.
 
+## While you work the window
+
+An image that traces rays -- `shadows.method = "rays"`, or a reference image
+-- can take tenths of a second a frame (the Sun's disc on an M1 Pro). While
+you use the mouse, the trackpad or the keyboard, and for 0.3 s after, such an
+image is drawn with the shadow maps instead, as a preview -- a frame in
+milliseconds -- so the panels and the camera keep the display's pace; it is
+drawn exactly again once you stop. Only when an exact frame takes longer than
+1/30 s. An exported frame is never a preview, the per-facet shadows the
+thermophysical model reads are traced as ever, and a reference image neither
+sums nor shows while previewed.
+
+Paused, the editor draws the scene only when something changes -- you move
+the camera, edit a setting, resize the window -- and once a second besides;
+between, only the panels are drawn. A frame asked for, an export or a
+per-facet query, is drawn as ever, and a reference image sums until done.
+
 ## Details
 
 - **Keys are matched on physical position** (`PhysicalKey::Code`). On AZERTY
@@ -524,7 +541,11 @@ the config, so what was changed in the panel stays.
 The log's **python** tab is a Python console. `Enter` runs the line between
 two frames, among the running script's variables -- `app` one of them -- so a
 paused scene can be inspected and moved about; a line opening a block waits at
-`...` for the rest, and an empty one closes it. `↑` and `↓` recall earlier
+`...` for the rest, and an empty one closes it. A name the console binds is
+its own: a script whose loop sets `a` every frame leaves the console's `a`
+alone, and the script does not see the console's -- an object both hold,
+`app` or a mesh, is the same object, so a change made through it is seen by
+both. `↑` and `↓` recall earlier
 lines. `Tab` completes the word being typed -- a name, or an attribute of a
 dotted one, `m.` -- as Python's terminal does: one completion goes in whole,
 several put in what they share and are listed above. Asked of Python between

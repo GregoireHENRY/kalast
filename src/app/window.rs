@@ -1300,6 +1300,21 @@ pub struct Window {
     /// drawn as well, the disc's rays traced only where they see a penumbra
     /// can be.
     ray_guided: bool,
+    /// Asked by the app while the user works the mouse or the keyboard and
+    /// a traced image is slow: a preview, drawn with the maps.
+    pub preview: bool,
+    /// This frame is one (`preview`, an image that traces, and nothing to
+    /// export): the main pass untraced and drawn with the maps -- the disc
+    /// by the penumbra pass, no second depth layer -- and a reference image
+    /// neither summed nor shown. The per-facet shadows are traced as ever.
+    previewing: bool,
+    /// The last frame drawn was exact, not a preview, and when it was drawn:
+    /// for the app to leave a paused scene undrawn while nothing changes.
+    pub exact_drawn: bool,
+    pub last_drawn: std::time::Instant,
+    /// The image's target it was drawn into (`render_generation`): one made
+    /// since, by a resize or a rebuild, holds nothing yet.
+    pub drawn_generation: u64,
     /// Said once that rays (`shadows.method` "rays") cannot be had.
     rays_refused: bool,
 
@@ -1740,6 +1755,11 @@ impl Window {
             ray_samples: 1,
             ray_probe: 0,
             ray_guided: false,
+            preview: false,
+            previewing: false,
+            exact_drawn: false,
+            last_drawn: std::time::Instant::now(),
+            drawn_generation: 0,
             rays_refused: false,
             uniforms,
             passes,
@@ -2223,6 +2243,10 @@ impl Window {
     /// `reference.max_samples`, the mean then read back; the simulation told
     /// how far it is.
     pub fn reference_after_frame(&mut self, config: &crate::app::config::Config, simulation: &mut crate::app::simulation::Simulation) {
+        // A preview added nothing to the sum.
+        if self.previewing {
+            return;
+        }
         let Some(reference) = self.passes.reference.as_mut().filter(|_| self.passes.reference_on) else {
             simulation.reference = Default::default();
             return;
@@ -2251,13 +2275,16 @@ impl Window {
         simulation.reference.done = reference.done;
     }
 
-    /// The shadow array's side: `shadows.resolution`, or with the shadows
-    /// traced or off, where nothing reads it, the least there is -- at 16384
-    /// the array was gigabytes the rays left unused, beside their
-    /// acceleration structures, and the GPU ran out of memory.
+    /// The shadow array's side: `shadows.resolution`; with the shadows
+    /// traced, no more than 2048, which a preview draws with (`previewing`),
+    /// and off, the least there is -- at 16384 the array was gigabytes the
+    /// rays left unused, beside their acceleration structures, and the GPU
+    /// ran out of memory.
     fn shadow_side(&self, config: &crate::app::config::Config) -> u32 {
-        if (self.rays && !self.ray_guided) || !config.shadows_on() {
+        if !config.shadows_on() {
             512
+        } else if self.rays && !self.ray_guided {
+            config.shadows.resolution.min(2048)
         } else {
             config.shadows.resolution
         }
@@ -2400,6 +2427,10 @@ impl Window {
             self.rebuild_passes(config);
         }
         simulation.rays = self.rays;
+        // A preview, asked for and possible: an image that traces, built with
+        // its untraced pipelines, and no frame wanted for export.
+        self.previewing = self.preview && self.rays && self.passes.traced && !simulation.export_once;
+        self.passes.preview = self.previewing;
         let method_rays = config.shadows.method == crate::app::config::ShadowMethod::Rays;
         if method_rays && self.raytrace.is_none() && !self.rays_refused {
             self.rays_refused = true;
@@ -2420,11 +2451,12 @@ impl Window {
         // well: not in a reference, which is nothing if not exact, nor with a
         // point Sun, which takes one ray anyway.
         self.ray_guided = self.rays && !reference && config.shadows.ray_guide && config.light.disc_radius() > 0.0;
+        let traced = self.rays && !self.previewing;
         let light = &mut self.uniforms.view.uniform.light;
-        light.rays = if self.rays { config.shadows.ray_samples.max(1) } else { 0 };
+        light.rays = if traced { config.shadows.ray_samples.max(1) } else { 0 };
         // None tried first in a reference: it misses slivers.
         light.ray_probe = if reference { 0 } else { config.shadows.ray_probe };
-        light.ray_guide = self.ray_guided as u32;
+        light.ray_guide = (self.ray_guided && traced) as u32;
         // The shadow array as small as it goes while the rays answer, and
         // back to `shadows.resolution` when they stop.
         if self.shadow_side(config) != self.shadow_requested {
@@ -2530,8 +2562,11 @@ impl Window {
         self.uniforms.globals.uniform.shadow_resolution = self.shadow_resolution;
         // The sample, plus one, and in the top eight bits the bounces.
         let bounces = config.reference.bounces.min(4);
-        self.uniforms.globals.uniform.ray_frame =
-            self.reference_sample(config, simulation).map_or(0, |k| (bounces << 24) | (k + 1));
+        self.uniforms.globals.uniform.ray_frame = if self.previewing {
+            0
+        } else {
+            self.reference_sample(config, simulation).map_or(0, |k| (bounces << 24) | (k + 1))
+        };
         self.uniforms.globals.uniform.camera_pos = camera_pos(&simulation.camera);
 
         // Resampled to the uniform's fixed 256 entries, so any length of table
@@ -2562,7 +2597,7 @@ impl Window {
             .unwrap();
         // A reference image's sample: the camera moved within the pixel, the
         // image's whole shifted by the sample's offset.
-        if let Some(r) = self.passes.reference.as_ref().filter(|r| self.passes.reference_on && !r.done) {
+        if let Some(r) = self.passes.reference.as_ref().filter(|r| self.passes.reference_on && !r.done && !self.previewing) {
             let (jx, jy) = r.jitter();
             let shift = crate::Mat4::from_translation(crate::Vec3::new(
                 (2.0 * jx / width as f32) as Float,
@@ -3060,7 +3095,8 @@ impl Window {
         self.uniforms.view.uniform.light.sun_radius = config.light.disc_radius();
         // Whether `Passes::render` runs the penumbra pass this frame, for
         // the main pass to read what it found.
-        self.uniforms.view.uniform.light.penumbra = (super::pass::penumbra::wanted(config) && !self.rays) as u32;
+        self.uniforms.view.uniform.light.penumbra =
+            (super::pass::penumbra::wanted(config) && !(self.rays && !self.previewing)) as u32;
         // The bodies with an atmosphere, the first two: sunlight passing
         // one's limb on its way to another goes through its dust
         // (`through_air` in `mesh_shadow.wgsl`).
@@ -3668,6 +3704,9 @@ impl Window {
         config: &crate::app::config::Config,
         huds: &[crate::app::config::Hud],
     ) {
+        self.exact_drawn = !self.previewing;
+        self.last_drawn = std::time::Instant::now();
+        self.drawn_generation = self.render_generation;
         if let (true, Some(t)) = (config.debug.gpu_timing, self.timer.as_ref()) {
             // Close the previous frame first: resolve what it wrote, start
             // the readback, and only then reset the slots for this one. See
@@ -3719,9 +3758,9 @@ impl Window {
         // shader as a dynamic offset now (`uniform::LayerSelect`), nothing is
         // rewritten between passes, and the submits collapse into one.
         // None while the shadows are traced: nothing reads them -- but the
-        // rays' guide (`shadows.ray_guide`).
-        self.passes.rays = self.rays;
-        let n_layers = if self.rays && !self.ray_guided {
+        // rays' guide (`shadows.ray_guide`), and a preview.
+        self.passes.rays = self.rays && !self.previewing;
+        let n_layers = if self.rays && !self.ray_guided && !self.previewing {
             0
         } else {
             (self.uniforms.view.uniform.light.n_layers as usize).min(self.uniforms.shadow.layer_views.len())

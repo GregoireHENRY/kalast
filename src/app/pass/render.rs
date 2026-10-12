@@ -229,6 +229,11 @@ pub struct Pass {
     /// For a reference image's samples (`render_reference`): the main pass's
     /// pipelines, full and lean, single-sampled into floats.
     reference: Option<(gpu::RenderPipeline, Option<gpu::RenderPipeline>)>,
+    /// Built to trace, the same pipelines without the ray code, for a
+    /// preview drawn with the maps while the user works the mouse or the
+    /// keyboard (`Window::preview`): the code there, untaken, halved the
+    /// pass's speed on an M1 Pro.
+    untraced: Option<(gpu::RenderPipeline, Option<gpu::RenderPipeline>)>,
     /// Whether `pipeline` was built with `@builtin(primitive_index)`; see
     /// `gpu::has_primitive_index`. Read per draw to pick the corners path
     /// where the shader needs it.
@@ -283,7 +288,7 @@ impl Pass {
         // level-of-detail draw's first triangle and first skirt vertex
         // (`gpu::LodBuffers`).
         let immediates = gpu::has_immediates(device) && gpu::has_primitive_index(device);
-        let build = |lean, format, samples| {
+        let build_with = |lean, format, samples, traced, layouts: &[Option<&wgpu::BindGroupLayout>]| {
             gpu::RenderPipeline::with_immediates(
                 &device,
                 format,
@@ -298,12 +303,22 @@ impl Pass {
                 if immediates { 8 } else { 0 },
             )
         };
+        let build = |lean, format, samples| build_with(lean, format, samples, traced, layouts);
         let pipeline = build(false, format, samples);
         let lean = gpu::has_primitive_index(device).then(|| build(true, format, samples));
         // A reference image's samples are drawn single-sampled into floats.
         let reference = reference.then(|| {
             let float = crate::app::reference::FORMAT;
             (build(false, float, 1), gpu::has_primitive_index(device).then(|| build(true, float, 1)))
+        });
+        // Without group 7, the bodies to trace against, which the layouts end
+        // with when traced.
+        let untraced = traced.then(|| {
+            let layouts = &layouts[..layouts.len() - 1];
+            (
+                build_with(false, format, samples, false, layouts),
+                gpu::has_primitive_index(device).then(|| build_with(true, format, samples, false, layouts)),
+            )
         });
 
         let (render_texture, render_view) =
@@ -317,6 +332,7 @@ impl Pass {
             pipeline,
             lean,
             reference,
+            untraced,
             immediates,
             primitive_index: gpu::has_primitive_index(device),
             render_texture,
@@ -363,6 +379,9 @@ impl Pass {
         // The grid, the axes and the gizmo, here; `false` leaves them to
         // `render_annotations`, after the frame exporter has copied the scene.
         annotations: bool,
+        // A preview (`Window::preview`): drawn by the untraced pipelines, where
+        // there are any.
+        preview: bool,
     ) {
         // With MSAA the pass draws into the multisample buffers and resolves
         // into `render_view` on store, so everything downstream -- the blit to
@@ -408,11 +427,15 @@ impl Pass {
             ..Default::default()
         });
 
-        render_pass.set_pipeline(&self.pipeline.inner);
+        let (pipeline, lean_pipeline, traced) = match &self.untraced {
+            Some((full, lean)) if preview => (full, lean.as_ref(), false),
+            _ => (&self.pipeline, self.lean.as_ref(), true),
+        };
+        render_pass.set_pipeline(&pipeline.inner);
 
         bindings.all(&mut render_pass);
         render_pass.set_bind_group(6, Some(penumbra), &[]);
-        if let Some(rays) = &bindings.rays {
+        if let Some(rays) = bindings.rays.as_ref().filter(|_| traced) {
             render_pass.set_bind_group(7, Some(rays), &[]);
         }
 
@@ -422,9 +445,9 @@ impl Pass {
         let corners = config.wireframe.mode != 0 || !self.primitive_index;
         let mut lean_set = false;
         for mesh in &meshes[1..] {
-            let lean = self.lean.as_ref().filter(|_| mesh.is_flat && !corners);
+            let lean = lean_pipeline.filter(|_| mesh.is_flat && !corners);
             if lean.is_some() != lean_set {
-                render_pass.set_pipeline(&lean.unwrap_or(&self.pipeline).inner);
+                render_pass.set_pipeline(&lean.unwrap_or(pipeline).inner);
                 lean_set = lean.is_some();
             }
             mesh.render_shaded(&mut render_pass, corners, self.immediates);

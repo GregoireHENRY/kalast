@@ -135,6 +135,48 @@ against, sharpening every frame until its error is under `error`, then held.
 The line under it gives the samples a pixel and the error it stops at, and
 says when the GPU has no ray queries, its shadows then the maps'.
 
+## Slow frames and the UI app
+
+"when the HUD has low FPS like 10 or less the UI is unusable cus mouse is
+laggy and teleports" -- the user had rays or a reference running. The panels,
+the mouse and the scene share one loop, so every frame the panels wait for the
+scene's: rays across the disc on the M1 Pro, 0.14-0.4 s. The user chose three
+remedies: the paused scene drawn only on change, a preview while the camera
+moves, and cheaper rays as an option (`2026-10-12_ray_tracing_on_metal/`,
+`shadows.ray_guide`).
+
+**A preview while the user works the window.** `last_input` in `App`, set by
+the pointer, the wheel, the keys, touch and gestures -- not by a window's own
+resizes and uncovers, which arrive as it opens: counted, a script stepping
+fast had its first 300 ms previewed, and a reference summed nothing through
+them. Within `PREVIEW_HOLD` (0.3 s) of it, or while the controller moves the
+camera (a key held sends nothing between its repeats), and when the last
+exact frames took longer than 1/30 s, the app asks the window for a preview
+(`Window::preview`). The window makes one only of an image that traces and
+nothing to export (`previewing`): the main pass by the untraced pipelines
+`render::Pass::untraced` keeps beside the traced ones -- the ray code there
+and untaken halves the pass, so a preview with it would be half as quick --
+the maps drawn, with the disc's penumbra pass, no second depth layer; a
+reference image neither summed, jittered nor shown. The per-facet shadows
+stay traced. With the rays the shadow array keeps up to 2048 a side for it
+(it was 512). Forced on every frame, the Didymos pair's disc drew in 2.2 ms
+against 384 traced; `tests/test_image_rays.py` passes so, its exported frames
+exact.
+
+**Paused, drawn only on change**, in the UI app: no input within the hold, no
+camera move, the last frame exact and into the target there is now
+(`Window::drawn_generation`, made anew by a resize or a rebuild), nothing
+asked of the frame (an export, a per-facet query, a pick) and no reference
+summing -- then neither `Window::update` nor `render` runs, nor the queries,
+whose answers are the last frame's still; the panels draw onto the scene as
+it was, and the loop sleeps to the next present. Once a second
+(`IDLE_REDRAW`) it is drawn anyway, for what changes without input: a level of
+detail finished on its thread. The frame rate counts the frames that draw.
+
+Not seen on screen: a window opened behind the others, as tests open them, is
+occluded, and macOS gives it a frame a second, whatever the app does. Asked
+of the user to try.
+
 ## The console
 
 The python tab ran its lines in the running script's own globals -- by
