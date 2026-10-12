@@ -1,5 +1,3 @@
-use std::{cell::RefCell, rc::Rc};
-
 use numpy::{PyArrayMethods, ToPyArray};
 use pyo3::prelude::*;
 
@@ -14,7 +12,7 @@ pub enum EyeField {
 #[pyclass(from_py_object, unsendable)]
 #[derive(Clone)]
 pub struct Eye {
-    pub simulation: Rc<RefCell<crate::app::simulation::Simulation>>,
+    pub simulation: crate::locked::Locked<crate::app::simulation::Simulation>,
     pub field: EyeField,
 }
 
@@ -299,7 +297,7 @@ impl Eye {
 #[pyclass(from_py_object, unsendable)]
 #[derive(Clone)]
 pub struct Projection {
-    pub simulation: Rc<RefCell<crate::app::simulation::Simulation>>,
+    pub simulation: crate::locked::Locked<crate::app::simulation::Simulation>,
     pub field: EyeField,
 }
 

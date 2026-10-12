@@ -931,9 +931,9 @@ fn huds_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
     if line(ui, |ui| ui.button("add HUD").clicked()) {
         // A template rather than empty text, so a new HUD says something the
         // moment it appears and shows what a placeholder looks like.
-        sim.huds.push(std::rc::Rc::new(std::cell::RefCell::new(Hud::new(
+        sim.huds.push(crate::locked::Locked::new(Hud::new(
             "it={drawn}  {fps} fps",
-        ))));
+        )));
     }
 }
 
@@ -1436,7 +1436,7 @@ mod naming_tests {
             "/data/mesh/didymos/g_01165mm_spc_didy_v003_100k.obj",
         ));
         let body = crate::app::body::Body {
-            mesh: Some(std::rc::Rc::new(std::cell::RefCell::new(mesh))),
+            mesh: Some(crate::locked::Locked::new(mesh)),
             ..Default::default()
         };
         assert_eq!(body_name(&body), "g_01165mm_spc_didy_v003_100k");

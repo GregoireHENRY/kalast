@@ -53,6 +53,7 @@ released, and the gate refuses the tag until it has.
 - A variable set in the python tab's console stays the console's while a script runs: a script whose loop set `a` every frame took the console's `a` with it, a mesh kept there reading as the loop's number a line later.
 - `shadows.ray_guide` traces the Sun's disc only where the shadow maps see a penumbra can be, one ray elsewhere: with `shadows.method = "rays"`, the Didymos pair's image on an M1 Pro in 143 ms instead of 384, a step with every facet's shadow in 1 s instead of 3. Off by default; relief finer than the maps' texels then has a hard-edged penumbra.
 - In the UI app, the panels and the mouse keep the display's pace while the scene is slow: an image traced with rays, or a reference image's sample, is drawn a band at a time between the panels' frames, the last image staying on screen until the next is whole, and the per-facet shadows traced with rays a range of facets at a time. Paused, the scene is drawn only when something changes.
+- From Rust, the scene's shared values -- `app.simulation`, `sim.config`, `sim.huds`, a body's `mesh` -- are `kalast::locked::Locked` rather than `Rc<RefCell<..>>`: made with `Locked::new(value)`, borrowed with `borrow()` and `borrow_mut()` as before.
 
 ## v0.5.13
 

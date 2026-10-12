@@ -1,6 +1,4 @@
 use crate::Mat4;
-use std::{cell::RefCell, rc::Rc};
-
 #[derive(Debug)]
 pub struct Simulation {
     /// How this simulation is shaded, shadowed, labelled and exported.
@@ -12,7 +10,7 @@ pub struct Simulation {
     /// A handle rather than a plain field because Python holds it too --
     /// `app.simulation.config` has to stay reachable while the render loop
     /// borrows the simulation.
-    pub config: std::rc::Rc<std::cell::RefCell<crate::app::config::Config>>,
+    pub config: crate::locked::Locked<crate::app::config::Config>,
 
     pub state: State,
 
@@ -67,7 +65,7 @@ pub struct Simulation {
     /// never reaches `render_texture` and never appears in exported frames.
     /// The live HUDs, shared with `Config::huds` -- the same objects, so
     /// editing one here is editing the one that gets drawn.
-    pub huds: Vec<std::rc::Rc<std::cell::RefCell<crate::app::config::Hud>>>,
+    pub huds: Vec<crate::locked::Locked<crate::app::config::Hud>>,
 
     /// Set when a body's geometry has been replaced rather than moved --
     /// a mesh reloaded from another file, flattened or smoothed, a body
@@ -177,9 +175,7 @@ impl Simulation {
         sun.projection.mode = crate::app::frame::ProjectionMode::Orthographic;
 
         Self {
-            config: std::rc::Rc::new(std::cell::RefCell::new(
-                crate::app::config::Config::default(),
-            )),
+            config: crate::locked::Locked::new(crate::app::config::Config::default()),
 
             state: State::new(),
 
@@ -280,11 +276,11 @@ impl Simulation {
                 crate::mesh::Mesh::load_flat(p, |x| x)
             };
 
-            Rc::new(RefCell::new(shadow))
+            crate::locked::Locked::new(shadow)
         });
 
         self.bodies.push(super::body::Body {
-            mesh: Some(Rc::new(RefCell::new(mesh))),
+            mesh: Some(crate::locked::Locked::new(mesh)),
             shadow_mesh,
             mat,
             ..Default::default()
@@ -293,7 +289,7 @@ impl Simulation {
 
     pub fn add_mesh(&mut self, mesh: crate::mesh::Mesh, mat: Mat4) {
         self.bodies.push(super::body::Body {
-            mesh: Some(Rc::new(RefCell::new(mesh))),
+            mesh: Some(crate::locked::Locked::new(mesh)),
             mat,
             ..Default::default()
         });
@@ -1014,7 +1010,7 @@ mod pause_tests {
         assert_eq!(held.borrow().wireframe.mode, fresh.config.borrow().wireframe.mode, "config");
         assert_eq!(sim.camera.pos, fresh.camera.pos, "camera");
         assert!(!sim.state.rate_limited && !sim.export, "clock and export");
-        assert!(std::rc::Rc::ptr_eq(&held, &sim.config), "the same cell, refilled");
+        assert!(crate::locked::Locked::ptr_eq(&held, &sim.config), "the same cell, refilled");
     }
 
     /// The cap paces the frame itself: one that comes early waits for its
@@ -1216,7 +1212,7 @@ mod illumination_tests {
         let mut sim = Simulation::new();
         sim.sun.pos = crate::Vec3::new(0.0, 0.0, 10.0);
         sim.bodies.push(crate::app::body::Body {
-            mesh: Some(std::rc::Rc::new(std::cell::RefCell::new(mesh))),
+            mesh: Some(crate::locked::Locked::new(mesh)),
             ..Default::default()
         });
         sim
@@ -1652,7 +1648,7 @@ mod selection_tests {
         mesh.flatten();
         let mut sim = Simulation::new();
         sim.bodies.push(crate::app::body::Body {
-            mesh: Some(std::rc::Rc::new(std::cell::RefCell::new(mesh))),
+            mesh: Some(crate::locked::Locked::new(mesh)),
             ..Default::default()
         });
         sim
@@ -1708,7 +1704,7 @@ mod selection_tests {
         // Loaded and deliberately not flattened.
         let mesh = crate::mesh::Mesh::load("res/cube.obj", |v| v);
         sim.bodies.push(crate::app::body::Body {
-            mesh: Some(std::rc::Rc::new(std::cell::RefCell::new(mesh))),
+            mesh: Some(crate::locked::Locked::new(mesh)),
             ..Default::default()
         });
         assert!(

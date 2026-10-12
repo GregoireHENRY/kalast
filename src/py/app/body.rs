@@ -1,5 +1,3 @@
-use std::{cell::RefCell, rc::Rc};
-
 use numpy::PyArrayMethods;
 use pyo3::prelude::*;
 
@@ -13,7 +11,7 @@ use crate::{Float, Mat4};
 #[pyclass(from_py_object, unsendable)]
 #[derive(Clone)]
 pub struct Body {
-    pub simulation: Rc<RefCell<crate::app::simulation::Simulation>>,
+    pub simulation: crate::locked::Locked<crate::app::simulation::Simulation>,
     pub index: usize,
 }
 

@@ -4806,7 +4806,7 @@ mod tests {
         let mut mesh = crate::mesh::Mesh::load("res/cube.obj", move |v| v * half + centre);
         mesh.bounds = crate::mesh::Aabb::from_positions(&mesh.positions);
         crate::app::body::Body {
-            mesh: Some(std::rc::Rc::new(std::cell::RefCell::new(mesh))),
+            mesh: Some(crate::locked::Locked::new(mesh)),
             ..Default::default()
         }
     }

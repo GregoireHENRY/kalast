@@ -225,7 +225,7 @@ impl std::fmt::Debug for Material {
 #[pyclass(from_py_object, unsendable)]
 #[derive(Clone)]
 pub struct Mesh {
-    pub inner: Rc<RefCell<crate::mesh::Mesh>>,
+    pub inner: crate::locked::Locked<crate::mesh::Mesh>,
 }
 
 impl Mesh {
@@ -248,7 +248,7 @@ impl Mesh {
         let mesh = crate::mesh::Mesh::load(path, update_pos);
 
         Self {
-            inner: Rc::new(RefCell::new(mesh)),
+            inner: crate::locked::Locked::new(mesh),
         }
     }
 }
@@ -337,7 +337,7 @@ impl Mesh {
             }
 
             Self {
-                inner: Rc::new(RefCell::new(mesh)),
+                inner: crate::locked::Locked::new(mesh),
             }
         }
     }
@@ -699,7 +699,7 @@ fn map_as_3d<T>(a: ndarray::ArrayViewD<'_, T>) -> PyResult<ndarray::ArrayView3<'
 /// `mesh.colors` and `get_facet_normals` are where they live.
 #[pyclass(unsendable)]
 pub struct VerticesView {
-    mesh: Rc<RefCell<crate::mesh::Mesh>>,
+    mesh: crate::locked::Locked<crate::mesh::Mesh>,
 }
 
 #[pymethods]
@@ -749,7 +749,7 @@ impl VerticesView {
 
 #[pyclass(unsendable)]
 pub struct VertexView {
-    pub mesh: Rc<RefCell<crate::mesh::Mesh>>,
+    pub mesh: crate::locked::Locked<crate::mesh::Mesh>,
     pub index: usize,
 }
 
@@ -774,7 +774,7 @@ crate::impl_mesh_field_scalar!(FacetView, facets, area, Float);
 
 #[pyclass(unsendable)]
 pub struct FacetVerticesView {
-    pub mesh: Rc<RefCell<crate::mesh::Mesh>>,
+    pub mesh: crate::locked::Locked<crate::mesh::Mesh>,
     pub index: usize,
 }
 

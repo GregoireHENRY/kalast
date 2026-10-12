@@ -358,22 +358,22 @@ pub struct App {
     /// Not the simulation's -- that lives on `Simulation`, which is the thing
     /// it describes. Held as its own handle for the same reason everything
     /// else is: the loop borrows `App` for its whole duration.
-    pub config: Rc<RefCell<crate::app::config::AppConfig>>,
+    pub config: crate::locked::Locked<crate::app::config::AppConfig>,
     pub window: Option<crate::app::window::Window>,
 
     pub now: std::time::Instant,
     pub dt: Float,
 
-    pub simulation: Rc<RefCell<crate::app::simulation::Simulation>>,
+    pub simulation: crate::locked::Locked<crate::app::simulation::Simulation>,
     /// The simulation this app was made with. A Rust example the editor
     /// loads brings one of its own, which the window then shows
     /// (`adopt_scene`); this one comes back when a script runs, the scene is
     /// reset or another example is loaded. Python's handles on the app were
     /// made holding this one, and a script's scene has to be the one on
     /// screen.
-    home_simulation: Rc<RefCell<crate::app::simulation::Simulation>>,
+    home_simulation: crate::locked::Locked<crate::app::simulation::Simulation>,
     /// Everything a script can reach while the loop runs. See `Shared`.
-    pub shared: Rc<RefCell<Shared>>,
+    pub shared: crate::locked::Locked<Shared>,
 
     pub controller: frame::Controller,
 
@@ -1009,7 +1009,7 @@ impl App {
         // editor around whatever this program builds. Nothing else sets it,
         // so a terminal run is exactly as it was.
         let launched_by_editor = std::env::var_os("KALAST_EDITOR").is_some();
-        let simulation = Rc::new(RefCell::new(crate::app::simulation::Simulation::new()));
+        let simulation = crate::locked::Locked::new(crate::app::simulation::Simulation::new());
         let config_rc = simulation.borrow().config.clone();
         *config_rc.borrow_mut() = config;
         let controller = {
@@ -1037,7 +1037,7 @@ impl App {
         };
 
         Self {
-            config: Rc::new(RefCell::new(app_config)),
+            config: crate::locked::Locked::new(app_config),
             window: None,
 
             now: std::time::Instant::now(),
@@ -1045,7 +1045,7 @@ impl App {
 
             home_simulation: simulation.clone(),
             simulation,
-            shared: Rc::new(RefCell::new({
+            shared: crate::locked::Locked::new({
                 let mut s = Shared::new();
                 s.native = launched_by_editor;
                 // The file this was built from, put in the Script panel so
@@ -1059,7 +1059,7 @@ impl App {
                     }
                 }
                 s
-            })),
+            }),
 
             controller,
             snap: None,
@@ -2240,8 +2240,8 @@ impl App {
     /// the log.
     pub(crate) fn adopt_scene(
         &mut self,
-        simulation: Rc<RefCell<simulation::Simulation>>,
-        guest_shared: Rc<RefCell<Shared>>,
+        simulation: crate::locked::Locked<simulation::Simulation>,
+        guest_shared: crate::locked::Locked<Shared>,
     ) {
         self.simulation = simulation;
         // The GPU buffers were built from the bodies that are being replaced.
@@ -2329,7 +2329,7 @@ impl App {
     /// Show this app's own simulation again, if an example's is on screen
     /// (`home_simulation`).
     fn restore_home_simulation(&mut self) {
-        if !Rc::ptr_eq(&self.simulation, &self.home_simulation) {
+        if !crate::locked::Locked::ptr_eq(&self.simulation, &self.home_simulation) {
             self.simulation = self.home_simulation.clone();
             // The GPU buffers were built from the example's bodies.
             self.simulation.borrow_mut().meshes_dirty = true;
@@ -2702,7 +2702,7 @@ impl App {
     /// Cloned out under a short borrow, so the caller can hold it across a
     /// `borrow_mut` of the simulation itself -- they are different cells.
     /// Must not be called while the simulation is already mutably borrowed.
-    pub fn sim_config(&self) -> Rc<RefCell<crate::app::config::Config>> {
+    pub fn sim_config(&self) -> crate::locked::Locked<crate::app::config::Config> {
         self.simulation.borrow().config.clone()
     }
 
@@ -2754,9 +2754,9 @@ impl App {
     /// moment one did; putting it back only when the slot is still empty
     /// means a callback that replaces itself keeps the replacement.
     fn run_callback(
-        shared: &Rc<RefCell<Shared>>,
+        shared: &crate::locked::Locked<Shared>,
         before: bool,
-        sim: &Rc<RefCell<simulation::Simulation>>,
+        sim: &crate::locked::Locked<simulation::Simulation>,
         dt: Float,
     ) {
         let taken = {
@@ -4323,16 +4323,16 @@ mod editor_tests {
         app.editor_start(&[]);
         let own = app.simulation.clone();
         for back in ["a script", "a reset", "another example"] {
-            let example = Rc::new(RefCell::new(crate::app::simulation::Simulation::new()));
-            app.adopt_scene(example.clone(), Rc::new(RefCell::new(Shared::new())));
-            assert!(Rc::ptr_eq(&app.simulation, &example), "the example's is shown");
+            let example = crate::locked::Locked::new(crate::app::simulation::Simulation::new());
+            app.adopt_scene(example.clone(), crate::locked::Locked::new(Shared::new()));
+            assert!(crate::locked::Locked::ptr_eq(&app.simulation, &example), "the example's is shown");
             own.borrow_mut().meshes_dirty = false;
             match back {
                 "a script" => app.begin_script(false),
                 "a reset" => app.reset_scene(),
                 _ => app.prepare_example("examples/crater_self_shadow/main.rs"),
             }
-            assert!(Rc::ptr_eq(&app.simulation, &own), "the app's own is back after {back}");
+            assert!(crate::locked::Locked::ptr_eq(&app.simulation, &own), "the app's own is back after {back}");
             assert!(own.borrow().meshes_dirty, "and built again on the GPU after {back}");
         }
     }

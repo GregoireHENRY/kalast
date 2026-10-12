@@ -25,6 +25,7 @@ pub mod entity;
 pub mod gpu;
 pub mod app;
 pub mod lightcurve;
+pub mod locked;
 pub mod math;
 pub mod mesh;
 #[cfg(feature = "python")]

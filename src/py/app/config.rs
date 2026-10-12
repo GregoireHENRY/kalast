@@ -1,5 +1,3 @@
-use std::{cell::RefCell, rc::Rc};
-
 use pyo3::prelude::*;
 
 
@@ -67,7 +65,7 @@ pub struct Hud {
     /// Shared with `Config::huds` and `Simulation::huds`, so the object a
     /// script holds *is* the one being drawn -- `sim.huds[0].text = ...` in
     /// `before_render` takes effect on that frame with nothing to reassign.
-    pub inner: std::rc::Rc<std::cell::RefCell<crate::app::config::Hud>>,
+    pub inner: crate::locked::Locked<crate::app::config::Hud>,
 }
 
 #[pymethods]
@@ -127,7 +125,7 @@ impl Hud {
         inner.align_h = align_h;
         inner.align_v = align_v;
         Ok(Self {
-            inner: std::rc::Rc::new(std::cell::RefCell::new(inner)),
+            inner: crate::locked::Locked::new(inner),
         })
     }
 
@@ -235,7 +233,7 @@ impl Hud {
 #[pyclass(from_py_object, unsendable)]
 #[derive(Clone)]
 pub struct AppConfig {
-    pub config: Rc<RefCell<crate::app::config::AppConfig>>,
+    pub config: crate::locked::Locked<crate::app::config::AppConfig>,
 }
 
 #[pymethods]
@@ -254,9 +252,9 @@ pub struct Config {
     /// The config itself, not the app that owns it. Holding the app would put
     /// every option behind the borrow `start()` takes for the whole run loop,
     /// which is what made `app.config.x = ...` inside `before_render` panic.
-    pub config: Rc<RefCell<crate::app::config::Config>>,
+    pub config: crate::locked::Locked<crate::app::config::Config>,
     /// Only for `huds`, which live on the simulation.
-    pub simulation: Rc<RefCell<crate::app::simulation::Simulation>>,
+    pub simulation: crate::locked::Locked<crate::app::simulation::Simulation>,
 }
 
 /// The two things on the root that are not a group: the HUD list, which lives

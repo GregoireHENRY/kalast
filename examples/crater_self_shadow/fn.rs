@@ -1,8 +1,6 @@
-use std::cell::RefCell;
-use std::rc::Rc;
-
 use kalast::app::App;
 use kalast::app::config::Hud;
+use kalast::locked::Locked;
 use kalast::app::simulation::Simulation;
 use kalast::{Float, Mat4, Vec3};
 
@@ -22,7 +20,7 @@ fn main() {
 
         let mut hud = Hud::new("");
         hud.size = 16.0;
-        sim.huds = vec![Rc::new(RefCell::new(hud))];
+        sim.huds = vec![Locked::new(hud)];
 
         sim.camera.pos = Vec3::new(1.5778934, 1.9384689, 1.5082116);
         sim.camera.look_anchor();

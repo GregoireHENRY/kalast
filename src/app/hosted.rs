@@ -45,8 +45,8 @@ pub struct HostApi {
     pub close: extern "C" fn(*mut std::ffi::c_void),
     /// Take the guest's simulation and callbacks as this window's own.
     ///
-    /// Both pointers come from `Rc::into_raw` in the guest and are turned
-    /// back into `Rc`s here. The two copies share an allocator -- one
+    /// Both pointers come from `Locked::into_raw` in the guest and are turned
+    /// back into `Locked`s here. The two copies share an allocator -- one
     /// process, one system allocator -- so the counts and the free are sound.
     pub adopt: extern "C" fn(
         *mut std::ffi::c_void,
@@ -119,14 +119,14 @@ fn with_host<T>(f: impl FnOnce(&HostApi) -> T) -> Option<T> {
 
 /// Hand the host this app's scene, once.
 pub fn adopt(
-    simulation: &Rc<RefCell<crate::app::simulation::Simulation>>,
-    shared: &Rc<RefCell<crate::app::Shared>>,
+    simulation: &crate::locked::Locked<crate::app::simulation::Simulation>,
+    shared: &crate::locked::Locked<crate::app::Shared>,
 ) -> bool {
     with_host(|host| {
         (host.adopt)(
             host.ctx,
-            Rc::into_raw(simulation.clone()),
-            Rc::into_raw(shared.clone()),
+            crate::locked::Locked::into_raw(simulation.clone()),
+            crate::locked::Locked::into_raw(shared.clone()),
         );
     })
     .is_some()
@@ -184,7 +184,7 @@ pub mod host {
     /// has `app` in hand.
     pub struct Host<'a> {
         target: Target,
-        shared: Rc<RefCell<crate::app::Shared>>,
+        shared: crate::locked::Locked<crate::app::Shared>,
         between: Option<&'a mut dyn FnMut()>,
     }
 
@@ -254,7 +254,8 @@ pub mod host {
     ) {
         // Both were `Rc::into_raw`d by the guest; taking them back here
         // balances that, and the allocator is shared.
-        let (simulation, shared) = unsafe { (Rc::from_raw(simulation), Rc::from_raw(shared)) };
+        let (simulation, shared) =
+            unsafe { (crate::locked::Locked::from_raw(simulation), crate::locked::Locked::from_raw(shared)) };
         unsafe { host(ctx) }.with_app(|app| app.adopt_scene(simulation, shared));
     }
 

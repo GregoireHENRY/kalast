@@ -1,5 +1,3 @@
-use std::{cell::RefCell, rc::Rc};
-
 use glam::Mat4;
 use pyo3::prelude::*;
 
@@ -8,13 +6,13 @@ use crate::Float;
 #[pyclass(from_py_object, unsendable)]
 #[derive(Clone)]
 pub struct Simulation {
-    pub inner: Rc<RefCell<crate::app::simulation::Simulation>>,
+    pub inner: crate::locked::Locked<crate::app::simulation::Simulation>,
     /// Held beside the scene, not reached through the app.
     ///
     /// Settings are part of the simulation -- how it is shaded, how its
     /// shadows are sampled, what its render measures -- so they live here.
     /// `App` is the application around it: the window, the editor, the loop.
-    pub config: Rc<RefCell<crate::app::config::Config>>,
+    pub config: crate::locked::Locked<crate::app::config::Config>,
 }
 
 #[pymethods]
@@ -865,7 +863,7 @@ impl Simulation {
 
 #[pyclass(unsendable)]
 pub struct State {
-    pub simulation: Rc<RefCell<crate::app::simulation::Simulation>>,
+    pub simulation: crate::locked::Locked<crate::app::simulation::Simulation>,
 }
 
 /// `state.pause_at` became `pause_after_iteration`, one less, on 25 September.

@@ -98,17 +98,17 @@ pub struct App {
     ///
     /// Held beside `inner`, never through it: `start()` borrows `inner` for
     /// the whole run, so a setter reaching through it would panic.
-    pub shared: Rc<RefCell<crate::app::Shared>>,
+    pub shared: crate::locked::Locked<crate::app::Shared>,
     /// The application's own settings. `App` owns this one.
-    pub config: Rc<RefCell<crate::app::config::AppConfig>>,
+    pub config: crate::locked::Locked<crate::app::config::AppConfig>,
     /// The simulation's settings. `Simulation` owns it; this is a handle.
     ///
     /// Held alongside `inner`, not fetched through it. `start()` borrows the
     /// app mutably for the whole run loop, so a getter that went through
     /// `inner` would panic from inside a callback -- which is exactly where
     /// changing a setting is wanted.
-    pub sim_config: Rc<RefCell<crate::app::config::Config>>,
-    pub simulation: Rc<RefCell<crate::app::simulation::Simulation>>,
+    pub sim_config: crate::locked::Locked<crate::app::config::Config>,
+    pub simulation: crate::locked::Locked<crate::app::simulation::Simulation>,
 }
 
 impl App {

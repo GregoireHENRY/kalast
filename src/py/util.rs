@@ -81,7 +81,7 @@ macro_rules! impl_mesh_view {
     ($collection_name:ident, $view_name:ident, $wrapper_name:ident, $field:ident) => {
         #[pyclass(unsendable)]
         pub struct $collection_name {
-            mesh: Rc<RefCell<crate::mesh::Mesh>>,
+            mesh: crate::locked::Locked<crate::mesh::Mesh>,
         }
 
         #[pymethods]
@@ -121,7 +121,7 @@ macro_rules! impl_mesh_view {
 
         #[pyclass(unsendable)]
         pub struct $view_name {
-            pub mesh: Rc<RefCell<crate::mesh::Mesh>>,
+            pub mesh: crate::locked::Locked<crate::mesh::Mesh>,
             pub index: usize,
         }
 

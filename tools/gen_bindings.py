@@ -7,7 +7,7 @@ panel and the `.pyi` stubs were already produced from `src/app/config.rs`; the
 came to be complete everywhere except from a script four separate times.
 
 `Config` is a struct of sub-structs and the Python surface follows it: one
-proxy class per group, each holding the same `Rc<RefCell<Config>>` as the
+proxy class per group, each holding the same `Locked<Config>` as the
 root and reading its own group through it. That indirection is the whole
 reason these are generated rather than being `#[pyclass(get_all)]` on the
 groups themselves -- a `get_all` getter hands Python a *copy*, and
@@ -203,8 +203,6 @@ def main() -> int:
         "// Hand-written accessors with real logic live in `config.rs`, on fields",
         "// marked `:py_custom:`; everything here is mechanical.",
         "",
-        "use std::{cell::RefCell, rc::Rc};",
-        "",
         "use pyo3::prelude::*;",
         "",
         "use crate::Float;",
@@ -222,7 +220,7 @@ def main() -> int:
             "/// through the same handle as every other view of it.",
             "#[pyclass(unsendable)]",
             f"pub struct {cls} {{",
-            f"    pub config: Rc<RefCell<{RUST_CONFIG}>>,",
+            f"    pub config: crate::locked::Locked<{RUST_CONFIG}>,",
             "}",
             "",
             "#[pymethods]",

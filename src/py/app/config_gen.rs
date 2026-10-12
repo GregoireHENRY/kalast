@@ -5,8 +5,6 @@
 // Hand-written accessors with real logic live in `config.rs`, on fields
 // marked `:py_custom:`; everything here is mechanical.
 
-use std::{cell::RefCell, rc::Rc};
-
 use pyo3::prelude::*;
 
 use crate::Float;
@@ -17,7 +15,7 @@ use crate::Float;
 /// through the same handle as every other view of it.
 #[pyclass(unsendable)]
 pub struct ShadingConfig {
-    pub config: Rc<RefCell<crate::app::config::Config>>,
+    pub config: crate::locked::Locked<crate::app::config::Config>,
 }
 
 #[pymethods]
@@ -149,7 +147,7 @@ impl ShadingConfig {
 /// through the same handle as every other view of it.
 #[pyclass(unsendable)]
 pub struct LightConfig {
-    pub config: Rc<RefCell<crate::app::config::Config>>,
+    pub config: crate::locked::Locked<crate::app::config::Config>,
 }
 
 #[pymethods]
@@ -267,7 +265,7 @@ impl LightConfig {
 /// through the same handle as every other view of it.
 #[pyclass(unsendable)]
 pub struct ShadowsConfig {
-    pub config: Rc<RefCell<crate::app::config::Config>>,
+    pub config: crate::locked::Locked<crate::app::config::Config>,
 }
 
 #[pymethods]
@@ -534,7 +532,7 @@ impl ShadowsConfig {
 /// through the same handle as every other view of it.
 #[pyclass(unsendable)]
 pub struct ReferenceConfig {
-    pub config: Rc<RefCell<crate::app::config::Config>>,
+    pub config: crate::locked::Locked<crate::app::config::Config>,
 }
 
 #[pymethods]
@@ -575,7 +573,7 @@ impl ReferenceConfig {
 /// through the same handle as every other view of it.
 #[pyclass(unsendable)]
 pub struct WireframeConfig {
-    pub config: Rc<RefCell<crate::app::config::Config>>,
+    pub config: crate::locked::Locked<crate::app::config::Config>,
 }
 
 #[pymethods]
@@ -646,7 +644,7 @@ impl WireframeConfig {
 /// through the same handle as every other view of it.
 #[pyclass(unsendable)]
 pub struct SelectionConfig {
-    pub config: Rc<RefCell<crate::app::config::Config>>,
+    pub config: crate::locked::Locked<crate::app::config::Config>,
 }
 
 #[pymethods]
@@ -717,7 +715,7 @@ impl SelectionConfig {
 /// through the same handle as every other view of it.
 #[pyclass(unsendable)]
 pub struct DataConfig {
-    pub config: Rc<RefCell<crate::app::config::Config>>,
+    pub config: crate::locked::Locked<crate::app::config::Config>,
 }
 
 #[pymethods]
@@ -748,7 +746,7 @@ impl DataConfig {
 /// through the same handle as every other view of it.
 #[pyclass(unsendable)]
 pub struct ColorbarConfig {
-    pub config: Rc<RefCell<crate::app::config::Config>>,
+    pub config: crate::locked::Locked<crate::app::config::Config>,
 }
 
 #[pymethods]
@@ -853,7 +851,7 @@ impl ColorbarConfig {
 /// through the same handle as every other view of it.
 #[pyclass(unsendable)]
 pub struct AxesConfig {
-    pub config: Rc<RefCell<crate::app::config::Config>>,
+    pub config: crate::locked::Locked<crate::app::config::Config>,
 }
 
 #[pymethods]
@@ -956,7 +954,7 @@ impl AxesConfig {
 /// through the same handle as every other view of it.
 #[pyclass(unsendable)]
 pub struct GridConfig {
-    pub config: Rc<RefCell<crate::app::config::Config>>,
+    pub config: crate::locked::Locked<crate::app::config::Config>,
 }
 
 #[pymethods]
@@ -1035,7 +1033,7 @@ impl GridConfig {
 /// through the same handle as every other view of it.
 #[pyclass(unsendable)]
 pub struct HudConfig {
-    pub config: Rc<RefCell<crate::app::config::Config>>,
+    pub config: crate::locked::Locked<crate::app::config::Config>,
 }
 
 #[pymethods]
@@ -1089,7 +1087,7 @@ impl HudConfig {
 /// through the same handle as every other view of it.
 #[pyclass(unsendable)]
 pub struct ExportConfig {
-    pub config: Rc<RefCell<crate::app::config::Config>>,
+    pub config: crate::locked::Locked<crate::app::config::Config>,
 }
 
 #[pymethods]
@@ -1155,7 +1153,7 @@ impl ExportConfig {
 /// through the same handle as every other view of it.
 #[pyclass(unsendable)]
 pub struct ControlsConfig {
-    pub config: Rc<RefCell<crate::app::config::Config>>,
+    pub config: crate::locked::Locked<crate::app::config::Config>,
 }
 
 #[pymethods]
@@ -1214,7 +1212,7 @@ impl ControlsConfig {
 /// through the same handle as every other view of it.
 #[pyclass(unsendable)]
 pub struct ImageConfig {
-    pub config: Rc<RefCell<crate::app::config::Config>>,
+    pub config: crate::locked::Locked<crate::app::config::Config>,
 }
 
 #[pymethods]
@@ -1266,7 +1264,7 @@ impl ImageConfig {
 /// through the same handle as every other view of it.
 #[pyclass(unsendable)]
 pub struct DebugConfig {
-    pub config: Rc<RefCell<crate::app::config::Config>>,
+    pub config: crate::locked::Locked<crate::app::config::Config>,
 }
 
 #[pymethods]
