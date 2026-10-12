@@ -5959,3 +5959,34 @@ exit. matplotlib draws to files on the thread. Plain windows as they were:
 1425-1433, 690-693 and 204 frames a second against 1421, 685 and 201.
 `tests/test_script_thread.py`. Open: Restart cannot stop a script that never
 steps; it waits for it. Write-up: `2026-10-12_shadow_method_and_colour_modes/`.
+
+## 2026-10-12 — rays against the reference, at the user's views
+
+"i dont see the difference between rays and reference": the Didymos pair at
+the user's two views, 3234 x 1774, drawn both ways. With the defaults -- the
+Sun a point, no bounces -- the same shadows, the reference averaging each
+pixel over its area: 92.2 % and 80.7 % of the pixels within 1 level, 1.8 %
+and 3.0 % more than 10 apart, most on edges, the rest Dimorphos's boulders
+finer than a pixel. The same with the Sun a disc. Bounces are what change the
+picture: two light Dimorphos's night side by Didymos's light -- at the
+example's white colours, several times what Didymos's own albedo would send.
+Write-up: `2026-10-12_rays_against_the_reference/`.
+
+## 2026-10-12 — Phobos in HRSC SRC images: `examples/phobos_shadows_fit`
+
+A colleague's four Mars Express HRSC SRC images of Phobos, reproduced:
+11 kernels of the 350 his meta-kernel loads (`phobos_hrsc.tm`), each image at
+its time, resolution and pointing, the SRC's window off the boresight, the
+frames stored turned half a turn from the IK's diagram. His DSK is Gaskell's
+2011 Viking model, already on disk as an OBJ; DLR's HRSC model beside it;
+Ernst et al.'s 18 m model with an albedo map would be better, through SBMT
+only. Lit or not, cut at a fifth like the images, with his shape model: IoU
+0.74-0.91 as SPICE points (his h8870 0.72, ours 0.79), 0.75-0.94 moved 10-20 pixels -- the
+attitude is the commanded one; ESA's measured attitude, 684 MB for the three
+years, is not in his kernel set. The maps, the rays and the reference within
+0.01; PCK00011 ahead or level of PCK00010 moved; Hapke's brightness over
+Lambert's, r 0.79-0.89 against 0.74-0.82; hc069 at 8 m a pixel beyond both
+shape models. On the way: Lambert's 8-bit frames clipped at exposure 3, and
+the reference's floats needed clamping before a lit-or-not cut. Open: the
+measured attitude, Ernst's model and albedo, Mars-shine, the facets one by
+one, and fitting the rotation. Write-up: `2026-10-12_phobos_hrsc_shadows/`.

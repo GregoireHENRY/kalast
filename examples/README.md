@@ -233,6 +233,20 @@ Look at [res/README.md](../res/README.md) to get Hera data.
       provided by GUBAS instead of SPICE kernels.
     - Create random landmarks locations by selecting facets.
     - Export landmarks screen-space X/Y positions in CSV file.
+- [phobos_shadows_fit](phobos_shadows_fit): four Mars Express HRSC SRC
+  images of Phobos, drawn by kalast and compared with the real ones.
+    - Needs ESA's Mars Express SPICE set; set `PATH_VALUES` in
+      [phobos_hrsc.tm](phobos_shadows_fit/phobos_hrsc.tm), the 11 kernels
+      these images need, and the mesh paths in `main.py`.
+    - [phobos_shadows_fit/main.py](phobos_shadows_fit/main.py): each image at
+      its `IMAGE_TIME`, at the SRC's resolution, pointed as the spacecraft
+      was. `python main.py rays hapke gaskell` picks the shadow method
+      (`maps`, `rays`, `reference`), the law (`hapke`, `lambert`, or `mask`
+      for lit or not) and the shape model (`gaskell`, `dlr`).
+    - [phobos_shadows_fit/compare.py](phobos_shadows_fit/compare.py): the
+      shadows as lit-or-not masks against the images', as pointed and moved
+      to overlap best, and the brightness where both are lit; figures and a
+      table in `out/phobos_hrsc/figures`.
 ## Examples that worked but not ready for users
 
 - [analytical](analytical)
