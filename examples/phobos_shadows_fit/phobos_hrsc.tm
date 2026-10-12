@@ -2,7 +2,10 @@ KPL/MK
 
 The kernels the four HRSC SRC images of Phobos need, out of rot_shdw.TM's 350:
 time, the spacecraft's clock, its frames and the camera's, Phobos's rotation,
-where Mars Express, Phobos and the Sun are, and where the spacecraft pointed.
+where Mars Express, Phobos and the Sun are, and where the spacecraft pointed --
+as commanded (ATNM_T6_P...), and as measured on board (ATNM_MEASURED_...),
+which rot_shdw.TM does not load: loaded last, it is the one used, the
+commanded only where it has no data.
 
 From ESA's Mars Express SPICE set, https://www.cosmos.esa.int/web/spice/mars-express
 -- set PATH_VALUES to where yours is.
@@ -24,6 +27,9 @@ From ESA's Mars Express SPICE set, https://www.cosmos.esa.int/web/spice/mars-exp
                            '$KERNELS/spk/ORMM_T19_110101000000_00758.BSP'
                            '$KERNELS/spk/ORMM_T19_130601000000_00985.BSP'
                            '$KERNELS/ck/ATNM_T6_P060401000000_01346.BC'
+                           '$KERNELS/ck/ATNM_MEASURED_100101_110101_V03.BC'
+                           '$KERNELS/ck/ATNM_MEASURED_2011_V04.BC'
+                           '$KERNELS/ck/ATNM_MEASURED_2013_V04.BC'
                          )
 
    \begintext

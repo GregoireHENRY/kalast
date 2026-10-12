@@ -5990,3 +5990,15 @@ shape models. On the way: Lambert's 8-bit frames clipped at exposure 3, and
 the reference's floats needed clamping before a lit-or-not cut. Open: the
 measured attitude, Ernst's model and albedo, Mars-shine, the facets one by
 one, and fitting the rotation. Write-up: `2026-10-12_phobos_hrsc_shadows/`.
+
+## 2026-10-12 — Phobos: the attitude as measured
+
+ESA's attitude measured on board, three kernels of 717 MB that the
+colleague's meta-kernel does not load, now in `phobos_hrsc.tm` after the
+commanded one. It puts h8951 in place (12 pixels to 1), leaves h8963 as it
+was -- pointed as commanded -- and moves h8870 along the lines where it
+wanted moving across them. 12-21 pixels across remain in h8870 and h8963 with
+either attitude: Phobos's or the spacecraft's ephemeris, or the SRC's
+alignment. Phobos looks softer in kalast for its shape model, Gaskell's
+456-landmark relief -- flat facets, and the level of detail no cause.
+Write-up: `2026-10-12_phobos_hrsc_shadows/`.

@@ -16,11 +16,12 @@ methods against each other, the maps, the rays and the reference.
 `compare.py` scores them and makes the figures, `hrsc.py` reads an image,
 `phobos_hrsc.tm` loads the kernels.
 
-## The kernels: 11 of 350
+## The kernels: 14, 11 of them out of 350
 
 `rot_shdw.TM` loads 350 kernels -- 264 of them a month of Mars Express's
 orbit each, and solar-array attitudes, ASPERA, ground stations. The four
-images need eleven, all in ESA's Mars Express set (`phobos_hrsc.tm`):
+images need eleven of them, all in ESA's Mars Express set, and three it
+does not load -- the attitude as measured, below (`phobos_hrsc.tm`):
 
 | kernel | for |
 |---|---|
@@ -32,7 +33,8 @@ images need eleven, all in ESA's Mars Express set (`phobos_hrsc.tm`):
 | `spk/DE405.BSP` | the Sun and Mars |
 | `spk/MAR097_030101_300101_V0001.BSP` | Phobos about Mars |
 | `spk/ORMM_T19_101201000000_00755.BSP`, `..._110101000000_00758`, `..._130601000000_00985` | Mars Express in December 2010, January 2011, June 2013 |
-| `ck/ATNM_T6_P060401000000_01346.BC` | where the spacecraft pointed |
+| `ck/ATNM_T6_P060401000000_01346.BC` | where the spacecraft pointed, as commanded |
+| `ck/ATNM_MEASURED_100101_110101_V03.BC`, `..._2011_V04`, `..._2013_V04` | where it pointed, as measured on board: 717 MB, not in `rot_shdw.TM` |
 
 `rot_shdw.TM` names a later SCLK (`MEX_250915_STEP.TSC`); the clock's
 correlation for 2010-2013 is the same in both. Positions are taken in J2000
@@ -50,6 +52,13 @@ byte for byte `PHOBOS_M003_GAS_V01.OBJ`, and the same vertices and facets
 as `~/data/mesh/phobos/phobos_m003_gas_v01.obj`, which was on this laptop
 already. Its plates are fine, about 40 m; its relief is not -- 456
 landmarks -- and craters come out shallow (below).
+
+Phobos looks softer in kalast than in the images for this reason, the
+model's relief: its facets are drawn flat, each with its own normal, not
+smoothed; and the level of detail is no cause -- the reference draws the full
+mesh without it and scores the same, and with it off on h8870 1.4 % of the
+lit pixels change, at the limb. The SRC resolves grooves, rims and craters of
+tens of metres that the model has not got.
 
 Two others to hand: DLR's `PHOBOS_K275_DLR_V02` from HRSC images (Willner
 et al. 2014), 274,874 facets, in the same ESA set. And one better than both,
@@ -100,8 +109,9 @@ where the two overlap best.
 
 Every run: `maps`, `rays` and `reference`, lit-or-not, Hapke and Lambert,
 Gaskell's model and DLR's, PCK00010 and, with the rays, PCK00011 -- 23 runs
-of four images, `table.md` beside this. IoU as SPICE points the camera /
-moved to where the two overlap best.
+of four images, `table.md` beside this -- with the attitude as commanded;
+the measured one after. IoU as SPICE points the camera / moved to where the
+two overlap best.
 
 Hapke, cut at a fifth like the images -- the like for like:
 
@@ -159,7 +169,8 @@ What the tables say:
   limb. ESA has the attitude measured on board too, a kernel a year, not in
   `rot_shdw.TM`: `ATNM_MEASURED_100101_110101_V03.BC` (241 MB),
   `ATNM_MEASURED_2011_V04.BC` (217 MB) and `ATNM_MEASURED_2013_V04.BC` (226
-  MB) cover these images. Moved, h8870 goes from 0.79 to 0.88.
+  MB) cover these images -- what they change is below. Moved, h8870 goes
+  from 0.79 to 0.88.
 - **Like for like scores higher than lit at all.** Cut at the same fifth as
   the image, h8870 is 0.79 as pointed, against 0.75 lit wherever the Sun
   reaches, and the colleague's 0.72: a grazing slope dim in the image is lit
@@ -212,12 +223,40 @@ What the tables say:
   own roughness, some facing away from the Sun. Not the level of detail --
   the same with `shading.lod` off -- and the reference averages them away.
 
+## The measured attitude
+
+The three `ATNM_MEASURED` kernels, loaded after the commanded one, cover
+the four images. They move Phobos in the frame by (-1.0, -15.6) pixels in
+h8870, (-1.5, -9.3) in h8951, (0.1, -8.8) in hc069 -- 80-143 µrad -- and by
+nothing in h8963, where the spacecraft pointed as it was told to (2 µrad).
+The rays, Hapke, the like for like, as pointed / moved, with the shift the
+images need, commanded and measured:
+
+| model | attitude | h8870 | h8951 | h8963 | hc069 |
+|---|---|---|---|---|---|
+| gaskell | commanded | 0.791 / 0.879, (+18, -2) | 0.901 / 0.907, (0, -12) | 0.913 / 0.942, (+12, -4) | 0.742 / 0.749 |
+| gaskell | measured | 0.740 / 0.878, (+19, +13) | 0.908 / 0.908, (0, -1) | 0.913 / 0.942, (+12, -4) | 0.734 / 0.742 |
+| dlr | measured | 0.737 / 0.873, (+21, +12) | 0.913 / 0.917, (0, -6) | 0.895 / 0.933, (+15, -1) | 0.709 / 0.718 |
+
+The measured attitude puts h8951 in place -- 12 pixels to 1 -- and leaves
+h8963 as it was. h8870 it moves along the lines, and the image wanted it
+moved across them: 18 pixels needed become 23, and as pointed it scores
+0.74 rather than 0.79, the commanded attitude having half hidden the rest.
+What is left is 12-21 pixels across the lines in h8870 and h8963 with either
+attitude, 110-190 µrad: not the attitude -- Phobos's ephemeris (MAR097) or
+the spacecraft's, some 0.7 km across the line of sight at h8870's 3,600 km,
+or the SRC's alignment on the spacecraft. hc069's shift is no
+better determined than before. `phobos_hrsc.tm` loads the measured attitude:
+it is what is known of where the camera pointed. The lit-or-not runs, rays,
+measured: Gaskell's model 0.749 / 0.824, 0.874 / 0.887, 0.882 / 0.907,
+0.771 / 0.776; DLR's 0.754 / 0.834, 0.871 / 0.895, 0.864 / 0.893, 0.750 /
+0.753.
+
 ## Not done
 
-- **The measured attitude.** The three `ATNM_MEASURED` kernels above, 684
-  MB, in place of the commanded attitude: the 10-20 pixels the images are
-  moved by should shrink, and with them the part of the misfit the moving
-  hides.
+- **What is left of the pointing**, 12-21 pixels across the lines in two
+  images: a later Mars-moons ephemeris than MAR097, and the SRC's own
+  alignment against the limbs of these and more images.
 - **Mars-shine.** h8870's night side reads about 60 DN against the sky's
   13-39 and its day side's 1000, lit by Mars, which is nearly full from
   Phobos at these geometries. kalast's night is black. Mars as a body in the
