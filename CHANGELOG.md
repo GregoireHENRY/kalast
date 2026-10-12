@@ -51,6 +51,7 @@ released, and the gate refuses the tag until it has.
 - `shading.color_mode` is a name: `"shaded"` (the default) or `"data"`. The numbers still work for this release, with a deprecation warning; 3, shaded without shadows, is `shadows.method = "none"`. 2, every body one flat colour, is gone, and `shading.color` with it. The settings show the shadows in the shaded mode only, the data mode having none -- and in the data mode too while `shadows.access_shadow_map` reads them.
 - The reference image's box in the settings is **render**, under a "reference image" heading, and its hover says what it does; the line under it gives the samples so far and the error the image stops at.
 - A variable set in the python tab's console stays the console's while a script runs: a script whose loop set `a` every frame took the console's `a` with it, a mesh kept there reading as the loop's number a line later.
+- `shadows.ray_guide` traces the Sun's disc only where the shadow maps see a penumbra can be, one ray elsewhere: with `shadows.method = "rays"`, the Didymos pair's image on an M1 Pro in 143 ms instead of 384, a step with every facet's shadow in 1 s instead of 3. Off by default; relief finer than the maps' texels then has a hard-edged penumbra.
 
 ## v0.5.13
 

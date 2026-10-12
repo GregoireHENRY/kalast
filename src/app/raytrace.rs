@@ -31,7 +31,10 @@ struct FacetRays {
     is_flat: u32,
     samples: u32,
     probe: u32,
-    _pad: [u32; 3],
+    /// 1: `guide` says which facets the disc is traced for, one ray a point
+    /// elsewhere (`shadows.ray_guide`).
+    guided: u32,
+    _pad: [u32; 2],
 }
 
 pub struct RayTracing {
@@ -45,6 +48,8 @@ pub struct RayTracing {
     mats: Vec<crate::Mat4>,
     facets_layout: wgpu::BindGroupLayout,
     facets_pipeline: wgpu::ComputePipeline,
+    /// Bound for the guide when there is none.
+    no_guide: wgpu::Buffer,
     /// The top level for the main pass, at group 7 (`mesh_shadow.wgsl`):
     /// bound every frame on a device that traces, made again with the top
     /// level.
@@ -154,6 +159,7 @@ impl RayTracing {
                 storage(2, true),
                 storage(3, true),
                 storage(4, false),
+                storage(5, true),
             ],
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -211,6 +217,11 @@ impl RayTracing {
             mats: Vec::new(),
             facets_layout,
             facets_pipeline,
+            no_guide: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("no guide"),
+                contents: &[0u8; 16],
+                usage: wgpu::BufferUsages::STORAGE,
+            }),
             image_layout,
             image_group,
             geometry: None,
@@ -401,7 +412,11 @@ impl RayTracing {
     /// it, as the shadow maps' query answers (`penumbra::Pass::facets`):
     /// each facet's corners and centre, each tracing `samples` rays across
     /// the Sun's disc of `sun_radius`, one for a point -- `probe` of them
-    /// first, the rest only where those disagree. Blocking.
+    /// first, the rest only where those disagree. With `guide`, per facet 1
+    /// where the maps see a penumbra can reach it (`penumbra::Pass::
+    /// facet_guide`), the disc only there, one ray a point elsewhere.
+    /// Blocking.
+    #[allow(clippy::too_many_arguments)]
     pub fn facet_shadows(
         &self,
         device: &wgpu::Device,
@@ -412,6 +427,7 @@ impl RayTracing {
         sun_radius: f32,
         samples: u32,
         probe: u32,
+        guide: Option<&wgpu::Buffer>,
     ) -> Vec<f32> {
         let n = mesh.n_facets();
         let Some(mat) = self.mats.get(body) else {
@@ -431,7 +447,8 @@ impl RayTracing {
             is_flat: mesh.is_flat as u32,
             samples: samples.max(1),
             probe,
-            _pad: [0; 3],
+            guided: guide.is_some() as u32,
+            _pad: [0; 2],
         };
         let query = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("ray-traced facet shadows"),
@@ -460,6 +477,7 @@ impl RayTracing {
                 wgpu::BindGroupEntry { binding: 2, resource: mesh.geometry_buffer.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 3, resource: mesh.index_buffer.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 4, resource: out.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 5, resource: guide.unwrap_or(&self.no_guide).as_entire_binding() },
             ],
         });
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });

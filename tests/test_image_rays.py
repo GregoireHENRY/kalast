@@ -134,6 +134,29 @@ def main() -> int:
                 grey = partial & (img > 3) & (img < 160)
                 check(f"{view}, the disc: the penumbra graded in the image", grey.sum() > 50,
                       f"{int(grey.sum())} grey pixels of {int(partial.sum())} on penumbra facets")
+
+    # Guided by the maps (`shadows.ray_guide`): the disc's rays traced only
+    # where they see a penumbra can be, one ray elsewhere -- the same image.
+    from PIL import Image
+
+    c.light.sun_as_point = False
+    sim.camera.pos, sim.camera.dir, sim.camera.up = views["above"]
+    images = {}
+    for guide in (False, True):
+        c.shadows.ray_guide = guide
+        c.export.dir = os.path.join(tmp, f"guide_{guide}")
+        for _ in range(3):
+            app.step()
+        sim.export_once()
+        app.step()
+        for _ in range(4):
+            app.step()
+        time.sleep(0.5)
+        frames = sorted(os.listdir(c.export.dir))
+        images[guide] = numpy.asarray(Image.open(os.path.join(c.export.dir, frames[-1])).convert("L"), float)
+    apart = numpy.abs(images[True] - images[False]) > 2
+    check("above, the disc, guided by the maps: the rays' own image", apart.sum() <= 0.0005 * apart.size,
+          f"{int(apart.sum())} pixels apart of {apart.size}")
     app.close()
     print(f"\n{len(failures)} failure(s)")
     return 1 if failures else 0

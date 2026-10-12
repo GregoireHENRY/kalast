@@ -1646,6 +1646,25 @@ sliver of the disc's edge between two rim rays, or an occluder smaller than
 the disc that every inner ray misses. `0` traces all of `ray_samples`
 everywhere, exact to them.
 
+### `shadows.ray_guide: bool` — default `False` *(live)*
+With `shadows.method = "rays"` and the Sun a disc, trace the disc's rays only
+where the shadow maps see a penumbra can be, and one ray to the Sun's centre
+elsewhere. The maps are drawn as well, and each point -- a pixel, a facet --
+first asks their depth pyramid whether anything lies within the disc's reach
+of it: where nothing does, the point sees all of the disc or, in the umbra,
+none of it, and one ray says which. Exact wherever the maps hold what casts
+the penumbra; relief finer than their texels is not in them, and its penumbra
+is drawn hard -- on a plate with a wall standing on it, the image is the
+rays' own to the pixel, and 4 of 80,000 facets, where the wall meets the
+plate, are off by up to 6 %. A body with a horizon map is traced throughout,
+as is a reference image.
+
+On the Didymos pair from 1 km with Dimorphos's shadow across it, an M1 Pro:
+an image at 1200 x 800 in 143 ms instead of 384, a step with every facet's
+shadow in 0.98 s instead of 2.97. Under that low Sun, Didymos's rough
+ground has something within the disc's reach at about a third of its pixels,
+where the disc is traced as before.
+
 ### `shadows.ray_samples: u32` — default `64` *(live)*
 With `shadows.method = "rays"` and `light.sun_as_point` off, the rays each point -- a
 pixel, a facet's corner or centre -- traces across the Sun's disc. Each carries the same share of the limb-darkened disc's

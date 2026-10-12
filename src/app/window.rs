@@ -1296,6 +1296,10 @@ pub struct Window {
     rays: bool,
     ray_samples: u32,
     ray_probe: u32,
+    /// The rays guided by the maps this frame (`shadows.ray_guide`): the maps
+    /// drawn as well, the disc's rays traced only where they see a penumbra
+    /// can be.
+    ray_guided: bool,
     /// Said once that rays (`shadows.method` "rays") cannot be had.
     rays_refused: bool,
 
@@ -1735,6 +1739,7 @@ impl Window {
             rays: false,
             ray_samples: 1,
             ray_probe: 0,
+            ray_guided: false,
             rays_refused: false,
             uniforms,
             passes,
@@ -1787,7 +1792,22 @@ impl Window {
             if let Some(rt) = self.raytrace.as_ref() {
                 let light = &self.uniforms.view.uniform.light;
                 let sun = [light.pos.x as f32, light.pos.y as f32, light.pos.z as f32];
-                return rt.facet_shadows(&self.device, &self.queue, body, mesh, sun, light.sun_radius, self.ray_samples, self.ray_probe);
+                // Guided, the maps say first where the disc is traced.
+                let guide = self
+                    .ray_guided
+                    .then(|| self.passes.penumbra.facet_guide(&self.device, &self.queue, &self.passes.bindings, mesh))
+                    .flatten();
+                return rt.facet_shadows(
+                    &self.device,
+                    &self.queue,
+                    body,
+                    mesh,
+                    sun,
+                    light.sun_radius,
+                    self.ray_samples,
+                    self.ray_probe,
+                    guide.as_ref(),
+                );
             }
         }
         self.passes.penumbra.facets(&self.device, &self.queue, &self.passes.bindings, mesh)
@@ -2236,7 +2256,7 @@ impl Window {
     /// the array was gigabytes the rays left unused, beside their
     /// acceleration structures, and the GPU ran out of memory.
     fn shadow_side(&self, config: &crate::app::config::Config) -> u32 {
-        if self.rays || !config.shadows_on() {
+        if (self.rays && !self.ray_guided) || !config.shadows_on() {
             512
         } else {
             config.shadows.resolution
@@ -2396,10 +2416,15 @@ impl Window {
         }
         // The image traced too: a ray for a point Sun, the samples across
         // the disc, in place of the maps' lookups; 0, the maps.
+        // Guided by the maps (`shadows.ray_guide`), which are then drawn as
+        // well: not in a reference, which is nothing if not exact, nor with a
+        // point Sun, which takes one ray anyway.
+        self.ray_guided = self.rays && !reference && config.shadows.ray_guide && config.light.disc_radius() > 0.0;
         let light = &mut self.uniforms.view.uniform.light;
         light.rays = if self.rays { config.shadows.ray_samples.max(1) } else { 0 };
         // None tried first in a reference: it misses slivers.
         light.ray_probe = if reference { 0 } else { config.shadows.ray_probe };
+        light.ray_guide = self.ray_guided as u32;
         // The shadow array as small as it goes while the rays answer, and
         // back to `shadows.resolution` when they stop.
         if self.shadow_side(config) != self.shadow_requested {
@@ -2943,7 +2968,8 @@ impl Window {
         // in the shadow of a bigger one -- near Dimorphos's terminator most
         // of what darkens the ground -- was not in it, and the disc came
         // through.
-        let peel = config.light.disc_radius() > 0.0 && config.shadows.second_depth;
+        // The maps' own disc's; the rays, guided or not, need none.
+        let peel = config.light.disc_radius() > 0.0 && config.shadows.second_depth && !self.rays;
         self.uniforms.view.uniform.light.peeled = peel as u32;
         let slices = n_layers + apart.count_ones() as usize + if peel { n_layers } else { 0 };
         if slices > self.uniforms.shadow.layer_views.len() {
@@ -3692,9 +3718,10 @@ impl Window {
         // with whichever matrix was written last. The layer index reaches the
         // shader as a dynamic offset now (`uniform::LayerSelect`), nothing is
         // rewritten between passes, and the submits collapse into one.
-        // None while the shadows are traced: nothing reads them.
+        // None while the shadows are traced: nothing reads them -- but the
+        // rays' guide (`shadows.ray_guide`).
         self.passes.rays = self.rays;
-        let n_layers = if self.rays {
+        let n_layers = if self.rays && !self.ray_guided {
             0
         } else {
             (self.uniforms.view.uniform.light.n_layers as usize).min(self.uniforms.shadow.layer_views.len())

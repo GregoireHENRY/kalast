@@ -753,6 +753,20 @@ class ShadowsConfig:
     penumbra by a sliver. 0 traces all of `ray_samples` everywhere,
     exact to them.
     """
+    ray_guide: bool
+    """Trace the disc's rays only where the shadow maps see a penumbra can
+    be, one ray to the Sun's centre elsewhere: much quicker, and exact
+    wherever the maps hold what casts the penumbra.
+
+    With `method` "rays" and the Sun a disc, the maps are drawn as well,
+    and each point -- a pixel, a facet -- first asks their depth pyramid
+    whether anything lies within the disc's reach of it. Where nothing
+    does, the point sees all of the disc or, in the umbra, none of it, and
+    one ray says which; where something does, `ray_samples` rays are
+    traced across the disc. Relief finer than the maps' texels is not in
+    them, and its penumbra is drawn hard. A body with a horizon map is
+    traced throughout, as is a reference image. Off by default.
+    """
 
 class ReferenceConfig:
     """A reference image, integrated progressively to a stated error.

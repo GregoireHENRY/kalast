@@ -11,7 +11,10 @@ its corners and centre reach past the wall, worked out here in float64:
 - with the Sun a disc, to a 401 x 401 grid over the limb-darkened disc,
   within what 256 rays a point resolve, and with no bias;
 - the probe (`ray_probe`) moves no facet by more than a sliver of the
-  disc's edge.
+  disc's edge;
+- guided by the maps (`ray_guide`), the disc traced only where they see a
+  penumbra can be, every facet as the rays have it, but for a handful where
+  the wall meets the plate, whose penumbrae are narrower than a texel.
 
 Skipped on a GPU without ray queries. Opens a window, in the background.
 """
@@ -105,11 +108,12 @@ def open_app(path: str) -> App:
     return app
 
 
-def query(app: App, point: bool, probe: int) -> numpy.ndarray | None:
+def query(app: App, point: bool, probe: int, guide: bool = False) -> numpy.ndarray | None:
     """One app for every query: a process has one window loop."""
     c = app.simulation.config
     c.light.sun_as_point = point
     c.shadows.ray_probe = probe
+    c.shadows.ray_guide = guide
     hidden = None
     for _ in range(4):
         app.simulation.request_facet_shadow(0)
@@ -153,6 +157,7 @@ def main() -> int:
 
     disc = query(app, False, 16)
     disc_all = query(app, False, 0)
+    guided = query(app, False, 16, guide=True)
     app.close()
     want = 1.0 - seen(points, 401).reshape(len(idx), 4).mean(axis=1)
     err = disc[idx] - want
@@ -169,6 +174,14 @@ def main() -> int:
     # rim, one under about 0.6 % of the disc's light.
     check("the probe moves no facet by more than a sliver of the disc", float(moved.max()) <= 0.006,
           f"{int((moved > 0).sum())} facets moved, worst {100 * moved.max():.2f} %")
+    # Where the wall stands on the plate, a penumbra is narrower than a
+    # texel, which the guide takes for none: a facet's point there answered
+    # by one ray, a handful of facets at the wall's two ends.
+    moved = numpy.abs(guided - disc)
+    off = moved > 0.006
+    check("guided by the maps, every facet as the rays have it but where the wall meets the plate",
+          int(off.sum()) <= 8 and float(moved.max()) <= 0.25,
+          f"{int(off.sum())} facets apart, worst {100 * moved.max():.2f} %")
     plate = disc[: 2 * N * N]
     cx = corners.mean(axis=1)[:, 0]
     deep = (cx > EDGE + 1.5) & (cx < -0.5) & (numpy.abs(corners.mean(axis=1)[:, 1]) < 8.0)

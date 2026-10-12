@@ -75,8 +75,9 @@ struct Light {
     // 1: each layer has a second depth layer, the nearest surface behind its
     // first, after the others' slices (`peel_slice`).
     peeled: u32,
-    // Where the cascades' count was, 12 October, so the struct keeps its size.
-    _spare: u32,
+    // 1: the disc's rays traced only where the maps see a penumbra can be,
+    // one ray elsewhere (`shadows.ray_guide`, `guided_penumbra`).
+    ray_guide: u32,
     // With `shadows.rays`, the rays a pixel traces across the Sun's disc, 1
     // for a point, in place of the maps' lookups; 0, the maps.
     rays: u32,
@@ -615,13 +616,15 @@ const WALK_MIN_REACH: f32 = 6.0;
 /// umbra, `(reach, 2)` a penumbra to walk. `tan_uv` is the Sun's angular
 /// radius, uv per unit of depth.
 fn sun_reach(layer: u32, uv: vec2<f32>, depth: f32, bias: f32, tan_uv: f32) -> vec2<f32> {
-    return sun_reach_about(layer, uv, depth, bias, tan_uv, 0.0);
+    return sun_reach_about(layer, uv, depth, bias, tan_uv, 0.0, WALK_MIN_REACH);
 }
 
 /// `sun_reach` for any receiver within `spread` texels of `uv`, none
 /// farther from the Sun than `depth`: what it says of nothing in reach holds
-/// for each of them (`cs_facets`, a facet's corners at once).
-fn sun_reach_about(layer: u32, uv: vec2<f32>, depth: f32, bias: f32, tan_uv: f32, spread: f32) -> vec2<f32> {
+/// for each of them (`cs_facets`, a facet's corners at once). A penumbra
+/// narrower than `least` texels counts as none: `WALK_MIN_REACH` for the
+/// walk, `GUIDE_MIN_REACH` for the rays' guide.
+fn sun_reach_about(layer: u32, uv: vec2<f32>, depth: f32, bias: f32, tan_uv: f32, spread: f32, least: f32) -> vec2<f32> {
     let res = f32(globals.shadow_resolution);
     let top = i32(textureNumLevels(t_shadow_min)) - 1;
     // How far, in texels, a penumbra can reach the receiver from: the depth
@@ -640,7 +643,7 @@ fn sun_reach_about(layer: u32, uv: vec2<f32>, depth: f32, bias: f32, tan_uv: f32
     var umbra = false;
     let p = uv * res;
     for (var tries = 0; tries < 3; tries++) {
-        if reach < WALK_MIN_REACH {
+        if reach < least {
             return vec2<f32>(reach, 0.0);
         }
         if tries == 2 && umbra {
@@ -648,7 +651,11 @@ fn sun_reach_about(layer: u32, uv: vec2<f32>, depth: f32, bias: f32, tan_uv: f32
         }
         let span = select(1, 2, tries == 2);
         let n = 2 * span + 1;
-        let m = clamp(i32(ceil(log2(reach / (4.0 * f32(span))))), 0, top);
+        // Blocks wide enough to hold what is in reach of every receiver
+        // within `spread`: sized for the centre alone, a facet's corner 13
+        // texels out was looked round short of the wall beside it, and its
+        // penumbra missed.
+        let m = clamp(i32(ceil(log2((reach + spread) / (4.0 * f32(span))))), 0, top);
         let block = f32(4u << u32(m));
         let blocks = vec2<i32>(textureDimensions(t_shadow_min, m));
         let centre = vec2<i32>(floor(p / block));
@@ -679,7 +686,7 @@ fn sun_reach_about(layer: u32, uv: vec2<f32>, depth: f32, bias: f32, tan_uv: f32
         reach = min(reach, farthest);
         umbra = all_in_front && depth - near <= 2.0 * (depth - far);
     }
-    if reach < WALK_MIN_REACH {
+    if reach < least {
         return vec2<f32>(reach, 0.0);
     }
     return vec2<f32>(reach, select(2.0, 1.0, umbra));
@@ -1422,8 +1429,9 @@ fn facet_sun(f: u32, pos: vec3<f32>, n: vec3<f32>, layer: u32, horizon: f32, nea
 /// `n` in `layer` or the other bodies' slice: the pyramid looked round once
 /// for the facet, about its centre, as far again as its corners are and as
 /// far from the Sun as the farthest. Most facets are far from any penumbra,
-/// and four looks a facet were 8 ms of a step of the Didymos pair.
-fn facet_near_penumbra(a: vec3<f32>, b: vec3<f32>, c: vec3<f32>, n: vec3<f32>, layer: u32) -> bool {
+/// and four looks a facet were 8 ms of a step of the Didymos pair. A
+/// penumbra narrower than `least` texels counts as none (`sun_reach_about`).
+fn facet_near_penumbra(a: vec3<f32>, b: vec3<f32>, c: vec3<f32>, n: vec3<f32>, layer: u32, least: f32) -> bool {
     let m = view.light.view_proj_layers[layer];
     let res = f32(globals.shadow_resolution);
     let pa = project_light(m, a);
@@ -1438,12 +1446,61 @@ fn facet_near_penumbra(a: vec3<f32>, b: vec3<f32>, c: vec3<f32>, n: vec3<f32>, l
     }
     let at = sun_at(centre, n, ndotl, layer);
     let depth = max(max(pa.z, pb.z), max(pc.z, at.depth));
-    let own = sun_reach_about(layer, uv, depth, at.bias, at.tan_uv, spread);
+    let own = sun_reach_about(layer, uv, depth, at.bias, at.tan_uv, spread, least);
     if own.y != 0.0 {
         return true;
     }
     let others = others_slice(layer);
-    return others != layer && sun_reach_about(others, uv, depth, at.bias, at.tan_uv, spread).y != 0.0;
+    return others != layer && sun_reach_about(others, uv, depth, at.bias, at.tan_uv, spread, least).y != 0.0;
+}
+
+// The rays guided by the maps (`shadows.ray_guide`): the disc's rays traced
+// only where the maps' depth pyramid sees an occluder within the disc's reach
+// of a point -- where a penumbra can be -- and one ray, to the Sun's centre,
+// elsewhere: a point with nothing in reach sees all of the disc or, in the
+// umbra, none of it, and that one ray says which. Most of an image is so; the
+// probe's 16 rays at every lit point were most of what the disc cost. Where
+// the maps do not hold the occluder -- relief finer than their texels -- its
+// penumbra is drawn hard.
+
+/// The narrowest penumbra, in texels, the rays' guide looks for: a texel,
+/// what the maps can show at all -- not the walk's six (`WALK_MIN_REACH`),
+/// below which the maps' own disc draws a penumbra hard.
+const GUIDE_MIN_REACH: f32 = 1.0;
+
+/// Whether a penumbra can reach the receiver at `uv`, `depth` in `layer`,
+/// as the maps see it: an occluder within the disc's reach in its layer or
+/// the other bodies' slice, and not the umbra, which one ray finds.
+fn guided_penumbra(layer: u32, uv: vec2<f32>, depth: f32, bias: f32, tan_uv: f32) -> bool {
+    let own = sun_reach_about(layer, uv, depth, bias, tan_uv, 0.0, GUIDE_MIN_REACH);
+    if own.y != 0.0 {
+        return own.y == 2.0;
+    }
+    let others = others_slice(layer);
+    return others != layer && sun_reach_about(others, uv, depth, bias, tan_uv, 0.0, GUIDE_MIN_REACH).y == 2.0;
+}
+
+/// Per facet, 1 where a penumbra may reach any of its points, as the maps
+/// see it, for the rays to trace the disc there (`raytrace::facet_shadows`),
+/// and 0 where one ray a point says it; the umbra too, which over a
+/// facet's spread is not sure. A body with a horizon map, which is not in
+/// its own layer, or in no layer this frame, is traced throughout.
+@compute @workgroup_size(64)
+fn cs_facets_guide(@builtin(global_invocation_id) id: vec3<u32>) {
+    let f = id.y * facet_query.stride + id.x;
+    if f >= facet_query.n_facets {
+        return;
+    }
+    var i = vec3<u32>(3u * f, 3u * f + 1u, 3u * f + 2u);
+    if facet_query.is_flat == 0u {
+        i = vec3<u32>(facet_indices[3u * f], facet_indices[3u * f + 1u], facet_indices[3u * f + 2u]);
+    }
+    let a = facet_vertex(i.x);
+    let b = facet_vertex(i.y);
+    let c = facet_vertex(i.z);
+    let n = normalize(cross(b - a, c - a));
+    let traced = (body.flags & 48u) != 0u || facet_near_penumbra(a, b, c, n, body_layer(), GUIDE_MIN_REACH);
+    atomicStore(&facet_out[f], select(0u, 1u, traced));
 }
 
 /// Each facet's points that need no walk, into `facet_out`; those that do,
@@ -1486,7 +1543,7 @@ fn cs_facets(@builtin(global_invocation_id) id: vec3<u32>) {
         // The body's own layer; with cascades, each point the one that holds
         // it -- a facet's corner can be past its centre's.
         let layer = body_layer();
-        let near = view.light.sun_radius > 0.0 && facet_near_penumbra(a, b, c, n, layer);
+        let near = view.light.sun_radius > 0.0 && facet_near_penumbra(a, b, c, n, layer, WALK_MIN_REACH);
         // The PCF kernel's steps, the same at the four points of a flat facet
         // in one layer.
         let ndotl = max(dot(n, normalize(view.light.pos - centre)), 0.0);
@@ -1999,7 +2056,8 @@ fn fs_shaded(in: Surface) -> vec4<f32> {
         // blur is within a pixel, and it cost 1.6 ms at 3234 x 1774 for nothing
         // seen (the near layer's texels are half a pixel). The per-facet query,
         // which has no pixels, takes it whole.
-        var radius = globals.shadow_pcf;
+        // None while the rays answer.
+        var radius = select(globals.shadow_pcf, 0u, view.light.rays > 0u);
         var kernel: SunKernel;
         if radius > 0u {
             let lm = view.light.view_proj_layers[layer];
@@ -2068,7 +2126,14 @@ fn fs_shaded(in: Surface) -> vec4<f32> {
                     // sum stands for (`ray_reference`). //@rt
                     shadow = ray_reference(p, in.world_normal, view.light.pos, view.light.sun_radius, frame - 1u, vec2<u32>(in.frag.xy)); //@rt
                 } else { //@rt
-                    shadow = ray_sun_seen(p, in.world_normal, view.light.pos, view.light.sun_radius, view.light.rays, view.light.ray_probe, ray_turn(key)); //@rt
+                    // Guided (`shadows.ray_guide`): across the disc only where //@rt
+                    // the maps see a penumbra can be, one ray elsewhere. A body //@rt
+                    // with a horizon map, or in no layer, is traced throughout. //@rt
+                    var samples = view.light.rays; //@rt
+                    if view.light.ray_guide != 0u && (body.flags & 48u) == 0u && !guided_penumbra(layer, uv, depth, bias, at.tan_uv) { //@rt
+                        samples = 1u; //@rt
+                    } //@rt
+                    shadow = ray_sun_seen(p, in.world_normal, view.light.pos, view.light.sun_radius, samples, view.light.ray_probe, ray_turn(key)); //@rt
                 } //@rt
             } //@rt
             // Light bounced off the surfaces, whichever way this one faces: a //@rt

@@ -160,6 +160,9 @@ pub fn group_shadows(ui: &mut egui::Ui, c: &mut Config) {
     if c.shadows.method == crate::app::config::ShadowMethod::Rays {
         setting(ui, "ray_probe", "The rays a point tries first across the disc, with `method` \"rays\": where they all agree the point is wholly lit or wholly hidden and the rest of `ray_samples` are not traced. Nearly every point is, so a step costs about this many rays a point whatever `ray_samples` is.", |ui| ui.add(egui::Slider::new(&mut c.shadows.ray_probe, 0..=64).clamping(egui::SliderClamping::Edits)));
     }
+    if c.shadows.method == crate::app::config::ShadowMethod::Rays {
+        setting(ui, "ray_guide", "Trace the disc's rays only where the shadow maps see a penumbra can be, one ray to the Sun's centre elsewhere: much quicker, and exact wherever the maps hold what casts the penumbra.", |ui| ui.checkbox(&mut c.shadows.ray_guide, ""));
+    }
 }
 
 /// `config.reference` -- Reference.

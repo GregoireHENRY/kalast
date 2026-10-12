@@ -26,7 +26,8 @@ struct FacetRays {
     // Rays tried first, the rest only where they disagree; 0: all of them
     // everywhere.
     probe: u32,
-    _pad0: u32,
+    // 1: `guide` says which facets the disc is traced for (`shadows.ray_guide`).
+    guided: u32,
     _pad1: u32,
     _pad2: u32,
 };
@@ -35,6 +36,9 @@ struct FacetRays {
 @group(0) @binding(3) var<storage, read> indices: array<u32>;
 // Per facet, the share of the Sun's light its points do not see.
 @group(0) @binding(4) var<storage, read_write> out: array<f32>;
+// Per facet, 1 where the shadow maps see a penumbra can reach it, with
+// `guided` (`cs_facets_guide` in `mesh_shadow.wgsl`).
+@group(0) @binding(5) var<storage, read> guide: array<u32>;
 
 fn vertex(i: u32) -> vec3<f32> {
     let p = vec3<f32>(geometry[3u * i], geometry[3u * i + 1u], geometry[3u * i + 2u]);
@@ -66,10 +70,13 @@ fn cs_facets(@builtin(global_invocation_id) id: vec3<u32>) {
     // The facet as a flat plate, as the thermophysical model has it.
     let n = normalize(normal);
     let centre = (a + b + c) / 3.0;
+    // Guided, one ray a point where the maps see no penumbra can be: all of
+    // the disc or, in the umbra, none of it.
+    let samples = select(q.samples, 1u, q.guided != 0u && guide[f] == 0u);
     var lit = 0.0;
     for (var k = 0u; k < 4u; k++) {
         let p = select(select(select(centre, c, k == 2u), b, k == 1u), a, k == 0u);
-        lit += ray_sun_seen(p, n, q.sun, q.sun_radius, q.samples, q.probe, ray_turn(4u * f + k));
+        lit += ray_sun_seen(p, n, q.sun, q.sun_radius, samples, q.probe, ray_turn(4u * f + k));
     }
     out[f] = 1.0 - lit / 4.0;
 }

@@ -92,3 +92,40 @@ Up close the maps' 3.5 ms is mostly their lookups, 3.1 ms of PCF over 5.7
 million pixels, the shadow pass 1.15. Cascades pay the same lookups and draw
 every body into each cascade (3.2 ms at 1024, 6.3 at 4096): no faster than the
 maps anywhere. Hard edges at 2048 are: 868 and 331.
+
+## Rays guided by the maps (`shadows.ray_guide`)
+
+The handoff's item 4, for the Mac, as an option ("cheaper rays as an
+option"): with the Sun a disc, the maps are drawn beside the rays, and each
+point asks their depth pyramid first whether anything lies within the disc's
+reach (`guided_penumbra`, `sun_reach_about` with a texel for its narrowest
+penumbra, not the walk's six). Nothing: one ray to the Sun's centre, all of
+the disc or, in the umbra, none of it. Something: the probe and the samples
+as before. The facets the same way, the maps saying per facet on the GPU
+(`cs_facets_guide`, `penumbra::Pass::facet_guide`) and the rays' pass reading
+it (`guide` in `raytrace.wgsl`), nothing read back. Not in a reference, not
+with a point Sun, not on a body with a horizon map; no second depth layer
+drawn for it. The uniform's `ray_guide` is where the cascades' count was.
+
+It found a fault of the maps' own per-facet disc: `sun_reach_about` looked
+round blocks sized for the reach from the facet's centre, not from its
+corners, and a corner 13 texels out had the wall beside it outside them -- 62
+facets along the wall's ends given hard edges. The blocks hold the reach plus
+the spread now.
+
+`tests/test_image_rays.py`: guided, the image the rays' own, 0 pixels of
+240,000 apart. `tests/test_facet_shadow_rays.py`: 4 facets of 80,000 apart, by
+up to 6.5 %, where the wall stands on the plate and a penumbra is narrower
+than a texel.
+
+M1 Pro, the Didymos pair from 1 km, Dimorphos's shadow across it, the disc at
+64 rays, probe 16 (wall clock, median):
+
+| | rays | rays, guided | maps, the disc |
+|---|---|---|---|
+| an image, 1200 x 800 | 384 ms | 143 ms | 6.1 ms |
+| a step, every facet | 2,969 ms | 984 ms | 29.8 ms |
+
+Three times quicker, not more: under that low Sun Didymos's rough ground has
+something within the disc's reach at about a third of its pixels.
+

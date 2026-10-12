@@ -5896,3 +5896,14 @@ The user's rule -- less exact only if much faster -- had them go. `"quick"` is
 a layer per body at 2048 with hard edges: 879 and 339, where one layer over
 the scene gave 901 and 179. Write-up:
 `2026-10-12_shadow_method_and_colour_modes/`.
+
+## 2026-10-12 — rays guided by the maps
+
+`shadows.ray_guide`, off by default: the disc's rays traced only where the
+maps' pyramid sees an occluder within its reach, one ray elsewhere -- the
+image's and the facets', the facets' guide left on the GPU. The Didymos pair
+on the M1 Pro: an image 384 to 143 ms, a step with every facet 2.97 to 0.98 s.
+On the way, `sun_reach_about` looked round too little about a facet's corners,
+which gave the maps' per-facet disc hard edges along occluders' ends. Write-up:
+`2026-10-12_ray_tracing_on_metal/`.
+

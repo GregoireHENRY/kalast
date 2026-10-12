@@ -53,10 +53,11 @@ pub struct Pass {
     walk: wgpu::ComputePipeline,
     /// The per-facet query with the Sun a disc: its points (`cs_facets`),
     /// their walks (`cs_walk` again) and the walked points' shares
-    /// (`cs_facets_walked`); its group 6 -- a queue as the image's, what each
-    /// walk is for, the query, the body's vertices and corners, the answer;
-    /// and the queue, made the first time.
-    facets: [wgpu::ComputePipeline; 3],
+    /// (`cs_facets_walked`); and where the rays' guide sees a penumbra can
+    /// be (`cs_facets_guide`). Its group 6 -- a queue as the image's, what
+    /// each walk is for, the query, the body's vertices and corners, the
+    /// answer; and the queue, made the first time.
+    facets: [wgpu::ComputePipeline; 4],
     facets_layout: wgpu::BindGroupLayout,
     facet_queue: std::cell::OnceCell<(wgpu::Buffer, wgpu::Buffer)>,
     primitive_index: bool,
@@ -255,7 +256,7 @@ impl Pass {
             bind_group_layouts: &[shaded[0], shaded[1], shaded[2], None, None, shaded[5], Some(&facets_layout)],
             immediate_size: 0,
         });
-        let facets = ["cs_facets", "cs_walk", "cs_facets_walked"].map(|entry| {
+        let facets = ["cs_facets", "cs_walk", "cs_facets_walked", "cs_facets_guide"].map(|entry| {
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some(entry),
                 layout: Some(&facets_pipeline_layout),
@@ -284,6 +285,83 @@ impl Pass {
         }
     }
 
+    /// Per facet of `mesh`, 1 where the maps see a penumbra can reach it and
+    /// 0 elsewhere (`cs_facets_guide`): for the rays to trace the disc there
+    /// only (`raytrace::RayTracing::facet_shadows`, `shadows.ray_guide`). Left
+    /// on the GPU, its answer a buffer the rays read; `None` for no facets.
+    pub fn facet_guide(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        bindings: &super::Bindings,
+        mesh: &gpu::MeshBuffer,
+    ) -> Option<wgpu::Buffer> {
+        let n = mesh.n_facets();
+        if n == 0 {
+            return None;
+        }
+        let (groups_x, groups_y, stride) = crate::gpu::Context::dispatch_2d(n as u64);
+        let (queue_buffer, walks_for) = self.facet_queue_buffers(device);
+        let query = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("facet shadows, the rays' guide"),
+            contents: bytemuck::cast_slice(&[n, stride, mesh.is_flat as u32, 0u32]),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+        let out = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("facet shadows, the rays' guide"),
+            size: n as u64 * 4,
+            usage: wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("facet shadows, the rays' guide"),
+            layout: &self.facets_layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: queue_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 10, resource: query.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 11, resource: mesh.geometry_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 12, resource: mesh.index_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 13, resource: out.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 14, resource: walks_for.as_entire_binding() },
+            ],
+        });
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("facet shadows, the rays' guide"),
+                timestamp_writes: None,
+            });
+            pass.set_bind_group(0, Some(&bindings.globals), &[]);
+            pass.set_bind_group(1, Some(&bindings.view), &[]);
+            pass.set_bind_group(2, Some(&bindings.shadow), &[]);
+            pass.set_bind_group(5, Some(&mesh.attr_bind_group), &[]);
+            pass.set_bind_group(6, Some(&group), &[]);
+            pass.set_pipeline(&self.facets[3]);
+            pass.dispatch_workgroups(groups_x, groups_y, 1);
+        }
+        queue.submit(Some(encoder.finish()));
+        Some(out)
+    }
+
+    /// The per-facet query's queue and what each walk is for, made the first
+    /// time they are wanted.
+    fn facet_queue_buffers(&self, device: &wgpu::Device) -> &(wgpu::Buffer, wgpu::Buffer) {
+        self.facet_queue.get_or_init(|| {
+            let buffer = |label, size| {
+                device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some(label),
+                    size,
+                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                })
+            };
+            (
+                buffer("facet shadows, disc, walks", 8 + FACET_WALKS * WALK_BYTES),
+                buffer("facet shadows, disc, what each walk is for", FACET_WALKS * 16),
+            )
+        })
+    }
+
     /// What each facet of `mesh` hides of the Sun, in `[0, 1]`, 0 wholly
     /// lit: the thermophysical model's shadows, as the image has them -- the
     /// same layer, slices, lookups and PCF kernel, and with the Sun a disc the
@@ -302,20 +380,7 @@ impl Pass {
             return vec![];
         }
         let (groups_x, groups_y, stride) = crate::gpu::Context::dispatch_2d(n as u64);
-        let (queue_buffer, walks_for) = self.facet_queue.get_or_init(|| {
-            let buffer = |label, size| {
-                device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some(label),
-                    size,
-                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                })
-            };
-            (
-                buffer("facet shadows, disc, walks", 8 + FACET_WALKS * WALK_BYTES),
-                buffer("facet shadows, disc, what each walk is for", FACET_WALKS * 16),
-            )
-        });
+        let (queue_buffer, walks_for) = self.facet_queue_buffers(device);
         let query = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("facet shadows, disc"),
             contents: bytemuck::cast_slice(&[n, stride, mesh.is_flat as u32, 0u32]),
