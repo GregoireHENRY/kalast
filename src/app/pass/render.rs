@@ -470,6 +470,197 @@ impl Pass {
         }
     }
 
+    /// The bodies alone, in rows `band.0..band.1` of the image: a slice of
+    /// a frame drawn over several turns of the loop (`Window::render`), the
+    /// first slice clearing, the others drawing beside it. Its GPU time is a
+    /// slice's, a few milliseconds, so the UI's frames are drawn between
+    /// slices instead of waiting for a whole traced image. Nothing resolved
+    /// and no overlay drawn: `render_band_finish` does those, once.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_band(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        depth_view: &wgpu::TextureView,
+        meshes: &[gpu::MeshBuffer],
+        bindings: &super::Bindings,
+        penumbra: &wgpu::BindGroup,
+        config: &crate::app::config::Config,
+        band: (u32, u32),
+        first: bool,
+    ) {
+        let (color_view, depth_view) = match &self.msaa {
+            Some(msaa) => (&msaa.color_view, &msaa.depth_view),
+            None => (&self.render_view, depth_view),
+        };
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("main pass, a band"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: color_view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: if first { wgpu::LoadOp::Clear(config.shading.background) } else { wgpu::LoadOp::Load },
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: depth_view,
+                depth_ops: Some(wgpu::Operations {
+                    load: if first { wgpu::LoadOp::Clear(gpu::DEPTH_CLEAR) } else { wgpu::LoadOp::Load },
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
+            ..Default::default()
+        });
+        let (width, height) = self.size();
+        let (y0, y1) = (band.0.min(height), band.1.min(height));
+        render_pass.set_scissor_rect(0, y0, width, y1.saturating_sub(y0).max(1));
+        render_pass.set_pipeline(&self.pipeline.inner);
+        bindings.all(&mut render_pass);
+        render_pass.set_bind_group(6, Some(penumbra), &[]);
+        if let Some(rays) = &bindings.rays {
+            render_pass.set_bind_group(7, Some(rays), &[]);
+        }
+        let corners = config.wireframe.mode != 0 || !self.primitive_index;
+        let mut lean_set = false;
+        for mesh in &meshes[1..] {
+            let lean = self.lean.as_ref().filter(|_| mesh.is_flat && !corners);
+            if lean.is_some() != lean_set {
+                render_pass.set_pipeline(&lean.unwrap_or(&self.pipeline).inner);
+                lean_set = lean.is_some();
+            }
+            mesh.render_shaded(&mut render_pass, corners, self.immediates);
+        }
+    }
+
+    /// After the bands (`render_band`): what the main pass draws over the
+    /// bodies -- the light cube, the axes and the grid, the colour bar, the
+    /// gizmo -- and the resolve, as `render` ends.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_band_finish(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        depth_view: &wgpu::TextureView,
+        light: &super::light_cube::Pass,
+        axes: &super::axes::Pass,
+        grid: &super::grid::Pass,
+        gizmo: &super::gizmo::Pass,
+        colorbar: &super::colorbar::Pass,
+        meshes: &[gpu::MeshBuffer],
+        bindings: &super::Bindings,
+        config: &crate::app::config::Config,
+        annotations: bool,
+    ) {
+        let by_hand = self.resolves_by_hand(config);
+        let (color_view, resolve_target, store, depth_view) = match &self.msaa {
+            Some(msaa) => (
+                &msaa.color_view,
+                (!by_hand).then_some(&self.render_view),
+                if annotations && !by_hand { wgpu::StoreOp::Discard } else { wgpu::StoreOp::Store },
+                &msaa.depth_view,
+            ),
+            None => (&self.render_view, None, wgpu::StoreOp::Store, depth_view),
+        };
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("main pass, over the bands"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: color_view,
+                depth_slice: None,
+                resolve_target,
+                ops: wgpu::Operations { load: wgpu::LoadOp::Load, store },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: depth_view,
+                depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store }),
+                stencil_ops: None,
+            }),
+            ..Default::default()
+        });
+        if config.light.cube_show {
+            light.render(&mut render_pass, &meshes[0], bindings);
+        }
+        if annotations {
+            draw_ground_and_axes(&mut render_pass, axes, grid, bindings, config);
+        }
+        if config.colorbar.enabled {
+            colorbar.render(&mut render_pass, bindings);
+        }
+        if annotations {
+            draw_gizmo(&mut render_pass, gizmo, config);
+        }
+        drop(render_pass);
+        if by_hand {
+            self.resolve_stored(encoder);
+        }
+    }
+
+    /// A reference image's sample in rows `band.0..band.1`, the first band
+    /// clearing (`render_reference`, `render_band`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_reference_band(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        depth_view: &wgpu::TextureView,
+        meshes: &[gpu::MeshBuffer],
+        bindings: &super::Bindings,
+        penumbra: &wgpu::BindGroup,
+        config: &crate::app::config::Config,
+        band: (u32, u32),
+        first: bool,
+    ) {
+        let Some((full, lean_pipeline)) = &self.reference else {
+            return;
+        };
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("reference sample, a band"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: target,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: if first { wgpu::LoadOp::Clear(config.shading.background) } else { wgpu::LoadOp::Load },
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: depth_view,
+                depth_ops: Some(wgpu::Operations {
+                    load: if first { wgpu::LoadOp::Clear(gpu::DEPTH_CLEAR) } else { wgpu::LoadOp::Load },
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
+            ..Default::default()
+        });
+        let (width, height) = self.size();
+        let (y0, y1) = (band.0.min(height), band.1.min(height));
+        render_pass.set_scissor_rect(0, y0, width, y1.saturating_sub(y0).max(1));
+        render_pass.set_pipeline(&full.inner);
+        bindings.all(&mut render_pass);
+        render_pass.set_bind_group(6, Some(penumbra), &[]);
+        if let Some(rays) = &bindings.rays {
+            render_pass.set_bind_group(7, Some(rays), &[]);
+        }
+        let corners = config.wireframe.mode != 0 || !self.primitive_index;
+        let mut lean_set = false;
+        for mesh in &meshes[1..] {
+            let lean = lean_pipeline.as_ref().filter(|_| mesh.is_flat && !corners);
+            if lean.is_some() != lean_set {
+                render_pass.set_pipeline(&lean.unwrap_or(full).inner);
+                lean_set = lean.is_some();
+            }
+            mesh.render_shaded(&mut render_pass, corners, self.immediates);
+        }
+    }
+
+    /// The image's size, as its target has it.
+    pub fn size(&self) -> (u32, u32) {
+        let s = self.render_texture.size();
+        (s.width, s.height)
+    }
+
     /// A reference image's sample (`app::reference`): the bodies alone, with
     /// the main pass's shading, single-sampled into `target` -- the
     /// reference's float sample -- over `depth_view`. The light cube and the

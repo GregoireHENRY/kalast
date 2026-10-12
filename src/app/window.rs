@@ -28,6 +28,34 @@ pub fn light_view_proj(
     proj * view
 }
 
+/// A traced frame drawn in bands (`Window::render`): the next band and how
+/// many there are, the HUDs to draw once they are, whether the annotations
+/// wait for an export, and the band in flight -- when it was sent and when
+/// the GPU finished it, set by the queue's callback.
+struct Banded {
+    next: u32,
+    total: u32,
+    huds: Vec<crate::app::config::Hud>,
+    axes_after_export: bool,
+    /// The target the bands draw into: a frame begun for one there is no
+    /// longer -- a resize, a rebuild -- is dropped.
+    generation: u64,
+    sent: std::time::Instant,
+    finished: std::sync::Arc<std::sync::Mutex<Option<std::time::Instant>>>,
+    /// The bands' GPU time so far, from each one's sending to its finish.
+    busy_ms: f64,
+}
+
+/// The GPU time a band is cut to: a band and the UI's frame together within
+/// a display's refresh at 120 Hz.
+const BAND_MS: f64 = 6.0;
+
+/// A traced frame quicker than this is drawn whole, as any other.
+const BANDED_ABOVE_MS: f64 = 12.0;
+
+/// The most bands a frame is cut into.
+const MAX_BANDS: u32 = 256;
+
 /// How many shadow layers a scene uses: one per body up to the cap, or one
 /// in all when the per-body fit is off. What the array is allocated at --
 /// `resolution^2 x 4 bytes` a layer, 268 MB at 8192, so allocating the cap of
@@ -1220,6 +1248,32 @@ pub struct Window {
     /// The last frames' submissions, so the loop can wait for the GPU to be
     /// at most two frames behind; see `render`.
     frame_submissions: std::collections::VecDeque<wgpu::SubmissionIndex>,
+    /// A traced frame being drawn in bands, a band a turn of the loop
+    /// (`render`, `render_continue`); `None` between frames.
+    banded: Option<Banded>,
+    /// How long a traced frame's bodies took the GPU, last measured: how many
+    /// bands the next is cut into, each about `BAND_MS`.
+    traced_ms: f64,
+    /// A traced frame drawn whole, being timed: when it was sent, and when the
+    /// GPU finished it, set by the queue's callback.
+    traced_probe: Option<(std::time::Instant, std::sync::Arc<std::sync::Mutex<Option<std::time::Instant>>>)>,
+    /// The image as it was before a banded frame began, shown while it is
+    /// drawn (`display`).
+    held: Option<wgpu::Texture>,
+    /// The bodies whose per-facet shadows the frame is asked for -- set by
+    /// the app as it begins one, from `access_shadow_map` and
+    /// `sim.request_facet_shadow` -- and their answers once it is drawn
+    /// (`take_facet_results`).
+    pub facet_wanted: Vec<usize>,
+    facet_results: Vec<(usize, Vec<f32>)>,
+    /// Ray-traced per-facet shadows in the UI app, a range of facets a turn
+    /// of the loop (`raytrace::FacetPass`): the bodies to go, the one in
+    /// hand, the answers so far.
+    facet_job: Option<(std::collections::VecDeque<usize>, Option<super::raytrace::FacetPass>, Vec<(usize, Vec<f32>)>)>,
+    /// The GPU's time per facet of the rays' query, last measured.
+    facet_ms_per_facet: f64,
+    /// The frame being drawn may be drawn over turns of the loop (`render`).
+    bands_now: bool,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub surface_config: wgpu::SurfaceConfiguration,
@@ -1719,6 +1773,15 @@ impl Window {
             instance,
             surface,
             frame_submissions: std::collections::VecDeque::new(),
+            banded: None,
+            traced_ms: 0.0,
+            traced_probe: None,
+            held: None,
+            facet_wanted: Vec::new(),
+            facet_results: Vec::new(),
+            facet_job: None,
+            facet_ms_per_facet: 1e-4,
+            bands_now: false,
             device,
             queue,
             surface_config,
@@ -3672,12 +3735,17 @@ impl Window {
         self.queue.submit([encoder.finish()]);
     }
 
+    /// Draw the frame: true once it is drawn. With `bands`, as the UI app
+    /// asks, a slow traced frame may be drawn in bands, then false, and
+    /// `render_continue` draws the rest a turn of the loop at a time.
     pub fn render(
         &mut self,
         surface_texture: Option<wgpu::SurfaceTexture>,
         config: &crate::app::config::Config,
         huds: &[crate::app::config::Hud],
-    ) {
+        bands: bool,
+    ) -> bool {
+        self.bands_now = bands;
         self.last_drawn = std::time::Instant::now();
         self.drawn_generation = self.render_generation;
         if let (true, Some(t)) = (config.debug.gpu_timing, self.timer.as_ref()) {
@@ -3827,6 +3895,30 @@ impl Window {
             && !config.export.axes
             && config.axes.style != super::axes::AxesStyle::Off;
 
+        // A traced frame slower than `BANDED_ABOVE_MS`, in the UI app: its
+        // bodies drawn in bands, a band a turn of the loop and each about
+        // `BAND_MS` of the GPU, so the panels' frames are drawn between them
+        // rather than after a whole image of rays -- 0.14 to 0.4 s on an M1
+        // Pro. The image as it was is shown meanwhile (`display`), and
+        // `render_continue` carries the frame on.
+        if self.probe_traced() && bands && surface_texture.is_none() && self.traced_ms > BANDED_ABOVE_MS {
+            let rows = self.render_size.1.max(1);
+            let total = ((self.traced_ms / BAND_MS).ceil() as u32).clamp(2, MAX_BANDS).min(rows);
+            self.hold_image();
+            self.banded = Some(Banded {
+                next: 0,
+                total,
+                huds: huds.to_vec(),
+                axes_after_export,
+                generation: self.render_generation,
+                sent: std::time::Instant::now(),
+                finished: std::sync::Arc::new(std::sync::Mutex::new(None)),
+                busy_ms: 0.0,
+            });
+            self.send_band(config);
+            return false;
+        }
+
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
@@ -3852,6 +3944,250 @@ impl Window {
 
         let frame_submission = self.queue.submit([encoder.finish()]);
 
+        // A traced frame drawn whole: how long its bodies take the GPU, which
+        // says whether the next is drawn in bands.
+        if self.probe_traced() {
+            let finished = std::sync::Arc::new(std::sync::Mutex::new(None));
+            let f = finished.clone();
+            self.queue.on_submitted_work_done(move || {
+                *f.lock().unwrap() = Some(std::time::Instant::now());
+            });
+            self.traced_probe = Some((std::time::Instant::now(), finished));
+        }
+        self.render_tail(surface_texture, config, huds, axes_after_export, frame_submission);
+        self.facet_job.is_none()
+    }
+
+    /// Whether this frame's bodies are traced, and a measure taken of the
+    /// last such frame drawn whole, if it is in: a reference image summing,
+    /// or the rays. A reference done is its mean, quick.
+    fn probe_traced(&mut self) -> bool {
+        let measured = self
+            .traced_probe
+            .as_ref()
+            .and_then(|(sent, finished)| finished.lock().unwrap().map(|at| (at - *sent).as_secs_f64() * 1000.0));
+        if let Some(ms) = measured {
+            self.traced_ms = ms;
+            self.traced_probe = None;
+        }
+        let summing = self.passes.reference_on && self.passes.reference.as_ref().is_none_or(|r| !r.done);
+        self.rays && (summing || !self.passes.reference_on)
+    }
+
+    /// A frame drawn in bands, or its per-facet shadows traced in ranges,
+    /// still being drawn (`render`).
+    pub fn frame_in_progress(&self) -> bool {
+        self.banded.is_some() || self.facet_job.is_some()
+    }
+
+    /// The per-facet shadows the frame just drawn was asked for
+    /// (`facet_wanted`), by body.
+    pub fn take_facet_results(&mut self) -> Vec<(usize, Vec<f32>)> {
+        std::mem::take(&mut self.facet_results)
+    }
+
+    /// The per-facet shadows asked for, once the image is drawn: at once,
+    /// or with the rays in the UI app a range of facets a turn of the loop
+    /// (`continue_facets`).
+    fn begin_facets(&mut self) {
+        self.facet_results.clear();
+        let wanted = std::mem::take(&mut self.facet_wanted);
+        if wanted.is_empty() {
+            return;
+        }
+        if self.bands_now && self.rays && self.raytrace.is_some() {
+            self.facet_job = Some((wanted.into(), None, Vec::new()));
+            return;
+        }
+        for body in wanted {
+            let answer = self.facet_shadow_fractions(body);
+            self.facet_results.push((body, answer));
+        }
+    }
+
+    /// Carry the rays' per-facet shadows on: true once every body asked for
+    /// has its answer. Never waits on the GPU.
+    fn continue_facets(&mut self) -> bool {
+        loop {
+            let Some((bodies, pass, results)) = self.facet_job.as_mut() else {
+                return true;
+            };
+            if pass.is_none() {
+                let Some(body) = bodies.pop_front() else {
+                    self.facet_results = std::mem::take(results);
+                    self.facet_job = None;
+                    return true;
+                };
+                let Some(mesh) = self.meshes.get(1 + body) else {
+                    results.push((body, Vec::new()));
+                    continue;
+                };
+                let Some(rt) = self.raytrace.as_ref() else {
+                    results.push((body, Vec::new()));
+                    continue;
+                };
+                // Guided, the maps say first where the disc is traced.
+                let guide = self
+                    .ray_guided
+                    .then(|| self.passes.penumbra.facet_guide(&self.device, &self.queue, &self.passes.bindings, mesh))
+                    .flatten();
+                let light = &self.uniforms.view.uniform.light;
+                let sun = [light.pos.x as f32, light.pos.y as f32, light.pos.z as f32];
+                *pass = rt.facet_pass(
+                    &self.device,
+                    body,
+                    mesh,
+                    sun,
+                    light.sun_radius,
+                    self.ray_samples,
+                    self.ray_probe,
+                    guide.as_ref(),
+                    self.facet_ms_per_facet,
+                );
+                if pass.is_none() {
+                    results.push((body, Vec::new()));
+                    continue;
+                }
+            }
+            let rt = self.raytrace.as_ref().unwrap();
+            let p = pass.as_mut().unwrap();
+            let answer = rt.advance(p, &self.device, &self.queue, BAND_MS);
+            self.facet_ms_per_facet = p.ms_per_facet;
+            match answer {
+                Some(answer) => {
+                    results.push((p.body, answer));
+                    *pass = None;
+                }
+                None => return false,
+            }
+        }
+    }
+
+    /// Carry a banded frame on: the next band once the GPU has finished the
+    /// last one, and after the last what `render` does after the bodies.
+    /// True once the frame is drawn, or dropped because its target is gone --
+    /// a resize, a rebuild. Never waits on the GPU.
+    pub fn render_continue(&mut self, config: &crate::app::config::Config) -> bool {
+        let Some(b) = self.banded.as_mut() else {
+            return self.continue_facets();
+        };
+        if b.generation != self.render_generation {
+            self.banded = None;
+            return self.continue_facets();
+        }
+        let _ = self.device.poll(wgpu::PollType::Poll);
+        let Some(at) = *b.finished.lock().unwrap() else {
+            return false;
+        };
+        b.busy_ms += (at - b.sent).as_secs_f64() * 1000.0;
+        if b.next < b.total {
+            self.send_band(config);
+            return false;
+        }
+        let b = self.banded.take().unwrap();
+        self.traced_ms = b.busy_ms;
+        if config.debug.window {
+            println!("[WINDOW] a traced frame in {} bands, {:.1} ms of the GPU", b.total, b.busy_ms);
+        }
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        self.passes
+            .render_bands_finish(&self.queue, &mut encoder, &self.meshes, config, !b.axes_after_export);
+        let submission = self.queue.submit([encoder.finish()]);
+        self.render_tail(None, config, &b.huds, b.axes_after_export, submission);
+        self.facet_job.is_none()
+    }
+
+    /// The next band of a banded frame, sent, and a callback to say when the
+    /// GPU has finished it.
+    fn send_band(&mut self, config: &crate::app::config::Config) {
+        let rows = self.render_size.1.max(1);
+        let Some((i, n)) = self.banded.as_ref().map(|b| (b.next, b.total)) else {
+            return;
+        };
+        let band = (i * rows / n, (i + 1) * rows / n);
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("a band") });
+        self.passes
+            .render_band(&self.device, &mut encoder, &self.meshes, config, self.render_size, band, i == 0);
+        self.queue.submit([encoder.finish()]);
+        let finished = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let f = finished.clone();
+        self.queue.on_submitted_work_done(move || {
+            *f.lock().unwrap() = Some(std::time::Instant::now());
+        });
+        let b = self.banded.as_mut().unwrap();
+        b.finished = finished;
+        b.sent = std::time::Instant::now();
+        b.next += 1;
+    }
+
+    /// The image as it is, copied, for the UI to show while a banded frame
+    /// draws over it (`display`).
+    fn hold_image(&mut self) {
+        let source = &self.passes.render.render_texture;
+        let size = source.size();
+        let format = source.format();
+        if self.held.as_ref().is_none_or(|h| h.size() != size || h.format() != format) {
+            self.held = Some(self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("the image held"),
+                size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format,
+                usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[format.remove_srgb_suffix()],
+            }));
+        }
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("the image held") });
+        encoder.copy_texture_to_texture(
+            source.as_image_copy(),
+            self.held.as_ref().unwrap().as_image_copy(),
+            size,
+        );
+        self.queue.submit([encoder.finish()]);
+    }
+
+    /// What the UI shows of the scene: the image, or while a banded frame
+    /// is drawn, the image as it was before it (`hold_image`); and a number
+    /// that changes when it is another texture.
+    pub fn display(&self) -> (&wgpu::Texture, u64) {
+        match (&self.banded, &self.held) {
+            (Some(_), Some(held)) => (held, 2 * self.render_generation + 1),
+            _ => (&self.passes.render.render_texture, 2 * self.render_generation),
+        }
+    }
+
+    /// What a frame does once its bodies are drawn: the backlog bounded, the
+    /// export, the text, the present.
+    fn render_tail(
+        &mut self,
+        surface_texture: Option<wgpu::SurfaceTexture>,
+        config: &crate::app::config::Config,
+        huds: &[crate::app::config::Hud],
+        axes_after_export: bool,
+        frame_submission: wgpu::SubmissionIndex,
+    ) {
+        let surface_view = surface_texture
+            .as_ref()
+            .map(|t| t.texture.create_view(&wgpu::TextureViewDescriptor::default()));
+        let offscreen_view;
+        let surface_view = match &surface_view {
+            Some(v) => v,
+            None => {
+                offscreen_view = self
+                    .passes
+                    .render
+                    .render_texture
+                    .create_view(&wgpu::TextureViewDescriptor::default());
+                &offscreen_view
+            }
+        };
         // At most two frames in flight behind this one. Without a bound the
         // loop, once it stopped presenting every frame, ran ahead of the GPU
         // to Metal's limit of 64 in-flight command buffers, and a presenting
@@ -4034,6 +4370,10 @@ impl Window {
         if let Some(texture) = surface_texture {
             self.queue.present(texture);
         }
+
+        // The per-facet shadows the frame was asked for, from its maps or the
+        // rays, now that it is drawn.
+        self.begin_facets();
     }
 
     /// The render texture onto the surface.

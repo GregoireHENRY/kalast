@@ -403,6 +403,10 @@ pub struct App {
     /// When the user last worked the mouse or the keyboard: for
     /// `INPUT_HOLD` after it, a paused scene is drawn.
     last_input: std::time::Instant,
+    /// Whether the frame being drawn began paused: a frame drawn in bands
+    /// ends on a later turn of the loop, and its callbacks and its step go
+    /// by how it began.
+    frame_paused: bool,
 
     /// Held only while the caller drives the loop with `step()`. `start()`
     /// takes it and hands it to `run_app`, which never gives it back --
@@ -1065,6 +1069,7 @@ impl App {
             fps_window_frames: 0,
 
             last_input: std::time::Instant::now() - std::time::Duration::from_secs(60),
+            frame_paused: false,
 
             event_loop: None,
             frame_drawn: false,
@@ -3264,38 +3269,51 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 // being one frame -- runs at `rate_limit` frames a second.
                 // Holding the counter while the frame ran free gave an
                 // `it/s` beside an `fps`; now there is one rate.
-                let wait = self
-                    .simulation
-                    .borrow_mut()
-                    .state
-                    .frame_wait(std::time::Instant::now());
-                if let Some(wait) = wait {
-                    crate::app::simulation::State::wait_out(wait);
-                }
-                let paused = !self
-                    .simulation
-                    .borrow_mut()
-                    .state
-                    .begin_frame(std::time::Instant::now());
-                let line = pause_line(
-                    self.was_paused,
-                    paused,
-                    self.shared.borrow().drawn_iteration,
-                    &self.simulation.borrow().state,
-                );
-                if let Some(line) = line {
-                    self.shared.borrow_mut().kalast_log.push(line);
-                }
-                self.was_paused = Some(paused);
+                // A frame drawn in bands carries on (`Window::render_continue`):
+                // nothing of a new frame -- no clock, no callback -- until it
+                // is drawn, the panels drawn every turn meanwhile.
+                let continuing = self.window.as_ref().is_some_and(|w| w.frame_in_progress());
+                let paused = if continuing {
+                    self.frame_paused
+                } else {
+                    let wait = self
+                        .simulation
+                        .borrow_mut()
+                        .state
+                        .frame_wait(std::time::Instant::now());
+                    if let Some(wait) = wait {
+                        crate::app::simulation::State::wait_out(wait);
+                    }
+                    let paused = !self
+                        .simulation
+                        .borrow_mut()
+                        .state
+                        .begin_frame(std::time::Instant::now());
+                    let line = pause_line(
+                        self.was_paused,
+                        paused,
+                        self.shared.borrow().drawn_iteration,
+                        &self.simulation.borrow().state,
+                    );
+                    if let Some(line) = line {
+                        self.shared.borrow_mut().kalast_log.push(line);
+                    }
+                    self.was_paused = Some(paused);
+                    self.frame_paused = paused;
+                    paused
+                };
 
                 // Held across the borrow below: the editor draws after it,
                 // because the UI needs `&mut Simulation::state` for its
                 // play/pause buttons and cannot take it while the frame does.
                 let mut editor_surface: Option<wgpu::SurfaceTexture> = None;
 
-                if !paused {
+                if !continuing && !paused {
                     Self::run_callback(&self.shared, true, &self.simulation, self.dt);
                 }
+                // The scene's frame drawn this turn, and one still being drawn.
+                let mut frame_done = false;
+                let in_progress;
 
                 {
                     // Before the mutable borrow of the window: this reads
@@ -3351,15 +3369,21 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         || sim.facet_pick_request.is_some();
                     let summing = sim_cfg.borrow().shadows.method == crate::app::config::ShadowMethod::Reference
                         && !sim.reference.done;
-                    let idle = paused
+                    let idle = !continuing
+                        && paused
                         && self.editor.is_some()
                         && !interacting
                         && !asked
                         && !summing
                         && win.drawn_generation == win.render_generation
                         && win.last_drawn.elapsed() < IDLE_REDRAW;
-                    if !idle {
+                    if !idle && !continuing {
                         win.update(&mut sim, &sim_cfg.borrow());
+                        // The per-facet shadows this frame is asked for, which
+                        // the window works out once it is drawn.
+                        let one_off = sim.facet_shadow_request.take();
+                        let every = sim_cfg.borrow().shadows.access_shadow_map;
+                        win.facet_wanted = (0..sim.bodies.len()).filter(|&b| every || one_off == Some(b)).collect();
                     }
 
                     // Which iteration this frame is *for*. Running, that is
@@ -3380,6 +3404,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     let huds: Vec<crate::app::config::Hud> = sim
                         .huds
                         .iter()
+                        .filter(|_| !continuing)
                         .map(|h| {
                             let h = h.borrow();
                             crate::app::config::Hud {
@@ -3456,7 +3481,12 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         );
                         self.present_count = (0, 0, 0, 0.0, std::time::Instant::now(), 0.0);
                     }
-                    if idle {
+                    if continuing {
+                        // Only the UI app draws in bands, and its scene is
+                        // offscreen.
+                        frame_done = win.render_continue(&sim_cfg.borrow());
+                        editor_surface = surface_texture;
+                    } else if idle {
                         // Nothing drawn: the panels have the frame. Until the
                         // next present is due, no loop round it either.
                         editor_surface = surface_texture;
@@ -3471,12 +3501,13 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         // to the UI. `render(None, ..)` is exactly that, and
                         // it is the same path an occluded window already
                         // takes -- a full frame minus the blit and present.
-                        win.render(None, &sim_cfg.borrow(), &huds);
+                        frame_done = win.render(None, &sim_cfg.borrow(), &huds, true);
                         editor_surface = surface_texture;
                     } else {
-                        win.render(surface_texture, &sim_cfg.borrow(), &huds);
+                        frame_done = win.render(surface_texture, &sim_cfg.borrow(), &huds, false);
                     }
-                    if !idle {
+                    in_progress = win.frame_in_progress();
+                    if frame_done {
                         self.fps_window_frames += 1;
 
                         // A reference image's progress, its error now and
@@ -3485,31 +3516,26 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         win.reference_after_frame(&sim_cfg.borrow(), &mut sim);
                     }
 
-                    // Left undrawn, the scene's answers are the last frame's
-                    // still: nothing has changed.
-                    if !idle {
-                        // After render: the shadow map now holds this frame's
-                        // geometry, so a query here answers for the scene
-                        // before_render just set up.
-                        let one_off = sim.facet_shadow_request.take();
-                        if sim_cfg.borrow().shadows.access_shadow_map || one_off.is_some() {
+                    // Asked of a frame once it is drawn; left undrawn, the
+                    // scene's answers are the last frame's still.
+                    if frame_done {
+                        // The per-facet shadows the frame was asked for, worked
+                        // out by the window once it was drawn, from its maps
+                        // or the rays (`Window::facet_wanted`). The others'
+                        // cleared: stale results would silently describe an
+                        // older frame's geometry.
+                        let answers = win.take_facet_results();
+                        if answers.is_empty() {
+                            sim.facet_shadow_result.clear();
+                        } else {
                             let n = sim.bodies.len();
                             sim.facet_shadow_result.resize(n, vec![]);
-
-                            for body in 0..n {
-                                let wanted =
-                                    sim_cfg.borrow().shadows.access_shadow_map || one_off == Some(body);
-                                if wanted {
-                                    sim.facet_shadow_result[body] =
-                                        win.facet_shadow_fractions(body);
-                                } else {
-                                    // Stale results would silently describe an
-                                    // older frame's geometry.
-                                    sim.facet_shadow_result[body].clear();
+                            sim.facet_shadow_result.iter_mut().for_each(Vec::clear);
+                            for (body, answer) in answers {
+                                if body < n {
+                                    sim.facet_shadow_result[body] = answer;
                                 }
                             }
-                        } else if !sim.facet_shadow_result.is_empty() {
-                            sim.facet_shadow_result.clear();
                         }
 
                         // Same reasoning as the shadow query: the ID pass draws
@@ -3561,7 +3587,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
 
                 // Outside the borrow above: the callback takes the
                 // Simulation itself, so it cannot run while it is held.
-                if !paused {
+                if frame_done && !paused {
                     Self::run_callback(&self.shared, false, &self.simulation, self.dt);
                 }
 
@@ -3571,7 +3597,6 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         .texture
                         .create_view(&wgpu::TextureViewDescriptor::default());
                     let scene_size = win.render_size;
-                    let scene_generation = win.render_generation;
                     let window = win.window.clone();
                     // Read before the borrows below: the call already holds
                     // the config borrowed mutably for the length of the
@@ -3580,13 +3605,16 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     let gpu_timing = sim_cfg.borrow().debug.gpu_timing;
                     let wanted = {
                         let mut sim = self.simulation.borrow_mut();
+                        // The image, or while a frame is drawn in bands the
+                        // one before it.
+                        let (scene, scene_generation) = win.display();
                         editor.draw(
                             &window,
                             &win.device,
                             &win.queue,
                             &view,
                             (win.surface_config.width, win.surface_config.height),
-                            &win.passes.render.render_texture,
+                            scene,
                             scene_size,
                             scene_generation,
                             &mut sim_cfg.borrow_mut(),
@@ -3633,7 +3661,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 // one past what is on screen -- taking it there would report
                 // the number the pause stopped *at* rather than the one being
                 // shown, which is exactly the off-by-one this is here to fix.
-                if !paused {
+                if frame_done && !paused {
                     self.shared.borrow_mut().drawn_iteration =
                         self.simulation.borrow().state.iteration;
                 }
@@ -3655,19 +3683,23 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 // Skipping it here leaves the change to the next frame, which
                 // does run the callbacks and render, which is what Step
                 // means.
-                if !paused {
+                if frame_done && !paused {
                     self.simulation.borrow_mut().update();
                 }
                 // Step or `K`, granted now that this frame has decided: the
                 // next one runs the iteration, and a driven script's loop
                 // gets its turn between the two (`State::grant_step`).
-                self.simulation.borrow_mut().state.grant_step();
+                if !in_progress {
+                    self.simulation.borrow_mut().state.grant_step();
+                }
 
                 // Reached only by a frame that actually rendered: the
                 // early return above, for a surface that is not configured
                 // yet, deliberately leaves this unset so `step()` keeps
                 // pumping rather than reporting a frame that did nothing.
-                self.frame_drawn = true;
+                // Nor while a frame is drawn in bands: it ends on a later
+                // turn.
+                self.frame_drawn = !in_progress;
             }
 
             winit::event::WindowEvent::KeyboardInput {

@@ -28,7 +28,9 @@ struct FacetRays {
     probe: u32,
     // 1: `guide` says which facets the disc is traced for (`shadows.ray_guide`).
     guided: u32,
-    _pad1: u32,
+    // The first facet of this dispatch: a query traced a range of facets at
+    // a time (`raytrace::FacetPass`), up to `n_facets`.
+    first: u32,
     _pad2: u32,
 };
 @group(0) @binding(1) var<uniform> q: FacetRays;
@@ -50,7 +52,7 @@ fn vertex(i: u32) -> vec3<f32> {
 /// its rays reach of the Sun.
 @compute @workgroup_size(64)
 fn cs_facets(@builtin(global_invocation_id) id: vec3<u32>) {
-    let f = id.y * q.stride + id.x;
+    let f = q.first + id.y * q.stride + id.x;
     if f >= q.n_facets {
         return;
     }

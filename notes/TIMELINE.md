@@ -5929,3 +5929,15 @@ user: the scene's GPU work in slices so the panels keep their pace under the
 rays, and a thread for the UI against CPU stalls. Write-up:
 `2026-10-12_shadow_method_and_colour_modes/`.
 
+## 2026-10-12 — a slow scene drawn a band at a time in the UI app
+
+Stage one of two the user chose: the scene's GPU work in slices, so the UI
+app's panels and mouse keep the display's pace under the rays. A traced frame
+slower than 12 ms in bands of about 6 ms, a band a turn of the loop, the image
+as it was shown until the new one is whole; the per-facet shadows traced
+with rays in ranges of facets, read back without waiting; the frame and its
+step ending when they are in. Banded and whole images the same to a level,
+the facets to the bit (`tests/test_banded_frames.py`). Next: the scripts and
+their callbacks on a thread of their own. Write-up:
+`2026-10-12_shadow_method_and_colour_modes/`.
+

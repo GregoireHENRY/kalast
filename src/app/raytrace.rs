@@ -34,7 +34,10 @@ struct FacetRays {
     /// 1: `guide` says which facets the disc is traced for, one ray a point
     /// elsewhere (`shadows.ray_guide`).
     guided: u32,
-    _pad: [u32; 2],
+    /// The dispatch's first facet, its last `n_facets - 1`: a range of them
+    /// (`FacetPass`).
+    first: u32,
+    _pad: u32,
 }
 
 pub struct RayTracing {
@@ -408,6 +411,154 @@ impl RayTracing {
         let _ = device.poll(wgpu::PollType::Wait { submission_index: None, timeout: None });
     }
 
+    /// `facet_shadows` drawn out over turns of the loop: the pass for `body`,
+    /// to be carried on by `advance` until it answers. `None` for a body with
+    /// no facets.
+    #[allow(clippy::too_many_arguments)]
+    pub fn facet_pass(
+        &self,
+        device: &wgpu::Device,
+        body: usize,
+        mesh: &crate::app::gpu::MeshBuffer,
+        sun: [f32; 3],
+        sun_radius: f32,
+        samples: u32,
+        probe: u32,
+        guide: Option<&wgpu::Buffer>,
+        ms_per_facet: f64,
+    ) -> Option<FacetPass> {
+        let n = mesh.n_facets();
+        let mat = self.mats.get(body)?;
+        if n == 0 {
+            return None;
+        }
+        let m = mat.to_cols_array_2d();
+        let uniform = FacetRays {
+            mat: m.map(|c| c.map(|v| v as f32)),
+            sun,
+            sun_radius,
+            n_facets: n,
+            stride: 0,
+            is_flat: mesh.is_flat as u32,
+            samples: samples.max(1),
+            probe,
+            guided: guide.is_some() as u32,
+            first: 0,
+            _pad: 0,
+        };
+        let query = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("ray-traced facet shadows, by ranges"),
+            contents: bytemuck::bytes_of(&uniform),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let size = n as u64 * 4;
+        let out = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("ray-traced facet shadows, by ranges"),
+            size,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let read = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("ray-traced facet shadows, by ranges, read"),
+            size,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("ray-traced facet shadows, by ranges"),
+            layout: &self.facets_layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: self.tlas.as_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: query.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 2, resource: mesh.geometry_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 3, resource: mesh.index_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 4, resource: out.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 5, resource: guide.unwrap_or(&self.no_guide).as_entire_binding() },
+            ],
+        });
+        Some(FacetPass {
+            body,
+            n,
+            next: 0,
+            uniform,
+            query,
+            group,
+            out,
+            read,
+            sent: std::time::Instant::now(),
+            in_flight: 0,
+            finished: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            mapped: None,
+            ms_per_facet,
+        })
+    }
+
+    /// Carry a `FacetPass` on, never waiting on the GPU: the next range of
+    /// about `range_ms` once the last is finished, then the readback, then the
+    /// answer -- `Some` on the call that reads it.
+    pub fn advance(&self, pass: &mut FacetPass, device: &wgpu::Device, queue: &wgpu::Queue, range_ms: f64) -> Option<Vec<f32>> {
+        let _ = device.poll(wgpu::PollType::Poll);
+        if pass.in_flight > 0 {
+            let Some(at) = *pass.finished.lock().unwrap() else {
+                return None;
+            };
+            let ms = (at - pass.sent).as_secs_f64() * 1000.0;
+            pass.ms_per_facet = ms / pass.in_flight as f64;
+            pass.in_flight = 0;
+        }
+        if pass.next < pass.n {
+            let count = ((range_ms / pass.ms_per_facet.max(1e-7)) as u32).max(1024).min(pass.n - pass.next);
+            let (groups_x, groups_y, stride) = crate::gpu::Context::dispatch_2d(count as u64);
+            pass.uniform.first = pass.next;
+            pass.uniform.n_facets = pass.next + count;
+            pass.uniform.stride = stride;
+            queue.write_buffer(&pass.query, 0, bytemuck::bytes_of(&pass.uniform));
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("facet shadows, a range") });
+            {
+                let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("ray-traced facet shadows, a range"),
+                    timestamp_writes: None,
+                });
+                cpass.set_pipeline(&self.facets_pipeline);
+                cpass.set_bind_group(0, Some(&pass.group), &[]);
+                cpass.dispatch_workgroups(groups_x, groups_y, 1);
+            }
+            queue.submit(Some(encoder.finish()));
+            let finished = std::sync::Arc::new(std::sync::Mutex::new(None));
+            let f = finished.clone();
+            queue.on_submitted_work_done(move || {
+                *f.lock().unwrap() = Some(std::time::Instant::now());
+            });
+            pass.finished = finished;
+            pass.sent = std::time::Instant::now();
+            pass.in_flight = count;
+            pass.next += count;
+            return None;
+        }
+        match &pass.mapped {
+            None => {
+                let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("facet shadows, read") });
+                encoder.copy_buffer_to_buffer(&pass.out, 0, &pass.read, 0, pass.n as u64 * 4);
+                queue.submit(Some(encoder.finish()));
+                let mapped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+                let m = mapped.clone();
+                pass.read.slice(..).map_async(wgpu::MapMode::Read, move |_| {
+                    m.store(true, std::sync::atomic::Ordering::Release);
+                });
+                pass.mapped = Some(mapped);
+                None
+            }
+            Some(mapped) if mapped.load(std::sync::atomic::Ordering::Acquire) => {
+                let data = pass.read.slice(..).get_mapped_range().unwrap();
+                let answer = bytemuck::cast_slice::<u8, f32>(&data).to_vec();
+                drop(data);
+                pass.read.unmap();
+                Some(answer)
+            }
+            Some(_) => None,
+        }
+    }
+
     /// Per facet of `body`, the share of the Sun's light that does not reach
     /// it, as the shadow maps' query answers (`penumbra::Pass::facets`):
     /// each facet's corners and centre, each tracing `samples` rays across
@@ -448,7 +599,8 @@ impl RayTracing {
             samples: samples.max(1),
             probe,
             guided: guide.is_some() as u32,
-            _pad: [0; 2],
+            first: 0,
+            _pad: 0,
         };
         let query = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("ray-traced facet shadows"),
@@ -503,6 +655,32 @@ impl RayTracing {
         read.unmap();
         answer
     }
+}
+
+/// A ray-traced per-facet query of one body drawn out over turns of the UI
+/// app's loop (`RayTracing::facet_pass`, `advance`): its facets traced a
+/// range at a time, the next range sent once the GPU has finished the last,
+/// and the answer read back without waiting -- a query of the Didymos pair
+/// with the Sun's disc is seconds on an M1 Pro, the UI's frames drawn between
+/// its ranges.
+pub struct FacetPass {
+    pub body: usize,
+    n: u32,
+    next: u32,
+    uniform: FacetRays,
+    query: wgpu::Buffer,
+    group: wgpu::BindGroup,
+    out: wgpu::Buffer,
+    read: wgpu::Buffer,
+    /// The range in flight: when it was sent, how many facets it holds, and
+    /// when the GPU finished it.
+    sent: std::time::Instant,
+    in_flight: u32,
+    finished: std::sync::Arc<std::sync::Mutex<Option<std::time::Instant>>>,
+    /// The answer's readback, once every range is in: whether it is mapped.
+    mapped: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    /// The GPU's time per facet, last measured: the next range's size.
+    pub ms_per_facet: f64,
 }
 
 /// A body's matrix as a top-level instance takes it: three rows of four.

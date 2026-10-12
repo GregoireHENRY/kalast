@@ -167,7 +167,27 @@ rays: their frame is one draw on the GPU's one queue, 0.14-0.4 s, and the UI's
 draws queue behind it whichever thread sends them. What does is cutting the
 scene's GPU work into slices of a few milliseconds, the UI drawn between them
 with the last finished image; a UI thread besides frees the panels from what
-holds the CPU -- a script's step, the TPM. Put to the user, open.
+holds the CPU -- a script's step, the TPM. The user chose both, now.
+
+**Slices.** In the UI app a traced frame -- the rays, or a reference image's
+sample -- whose bodies took the GPU longer than 12 ms the last time
+(`BANDED_ABOVE_MS`, measured by the queue's done-callback) is drawn in bands
+(`Window::render`, `render_continue`, `Banded`): horizontal strips of the
+image by scissor, each about 6 ms (`BAND_MS`), the next sent once the GPU has
+finished the last, one a turn of the loop, the panels drawn every turn. The
+first band clears, the others draw beside it; no resolve until a last pass
+draws the overlays over them and resolves (`render::Pass::render_band`,
+`render_band_finish`; `render_reference_band` and the sum after the last for
+a reference). The image as it was is copied aside (`hold_image`) and shown
+until the new one is whole (`Window::display`). The frame's per-facet shadows
+-- asked for at its start now, `Window::facet_wanted`, answered at its end --
+are traced with rays a range of facets a turn (`raytrace::FacetPass`, a
+`first` facet in the uniform), read back without waiting; the frame, its
+`after_render` and its step end when they are in. Only the UI app: a plain
+window shows each frame whole. `tests/test_banded_frames.py`, a UI app and a
+plain window apiece: rays in 24-26 bands of 150-190 ms, the image the same to
+a level (0 of 240,000 pixels); a reference with two bounces summed to 32
+samples, the same; 80,012 facets' shadows by ranges, the same to the bit.
 
 ## The reference image a method
 

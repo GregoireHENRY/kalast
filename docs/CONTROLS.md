@@ -413,13 +413,21 @@ Sensitivities are config rather than bindings — `config.controls.sensitivity_m
 `controls.sensitivity_look`, `controls.sensitivity_rotate`, `controls.sensitivity_zoom`, all default `1.0`
 and all startup-only. See `CONFIG.md`.
 
-## A paused scene
+## A slow scene
+
+The panels are drawn every turn of the editor's loop, at the display's pace,
+however long the scene takes. An image traced with rays, or a reference
+image's sample, that takes the GPU longer than 12 ms is drawn in bands across
+it, a band of about 6 ms a turn; the image as it was stays on screen until the
+new one is whole -- the same image, to a level, as drawn at once. The
+per-facet shadows the thermophysical model reads, traced with rays, go a range
+of facets a turn likewise. Nothing about the scene changes for the panels' sake:
+the method is the one you chose.
 
 Paused, the editor draws the scene only when something changes -- you move
 the camera, edit a setting, resize the window -- and once a second besides;
-between, only the panels are drawn, at the display's pace whatever the scene
-costs. A frame asked for, an export or a per-facet query, is drawn as ever,
-and a reference image sums until done.
+between, only the panels are drawn. A frame asked for, an export or a
+per-facet query, is drawn as ever, and a reference image sums until done.
 
 ## Details
 

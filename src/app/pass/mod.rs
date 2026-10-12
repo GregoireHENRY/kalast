@@ -224,6 +224,108 @@ impl Passes {
         }
     }
 
+    /// One band of a frame drawn in bands (`Window::render`): rows
+    /// `band.0..band.1` of the bodies, the main pass's or a reference
+    /// image's sample. Only for a traced frame, which has no penumbra pass.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_band(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        meshes: &[super::gpu::MeshBuffer],
+        config: &crate::app::config::Config,
+        size: (u32, u32),
+        band: (u32, u32),
+        first: bool,
+    ) {
+        if self.reference_on {
+            let format = self.render.format();
+            if self.reference.as_ref().is_none_or(|r| r.size != size) {
+                self.reference = Some(crate::app::reference::Reference::new(device, size, format));
+            }
+            let reference = self.reference.as_ref().unwrap();
+            if !reference.done && reference.samples() < config.reference.max_samples {
+                self.render.render_reference_band(
+                    encoder,
+                    &reference.frame_view,
+                    &self.depth.texture.view,
+                    meshes,
+                    &self.bindings,
+                    self.penumbra.read_group(),
+                    config,
+                    band,
+                    first,
+                );
+            }
+            return;
+        }
+        self.render.render_band(
+            encoder,
+            &self.depth.texture.view,
+            meshes,
+            &self.bindings,
+            self.penumbra.read_group(),
+            config,
+            band,
+            first,
+        );
+    }
+
+    /// After the last band: the sample summed and the mean shown, for a
+    /// reference image; the overlays and the resolve, for the main pass --
+    /// what `render` does after the bodies.
+    pub fn render_bands_finish(
+        &mut self,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        meshes: &[super::gpu::MeshBuffer],
+        config: &crate::app::config::Config,
+        annotations: bool,
+    ) {
+        if self.reference_on {
+            if let Some(reference) = self.reference.as_mut() {
+                if !reference.done && reference.samples() < config.reference.max_samples {
+                    reference.accumulate(queue, encoder, config.shading.srgb_mode);
+                }
+                reference.resolve(encoder, &self.render.render_view);
+            }
+            self.render.render_reference_overlays(
+                encoder,
+                &self.depth.texture.view,
+                &self.light_cube,
+                &self.colorbar,
+                meshes,
+                &self.bindings,
+                config,
+            );
+            if annotations {
+                self.render.render_annotations(
+                    encoder,
+                    &self.depth.texture.view,
+                    &self.axes,
+                    &self.grid,
+                    &self.gizmo,
+                    &self.bindings,
+                    config,
+                );
+            }
+            return;
+        }
+        self.render.render_band_finish(
+            encoder,
+            &self.depth.texture.view,
+            &self.light_cube,
+            &self.axes,
+            &self.grid,
+            &self.gizmo,
+            &self.colorbar,
+            meshes,
+            &self.bindings,
+            config,
+            annotations,
+        );
+    }
+
     /// The grid, axes and gizmo that `render(.., annotations: false)` left
     /// out, drawn once the exporter has its copy; see `export.axes`.
     pub fn render_annotations(
