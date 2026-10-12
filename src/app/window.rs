@@ -1718,6 +1718,8 @@ impl Window {
         // as the window's here, a size set before the window opened was never
         // applied -- the live config takes what it finds at the start as done.
         let render_size = image_size(config, (surface_config.width, surface_config.height));
+        // Traced from the start only if rays are wanted already (`traced`).
+        let traced = raytrace.as_ref().filter(|_| rays_wanted(config));
         let mut passes = super::pass::Passes::new(
             &device,
             surface_config.format,
@@ -1725,10 +1727,10 @@ impl Window {
             &uniforms,
             render_size,
             &msaa,
-            raytrace.as_ref().map(|r| &r.image_layout),
+            traced.map(|r| &r.image_layout),
             config.reference.enabled,
         );
-        passes.bindings.rays = raytrace.as_ref().map(|r| r.image_group.clone());
+        passes.bindings.rays = traced.map(|r| r.image_group.clone());
 
         // The font is embedded rather than read from `res/`, so the overlay
         // works from any working directory. A font that will not load leaves
@@ -2180,6 +2182,10 @@ impl Window {
     /// rebuilds the bind groups, which is where the texture view is bound.
     pub fn rebuild_passes(&mut self, config: &crate::app::config::Config) {
         self.peel_groups.clear();
+        // The main pass traces only while rays are wanted: its ray code,
+        // there and unused, halved its speed on an M1 Pro
+        // (`gpu::shader_for_traced`).
+        let traced = self.raytrace.as_ref().filter(|_| rays_wanted(config));
         self.passes = super::pass::Passes::new(
             &self.device,
             self.surface_config.format,
@@ -2187,10 +2193,10 @@ impl Window {
             &self.uniforms,
             self.render_size,
             &self.msaa,
-            self.raytrace.as_ref().map(|r| &r.image_layout),
+            traced.map(|r| &r.image_layout),
             config.reference.enabled,
         );
-        self.passes.bindings.rays = self.raytrace.as_ref().map(|r| r.image_group.clone());
+        self.passes.bindings.rays = traced.map(|r| r.image_group.clone());
         // `Passes::new` sizes the offscreen targets from `config.image.width`, which
         // is the *requested* size and need not be the window's current one.
         let (w, h) = self.render_size;
@@ -2412,14 +2418,15 @@ impl Window {
         // A reference image traces whatever `shadows.method` says: it is
         // nothing if not exact. Its passes are single-sampled and have its
         // float pipelines, so they are built again when it turns on or off.
+        // The main pass is built anew to trace, or not to, as well.
         let reference = config.reference.enabled;
-        if reference != self.passes.reference_on {
+        self.rays = rays_wanted(config) && self.raytrace.is_some();
+        if reference != self.passes.reference_on || self.rays != self.passes.traced {
             self.rebuild_passes(config);
         }
-        let rays_wanted = config.shadows.method == crate::app::config::ShadowMethod::Rays;
-        self.rays = (rays_wanted || reference) && self.raytrace.is_some();
         simulation.rays = self.rays;
-        if rays_wanted && self.raytrace.is_none() && !self.rays_refused {
+        let method_rays = config.shadows.method == crate::app::config::ShadowMethod::Rays;
+        if method_rays && self.raytrace.is_none() && !self.rays_refused {
             self.rays_refused = true;
             println!("shadows.method = \"rays\": this GPU has no ray queries here, so the shadow maps answer instead");
         }
@@ -4102,6 +4109,13 @@ impl Window {
 /// `shadow` is `None` before the first fit (or when there is no geometry to
 /// fit against), in which case an automatic parameter falls back to 0.0 --
 /// i.e. no bias, which shows acne rather than silently hiding a failed fit.
+/// Whether the shadows are to be traced: `shadows.method` "rays", or a
+/// reference image, which traces whatever the method -- on a device with
+/// ray queries.
+fn rays_wanted(config: &crate::app::config::Config) -> bool {
+    config.shadows.method == crate::app::config::ShadowMethod::Rays || config.reference.enabled
+}
+
 /// Where the camera is, as the uniform holds it.
 fn camera_pos(camera: &super::frame::Eye) -> [f32; 3] {
     [camera.pos.x as f32, camera.pos.y as f32, camera.pos.z as f32]

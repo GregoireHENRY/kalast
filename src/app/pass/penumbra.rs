@@ -165,7 +165,7 @@ impl Pass {
             immediate_size: if immediates { 8 } else { 0 },
         });
         let prepass = |lean| {
-            let module = device.create_shader_module(gpu::shader_for(device, &gpu::SHADER_MESH_SHADOW, lean));
+            let module = device.create_shader_module(gpu::shader_for_traced(device, &gpu::SHADER_MESH_SHADOW, lean, false));
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("penumbra prepass"),
                 layout: Some(&layout),
@@ -211,7 +211,7 @@ impl Pass {
 
         // The globals, the view and the shadow layers, as the main pass has
         // them, and the scan's own.
-        let module = device.create_shader_module(gpu::shader_for(device, &gpu::SHADER_MESH_SHADOW, false));
+        let module = device.create_shader_module(gpu::shader_for_traced(device, &gpu::SHADER_MESH_SHADOW, false, false));
         let compute_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("penumbra scan and walks"),
             bind_group_layouts: &[shaded[0], shaded[1], shaded[2], None, None, None, Some(&write_layout)],

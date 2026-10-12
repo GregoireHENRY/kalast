@@ -63,3 +63,32 @@ The handoff's open item 4: rays across the disc only where a penumbra can be,
 told by the maps' depth pyramid (as AMD's Hybrid Shadows tells it by its
 cascades), one ray to the Sun's centre elsewhere -- the probe's 16 rays at
 every lit point are most of the disc's cost on either machine.
+
+## The main pass without its ray code
+
+Later the same day the user found the cascades slower than the maps, and the
+UI app slow; measuring it, everything was. Dimorphos from 68 m at 3234 x 1774
+drew at 106 frames a second with the maps, where it drew at 206 on 9 October,
+and at 273 without shadows at all. The ray code compiled into the main pass
+(`//@rt`, kept on any device with ray queries) slowed every pixel of it on the
+M1 Pro, whether a ray was traced or not -- the branch never taken, its
+registers still reserved. With ray queries off on the device, 195 and 685.
+
+The main pass is now built with that code only while it traces -- `shadows.
+method` "rays" or a reference image -- and rebuilt when that changes, as it
+was already for the reference (`gpu::shader_for_traced`, `Passes::traced`,
+`rays_wanted` in `window.rs`); the penumbra pass's pipelines never take it. The
+device keeps ray queries, which cost nothing by themselves: 201 and 690 with
+them on. The four ray-tracing tests pass, the rays' image built as before.
+
+Frames a second after it, M1 Pro (`scratchpad` benchmark, GPU-bound):
+
+| | maps | none | cascades, 3 x 4096, PCF 2 | cascades, 3 x 1024, PCF 1 | `"quick"` | maps, 2048, PCF 0 |
+|---|---|---|---|---|---|---|
+| the Didymos pair from 1 km, 1600 x 1000 | 685 | 1421 | 479 | 595 | 901 | 868 |
+| Dimorphos from 68 m, 3234 x 1774 | 201 | 686 | 127 | 168 | 179 | 331 |
+
+Up close the maps' 3.5 ms is mostly their lookups, 3.1 ms of PCF over 5.7
+million pixels, the shadow pass 1.15. Cascades pay the same lookups and draw
+every body into each cascade (3.2 ms at 1024, 6.3 at 4096): no faster than the
+maps anywhere. Hard edges at 2048 are: 868 and 331.

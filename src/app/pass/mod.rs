@@ -16,6 +16,8 @@ pub struct Passes {
     pub penumbra: penumbra::Pass,
     /// The shadows are traced this frame (`raytrace`): no penumbra pass.
     pub rays: bool,
+    /// The main pass built to trace rays, group 7 bound (`Passes::new`).
+    pub traced: bool,
     /// Built for a reference image (`reference.enabled`, `Passes::new`).
     pub reference_on: bool,
     /// The reference image's sums, made at the image's size when first
@@ -46,7 +48,8 @@ impl Passes {
         size: (u32, u32),
         // The GPU's sample counts, asked when the window was made.
         msaa: &render::MsaaSupport,
-        // On a device that traces rays, the main pass's group 7.
+        // The main pass's group 7, the bodies to trace rays against, when it
+        // traces them; `None` builds it without (`gpu::shader_for_traced`).
         rays: Option<&wgpu::BindGroupLayout>,
         // A reference image is being made (`reference.enabled`): everything
         // single-sampled -- the image is integrated over its pixels instead
@@ -68,13 +71,14 @@ impl Passes {
         if let Some(rays) = rays {
             shaded.push(Some(rays));
         }
-        let render = render::Pass::new(device, format, config, &shaded, size, samples, reference);
+        let render = render::Pass::new(device, format, config, &shaded, size, samples, reference, rays.is_some());
 
         Self {
             shadow: shadow::Pass::new(device, config, &uniforms.layouts_for_shadow()),
 
             penumbra,
             rays: false,
+            traced: rays.is_some(),
             reference_on: reference,
             reference: None,
             render,

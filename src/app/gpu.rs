@@ -175,13 +175,28 @@ pub fn shader_for(
     desc: &wgpu::ShaderModuleDescriptor<'static>,
     lean: bool,
 ) -> wgpu::ShaderModuleDescriptor<'static> {
+    shader_for_traced(device, desc, lean, true)
+}
+
+/// `shader_for`, the lines that trace rays (`//@rt`, `//@rays`,
+/// `//@rays_image`) kept only with `traced` as well as on a device with ray
+/// queries. The main pass is built without them unless it traces: there and
+/// unused, they made every pixel of it slower -- Dimorphos from 68 m on an M1
+/// Pro drew in 9.4 ms a frame rather than 5.1 with the shadow maps, and in
+/// 3.7 rather than 1.5 without shadows.
+pub fn shader_for_traced(
+    device: &wgpu::Device,
+    desc: &wgpu::ShaderModuleDescriptor<'static>,
+    lean: bool,
+    traced: bool,
+) -> wgpu::ShaderModuleDescriptor<'static> {
     let prim = has_primitive_index(device);
     let imm = has_immediates(device);
     // `//@rt` likewise for ray queries, which no other device's compiler
     // takes -- `enable wgpu_ray_query` included -- and a `//@rays` line is
     // `sun_rays.wgsl`, there and only there. Last in a file, so the lines
     // before it keep their numbers.
-    let rt = has_ray_query(device);
+    let rt = traced && has_ray_query(device);
     let wgpu::ShaderSource::Wgsl(src) = &desc.source else {
         unreachable!("every shader here is WGSL");
     };

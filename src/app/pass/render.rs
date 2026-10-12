@@ -259,6 +259,8 @@ impl Pass {
         // Whether to build the pipelines a reference image draws its samples
         // with (`render_reference`).
         reference: bool,
+        // Whether they trace rays (`gpu::shader_for_traced`), group 7 bound.
+        traced: bool,
     ) -> Self {
         // The shadow pass reads the same flag (`shadow::Pass::new`): closed
         // geometry culls its back faces in both, and `render_back_face` turns
@@ -286,7 +288,7 @@ impl Pass {
                 &device,
                 format,
                 cull_mode,
-                gpu::shader_for(device, &gpu::SHADER_MESH_SHADOW, lean),
+                gpu::shader_for_traced(device, &gpu::SHADER_MESH_SHADOW, lean, traced),
                 layouts,
                 samples,
                 &[

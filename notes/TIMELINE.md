@@ -5875,3 +5875,14 @@ topic shows in the shaded mode only, and in the others while
 hover saying what it is for. The console keeps the names it binds:
 `examples/cube/light.py` set `a` every frame in the shared namespace. Write-up:
 `2026-10-12_shadow_method_and_colour_modes/`.
+
+## 2026-10-12 — the main pass without its ray code
+
+Everything on the M1 Pro had been about twice as slow since the ray tracing
+came in: Dimorphos from 68 m at 106 frames a second with the maps instead of
+206, 273 without shadows. The ray code compiled into the main pass slowed it
+untaken. Built with it only while the shadows are traced (the rays' method or
+a reference image), rebuilt when that changes: 201, and 690 without shadows.
+Measured after it, cascades are slower than the maps in both views; per-body
+maps at 2048 with PCF 0, 868 and 331 against the maps' 685 and 201. Write-up:
+`2026-10-12_ray_tracing_on_metal/`.
