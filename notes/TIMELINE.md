@@ -5840,3 +5840,11 @@ the hit's corners from the bodies' geometry kept while bounces are wanted, a
 body Lambert of its mean colour. Ingersoll's bowl: one bounce 0.12497 of the
 Sun's in the shadow against 1/8, two 0.18763 against 3/16.
 `tests/test_reference_bounce.py`. Write-up: `2026-10-10_ray_traced_shadows/`.
+
+## 2026-10-12 — handoff back to the laptop
+
+The ray-tracing half is on `main`: rays for the shadows (`shadows.rays`),
+the reference image (`reference.enabled`) with bounces, compaction, the
+presets row, the crash at 16384 fixed. None of it has run on Metal. What to
+try first on the M1 Pro, the Metal risks, and what is open:
+`2026-10-12_HANDOFF_ray_tracing_to_laptop.md`.
