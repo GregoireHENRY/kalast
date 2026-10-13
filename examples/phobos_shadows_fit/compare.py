@@ -87,9 +87,12 @@ def score(name, real, sim, geometric):
     ratio = real[both] / (k * sim[both])
     out.update(p16=numpy.percentile(ratio, 16), p84=numpy.percentile(ratio, 84), r=numpy.corrcoef(real[both], sim[both])[0, 1])
     # Through the SRC: the scale on the lit ground, the offset -- light the
-    # frame has from beyond it, or none -- in the shadows and the sky.
+    # frame has from beyond it, or none -- in the shadows and the sky. Not
+    # the pixels at 0, which say no more than "dark": a few along the line
+    # after each bright edge, set so by the camera, and h8870's sky far
+    # from Phobos, its noise cut at 0.
     m = hrsc.response(sim, name)
-    both, dark = r & lit(m), ~r & ~lit(m)
+    both, dark = r & lit(m), ~r & ~lit(m) & (real > 0)
     k = numpy.median(real[both] / m[both])
     b = max(numpy.median(real[dark] - k * m[dark]), 0.0)
     k = numpy.median((real[both] - b) / m[both])

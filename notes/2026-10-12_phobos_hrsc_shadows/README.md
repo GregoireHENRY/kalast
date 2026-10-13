@@ -99,9 +99,9 @@ pixels along the samples.
 | hc069_0004 | 2013-06-29 06:02:43 | 875 km | 8 m | 85° |
 
 Mars is 60-120° off the boresight in all four, and Phobos is out of its
-shadow. h8870's night side reads 67 DN, the sky beside Phobos 63 and far
-from it 16, the day side about 1100: kalast's Mars puts some 30 DN there,
-the rest is the camera's own scattered light (below).
+shadow. h8870's night side reads 68 DN, the sky beside Phobos 67, falling
+toward 0 far from it, the day side about 1100: kalast's Mars puts some 30
+DN there, the rest is the camera's own scattered light (below).
 
 ## Lit or not
 
@@ -413,7 +413,7 @@ bihemispherical albedo is 0.028). Each surface now reflects by its own law;
 `2026-10-10_ray_traced_shadows/`, 13 October.
 
 **The walls' light is nothing.** With the bounces by the law, Phobos's own
-surface lights its shadows by 0-3 DN, where the images read 67-308: at an
+surface lights its shadows by 0-3 DN, where the images read 68-308: at an
 albedo of 0.03 a second reflection is a thousandth.
 
 **Mars-shine is real**: Mars in the scene, a Lambert sphere of its Bond
@@ -425,14 +425,15 @@ the other two. Under the Hapke law fitted to Hera's AFC images of Mars
 `main.py`'s reference has it.
 
 **Most of the shadows' light is the camera's.** Where kalast's direct light
-is nil, the images read about what the sky beside Phobos reads:
+is nil, the images read about what the sky beside Phobos reads (pixels at
+0 left out, below):
 
 | DN | lit ground | night side | cast shadows | sky, 3-40 px from the limb | Mars-shine |
 |---|---|---|---|---|---|
-| h8870 | 1126 | 67 | 71 | 63 | 32, 14 |
+| h8870 | 1126 | 68 | 71 | 67 | 32, 14 |
 | h8951 | 1242 | 151 | 181 | (no sky) | 7, 1 |
 | h8963 | 1682 | 142 | 148 | 152 | 9, 5 |
-| hc069 | 1299 | 308 | 305 | 238 | 56, 49 |
+| hc069 | 1299 | 308 | 305 | 239 | 56, 49 |
 
 The more of the frame Phobos fills, the higher this veil: 6 % of the lit
 ground in h8870, 20 % in hc069. Light scattered in the SRC, which is known
@@ -469,8 +470,8 @@ kalast's through it, a scale and an offset fitted (`table_src.md`):
 | | h8870 | h8951 | h8963 | hc069 |
 |---|---|---|---|---|
 | the image / kalast, 16-84 %, r | 0.86-1.21, 0.86 | 0.88-1.16, 0.91 | 0.89-1.15, 0.92 | 0.87-1.20, 0.81 |
-| through the SRC | 0.88-1.19, 0.90 | 0.91-1.12, 0.92 | 0.91-1.14, 0.92 | 0.89-1.16, 0.84 |
-| the dark, image / kalast through the SRC (DN) | 63 / 42 | 180 / 154 | 142 / 135 | 261 / 250 |
+| through the SRC | 0.88-1.18, 0.90 | 0.91-1.12, 0.92 | 0.91-1.14, 0.92 | 0.89-1.16, 0.84 |
+| the dark, image / kalast through the SRC (DN) | 66 / 55 | 180 / 154 | 142 / 135 | 261 / 251 |
 
 The reference with Mars and a bounce, the Sun a disc. Through the SRC the
 shadows are grey as in the images, the craters as soft, and the sky beside
@@ -504,8 +505,21 @@ Phobos lit.
   predicted from the other three's cells, 0.37-0.51, and the rms of its log
   ratio down by 0.02 in three of the four. Some albedo, a few percent; Ernst
   et al.'s map says 3.
-- **Not looked at**: the electronic undershoot Wargnier et al. find to the
-  right of bright objects.
+- **Pixels set to 0.** Along each line, a few pixels after a bright edge
+  toward higher samples read 0 -- 3 to 9 pixels after h8870's limb, against
+  a sky of 60 DN -- or well under the sky, about 80 DN against 150 in
+  h8963: what Wargnier et al. find to the right of bright objects, an
+  electronic undershoot whose pixels are set to zero. Before an edge, the
+  other way, the image is brighter than kalast's for a pixel or two. h8870
+  has 11 % of its pixels at 0, the others 0.05-0.12 % -- the "pepper"
+  Hemmi & Kikuchi clean from SRC images. Most of h8870's are in the right
+  half of its frame, away from Phobos, where the sky falls from about 70 DN
+  beside it toward 0 and its noise is cut at 0: the dark is subtracted a
+  little too much there, and the sky's profile above, its median, falls
+  further than the light does. `compare.py` leaves the pixels at 0 out of
+  the dark's level (h8870's 63 DN become 66).
+
+![Across Phobos's lit edge against the sky, along the lines: the image's run of zeros past the edge toward higher samples](src_edges.png)
 
 ## Not done
 

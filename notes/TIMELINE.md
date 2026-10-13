@@ -6045,7 +6045,7 @@ SRC's pointing. `phobos_hrsc.tm` loads MAR099 in place of MAR097 and DE405;
 `main.py` turns the camera by where each image's craters put Phobos
 (`POINTING`), `compare.py` measures what is left, under 0.3 pixel. Phobos's
 walls light its shadows by 0-3 DN, Mars (in the scene, Lambert at its Bond
-albedo, a bounce) 1-56; the shadows read 67-308, as the sky beside Phobos
+albedo, a bounce) 1-56; the shadows read 68-308, as the sky beside Phobos
 does: light scattered in the SRC. Its response fitted to the four images --
 the smear along the samples, a 2.2-pixel core, 28 % of the light over some
 430 pixels -- is `hrsc.response`; through it the shadows and the softness
