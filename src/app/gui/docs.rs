@@ -257,12 +257,14 @@ fn attr(tag: &str, name: &str) -> Option<String> {
 }
 
 /// The pictures the pages show, by their path in the repository, compiled
-/// in as the pages are: the logo at the top of the README, and the UI app's
-/// screenshot under its first paragraph. A page's picture missing here is
-/// drawn as nothing, which `every_link_leads_somewhere` does not let pass.
+/// in as the pages are: the logo at the top of the README, the Phobos images
+/// and the UI app's screenshot under its first paragraphs. A page's picture
+/// missing here is drawn as nothing, which `every_link_leads_somewhere` does
+/// not let pass.
 fn picture(path: &str) -> Option<&'static [u8]> {
     match path {
         "res/kalast-256.png" => Some(super::LOGO),
+        "res/phobos-hrsc-showcase.jpg" => Some(include_bytes!("../../../res/phobos-hrsc-showcase.jpg")),
         "res/kalast-ui.png" => Some(include_bytes!("../../../res/kalast-ui.png")),
         _ => None,
     }

@@ -15,6 +15,12 @@ Kalast focus is doing sciences with highest performance possible (core written
 in Rust + GPU/shaders) while being accessible by everyone (wrapper written in
 Python + UI).
 
+![Four Mars Express HRSC SRC images of Phobos, drawn by kalast and through the camera's response](res/phobos-hrsc-showcase.jpg)
+
+Four Mars Express HRSC SRC images of Phobos (top), drawn by kalast with the
+light of Mars and a bounce (middle), and as the camera would record kalast's
+(bottom): [examples/phobos_shadows_fit](examples/phobos_shadows_fit).
+
 ![The kalast UI app](res/kalast-ui.png)
 
 You can also run it in your terminal:

@@ -234,7 +234,10 @@ Look at [res/README.md](../res/README.md) to get Hera data.
     - Create random landmarks locations by selecting facets.
     - Export landmarks screen-space X/Y positions in CSV file.
 - [phobos_shadows_fit](phobos_shadows_fit): four Mars Express HRSC SRC
-  images of Phobos, drawn by kalast and compared with the real ones.
+  images of Phobos, drawn by kalast and compared with the real ones. Its
+  [README](phobos_shadows_fit/README.md) says where to get the data.
+    - [phobos_shadows_fit/simple.py](phobos_shadows_fit/simple.py): one of
+      them, h8963, in a short script without a loop.
     - Needs ESA's Mars Express SPICE set; set `PATH_VALUES` in
       [phobos_hrsc.tm](phobos_shadows_fit/phobos_hrsc.tm), the 13 kernels
       these images need -- JPL's MAR099 for Phobos among them, from NAIF's
