@@ -521,7 +521,137 @@ Phobos lit.
 
 ![Across Phobos's lit edge against the sky, along the lines: the image's run of zeros past the edge toward higher samples](src_edges.png)
 
+## An albedo map from the four images
+
+13 October, evening. The user: "We did Deimos albedo map fit with AFC image
+after applying Hapke, did we do this step on these 4 images of Phobos to try
+to remove the discrepency? Because I still see up to 40% difference in the
+latest "image/kalast" plot red/blue". Not until now: only 5-degree cells,
+which averaged the albedo away.
+
+As for Deimos (`2026-10-08_deimos_afc_photometry/`), scaled to 12.6M facets
+(scratch `albedo/fit_map.py`):
+
+- **The residual**: the image over kalast's reference (Mars, a bounce)
+  through the SRC's response, in log, where both are lit, 3 pixels from any
+  edge, incidence under 78 deg and emission under 72, no pixel at 0: 1.79M
+  pixels (123k, 556k, 449k, 658k).
+- **The map**: each pixel to its facet's centre, a 0.25-degree cell of
+  latitude and longitude; the cells' mean smoothed by a Gaussian of 2 cells,
+  about 100 m, its median over the seen set to 1. Beside it, solved in turn,
+  a term per 6 deg of incidence shared by the images, and an offset per
+  image.
+- **Held out**, each image against the map of the other three -- the test
+  that is not the map of itself: the log ratio's rms from 0.123, 0.100,
+  0.100, 0.113 to 0.082, 0.075, 0.064, 0.081, 44-59 % of its variance; the
+  map against the image's own pattern, r 0.65-0.78. Cells of 0.125 to 0.5
+  deg do the same, 42-58 %. With the map in, the incidence term is
+  0.98-1.04 from 0 to 78 deg: most of the trend against incidence was ground
+  that is brighter.
+- **The map**: 16 % of Phobos's grid, the hemisphere the four see (longitude
+  -180 to -30, latitude -45 to +75); relative albedo 0.88-1.21 for 90 % of
+  it, 0.84-1.31 for 98 %. Against Ernst et al.'s albedo, 0.95-1.06 over the
+  same cells: correlation 0.26 (0.29 over 2 deg). Three times the contrast,
+  and little of the pattern -- Deimos's AFC map against its SPC albedo was
+  twice the contrast, 0.51.
+
+Drawn with the rays, through the SRC, `compare.py`:
+
+| image / kalast through the SRC, 16-84 %, r | h8870 | h8951 | h8963 | hc069 |
+|---|---|---|---|---|
+| no map | 0.88-1.18, 0.90 | 0.91-1.11, 0.92 | 0.91-1.14, 0.92 | 0.89-1.16, 0.84 |
+| the map of the other three | 0.91-1.14, 0.93 | 0.93-1.09, 0.95 | 0.92-1.09, 0.94 | 0.91-1.12, 0.88 |
+| the map of all four | 0.92-1.12, 0.94 | 0.94-1.08, 0.96 | 0.95-1.07, 0.97 | 0.94-1.07, 0.95 |
+
+The shadows' IoU moves by 0.004 at most. The broad red and blue go; what
+stays, even with the map of all four, is lines a pixel or two wide along
+the limb, the shadows' edges and the craters' rims, and on hc069 the ground
+the other three did not see. The held-out row is what the map is worth for
+another image; the last row is a map of the images it is compared with.
+Part of it may be the shape model's slopes rather than albedo, which images
+under like light cannot tell apart.
+
+`examples/phobos_shadows_fit/phobos_src_albedo.npz`: the map, simple
+cylindrical, 0.25 deg a pixel, the first row at 90 N, columns east from
+-180, float16, NaN where unseen (228 kB). `main.py`'s `albedo` lays it on the
+model with `colors_from_map`; drawn so, the frames are the fit's within 2
+levels on 0.2 % of the pixels, the map being stored in float16.
+
+![Phobos's relative albedo from the four images](albedo_map.png)
+
+![Image over kalast through the SRC: no map, the map of the other three, the map of all four](albedo_ratio_maps.png)
+
+## Phobos's libration in the shadows
+
+The user: "can you try to remove the libration part in the TPC [...] of
+Phobos to see if we can notice difference in shadow orientation. We want to
+use shadow to improve rotation models, especially for asteroids with
+uniques shadows like 67P/Churyumov-Gerasimenko from the Rosetta mission
+images."
+
+In PCK00011 Phobos's prime meridian is `35.18774440 + 1128.84475928 d +
+9.536e-9 d^2 + 1.42421769 sin M1 - 0.02273783 sin M2 + 0.00410711 sin M3 +
+0.00631964 sin M4 - 1.143 sin M5` (deg). M1 to M4, with the pole's terms,
+follow the precession of Phobos's orbit (2.26 years) and Mars's year; M5,
+189.63 + 41,215,158 deg a century, goes round once an orbit of Phobos, 7.65
+h: the last term is the forced libration in longitude. At the four images
+M5 is 67.9, 64.6, 57.8 and 152.9 deg, the libration -1.06, -1.03, -0.97 and
+-0.52 deg about the spin axis: up to 6, 18, 9 and 13 pixels of the surface.
+
+**Method** (`main.py`'s `libration=DEG`, scratch `libration/scan.sh`): the
+amplitude set, the four drawn with the rays, the craters registered again
+and the four drawn again where they now put Phobos -- the pointing fitted
+anew each time, so that it cannot stand in for the rotation -- and scored
+as `compare.py` does.
+
+**Without the libration** the craters move by (-2.1, -4.3), (+3.0,
+-11.4), (-4.8, 0.0) and (+0.4, -12.5) pixels; with the pointing fitted to
+that, the shadows and the light fit worse in all four:
+
+| | h8870 | h8951 | h8963 | hc069 |
+|---|---|---|---|---|
+| IoU, PCK00011's libration | 0.924 | 0.935 | 0.963 | 0.862 |
+| IoU, none | 0.881 | 0.913 | 0.930 | 0.851 |
+| r through the SRC, PCK00011's | 0.90 | 0.92 | 0.92 | 0.84 |
+| r through the SRC, none | 0.80 | 0.84 | 0.87 | 0.82 |
+
+**The light alone**: the Sun turned about Phobos's pole by the libration's
+angle, the surface where it is -- the shadows' own change. 3.0, 1.5, 1.1
+and 1.3 % of the lit pixels change, the shadows' edges by a pixel or two,
+more where the shadows are long (hc069's crater). The rest of what removing
+the libration changes, 1.6-10.5 % of the lit pixels, is the surface turned
+under the camera, which moving the image cannot undo.
+
+**The amplitude scanned** from +1.143 to -4.5 deg (`libration_scan.md`):
+the shadows fit best at about -1.5, -2.4, -1.7 and -2.9 deg, the light (r)
+at about -1.4, -1.5, -1.4, and on hc069 anywhere from -1.7 to -2.9. As a
+turn of Phobos beyond PCK00011's at each image, the shadows say -0.33,
+-1.1, -0.47 and -0.80 deg. The IoU drops by 0.003-0.01 for a third of a
+degree on three of the four.
+
+- **The shadows tell a third of a degree** at 8-33 m a pixel, and the
+  shading as much or more: r falls by 0.05-0.10 for a degree.
+- **All four want Phobos turned a little further** than PCK00011 has it at
+  their times, the same way. But three of them are at the same phase of the
+  libration (sin M5 0.85-0.93): to them a larger amplitude and an offset of
+  the prime meridian are the same, and an error of the shape model's own
+  frame too. NOE-4-2020's fit has 1.09 deg (Lainey et al. 2021).
+- **For a fit of the rotation** -- the colleague's aim, and 67P's from
+  Rosetta's images: many images over the phase of what is fitted; the
+  pointing pinned by the texture in each, so that it cannot take up the
+  rotation; the shadows' IoU and the shading's r as the objectives; and the
+  light alone, the Sun turned about the pole, to see what the shadows by
+  themselves say.
+
+![The shadows' outlines with PCK00011's libration (cyan) and without it in the light (red), over the image, where they differ most](libration_shadows.png)
+
+![The libration's amplitude against the shadows' IoU and the brightness's r](libration_scan.png)
+
 ## Not done
+
+Next, as offered on 13 October: build the camera's response into kalast
+itself -- blur, smear and halo applied to exported images; measure the
+SRC's response from its star images; or start the rotation fit.
 
 - **The SRC's response as part of kalast**: an image smeared, blurred and
   spread as a camera records it, at export or on the reference's floats --
@@ -534,9 +664,13 @@ Phobos lit.
   are the SRC's pointing -- its alignment or the attitude -- by Pasewaldt et
   al.'s astrometry; there is none for 2013, where MAR099 leaves hc069 still
   (-44, +45) pixels off, along Phobos's orbit.
-- **The law near the terminator**, 10-18 % brighter in the images at
-  incidence 80-85 deg than Fornasier et al.'s Hapke draws it, and an albedo
-  map of a few percent from the SRC's images.
+- **The law near the terminator**: with the albedo map little of the
+  trend is left, but the map and the law cannot be told apart on four
+  images.
+- **The albedo map from more images**: four see one hemisphere; the SRC
+  took hundreds of Phobos.
+- **The libration, or the prime meridian, fitted** from images spread over
+  the libration's phase, where the four here are three at one phase.
 - **Facet by facet**, as the colleague suggests: kalast's lit fraction of
   each facet (`sim.facet_shadow`) against the image's brightness over the
   pixels showing it (`sim.facet_id_map()`).
@@ -553,6 +687,8 @@ files and MAR099's small kernel from NAIF:
     python examples/phobos_shadows_fit/main.py rays hapke             # Ernst et al., PCK00011
     python examples/phobos_shadows_fit/main.py reference hapke        # with Mars, a bounce, the Sun a disc
     python examples/phobos_shadows_fit/main.py rays hapke spice       # pointed as SPICE has it
+    python examples/phobos_shadows_fit/main.py rays hapke albedo      # with the four images' albedo map
+    python examples/phobos_shadows_fit/main.py rays hapke libration=0 # Phobos without its libration
     python examples/phobos_shadows_fit/main.py rays hapke gaskell
     python examples/phobos_shadows_fit/compare.py
 

@@ -6053,3 +6053,21 @@ match, r 0.84-0.92. Left: the law near the terminator, 10-18 % brighter in
 the images, and a few percent of albedo. Open: the response in kalast, the
 SRC's response from its stars, facet by facet, the rotation fit. Write-up:
 `2026-10-12_phobos_hrsc_shadows/`.
+
+## 2026-10-13 — Phobos: an albedo map from the four images, and the libration in the shadows
+
+As for Deimos from AFC: the image over kalast's through the SRC's response,
+in log, on 0.25-degree cells smoothed over about 100 m, beside a shared
+incidence term. Held out, each image's map from the other three takes 44-59
+% of its variance; r through the SRC 0.90-0.93, 0.92-0.95, 0.92-0.94,
+0.84-0.88, and with the map of all four 0.94-0.97. Relative albedo 0.88-1.21,
+three times Ernst et al.'s contrast, correlation 0.26 with it.
+`phobos_src_albedo.npz`, `main.py`'s `albedo`. PCK00011's libration of
+Phobos, -1.143 sin M5 in its prime meridian, -0.5 to -1.1 deg at the four
+images: removed, the craters re-registered, the shadows' IoU 0.924-0.963 go
+to 0.851-0.930 and r through the SRC 0.84-0.92 to 0.80-0.87; the light alone
+changes 1.1-3.0 % of the lit pixels. Scanned, the four prefer Phobos turned
+0.3-1.1 deg further than PCK00011 has it -- an amplitude or a prime meridian
+three of them, at one phase, cannot tell apart. `main.py`'s `libration=DEG`.
+Write-up: `2026-10-12_phobos_hrsc_shadows/`.
+

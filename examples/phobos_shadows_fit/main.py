@@ -17,6 +17,12 @@ sets them beside the real ones.
   rot_shdw.TM loads -- 0.6 to 0.8 deg apart at these dates. Always with
   `ernst`, whose frame it is.
 - `spice`: the camera pointed as SPICE has it alone, without `POINTING`.
+- `albedo`: Phobos's albedo as these four images have it, as was done for
+  Deimos from AFC -- a map of the very images it is compared with: held
+  out, each image's from the other three, it takes away half of what is
+  left of the brightness.
+- `libration=DEG`: Phobos's forced libration in longitude, PCK00011's last
+  prime-meridian term (-1.143 deg), set to DEG: `libration=0` without it.
 
 Frames go to out/phobos_hrsc/METHOD_LAW_MESH/IMAGE/.
 """
@@ -58,7 +64,10 @@ METHOD = next((a for a in sys.argv if a in ("maps", "rays", "reference")), "maps
 LAW = next((a for a in sys.argv if a in ("hapke", "lambert", "mask")), "hapke")
 MESH = next((a for a in sys.argv if a in MESHES), "ernst")
 PCK00011 = "pck00011" in sys.argv or MESH == "ernst"
-OUT = os.path.join("out", "phobos_hrsc", f"{METHOD}_{LAW}_{MESH}" + ("-pck00011" if PCK00011 else "") + ("-spice" if "spice" in sys.argv else ""))
+LIBRATION = next((float(a[10:]) for a in sys.argv if a.startswith("libration=")), None)
+OUT = os.path.join("out", "phobos_hrsc", f"{METHOD}_{LAW}_{MESH}" + ("-pck00011" if PCK00011 else "")
+                   + ("-spice" if "spice" in sys.argv else "") + ("-albedo" if "albedo" in sys.argv else "")
+                   + (f"-libration{LIBRATION:g}" if LIBRATION is not None else ""))
 IFOV = 9e-3 / 984.76  # the SRC's pixel over its focal length, MEX_HRSC_V09.TI
 
 spice.kclear()
@@ -66,6 +75,10 @@ spice.furnsh(os.path.join(HERE, "phobos_hrsc.tm"))
 if PCK00011:
     # NAIF's generic kernels, https://naif.jpl.nasa.gov/pub/naif/generic_kernels/pck/
     spice.furnsh("/Users/gregoireh/data/spice/hera/kernels/pck/pck00011.tpc")
+    if LIBRATION is not None:
+        pm = list(spice.gdpool("BODY401_NUT_PREC_PM", 0, 5))
+        pm[4] = LIBRATION
+        spice.pdpool("BODY401_NUT_PREC_PM", pm)
 
 app = App()
 c = app.simulation.config
@@ -82,6 +95,14 @@ c.reference.max_samples = 1024
 c.export.sync, c.export.hud = True, False
 sim = app.simulation
 sim.load_mesh(path=MESHES[MESH])
+if "albedo" in sys.argv:
+    # Relative albedo fitted to the four images through the SRC's response
+    # (notes/2026-10-12_phobos_hrsc_shadows): simple cylindrical, 0.25 deg a
+    # pixel, the first row at 90 N, columns east from -180, NaN where they
+    # did not see Phobos, which keeps 1.
+    albedo = numpy.load(os.path.join(HERE, "phobos_src_albedo.npz"))["albedo"]
+    sim.bodies[0].mesh.colors_from_map(albedo.astype(numpy.float32))
+    sim.bodies[0].mesh.update_gpu_colors()
 if LAW == "hapke":
     # Hapke 2012 fits of HRSC images, Fornasier et al. (2024), between their
     # green and red filters for the SRC's 600 nm.

@@ -251,7 +251,9 @@ Look at [res/README.md](../res/README.md) to get Hera data.
       method (`maps`, `rays`, `reference`), the law (`hapke`, `lambert`, or
       `mask` for lit or not) and the shape model (`ernst`, `gaskell`,
       `dlr`). The reference has Mars in the scene, lighting Phobos's night
-      side.
+      side. `albedo` lays on Phobos the albedo map fitted to these images
+      ([phobos_src_albedo.npz](phobos_shadows_fit/phobos_src_albedo.npz)),
+      and `libration=0` draws Phobos without its libration in longitude.
     - [phobos_shadows_fit/compare.py](phobos_shadows_fit/compare.py): the
       shadows as lit-or-not masks against the images', where the craters
       say the pointing still is, and the brightness where both are lit, as
