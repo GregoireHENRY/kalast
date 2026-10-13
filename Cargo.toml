@@ -28,11 +28,13 @@ include = [
     "/res/plane_crater_1024-5000_h=0.437.obj",
     "/res/DejaVuSans.ttf",
     # The logo, kalast.exe's icon and its resource script (`build.rs`), and
-    # the UI app's screenshot the documentation tab shows with the README.
+    # the UI app's screenshot and the Phobos images the documentation tab
+    # shows with the README.
     "/res/kalast-256.png",
     "/res/kalast.ico",
     "/res/kalast.rc",
     "/res/kalast-ui.png",
+    "/res/phobos-hrsc-showcase.jpg",
     "/res/happy-tree.png",
     "/Cargo.toml",
     "/README.md",
