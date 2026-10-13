@@ -204,13 +204,13 @@ What the tables say:
   missing relief and the light the model has not got: Mars-shine and light
   from the surface around.
 
-![h8963, image over kalast with Hapke](h8963_brightness_hapke.png)
+![h8963, image over kalast with Hapke](h8963_brightness_hapke.jpg)
 
-![h8963, image over kalast with Lambert](h8963_brightness_lambert.png)
+![h8963, image over kalast with Lambert](h8963_brightness_lambert.jpg)
 
 ![hc069, Hapke cut like the image](hc069_shadows_hapke.png)
 
-![hc069, image over kalast with Hapke](hc069_brightness_hapke.png)
+![hc069, image over kalast with Hapke](hc069_brightness_hapke.jpg)
 
 ## On the way
 
@@ -334,15 +334,15 @@ Ernst's 18 m 0.888, 0.931, 0.934, 0.788.
   kalast; the reference's bounces would light them. And Mars-shine on
   h8870's night side, as before.
 
-![h8963, the image beside Gaskell's model and Ernst et al.'s](ernst_h8963_models.png)
+![h8963, the image beside Gaskell's model and Ernst et al.'s](ernst_h8963_models.jpg)
 
-![h8951 up close: Gaskell's model, Ernst et al.'s at 36 m and 18 m](ernst_h8951_crop.png)
+![h8951 up close: Gaskell's model, Ernst et al.'s at 36 m and 18 m](ernst_h8951_crop.jpg)
 
-![hc069 up close, moved where its craters line up](ernst_hc069_crop.png)
+![hc069 up close, moved where its craters line up](ernst_hc069_crop.jpg)
 
-![hc069 moved where its craters line up, and the shadows there](ernst_hc069_registered.png)
+![hc069 moved where its craters line up, and the shadows there](ernst_hc069_registered.jpg)
 
-![h8963, image over kalast with Ernst et al.'s model](ernst_h8963_brightness.png)
+![h8963, image over kalast with Ernst et al.'s model](ernst_h8963_brightness.jpg)
 
 ## The ephemeris and the pointing
 
@@ -477,13 +477,13 @@ The reference with Mars and a bounce, the Sun a disc. Through the SRC the
 shadows are grey as in the images, the craters as soft, and the sky beside
 Phobos lit.
 
-![The four images, kalast's reference, and the same through the SRC's response; square root of the brightness](src_response.png)
+![The four images, kalast's reference, and the same through the SRC's response; square root of the brightness](src_response.jpg)
 
 ![The sky beside Phobos, and what is left against incidence](src_light.png)
 
-![h8870 through the SRC's response](src_h8870_brightness.png)
+![h8870 through the SRC's response](src_h8870_brightness.jpg)
 
-![hc069 through the SRC's response](src_hc069_brightness.png)
+![hc069 through the SRC's response](src_hc069_brightness.jpg)
 
 ## The brightness: what is left
 
@@ -579,7 +579,7 @@ levels on 0.2 % of the pixels, the map being stored in float16.
 
 ![Phobos's relative albedo from the four images](albedo_map.png)
 
-![Image over kalast through the SRC: no map, the map of the other three, the map of all four](albedo_ratio_maps.png)
+![Image over kalast through the SRC: no map, the map of the other three, the map of all four](albedo_ratio_maps.jpg)
 
 ## Phobos's libration in the shadows
 
@@ -643,7 +643,7 @@ degree on three of the four.
   light alone, the Sun turned about the pole, to see what the shadows by
   themselves say.
 
-![The shadows' outlines with PCK00011's libration (cyan) and without it in the light (red), over the image, where they differ most](libration_shadows.png)
+![The shadows' outlines with PCK00011's libration (cyan) and without it in the light (red), over the image, where they differ most](libration_shadows.jpg)
 
 ![The libration's amplitude against the shadows' IoU and the brightness's r](libration_scan.png)
 

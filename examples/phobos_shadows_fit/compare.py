@@ -115,7 +115,7 @@ def figures(name, time, real, sim, s, r, m, title):
         for a in ax:
             a.set_axis_off()
         fig.tight_layout()
-        fig.savefig(os.path.join(OUT, f"shadows_{name}_{tag}.png"), dpi=72, bbox_inches="tight")
+        fig.savefig(os.path.join(OUT, f"shadows_{name}_{tag}.png"), dpi=200, bbox_inches="tight")
         plt.close(fig)
         if "src" not in s:
             return
@@ -134,7 +134,7 @@ def figures(name, time, real, sim, s, r, m, title):
         for a in ax:
             a.set_axis_off()
         fig.tight_layout()
-        fig.savefig(os.path.join(OUT, f"brightness_{name}_{tag}.png"), dpi=72, bbox_inches="tight")
+        fig.savefig(os.path.join(OUT, f"brightness_{name}_{tag}.png"), dpi=200, bbox_inches="tight")
         plt.close(fig)
 
 
