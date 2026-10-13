@@ -264,6 +264,26 @@ Look at [res/README.md](../res/README.md) to get Hera data.
       and scattered light, in
       [hrsc.py](phobos_shadows_fit/hrsc.py); figures and a table in
       `out/phobos_hrsc/figures`.
+- [comet67p_shadows_fit](comet67p_shadows_fit): 57 images of comet
+  67P/Churyumov-Gerasimenko from Rosetta's OSIRIS narrow-angle camera, 2014
+  to 2016, phase 2 to 120 deg, drawn by kalast and compared with the real
+  ones. Its [README](comet67p_shadows_fit/README.md) says where to get the
+  data: the images download themselves on first use; the 18 SPICE kernels
+  and Preusker et al.'s SHAP7 shape model are fetched once.
+    - [comet67p_shadows_fit/main.py](comet67p_shadows_fit/main.py): each
+      image at mid-exposure, at the NAC's resolution, pointed as the
+      spacecraft was and moved by where the image's terrain puts the nucleus
+      (`images.csv`; `spice` leaves that out). `python main.py reference
+      hapke shap7` picks the shadow method, the law (`hapke`, `hapke-fit`
+      refitted to these images, `lambert`, `mask`) and the shape model
+      (`shap7`, 44M facets, or `shap7-4m`). `spin=DEG` turns the nucleus about
+      its spin axis, `light=DEG` the light alone, `bounces=N` lights the
+      ground in shadow by the comet's own light.
+    - [comet67p_shadows_fit/compare.py](comet67p_shadows_fit/compare.py):
+      the shadows as lit-or-not masks against the images', where the
+      terrain says the pointing still is, and the brightness where both are
+      lit; a figure per image, one sheet of them all and a table in
+      `out/67p_osiris/figures`.
 ## Examples that worked but not ready for users
 
 - [analytical](analytical)

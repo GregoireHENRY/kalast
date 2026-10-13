@@ -6071,3 +6071,40 @@ changes 1.1-3.0 % of the lit pixels. Scanned, the four prefer Phobos turned
 three of them, at one phase, cannot tell apart. `main.py`'s `libration=DEG`.
 Write-up: `2026-10-12_phobos_hrsc_shadows/`.
 
+## 2026-10-13 — 67P in OSIRIS NAC images: `examples/comet67p_shadows_fit`
+
+57 orange-filter NAC images of 15,570, July 2014 to August 2016, phase 2-120
+deg, 9-2,941 km, drawn at mid-exposure with the 18 kernels they need (ESA's
+final meta-kernel's RATT and CATT, plus the attitude measured on board and
+reconstructed from OSIRIS images) and compared as for Phobos. The shape
+model decides it: ESA's 4M DSK of DLR's model is a hull of 30-150 m facets
+over most of the south, and the user found the renders "really not good,
+not high res"; Preusker et al.'s SHAP7 in full, 44M facets of 1-1.5 m, from
+ESA's Rosetta simulator server as PLY, drawn whole by kalast in 31 GB peak
+and 20 s an image. The terrain puts the nucleus (-2.6, -4.5) pixels off
+SPICE's pointing, a few pixels' spread (`images.csv`). Lit-or-not IoU,
+median 0.911: 0.976 under 30 deg, 0.935 at 30-60, 0.886 at 60-90, 0.60 at
+90-100 close up, 0.75 near perihelion (coma). N20141122T163853, taken for a
+data problem, was the DSK's southern hull. Fornasier et al.'s Hapke leaves
+kalast 1.6-2 times too dark at 80-94 deg; refitted on SHAP7 (w 0.0356, g
+-0.276, theta_bar 24.4, B0 4.73), held out 8-9 % an image, and drawn by
+kalast 7 % away from perihelion (27 % before): `hapke-fit`.
+The night side, 12.5 s at 91 deg from 12 km, lit by the comet's own sunlit
+terrain: `bounces=1` draws its terrain, 1.8 times too dark. The rotation: the
+light alone turned half a degree moves the IoU by 0.004 at most; the terrain's
+registration across 45 images, fitted as pointing plus a turn per
+comet-attitude kernel, gives -0.03 +- 0.04, +0.09 +- 0.03 and +0.03 +- 0.04
+deg for 2014, 2015 and 2016 (`spin=DEG`, `light=DEG`).
+Write-up: `2026-10-13_67p_osiris_shadows/`. Open: the coma near perihelion;
+the NAC's response; an albedo map of the nucleus from these images; the
+rotation fitted over many more images; PLY read by kalast itself.
+
+## 2026-10-13 — Phobos: a README for the data, `simple.py`, the README's showcase
+
+`examples/phobos_shadows_fit/README.md` says where each input comes from;
+`simple.py` draws h8963 in about 70 lines without a loop, matching
+`main.py`'s reference to 6 x 10^-4. One image with the reference, Mars and a
+bounce at 1024 samples: 3.5 min on the M1 Pro (1.75 without the bounce; `rays`
+7 s; the SRC's response 0.4 s). The four images, kalast's and through the
+SRC's response, open the README (`res/phobos-hrsc-showcase.jpg`, compiled
+into the documentation tab).
