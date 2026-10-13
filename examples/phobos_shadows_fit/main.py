@@ -10,9 +10,11 @@ beside the real ones.
 - METHOD: the shadows, `maps` (the default), `rays` or `reference`.
 - LAW: `hapke` (Fornasier et al. 2024), `lambert`, or `mask` -- lit or not,
   for comparing shadows alone.
-- MESH: `gaskell` (rot_shdw.TM's DSK) or `dlr`.
+- MESH: `ernst` (Ernst et al. 2023, the default), `gaskell` (rot_shdw.TM's
+  DSK) or `dlr`.
 - `pck00011`: Phobos turned as NAIF's PCK00011 has it, not PCK00010 as
-  rot_shdw.TM loads -- 0.6 to 0.8 deg apart at these dates.
+  rot_shdw.TM loads -- 0.6 to 0.8 deg apart at these dates. Always with
+  `ernst`, whose frame it is.
 
 Frames go to out/phobos_hrsc/METHOD_LAW_MESH/IMAGE/.
 """
@@ -32,6 +34,10 @@ from kalast.util import RPD
 HERE = os.path.dirname(os.path.abspath(__file__))
 DSK = "/Users/gregoireh/data/spice/mex/kernels/dsk"
 MESHES = {
+    # Ernst et al. (2023), from 2,382 images of six spacecraft, the SRC's
+    # among them: 18 m facets, 12.6M of them, in PCK00011's frame.
+    # https://sbmt.jhuapl.edu/shared-files/, v004.
+    "ernst": "/Users/gregoireh/data/mesh/phobos/ernst2023/phobos_g_018m_spc_obj_0000n00000_v004.obj",
     # rot_shdw.TM's PHOBOS_M157_GAS_V01.BDS as an OBJ: Gaskell (2011), from
     # Viking images, 3.1M facets.
     "gaskell": DSK + "/PHOBOS_M157_GAS_V01.OBJ",
@@ -42,8 +48,8 @@ MESHES = {
 # By name, in any order: the UI app passes arguments of its own.
 METHOD = next((a for a in sys.argv if a in ("maps", "rays", "reference")), "maps")
 LAW = next((a for a in sys.argv if a in ("hapke", "lambert", "mask")), "hapke")
-MESH = next((a for a in sys.argv if a in MESHES), "gaskell")
-PCK00011 = "pck00011" in sys.argv
+MESH = next((a for a in sys.argv if a in MESHES), "ernst")
+PCK00011 = "pck00011" in sys.argv or MESH == "ernst"
 OUT = os.path.join("out", "phobos_hrsc", f"{METHOD}_{LAW}_{MESH}" + ("-pck00011" if PCK00011 else ""))
 IFOV = 9e-3 / 984.76  # the SRC's pixel over its focal length, MEX_HRSC_V09.TI
 

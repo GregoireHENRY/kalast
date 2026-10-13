@@ -6002,3 +6002,22 @@ either attitude: Phobos's or the spacecraft's ephemeris, or the SRC's
 alignment. Phobos looks softer in kalast for its shape model, Gaskell's
 456-landmark relief -- flat facets, and the level of detail no cause.
 Write-up: `2026-10-12_phobos_hrsc_shadows/`.
+
+## 2026-10-13 — Phobos: Ernst et al.'s shape model
+
+Ernst et al.'s 2023 model is public after all: SBMT's shared-files page
+serves version 4 without an account, at 18 to 296 m, each with a coloring
+of albedo, slope and gravity per plate. The 18 m model (12.6M facets) and
+the 36 m are in `~/data/mesh/phobos/ernst2023/`, and `main.py` draws with
+the 18 m by default, in PCK00011's frame; kalast loads it in 0.7 s. The
+grooves, crater chains and small craters the SRC shows are now in kalast's
+images. Moved, the shadows overlap better than with Gaskell's model on
+h8870 (0.888 to 0.924), h8951 (0.908 to 0.919) and h8963 (0.943 to 0.958),
+and h8951's brightness correlates at 0.89 rather than 0.80. The surface's
+texture now pins the pointing: within 2 pixels of the lit-or-not overlap on
+three images, and hc069 at (-104, +114), where its brightness correlates at
+0.80. h8870's and hc069's moves lie along Phobos's orbit, 0.9 km (2010) and
+1.6 km (2013) behind MAR097. The albedo map, ±3 %, raises r by 0.01. Open: a
+later Phobos ephemeris, the texture's registration in `compare.py`, Mars-shine
+and the walls' light, the facets one by one, and the rotation fit.
+Write-up: `2026-10-12_phobos_hrsc_shadows/`.

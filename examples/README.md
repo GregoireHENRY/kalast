@@ -237,12 +237,16 @@ Look at [res/README.md](../res/README.md) to get Hera data.
   images of Phobos, drawn by kalast and compared with the real ones.
     - Needs ESA's Mars Express SPICE set; set `PATH_VALUES` in
       [phobos_hrsc.tm](phobos_shadows_fit/phobos_hrsc.tm), the 14 kernels
-      these images need, and the mesh paths in `main.py`.
+      these images need, and the mesh paths in `main.py`. Ernst et al.'s
+      shape model, the default, is on the Small Body Mapping Tool's
+      [shared files](https://sbmt.jhuapl.edu/shared-files/)
+      (`phobos_g_018m_spc_obj_0000n00000_v004.obj`), with NAIF's
+      `pck00011.tpc` for its frame.
     - [phobos_shadows_fit/main.py](phobos_shadows_fit/main.py): each image at
       its `IMAGE_TIME`, at the SRC's resolution, pointed as the spacecraft
-      was. `python main.py rays hapke gaskell` picks the shadow method
+      was. `python main.py rays hapke ernst` picks the shadow method
       (`maps`, `rays`, `reference`), the law (`hapke`, `lambert`, or `mask`
-      for lit or not) and the shape model (`gaskell`, `dlr`).
+      for lit or not) and the shape model (`ernst`, `gaskell`, `dlr`).
     - [phobos_shadows_fit/compare.py](phobos_shadows_fit/compare.py): the
       shadows as lit-or-not masks against the images', as pointed and moved
       to overlap best, and the brightness where both are lit; figures and a

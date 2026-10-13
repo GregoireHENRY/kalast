@@ -40,7 +40,9 @@ does not load -- the attitude as measured, below (`phobos_hrsc.tm`):
 correlation for 2010-2013 is the same in both. Positions are taken in J2000
 and turned into the camera's frame: asked relative to `MEX_HRSC_SRC` itself
 with light time, SPICE wants the camera's own ephemeris
-(`MEX_STRUCT_V01.BSP`), which these images do not otherwise need.
+(`MEX_STRUCT_V01.BSP`), which these images do not otherwise need. With
+Ernst et al.'s model `main.py` loads NAIF's `pck00011.tpc` after them, the
+model's frame.
 
 ## The shape models
 
@@ -58,15 +60,16 @@ model's relief: its facets are drawn flat, each with its own normal, not
 smoothed; and the level of detail is no cause -- the reference draws the full
 mesh without it and scores the same, and with it off on h8870 1.4 % of the
 lit pixels change, at the limb. The SRC resolves grooves, rims and craters of
-tens of metres that the model has not got.
+tens of metres that the model has not got; Ernst et al.'s has them, below.
 
-Two others to hand: DLR's `PHOBOS_K275_DLR_V02` from HRSC images (Willner
-et al. 2014), 274,874 facets, in the same ESA set. And one better than both,
-not to hand: Ernst et al. (2023), stereophotoclinometry from 2,382 images,
-the SRC's among them -- 18 m facets, 12 million of them, positions good to
-36 m, and an albedo map with the highest-resolution model. It is served by
-the Small Body Mapping Tool (sbmt.jhuapl.edu) and not yet in the PDS; its
-data server wants an account.
+Two others: DLR's `PHOBOS_K275_DLR_V02` from HRSC images (Willner et al.
+2014), 274,874 facets, in the same ESA set. And one better than both: Ernst
+et al. (2023), stereophotoclinometry from 2,382 images, the SRC's among
+them -- 18 m facets, 12.6 million of them, with an albedo per plate. Not yet
+in the PDS, but the Small Body Mapping Tool's shared-files page serves it
+without an account -- the SBMT application's own data server is the one
+that wants one, which is all this note first found. `main.py` draws with it
+by default; what it changes is in its own section.
 
 ## The camera
 
@@ -180,7 +183,8 @@ What the tables say:
   hc069 (0.749 against 0.725). Both are too coarse for hc069 at 8 m a
   pixel: a crater with a clear shadow in the image is a smooth lit bowl in
   both, and the large crater's shadow edge is off, at 0.75 whatever is
-  moved. Ernst et al.'s 18 m model would be the one for it.
+  moved. Ernst et al.'s 18 m model would be the one for it -- and is, in
+  its section below, once the image is moved where its craters say.
 - **PCK00011 fits a little better.** Moved, it is ahead or level on every
   image with both models, by up to 0.016, and hc069's brightness correlates at 0.56
   against 0.48 with Gaskell's model; as pointed the pointing error
@@ -252,36 +256,123 @@ measured: Gaskell's model 0.749 / 0.824, 0.874 / 0.887, 0.882 / 0.907,
 0.771 / 0.776; DLR's 0.754 / 0.834, 0.871 / 0.895, 0.864 / 0.893, 0.750 /
 0.753.
 
+## Ernst et al.'s model
+
+13 October. SBMT's shared files (https://sbmt.jhuapl.edu/shared-files/)
+hold version 4 at 18, 36, 73, 148 and 296 m -- 12,582,912 plates down to
+49,152 -- each with a coloring file, and regional DTMs at 10 m. Version 4
+is shifted so its centre of figure is its centre of mass, moved to
+PCK00011's frame, and its maplets iterated ten times. Downloaded, 780 MB, to
+`~/data/mesh/phobos/ernst2023/`: the 18 m and 36 m models and the 36 m
+coloring. The 18 m OBJ is 925 MB, 6,291,458 vertices in km; kalast loads it
+in 0.7 s and prepares its levels of detail in 3.6 s, and an image takes 3.5-7
+s in `main.py` with the rays against Gaskell's 1.5-3.6. Its centroid is 0.2 m
+from its origin (Gaskell's 7 m), its volume 5,693 km³ (Gaskell's 5,760).
+
+With PCK00011, its frame, and the measured attitude; the rays, Hapke cut like
+the images; IoU as pointed / moved, the move, and the brightness's r
+(`table_ernst.md`):
+
+| model | h8870 | h8951 | h8963 | hc069 |
+|---|---|---|---|---|
+| Gaskell | 0.742 / 0.888, (+19, +12), 0.81 | 0.907 / 0.908, (0, -4), 0.80 | 0.907 / 0.943, (+13, -6), 0.89 | 0.750 / 0.756, 0.47 |
+| Ernst, 36 m | 0.740 / 0.925, (+19, +9), 0.83 | 0.877 / 0.920, (+13, -23), 0.89 | 0.882 / 0.960, (+17, -11), 0.92 | 0.753 / 0.762, 0.54 |
+| Ernst, 18 m | 0.739 / 0.924, (+20, +9), 0.83 | 0.875 / 0.919, (+13, -23), 0.89 | 0.879 / 0.958, (+16, -12), 0.90 | 0.752 / 0.760, 0.54 |
+
+Lit wherever the Sun reaches, moved: Gaskell's 0.831, 0.891, 0.908, 0.788;
+Ernst's 18 m 0.888, 0.931, 0.934, 0.788.
+
+- **Sharp.** The grooves, the crater chains and the craters of a few tens
+  of metres the images show are in kalast's now; Gaskell's model blurs them
+  away at 8-11 m a pixel. Moved, the shadows overlap better on the three
+  images that can tell: h8870 0.888 to 0.924, h8951 0.908 to 0.919, h8963
+  0.943 to 0.958, and lit at all 0.831 to 0.888, 0.891 to 0.931, 0.908 to
+  0.934. h8951's brightness correlates at 0.89 rather than 0.80. The 36 m
+  model scores as well as the 18 m; the 18 m draws small craters a little
+  crisper, and is `main.py`'s.
+- **As pointed it scores lower**, 0.875 against 0.907 on h8951: its shadows
+  fall where the image's do once the craters line up, and the craters say
+  the pointing is further off than Gaskell's blurred shadows let on.
+- **The surface's texture pins the pointing**, now there is texture to
+  match: both images high-passed and correlated (a scratch script, not in
+  `compare.py`), the peak 7-13 times the next one on three images and 2.7
+  on hc069. It agrees with the lit-or-not overlap within two pixels on
+  h8870 (+20, +9), h8951 (+15, -24) and h8963 (+17, -12). hc069, Phobos
+  filling the frame, the overlap never pinned; the craters put it at (-104,
+  +114). There they line up -- the large crater's rim, the small one's lit
+  wall, the shadows' edges -- and the brightness correlates at 0.80 rather
+  than 0.54 (Gaskell's model: 0.59). The lit-or-not scores only 0.70 there.
+  A move that large leaves a margin the frame does not cover, counted
+  unlit. And the image's shadows, lit by their walls, reach the cut, where
+  kalast's are black.
+- **The pointing is Phobos's ephemeris, in part.** h8870's and hc069's
+  moves lie within 3° of the way Phobos moves about Mars, as each image
+  sees it: Phobos 0.9 km behind where MAR097 puts it in December 2010, 1.6
+  km behind in June 2013. h8951's and h8963's lie 72° and 38° from it, with
+  0.3 km left over across that direction.
+- **The albedo map changes little.** The coloring's albedo, one per plate,
+  is 0.068 at the median, within ±3 % between the 16th and 84th
+  percentiles, and 0.039-0.103 at the extremes. It went in as each facet's
+  colour over the median -- the law's albedo scaled -- carried to the 18 m
+  plates from the nearest 36 m plate centre, 9 m away at the median.
+  Hapke's r goes from 0.83, 0.89, 0.90 and 0.80 (hc069 where its craters
+  line up) to 0.84, 0.89, 0.91 and 0.81, and Lambert's gains 0.01-0.02
+  likewise. Hapke stays ahead of Lambert on the first three, 0.83, 0.89,
+  0.90 against 0.80, 0.84, 0.84; on hc069 Lambert reads 0.82.
+- **What is left**, ±12-20 % between the 16th and 84th percentiles, is no
+  longer the relief. In h8870 and h8963 one side of the
+  disc is brighter than the other: the law's dependence on incidence and
+  emission, or units of different albedo that this map, ±3 %, does not
+  show. The shadows are lit by their walls in the images and black in
+  kalast; the reference's bounces would light them. And Mars-shine on
+  h8870's night side, as before.
+
+![h8963, the image beside Gaskell's model and Ernst et al.'s](ernst_h8963_models.png)
+
+![h8951 up close: Gaskell's model, Ernst et al.'s at 36 m and 18 m](ernst_h8951_crop.png)
+
+![hc069 up close, moved where its craters line up](ernst_hc069_crop.png)
+
+![hc069 moved where its craters line up, and the shadows there](ernst_hc069_registered.png)
+
+![h8963, image over kalast with Ernst et al.'s model](ernst_h8963_brightness.png)
+
 ## Not done
 
-- **What is left of the pointing**, 12-21 pixels across the lines in two
-  images: a later Mars-moons ephemeris than MAR097, and the SRC's own
-  alignment against the limbs of these and more images.
-- **Mars-shine.** h8870's night side reads about 60 DN against the sky's
-  13-39 and its day side's 1000, lit by Mars, which is nearly full from
-  Phobos at these geometries. kalast's night is black. Mars as a body in the
-  scene, its colour its albedo, and the reference's bounces would light it.
-- **The Ernst et al. model and its albedo map**, for hc069 and for the
-  brightness: through SBMT, with an account.
-- **The pointing from the limb alone**, so the shadows are compared with
-  nothing moved for them; the limb against the sky is plain in h8870 and
-  h8963, against Mars-shine on the night side less so.
+- **What is left of the pointing.** With Ernst et al.'s model the craters
+  pin it on all four images, h8870's and hc069's along Phobos's orbit, 0.9
+  and 1.6 km behind MAR097. A later Mars-moons ephemeris than MAR097 would
+  tell, then the SRC's own alignment for what h8951 and h8963 leave.
+- **The texture's registration in `compare.py`**, so the shadows are scored
+  where the craters put the image rather than where the shadows overlap
+  best. With Gaskell's or DLR's model h8951 and hc069 have too little
+  texture for it.
+- **Mars-shine and the walls' light.** h8870's night side reads about 60 DN
+  against the sky's 13-39 and its day side's 1000, lit by Mars, which is
+  nearly full from Phobos at these geometries. kalast's night is black. Mars
+  as a body in the scene, its colour its albedo, and the reference's bounces
+  would light it -- and the shadows' floors in hc069, lit by their walls,
+  bouncing off Phobos itself.
 - **Facet by facet**, as the colleague suggests: kalast's lit fraction of
   each facet (`sim.facet_shadow`) against the image's brightness over the
   pixels showing it (`sim.facet_id_map()`).
 - **Phobos's rotation fitted** to the shadows -- the colleague's aim:
-  the IoU moved as the objective, over the rotation's angles.
+  the IoU moved as the objective, over the rotation's angles, with the move
+  fixed by the craters so that it cannot stand in for the rotation.
 
 ## Running it
 
 From the repository root, after setting the paths in `phobos_hrsc.tm`
-and `main.py`:
+and `main.py`, and downloading Ernst et al.'s 18 m model from SBMT's shared
+files:
 
+    python examples/phobos_shadows_fit/main.py rays hapke             # Ernst et al., PCK00011
     python examples/phobos_shadows_fit/main.py rays hapke gaskell
     python examples/phobos_shadows_fit/main.py rays hapke gaskell pck00011
     python examples/phobos_shadows_fit/compare.py
 
 The frames go to `out/phobos_hrsc/<run>/`, the figures and `table.md` to
 `out/phobos_hrsc/figures/`. `main.py` reproduces the runs here pixel for
-pixel. On the M1 Pro a run of four images takes about a minute with the
-maps or the rays, and 1-3 minutes with the reference.
+pixel, Ernst et al.'s included. On the M1 Pro a run of four images takes
+about a minute with the maps or the rays, and 1-3 minutes with the
+reference.
