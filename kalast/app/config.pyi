@@ -354,6 +354,8 @@ class Config:
     """Mouse and keyboard sensitivities."""
     image: ImageConfig
     """The size of the image being rendered, as distinct from the window."""
+    response: ResponseConfig
+    """What the camera does to the image it records."""
     debug: DebugConfig
     """Diagnostics and console output."""
 
@@ -769,6 +771,23 @@ class ShadowsConfig:
     traced across the disc. Relief finer than the maps' texels is not in
     them, and its penumbra is drawn hard. A body with a horizon map is
     traced throughout. Off by default.
+    """
+    ray_points: int
+    """The points of a pixel its rays start from, with `method` "rays": 1,
+    the surface under its centre; more, the surface under that many
+    points spread over it -- MSAA's own patterns -- their shares of the
+    Sun averaged.
+
+    A shadow narrower than a pixel, a groove's under a low Sun, is then
+    the share of the pixel it covers, as the reference draws it: from the
+    centre alone it came out as dots along the groove, each pixel's
+    centre in the shadow or out of it -- on Phobos's grooves near the
+    limb, 1,970 pixels of h8963 against the reference's thin grey lines.
+    Not a filter: the shadows are traced there, and a shadow wider than a
+    pixel is as sharp. Each point costs a pixel's rays again; 8 and 16
+    trace four first, and all of theirs only where those four disagree --
+    a shadow's edge in the pixel -- so they cost little more than 4. A
+    count between the patterns takes the next one up.
     """
 
 class ReferenceConfig:
@@ -1266,6 +1285,39 @@ class ImageConfig:
     """
     flip_y: bool
     """Mirror the image top to bottom: the camera's up drawn at the bottom."""
+
+class ResponseConfig:
+    """What the camera does to the image it records.
+
+    `app.simulation.config.response`. Reads and writes the live config
+    through the same handle as every other view of it.
+    """
+    enabled: bool
+    """Apply it. Off by default."""
+    core: float
+    """The core's standard deviation, pixels: a Gaussian holding the light
+    the halos do not. 0: a point.
+    """
+    halo_share: float
+    """The first halo's share of the light, spread as `exp(-r / halo_scale)`.
+    The halos' shares over 1 together are scaled down to 1.
+    """
+    halo_scale: float
+    """The first halo's scale, pixels."""
+    halo2_share: float
+    """The second halo's share of the light, spread as
+    `exp(-r / halo2_scale)`.
+    """
+    halo2_scale: float
+    """The second halo's scale, pixels."""
+    smear: float
+    """The smear's length, pixels: each point drawn out to a segment, the
+    image's motion across the sensor over the exposure. 0: none.
+    """
+    smear_angle: float
+    """The smear's direction, degrees from the image's x axis toward its y
+    axis, down the image: 0 along the rows.
+    """
 
 class DebugConfig:
     """Diagnostics and console output.

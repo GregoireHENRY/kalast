@@ -1017,6 +1017,24 @@ pub struct Shadows {
     /// traced throughout. Off by default.
     /// :when: method == ShadowMethod::Rays
     pub ray_guide: bool,
+    /// The points of a pixel its rays start from, with `method` "rays": 1,
+    /// the surface under its centre; more, the surface under that many
+    /// points spread over it -- MSAA's own patterns -- their shares of the
+    /// Sun averaged.
+    ///
+    /// A shadow narrower than a pixel, a groove's under a low Sun, is then
+    /// the share of the pixel it covers, as the reference draws it: from the
+    /// centre alone it came out as dots along the groove, each pixel's
+    /// centre in the shadow or out of it -- on Phobos's grooves near the
+    /// limb, 1,970 pixels of h8963 against the reference's thin grey lines.
+    /// Not a filter: the shadows are traced there, and a shadow wider than a
+    /// pixel is as sharp. Each point costs a pixel's rays again; 8 and 16
+    /// trace four first, and all of theirs only where those four disagree --
+    /// a shadow's edge in the pixel -- so they cost little more than 4. A
+    /// count between the patterns takes the next one up.
+    /// :when: method == ShadowMethod::Rays
+    /// :choices: 1 = the centre, 4, 8, 16
+    pub ray_points: u32,
 }
 
 /// The shadow settings for one use, from the quickest look to the most exact
@@ -1264,6 +1282,7 @@ impl Default for Shadows {
             ray_samples: 64,
             ray_probe: 16,
             ray_guide: false,
+            ray_points: 1,
         }
     }
 }
@@ -1839,6 +1858,91 @@ impl Default for Image {
     }
 }
 
+/// What the camera does to the image it records (`app::response`): its
+/// point spread -- a Gaussian core and up to two exponential halos -- and a
+/// smear along a line, the image moved across the sensor during the
+/// exposure. The image drawn, exported and read (`sim.reference_image()`) is
+/// the scene through it; not the HUD, the axes or the colour bar.
+///
+/// Applied to the image's floats by an FFT on the GPU, the image padded to
+/// twice its size: each part of the point spread normalised over the
+/// offsets of that padded image, the light it spreads further put back
+/// within it, as `examples/phobos_shadows_fit/hrsc.py`'s response has it --
+/// whose fit of the HRSC SRC's response these parameters are made for
+/// (`notes/2026-10-12_phobos_hrsc_shadows`). Without the reference, the
+/// image is then drawn single-sampled into floats, as a reference's sample
+/// is, the response smoothing its edges instead of MSAA: a 1018-pixel image
+/// is a 2048 x 2048 transform a frame.
+#[derive(Clone, Debug)]
+pub struct Response {
+    /// Apply it. Off by default.
+    pub enabled: bool,
+    /// The core's standard deviation, pixels: a Gaussian holding the light
+    /// the halos do not. 0: a point.
+    /// :when: enabled == true
+    /// :range: 0.0..=16.0
+    pub core: f32,
+    /// The first halo's share of the light, spread as `exp(-r / halo_scale)`.
+    /// The halos' shares over 1 together are scaled down to 1.
+    /// :when: enabled == true
+    /// :range: 0.0..=1.0
+    pub halo_share: f32,
+    /// The first halo's scale, pixels.
+    /// :when: enabled == true
+    /// :range: 0.0..=2000.0
+    pub halo_scale: f32,
+    /// The second halo's share of the light, spread as
+    /// `exp(-r / halo2_scale)`.
+    /// :when: enabled == true
+    /// :range: 0.0..=1.0
+    pub halo2_share: f32,
+    /// The second halo's scale, pixels.
+    /// :when: enabled == true
+    /// :range: 0.0..=2000.0
+    pub halo2_scale: f32,
+    /// The smear's length, pixels: each point drawn out to a segment, the
+    /// image's motion across the sensor over the exposure. 0: none.
+    /// :when: enabled == true
+    /// :range: 0.0..=64.0
+    pub smear: f32,
+    /// The smear's direction, degrees from the image's x axis toward its y
+    /// axis, down the image: 0 along the rows.
+    /// :when: enabled == true
+    /// :range: -180.0..=180.0
+    pub smear_angle: f32,
+}
+
+impl Default for Response {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            core: 0.0,
+            halo_share: 0.0,
+            halo_scale: 0.0,
+            halo2_share: 0.0,
+            halo2_scale: 0.0,
+            smear: 0.0,
+            smear_angle: 0.0,
+        }
+    }
+}
+
+impl Response {
+    /// The parameters as bits, to know when the kernel must be laid out
+    /// again (`app::response`).
+    pub fn bits(&self) -> [u32; 7] {
+        [
+            self.core.to_bits(),
+            self.halo_share.to_bits(),
+            self.halo_scale.to_bits(),
+            self.halo2_share.to_bits(),
+            self.halo2_scale.to_bits(),
+            self.smear.to_bits(),
+            self.smear_angle.to_bits(),
+        ]
+    }
+}
+
 /// Diagnostics and console output.
 #[derive(Clone, Debug)]
 pub struct Diagnostics {
@@ -1931,6 +2035,8 @@ pub struct Config {
     pub controls: Controls,
     /// The size of the image being rendered, as distinct from the window.
     pub image: Image,
+    /// What the camera does to the image it records.
+    pub response: Response,
     /// Diagnostics and console output.
     pub debug: Diagnostics,
 }
@@ -1952,6 +2058,7 @@ impl Default for Config {
             export: Export::default(),
             controls: Controls::default(),
             image: Image::default(),
+            response: Response::default(),
             debug: Diagnostics::default(),
         }
     }

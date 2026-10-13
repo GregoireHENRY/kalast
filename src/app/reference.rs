@@ -56,6 +56,9 @@ pub struct Reference {
     accumulate: wgpu::ComputePipeline,
     error_pipeline: wgpu::ComputePipeline,
     resolve: wgpu::RenderPipeline,
+    /// The same into floats, for a camera's response to take
+    /// (`app::response`).
+    resolve_float: wgpu::RenderPipeline,
     /// Each replica's samples so far.
     pub counts: [u32; 4],
     /// What the scene was when the sum began (`Window::update`).
@@ -68,6 +71,13 @@ pub struct Reference {
     /// Stopped by hand before it was done, the UI's button (`ReferenceAsk`):
     /// it goes on from there when asked.
     pub stopped: bool,
+    /// The sums begun again so far (`reset`): with the samples, what the
+    /// mean is of, for a camera's response to keep its result while it
+    /// holds still.
+    pub resets: u64,
+    /// The response's result the simulation's copy of the mean was last
+    /// read from (`Window::reference_after_frame`): `None`, the mean itself.
+    pub response_read: Option<u64>,
     /// The exposure `error` was measured at and the mean last read back at
     /// (`read`), for both to follow a new one (`Window::reference_after_frame`).
     pub exposure: Option<f32>,
@@ -180,27 +190,31 @@ impl Reference {
         };
         let accumulate = compute("cs_accumulate");
         let error_pipeline = compute("cs_error");
-        let resolve = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("reference resolve"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &module,
-                entry_point: Some("vs_resolve"),
-                buffers: &[],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &module,
-                entry_point: Some("fs_resolve"),
-                targets: &[Some(wgpu::ColorTargetState { format: target, blend: None, write_mask: wgpu::ColorWrites::ALL })],
-                compilation_options: Default::default(),
-            }),
-            primitive: Default::default(),
-            depth_stencil: None,
-            multisample: Default::default(),
-            multiview_mask: None,
-            cache: None,
-        });
+        let resolve_into = |format| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("reference resolve"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &module,
+                    entry_point: Some("vs_resolve"),
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &module,
+                    entry_point: Some("fs_resolve"),
+                    targets: &[Some(wgpu::ColorTargetState { format, blend: None, write_mask: wgpu::ColorWrites::ALL })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: Default::default(),
+                depth_stencil: None,
+                multisample: Default::default(),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let resolve = resolve_into(target);
+        let resolve_float = resolve_into(FORMAT);
         Self {
             size: (w, h),
             frame_view,
@@ -213,11 +227,14 @@ impl Reference {
             accumulate,
             error_pipeline,
             resolve,
+            resolve_float,
             counts: [0; 4],
             scene: None,
             error: None,
             done: false,
             stopped: false,
+            resets: 0,
+            response_read: None,
             exposure: None,
             shown: None,
         }
@@ -238,6 +255,8 @@ impl Reference {
         self.stopped = false;
         self.exposure = None;
         self.shown = None;
+        self.resets += 1;
+        self.response_read = None;
     }
 
     /// Where within its pixel the next sample is taken, pixels from the
@@ -289,6 +308,9 @@ impl Reference {
 
     /// The mean into `target`, the image, at `exposure`: the uniform
     /// written again only on a frame that summed nothing, for a new exposure.
+    /// `float`: `target` is a camera's response's image in floats
+    /// (`app::response`), the mean drawn there as a sample of the main pass
+    /// would be.
     pub fn resolve(
         &mut self,
         queue: &wgpu::Queue,
@@ -296,6 +318,7 @@ impl Reference {
         target: &wgpu::TextureView,
         srgb_mode: u32,
         exposure: f32,
+        float: bool,
     ) {
         if self.shown != Some((srgb_mode, exposure)) {
             self.write(queue, self.samples() % REPLICAS, srgb_mode, exposure);
@@ -310,7 +333,7 @@ impl Reference {
             })],
             ..Default::default()
         });
-        pass.set_pipeline(&self.resolve);
+        pass.set_pipeline(if float { &self.resolve_float } else { &self.resolve });
         pass.set_bind_group(0, Some(&self.group), &[]);
         pass.draw(0..3, 0..1);
     }

@@ -647,16 +647,45 @@ degree on three of the four.
 
 ![The libration's amplitude against the shadows' IoU and the brightness's r](libration_scan.png)
 
+## The SRC's response in kalast (13 October)
+
+The user: "where is the SRC response included?", then "do it then".
+`hrsc.response` is now kalast's own, `config.response`
+(`src/app/response.rs`, `shaders/response.wgsl`): the image's floats,
+padded with zeros to twice its size in powers of two, transformed on the
+GPU -- radix-2 Stockham, a dispatch a stage, two complex numbers an element,
+red and green, blue and alpha -- multiplied by the kernel's spectrum and
+transformed back, before the HUD and the axes. The kernel is laid out on the
+CPU exactly as `hrsc.py` has it, each part normalised over the offsets of
+the padded image, so the fitted parameters carry over: against `hrsc.py`'s
+numpy in float64, the SRC's response with a 4.9-pixel smear within 9 x
+10^-7 of a brightest of 0.69, 58 % of the light moved (`tests/test_response.py`).
+
+The smear has a direction (`smear_angle`), each pixel the length of the
+segment its square holds -- along the rows `hrsc.py`'s box with partial
+ends. The image read (`sim.reference_image()`) and exported goes through it.
+With a reference, the mean is transformed as it sums, and once done only
+once; a reference's sum carries on when the response is turned on, off or
+changed. Without one, the image is drawn single-sampled into floats, as a
+sample is, and transformed every frame: 27 ms at the SRC's 1008 x 1018 on an
+M1 Pro -- 167 ms until the columns' stages were given to neighbouring
+threads column by column, not butterfly by butterfly.
+
+`simple.py` draws its image through the SRC's fitted response, the smear its
+own (`IMAGES`). The window shows the values the image stores, linear; the
+note's figures show their square root scaled to each image's brightest,
+which lifts the shadows and the sky.
+
 ## Not done
 
 Next, as offered on 13 October: build the camera's response into kalast
 itself -- blur, smear and halo applied to exported images; measure the
 SRC's response from its star images; or start the rotation fit.
 
-- **The SRC's response as part of kalast**: an image smeared, blurred and
-  spread as a camera records it, at export or on the reference's floats --
-  here it is `hrsc.response`, numpy in the example. The halo wants the scene
-  beyond the frame drawn too.
+- **The halo beyond the frame**: the response spreads only the light of
+  the image drawn (`config.response`, since 13 October); the halo's 434
+  pixels want the scene beyond the frame drawn too. And `compare.py` still
+  takes `hrsc.response` on `main.py`'s floats, the same maths.
 - **The SRC's response from its own star images** (Oberst et al. 2008,
   Wargnier et al. 2025): its halo measured without kalast, and whether it
   changes with the camera's temperature, as h8870's sky suggests.

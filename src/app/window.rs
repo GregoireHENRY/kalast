@@ -1751,6 +1751,7 @@ impl Window {
             &msaa,
             traced.map(|r| &r.image_layout),
             config.shadows.method == crate::app::config::ShadowMethod::Reference,
+            config.response.enabled,
         );
         passes.bindings.rays = traced.map(|r| r.image_group.clone());
 
@@ -2245,6 +2246,7 @@ impl Window {
             &self.msaa,
             traced.map(|r| &r.image_layout),
             config.shadows.method == crate::app::config::ShadowMethod::Reference,
+            config.response.enabled,
         );
         self.passes.bindings.rays = traced.map(|r| r.image_group.clone());
         // `Passes::new` sizes the offscreen targets from `config.image.width`, which
@@ -2355,10 +2357,18 @@ impl Window {
                 }
             }
         }
+        // Done, the mean read back: again for each new result of a camera's
+        // response, which it is then through, and once the response is off.
+        let response = self.passes.response.as_ref().filter(|_| self.passes.response_on);
+        let wanted = response.map(|r| r.generation);
         if !reference.done {
             simulation.reference.image = None;
-        } else if simulation.reference.image.is_none() {
-            let (mean, error) = reference.read(&self.device, &self.queue, exposure);
+        } else if simulation.reference.image.is_none() || reference.response_read != wanted {
+            let (mut mean, error) = reference.read(&self.device, &self.queue, exposure);
+            if let Some(response) = response {
+                mean = response.read(&self.device, &self.queue);
+            }
+            reference.response_read = wanted;
             simulation.reference.image = Some(super::simulation::ReferenceImage {
                 width: reference.size.0,
                 height: reference.size.1,
@@ -2517,9 +2527,18 @@ impl Window {
         // The main pass is built anew to trace, or not to, as well.
         let reference = config.shadows.method == crate::app::config::ShadowMethod::Reference;
         self.rays = rays_wanted(config) && self.raytrace.is_some();
-        if reference != self.passes.reference_on || self.rays != self.passes.traced {
+        // The float pipelines while either a reference or a camera's response
+        // wants them: the other turned on or off keeps them, and a reference's
+        // sum with them.
+        let float = reference || config.response.enabled;
+        if float != self.passes.float_on || self.rays != self.passes.traced {
             self.rebuild_passes(config);
         }
+        if !reference {
+            self.passes.reference = None;
+        }
+        self.passes.reference_on = reference;
+        self.passes.response_on = config.response.enabled;
         simulation.rays = self.rays;
         if config.shadows.method.traces() && self.raytrace.is_none() && !self.rays_refused {
             self.rays_refused = true;
@@ -2548,6 +2567,16 @@ impl Window {
         // None tried first in a reference: it misses slivers.
         light.ray_probe = if reference { 0 } else { config.shadows.ray_probe };
         light.ray_guide = self.ray_guided as u32;
+        // A reference integrates each pixel's area itself, a jittered sample
+        // a frame.
+        // The patterns there are, a count between them taking the next up.
+        light.ray_points = match config.shadows.ray_points {
+            _ if reference => 1,
+            0 | 1 => 1,
+            2..=4 => 4,
+            5..=8 => 8,
+            _ => 16,
+        };
         // The shadow array as small as it goes while the rays answer, and
         // back to `shadows.resolution` when they stop.
         if self.shadow_side(config) != self.shadow_requested {
@@ -4501,10 +4530,21 @@ fn reference_scene(
     // The reference's own settings but its bounces, which change the image:
     // a new error or sample limit carries on from the sum there is. Nor the
     // exposure, which the sum is of the samples over (`reference.rs`) -- only
-    // whether there is any light at all.
+    // whether there is any light at all -- nor `srgb_mode`, which in the
+    // shaded mode changes how the mean is shown and not what is summed: the
+    // sum re-encodes what mode 1 decodes for its target, the stored values
+    // either way. Both change the sum with `shading.gamma`'s power law, and
+    // `srgb_mode` the unlit modes' colours.
     let mut c = config.clone();
     c.reference = crate::app::config::Reference { bounces: config.reference.bounces, ..Default::default() };
-    c.light.exposure = if config.light.exposure > 0.0 { 1.0 } else { 0.0 };
+    // A camera's response is applied to the mean, not summed.
+    c.response = Default::default();
+    if config.shading.gamma.is_none() {
+        c.light.exposure = if config.light.exposure > 0.0 { 1.0 } else { 0.0 };
+        if config.shading.color_mode == crate::app::config::ColorMode::Shaded {
+            c.shading.srgb_mode = 0;
+        }
+    }
     format!("{c:?}").hash(&mut h);
     // The camera's pose and its own projection settings, not its matrix:
     // the near and far planes fitted each frame alternated by a unit in the

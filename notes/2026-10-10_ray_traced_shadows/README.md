@@ -400,6 +400,46 @@ grey lines. Not noise for a denoiser to average, aliasing: the shadow
 taken at the MSAA samples, or summed over jittered frames while nothing
 moves, would draw them as the reference does.
 
+## Rays from several points of a pixel, and `srgb_mode` (13 October, later)
+
+The user: "i want real time rays to have a option to remove this gaps, just
+like a real time denoiser would do"; "why changing srgb_mode restart the
+reference rendering?"
+
+**`shadows.ray_points`**: 1, 4, 8 or 16 points of the pixel, MSAA's own
+patterns (Direct3D's, in sixteenths), each the surface the camera's ray
+through it finds (`ray_seen_hit`, which says when it finds none -- past the
+body's edge, left out), each traced as the centre was, the shares averaged.
+The points lie on the triangle's plane by the position's screen derivatives
+(`dpdx`, `dpdy`), taken in `fs_main` while the quad is uniform. 8 and 16
+trace the 4-point pattern first and all of theirs only where those four
+disagree by more than 10^-3: a shadow's edge in the pixel. On h8963 (1008 x
+1018, Ernst's 12.6M facets, the Sun a point, an M1 Pro):
+
+| points | ms a frame | dots | mean |diff| against the reference |
+|---|---|---|---|
+| 1 | 131 | 1,980 | 2.80 of 255 |
+| 4 | 577 | 824 | 2.52 |
+| 8 | 794 | 512 | 2.46 |
+| 16 | 935 | 427 | 2.44 |
+| 16, all everywhere | 2,380 | 270 | 2.36 |
+
+-- dots, pixels darker than their 3 x 3 median by over 40 of 255; the
+reference itself has 30, thin lines' own. `tests/test_ray_points.py`: fins
+whose shadows are half a pixel wide, 16 points within 0.017 rms of the
+reference on the shadows' pixels, the centre 0.128; elsewhere the same image
+to the bit. Not a denoiser: a filter fills or erases what it cannot tell
+from noise, and these are not noise but aliasing, which sampling the pixel
+removes.
+
+**`srgb_mode` in the reference.** In the shaded mode mode 1's shader writes
+the sRGB-decoded value its target encodes back, and the sum encodes it
+again: both modes sum the stored values, and only the resolve differs. It
+no longer begins the sum again, nor does the exposure, unless
+`shading.gamma` is set, whose power law is not linear, or the colour mode is
+unlit, where `srgb_mode` changes the colours summed. In
+`test_reference_controls.py`, 1 then 0 halfway is the sum in 0 to 7 x 10^-7.
+
 ## Compaction
 
 Each body's bottom level is built with `ALLOW_COMPACTION` and compacted once
@@ -423,9 +463,9 @@ allocator report: 1,312 MiB in use built, 1,055 compacted).
 
 - **Bounces in the thermophysical model's** shadows and in the real-time
   image: only the reference has them.
-- **`rays` and shadows narrower than a pixel**: taken at the pixel's centre,
-  they come out as dots; the shadow at the MSAA samples, or jittered frames
-  summed while the scene is still, would integrate them.
+- **`rays` and shadows narrower than a pixel**: `shadows.ray_points` since
+  13 October; summed over jittered frames while the scene is still, as the
+  reference does, is the other way, not taken.
 - **Coloured surfaces in bounces**: a body's mean colour stands for all of
   it (each body reflects by its own law since 13 October).
 - **The Mac**: not run on Metal yet; the M1 Pro traverses in software.

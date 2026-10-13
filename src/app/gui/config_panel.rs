@@ -164,6 +164,18 @@ pub fn group_shadows(ui: &mut egui::Ui, c: &mut Config) {
     if c.shadows.method == crate::app::config::ShadowMethod::Rays {
         setting(ui, "ray_guide", "Trace the disc's rays only where the shadow maps see a penumbra can be, one ray to the Sun's centre elsewhere: much quicker, and exact wherever the maps hold what casts the penumbra.", |ui| ui.checkbox(&mut c.shadows.ray_guide, ""));
     }
+    if c.shadows.method == crate::app::config::ShadowMethod::Rays {
+        setting(ui, "ray_points", "The points of a pixel its rays start from, with `method` \"rays\": 1, the surface under its centre; more, the surface under that many points spread over it -- MSAA's own patterns -- their shares of the Sun averaged.", |ui| {
+            egui::ComboBox::from_id_salt("c.shadows.ray_points")
+                .selected_text(c.shadows.ray_points.to_string())
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut c.shadows.ray_points, 1, "1").on_hover_text("the centre");
+                    ui.selectable_value(&mut c.shadows.ray_points, 4, "4");
+                    ui.selectable_value(&mut c.shadows.ray_points, 8, "8");
+                    ui.selectable_value(&mut c.shadows.ray_points, 16, "16");
+                });
+        });
+    }
 }
 
 /// `config.reference` -- Reference.
@@ -405,6 +417,32 @@ pub fn group_image(ui: &mut egui::Ui, c: &mut Config) {
     setting(ui, "image height", "", |ui| ui.add(egui::Slider::new(&mut c.image.height, 0..=4320).clamping(egui::SliderClamping::Edits)));
     setting(ui, "mirror left to right", "Mirror the image left to right: the camera's right drawn on the left.", |ui| ui.checkbox(&mut c.image.flip_x, ""));
     setting(ui, "mirror top to bottom", "Mirror the image top to bottom: the camera's up drawn at the bottom.", |ui| ui.checkbox(&mut c.image.flip_y, ""));
+}
+
+/// `config.response` -- Response.
+pub fn group_response(ui: &mut egui::Ui, c: &mut Config) {
+    setting(ui, "enabled", "Apply it. Off by default.", |ui| ui.checkbox(&mut c.response.enabled, ""));
+    if c.response.enabled == true {
+        setting(ui, "core", "The core's standard deviation, pixels: a Gaussian holding the light the halos do not. 0: a point.", |ui| ui.add(egui::Slider::new(&mut c.response.core, 0.0..=16.0).clamping(egui::SliderClamping::Edits)));
+    }
+    if c.response.enabled == true {
+        setting(ui, "halo_share", "The first halo's share of the light, spread as `exp(-r / halo_scale)`. The halos' shares over 1 together are scaled down to 1.", |ui| ui.add(egui::Slider::new(&mut c.response.halo_share, 0.0..=1.0).clamping(egui::SliderClamping::Edits)));
+    }
+    if c.response.enabled == true {
+        setting(ui, "halo_scale", "The first halo's scale, pixels.", |ui| ui.add(egui::Slider::new(&mut c.response.halo_scale, 0.0..=2000.0).clamping(egui::SliderClamping::Edits)));
+    }
+    if c.response.enabled == true {
+        setting(ui, "halo2_share", "The second halo's share of the light, spread as `exp(-r / halo2_scale)`.", |ui| ui.add(egui::Slider::new(&mut c.response.halo2_share, 0.0..=1.0).clamping(egui::SliderClamping::Edits)));
+    }
+    if c.response.enabled == true {
+        setting(ui, "halo2_scale", "The second halo's scale, pixels.", |ui| ui.add(egui::Slider::new(&mut c.response.halo2_scale, 0.0..=2000.0).clamping(egui::SliderClamping::Edits)));
+    }
+    if c.response.enabled == true {
+        setting(ui, "smear", "The smear's length, pixels: each point drawn out to a segment, the image's motion across the sensor over the exposure. 0: none.", |ui| ui.add(egui::Slider::new(&mut c.response.smear, 0.0..=64.0).clamping(egui::SliderClamping::Edits)));
+    }
+    if c.response.enabled == true {
+        setting(ui, "smear_angle", "The smear's direction, degrees from the image's x axis toward its y axis, down the image: 0 along the rows.", |ui| ui.add(egui::Slider::new(&mut c.response.smear_angle, -180.0..=180.0).clamping(egui::SliderClamping::Edits)));
+    }
 }
 
 /// `config.debug` -- Debug.

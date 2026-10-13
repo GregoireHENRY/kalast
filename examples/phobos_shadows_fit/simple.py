@@ -3,9 +3,11 @@
 Phobos where SPICE puts it, seen through the SRC as Mars Express pointed it,
 lit by the Sun and by Mars. Name it below, in `IMAGES`.
 
+Seen through the SRC's response, as the camera recorded the image: its blur,
+Phobos's smear over the exposure, and its scattered light.
+
 `main.py` does the same for the four images, with its options; `compare.py`
-sets them beside the real ones, and through the SRC's response -- its blur,
-smear and scattered light, which this window does not show.
+sets them beside the real ones.
 """
 
 import os
@@ -19,15 +21,17 @@ from kalast.util import RPD
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-# Each image's IMAGE_TIME, and where its craters put Phobos against SPICE's
-# pointing: pixels along the samples and the lines, `main.py`'s POINTING.
+# Each image's IMAGE_TIME; where its craters put Phobos against SPICE's
+# pointing, pixels along the samples and the lines (`main.py`'s POINTING);
+# and how far Phobos drifted along the samples over the exposure, pixels
+# (`hrsc.py`'s SMEAR).
 IMAGES = {
-    "h8870": ("2010-12-10T06:44:31.077", 20.7, 14.1),
-    "h8951": ("2011-01-02T21:16:29.361", 15.4, -4.8),
-    "h8963": ("2011-01-06T09:21:16.092", 19.8, -2.2),
-    "hc069": ("2013-06-29T06:02:43.085", -44.1, 44.5),
+    "h8870": ("2010-12-10T06:44:31.077", 20.7, 14.1, 1.86),
+    "h8951": ("2011-01-02T21:16:29.361", 15.4, -4.8, 4.90),
+    "h8963": ("2011-01-06T09:21:16.092", 19.8, -2.2, 2.34),
+    "hc069": ("2013-06-29T06:02:43.085", -44.1, 44.5, 6.98),
 }
-time, dx, dy = IMAGES["h8870"]
+time, dx, dy, smear = IMAGES["h8870"]
 
 spice.kclear()
 spice.furnsh(os.path.join(HERE, "phobos_hrsc.tm"))
@@ -51,6 +55,16 @@ app.simulation.config.light.sun_as_point = False
 app.simulation.config.shadows.method = "reference"
 app.simulation.config.reference.max_samples = 1024
 app.simulation.config.reference.bounces = 1
+# The SRC's response, as the note fitted it to these images: a core of 2.19
+# pixels, and two halos -- 1.2 % of the light within about 53 pixels, 28 %
+# over about 434 -- what lights the images' sky and shadows; and the smear.
+app.simulation.config.response.enabled = True
+app.simulation.config.response.core = 2.19
+app.simulation.config.response.halo_share = 0.012
+app.simulation.config.response.halo_scale = 53.0
+app.simulation.config.response.halo2_share = 0.282
+app.simulation.config.response.halo2_scale = 434.0
+app.simulation.config.response.smear = smear
 
 # The SRC: 1008 x 1018 pixels of its 1024 x 1024 CCD, each 9 microns behind
 # a 984.76 mm focal length. Looking along its boresight, turned to the

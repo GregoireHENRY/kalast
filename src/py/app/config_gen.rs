@@ -521,6 +521,25 @@ impl ShadowsConfig {
     fn ray_guide(&self) -> bool { self.config.borrow().shadows.ray_guide }
     #[setter]
     fn set_ray_guide(&mut self, v: bool) { self.config.borrow_mut().shadows.ray_guide = v; }
+    /// The points of a pixel its rays start from, with `method` "rays": 1,
+    /// the surface under its centre; more, the surface under that many
+    /// points spread over it -- MSAA's own patterns -- their shares of the
+    /// Sun averaged.
+    ///
+    /// A shadow narrower than a pixel, a groove's under a low Sun, is then
+    /// the share of the pixel it covers, as the reference draws it: from the
+    /// centre alone it came out as dots along the groove, each pixel's
+    /// centre in the shadow or out of it -- on Phobos's grooves near the
+    /// limb, 1,970 pixels of h8963 against the reference's thin grey lines.
+    /// Not a filter: the shadows are traced there, and a shadow wider than a
+    /// pixel is as sharp. Each point costs a pixel's rays again; 8 and 16
+    /// trace four first, and all of theirs only where those four disagree --
+    /// a shadow's edge in the pixel -- so they cost little more than 4. A
+    /// count between the patterns takes the next one up.
+    #[getter]
+    fn ray_points(&self) -> u32 { self.config.borrow().shadows.ray_points }
+    #[setter]
+    fn set_ray_points(&mut self, v: u32) { self.config.borrow_mut().shadows.ray_points = v; }
     fn __repr__(&self) -> String {
         format!("{:?}", self.config.borrow().shadows)
     }
@@ -1261,6 +1280,67 @@ impl ImageConfig {
     }
 }
 
+/// What the camera does to the image it records.
+///
+/// `app.simulation.config.response`. Reads and writes the live config
+/// through the same handle as every other view of it.
+#[pyclass(unsendable)]
+pub struct ResponseConfig {
+    pub config: crate::locked::Locked<crate::app::config::Config>,
+}
+
+#[pymethods]
+impl ResponseConfig {
+    /// Apply it. Off by default.
+    #[getter]
+    fn enabled(&self) -> bool { self.config.borrow().response.enabled }
+    #[setter]
+    fn set_enabled(&mut self, v: bool) { self.config.borrow_mut().response.enabled = v; }
+    /// The core's standard deviation, pixels: a Gaussian holding the light
+    /// the halos do not. 0: a point.
+    #[getter]
+    fn core(&self) -> f32 { self.config.borrow().response.core }
+    #[setter]
+    fn set_core(&mut self, v: f32) { self.config.borrow_mut().response.core = v; }
+    /// The first halo's share of the light, spread as `exp(-r / halo_scale)`.
+    /// The halos' shares over 1 together are scaled down to 1.
+    #[getter]
+    fn halo_share(&self) -> f32 { self.config.borrow().response.halo_share }
+    #[setter]
+    fn set_halo_share(&mut self, v: f32) { self.config.borrow_mut().response.halo_share = v; }
+    /// The first halo's scale, pixels.
+    #[getter]
+    fn halo_scale(&self) -> f32 { self.config.borrow().response.halo_scale }
+    #[setter]
+    fn set_halo_scale(&mut self, v: f32) { self.config.borrow_mut().response.halo_scale = v; }
+    /// The second halo's share of the light, spread as
+    /// `exp(-r / halo2_scale)`.
+    #[getter]
+    fn halo2_share(&self) -> f32 { self.config.borrow().response.halo2_share }
+    #[setter]
+    fn set_halo2_share(&mut self, v: f32) { self.config.borrow_mut().response.halo2_share = v; }
+    /// The second halo's scale, pixels.
+    #[getter]
+    fn halo2_scale(&self) -> f32 { self.config.borrow().response.halo2_scale }
+    #[setter]
+    fn set_halo2_scale(&mut self, v: f32) { self.config.borrow_mut().response.halo2_scale = v; }
+    /// The smear's length, pixels: each point drawn out to a segment, the
+    /// image's motion across the sensor over the exposure. 0: none.
+    #[getter]
+    fn smear(&self) -> f32 { self.config.borrow().response.smear }
+    #[setter]
+    fn set_smear(&mut self, v: f32) { self.config.borrow_mut().response.smear = v; }
+    /// The smear's direction, degrees from the image's x axis toward its y
+    /// axis, down the image: 0 along the rows.
+    #[getter]
+    fn smear_angle(&self) -> f32 { self.config.borrow().response.smear_angle }
+    #[setter]
+    fn set_smear_angle(&mut self, v: f32) { self.config.borrow_mut().response.smear_angle = v; }
+    fn __repr__(&self) -> String {
+        format!("{:?}", self.config.borrow().response)
+    }
+}
+
 /// Diagnostics and console output.
 ///
 /// `app.simulation.config.debug`. Reads and writes the live config
@@ -1388,6 +1468,9 @@ impl super::config::Config {
     /// The size of the image being rendered, as distinct from the window.
     #[getter]
     fn image(&self) -> ImageConfig { ImageConfig { config: self.config.clone() } }
+    /// What the camera does to the image it records.
+    #[getter]
+    fn response(&self) -> ResponseConfig { ResponseConfig { config: self.config.clone() } }
     /// Diagnostics and console output.
     #[getter]
     fn debug(&self) -> DebugConfig { DebugConfig { config: self.config.clone() } }

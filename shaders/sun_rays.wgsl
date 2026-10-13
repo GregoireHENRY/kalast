@@ -98,6 +98,53 @@ fn ray_seen_point(camera: vec3<f32>, p: vec3<f32>, back: f32) -> vec3<f32> {
     return start + dir * hit.t;
 }
 
+/// `ray_seen_point`, and whether the camera's ray found the meshes: the
+/// point in `xyz`, 1 in `w` where it did, `p` and 0 where it did not.
+fn ray_seen_hit(camera: vec3<f32>, p: vec3<f32>, back: f32) -> vec4<f32> {
+    let v = p - camera;
+    let len = length(v);
+    let dir = v / len;
+    let step = min(back, 0.5 * len);
+    let start = p - dir * step;
+    var rq: ray_query;
+    rayQueryInitialize(&rq, tlas, RayDesc(RAY_FLAG_FORCE_OPAQUE, 0xffu, 0.0, 2.0 * step, start, dir));
+    rayQueryProceed(&rq);
+    let hit = rayQueryGetCommittedIntersection(&rq);
+    if hit.kind == RAY_QUERY_INTERSECTION_NONE {
+        return vec4<f32>(p, 0.0);
+    }
+    return vec4<f32>(start + dir * hit.t, 1.0);
+}
+
+/// Point `k` of `n` in a pixel, pixels from its centre: MSAA's standard
+/// patterns for 4, 8 and 16 (Direct3D's, in sixteenths of a pixel), well
+/// spread whichever way an edge runs; the centre for any other `n`.
+fn ray_pixel_point(k: u32, n: u32) -> vec2<f32> {
+    var p4 = array<vec2<f32>, 4>(
+        vec2<f32>(-2.0, -6.0), vec2<f32>(6.0, -2.0), vec2<f32>(-6.0, 2.0), vec2<f32>(2.0, 6.0),
+    );
+    var p8 = array<vec2<f32>, 8>(
+        vec2<f32>(1.0, -3.0), vec2<f32>(-1.0, 3.0), vec2<f32>(5.0, 1.0), vec2<f32>(-3.0, -5.0),
+        vec2<f32>(-5.0, 5.0), vec2<f32>(-7.0, -1.0), vec2<f32>(3.0, 7.0), vec2<f32>(7.0, -7.0),
+    );
+    var p16 = array<vec2<f32>, 16>(
+        vec2<f32>(1.0, 1.0), vec2<f32>(-1.0, -3.0), vec2<f32>(-3.0, 2.0), vec2<f32>(4.0, -1.0),
+        vec2<f32>(-5.0, -2.0), vec2<f32>(2.0, 5.0), vec2<f32>(5.0, 3.0), vec2<f32>(3.0, -5.0),
+        vec2<f32>(-2.0, 6.0), vec2<f32>(0.0, -7.0), vec2<f32>(-4.0, -6.0), vec2<f32>(-6.0, 4.0),
+        vec2<f32>(-8.0, 0.0), vec2<f32>(7.0, -4.0), vec2<f32>(6.0, 7.0), vec2<f32>(-7.0, -8.0),
+    );
+    if n == 4u {
+        return p4[k] / 16.0;
+    }
+    if n == 8u {
+        return p8[k] / 16.0;
+    }
+    if n == 16u {
+        return p16[k] / 16.0;
+    }
+    return vec2<f32>(0.0);
+}
+
 /// The share of the Sun's light a point `p` of a surface facing `n` sees:
 /// none when the surface faces away from the Sun's centre, as the shadow
 /// maps have it; one ray for a point Sun (`radius` 0 or `samples` 1),

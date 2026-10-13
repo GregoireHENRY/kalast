@@ -22,6 +22,7 @@ pub mod occlusion;
 pub mod pass;
 pub mod raytrace;
 pub mod reference;
+pub mod response;
 pub mod script;
 pub mod simulation;
 pub mod uniform;

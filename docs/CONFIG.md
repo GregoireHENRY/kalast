@@ -624,6 +624,64 @@ other turns the triangles' winding round, so the scene pass culls the other
 side; changing that rebuilds the pipelines, as `shading.render_back_face`
 does.
 
+## Camera response
+
+What the camera does to the image it records: its point spread -- a Gaussian
+core and up to two exponential halos -- and a smear along a line, the image
+moved across the sensor during the exposure. The image drawn, exported and
+read (`sim.reference_image()`) is the scene through it; the HUD, the axes and
+the colour bar are drawn over it as they are.
+
+```python
+r = app.simulation.config.response
+r.enabled = True
+r.core = 2.19                                 # pixels, the Gaussian's sigma
+r.halo_share, r.halo_scale = 0.012, 53.0      # 1.2 % of the light, exp(-r/53)
+r.halo2_share, r.halo2_scale = 0.282, 434.0   # 28.2 %, exp(-r/434)
+r.smear, r.smear_angle = 2.34, 0.0            # pixels, along the rows
+```
+
+-- the HRSC SRC's, fitted to its images of Phobos
+(`notes/2026-10-12_phobos_hrsc_shadows/`): `examples/phobos_shadows_fit/simple.py`
+draws its image through it.
+
+Applied to the image's floats by an FFT on the GPU, the image padded with
+zeros to twice its size in powers of two. Each part of the point spread is
+normalised over the offsets of that padded image, the light it spreads
+further put back within it -- as `examples/phobos_shadows_fit/hrsc.py`'s
+response has it, whose parameters these are; against it in float64, within
+10^-6 of the brightest (`tests/test_response.py`). The core holds the light
+the halos do not; their shares over 1 together are scaled down to 1.
+
+With a reference image, its mean goes through it -- turning it on or off, or
+changing it, carries the sum on -- and once done is transformed once. Without
+one, the image is drawn as a reference's sample is, single-sampled into
+floats, the response smoothing its edges instead of MSAA, and transformed
+every frame: 27 ms at 1008 x 1018 -- a 2048 x 2048 transform -- on an M1 Pro.
+An image whose transform needs more memory than the GPU binds is drawn
+without it, and said so.
+
+### `response.enabled: bool` — default `False` *(live)*
+Apply it.
+
+### `response.core: float` — default `0` *(live)*
+The core's standard deviation, pixels: a Gaussian holding the light the halos
+do not. `0`: a point.
+
+### `response.halo_share: float` — default `0` *(live)*
+### `response.halo_scale: float` — default `0` *(live)*
+### `response.halo2_share: float` — default `0` *(live)*
+### `response.halo2_scale: float` — default `0` *(live)*
+The halos: each a share of the light spread as `exp(-r / scale)`, the scale in
+pixels.
+
+### `response.smear: float` — default `0` *(live)*
+### `response.smear_angle: float` — default `0` *(live)*
+The smear's length, pixels, and its direction, degrees from the image's x axis
+toward its y axis, down the image: each point drawn out to a segment, each
+pixel of it taking the length its square holds -- along the rows, a box with
+partial ends.
+
 ### `app.config.fullscreen: bool` — default `false` *(live, remembered)*
 Fill the screen. Accepted: `True` / `False`.
 
@@ -1664,6 +1722,26 @@ shadow in 0.98 s instead of 2.97. Under that low Sun, Didymos's rough
 ground has something within the disc's reach at about a third of its pixels,
 where the disc is traced as before.
 
+### `shadows.ray_points: u32` — default `1` *(live)*
+With `shadows.method = "rays"`, the points of a pixel its rays start from: `1`,
+the surface under its centre; `4`, `8` or `16`, the surface under that many
+points spread over it -- MSAA's own patterns -- their shares of the Sun
+averaged. A shadow narrower than a pixel, a groove's under a low Sun, is then
+the share of the pixel it covers, as the reference draws it: from the centre
+alone each pixel's centre is in it or out of it, and it comes out as dots
+along the groove. Not a filter: the shadows are traced there, and a shadow
+wider than a pixel is as sharp.
+
+`8` and `16` trace four points first, and all of theirs only where those four
+disagree -- a shadow's edge in the pixel. On Phobos's grooves near the limb
+(h8963 at 1008 x 1018, the Sun a point, an M1 Pro): from the centre, 1,980
+pixels darker than their neighbours by over 40 of 255 and 130 ms a frame;
+`4`, 824 and 577 ms; `16`, 427 and 935 ms; 16 everywhere, 270 and 2,380 ms; the
+reference, which integrates each pixel's area, 30. A count between the
+patterns takes the next up. On a plate whose fins cast shadows half a pixel
+wide (`tests/test_ray_points.py`), `16` is within 0.017 rms of the reference
+on the shadows' pixels, the centre alone 0.128.
+
 ### `shadows.ray_samples: u32` — default `64` *(live)*
 With `shadows.method = "rays"` and `light.sun_as_point` off, the rays each point -- a
 pixel, a facet's corner or centre -- traces across the Sun's disc. Each carries the same share of the limb-darkened disc's
@@ -1881,7 +1959,12 @@ a body -- where it is, its law, its colours --, a setting, the meshes, the
 image's size. A script stepping a still scene does not, and nor does
 `light.exposure`: the sums are of the samples over it, which the mean is
 multiplied by again as it is shown, read and measured -- the image is linear
-in it -- so a new exposure is a new view of the same sum, done or not.
+in it -- so a new exposure is a new view of the same sum, done or not. Nor
+`shading.srgb_mode` in the shaded mode, which changes how the mean is shown
+and not what is summed: mode 1's target is drawn the sRGB-decoded values the
+sum encodes again, the stored values either way. Both do restart it with
+`shading.gamma` set, whose power law is not linear, and `srgb_mode` in the
+unlit modes, whose colours it changes. Nor `response`, applied to the mean.
 
 Measured on the wall of `tests/test_reference.py` (600 x 400, the Sun 25 deg
 up): stopped by itself at 1,680 samples, 0.5 ms a sample on an RTX 5080;

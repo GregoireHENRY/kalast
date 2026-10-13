@@ -6121,3 +6121,18 @@ the log too. `tests/test_reference_controls.py`. `rays`' dots on Phobos are
 shadows narrower than a pixel taken at its centre: open, the shadow at the
 MSAA samples or summed while still. Write-up:
 `2026-10-10_ray_traced_shadows/`, 13 October.
+
+## 2026-10-13 — a camera's response; rays from several points of a pixel
+
+`config.response`: a camera's point spread (a Gaussian core, two exponential
+halos) and a smear along a line, applied to the image's floats by an FFT on
+the GPU, before the overlays; `hrsc.py`'s response reproduced to 9 x 10^-7,
+27 ms a frame at 1008 x 1018 on an M1 Pro. `simple.py` draws its image
+through the SRC's fitted response. `shadows.ray_points` (4, 8, 16): a
+pixel's shadow traced from several of its points, the dotted lines of
+shadows narrower than a pixel grey as the reference has them; 8 and 16
+adaptive, all their points only near an edge. `srgb_mode` no longer begins
+a reference's sum again. Write-ups: `2026-10-12_phobos_hrsc_shadows/` and
+`2026-10-10_ray_traced_shadows/`, 13 October. Open: the halo's light from
+beyond the frame; `compare.py` onto kalast's response; a view stretch for
+the window (the note's figures' square root).

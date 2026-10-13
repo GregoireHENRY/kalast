@@ -237,7 +237,8 @@ Look at [res/README.md](../res/README.md) to get Hera data.
   images of Phobos, drawn by kalast and compared with the real ones. Its
   [README](phobos_shadows_fit/README.md) says where to get the data.
     - [phobos_shadows_fit/simple.py](phobos_shadows_fit/simple.py): one of
-      them, h8963, in a short script without a loop.
+      them, named in its table, through the SRC's response
+      (`config.response`), in a short script without a loop.
     - Needs ESA's Mars Express SPICE set; set `PATH_VALUES` in
       [phobos_hrsc.tm](phobos_shadows_fit/phobos_hrsc.tm), the 13 kernels
       these images need -- JPL's MAR099 for Phobos among them, from NAIF's

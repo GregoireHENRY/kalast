@@ -8,6 +8,8 @@ A sphere lit from the side, the sum taken to `reference.max_samples`:
   one summed at the new exposure from the start: the sums are of the
   samples over the exposure, which the mean is multiplied by as it is shown;
 - once done, a new exposure scales the image and leaves the sum;
+- a new `shading.srgb_mode` carries it on too: how the mean is shown, not
+  what is summed;
 - `sim.stop_reference()` makes the mean so far the image, done, and the sum
   takes no more samples; `sim.resume_reference()` goes on from there, to the
   limit -- what the UI's stop and continue buttons ask.
@@ -92,6 +94,24 @@ def main() -> int:
         numpy.allclose(scaled, 2.0 * whole, rtol=1e-5, atol=1e-7) and sim.reference_done and sim.reference_samples == LIMIT,
         f"ratio {scaled.sum() / whole.sum():.6f}, {sim.reference_samples} samples",
     )
+
+    # `shading.srgb_mode`: how the mean is shown, not what is summed -- the
+    # stored values in both.
+    again()
+    for _ in range(40):
+        app.step()
+    before = sim.reference_samples
+    c.shading.srgb_mode = 0
+    app.step()
+    check("a new srgb_mode carries the sum on", sim.reference_samples > before, f"{before} samples, then {sim.reference_samples}")
+    to_the_end()
+    switched = sim.reference_image().copy()
+    again()
+    to_the_end()
+    zero = sim.reference_image().copy()
+    d = float(numpy.abs(switched - zero).max())
+    check("1 then 0 halfway is the sum in 0", d <= 1e-5 * float(zero.max()), f"max |diff| {d:.2e}, brightest {zero.max():.3f}")
+    c.shading.srgb_mode = 1
 
     again()
     for _ in range(40):

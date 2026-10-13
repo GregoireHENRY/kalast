@@ -73,6 +73,10 @@ pub const SHADER_DEPTH_PYRAMID: wgpu::ShaderModuleDescriptor =
 pub const SHADER_REFERENCE: wgpu::ShaderModuleDescriptor =
     wgpu::include_wgsl!("../../shaders/reference.wgsl");
 
+/// A camera's response, the image convolved by FFT (`app::response`).
+pub const SHADER_RESPONSE: wgpu::ShaderModuleDescriptor =
+    wgpu::include_wgsl!("../../shaders/response.wgsl");
+
 /// Ray-traced shadows (`app::raytrace`): made only on a device with ray
 /// queries, since it does not compile elsewhere.
 pub const SHADER_RAYTRACE: wgpu::ShaderModuleDescriptor =

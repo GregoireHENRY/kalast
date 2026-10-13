@@ -83,6 +83,9 @@ struct Light {
     rays: u32,
     // The rays tried first, the rest only where they disagree.
     ray_probe: u32,
+    // The points of a pixel its rays start from, 1 its centre
+    // (`shadows.ray_points`).
+    ray_points: u32,
 };
 
 struct View {
@@ -251,6 +254,10 @@ struct Surface {
     // How wide a pixel of the image is on the surface, world units: a PCF
     // kernel narrower is not taken (`fs_shaded`).
     pixel: f32,
+    // The position's change over a pixel across and down, on the triangle's
+    // plane: where a point of the pixel lies (`shadows.ray_points`).
+    dpx: vec3<f32>,
+    dpy: vec3<f32>,
 };
 
 // sRGB's own curve, decoding: the image is stored through its encoding, which
@@ -1749,11 +1756,15 @@ fn fs_main(vertex: VertexOutput) -> @location(0) vec4<f32> { //@noprim
     let prim = vertex.facet; //@noprim
     // Here, while every fragment of the quad is still running.
     let dz = fwidth(vertex.clip_position.z);
-    let pixel = max(length(dpdx(vertex.world_pos)), length(dpdy(vertex.world_pos)));
+    let dpx = dpdx(vertex.world_pos);
+    let dpy = dpdy(vertex.world_pos);
+    let pixel = max(length(dpx), length(dpy));
     var in = surface(vertex, prim);
     in.frag = vertex.clip_position;
     in.dz = dz;
     in.pixel = pixel;
+    in.dpx = dpx;
+    in.dpy = dpy;
     // The barycentrics are corners' coordinates, which only a non-indexed
     // draw has (flag bit 2): a shared-vertex draw would be covered in noise,
     // so it is drawn shaded instead. The CPU side warns once for a smooth
@@ -2133,7 +2144,48 @@ fn fs_shaded(in: Surface) -> vec4<f32> {
                     if view.light.ray_guide != 0u && (body.flags & 48u) == 0u && !guided_penumbra(layer, uv, depth, bias, at.tan_uv) { //@rt
                         samples = 1u; //@rt
                     } //@rt
-                    shadow = ray_sun_seen(p, in.world_normal, view.light.pos, view.light.sun_radius, samples, view.light.ray_probe, ray_turn(key)); //@rt
+                    let points = view.light.ray_points; //@rt
+                    if points <= 1u { //@rt
+                        shadow = ray_sun_seen(p, in.world_normal, view.light.pos, view.light.sun_radius, samples, view.light.ray_probe, ray_turn(key)); //@rt
+                    } else { //@rt
+                        // Over the pixel (`shadows.ray_points`): from the //@rt
+                        // surface under each of its points, found as the //@rt
+                        // centre's is, those that find none -- past the //@rt
+                        // body's edge -- left out. A shadow narrower than the //@rt
+                        // pixel is the share of it the shadow covers. Four //@rt
+                        // first; more only where those four disagree, an //@rt
+                        // edge of a shadow in the pixel. //@rt
+                        var seen = 0.0; //@rt
+                        var found = 0u; //@rt
+                        var least = 1.0; //@rt
+                        var most = 0.0; //@rt
+                        for (var k = 0u; k < 4u; k++) { //@rt
+                            let o = ray_pixel_point(k, 4u); //@rt
+                            let q = ray_seen_hit(globals.camera_pos, in.world_pos + o.x * in.dpx + o.y * in.dpy, 8.0 * in.pixel); //@rt
+                            if q.w > 0.0 { //@rt
+                                let share = ray_sun_seen(q.xyz, in.world_normal, view.light.pos, view.light.sun_radius, samples, view.light.ray_probe, ray_turn(key + k)); //@rt
+                                seen += share; //@rt
+                                found += 1u; //@rt
+                                least = min(least, share); //@rt
+                                most = max(most, share); //@rt
+                            } //@rt
+                        } //@rt
+                        if points > 4u && most - least > 1.0e-3 { //@rt
+                            for (var k = 0u; k < points; k++) { //@rt
+                                let o = ray_pixel_point(k, points); //@rt
+                                let q = ray_seen_hit(globals.camera_pos, in.world_pos + o.x * in.dpx + o.y * in.dpy, 8.0 * in.pixel); //@rt
+                                if q.w > 0.0 { //@rt
+                                    seen += ray_sun_seen(q.xyz, in.world_normal, view.light.pos, view.light.sun_radius, samples, view.light.ray_probe, ray_turn(key + 4u + k)); //@rt
+                                    found += 1u; //@rt
+                                } //@rt
+                            } //@rt
+                        } //@rt
+                        if found > 0u { //@rt
+                            shadow = seen / f32(found); //@rt
+                        } else { //@rt
+                            shadow = ray_sun_seen(p, in.world_normal, view.light.pos, view.light.sun_radius, samples, view.light.ray_probe, ray_turn(key)); //@rt
+                        } //@rt
+                    } //@rt
                 } //@rt
             } //@rt
             // Light bounced off the surfaces, whichever way this one faces: a //@rt

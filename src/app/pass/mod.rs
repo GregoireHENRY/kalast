@@ -18,8 +18,19 @@ pub struct Passes {
     pub rays: bool,
     /// The main pass built to trace rays, group 7 bound (`Passes::new`).
     pub traced: bool,
-    /// Built for a reference image (`shadows.method` "reference", `Passes::new`).
+    /// Built single-sampled with the float pipelines, for a reference image
+    /// or a camera's response (`Passes::new`).
+    pub float_on: bool,
+    /// A reference image is made (`shadows.method` "reference"), set each
+    /// frame (`Window::update`).
     pub reference_on: bool,
+    /// A camera's response is applied (`config.response`), set each frame.
+    pub response_on: bool,
+    /// Its transform, made at the image's size when first applied.
+    pub response: Option<crate::app::response::Response>,
+    /// The size a response was made for and did not fit the GPU at: drawn
+    /// without it, not tried again every frame.
+    response_refused: Option<(u32, u32)>,
     /// The reference image's sums, made at the image's size when first
     /// drawn.
     pub reference: Option<crate::app::reference::Reference>,
@@ -55,13 +66,17 @@ impl Passes {
         // single-sampled -- the image is integrated over its pixels instead
         // -- and the float pipelines its samples are drawn with.
         reference: bool,
+        // A camera's response is applied (`config.response`): the image
+        // drawn as a reference's sample is, into floats, for it to take.
+        response: bool,
     ) -> Self {
         let layouts_all = uniforms.layouts_all();
         let bindings = uniforms.bindings(device);
+        let float = reference || response;
 
         // Resolved once, so the main pass and the light cube it draws inside
         // cannot disagree about it.
-        let samples = if reference { 1 } else { msaa.resolve(config.shading.msaa) };
+        let samples = if float { 1 } else { msaa.resolve(config.shading.msaa) };
 
         let penumbra = penumbra::Pass::new(device, config, &uniforms.layouts_shaded());
         // The main pass reads what the penumbra pass found, at group 6.
@@ -71,7 +86,7 @@ impl Passes {
         if let Some(rays) = rays {
             shaded.push(Some(rays));
         }
-        let render = render::Pass::new(device, format, config, &shaded, size, samples, reference, rays.is_some());
+        let render = render::Pass::new(device, format, config, &shaded, size, samples, float, rays.is_some());
 
         Self {
             shadow: shadow::Pass::new(device, config, &uniforms.layouts_for_shadow()),
@@ -79,7 +94,11 @@ impl Passes {
             penumbra,
             rays: false,
             traced: rays.is_some(),
+            float_on: float,
             reference_on: reference,
+            response_on: response,
+            response: None,
+            response_refused: None,
             reference: None,
             render,
             light_cube: light_cube::Pass::new(device, format, &layouts_all, samples),
@@ -154,17 +173,33 @@ impl Passes {
         }
         // A reference image: this frame's sample of every pixel added to the
         // sum, the mean as the image, what the main pass draws over the
-        // scene drawn over the mean.
-        if self.reference_on {
-            let format = self.render.format();
-            if self.reference.as_ref().is_none_or(|r| r.size != size) {
-                self.reference = Some(crate::app::reference::Reference::new(device, size, format));
-            }
-            let reference = self.reference.as_mut().unwrap();
-            if !reference.done && reference.samples() < config.reference.max_samples {
+        // scene drawn over the mean. A camera's response: the image drawn
+        // into floats -- the mean, or the frame drawn as a sample is --
+        // convolved, then the same over it.
+        let response = self.response_ready(device, size);
+        if self.float_on && (self.reference_on || response) {
+            if self.reference_on {
+                let format = self.render.format();
+                if self.reference.as_ref().is_none_or(|r| r.size != size) {
+                    self.reference = Some(crate::app::reference::Reference::new(device, size, format));
+                }
+                let reference = self.reference.as_ref().unwrap();
+                if !reference.done && reference.samples() < config.reference.max_samples {
+                    self.render.render_reference(
+                        encoder,
+                        &reference.frame_view,
+                        &self.depth.texture.view,
+                        meshes,
+                        &self.bindings,
+                        self.penumbra.read_group(),
+                        config,
+                        timer.and_then(|t| t.scope(super::gpu_timing::Scope::Render)),
+                    );
+                }
+            } else if let Some(response) = self.response.as_ref() {
                 self.render.render_reference(
                     encoder,
-                    &reference.frame_view,
+                    &response.frame_view,
                     &self.depth.texture.view,
                     meshes,
                     &self.bindings,
@@ -172,29 +207,8 @@ impl Passes {
                     config,
                     timer.and_then(|t| t.scope(super::gpu_timing::Scope::Render)),
                 );
-                reference.accumulate(queue, encoder, config.shading.srgb_mode, config.light.exposure as f32);
             }
-            reference.resolve(queue, encoder, &self.render.render_view, config.shading.srgb_mode, config.light.exposure as f32);
-            self.render.render_reference_overlays(
-                encoder,
-                &self.depth.texture.view,
-                &self.light_cube,
-                &self.colorbar,
-                meshes,
-                &self.bindings,
-                config,
-            );
-            if annotations {
-                self.render.render_annotations(
-                    encoder,
-                    &self.depth.texture.view,
-                    &self.axes,
-                    &self.grid,
-                    &self.gizmo,
-                    &self.bindings,
-                    config,
-                );
-            }
+            self.finish_float(queue, encoder, meshes, config, annotations);
             return;
         }
         self.render.render(
@@ -238,16 +252,22 @@ impl Passes {
         band: (u32, u32),
         first: bool,
     ) {
-        if self.reference_on {
-            let format = self.render.format();
-            if self.reference.as_ref().is_none_or(|r| r.size != size) {
-                self.reference = Some(crate::app::reference::Reference::new(device, size, format));
-            }
-            let reference = self.reference.as_ref().unwrap();
-            if !reference.done && reference.samples() < config.reference.max_samples {
+        let response = self.response_ready(device, size);
+        if self.float_on && (self.reference_on || response) {
+            let target = if self.reference_on {
+                let format = self.render.format();
+                if self.reference.as_ref().is_none_or(|r| r.size != size) {
+                    self.reference = Some(crate::app::reference::Reference::new(device, size, format));
+                }
+                let reference = self.reference.as_ref().unwrap();
+                (!reference.done && reference.samples() < config.reference.max_samples).then_some(&reference.frame_view)
+            } else {
+                self.response.as_ref().map(|r| &r.frame_view)
+            };
+            if let Some(target) = target {
                 self.render.render_reference_band(
                     encoder,
-                    &reference.frame_view,
+                    target,
                     &self.depth.texture.view,
                     meshes,
                     &self.bindings,
@@ -282,33 +302,8 @@ impl Passes {
         config: &crate::app::config::Config,
         annotations: bool,
     ) {
-        if self.reference_on {
-            if let Some(reference) = self.reference.as_mut() {
-                if !reference.done && reference.samples() < config.reference.max_samples {
-                    reference.accumulate(queue, encoder, config.shading.srgb_mode, config.light.exposure as f32);
-                }
-                reference.resolve(queue, encoder, &self.render.render_view, config.shading.srgb_mode, config.light.exposure as f32);
-            }
-            self.render.render_reference_overlays(
-                encoder,
-                &self.depth.texture.view,
-                &self.light_cube,
-                &self.colorbar,
-                meshes,
-                &self.bindings,
-                config,
-            );
-            if annotations {
-                self.render.render_annotations(
-                    encoder,
-                    &self.depth.texture.view,
-                    &self.axes,
-                    &self.grid,
-                    &self.gizmo,
-                    &self.bindings,
-                    config,
-                );
-            }
+        if self.float_on && (self.reference_on || (self.response_on && self.response.is_some())) {
+            self.finish_float(queue, encoder, meshes, config, annotations);
             return;
         }
         self.render.render_band_finish(
@@ -324,6 +319,89 @@ impl Passes {
             config,
             annotations,
         );
+    }
+
+    /// A camera's response ready at `size`, made if it was not: `false`
+    /// where it is off, or does not fit the GPU (said once, by
+    /// `Response::new`).
+    fn response_ready(&mut self, device: &wgpu::Device, size: (u32, u32)) -> bool {
+        if !self.response_on {
+            return false;
+        }
+        let size = (size.0.max(1), size.1.max(1));
+        if self.response.as_ref().is_some_and(|r| r.size == size) {
+            return true;
+        }
+        if self.response_refused == Some(size) {
+            return false;
+        }
+        self.response = crate::app::response::Response::new(device, size, self.render.format());
+        if self.response.is_none() {
+            self.response_refused = Some(size);
+        }
+        self.response.is_some()
+    }
+
+    /// After a float frame's bodies: a reference's sample summed and its mean
+    /// resolved, or the frame as drawn, through the camera's response when it
+    /// is on; then the overlays and the annotations over it.
+    fn finish_float(
+        &mut self,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        meshes: &[super::gpu::MeshBuffer],
+        config: &crate::app::config::Config,
+        annotations: bool,
+    ) {
+        let srgb_mode = config.shading.srgb_mode;
+        let exposure = config.light.exposure as f32;
+        let response = self.response.as_mut().filter(|_| self.response_on);
+        if self.reference_on {
+            if let Some(reference) = self.reference.as_mut() {
+                if !reference.done && reference.samples() < config.reference.max_samples {
+                    reference.accumulate(queue, encoder, srgb_mode, exposure);
+                }
+                match response {
+                    Some(response) => {
+                        reference.resolve(queue, encoder, &response.frame_view, srgb_mode, exposure, true);
+                        // A mean that holds still -- done, at the same
+                        // exposure -- keeps its result.
+                        let key = {
+                            use std::hash::{Hash, Hasher};
+                            let mut h = std::collections::hash_map::DefaultHasher::new();
+                            (reference.resets, reference.samples(), exposure.to_bits(), srgb_mode).hash(&mut h);
+                            h.finish()
+                        };
+                        response.apply(queue, encoder, &config.response, srgb_mode, Some(key));
+                        response.show(encoder, &self.render.render_view);
+                    }
+                    None => reference.resolve(queue, encoder, &self.render.render_view, srgb_mode, exposure, false),
+                }
+            }
+        } else if let Some(response) = response {
+            response.apply(queue, encoder, &config.response, srgb_mode, None);
+            response.show(encoder, &self.render.render_view);
+        }
+        self.render.render_reference_overlays(
+            encoder,
+            &self.depth.texture.view,
+            &self.light_cube,
+            &self.colorbar,
+            meshes,
+            &self.bindings,
+            config,
+        );
+        if annotations {
+            self.render.render_annotations(
+                encoder,
+                &self.depth.texture.view,
+                &self.axes,
+                &self.grid,
+                &self.gizmo,
+                &self.bindings,
+                config,
+            );
+        }
     }
 
     /// The grid, axes and gizmo that `render(.., annotations: false)` left

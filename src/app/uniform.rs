@@ -161,6 +161,11 @@ pub struct Light {
     pub rays: u32,
     /// The rays tried first (`shadows.ray_probe`).
     pub ray_probe: u32,
+    /// The points of a pixel its rays start from (`shadows.ray_points`), 1
+    /// its centre. After `ray_probe`, so the shaders that do not read it
+    /// keep their shorter copies of the struct.
+    pub ray_points: u32,
+    pub _ray_pad: [u32; 3],
 }
 
 /// Atmospheres whose shadows other bodies see: Mars's is the one there is.

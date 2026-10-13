@@ -1256,17 +1256,22 @@ sim.resume_reference()   # sum on from where it was stopped
 
 The editor's toolbar has the same as buttons, beside how far the sum has got
 and, once it has stopped, why: converged, at its limit, or by hand. Each end
-is printed too. The mean is the
-values the image stores, before they are rounded to 8 bits: radiance, linear,
-with `shading.srgb_mode` 0 or 1 alike. Both arrays are `None` until the image
-is done; exporting a frame then (`sim.export_once()`) writes the mean as a
-PNG. See `CONFIG.md`, "Reference image".
+is printed too.
+
+The mean is the values the image stores, before they are rounded to 8 bits:
+radiance, linear, with `shading.srgb_mode` 0 or 1 alike -- through the
+camera's response when `config.response` is on (`CONFIG.md`, "Camera
+response"), the error image the mean's own. Both arrays are `None` until the
+image is done; exporting a frame then (`sim.export_once()`) writes the mean as
+a PNG. See `CONFIG.md`, "Reference image".
 
 After changing anything -- a setting, the camera, `reference.bounces` --
 step once before reading `sim.reference_done`: the change is seen, and the
 sum begun again, when the next frame is drawn, and until then
-`reference_done` still speaks of the last sum. `config.light.exposure` is the
-exception: it scales the mean, done or not, and the sum goes on.
+`reference_done` still speaks of the last sum. `config.light.exposure`,
+`shading.srgb_mode` in the shaded mode, and `config.response` are the
+exceptions: they change how the mean is shown, done or not, and the sum goes
+on.
 
 **`1.0 - frac` is not the lit fraction**, which is what it looks like and what
 this document used to say. It is the *unblocked* fraction. A facet with

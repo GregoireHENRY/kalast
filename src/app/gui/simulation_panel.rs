@@ -1211,6 +1211,12 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config) {
     topic(ui, codicon::FILE_MEDIA, palette::SAPPHIRE, "Image", |ui| {
         note(ui, "0 follows the window");
         ui.push_id("image", |ui| group_image(ui, c));
+        subheading(ui, "camera response").on_hover_text(
+            "What the camera does to the image it records: its point spread, a Gaussian core and two \
+             exponential halos, and a smear, the image's motion over the exposure. Applied to the image's \
+             floats by an FFT, before the overlays.",
+        );
+        ui.push_id("response", |ui| group_response(ui, c));
     });
 
     topic(ui, codicon::RECORD_KEYS, palette::FLAMINGO, "Controls", |ui| group_controls(ui, c));
