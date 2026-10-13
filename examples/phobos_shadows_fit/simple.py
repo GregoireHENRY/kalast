@@ -1,10 +1,11 @@
 #!/usr/bin/env python
-"""One HRSC SRC image of Phobos, h8963, taken on 6 January 2011 at 09:21:16
-UTC, drawn by kalast in its window: Phobos where SPICE puts it, seen through
-the SRC as Mars Express pointed it, lit by the Sun and by Mars.
+"""One of the four HRSC SRC images of Phobos, drawn by kalast in its window:
+Phobos where SPICE puts it, seen through the SRC as Mars Express pointed it,
+lit by the Sun and by Mars. Name it below, in `IMAGES`.
 
 `main.py` does the same for the four images, with its options; `compare.py`
-sets them beside the real ones.
+sets them beside the real ones, and through the SRC's response -- its blur,
+smear and scattered light, which this window does not show.
 """
 
 import os
@@ -18,17 +19,32 @@ from kalast.util import RPD
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
+# Each image's IMAGE_TIME, and where its craters put Phobos against SPICE's
+# pointing: pixels along the samples and the lines, `main.py`'s POINTING.
+IMAGES = {
+    "h8870": ("2010-12-10T06:44:31.077", 20.7, 14.1),
+    "h8951": ("2011-01-02T21:16:29.361", 15.4, -4.8),
+    "h8963": ("2011-01-06T09:21:16.092", 19.8, -2.2),
+    "hc069": ("2013-06-29T06:02:43.085", -44.1, 44.5),
+}
+time, dx, dy = IMAGES["h8870"]
+
 spice.kclear()
 spice.furnsh(os.path.join(HERE, "phobos_hrsc.tm"))
 # Phobos turned as PCK00011 has it, the frame of Ernst et al.'s shape model.
 spice.furnsh("/Users/gregoireh/data/spice/hera/kernels/pck/pck00011.tpc")
-et = spice.str2et("2011-01-06T09:21:16.092")  # h8963's IMAGE_TIME
+et = spice.str2et(time)
 
 app = App()
 app.simulation.config.axes.style = "off"
 app.simulation.config.wireframe.mode = 0
-app.simulation.config.shading.srgb_mode = 1  # a pixel is exposure x I/F x 255
-app.simulation.config.light.exposure = 12.0
+# A pixel is exposure x I/F x 255, linear, as an exported frame stores it.
+# Phobos's lit ground is I/F 0.004-0.021 in h8963 (5-95 %): at 40, 0.17-0.85 of
+# white, none clipped; its night side under Mars's light about 0.003. The
+# note's figures show the square root of the image, scaled to its brightest;
+# `srgb_mode = 0` shows it through the sRGB curve, close to that.
+app.simulation.config.shading.srgb_mode = 1
+app.simulation.config.light.exposure = 40.0
 app.simulation.config.light.sun_as_point = False
 # Traced, progressively, to a still image: the Sun's disc, and its light
 # bounced once off the surfaces -- Mars's on Phobos's night side.
@@ -39,12 +55,11 @@ app.simulation.config.reference.bounces = 1
 # The SRC: 1008 x 1018 pixels of its 1024 x 1024 CCD, each 9 microns behind
 # a 984.76 mm focal length. Looking along its boresight, turned to the
 # image's centre on the CCD (4 pixels along the samples, -1 along the lines)
-# and by where h8963's craters put Phobos against SPICE's pointing (19.8 and
-# -2.2 pixels, main.py's POINTING).
+# and by where the image's craters put Phobos.
 ifov = 9e-3 / 984.76
 app.simulation.config.image.width = 1008
 app.simulation.config.image.height = 1018
-direction = numpy.array([(4.0 - 19.8) * ifov, (-1.0 + 2.2) * ifov, 1.0])
+direction = numpy.array([(4.0 - dx) * ifov, (-1.0 - dy) * ifov, 1.0])
 app.simulation.camera.pos = [0.0, 0.0, 0.0]
 app.simulation.camera.dir = (direction / numpy.linalg.norm(direction)).tolist()
 app.simulation.camera.up = [0.0, -1.0, 0.0]

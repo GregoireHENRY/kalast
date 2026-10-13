@@ -1495,7 +1495,8 @@ impl Default for AxesConfig {
 /// A sample jitters the camera within the pixel and traces one ray to a point
 /// of the Sun's limb-darkened disc -- with `bounces`, the light bounced off the
 /// surfaces too -- into the mean of all the samples so far. For a still scene:
-/// anything that changes it starts the sum again. The shadows are traced with
+/// anything that changes it starts the sum again, but `light.exposure`, which
+/// scales the mean and not the sum. The shadows are traced with
 /// rays where the GPU can, against the full meshes: the level of detail and
 /// MSAA are off, the frame being integrated over its pixels instead. No
 /// denoiser, no history, no clamp: a plain mean of fixed sequences, the same

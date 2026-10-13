@@ -1162,6 +1162,67 @@ fn action(icon: &str, color: egui::Color32) -> egui::Button<'_> {
         .min_size(ACTION)
 }
 
+/// A reference image's state in words: how far while it sums, against the
+/// error it stops under; once stopped, why.
+pub(super) fn reference_words(r: &crate::app::simulation::ReferenceState, max: u32, goal: f32) -> String {
+    let error = r.error.map_or(String::new(), |e| format!(", error {e:.1e}"));
+    if !r.done {
+        format!("reference {} / {max} samples{error}, stops under {goal:.1e}", r.samples)
+    } else if r.stopped {
+        format!("reference stopped by hand: {} samples{error}", r.samples)
+    } else if reference_at_limit(r, max, goal) {
+        format!("reference at its limit: {max} samples{error}, short of {goal:.1e}")
+    } else {
+        format!("reference converged: {} samples{error}", r.samples)
+    }
+}
+
+/// Done at `reference.max_samples` with the error still over the goal.
+fn reference_at_limit(r: &crate::app::simulation::ReferenceState, max: u32, goal: f32) -> bool {
+    r.done && !r.stopped && r.samples >= max && r.error.is_none_or(|e| e > goal)
+}
+
+/// A reference image in the toolbar, right to left: the button that stops
+/// the sum where it is, or takes it on from there, then its state -- in the
+/// run colour once it has converged, so that it shows.
+fn reference_toolbar(
+    ui: &mut egui::Ui,
+    r: &mut crate::app::simulation::ReferenceState,
+    max: u32,
+    goal: f32,
+    colors: &theme::Actions,
+) {
+    use crate::app::simulation::ReferenceAsk;
+    let words = reference_words(r, max, goal);
+    if !r.done {
+        if ui
+            .add(action(icons::codicon::DEBUG_STOP, colors.stop))
+            .on_hover_text("Stop the reference here: the mean so far is the image, done")
+            .clicked()
+        {
+            r.ask = Some(ReferenceAsk::Stop);
+        }
+        ui.label(words);
+    } else if r.stopped {
+        if ui
+            .add_enabled(r.samples < max, action(icons::codicon::DEBUG_CONTINUE, colors.run))
+            .on_hover_text("Go on summing from where it was stopped")
+            .clicked()
+        {
+            r.ask = Some(ReferenceAsk::Resume);
+        }
+        ui.label(words);
+    } else {
+        let (icon, color) = if reference_at_limit(r, max, goal) {
+            (icons::codicon::WARNING, ui.visuals().warn_fg_color)
+        } else {
+            (icons::codicon::PASS_FILLED, colors.run)
+        };
+        ui.label(egui::RichText::new(icon).size(16.0).color(color));
+        ui.label(egui::RichText::new(words).color(color));
+    }
+}
+
 /// A VS Code tab: its label dim until it is chosen or under the pointer,
 /// and the accent under the chosen one. `upper` for a panel's tabs, which
 /// VS Code writes in capitals -- TERMINAL, OUTPUT.
@@ -2076,6 +2137,10 @@ impl Editor {
             // side panel or a floating one.
             let toolbar = app_config.toolbar.clone();
             let ui_theme = app_config.theme;
+            // A reference image's limits, read here: the side panel's
+            // closure has the config.
+            let reference_goal = (config.shadows.method == crate::app::config::ShadowMethod::Reference)
+                .then_some((config.reference.max_samples, config.reference.error));
             let toolbar_ui = |ui: &mut egui::Ui| {
                 let mut sim = sim.borrow_mut();
                 let sim = &mut **sim;
@@ -2297,6 +2362,11 @@ impl Editor {
                                 // Running unpauses; see `serve_editor_requests`.
                                 run_request = true;
                             }
+                        }
+                        // A reference image: how far it is, and its stop.
+                        if let Some((max, goal)) = reference_goal {
+                            ui.separator();
+                            reference_toolbar(ui, &mut sim.reference, max, goal, &colors);
                         }
                         // The same template a HUD takes, so the toolbar says
                         // whatever this run wants it to -- and `{drawn}` rather

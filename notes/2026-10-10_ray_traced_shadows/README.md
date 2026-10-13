@@ -355,6 +355,51 @@ about it: +0.30 %, the law set after the Lambert runs, so the test also
 checks that the sum began again. Before the fix this bowl's shadow would
 have read about 40 times too bright.
 
+## The reference under a new exposure, and stopped by hand (13 October)
+
+The user, on the HRSC example: "why changing exposure during reference
+rendering restarts the rendering from sample 1"; "add a button to stop the
+reference rendering"; "it is not visible when reference rendering has
+converged in UI".
+
+**Exposure.** The scene a sum is of was every setting hashed, the exposure
+among them, and each sample was summed as drawn, the exposure in it. The
+image is linear in the exposure -- the Sun's light times it, no clamp -- so
+the sums are now of the samples over it (`cs_accumulate`), and the mean is
+multiplied by it again where it is shown (`fs_resolve`), measured
+(`cs_error`) and read back (`read`). The scene keeps only whether there is
+light at all. The uniform carries it, written once a frame: twice, the
+queue's last write would be what the sum and the mean both read. Once
+done, a new exposure scales the simulation's copy of the mean and the error
+on the CPU, without reading the sums again -- 268 MB at 2048 x 2048, a
+frame, while the slider is dragged. `tests/test_reference_controls.py`: an
+exposure of 1 then 2 halfway gives the image summed at 2 throughout to
+3.6 x 10^-7 of 1.97; done, 4 doubles it, the samples kept.
+
+**Stopped by hand.** `ReferenceAsk::Stop` and `Resume` in the simulation's
+reference state, set by the editor's toolbar button or by
+`sim.stop_reference()` / `sim.resume_reference()`, taken after the frame:
+stopped, the error is measured, the mean read back as at convergence, and
+`reference_done` and `reference_stopped` are true; resumed, it sums on from
+there. Each end -- converged, at the limit, by hand -- is printed, for a
+window without the editor.
+
+**Seen.** The toolbar, beside the transport buttons, while the shadows are
+the reference: how far (`312 / 1024 samples, error 2.3e-3, stops under
+2.0e-3`) and the stop button; once stopped, why, the converged state with
+a green check, the limit with a warning, by hand with a continue button.
+The simulation panel's line says the same, with Stop here and Go on.
+
+**The dots in `rays`.** Asked whether a real-time denoiser would help:
+on Phobos (h8963, Ernst's model) `rays` draws dotted lines along the grooves
+near the limb, 1,970 pixels darker than their neighbours by more than 40 of
+255, and the same with the Sun a point as with its disc -- not the disc's
+sampling. They are shadows narrower than a pixel, sampled at its centre
+alone; the reference integrates each pixel's area and draws them as thin
+grey lines. Not noise for a denoiser to average, aliasing: the shadow
+taken at the MSAA samples, or summed over jittered frames while nothing
+moves, would draw them as the reference does.
+
 ## Compaction
 
 Each body's bottom level is built with `ALLOW_COMPACTION` and compacted once
@@ -378,6 +423,9 @@ allocator report: 1,312 MiB in use built, 1,055 compacted).
 
 - **Bounces in the thermophysical model's** shadows and in the real-time
   image: only the reference has them.
+- **`rays` and shadows narrower than a pixel**: taken at the pixel's centre,
+  they come out as dots; the shadow at the MSAA samples, or jittered frames
+  summed while the scene is still, would integrate them.
 - **Coloured surfaces in bounces**: a body's mean colour stands for all of
   it (each body reflects by its own law since 13 October).
 - **The Mac**: not run on Metal yet; the M1 Pro traverses in software.

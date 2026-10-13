@@ -241,9 +241,30 @@ impl Simulation {
 
     #[getter]
     /// Whether a reference image is done: its error under
-    /// `config.reference.error`, or its samples at `max_samples`.
+    /// `config.reference.error`, its samples at `max_samples`, or stopped by
+    /// hand (`stop_reference`).
     fn reference_done(&self) -> bool {
         self.inner.borrow().reference.done
+    }
+
+    #[getter]
+    /// Whether a reference image was stopped by hand before it was done
+    /// (`stop_reference`, or the UI's button); `resume_reference` goes on.
+    fn reference_stopped(&self) -> bool {
+        self.inner.borrow().reference.stopped
+    }
+
+    /// Stop a reference image's sum where it is, after this frame: the mean
+    /// so far is the image (`reference_image`), done -- as the UI's stop
+    /// button does. Nothing once done.
+    fn stop_reference(&self) {
+        self.inner.borrow_mut().reference.ask = Some(crate::app::simulation::ReferenceAsk::Stop);
+    }
+
+    /// Go on summing a reference image stopped by hand, from where it was:
+    /// as the UI's continue button does. Nothing unless stopped by hand.
+    fn resume_reference(&self) {
+        self.inner.borrow_mut().reference.ask = Some(crate::app::simulation::ReferenceAsk::Resume);
     }
 
     /// A reference image's mean, once done: `(height, width, 3)` floats, the

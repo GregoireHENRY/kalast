@@ -117,8 +117,24 @@ class Simulation:
     """
     reference_done: bool
     """Whether a reference image is done: its error under
-    `config.reference.error`, or its samples at `max_samples`.
+    `config.reference.error`, its samples at `max_samples`, or stopped by
+    hand (`stop_reference`).
     """
+    reference_stopped: bool
+    """Whether a reference image was stopped by hand before it was done
+    (`stop_reference`, or the UI's button); `resume_reference` goes on.
+    """
+    def stop_reference(self) -> None:
+        """Stop a reference image's sum where it is, after this frame: the mean
+        so far is the image (`reference_image`), done -- as the UI's stop
+        button does. Nothing once done.
+        """
+        ...
+    def resume_reference(self) -> None:
+        """Go on summing a reference image stopped by hand, from where it was:
+        as the UI's continue button does. Nothing unless stopped by hand.
+        """
+        ...
     def reference_image(self) -> numpy.ndarray | None:
         """A reference image's mean, once done: `(height, width, 3)` floats, the
         values the image stores before rounding to 8 bits, rows from the top.

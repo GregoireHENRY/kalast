@@ -172,9 +172,9 @@ impl Passes {
                     config,
                     timer.and_then(|t| t.scope(super::gpu_timing::Scope::Render)),
                 );
-                reference.accumulate(queue, encoder, config.shading.srgb_mode);
+                reference.accumulate(queue, encoder, config.shading.srgb_mode, config.light.exposure as f32);
             }
-            reference.resolve(encoder, &self.render.render_view);
+            reference.resolve(queue, encoder, &self.render.render_view, config.shading.srgb_mode, config.light.exposure as f32);
             self.render.render_reference_overlays(
                 encoder,
                 &self.depth.texture.view,
@@ -285,9 +285,9 @@ impl Passes {
         if self.reference_on {
             if let Some(reference) = self.reference.as_mut() {
                 if !reference.done && reference.samples() < config.reference.max_samples {
-                    reference.accumulate(queue, encoder, config.shading.srgb_mode);
+                    reference.accumulate(queue, encoder, config.shading.srgb_mode, config.light.exposure as f32);
                 }
-                reference.resolve(encoder, &self.render.render_view);
+                reference.resolve(queue, encoder, &self.render.render_view, config.shading.srgb_mode, config.light.exposure as f32);
             }
             self.render.render_reference_overlays(
                 encoder,

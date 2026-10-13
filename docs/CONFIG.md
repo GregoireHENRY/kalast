@@ -1861,7 +1861,10 @@ reverse-engineered from the matrix.
 figure or to check a faster method against. Every frame adds a sample of every
 pixel and the image sharpens, until its error is under `reference.error`; then
 it holds. In the editor, "Reference" in the shadows' method list, its rows
-under it with a line saying how far it has got.
+under it with a line saying how far it has got; and in the toolbar, how far,
+a button that stops the sum where it is -- the mean so far the image -- and
+takes it on again, and once it has stopped, why: converged (green), at its
+limit, or by hand. Each end is printed in the log too.
 
 A still scene integrated, progressively, to a stated error: each pixel over
 its area and the Sun's disc. Each frame draws one sample of every pixel --
@@ -1875,7 +1878,10 @@ plain mean of fixed sequences, the same image, to the bit, every run.
 
 Anything that changes what is drawn starts the sum again: the camera, the Sun,
 a body -- where it is, its law, its colours --, a setting, the meshes, the
-image's size. A script stepping a still scene does not.
+image's size. A script stepping a still scene does not, and nor does
+`light.exposure`: the sums are of the samples over it, which the mean is
+multiplied by again as it is shown, read and measured -- the image is linear
+in it -- so a new exposure is a new view of the same sum, done or not.
 
 Measured on the wall of `tests/test_reference.py` (600 x 400, the Sun 25 deg
 up): stopped by itself at 1,680 samples, 0.5 ms a sample on an RTX 5080;

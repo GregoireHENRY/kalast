@@ -6108,3 +6108,16 @@ bounce at 1024 samples: 3.5 min on the M1 Pro (1.75 without the bounce; `rays`
 7 s; the SRC's response 0.4 s). The four images, kalast's and through the
 SRC's response, open the README (`res/phobos-hrsc-showcase.jpg`, compiled
 into the documentation tab).
+
+## 2026-10-13 — the reference: a new exposure carries the sum on; stop and go on
+
+The sums are of the samples over `light.exposure`, the mean multiplied by it
+as it is shown, measured and read: a new exposure no longer begins the sum
+again, and once done only scales the image. A toolbar button stops the sum
+where it is and takes it on again (`sim.stop_reference()`,
+`sim.resume_reference()`, `sim.reference_stopped`); the toolbar says how far
+it has got and, once stopped, why -- converged, at its limit, by hand -- and
+the log too. `tests/test_reference_controls.py`. `rays`' dots on Phobos are
+shadows narrower than a pixel taken at its centre: open, the shadow at the
+MSAA samples or summed while still. Write-up:
+`2026-10-10_ray_traced_shadows/`, 13 October.

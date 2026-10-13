@@ -22,6 +22,11 @@ pub mod codicon {
     pub const STEP: &str = "\u{ead6}";
     pub const SAVE: &str = "\u{eb4b}";
     pub const CLEAR_ALL: &str = "\u{eabf}";
+    // A reference image's sum: stop it, take it on, done.
+    pub const DEBUG_STOP: &str = "\u{ead7}";
+    pub const DEBUG_CONTINUE: &str = "\u{eacf}";
+    pub const PASS_FILLED: &str = "\u{ebb3}";
+    pub const WARNING: &str = "\u{ea6c}";
     pub const CHEVRON_RIGHT: &str = "\u{eab6}";
     pub const CHEVRON_DOWN: &str = "\u{eab4}";
     pub const CLOUD_DOWNLOAD: &str = "\u{eac2}";

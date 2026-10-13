@@ -11,9 +11,13 @@
 //! pixel and their spread is an honest standard error -- the naive one, from
 //! one low-discrepancy sequence's samples, is far too pessimistic. The sum
 //! stops once the 99.9th percentile of that error over the image is under
-//! `reference.error`, or at `reference.max_samples`; anything that changes
-//! the scene starts it again. No denoiser, no history, no clamp: a plain
-//! mean of fixed sequences, the same image every run.
+//! `reference.error`, or at `reference.max_samples`, or when the UI's button
+//! stops it (`ReferenceAsk`); anything that changes the scene starts it
+//! again. The sums are of the samples over `light.exposure`, which the mean
+//! is multiplied by again as it is shown, read and measured: the image is
+//! linear in it, so a new exposure is a new view of the same sum, not a new
+//! sum. No denoiser, no history, no clamp: a plain mean of fixed sequences,
+//! the same image every run.
 //!
 //! See `notes/2026-10-10_ray_traced_shadows/`.
 
@@ -34,6 +38,8 @@ struct Uniform {
     replica: u32,
     srgb_mode: u32,
     counts: [u32; 4],
+    exposure: f32,
+    _pad: [u32; 3],
 }
 
 pub struct Reference {
@@ -56,8 +62,18 @@ pub struct Reference {
     pub scene: Option<Scene>,
     /// The 99.9th percentile of the pixels' standard error, last measured.
     pub error: Option<f32>,
-    /// The sum has stopped: under `reference.error`, or at its last sample.
+    /// The sum has stopped: under `reference.error`, at its last sample, or
+    /// by hand.
     pub done: bool,
+    /// Stopped by hand before it was done, the UI's button (`ReferenceAsk`):
+    /// it goes on from there when asked.
+    pub stopped: bool,
+    /// The exposure `error` was measured at and the mean last read back at
+    /// (`read`), for both to follow a new one (`Window::reference_after_frame`).
+    pub exposure: Option<f32>,
+    /// What the uniform holds for the mean to be shown with: `(srgb_mode,
+    /// exposure)`.
+    shown: Option<(u32, f32)>,
 }
 
 impl Reference {
@@ -82,7 +98,15 @@ impl Reference {
         });
         let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("reference"),
-            contents: bytemuck::bytes_of(&Uniform { width: w, height: h, replica: 0, srgb_mode: 0, counts: [0; 4] }),
+            contents: bytemuck::bytes_of(&Uniform {
+                width: w,
+                height: h,
+                replica: 0,
+                srgb_mode: 0,
+                counts: [0; 4],
+                exposure: 1.0,
+                _pad: [0; 3],
+            }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
         let histogram = device.create_buffer(&wgpu::BufferDescriptor {
@@ -193,6 +217,9 @@ impl Reference {
             scene: None,
             error: None,
             done: false,
+            stopped: false,
+            exposure: None,
+            shown: None,
         }
     }
 
@@ -208,6 +235,9 @@ impl Reference {
         self.scene = Some(scene);
         self.error = None;
         self.done = false;
+        self.stopped = false;
+        self.exposure = None;
+        self.shown = None;
     }
 
     /// Where within its pixel the next sample is taken, pixels from the
@@ -224,12 +254,10 @@ impl Reference {
         (x - 0.5, y - 0.5)
     }
 
-    /// This frame's sample, drawn into `frame_view`, added to its replica.
-    pub fn accumulate(&mut self, queue: &wgpu::Queue, encoder: &mut wgpu::CommandEncoder, srgb_mode: u32) {
-        let replica = self.samples() % REPLICAS;
-        self.counts[replica as usize] += 1;
-        // Written once for the frame, which both the sum and the mean
-        // after it read: the counts as they are once this sample is in.
+    /// The uniform for the frame, which the sum, the mean after it and the
+    /// error all read: the counts as they are, the exposure the samples are
+    /// divided by and the mean multiplied by.
+    fn write(&mut self, queue: &wgpu::Queue, replica: u32, srgb_mode: u32, exposure: f32) {
         queue.write_buffer(
             &self.uniform,
             0,
@@ -239,16 +267,39 @@ impl Reference {
                 replica,
                 srgb_mode,
                 counts: self.counts,
+                exposure,
+                _pad: [0; 3],
             }),
         );
+        self.shown = Some((srgb_mode, exposure));
+    }
+
+    /// This frame's sample, drawn into `frame_view`, added to its replica.
+    pub fn accumulate(&mut self, queue: &wgpu::Queue, encoder: &mut wgpu::CommandEncoder, srgb_mode: u32, exposure: f32) {
+        let replica = self.samples() % REPLICAS;
+        self.counts[replica as usize] += 1;
+        // Once for the frame: written twice, the last write would be what
+        // both passes read, the queue applying its writes before the frame.
+        self.write(queue, replica, srgb_mode, exposure);
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("reference sum"), timestamp_writes: None });
         pass.set_pipeline(&self.accumulate);
         pass.set_bind_group(0, Some(&self.group), &[]);
         pass.dispatch_workgroups(self.size.0.div_ceil(8), self.size.1.div_ceil(8), 1);
     }
 
-    /// The mean into `target`, the image.
-    pub fn resolve(&self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
+    /// The mean into `target`, the image, at `exposure`: the uniform
+    /// written again only on a frame that summed nothing, for a new exposure.
+    pub fn resolve(
+        &mut self,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        srgb_mode: u32,
+        exposure: f32,
+    ) {
+        if self.shown != Some((srgb_mode, exposure)) {
+            self.write(queue, self.samples() % REPLICAS, srgb_mode, exposure);
+        }
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("reference mean"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -287,9 +338,9 @@ impl Reference {
     }
 
     /// Each pixel's mean, rows from the top, three channels, and its standard
-    /// error, the largest of its channels': from the sums, read back.
-    /// Blocking.
-    pub fn read(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> (Vec<f32>, Vec<f32>) {
+    /// error, the largest of its channels': from the sums, read back, at
+    /// `exposure`. Blocking.
+    pub fn read(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, exposure: f32) -> (Vec<f32>, Vec<f32>) {
         let size = self.sums.size();
         let read = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("reference sums, read"),
@@ -305,9 +356,13 @@ impl Reference {
         let _ = device.poll(wgpu::PollType::Wait { submission_index: None, timeout: None });
         let data = slice.get_mapped_range().unwrap();
         let sums: &[f32] = bytemuck::cast_slice(&data);
-        let (mean, error) = mean_and_error(sums, self.counts, self.size);
+        let (mut mean, mut error) = mean_and_error(sums, self.counts, self.size);
         drop(data);
         read.unmap();
+        for v in mean.iter_mut().chain(error.iter_mut()) {
+            *v *= exposure;
+        }
+        self.exposure = Some(exposure);
         (mean, error)
     }
 }

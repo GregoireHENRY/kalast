@@ -14,6 +14,10 @@ struct Reference {
     srgb_mode: u32,
     // Each replica's samples so far.
     counts: vec4<u32>,
+    // `light.exposure`: the samples are summed divided by it, and the mean
+    // shown, measured and read multiplied by it -- the image is linear in it,
+    // so a new one is a new view of the same sum.
+    exposure: f32,
 };
 
 @group(0) @binding(0) var<uniform> reference: Reference;
@@ -53,7 +57,7 @@ fn cs_accumulate(@builtin(global_invocation_id) id: vec3<u32>) {
         v = encode(v);
     }
     let i = at(reference.replica, id.x, id.y);
-    sums[i] = sums[i] + vec4<f32>(v, c.a);
+    sums[i] = sums[i] + vec4<f32>(v / max(reference.exposure, 1e-30), c.a);
 }
 
 /// Each pixel's mean: the replicas' means, averaged, each counting alike.
@@ -82,7 +86,7 @@ fn vs_resolve(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
 @fragment
 fn fs_resolve(@builtin(position) at_px: vec4<f32>) -> @location(0) vec4<f32> {
     let m = mean_of(u32(at_px.x), u32(at_px.y));
-    var c = m.rgb;
+    var c = m.rgb * reference.exposure;
     if reference.srgb_mode == 1u {
         c = decode(c);
     }
@@ -100,7 +104,7 @@ fn cs_error(@builtin(global_invocation_id) id: vec3<u32>) {
     var means: array<vec3<f32>, 4>;
     var m = vec3<f32>(0.0);
     for (var k = 0u; k < 4u; k++) {
-        means[k] = sums[at(k, id.x, id.y)].rgb / f32(max(reference.counts[k], 1u));
+        means[k] = sums[at(k, id.x, id.y)].rgb / f32(max(reference.counts[k], 1u)) * reference.exposure;
         m += means[k];
     }
     m /= 4.0;

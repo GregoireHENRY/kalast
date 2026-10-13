@@ -1952,10 +1952,26 @@ pub struct ReferenceState {
     pub samples: u32,
     /// The 99.9th percentile of the pixels' standard error, last measured.
     pub error: Option<f32>,
-    /// The sum has stopped: under `reference.error`, or at its last sample.
+    /// The sum has stopped: under `reference.error`, at its last sample, or
+    /// by hand (`stopped`).
     pub done: bool,
+    /// Stopped by hand before it was done: the mean as it was, to go on
+    /// from when asked.
+    pub stopped: bool,
+    /// Asked of the sum by the UI's button, for the window to act on after
+    /// the frame.
+    pub ask: Option<ReferenceAsk>,
     /// The mean and each pixel's standard error, once done.
     pub image: Option<ReferenceImage>,
+}
+
+/// What the UI's button asks of a reference image's sum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReferenceAsk {
+    /// Stop where it is: the mean so far is the image, done.
+    Stop,
+    /// Go on from where it was stopped by hand.
+    Resume,
 }
 
 /// A reference image as floats: rows from the top.

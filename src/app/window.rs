@@ -2295,35 +2295,81 @@ impl Window {
     /// After a frame of a reference image: every sixteen samples its error
     /// measured, and the sum stopped once under `reference.error` -- after
     /// 64 samples, for the four replicas' spread to mean something -- or at
-    /// `reference.max_samples`, the mean then read back; the simulation told
-    /// how far it is.
+    /// `reference.max_samples`, or by the UI's button, the mean then read
+    /// back; the simulation told how far it is.
     pub fn reference_after_frame(&mut self, config: &crate::app::config::Config, simulation: &mut crate::app::simulation::Simulation) {
+        use crate::app::simulation::ReferenceAsk;
         let Some(reference) = self.passes.reference.as_mut().filter(|_| self.passes.reference_on) else {
             simulation.reference = Default::default();
             return;
         };
         let n = reference.samples();
         let max = config.reference.max_samples;
+        let exposure = config.light.exposure as f32;
+        // A new exposure is the same sum seen brighter or darker: the error
+        // and the mean read back follow it, scaled, the mean without reading
+        // the sums again -- the slider dragged, a read a frame was 268 MB at
+        // 2048 x 2048.
+        if let Some(at) = reference.exposure.filter(|&at| at != exposure && at > 0.0) {
+            let k = exposure / at;
+            reference.error = reference.error.map(|e| e * k);
+            if let Some(image) = simulation.reference.image.as_mut() {
+                for v in image.mean.iter_mut().chain(image.error.iter_mut()) {
+                    *v *= k;
+                }
+            }
+            reference.exposure = Some(exposure);
+        }
+        // The UI's button: the mean so far made the image, or the sum taken
+        // on from where it was stopped.
+        match simulation.reference.ask.take() {
+            Some(ReferenceAsk::Stop) if !reference.done && n > 0 => {
+                let error = reference.measure(&self.device, &self.queue).0;
+                reference.error = Some(error);
+                reference.exposure = Some(exposure);
+                reference.done = true;
+                reference.stopped = true;
+                println!("reference stopped by hand: {n} samples a pixel, error {error:.1e}");
+            }
+            Some(ReferenceAsk::Resume) if reference.stopped && n < max => {
+                reference.done = false;
+                reference.stopped = false;
+            }
+            _ => {}
+        }
         if !reference.done && n > 0 && (n % 16 == 0 || n >= max) {
             let (error, _) = reference.measure(&self.device, &self.queue);
             reference.error = Some(error);
+            reference.exposure = Some(exposure);
             if (n >= 64 && error <= config.reference.error) || n >= max {
                 reference.done = true;
-                let (mean, error) = reference.read(&self.device, &self.queue);
-                simulation.reference.image = Some(super::simulation::ReferenceImage {
-                    width: reference.size.0,
-                    height: reference.size.1,
-                    mean,
-                    error,
-                });
+                // Said where a window without the editor's toolbar shows it:
+                // the console, the editor's kalast log.
+                if error <= config.reference.error {
+                    println!("reference converged: {n} samples a pixel, error {error:.1e}");
+                } else {
+                    println!(
+                        "reference at its limit: {n} samples a pixel, error {error:.1e} against {:.1e}",
+                        config.reference.error
+                    );
+                }
             }
         }
         if !reference.done {
             simulation.reference.image = None;
+        } else if simulation.reference.image.is_none() {
+            let (mean, error) = reference.read(&self.device, &self.queue, exposure);
+            simulation.reference.image = Some(super::simulation::ReferenceImage {
+                width: reference.size.0,
+                height: reference.size.1,
+                mean,
+                error,
+            });
         }
         simulation.reference.samples = n;
         simulation.reference.error = reference.error;
         simulation.reference.done = reference.done;
+        simulation.reference.stopped = reference.stopped;
     }
 
     /// The shadow array's side: `shadows.resolution`, or with the shadows
@@ -4453,9 +4499,12 @@ fn reference_scene(
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     // The reference's own settings but its bounces, which change the image:
-    // a new error or sample limit carries on from the sum there is.
+    // a new error or sample limit carries on from the sum there is. Nor the
+    // exposure, which the sum is of the samples over (`reference.rs`) -- only
+    // whether there is any light at all.
     let mut c = config.clone();
     c.reference = crate::app::config::Reference { bounces: config.reference.bounces, ..Default::default() };
+    c.light.exposure = if config.light.exposure > 0.0 { 1.0 } else { 0.0 };
     format!("{c:?}").hash(&mut h);
     // The camera's pose and its own projection settings, not its matrix:
     // the near and far planes fitted each frame alternated by a unit in the

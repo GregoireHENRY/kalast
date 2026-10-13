@@ -443,7 +443,7 @@ fn quality_ui(ui: &mut egui::Ui, c: &mut Config) {
 /// except the per-facet shadows the thermophysical model reads, which follow
 /// them whatever the image shows, so they stay while those are read every
 /// frame (`access_shadow_map`).
-fn shadows_ui(ui: &mut egui::Ui, sim: &Simulation, c: &mut Config) {
+fn shadows_ui(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config) {
     let shaded = c.shading.color_mode == crate::app::config::ColorMode::Shaded;
     if !shaded {
         if !c.shadows.access_shadow_map {
@@ -465,12 +465,22 @@ fn shadows_ui(ui: &mut egui::Ui, sim: &Simulation, c: &mut Config) {
     );
     group_reference(ui, c);
     {
-        let r = &sim.reference;
-        let error = r.error.map_or(String::from("error not measured yet"), |e| {
-            format!("error {e:.1e}, stops at {:.1e}", c.reference.error)
-        });
-        let state = if r.done { "done" } else { "rendering" };
-        note(ui, &format!("{state}: {} samples a pixel, {error}", r.samples));
+        use crate::app::simulation::ReferenceAsk;
+        let max = c.reference.max_samples;
+        let r = &mut sim.reference;
+        note(ui, &super::reference_words(r, max, c.reference.error));
+        if !r.done {
+            if ui.button("Stop here").on_hover_text("The mean so far is the image, done").clicked() {
+                r.ask = Some(ReferenceAsk::Stop);
+            }
+        } else if r.stopped
+            && ui
+                .add_enabled(r.samples < max, egui::Button::new("Go on"))
+                .on_hover_text("Sum on from where it was stopped")
+                .clicked()
+        {
+            r.ask = Some(ReferenceAsk::Resume);
+        }
         if !sim.rays {
             note(ui, "no ray queries on this GPU: shadows from the maps");
         }
