@@ -1028,20 +1028,24 @@ impl InstanceInput {
 
     /// The body's scattering law, for `mesh_shadow.wgsl`: `None` is Lambert.
     pub fn with_scattering(mut self, law: Option<&crate::lightcurve::Law>) -> Self {
-        use crate::lightcurve::Law;
-        match law {
-            None => self.law = 0,
-            Some(Law::Mix(m)) => {
-                self.law = 1;
-                self.law_params = [m.w as f32, m.c as f32, 0.0, 0.0];
-            }
-            Some(Law::Hapke(h)) => {
-                self.law = 2;
-                self.law_params = [h.w as f32, h.b as f32, h.c as f32, h.b0 as f32];
-                self.law_params2 = [h.h as f32, h.theta_bar as f32, h.k as f32, 0.0];
-            }
-        }
+        (self.law, self.law_params, self.law_params2) = law_words(law);
         self
+    }
+}
+
+/// A scattering law as the shaders' `law_factor` takes it: `0` Lambert, `1`
+/// the mix with `(w, c, 0, 0)`, `2` Hapke with `(w, b, c, b0)` and `(h,
+/// theta_bar, k, 0)`.
+pub fn law_words(law: Option<&crate::lightcurve::Law>) -> (u32, [f32; 4], [f32; 4]) {
+    use crate::lightcurve::Law;
+    match law {
+        None => (0, [0.0; 4], [0.0; 4]),
+        Some(Law::Mix(m)) => (1, [m.w as f32, m.c as f32, 0.0, 0.0], [0.0; 4]),
+        Some(Law::Hapke(h)) => (
+            2,
+            [h.w as f32, h.b as f32, h.c as f32, h.b0 as f32],
+            [h.h as f32, h.theta_bar as f32, h.k as f32, 0.0],
+        ),
     }
 }
 

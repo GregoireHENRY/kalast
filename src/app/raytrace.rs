@@ -67,15 +67,49 @@ pub struct RayTracing {
 /// Every body's surface as the rays meet it, for light bounced off it
 /// (`ray_bounced` in `sun_rays_image.wgsl`): the vertices of all of them in
 /// one buffer, the facets' indices into it, where each body's facets begin,
-/// and each body's reflectance -- the mean of its facets' colours, a Lambert
-/// surface's albedo. A ray's hit names its body (the instance's custom
-/// data) and its facet, which find the facet's corners, its normal in the
-/// body's frame, and its body's albedo.
+/// and how each body reflects -- its scattering law and the mean of its
+/// facets' colours, three `vec4` a body: the colour and the law's number,
+/// then the law's parameters (`gpu::law_words`). A ray's hit names its body
+/// (the instance's custom data) and its facet, which find the facet's
+/// corners, its normal in the body's frame, and how its body reflects.
 struct Geometry {
     positions: wgpu::Buffer,
     indices: wgpu::Buffer,
     index_base: wgpu::Buffer,
-    albedo: wgpu::Buffer,
+    surface: wgpu::Buffer,
+    /// Each body's mean colour, and `surface` as last written: written again
+    /// when a law or the colours change, which a script may do at any frame.
+    colours: Vec<[f32; 3]>,
+    written: Vec<[f32; 4]>,
+}
+
+/// Each body's mean colour, its facets' (or vertices') alike.
+fn mean_colours(simulation: &crate::app::simulation::Simulation) -> Vec<[f32; 3]> {
+    simulation
+        .bodies
+        .iter()
+        .map(|body| {
+            let Some(mesh) = body.mesh.as_ref() else {
+                return [0.0; 3];
+            };
+            let mesh = mesh.borrow();
+            let n = mesh.attrs.len().max(1) as f64;
+            let sum = mesh.attrs.iter().fold([0.0f64; 3], |s, a| {
+                [s[0] + a.color.x as f64, s[1] + a.color.y as f64, s[2] + a.color.z as f64]
+            });
+            [(sum[0] / n) as f32, (sum[1] / n) as f32, (sum[2] / n) as f32]
+        })
+        .collect()
+}
+
+/// `Geometry::surface`'s words: each body's colour and law.
+fn surface_words(simulation: &crate::app::simulation::Simulation, colours: &[[f32; 3]]) -> Vec<[f32; 4]> {
+    let mut words = Vec::with_capacity(3 * colours.len());
+    for (body, c) in simulation.bodies.iter().zip(colours) {
+        let (law, a, b) = crate::app::gpu::law_words(body.scattering.as_ref());
+        words.extend([[c[0], c[1], c[2], law as f32], a, b]);
+    }
+    words
 }
 
 impl Geometry {
@@ -83,11 +117,9 @@ impl Geometry {
         let mut positions: Vec<f32> = Vec::new();
         let mut indices: Vec<u32> = Vec::new();
         let mut index_base: Vec<u32> = Vec::new();
-        let mut albedo: Vec<[f32; 4]> = Vec::new();
         for body in &simulation.bodies {
             index_base.push(indices.len() as u32);
             let Some(mesh) = body.mesh.as_ref() else {
-                albedo.push([0.0; 4]);
                 continue;
             };
             let mesh = mesh.borrow();
@@ -95,21 +127,35 @@ impl Geometry {
             positions.extend(mesh.positions.iter().flat_map(|p| [p.x as f32, p.y as f32, p.z as f32]));
             let whole = mesh.indices.len() / 3 * 3;
             indices.extend(mesh.indices[..whole].iter().map(|&i| base + i));
-            let n = mesh.attrs.len().max(1) as f32;
-            let sum = mesh.attrs.iter().fold([0.0f32; 3], |s, a| {
-                [s[0] + a.color.x as f32, s[1] + a.color.y as f32, s[2] + a.color.z as f32]
-            });
-            albedo.push([sum[0] / n, sum[1] / n, sum[2] / n, 1.0]);
         }
-        let buffer = |label, contents: &[u8]| {
+        let colours = mean_colours(simulation);
+        let written = surface_words(simulation, &colours);
+        let buffer = |label, contents: &[u8], usage| {
             let contents = if contents.is_empty() { &[0u8; 16][..] } else { contents };
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some(label), contents, usage: wgpu::BufferUsages::STORAGE })
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some(label), contents, usage })
         };
+        let storage = wgpu::BufferUsages::STORAGE;
         Self {
-            positions: buffer("the bodies' vertices, for bounced light", bytemuck::cast_slice(&positions)),
-            indices: buffer("the bodies' facets, for bounced light", bytemuck::cast_slice(&indices)),
-            index_base: buffer("where each body's facets begin", bytemuck::cast_slice(&index_base)),
-            albedo: buffer("each body's albedo", bytemuck::cast_slice(&albedo)),
+            positions: buffer("the bodies' vertices, for bounced light", bytemuck::cast_slice(&positions), storage),
+            indices: buffer("the bodies' facets, for bounced light", bytemuck::cast_slice(&indices), storage),
+            index_base: buffer("where each body's facets begin", bytemuck::cast_slice(&index_base), storage),
+            surface: buffer("how each body reflects", bytemuck::cast_slice(&written), storage | wgpu::BufferUsages::COPY_DST),
+            colours,
+            written,
+        }
+    }
+
+    /// The bodies' laws and colours as they are this frame, written where
+    /// they changed: a body's colours read again while they wait to be
+    /// uploaded (`Mesh::colors_dirty`), before this frame's sample.
+    fn refresh(&mut self, queue: &wgpu::Queue, simulation: &crate::app::simulation::Simulation) {
+        if simulation.bodies.iter().any(|b| b.mesh.as_ref().is_some_and(|m| m.borrow().colors_dirty)) {
+            self.colours = mean_colours(simulation);
+        }
+        let words = surface_words(simulation, &self.colours);
+        if words != self.written && words.len() == self.written.len() {
+            queue.write_buffer(&self.surface, 0, bytemuck::cast_slice(&words));
+            self.written = words;
         }
     }
 
@@ -122,7 +168,9 @@ impl Geometry {
             positions: buffer("no vertices"),
             indices: buffer("no facets"),
             index_base: buffer("no bodies"),
-            albedo: buffer("no albedo"),
+            surface: buffer("no surfaces"),
+            colours: Vec::new(),
+            written: Vec::new(),
         }
     }
 }
@@ -241,7 +289,7 @@ impl RayTracing {
                 wgpu::BindGroupEntry { binding: 1, resource: geometry.positions.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 2, resource: geometry.indices.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 3, resource: geometry.index_base.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 4, resource: geometry.albedo.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 4, resource: geometry.surface.as_entire_binding() },
             ],
         })
     }
@@ -287,6 +335,8 @@ impl RayTracing {
         } else if !bounces && self.geometry.is_some() {
             self.geometry = None;
             rebind = true;
+        } else if let Some(geometry) = self.geometry.as_mut() {
+            geometry.refresh(queue, simulation);
         }
         if self.tlas.get().len() < n {
             self.tlas = Self::tlas_for(device, (n as u32).next_power_of_two());

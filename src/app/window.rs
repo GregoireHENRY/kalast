@@ -1335,6 +1335,9 @@ pub struct Window {
     // Counts the times the meshes were sent to the GPU again
     // (`sync_meshes`): a kept layer of older meshes is dropped.
     mesh_epoch: u64,
+    // Counts the times a body's colours were sent again: a reference image
+    // of the old ones is begun again.
+    colors_epoch: u64,
     /// The shadow array's side as allocated: `shadows.resolution`, or less
     /// where that did not fit in the GPU's memory (`shadow_array_that_fits`).
     /// What every fit and lookup uses.
@@ -1802,6 +1805,7 @@ impl Window {
             shadow_cache_under: None,
             shadow_reuse: Vec::new(),
             mesh_epoch: 0,
+            colors_epoch: 0,
             shadow_resolution,
             shadow_requested: config.shadows.resolution,
             raytrace,
@@ -2274,7 +2278,7 @@ impl Window {
             return None;
         }
         let size = self.render_size;
-        let scene = reference_scene(config, simulation, size, self.mesh_epoch);
+        let scene = reference_scene(config, simulation, size, self.mesh_epoch, self.colors_epoch);
         let format = self.passes.render.format();
         if self.passes.reference.as_ref().is_none_or(|r| r.size != (size.0.max(1), size.1.max(1))) {
             self.passes.reference = Some(super::reference::Reference::new(&self.device, size, format));
@@ -3485,6 +3489,7 @@ impl Window {
                 self.meshes[1 + ii].update_attrib_buffer(&self.queue, &m);
                 drop(m);
                 mesh.borrow_mut().colors_dirty = false;
+                self.colors_epoch += 1;
             }
         }
 
@@ -4434,14 +4439,16 @@ fn camera_pos(camera: &super::frame::Eye) -> [f32; 3] {
 }
 
 /// What a reference image is of: the settings but its own, the camera, the
-/// Sun, the bodies, the image's size and the meshes. A sum is begun again
-/// when it changes -- not the iteration: a script stepping a still scene
-/// moves it every frame, and the sum never got past its first sample.
+/// Sun, the bodies -- where they are, their laws and atmospheres, their
+/// colours -- the image's size and the meshes. A sum is begun again when it
+/// changes -- not the iteration: a script stepping a still scene moves it
+/// every frame, and the sum never got past its first sample.
 fn reference_scene(
     config: &crate::app::config::Config,
     simulation: &crate::app::simulation::Simulation,
     size: (u32, u32),
     mesh_epoch: u64,
+    colors_epoch: u64,
 ) -> super::reference::Scene {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -4466,8 +4473,9 @@ fn reference_scene(
     }
     for body in &simulation.bodies {
         values.extend(body.mat.to_cols_array().iter().map(|&x| x as f64));
+        format!("{:?} {:?}", body.scattering, body.atmosphere).hash(&mut h);
     }
-    super::reference::Scene { settings: h.finish(), size, mesh_epoch, values }
+    super::reference::Scene { settings: h.finish(), size, mesh_epoch, colors_epoch, values }
 }
 
 /// The shadow array at `wanted` texels a side, or the largest power of two

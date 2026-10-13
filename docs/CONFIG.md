@@ -1874,8 +1874,8 @@ spread is an honest standard error. No denoiser, no history, no clamp: a
 plain mean of fixed sequences, the same image, to the bit, every run.
 
 Anything that changes what is drawn starts the sum again: the camera, the Sun,
-a body, a setting, the meshes, the image's size. A script stepping a still
-scene does not.
+a body -- where it is, its law, its colours --, a setting, the meshes, the
+image's size. A script stepping a still scene does not.
 
 Measured on the wall of `tests/test_reference.py` (600 x 400, the Sun 25 deg
 up): stopped by itself at 1,680 samples, 0.5 ms a sample on an RTX 5080;
@@ -1903,19 +1903,22 @@ The most samples a pixel takes, the error reached or not.
 
 ### `reference.bounces: u32` — default `0` *(live)*
 Sunlight bounced off the surfaces this many times on its way to the camera,
-up to 4: what lights a crater's floor in its own shadow. Each sample follows a
+up to 4: what lights a crater's floor in its own shadow, and a moon's night
+side under its planet, the planet a body in the scene. Each sample follows a
 path from the point seen, in directions drawn as a Lambert surface scatters,
 to the surfaces it meets, adding each one's own sunlight (one ray to the
-disc) as it reflects it; light leaving for space is gone. A body reflects as
-a Lambert surface of the mean of its facets' colours, and the point seen
-takes the bounced light as a Lambert surface of its colour -- exact for a
-body of one albedo, an approximation for a coloured map or another law.
-Changing it begins the sum again.
+disc) as it reflects it; light leaving for space is gone. Every surface on
+the way reflects by its body's law (`body.scattering`, Lambert without one)
+at the angles the path makes there: the point seen with its own colour, a
+surface met with the mean of its body's colours -- exact for a body of one
+albedo, an approximation for a coloured map. Changing it begins the sum
+again, as does a body's law or colours.
 
 Against Ingersoll's spherical bowl (`tests/test_reference_bounce.py`): a
 white hemisphere, the Sun 30 deg up, the light in its own shadow 0.12497 of
 the Sun's with one bounce (Ingersoll: 1/8) and 0.18763 with two (3/16), the
-same across the shadow.
+same across the shadow. The bowl under a Hapke law, one bounce, against a
+float64 sum over its lit part: within 0.3 % at 24 shadowed pixels.
 
 ---
 

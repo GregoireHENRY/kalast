@@ -319,6 +319,7 @@ pub struct Scene {
     pub settings: u64,
     pub size: (u32, u32),
     pub mesh_epoch: u64,
+    pub colors_epoch: u64,
     pub values: Vec<f64>,
 }
 
@@ -331,6 +332,7 @@ impl Scene {
         self.settings == other.settings
             && self.size == other.size
             && self.mesh_epoch == other.mesh_epoch
+            && self.colors_epoch == other.colors_epoch
             && self.values.len() == other.values.len()
             && self.values.iter().zip(&other.values).all(|(a, b)| {
                 (a.is_nan() && b.is_nan()) || (a - b).abs() <= 1e-6 * a.abs().max(b.abs()).max(1.0)

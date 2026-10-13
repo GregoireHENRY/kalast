@@ -16,12 +16,13 @@ methods against each other, the maps, the rays and the reference.
 `compare.py` scores them and makes the figures, `hrsc.py` reads an image,
 `phobos_hrsc.tm` loads the kernels.
 
-## The kernels: 14, 11 of them out of 350
+## The kernels: 13, 9 of them out of 350
 
 `rot_shdw.TM` loads 350 kernels -- 264 of them a month of Mars Express's
 orbit each, and solar-array attitudes, ASPERA, ground stations. The four
 images need eleven of them, all in ESA's Mars Express set, and three it
-does not load -- the attitude as measured, below (`phobos_hrsc.tm`):
+does not load -- the attitude as measured, below (`phobos_hrsc.tm`). Since
+13 October JPL's MAR099 stands in for two of the eleven, MAR097 and DE405:
 
 | kernel | for |
 |---|---|
@@ -30,8 +31,7 @@ does not load -- the attitude as measured, below (`phobos_hrsc.tm`):
 | `fk/MEX_V16.TF` | the spacecraft's and HRSC's frames |
 | `ik/MEX_HRSC_V09.TI` | the SRC: focal length, pixels, field of view |
 | `pck/PCK00010.TPC` | Phobos's shape constants and rotation |
-| `spk/DE405.BSP` | the Sun and Mars |
-| `spk/MAR097_030101_300101_V0001.BSP` | Phobos about Mars |
+| `mar099s.bsp`, NAIF's generic kernels | Phobos about Mars, and the Sun and Mars (DE440): JPL's MAR099 of 2025, for rot_shdw.TM's `spk/MAR097_030101_300101_V0001.BSP` and `spk/DE405.BSP` |
 | `spk/ORMM_T19_101201000000_00755.BSP`, `..._110101000000_00758`, `..._130601000000_00985` | Mars Express in December 2010, January 2011, June 2013 |
 | `ck/ATNM_T6_P060401000000_01346.BC` | where the spacecraft pointed, as commanded |
 | `ck/ATNM_MEASURED_100101_110101_V03.BC`, `..._2011_V04`, `..._2013_V04` | where it pointed, as measured on board: 717 MB, not in `rot_shdw.TM` |
@@ -85,7 +85,11 @@ is taken at the time the light left it.
 
 The images are not absolutely calibrated (`ABSOLUTE_FLUX_CALIB_FLAG =
 'N'`, the radiance scaling `-9.99e+31`): brightness is compared up to one
-scale an image.
+scale an image. Wargnier et al. (2025) have since calibrated the SRC on
+Jupiter and stars: I/F is DN over the exposure in seconds, times the Sun's
+distance in AU squared, over 1.73 x 10^7 (+-7.5 %). IMAGE_TIME is the
+middle of the exposure, 19-22 ms long, during which Phobos drifted 2-7
+pixels along the samples.
 
 | image | UTC | range | pixel | phase |
 |---|---|---|---|---|
@@ -95,8 +99,9 @@ scale an image.
 | hc069_0004 | 2013-06-29 06:02:43 | 875 km | 8 m | 85° |
 
 Mars is 60-120° off the boresight in all four, and Phobos is out of its
-shadow; Mars does light Phobos's night side, which h8870 shows (60 DN
-against the sky's 13-39 and the day side's 1000).
+shadow. h8870's night side reads 67 DN, the sky beside Phobos 63 and far
+from it 16, the day side about 1100: kalast's Mars puts some 30 DN there,
+the rest is the camera's own scattered light (below).
 
 ## Lit or not
 
@@ -309,7 +314,9 @@ Ernst's 18 m 0.888, 0.931, 0.934, 0.788.
   moves lie within 3° of the way Phobos moves about Mars, as each image
   sees it: Phobos 0.9 km behind where MAR097 puts it in December 2010, 1.6
   km behind in June 2013. h8951's and h8963's lie 72° and 38° from it, with
-  0.3 km left over across that direction.
+  0.3 km left over across that direction. (That afternoon: in June 2013
+  MAR099 agrees, 1.2 km; in 2010-11 Pasewaldt et al.'s astrometry puts the
+  moves on the SRC's pointing -- the next section.)
 - **The albedo map changes little.** The coloring's albedo, one per plate,
   is 0.068 at the median, within ±3 % between the 16th and 84th
   percentiles, and 0.039-0.103 at the extremes. It went in as each facet's
@@ -337,42 +344,206 @@ Ernst's 18 m 0.888, 0.931, 0.934, 0.788.
 
 ![h8963, image over kalast with Ernst et al.'s model](ernst_h8963_brightness.png)
 
+## The ephemeris and the pointing
+
+13 October, afternoon. The user: "can you fix/correct for it? or can you
+use updated kernels?"
+
+**Two later ephemerides than MAR097** (`compare_eph.py`, scratch): JPL's
+MAR099 (June 2025, `mar099s.bsp` from NAIF's generic kernels, DE440's
+planets in it) and IMCCE's NOE-4-2020 (Lainey et al. 2021, the SRC's
+astrometry to 2018 in it). Both put Phobos 1.17 km behind MAR097 in June
+2013 (along its orbit -1.166 and -1.177 km), which moves it (-59, +68) and
+(-66, +75) pixels in hc069: 60 % of what its craters asked, the same way.
+In 2010-11 they move it by 0.2-0.6 km, mostly radially: 1-19 pixels.
+
+**Pasewaldt et al. (2015, A&A 580, A28) measured three of the four**:
+Phobos's direction from Mars Express in h8870_0006, h8951_0005 and
+h8963_0005, by control points and by its limb, the SRC's pointing checked
+against stars (IMCCE's NSDB, collections mm0031 and mm0032). Their
+spacecraft positions are ESA's to 6 m (50 m in the ESAC set). Observed minus
+computed, control points, in each image's pixels:
+
+| | h8870 | h8951 | h8963 | their 1 sigma |
+|---|---|---|---|---|
+| MAR097 | -0.4, -14.0 | -4.3, -0.1 | -5.5, -1.2 | 8, 21, 11 |
+| MAR099 | +0.6, -9.3 | -3.7, +18.8 | -2.9, +8.2 | |
+| the craters' move, MAR097 | +20, +9 | +15, -24 | +17, -12 | |
+| what is the pointing's | +20, +23 | +19, -24 | +22, -11 | |
+
+So in 2010-11 Phobos's ephemeris is out by 14 pixels at most, and the
+craters' move is mostly the SRC's pointing: 19-22 pixels along the samples
+in all three, and across them +23, -24 and -11. The limb fits say the same
+within 2.5 pixels. What it is not:
+
+- **The clock.** IMAGE_TIME is the middle of the exposure (START_TIME and
+  STOP_TIME, 20 ms apart). The spacecraft held still (`INERT`) and Phobos
+  drifted along the samples at 84, 256, 122 and 346 pixels a second: the
+  moves would want -0.25, -0.06, -0.16 and -0.13 s, a different offset each.
+- **Stellar aberration**, 9 pixels, applied in the right sense: without it
+  the moves grow.
+- **The spacecraft's orbit**, 6 m from Pasewaldt et al.'s.
+- **The SRC's alignment, in part.** `MEX_V16.TF` carries Duxbury's angles of
+  2013; Roatsch's of 2003 move Phobos (+20.4, +16.2) pixels: the samples'
+  20 the three images ask for, not the lines'. The alignment moved by as
+  much between its two calibrations.
+
+**Corrected**: `phobos_hrsc.tm` loads MAR099 in place of MAR097 and DE405
+(the small kernel alone gives the same positions to the metre), and
+`main.py` turns the camera by where each image's craters put Phobos,
+`POINTING`: (+20.7, +14.1), (+15.4, -4.8), (+19.8, -2.2) and (-44.1, +44.5)
+pixels, measured with MAR099 by the texture's registration, now in
+`compare.py` to a fraction of a pixel. `spice` in `main.py`'s arguments
+leaves them out. What `compare.py` finds left: under 0.3 pixel on all four.
+Lit or not as pointed, the rays: 0.924, 0.935, 0.963, 0.862 (hc069 was 0.70
+at its registered move, with margins); the reference 0.935, 0.940, 0.966,
+0.874.
+
+## The light in the shadows
+
+The user: "fix the 3 points you listed and afterwards keep looking for any
+hint/possibility in discrepency to reproduce the same images with same
+brightness and same shadows". The three: the walls' light, Mars-shine, and
+one side of the disc brighter than kalast's.
+
+**kalast's bounces took every surface for Lambert**, the colour its albedo:
+under Hapke's law, whose colour is a scale of 1, Phobos reflected bounced
+light as a white surface, 36 times too much at each reflection (the law's
+bihemispherical albedo is 0.028). Each surface now reflects by its own law;
+`2026-10-10_ray_traced_shadows/`, 13 October.
+
+**The walls' light is nothing.** With the bounces by the law, Phobos's own
+surface lights its shadows by 0-3 DN, where the images read 67-308: at an
+albedo of 0.03 a second reflection is a thousandth.
+
+**Mars-shine is real**: Mars in the scene, a Lambert sphere of its Bond
+albedo, 0.25 (`res/ico5.obj` at Mars's radii, turned as `IAU_MARS`), and one
+bounce. From Phobos Mars is gibbous, at phase 24-45 deg. It puts 32 DN on
+h8870's night side and 14 in its cast shadows, 56 and 49 in hc069's, 1-9 in
+the other two. Under the Hapke law fitted to Hera's AFC images of Mars
+(`hera_mars_swingby/afc.py`, colour 0.672, TES's mean), 20-28 % less.
+`main.py`'s reference has it.
+
+**Most of the shadows' light is the camera's.** Where kalast's direct light
+is nil, the images read about what the sky beside Phobos reads:
+
+| DN | lit ground | night side | cast shadows | sky, 3-40 px from the limb | Mars-shine |
+|---|---|---|---|---|---|
+| h8870 | 1126 | 67 | 71 | 63 | 32, 14 |
+| h8951 | 1242 | 151 | 181 | (no sky) | 7, 1 |
+| h8963 | 1682 | 142 | 148 | 152 | 9, 5 |
+| hc069 | 1299 | 308 | 305 | 238 | 56, 49 |
+
+The more of the frame Phobos fills, the higher this veil: 6 % of the lit
+ground in h8870, 20 % in hc069. Light scattered in the SRC, which is known
+for it: an astigmatic, asymmetric response, blurring and ghosts (Oberst et
+al. 2008), straylight from Mars (Wargnier et al. 2025, on Deimos).
+
+**The SRC's response, fitted** to the four images at once through kalast's
+reference with Mars (scratch `camera_fit7.py`), in log brightness so the sky
+and the shadows weigh as the lit ground does, the scene drawn 256 pixels
+wider on every side so Phobos's light from beyond the frame -- 1.44 and 1.05
+times the frame's own in h8951 and hc069 -- is spread in too:
+
+- Phobos's drift along the samples during the exposure, SPICE's drift times
+  EXPOSURE_DURATION: 1.86, 4.90, 2.34 and 6.98 pixels (Hemmi & Kikuchi 2025
+  deblur SRC images of Phobos by this alone);
+- a Gaussian core of 2.19 pixels, 2.2-2.5 in the other fits that kept to
+  physical bounds;
+- 1.2 % of the light within about 53 pixels and 28 % over about 434;
+- an offset per image: 8, 3, 0 and 101 DN, hc069's Phobos reaching beyond
+  even the wider frame.
+
+A halo of 28 % is large, and fits with a free offset ran to 50-60 %; the
+light budget agrees with the bounded one. In I/F by Wargnier et al.'s
+calibration of the SRC (1.73 x 10^7 DN/s, +-7.5 %), where Phobos fills the
+frame the image's total light is kalast's to 0.1 and 1 % (h8951, hc069),
+and 7-8 % of it has moved from the lit ground to the dark: what a halo
+does. Beside Phobos, h8963's sky is matched within 10 DN; h8870's reads 62
+DN between 20 and 60 pixels out against the model's 37 -- the response is
+not the same in every image, h8870 taken at 5 deg C, the others at 8-10.
+
+`hrsc.response` applies it, and `compare.py` sets the images against
+kalast's through it, a scale and an offset fitted (`table_src.md`):
+
+| | h8870 | h8951 | h8963 | hc069 |
+|---|---|---|---|---|
+| the image / kalast, 16-84 %, r | 0.86-1.21, 0.86 | 0.88-1.16, 0.91 | 0.89-1.15, 0.92 | 0.87-1.20, 0.81 |
+| through the SRC | 0.88-1.19, 0.90 | 0.91-1.12, 0.92 | 0.91-1.14, 0.92 | 0.89-1.16, 0.84 |
+| the dark, image / kalast through the SRC (DN) | 63 / 42 | 180 / 154 | 142 / 135 | 261 / 250 |
+
+The reference with Mars and a bounce, the Sun a disc. Through the SRC the
+shadows are grey as in the images, the craters as soft, and the sky beside
+Phobos lit.
+
+![The four images, kalast's reference, and the same through the SRC's response; square root of the brightness](src_response.png)
+
+![The sky beside Phobos, and what is left against incidence](src_light.png)
+
+![h8870 through the SRC's response](src_h8870_brightness.png)
+
+![hc069 through the SRC's response](src_hc069_brightness.png)
+
+## The brightness: what is left
+
+- **Absolutely**, by Wargnier et al.'s calibration, the images' lit ground
+  is 0.89, 0.94, 0.77 and 0.92 of kalast's I/F under Fornasier et al.'s law.
+  h8963, at the lowest phase (58 deg), reads 23 % under, beyond the
+  calibration's 7.5 %.
+- **Against incidence**, through the SRC: from 0.89-1.01 at 20-45 deg to
+  1.09-1.18 at 80-85 deg, in all four. With an albedo per 5-degree cell of
+  the surface fitted besides, still 0.93 to 1.10. Not Mars-shine: largest on
+  facets that face away from Mars. Not Hapke's roughness or albedo either:
+  refitted (23.3 deg, w 0.052) they gain nothing; without roughness, or with
+  Lommel-Seeliger, the trend goes and the fit as a whole worsens (rms of the
+  log ratio 0.140 against 0.130); Lommel-Seeliger 0.9 with Lambert 0.1 does
+  marginally better (0.129). The law near the terminator, or the response's
+  near halo, which spreads light into dim ground beside bright.
+- **On the surface**, in 5-degree cells, the ratios correlate between images
+  at 0.81-0.89, but much of it is the incidence they share: each image
+  predicted from the other three's cells, 0.37-0.51, and the rms of its log
+  ratio down by 0.02 in three of the four. Some albedo, a few percent; Ernst
+  et al.'s map says 3.
+- **Not looked at**: the electronic undershoot Wargnier et al. find to the
+  right of bright objects.
+
 ## Not done
 
-- **What is left of the pointing.** With Ernst et al.'s model the craters
-  pin it on all four images, h8870's and hc069's along Phobos's orbit, 0.9
-  and 1.6 km behind MAR097. A later Mars-moons ephemeris than MAR097 would
-  tell, then the SRC's own alignment for what h8951 and h8963 leave.
-- **The texture's registration in `compare.py`**, so the shadows are scored
-  where the craters put the image rather than where the shadows overlap
-  best. With Gaskell's or DLR's model h8951 and hc069 have too little
-  texture for it.
-- **Mars-shine and the walls' light.** h8870's night side reads about 60 DN
-  against the sky's 13-39 and its day side's 1000, lit by Mars, which is
-  nearly full from Phobos at these geometries. kalast's night is black. Mars
-  as a body in the scene, its colour its albedo, and the reference's bounces
-  would light it -- and the shadows' floors in hc069, lit by their walls,
-  bouncing off Phobos itself.
+- **The SRC's response as part of kalast**: an image smeared, blurred and
+  spread as a camera records it, at export or on the reference's floats --
+  here it is `hrsc.response`, numpy in the example. The halo wants the scene
+  beyond the frame drawn too.
+- **The SRC's response from its own star images** (Oberst et al. 2008,
+  Wargnier et al. 2025): its halo measured without kalast, and whether it
+  changes with the camera's temperature, as h8870's sky suggests.
+- **The pointing's own cause.** 19-22 pixels along the samples in 2010-11
+  are the SRC's pointing -- its alignment or the attitude -- by Pasewaldt et
+  al.'s astrometry; there is none for 2013, where MAR099 leaves hc069 still
+  (-44, +45) pixels off, along Phobos's orbit.
+- **The law near the terminator**, 10-18 % brighter in the images at
+  incidence 80-85 deg than Fornasier et al.'s Hapke draws it, and an albedo
+  map of a few percent from the SRC's images.
 - **Facet by facet**, as the colleague suggests: kalast's lit fraction of
   each facet (`sim.facet_shadow`) against the image's brightness over the
   pixels showing it (`sim.facet_id_map()`).
-- **Phobos's rotation fitted** to the shadows -- the colleague's aim:
-  the IoU moved as the objective, over the rotation's angles, with the move
+- **Phobos's rotation fitted** to the shadows -- the colleague's aim: the
+  IoU as pointed as the objective, over the rotation's angles, the pointing
   fixed by the craters so that it cannot stand in for the rotation.
 
 ## Running it
 
-From the repository root, after setting the paths in `phobos_hrsc.tm`
-and `main.py`, and downloading Ernst et al.'s 18 m model from SBMT's shared
-files:
+From the repository root, after setting the paths in `phobos_hrsc.tm` and
+`main.py`, and downloading Ernst et al.'s 18 m model from SBMT's shared
+files and MAR099's small kernel from NAIF:
 
     python examples/phobos_shadows_fit/main.py rays hapke             # Ernst et al., PCK00011
+    python examples/phobos_shadows_fit/main.py reference hapke        # with Mars, a bounce, the Sun a disc
+    python examples/phobos_shadows_fit/main.py rays hapke spice       # pointed as SPICE has it
     python examples/phobos_shadows_fit/main.py rays hapke gaskell
-    python examples/phobos_shadows_fit/main.py rays hapke gaskell pck00011
     python examples/phobos_shadows_fit/compare.py
 
 The frames go to `out/phobos_hrsc/<run>/`, the figures and `table.md` to
-`out/phobos_hrsc/figures/`. `main.py` reproduces the runs here pixel for
-pixel, Ernst et al.'s included. On the M1 Pro a run of four images takes
-about a minute with the maps or the rays, and 1-3 minutes with the
-reference.
+`out/phobos_hrsc/figures/`. `main.py` reproduces the runs here: to the bit
+where `POINTING` is as fitted (h8963), elsewhere within its rounding to a
+tenth of a pixel. On the M1 Pro a run of four images takes about a minute
+with the maps or the rays, and 10 minutes with the reference and Mars.

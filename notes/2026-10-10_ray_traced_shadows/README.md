@@ -324,6 +324,37 @@ scene's key left out the reference's own settings; the bounces are in it
 now), and right after a change `reference_done` still speaks of the last sum
 until a frame is drawn, which `API.md` now says.
 
+### 13 October: each surface by its own law
+
+The bounces took every surface as Lambert -- the one met with its body's mean
+colour as albedo, the point seen with its own -- whatever the body's law.
+Under a law the colour is a scale on the law's own brightness, 1 for
+Phobos's Hapke fit, so a Hapke surface reflected bounced light as a white
+Lambert one: Phobos, whose law's bihemispherical albedo is 0.028, 36 times
+too much at each reflection. Found drawing Mars-shine on Phobos for the HRSC
+images (`2026-10-12_phobos_hrsc_shadows/`).
+
+Now every surface on the path reflects by its body's law at the angles the
+path makes there. Directions are still drawn cosine-weighted, so a
+direction's share is the law's I/F over the cosine of the light's incidence
+-- `law_factor(...) / mu_in`, the albedo itself for Lambert: at the point
+seen, lit from the direction drawn and seen from the camera; at a surface
+met, lit by the Sun (one ray to the disc) or by the next surface and seen
+from the one before. `raytrace::Geometry` keeps each body's mean colour and
+its law, three `vec4` a body (`gpu::law_words`, shared with the instance
+uniform), written again on the frame a law or the colours change -- the
+colours read while they wait to be uploaded, before that frame's sample.
+The reference's key now holds each body's law and atmosphere and a count of
+colour uploads: changing any of them began no new sum.
+
+The bowl again, Lambert: 0.12497 and 0.18763, unchanged to the digit. Under
+a Hapke law (`w` 0.6, `b` 0.3, `c` 0.4, `b0` 1, `h` 0.06, roughness 20 deg)
+one bounce against a float64 sum over the bowl's lit part of
+`IF_p IF_q dOmega / pi`, at 24 shadowed pixels, each the mean of the 5 x 5
+about it: +0.30 %, the law set after the Lambert runs, so the test also
+checks that the sum began again. Before the fix this bowl's shadow would
+have read about 40 times too bright.
+
 ## Compaction
 
 Each body's bottom level is built with `ALLOW_COMPACTION` and compacted once
@@ -348,7 +379,7 @@ allocator report: 1,312 MiB in use built, 1,055 compacted).
 - **Bounces in the thermophysical model's** shadows and in the real-time
   image: only the reference has them.
 - **Coloured surfaces in bounces**: a body's mean colour stands for all of
-  it, and every law for Lambert's.
+  it (each body reflects by its own law since 13 October).
 - **The Mac**: not run on Metal yet; the M1 Pro traverses in software.
 - A body's `shadow_mesh` stand-in is not used: rays see the body's own mesh.
 - A body with a horizon map: the rays see its relief directly, the map is

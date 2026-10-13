@@ -14,6 +14,12 @@ up (mu0 0.5), seen from above: in the bowl's shadow, one bounce is 1/8 of
 the Sun's light and two are 3/16. The direct light alone puts the shadow
 where the geometry says.
 
+Then the bowl under a Hapke law, which each surface on the way reflects by:
+one bounce at shadowed pixels against a float64 sum over the bowl's lit
+part of IF_p IF_q dOmega / pi -- the law's I/F where the light lands, from
+where it comes, times the I/F of the surface it comes from, lit by the Sun
+and seen from there. Changing the law begins the sum again.
+
 Skipped on a GPU without ray queries. Opens a window, in the background.
 """
 
@@ -25,6 +31,7 @@ import tempfile
 import numpy
 
 from kalast.app import App
+from kalast.scattering import Hapke
 
 failures: list[str] = []
 
@@ -32,6 +39,8 @@ ELEVATION = math.radians(30.0)
 TO_SUN = numpy.array([math.cos(ELEVATION), 0.0, math.sin(ELEVATION)])
 SIZE = 400
 HEIGHT = 4.5  # the camera, straight above the bowl's centre
+# Brighter than any asteroid, for the bounced light to show.
+LAW = Hapke(w=0.6, b=0.3, c=0.4, b0=1.0, h=0.06, theta_bar=math.radians(20.0), k=1.0)
 
 
 def check(name: str, ok: bool, detail: str = "") -> None:
@@ -90,6 +99,36 @@ def bowl_points() -> tuple[numpy.ndarray, numpy.ndarray]:
     t = -b + numpy.sqrt(numpy.clip(disc, 0, None))
     p = c + t[..., None] * d
     return p, (disc > 0) & (p[..., 2] < 0)
+
+
+def law_if(mu0: float, mu: float, alpha: float) -> float:
+    """`LAW`'s I/F, `pi r mu0`."""
+    return math.pi * LAW.reflectance(mu0, mu, alpha) * mu0 if mu0 > 0.0 else 0.0
+
+
+def one_bounce(p: numpy.ndarray, v: numpy.ndarray, n_t: int = 160, n_p: int = 320) -> float:
+    """The I/F at `p` on the bowl, seen along `v`, of the sunlight `LAW`'s
+    bowl bounces there once: the bowl's lit part summed in float64. Inside
+    a sphere every point sees every other."""
+    th = (numpy.arange(n_t) + 0.5) / n_t * (math.pi / 2)
+    ph = (numpy.arange(n_p) + 0.5) / n_p * 2 * math.pi
+    t, f = numpy.meshgrid(th, ph, indexing="ij")
+    q = numpy.stack([numpy.sin(t) * numpy.cos(f), numpy.sin(t) * numpy.sin(f), -numpy.cos(t)], -1).reshape(-1, 3)
+    area = (numpy.sin(t) * (math.pi / 2 / n_t) * (2 * math.pi / n_p)).reshape(-1)
+    s_dot = q @ TO_SUN
+    lit = (s_dot < 0) & ((q - 2 * s_dot[:, None] * TO_SUN)[:, 2] >= 0)
+    total = 0.0
+    for qi, a in zip(q[lit], area[lit]):
+        d = qi - p
+        r2 = d @ d
+        w = d / math.sqrt(r2)
+        out = -qi @ -w  # the bowl's normals face its centre
+        if out <= 0.0 or -p @ w <= 0.0:
+            continue
+        here = law_if(-p @ w, -p @ v, math.acos(min(max(w @ v, -1.0), 1.0)))
+        there = law_if(-qi @ TO_SUN, out, math.acos(min(max(-(TO_SUN @ w), -1.0), 1.0)))
+        total += here * there * out * a / r2
+    return total / math.pi
 
 
 def run(app: App, bounces: int) -> numpy.ndarray | None:
@@ -160,6 +199,33 @@ def main() -> int:
               f"{got:.5f} over {int(deep.sum())} pixels, {100 * (got / want - 1):+.2f} %")
         check(f"{bounces} bounce(s): alike across the shadow", abs(halves[0] - halves[1]) <= 0.02 * want,
               f"{halves[0]:.5f} and {halves[1]:.5f}")
+
+    # The bowl under a law: its light is a hundredth of the white bowl's,
+    # so the sum is taken on to its sample limit.
+    app.simulation.bodies[0].scattering = LAW
+    c.reference.error = 1e-6
+    c.reference.max_samples = 1024
+    image = run(app, 1)
+    if image is None:
+        check("Hapke, 1 bounce: done", False)
+    else:
+        # Each pixel's light as the mean of the 5 x 5 about it, all in the
+        # shadow, where it changes smoothly: a fifth of a pixel's noise.
+        inner = deep.copy()
+        for dy in range(-2, 3):
+            for dx in range(-2, 3):
+                inner &= numpy.roll(deep, (dy, dx), axis=(0, 1))
+        ys, xs = numpy.nonzero(inner)
+        pick = numpy.random.default_rng(1).choice(len(ys), 24, replace=False)
+        camera = numpy.array([0.0, 0.0, HEIGHT])
+        got, want = [], []
+        for y, x in zip(ys[pick], xs[pick]):
+            v = (camera - p[y, x]) / numpy.linalg.norm(camera - p[y, x])
+            got.append(float(image[y - 2:y + 3, x - 2:x + 3, 0].mean()))
+            want.append(one_bounce(p[y, x], v))
+        got, want = numpy.array(got), numpy.array(want)
+        check("Hapke, 1 bounce: the shadowed floor at the bowl's sum", abs(got.mean() / want.mean() - 1) <= 0.02,
+              f"{got.mean():.5f} against {want.mean():.5f} over {len(got)} pixels, {100 * (got.mean() / want.mean() - 1):+.2f} %")
     app.close()
     print(f"\n{len(failures)} failure(s)")
     return 1 if failures else 0

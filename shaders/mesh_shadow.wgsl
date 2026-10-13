@@ -2139,7 +2139,10 @@ fn fs_shaded(in: Surface) -> vec4<f32> {
             // Light bounced off the surfaces, whichever way this one faces: a //@rt
             // crater's floor in its own shadow is lit by its walls. //@rt
             if frame > 0u && (globals.ray_frame >> 24u) > 0u { //@rt
-                bounced = ray_bounced(p, in.world_normal, view.light.pos, view.light.sun_radius, frame - 1u, vec2<u32>(in.frag.xy), globals.ray_frame >> 24u); //@rt
+                let lp = body.law_params; //@rt
+                bounced = ray_bounced(p, in.world_normal, normalize(globals.camera_pos - in.world_pos), body.law, //@rt
+                    vec4<f32>(lp[0], lp[1], lp[2], lp[3]), vec4<f32>(lp[4], lp[5], lp[6], lp[7]), //@rt
+                    view.light.pos, view.light.sun_radius, frame - 1u, vec2<u32>(in.frag.xy), globals.ray_frame >> 24u); //@rt
             } //@rt
         } //@rt
         // The rays see the relief a horizon map stands for.
@@ -2160,8 +2163,8 @@ fn fs_shaded(in: Surface) -> vec4<f32> {
     let ambient_color = view.light.color * globals.ambient_strength;
     let diffuse_color = view.light.color * reflected;
     var color = (ambient_color + diffuse_color * shadow) * object_color.xyz;
-    // Bounced light, reflected as a Lambert surface reflects light from
-    // every side (`reference.bounces`): irradiance in units of the Sun's.
+    // Bounced light (`reference.bounces`): its I/F by the body's law, per
+    // unit of the colour.
     color += view.light.color * bounced * object_color.xyz;
 
     // Under an atmosphere: the dust's own light, and the surface seen

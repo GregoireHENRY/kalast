@@ -236,21 +236,29 @@ Look at [res/README.md](../res/README.md) to get Hera data.
 - [phobos_shadows_fit](phobos_shadows_fit): four Mars Express HRSC SRC
   images of Phobos, drawn by kalast and compared with the real ones.
     - Needs ESA's Mars Express SPICE set; set `PATH_VALUES` in
-      [phobos_hrsc.tm](phobos_shadows_fit/phobos_hrsc.tm), the 14 kernels
-      these images need, and the mesh paths in `main.py`. Ernst et al.'s
+      [phobos_hrsc.tm](phobos_shadows_fit/phobos_hrsc.tm), the 13 kernels
+      these images need -- JPL's MAR099 for Phobos among them, from NAIF's
+      [generic kernels](https://naif.jpl.nasa.gov/pub/naif/generic_kernels/spk/satellites/)
+      (`mar099s.bsp`) -- and the mesh paths in `main.py`. Ernst et al.'s
       shape model, the default, is on the Small Body Mapping Tool's
       [shared files](https://sbmt.jhuapl.edu/shared-files/)
       (`phobos_g_018m_spc_obj_0000n00000_v004.obj`), with NAIF's
       `pck00011.tpc` for its frame.
     - [phobos_shadows_fit/main.py](phobos_shadows_fit/main.py): each image at
       its `IMAGE_TIME`, at the SRC's resolution, pointed as the spacecraft
-      was. `python main.py rays hapke ernst` picks the shadow method
-      (`maps`, `rays`, `reference`), the law (`hapke`, `lambert`, or `mask`
-      for lit or not) and the shape model (`ernst`, `gaskell`, `dlr`).
+      was and turned by where the image's craters put Phobos (`spice`
+      leaves that out). `python main.py rays hapke ernst` picks the shadow
+      method (`maps`, `rays`, `reference`), the law (`hapke`, `lambert`, or
+      `mask` for lit or not) and the shape model (`ernst`, `gaskell`,
+      `dlr`). The reference has Mars in the scene, lighting Phobos's night
+      side.
     - [phobos_shadows_fit/compare.py](phobos_shadows_fit/compare.py): the
-      shadows as lit-or-not masks against the images', as pointed and moved
-      to overlap best, and the brightness where both are lit; figures and a
-      table in `out/phobos_hrsc/figures`.
+      shadows as lit-or-not masks against the images', where the craters
+      say the pointing still is, and the brightness where both are lit, as
+      kalast draws it and through the SRC's own response -- its blur, smear
+      and scattered light, in
+      [hrsc.py](phobos_shadows_fit/hrsc.py); figures and a table in
+      `out/phobos_hrsc/figures`.
 ## Examples that worked but not ready for users
 
 - [analytical](analytical)

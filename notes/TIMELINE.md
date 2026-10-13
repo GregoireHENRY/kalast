@@ -6021,3 +6021,35 @@ three images, and hc069 at (-104, +114), where its brightness correlates at
 later Phobos ephemeris, the texture's registration in `compare.py`, Mars-shine
 and the walls' light, the facets one by one, and the rotation fit.
 Write-up: `2026-10-12_phobos_hrsc_shadows/`.
+
+## 2026-10-13 — bounces by each body's law
+
+`reference.bounces` took every surface for Lambert, its colour the albedo:
+under a law, whose colour is a scale on it, Phobos reflected bounced light
+as a white surface, 36 times too much at each reflection. Each surface on
+the path now reflects by its body's law at the path's angles (`law_factor`
+over the incidence's cosine), a surface met with its body's mean colour,
+both kept in `raytrace::Geometry` and written again when they change. A
+reference now starts again on a change of a body's law, atmosphere or
+colours. Lambert's bowl unchanged to the digit; a Hapke bowl, one bounce,
++0.3 % against a float64 sum (`tests/test_reference_bounce.py`). Write-up:
+`2026-10-10_ray_traced_shadows/`.
+
+## 2026-10-13 — Phobos: MAR099, the pointing, Mars-shine and the SRC's light
+
+JPL's MAR099 (2025) and IMCCE's NOE-4-2020 both put Phobos 1.2 km behind
+MAR097 in June 2013: 60 % of hc069's move. For 2010-11, Pasewaldt et al.
+(2015)'s star-checked astrometry of three of the images leaves Phobos's
+ephemeris 14 pixels at most and puts 19-22 pixels along the samples on the
+SRC's pointing. `phobos_hrsc.tm` loads MAR099 in place of MAR097 and DE405;
+`main.py` turns the camera by where each image's craters put Phobos
+(`POINTING`), `compare.py` measures what is left, under 0.3 pixel. Phobos's
+walls light its shadows by 0-3 DN, Mars (in the scene, Lambert at its Bond
+albedo, a bounce) 1-56; the shadows read 67-308, as the sky beside Phobos
+does: light scattered in the SRC. Its response fitted to the four images --
+the smear along the samples, a 2.2-pixel core, 28 % of the light over some
+430 pixels -- is `hrsc.response`; through it the shadows and the softness
+match, r 0.84-0.92. Left: the law near the terminator, 10-18 % brighter in
+the images, and a few percent of albedo. Open: the response in kalast, the
+SRC's response from its stars, facet by facet, the rotation fit. Write-up:
+`2026-10-12_phobos_hrsc_shadows/`.
