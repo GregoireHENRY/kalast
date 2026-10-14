@@ -5,7 +5,8 @@ disc, progressively, to a stated error.
 The wall of `tests/test_facet_shadow_disc.py` on its plate, seen from 30
 above, the Sun 25 deg up with an angular radius of 0.02:
 
-- the sum stops on its own, under `reference.error`;
+- the sum stops on its own, its error under `reference.error` of the
+  image's brightest value;
 - the lit plate is sin(25 deg) of the light, Lambert's;
 - across the wall's penumbra, each pixel is the share of the limb-darkened
   disc its ground point sees, worked out here in float64, within the error
@@ -139,7 +140,9 @@ def main() -> int:
     band = (want > 0.01 * lit) & (want < 0.99 * lit)
     e = row[band] - want[band]
     stated = float(err[H_PX // 2, band].max())
-    check("across the penumbra, each pixel the disc's light its ground sees", band.sum() > 15 and float(abs(e).max()) <= 3 * max(stated, target),
+    # The goal in the image's values: a share of its brightest.
+    goal = target * float(img.max())
+    check("across the penumbra, each pixel the disc's light its ground sees", band.sum() > 15 and float(abs(e).max()) <= 3 * max(stated, goal),
           f"{band.sum()} pixels: rms {numpy.sqrt((e**2).mean()):.5f}, worst {abs(e).max():.5f}, the image's own error up to {stated:.5f}")
 
     # Again from the start: off and on.

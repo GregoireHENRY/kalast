@@ -111,9 +111,9 @@ class Simulation:
     """
     reference_error: float | None
     """A reference image's standard error, last measured: the 99.9th
-    percentile of the pixels', in the image's values (0 to 1), from the
-    spread of four independent estimates of each. Measured every sixteen
-    samples; `None` before.
+    percentile of the pixels', from the spread of four independent
+    estimates of each, as a share of the image's brightest value -- the
+    same at any exposure. Measured every sixteen samples; `None` before.
     """
     reference_done: bool
     """Whether a reference image is done: its error under

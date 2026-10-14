@@ -2297,10 +2297,11 @@ impl Window {
     }
 
     /// After a frame of a reference image: every sixteen samples its error
-    /// measured, and the sum stopped once under `reference.error` -- after
-    /// 64 samples, for the four replicas' spread to mean something -- or at
-    /// `reference.max_samples`, or by the UI's button, the mean then read
-    /// back; the simulation told how far it is.
+    /// measured, as a share of the image's brightest value, and the sum
+    /// stopped once under `reference.error` -- after 64 samples, for the four
+    /// replicas' spread to mean something -- or at `reference.max_samples`, or
+    /// by the UI's button, the mean then read back; the simulation told how
+    /// far it is.
     pub fn reference_after_frame(&mut self, config: &crate::app::config::Config, simulation: &mut crate::app::simulation::Simulation) {
         use crate::app::simulation::ReferenceAsk;
         let Some(reference) = self.passes.reference.as_mut().filter(|_| self.passes.reference_on) else {
@@ -2310,13 +2311,14 @@ impl Window {
         let n = reference.samples();
         let max = config.reference.max_samples;
         let exposure = config.light.exposure as f32;
-        // A new exposure is the same sum seen brighter or darker: the error
-        // and the mean read back follow it, scaled, the mean without reading
-        // the sums again -- the slider dragged, a read a frame was 268 MB at
-        // 2048 x 2048.
+        // A new exposure is the same sum seen brighter or darker: the mean
+        // read back follows it, scaled, without reading the sums again -- the
+        // slider dragged, a read a frame was 268 MB at 2048 x 2048. Not the
+        // error, a share of the image's own brightest, which no exposure
+        // changes: the same sum stops at the same sample whatever it is shown
+        // at.
         if let Some(at) = reference.exposure.filter(|&at| at != exposure && at > 0.0) {
             let k = exposure / at;
-            reference.error = reference.error.map(|e| e * k);
             if let Some(image) = simulation.reference.image.as_mut() {
                 for v in image.mean.iter_mut().chain(image.error.iter_mut()) {
                     *v *= k;
@@ -2330,10 +2332,12 @@ impl Window {
             Some(ReferenceAsk::Stop) if !reference.done && n > 0 => {
                 let error = reference.measure(&self.device, &self.queue).0;
                 reference.error = Some(error);
-                reference.exposure = Some(exposure);
                 reference.done = true;
                 reference.stopped = true;
-                println!("reference stopped by hand: {n} samples a pixel, error {error:.1e}");
+                println!(
+                    "reference stopped by hand: {n} samples a pixel, error {} of the brightest",
+                    super::reference::percent(error)
+                );
             }
             Some(ReferenceAsk::Resume) if reference.stopped && n < max => {
                 reference.done = false;
@@ -2344,17 +2348,18 @@ impl Window {
         if !reference.done && n > 0 && (n % 16 == 0 || n >= max) {
             let (error, _) = reference.measure(&self.device, &self.queue);
             reference.error = Some(error);
-            reference.exposure = Some(exposure);
             if (n >= 64 && error <= config.reference.error) || n >= max {
                 reference.done = true;
                 // Said where a window without the editor's toolbar shows it:
                 // the console, the editor's kalast log.
+                let percent = super::reference::percent;
                 if error <= config.reference.error {
-                    println!("reference converged: {n} samples a pixel, error {error:.1e}");
+                    println!("reference converged: {n} samples a pixel, error {} of the brightest", percent(error));
                 } else {
                     println!(
-                        "reference at its limit: {n} samples a pixel, error {error:.1e} against {:.1e}",
-                        config.reference.error
+                        "reference at its limit: {n} samples a pixel, error {} of the brightest against {}",
+                        percent(error),
+                        percent(config.reference.error)
                     );
                 }
             }

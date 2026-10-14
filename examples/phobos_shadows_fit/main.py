@@ -90,7 +90,7 @@ c.shading.srgb_mode = 1  # a pixel is exposure x I/F x 255
 c.light.exposure = {"hapke": 12.0, "lambert": 0.8, "mask": 1e4}[LAW]
 c.shadows.method = METHOD
 # A pixel on a shadow's edge is lit by half its samples or so: 1024 put it
-# within about 1.5 %, where the reference's own stop wants 65,000.
+# within about 1.5 %, where the reference's own stop wants tens of thousands.
 c.reference.max_samples = 1024
 c.export.sync, c.export.hud = True, False
 sim = app.simulation

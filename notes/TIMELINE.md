@@ -6164,3 +6164,9 @@ frames opaque). And whether a reference converges depends on the exposure, not
 the response: its goal is in the image's values -- a small scene converged at
 192 samples at exposure 0.2 and stopped at its 512 limit at 1 and 40, the
 response on or off alike, to four digits.
+So the stop is now judged against the image itself: the error a share of
+its brightest value, `reference.error` still 1/510 -- the same sum stops at
+the same sample at any exposure, `srgb_mode` or stretch
+(`tests/test_reference_controls.py`); a dim image takes longer than it did,
+the wall of `tests/test_reference.py` 7,248 samples rather than 1,680.
+Write-up: `2026-10-10_ray_traced_shadows/`, 14 October.

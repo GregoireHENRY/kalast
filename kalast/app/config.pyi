@@ -800,9 +800,14 @@ class ReferenceConfig:
     through the same handle as every other view of it.
     """
     error: float
-    """The standard error the sum stops at, in the image's values (0 to 1):
-    the 99.9th percentile of the pixels', from the spread of four
-    independent estimates of each. Half an 8-bit step, 1/510, by default.
+    """The standard error the sum stops at, as a share of the image's
+    brightest value: the 99.9th percentile of the pixels', from the spread
+    of four independent estimates of each. 1/510 by default, half an 8-bit
+    step of an image whose brightest is white.
+
+    The image's own measure: the same sum stops at the same sample
+    whatever its `light.exposure`, `srgb_mode` or stretch. A stretch that
+    lifts the shadows shows their noise, which may want it smaller.
     """
     max_samples: int
     """The most samples a pixel takes, the error reached or not."""

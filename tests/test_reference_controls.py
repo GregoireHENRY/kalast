@@ -12,7 +12,9 @@ A sphere lit from the side, the sum taken to `reference.max_samples`:
   what is summed;
 - `sim.stop_reference()` makes the mean so far the image, done, and the sum
   takes no more samples; `sim.resume_reference()` goes on from there, to the
-  limit -- what the UI's stop and continue buttons ask.
+  limit -- what the UI's stop and continue buttons ask;
+- the error is a share of the image's brightest value: the same sum stops
+  at the same sample, with the same error, at an exposure of 1 and of 0.2.
 
 Opens a window, in the background.
 """
@@ -139,6 +141,23 @@ def main() -> int:
     to_the_end()
     check("and on to the limit", sim.reference_samples == LIMIT and sim.reference_done and not sim.reference_stopped,
           f"{sim.reference_samples}")
+
+    # Stopped by its error, at two exposures: before 14 October the error
+    # was in the image's values, and a darker image stopped sooner.
+    c.reference.error = 0.03
+    ends = []
+    for exposure in (1.0, 0.2):
+        c.light.exposure = exposure
+        again()
+        to_the_end()
+        ends.append((sim.reference_samples, sim.reference_error))
+    check(
+        "stopped by its error at the same sample, whatever the exposure",
+        # The sums are of the samples over the exposure: to float32's last
+        # places.
+        ends[0][0] < LIMIT and ends[0][0] == ends[1][0] and abs(ends[0][1] - ends[1][1]) <= 1e-5 * ends[0][1],
+        f"at exposure 1: {ends[0][0]} samples, error {ends[0][1]:.5f}; at 0.2: {ends[1][0]}, {ends[1][1]:.5f}",
+    )
     app.close()
     print(f"\n{len(failures)} failure(s)")
     return 1 if failures else 0

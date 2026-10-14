@@ -1165,21 +1165,24 @@ fn action(icon: &str, color: egui::Color32) -> egui::Button<'_> {
 /// A reference image's state in words: how far while it sums, against the
 /// error it stops under; once stopped, why.
 pub(super) fn reference_words(r: &crate::app::simulation::ReferenceState, max: u32, goal: f32) -> String {
-    let error = r.error.map_or(String::new(), |e| format!(", error {e:.1e}"));
+    use crate::app::reference::percent;
+    let error = r.error.map_or(String::new(), |e| format!(", error {}", percent(e)));
     if !r.done {
-        format!("reference {} / {max} samples{error}, stops under {goal:.1e}", r.samples)
+        format!("reference {} / {max} samples{error}, stops under {}", r.samples, percent(goal))
     } else if r.stopped {
         format!("reference stopped by hand: {} samples{error}", r.samples)
-    } else if reference_at_limit(r, max, goal) {
-        format!("reference at its limit: {max} samples{error}, short of {goal:.1e}")
+    } else if reference_at_limit(r, goal) {
+        format!("reference at its limit: {} samples{error}, short of {}", r.samples, percent(goal))
     } else {
         format!("reference converged: {} samples{error}", r.samples)
     }
 }
 
-/// Done at `reference.max_samples` with the error still over the goal.
-fn reference_at_limit(r: &crate::app::simulation::ReferenceState, max: u32, goal: f32) -> bool {
-    r.done && !r.stopped && r.samples >= max && r.error.is_none_or(|e| e > goal)
+/// Done, not by hand, with the error still over the goal: at its sample
+/// limit, whatever `reference.max_samples` says since. The error is a share
+/// of the image's brightest value, which no exposure changes.
+fn reference_at_limit(r: &crate::app::simulation::ReferenceState, goal: f32) -> bool {
+    r.done && !r.stopped && r.error.is_none_or(|e| e > goal)
 }
 
 /// A reference image in the toolbar, right to left: the button that stops
@@ -1213,7 +1216,7 @@ fn reference_toolbar(
         }
         ui.label(words);
     } else {
-        let (icon, color) = if reference_at_limit(r, max, goal) {
+        let (icon, color) = if reference_at_limit(r, goal) {
             (icons::codicon::WARNING, ui.visuals().warn_fg_color)
         } else {
             (icons::codicon::PASS_FILLED, colors.run)

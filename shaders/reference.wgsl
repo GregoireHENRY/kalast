@@ -26,8 +26,9 @@ struct Reference {
 // This frame's sample of every pixel (`cs_accumulate`).
 @group(0) @binding(2) var frame: texture_2d<f32>;
 // How many pixels' standard error falls in each bin (`cs_error`): a third
-// of an octave a bin, from 2^-24 up; the last, the largest error seen.
-@group(0) @binding(3) var<storage, read_write> histogram: array<atomic<u32>, 97>;
+// of an octave a bin, from 2^-24 up; then the largest error seen, and the
+// brightest mean, as bits. Both without the exposure, as the sums are.
+@group(0) @binding(3) var<storage, read_write> histogram: array<atomic<u32>, 98>;
 
 fn encode(c: vec3<f32>) -> vec3<f32> {
     let low = c * 12.92;
@@ -95,7 +96,8 @@ fn fs_resolve(@builtin(position) at_px: vec4<f32>) -> @location(0) vec4<f32> {
 
 /// Each pixel's standard error -- the spread of its four replicas' means,
 /// over the square root of four, the largest of its channels -- into the
-/// histogram.
+/// histogram, and its mean's largest channel into the brightest: without the
+/// exposure, which the error is then a share of the brightest without.
 @compute @workgroup_size(8, 8)
 fn cs_error(@builtin(global_invocation_id) id: vec3<u32>) {
     if id.x >= reference.width || id.y >= reference.height {
@@ -104,7 +106,7 @@ fn cs_error(@builtin(global_invocation_id) id: vec3<u32>) {
     var means: array<vec3<f32>, 4>;
     var m = vec3<f32>(0.0);
     for (var k = 0u; k < 4u; k++) {
-        means[k] = sums[at(k, id.x, id.y)].rgb / f32(max(reference.counts[k], 1u)) * reference.exposure;
+        means[k] = sums[at(k, id.x, id.y)].rgb / f32(max(reference.counts[k], 1u));
         m += means[k];
     }
     m /= 4.0;
@@ -121,4 +123,5 @@ fn cs_error(@builtin(global_invocation_id) id: vec3<u32>) {
     }
     atomicAdd(&histogram[bin], 1u);
     atomicMax(&histogram[96], bitcast<u32>(e));
+    atomicMax(&histogram[97], bitcast<u32>(max(max(max(m.x, m.y), m.z), 0.0)));
 }

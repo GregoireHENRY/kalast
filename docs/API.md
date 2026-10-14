@@ -1245,7 +1245,8 @@ error = sim.reference_error_image()     # (height, width): each pixel's standard
 
 `sim.reference_samples` counts the samples summed, `sim.reference_error` is
 the 99.9th percentile of the pixels' standard error last measured (every
-sixteen samples), and `sim.reference_done` turns true once it is under
+sixteen samples), as a share of the image's brightest value -- the same at
+any exposure -- and `sim.reference_done` turns true once it is under
 `config.reference.error` or the samples reach `max_samples`.
 
 ```python

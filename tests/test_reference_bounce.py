@@ -200,8 +200,8 @@ def main() -> int:
         check(f"{bounces} bounce(s): alike across the shadow", abs(halves[0] - halves[1]) <= 0.02 * want,
               f"{halves[0]:.5f} and {halves[1]:.5f}")
 
-    # The bowl under a law: its light is a hundredth of the white bowl's,
-    # so the sum is taken on to its sample limit.
+    # The bowl under a law, its light a hundredth of the white bowl's: the
+    # sum taken on to its sample limit.
     app.simulation.bodies[0].scattering = LAW
     c.reference.error = 1e-6
     c.reference.max_samples = 1024

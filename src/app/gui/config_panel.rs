@@ -181,7 +181,7 @@ pub fn group_shadows(ui: &mut egui::Ui, c: &mut Config) {
 /// `config.reference` -- Reference.
 pub fn group_reference(ui: &mut egui::Ui, c: &mut Config) {
     if c.shadows.method == crate::app::config::ShadowMethod::Reference {
-        setting(ui, "error", "The standard error the sum stops at, in the image's values (0 to 1): the 99.9th percentile of the pixels', from the spread of four independent estimates of each. Half an 8-bit step, 1/510, by default.", |ui| ui.add(egui::DragValue::new(&mut c.reference.error).speed(0.0001)));
+        setting(ui, "error", "The standard error the sum stops at, as a share of the image's brightest value: the 99.9th percentile of the pixels', from the spread of four independent estimates of each. 1/510 by default, half an 8-bit step of an image whose brightest is white.", |ui| ui.add(egui::DragValue::new(&mut c.reference.error).speed(0.0001)));
     }
     if c.shadows.method == crate::app::config::ShadowMethod::Reference {
         setting(ui, "max_samples", "The most samples a pixel takes, the error reached or not.", |ui| ui.add(egui::Slider::new(&mut c.reference.max_samples, 64..=65536).clamping(egui::SliderClamping::Edits)));

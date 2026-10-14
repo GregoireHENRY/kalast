@@ -10,14 +10,16 @@
 //! (Cranley-Patterson), so the four are independent estimates of the same
 //! pixel and their spread is an honest standard error -- the naive one, from
 //! one low-discrepancy sequence's samples, is far too pessimistic. The sum
-//! stops once the 99.9th percentile of that error over the image is under
-//! `reference.error`, or at `reference.max_samples`, or when the UI's button
-//! stops it (`ReferenceAsk`); anything that changes the scene starts it
-//! again. The sums are of the samples over `light.exposure`, which the mean
-//! is multiplied by again as it is shown, read and measured: the image is
-//! linear in it, so a new exposure is a new view of the same sum, not a new
-//! sum. No denoiser, no history, no clamp: a plain mean of fixed sequences,
-//! the same image every run.
+//! stops once the 99.9th percentile of that error over the image, as a share
+//! of the image's brightest value, is under `reference.error` -- the image's
+//! own measure, which no exposure, `srgb_mode` or stretch changes -- or at
+//! `reference.max_samples`, or when the UI's button stops it
+//! (`ReferenceAsk`); anything that changes the scene starts it again. The
+//! sums are of the samples over `light.exposure`, which the mean is
+//! multiplied by again as it is shown and read: the image is linear in it,
+//! so a new exposure is a new view of the same sum, not a new sum. No
+//! denoiser, no history, no clamp: a plain mean of fixed sequences, the same
+//! image every run.
 //!
 //! See `notes/2026-10-10_ray_traced_shadows/`.
 
@@ -26,9 +28,9 @@ use wgpu::util::DeviceExt;
 /// Independent estimates of each pixel, whose spread is its error.
 pub const REPLICAS: u32 = 4;
 
-/// The histogram's bins: zero, a third of an octave each from 2^-24, and
-/// the largest error, as `cs_error` fills them.
-const BINS: usize = 97;
+/// The histogram's bins: zero, a third of an octave each from 2^-24, the
+/// largest error and the brightest mean, as `cs_error` fills them.
+const BINS: usize = 98;
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -63,7 +65,8 @@ pub struct Reference {
     pub counts: [u32; 4],
     /// What the scene was when the sum began (`Window::update`).
     pub scene: Option<Scene>,
-    /// The 99.9th percentile of the pixels' standard error, last measured.
+    /// The 99.9th percentile of the pixels' standard error as a share of the
+    /// image's brightest value, last measured.
     pub error: Option<f32>,
     /// The sum has stopped: under `reference.error`, at its last sample, or
     /// by hand.
@@ -78,8 +81,8 @@ pub struct Reference {
     /// The response's result the simulation's copy of the mean was last
     /// read from (`Window::reference_after_frame`): `None`, the mean itself.
     pub response_read: Option<u64>,
-    /// The exposure `error` was measured at and the mean last read back at
-    /// (`read`), for both to follow a new one (`Window::reference_after_frame`).
+    /// The exposure the mean was last read back at (`read`), for it to
+    /// follow a new one (`Window::reference_after_frame`).
     pub exposure: Option<f32>,
     /// What the uniform holds for the mean to be shown with: `(srgb_mode,
     /// exposure)`.
@@ -338,8 +341,10 @@ impl Reference {
         pass.draw(0..3, 0..1);
     }
 
-    /// The 99.9th percentile of the pixels' standard error, and the largest:
-    /// from the histogram `cs_error` fills, read back. Blocking.
+    /// The 99.9th percentile of the pixels' standard error as a share of the
+    /// image's brightest value, and that value, without the exposure: from
+    /// the histogram `cs_error` fills, read back. A share of nothing is 0 for
+    /// an error of nothing, else infinite. Blocking.
     pub fn measure(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> (f32, f32) {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("reference error") });
         encoder.clear_buffer(&self.histogram, 0, None);
@@ -356,8 +361,8 @@ impl Reference {
         let _ = device.poll(wgpu::PollType::Wait { submission_index: None, timeout: None });
         let bins: Vec<u32> = bytemuck::cast_slice(&slice.get_mapped_range().unwrap()).to_vec();
         self.histogram_read.unmap();
-        let largest = f32::from_bits(bins[BINS - 1]);
-        (percentile(&bins[..BINS - 1], 0.999), largest)
+        let brightest = f32::from_bits(bins[BINS - 1]);
+        (share(percentile(&bins[..BINS - 2], 0.999), brightest), brightest)
     }
 
     /// Each pixel's mean, rows from the top, three channels, and its standard
@@ -435,6 +440,29 @@ pub fn radical_inverse(mut i: u32, base: u32) -> f32 {
     r as f32
 }
 
+/// `error` as a share of `brightest`: 0 for no error, infinite for an error of
+/// an image all black.
+fn share(error: f32, brightest: f32) -> f32 {
+    if error <= 0.0 {
+        0.0
+    } else if brightest > 0.0 {
+        error / brightest
+    } else {
+        f32::INFINITY
+    }
+}
+
+/// A share as a percentage, for the toolbar and the log: two decimals, or
+/// with its power of ten when that is under a hundredth.
+pub fn percent(share: f32) -> String {
+    let p = share * 100.0;
+    if p == 0.0 || p >= 0.01 || !p.is_finite() {
+        format!("{p:.2} %")
+    } else {
+        format!("{p:.1e} %")
+    }
+}
+
 /// The value under which a share `q` of the counted errors lie: the upper
 /// edge of the bin it falls in -- bin 0 is zero, bin `b` up to
 /// `2^(b/3 - 24)`.
@@ -496,8 +524,17 @@ mod tests {
         assert!((b3[0] - 1.0 / 3.0).abs() < 1e-7 && (b3[1] - 2.0 / 3.0).abs() < 1e-7 && (b3[2] - 1.0 / 9.0).abs() < 1e-7);
     }
 
-    /// The percentile is the upper edge of the bin holding it.
+    /// The error as a share of the brightest, nothing of nothing.
     #[test]
+    fn the_error_is_a_share_of_the_brightest() {
+        assert_eq!(super::share(0.002, 0.5), 0.004);
+        assert_eq!(super::share(0.0, 0.0), 0.0);
+        assert_eq!(super::share(1e-3, 0.0), f32::INFINITY);
+        assert_eq!(super::percent(0.00196), "0.20 %");
+        assert_eq!(super::percent(1e-9), "1.0e-7 %");
+    }
+
+    /// The percentile is the upper edge of the bin holding it.
     fn the_percentile_is_its_bins_upper_edge() {
         let mut bins = vec![0u32; 96];
         bins[0] = 990; // exactly zero

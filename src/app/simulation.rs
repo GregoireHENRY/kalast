@@ -1955,7 +1955,8 @@ mod framing_tests {
 pub struct ReferenceState {
     /// Samples of each pixel summed so far.
     pub samples: u32,
-    /// The 99.9th percentile of the pixels' standard error, last measured.
+    /// The 99.9th percentile of the pixels' standard error, last measured,
+    /// as a share of the image's brightest value.
     pub error: Option<f32>,
     /// The sum has stopped: under `reference.error`, at its last sample, or
     /// by hand (`stopped`).

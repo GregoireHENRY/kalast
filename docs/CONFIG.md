@@ -2014,8 +2014,8 @@ reverse-engineered from the matrix.
 
 `shadows.method = "reference"`: a still drawn as exactly as kalast can, for a
 figure or to check a faster method against. Every frame adds a sample of every
-pixel and the image sharpens, until its error is under `reference.error`; then
-it holds. In the editor, "Reference" in the shadows' method list, its rows
+pixel and the image sharpens, until its error, as a share of its brightest
+value, is under `reference.error`; then it holds. In the editor, "Reference" in the shadows' method list, its rows
 under it with a line saying how far it has got; and in the toolbar, how far,
 a button that stops the sum where it is -- the mean so far the image -- and
 takes it on again, and once it has stopped, why: converged (green), at its
@@ -2035,8 +2035,9 @@ Anything that changes what is drawn starts the sum again: the camera, the Sun,
 a body -- where it is, its law, its colours --, a setting, the meshes, the
 image's size. A script stepping a still scene does not, and nor does
 `light.exposure`: the sums are of the samples over it, which the mean is
-multiplied by again as it is shown, read and measured -- the image is linear
-in it -- so a new exposure is a new view of the same sum, done or not. Nor
+multiplied by again as it is shown and read -- the image is linear in it --
+so a new exposure is a new view of the same sum, done or not, and it stops
+where it would have: its error is a share of its own brightest value. Nor
 `shading.srgb_mode` in the shaded mode, which changes how the mean is shown
 and not what is summed: mode 1's target is drawn the sRGB-decoded values the
 sum encodes again, the stored values either way. Both do restart it with
@@ -2045,10 +2046,13 @@ unlit modes, whose colours it changes. Nor `response`, applied to the mean,
 nor `stretch`, which shows it.
 
 Measured on the wall of `tests/test_reference.py` (600 x 400, the Sun 25 deg
-up): stopped by itself at 1,680 samples, 0.5 ms a sample on an RTX 5080;
-across the wall's penumbra each pixel within 0.0017 of the disc's light its
-ground sees, worked out in float64 (rms 0.0007), inside the image's own
-stated error.
+up, the lit plate at 0.42): stopped by itself at 7,248 samples, its error
+0.18 % of the plate's brightness, about 5 ms a sample on an M1 Pro (0.5 ms on
+an RTX 5080); across the wall's penumbra each pixel within 0.0012 of the
+disc's light its ground sees, worked out in float64 (rms 0.0005), inside the
+image's own stated error. Until 14 October the goal was half an 8-bit step of
+the image as shown, and the same sum stopped at 1,680 samples -- sooner the
+darker it was shown.
 
 The shadows are traced with rays where the GPU can, against the full meshes;
 the level of detail and MSAA are off -- the image is integrated over its
@@ -2060,10 +2064,13 @@ follow it; `sim.reference_image()` gives the mean as floats once done,
 `sim.reference_error_image()` each pixel's standard error.
 
 ### `reference.error: float` — default `1/510` *(live)*
-The standard error the sum stops at, in the image's values (0 to 1): the
-99.9th percentile of the pixels', measured every sixteen samples, after 64.
-Half an 8-bit step by default. The error falls about as `n^-0.75`: a quarter
-of it takes about six times the samples.
+The standard error the sum stops at, as a share of the image's brightest
+value: the 99.9th percentile of the pixels', measured every sixteen samples,
+after 64. 1/510 by default, half an 8-bit step of an image whose brightest is
+white. The image's own measure, so the same sum stops at the same sample
+whatever its `light.exposure`, `srgb_mode` or `stretch`; a stretch that lifts
+the shadows shows their noise, which may want it smaller. The error falls
+about as `n^-0.75`: a quarter of it takes about six times the samples.
 
 ### `reference.max_samples: u32` — default `4096` *(live)*
 The most samples a pixel takes, the error reached or not.

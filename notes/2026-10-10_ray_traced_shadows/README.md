@@ -451,6 +451,35 @@ saved nothing: the copies built first and the input buffers stayed allocated
 until an empty submit and a wait after compacting let them go (wgpu's
 allocator report: 1,312 MiB in use built, 1,055 compacted).
 
+## The stop judged against the image itself (14 October)
+
+The user asked why one run of Phobos's h8870 converged and the other, the
+camera's response off, did not. The response was not why: it is applied to
+the mean, and on and off a small scene stopped at the same sample with the
+same error, to four digits. The exposure was: the error was measured in the
+image's values as shown -- the sums times `light.exposure` -- against a fixed
+half an 8-bit step, so the same sum shown darker stopped sooner. On a sphere
+with a bounce: at exposure 0.2 converged at 192 samples, at 1 and 40 stopped
+at its 512 limit, with errors of 4.9 x 10^-3 and 0.198 -- the same noise,
+scaled. "what? lower exposure makes the tracing converge faster?" It should
+not, now that exposure, `srgb_mode` and the stretch only show the sum.
+
+The error is now a share of the image's brightest value: `cs_error` measures
+both without the exposure, the brightest mean's largest channel by
+`atomicMax` into the histogram's last slot, and `measure` divides the 99.9th
+percentile by it (0 for no error, infinite for an image all black).
+`reference.error` keeps 1/510, which is what it meant for an image whose
+brightest is white; the toolbar and the log say it as a percentage of the
+brightest. The label "at its limit" is now done, not by hand, with the error
+over the goal -- it had needed the samples at `max_samples` too, and read
+"converged" once that was raised after the end, or the exposure lowered.
+
+`tests/test_reference_controls.py`: the same sum stops at the same sample, 80,
+with the same error, at exposures 1 and 0.2. The wall of
+`tests/test_reference.py`, its plate at 0.42, now stops at 7,248 samples, its
+error 0.18 % of the plate, where it stopped at 1,680 (0.46 %): the same
+quality as a well-exposed image, which takes longer for a dim one.
+
 ## Found on the way, not ray tracing's
 
 - `tests/test_horizon_map.py` fails one check, "and not more or less on the
