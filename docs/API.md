@@ -1261,17 +1261,31 @@ is printed too.
 The mean is the values the image stores, before they are rounded to 8 bits:
 radiance, linear, with `shading.srgb_mode` 0 or 1 alike -- through the
 camera's response when `config.response` is on (`CONFIG.md`, "Camera
-response"), the error image the mean's own. Both arrays are `None` until the
-image is done; exporting a frame then (`sim.export_once()`) writes the mean as
-a PNG. See `CONFIG.md`, "Reference image".
+response"), the error image the mean's own; never through `config.stretch`,
+which only shows it. Both arrays are `None` until the image is done; exporting
+a frame then (`sim.export_once()`) writes the mean as a PNG, as shown. See
+`CONFIG.md`, "Reference image".
 
 After changing anything -- a setting, the camera, `reference.bounces` --
 step once before reading `sim.reference_done`: the change is seen, and the
 sum begun again, when the next frame is drawn, and until then
 `reference_done` still speaks of the last sum. `config.light.exposure`,
-`shading.srgb_mode` in the shaded mode, and `config.response` are the
-exceptions: they change how the mean is shown, done or not, and the sum goes
-on.
+`shading.srgb_mode` in the shaded mode, `config.response` and
+`config.stretch` are the exceptions: they change how the mean is shown, done
+or not, and the sum goes on.
+
+### A stretch's limits
+
+```python
+sim.config.stretch.scale, sim.config.stretch.limits = "sqrt", "percent"
+app.step(); app.step()
+low, high = sim.stretch_limits          # the values shown black and white
+```
+
+`sim.stretch_limits` is `(low, high)`, in the image's values -- `exposure *
+I/F` before `srgb_mode` stores them -- as the GPU found them for a frame
+(`CONFIG.md`, "Stretch"): read back without waiting, so a frame or two after
+the stretch changes. `None` without a stretch.
 
 **`1.0 - frac` is not the lit fraction**, which is what it looks like and what
 this document used to say. It is the *unblocked* fraction. A facet with

@@ -694,8 +694,9 @@ pub struct Light {
     /// scaled with it, and the debug cube is drawn as bright. With
     /// `shading.srgb_mode = 1` an exported pixel reads `exposure * I/F * 255`:
     /// 4.5 shows I/F 0 to 0.22 from black to white, and anything brighter
-    /// clips at white. The data mode's colours -- a colormap's -- are data,
-    /// and keep theirs.
+    /// clips at white -- without a `stretch`, which shows the values its own
+    /// way. The data mode's colours -- a colormap's -- are data, and keep
+    /// theirs.
     /// :range: 0.0..=10.0
     pub exposure: f32,
     /// The Sun as a point, every shadow hard; on by default.
@@ -1160,6 +1161,12 @@ impl Config {
     /// Whether anything casts a shadow: every `shadows.method` but "none".
     pub fn shadows_on(&self) -> bool {
         self.shadows.method != ShadowMethod::None
+    }
+
+    /// Whether the image is shown through a stretch: one set, in the shaded
+    /// colour mode.
+    pub fn stretch_on(&self) -> bool {
+        self.shading.color_mode == ColorMode::Shaded && !self.stretch.is_identity()
     }
 
     /// Set the shadow settings for one use (`Quality`).
@@ -1943,6 +1950,179 @@ impl Response {
     }
 }
 
+/// How the image's values are shown (`app::stretch`), as SAO DS9 scales an
+/// image: each value taken from between two limits, the low one black and
+/// the high one white, through a function -- a logarithm, a square root, ...
+/// -- for faint and bright to show together. The window and exported frames
+/// show it; `sim.reference_image()` still reads the values themselves, and
+/// the HUD, the axes and the colour bar are drawn over it as they are. In the
+/// shaded colour mode only: the data mode's colours are data.
+///
+/// The values are the image's -- `exposure * I/F` -- before `srgb_mode`
+/// stores them, the largest of a pixel's three channels; the background
+/// counts. The limits come from all of them, each frame, on the GPU. Off --
+/// `"linear"` between `"user"` limits of 0 and 1, the default -- the image is
+/// drawn as it was. On, it is drawn into floats first, single-sampled as a
+/// camera's response has it.
+#[derive(Clone, Debug)]
+pub struct Stretch {
+    /// The function between the limits, DS9's: `"linear"`, the default,
+    /// `"log"`, `"pow"`, `"sqrt"`, `"squared"`, `"asinh"`, `"sinh"`, or
+    /// `"histequ"`, histogram equalisation.
+    pub scale: StretchScale,
+    /// The values shown black and white: `"user"`, the default, `low` and
+    /// `high`; `"minmax"`, the image's least and greatest; `"percent"`;
+    /// `"zscale"`, IRAF's; or `"zmax"`, zscale's low and the greatest.
+    pub limits: StretchLimits,
+    /// With `"percent"` limits: the share of the values between them, the
+    /// rest cut as much below as above. 99.5 by default.
+    /// :when: limits == StretchLimits::Percent
+    /// :range: 50.0..=100.0
+    pub percent: f32,
+    /// With `"user"` limits: the value shown black, in the image's values
+    /// -- 1 is white unstretched.
+    /// :when: limits == StretchLimits::User
+    /// :step: 0.001
+    pub low: f32,
+    /// With `"user"` limits: the value shown white.
+    /// :when: limits == StretchLimits::User
+    /// :step: 0.001
+    pub high: f32,
+    /// The `"log"` and `"pow"` scales' exponent `a`: DS9's 1000 by default.
+    /// :when: scale.has_exponent()
+    /// :step: 10.0
+    pub exponent: f32,
+    /// zscale's contrast: IRAF's 0.25 by default; less widens the limits.
+    /// :when: limits.zscale()
+    /// :range: 0.01..=1.0
+    pub contrast: f32,
+}
+
+impl Default for Stretch {
+    fn default() -> Self {
+        Self {
+            scale: StretchScale::Linear,
+            limits: StretchLimits::User,
+            percent: 99.5,
+            low: 0.0,
+            high: 1.0,
+            exponent: 1000.0,
+            contrast: 0.25,
+        }
+    }
+}
+
+impl Stretch {
+    /// Nothing done: linear from 0 to 1, the image as drawn.
+    pub fn is_identity(&self) -> bool {
+        self.scale == StretchScale::Linear && self.limits == StretchLimits::User && self.low == 0.0 && self.high == 1.0
+    }
+}
+
+/// The function a stretch shows its values through (`stretch.scale`), of
+/// `x` from 0 at the low limit to 1 at the high one: DS9's, each made 1 at
+/// 1 exactly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StretchScale {
+    /// `x`. The default.
+    Linear,
+    /// `log(a x + 1) / log(a + 1)`, `a` the exponent: the faint lifted.
+    Log,
+    /// `(a^x - 1) / (a - 1)`: the bright spread, the inverse of log.
+    Pow,
+    /// The square root of `x`.
+    Sqrt,
+    /// `x` squared.
+    Squared,
+    /// `asinh(10 x) / asinh(10)`: linear in the faint, logarithmic above.
+    Asinh,
+    /// `sinh(3 x) / sinh(3)`.
+    Sinh,
+    /// Histogram equalisation: each value shown as the share of the values
+    /// between the limits under it.
+    Histequ,
+}
+
+impl StretchScale {
+    pub const ALL: [StretchScale; 8] =
+        [Self::Linear, Self::Log, Self::Pow, Self::Sqrt, Self::Squared, Self::Asinh, Self::Sinh, Self::Histequ];
+
+    /// Parsed from Python, where these are plain strings.
+    pub fn parse(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|m| m.name() == s.to_ascii_lowercase())
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Linear => "linear",
+            Self::Log => "log",
+            Self::Pow => "pow",
+            Self::Sqrt => "sqrt",
+            Self::Squared => "squared",
+            Self::Asinh => "asinh",
+            Self::Sinh => "sinh",
+            Self::Histequ => "histequ",
+        }
+    }
+
+    /// The number `stretch.wgsl` takes.
+    pub fn code(&self) -> u32 {
+        Self::ALL.iter().position(|m| m == self).unwrap() as u32
+    }
+
+    /// Whether `exponent` is used: `"log"` and `"pow"`.
+    pub fn has_exponent(&self) -> bool {
+        matches!(self, Self::Log | Self::Pow)
+    }
+}
+
+/// How a stretch's limits are found (`stretch.limits`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StretchLimits {
+    /// `low` and `high`, as given. The default.
+    User,
+    /// The image's least value and its greatest.
+    Minmax,
+    /// The values `percent` of them lie between, as many cut below as above:
+    /// from a histogram, to about 1 %.
+    Percent,
+    /// IRAF's zscale, as DS9 and astropy have it: a line fitted to 1000 of
+    /// the values, sorted, the outliers cut, its slope over `contrast` about
+    /// the median. For a sky and its faint objects.
+    Zscale,
+    /// zscale's low limit, and the greatest value.
+    Zmax,
+}
+
+impl StretchLimits {
+    pub const ALL: [StretchLimits; 5] = [Self::User, Self::Minmax, Self::Percent, Self::Zscale, Self::Zmax];
+
+    /// Parsed from Python, where these are plain strings.
+    pub fn parse(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|m| m.name() == s.to_ascii_lowercase())
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::User => "user",
+            Self::Minmax => "minmax",
+            Self::Percent => "percent",
+            Self::Zscale => "zscale",
+            Self::Zmax => "zmax",
+        }
+    }
+
+    /// The number `stretch.wgsl` takes.
+    pub fn code(&self) -> u32 {
+        Self::ALL.iter().position(|m| m == self).unwrap() as u32
+    }
+
+    /// Whether zscale's fit is made: `"zscale"` and `"zmax"`.
+    pub fn zscale(&self) -> bool {
+        matches!(self, Self::Zscale | Self::Zmax)
+    }
+}
+
 /// Diagnostics and console output.
 #[derive(Clone, Debug)]
 pub struct Diagnostics {
@@ -2037,6 +2217,8 @@ pub struct Config {
     pub image: Image,
     /// What the camera does to the image it records.
     pub response: Response,
+    /// How the image's values are shown, as SAO DS9 scales an image.
+    pub stretch: Stretch,
     /// Diagnostics and console output.
     pub debug: Diagnostics,
 }
@@ -2059,6 +2241,7 @@ impl Default for Config {
             controls: Controls::default(),
             image: Image::default(),
             response: Response::default(),
+            stretch: Stretch::default(),
             debug: Diagnostics::default(),
         }
     }

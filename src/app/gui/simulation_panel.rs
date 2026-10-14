@@ -1217,6 +1217,16 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config) {
              floats by an FFT, before the overlays.",
         );
         ui.push_id("response", |ui| group_response(ui, c));
+        subheading(ui, "stretch").on_hover_text(
+            "How the image's values are shown, as SAO DS9 scales an image: each taken from between two limits, \
+             black at the low one and white at the high one, through a function -- a logarithm, a square root, \
+             ... -- for faint and bright to show together. The window and exported frames show it; a script \
+             still reads the values themselves.",
+        );
+        ui.push_id("stretch", |ui| group_stretch(ui, c));
+        if let Some([low, high, least, greatest]) = sim.stretch_limits {
+            note(ui, &format!("now {} to {}, the image {} to {}", short(low), short(high), short(least), short(greatest)));
+        }
     });
 
     topic(ui, codicon::RECORD_KEYS, palette::FLAMINGO, "Controls", |ui| group_controls(ui, c));
@@ -1460,5 +1470,17 @@ mod naming_tests {
 
         let bare = crate::app::body::Body::default();
         assert_eq!(body_name(&bare), "built in memory");
+    }
+}
+
+/// A value in four figures: plainly between a thousandth and ten thousand,
+/// else with its power of ten.
+fn short(v: f32) -> String {
+    let a = v.abs();
+    if a == 0.0 || (1e-3..1e4).contains(&a) {
+        let digits = if a == 0.0 { 0 } else { (3 - a.log10().floor() as i32).clamp(0, 6) as usize };
+        format!("{v:.digits$}")
+    } else {
+        format!("{v:.3e}")
     }
 }

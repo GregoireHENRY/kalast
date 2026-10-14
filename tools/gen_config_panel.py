@@ -68,6 +68,8 @@ ENUMS = {
     "UiTheme": ("src/app/config.rs", "UiTheme"),
     "ShadowMethod": ("src/app/config.rs", "ShadowMethod"),
     "ColorMode": ("src/app/config.rs", "ColorMode"),
+    "StretchScale": ("src/app/config.rs", "StretchScale"),
+    "StretchLimits": ("src/app/config.rs", "StretchLimits"),
 }
 # Config's groups, `shading`, `light`, ...: a `:when:` clause naming one
 # first is about a field of that group. Filled in by `main`.

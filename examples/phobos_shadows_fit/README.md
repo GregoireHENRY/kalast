@@ -3,7 +3,7 @@
 Four images of Phobos from the Super Resolution Channel of Mars Express's
 HRSC, drawn by kalast and set beside the real ones.
 
-- [simple.py](simple.py): one of them, h8963 of 6 January 2011, in kalast's
+- [simple.py](simple.py): one of them, picked in its `IMAGES`, in kalast's
   window. The shortest way in.
 - [main.py](main.py): the four, saved to `out/phobos_hrsc/`; its docstring
   lists the options (shadow method, scattering law, shape model, ...).
@@ -45,7 +45,7 @@ they are kept here, so set them to yours.
 ## Running
 
 ```sh
-python simple.py                    # h8963 in the window
+python simple.py                    # one image in the window
 python main.py rays hapke ernst     # the four, saved
 python main.py reference            # the same, traced, with Mars's light
 python compare.py                   # figures and table

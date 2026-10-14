@@ -14,7 +14,8 @@ sat on the simulation's config by accident.
 **The simulation's config is a struct of groups**, and the Python surface
 follows it: `app.simulation.config.<group>.<field>`. The groups are `shading`,
 `light`, `shadows`, `wireframe`, `selection`, `data`, `colorbar`, `axes`,
-`grid`, `hud`, `export`, `controls`, `image` and `debug`, and every entry below
+`grid`, `hud`, `export`, `controls`, `image`, `reference`, `response`,
+`stretch` and `debug`, and every entry below
 is headed by its full path. Each `config.<group>` is a *live view* -- it reads
 and writes the same config as every other view, so
 `app.simulation.config.grid.color = ...` takes effect exactly as the flat name
@@ -624,64 +625,6 @@ other turns the triangles' winding round, so the scene pass culls the other
 side; changing that rebuilds the pipelines, as `shading.render_back_face`
 does.
 
-## Camera response
-
-What the camera does to the image it records: its point spread -- a Gaussian
-core and up to two exponential halos -- and a smear along a line, the image
-moved across the sensor during the exposure. The image drawn, exported and
-read (`sim.reference_image()`) is the scene through it; the HUD, the axes and
-the colour bar are drawn over it as they are.
-
-```python
-r = app.simulation.config.response
-r.enabled = True
-r.core = 2.19                                 # pixels, the Gaussian's sigma
-r.halo_share, r.halo_scale = 0.012, 53.0      # 1.2 % of the light, exp(-r/53)
-r.halo2_share, r.halo2_scale = 0.282, 434.0   # 28.2 %, exp(-r/434)
-r.smear, r.smear_angle = 2.34, 0.0            # pixels, along the rows
-```
-
--- the HRSC SRC's, fitted to its images of Phobos
-(`notes/2026-10-12_phobos_hrsc_shadows/`): `examples/phobos_shadows_fit/simple.py`
-draws its image through it.
-
-Applied to the image's floats by an FFT on the GPU, the image padded with
-zeros to twice its size in powers of two. Each part of the point spread is
-normalised over the offsets of that padded image, the light it spreads
-further put back within it -- as `examples/phobos_shadows_fit/hrsc.py`'s
-response has it, whose parameters these are; against it in float64, within
-10^-6 of the brightest (`tests/test_response.py`). The core holds the light
-the halos do not; their shares over 1 together are scaled down to 1.
-
-With a reference image, its mean goes through it -- turning it on or off, or
-changing it, carries the sum on -- and once done is transformed once. Without
-one, the image is drawn as a reference's sample is, single-sampled into
-floats, the response smoothing its edges instead of MSAA, and transformed
-every frame: 27 ms at 1008 x 1018 -- a 2048 x 2048 transform -- on an M1 Pro.
-An image whose transform needs more memory than the GPU binds is drawn
-without it, and said so.
-
-### `response.enabled: bool` — default `False` *(live)*
-Apply it.
-
-### `response.core: float` — default `0` *(live)*
-The core's standard deviation, pixels: a Gaussian holding the light the halos
-do not. `0`: a point.
-
-### `response.halo_share: float` — default `0` *(live)*
-### `response.halo_scale: float` — default `0` *(live)*
-### `response.halo2_share: float` — default `0` *(live)*
-### `response.halo2_scale: float` — default `0` *(live)*
-The halos: each a share of the light spread as `exp(-r / scale)`, the scale in
-pixels.
-
-### `response.smear: float` — default `0` *(live)*
-### `response.smear_angle: float` — default `0` *(live)*
-The smear's length, pixels, and its direction, degrees from the image's x axis
-toward its y axis, down the image: each point drawn out to a segment, each
-pixel of it taking the length its square holds -- along the rows, a box with
-partial ends.
-
 ### `app.config.fullscreen: bool` — default `false` *(live, remembered)*
 Fill the screen. Accepted: `True` / `False`.
 
@@ -818,6 +761,139 @@ caster above a finer receiver would shadow it wherever the coarse surface
 passes above the fine one, across every crater floor. With
 `shadows.access_shadow_map`, or a per-facet shadow query pending, the maps
 take the full mesh.
+
+## Camera response
+
+What the camera does to the image it records: its point spread -- a Gaussian
+core and up to two exponential halos -- and a smear along a line, the image
+moved across the sensor during the exposure. The image drawn, exported and
+read (`sim.reference_image()`) is the scene through it; the HUD, the axes and
+the colour bar are drawn over it as they are.
+
+```python
+r = app.simulation.config.response
+r.enabled = True
+r.core = 2.19                                 # pixels, the Gaussian's sigma
+r.halo_share, r.halo_scale = 0.012, 53.0      # 1.2 % of the light, exp(-r/53)
+r.halo2_share, r.halo2_scale = 0.282, 434.0   # 28.2 %, exp(-r/434)
+r.smear, r.smear_angle = 2.34, 0.0            # pixels, along the rows
+```
+
+-- the HRSC SRC's, fitted to its images of Phobos
+(`notes/2026-10-12_phobos_hrsc_shadows/`): `examples/phobos_shadows_fit/simple.py`
+draws its image through it.
+
+Applied to the image's floats by an FFT on the GPU, the image padded with
+zeros to twice its size in powers of two. Each part of the point spread is
+normalised over the offsets of that padded image, the light it spreads
+further put back within it -- as `examples/phobos_shadows_fit/hrsc.py`'s
+response has it, whose parameters these are; against it in float64, within
+10^-6 of the brightest (`tests/test_response.py`). The core holds the light
+the halos do not; their shares over 1 together are scaled down to 1.
+
+With a reference image, its mean goes through it -- turning it on or off, or
+changing it, carries the sum on -- and once done is transformed once. Without
+one, the image is drawn as a reference's sample is, single-sampled into
+floats, the response smoothing its edges instead of MSAA, and transformed
+every frame: 27 ms at 1008 x 1018 -- a 2048 x 2048 transform -- on an M1 Pro.
+An image whose transform needs more memory than the GPU binds is drawn
+without it, and said so.
+
+### `response.enabled: bool` — default `False` *(live)*
+Apply it.
+
+### `response.core: float` — default `0` *(live)*
+The core's standard deviation, pixels: a Gaussian holding the light the halos
+do not. `0`: a point.
+
+### `response.halo_share: float` — default `0` *(live)*
+### `response.halo_scale: float` — default `0` *(live)*
+### `response.halo2_share: float` — default `0` *(live)*
+### `response.halo2_scale: float` — default `0` *(live)*
+The halos: each a share of the light spread as `exp(-r / scale)`, the scale in
+pixels.
+
+### `response.smear: float` — default `0` *(live)*
+### `response.smear_angle: float` — default `0` *(live)*
+The smear's length, pixels, and its direction, degrees from the image's x axis
+toward its y axis, down the image: each point drawn out to a segment, each
+pixel of it taking the length its square holds -- along the rows, a box with
+partial ends.
+
+## Stretch
+
+How the image's values are shown, as SAO DS9 scales an image: each value taken
+from between two limits -- black at the low one, white at the high one --
+through a function, for faint and bright to show together. The window and
+exported frames show it; `sim.reference_image()` still reads the values
+themselves, and the HUD, the axes and the colour bar are drawn over it as they
+are. In the shaded colour mode only: the data mode's colours are data.
+
+```python
+s = app.simulation.config.stretch
+s.scale = "sqrt"          # linear, log, pow, sqrt, squared, asinh, sinh, histequ
+s.limits = "percent"      # user, minmax, percent, zscale, zmax
+s.percent = 99.5          # 0.25 % of the values cut below, 0.25 % above
+```
+
+-- the square root of the brightest 99.5 %, close to how
+`examples/phobos_shadows_fit/compare.py`'s figures show HRSC's images. `sim.stretch_limits` reads the limits found.
+
+A value is a pixel's largest channel as the image stores it -- `exposure *
+I/F` with `shading.srgb_mode = 1` -- and the background counts. The limits
+come from every pixel, each frame, on the GPU; the functions are DS9's, each
+made 1 at the high limit exactly, so the result is within 0.2 % of DS9's.
+What is shown goes where the value went: stored as it is with `srgb_mode = 1`,
+through the sRGB curve with `0`. With a reference image, its mean -- through
+the camera's response when on -- is what is stretched, and changing the
+stretch carries the sum on.
+
+Off -- `"linear"` between `"user"` limits of 0 and 1, the default -- the image
+is drawn as it was. On, it is drawn into floats first, single-sampled, as with
+the camera's response: `shading.msaa` does not apply, and the reference
+integrates each pixel. At 1008 x 1018 on an M1 Pro, a frame of the maps took
+2.8 to 3.7 ms with a stretch, against 3.2 ms without one at 4x MSAA
+(`tests/test_stretch.py` checks each against numpy and astropy).
+
+### `stretch.scale: str` — default `"linear"` *(live)*
+The function of `x`, from 0 at the low limit to 1 at the high one; `a` is
+`stretch.exponent`.
+
+| Value | `y` | |
+|---|---|---|
+| `"linear"` | `x` | the default |
+| `"log"` | `log(a x + 1) / log(a + 1)` | the faint lifted |
+| `"pow"` | `(a^x - 1) / (a - 1)` | the bright spread |
+| `"sqrt"` | `sqrt(x)` | |
+| `"squared"` | `x^2` | |
+| `"asinh"` | `asinh(10 x) / asinh(10)` | linear in the faint, logarithmic above |
+| `"sinh"` | `sinh(3 x) / sinh(3)` | |
+| `"histequ"` | the share of the values between the limits below `x` | histogram equalisation, over 2048 bins |
+
+### `stretch.limits: str` — default `"user"` *(live)*
+| Value | Low and high |
+|---|---|
+| `"user"` | `stretch.low` and `stretch.high`, the default |
+| `"minmax"` | the image's least and greatest values |
+| `"percent"` | the values `stretch.percent` of them lie between, as many cut below as above: from a histogram of 32 bins an octave, read across the bin, to well under 1 % |
+| `"zscale"` | IRAF's zscale, as DS9 and astropy have it: a line fitted to 1000 of the values, sorted, the outliers cut, its slope over `stretch.contrast` about the median -- for a sky and its faint objects; astropy's own to 10^-4 |
+| `"zmax"` | zscale's low limit, and the greatest value |
+
+### `stretch.percent: float` — default `99.5` *(live)*
+With `"percent"` limits: the share of the values between them, from 50 to 100;
+100 is `"minmax"`.
+
+### `stretch.low: float` — default `0.0` *(live)*
+### `stretch.high: float` — default `1.0` *(live)*
+With `"user"` limits: the values shown black and white, in the image's values --
+1 is white unstretched.
+
+### `stretch.exponent: float` — default `1000.0` *(live)*
+The `"log"` and `"pow"` scales' `a`, DS9's default.
+
+### `stretch.contrast: float` — default `0.25` *(live)*
+zscale's contrast, IRAF's default: the limits are the fitted line's ends with
+its slope divided by it, so less widens them.
 
 ---
 
@@ -1409,7 +1485,7 @@ shader's to within one level of 255:
 | Value | Exact | The other side |
 |---|---|---|
 | `0` | the data's colours: a colormap's, a picked facet's -- stored as given | lit shading through the curve, as a screen shows it: a lit 0.078 stored as 0.31 |
-| `1` | the lit value: an exported pixel reads I/F = value / 255, at any brightness | the data's colours come out lighter |
+| `1` | the lit value: an exported pixel reads I/F = value / 255, at any brightness, without a `stretch` | the data's colours come out lighter |
 
 So `0` for a figure coloured by data -- a temperature map keeps its colormap's
 colours -- and `1` for a lit image compared with a camera's. Accepted: `0` or
@@ -1463,7 +1539,8 @@ Scales the light by one number, `light.color`'s red, green and blue alike: a
 camera's exposure. A lit pixel is `exposure * color * albedo * cos(i)`, the
 ambient term scaled with it, and the debug light cube is drawn as bright. With
 `shading.srgb_mode = 1` an exported pixel reads `exposure * I/F * 255`: `4.5`
-shows I/F 0 to 0.22 from black to white, and a brighter pixel clips at white.
+shows I/F 0 to 0.22 from black to white, and a brighter pixel clips at white --
+without a `stretch`, which shows the values its own way (see "Stretch").
 The data mode's colours -- a colormap's -- are data and are not scaled. Multiplied into the light's colour where the light uniform
 is filled, `src/app/window.rs`.
 Accepted: any float `>= 0.0`; the settings' slider stops at 10, a script does
@@ -1964,7 +2041,8 @@ in it -- so a new exposure is a new view of the same sum, done or not. Nor
 and not what is summed: mode 1's target is drawn the sRGB-decoded values the
 sum encodes again, the stored values either way. Both do restart it with
 `shading.gamma` set, whose power law is not linear, and `srgb_mode` in the
-unlit modes, whose colours it changes. Nor `response`, applied to the mean.
+unlit modes, whose colours it changes. Nor `response`, applied to the mean,
+nor `stretch`, which shows it.
 
 Measured on the wall of `tests/test_reference.py` (600 x 400, the Sun 25 deg
 up): stopped by itself at 1,680 samples, 0.5 ms a sample on an RTX 5080;

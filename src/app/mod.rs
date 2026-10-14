@@ -23,6 +23,7 @@ pub mod pass;
 pub mod raytrace;
 pub mod reference;
 pub mod response;
+pub mod stretch;
 pub mod script;
 pub mod simulation;
 pub mod uniform;
@@ -3704,6 +3705,8 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         // then, its mean once done
                         // (`Window::reference_after_frame`).
                         win.reference_after_frame(&sim_cfg.borrow(), &mut sim);
+                        // A stretch's limits, read back a frame or so late.
+                        win.stretch_after_frame(&mut sim);
                     }
 
                     // Asked of a frame once it is drawn; left undrawn, the

@@ -81,6 +81,10 @@ pub struct Simulation {
     /// A reference image's progress (`reference`), set by the window each
     /// frame.
     pub reference: ReferenceState,
+    /// A stretch's limits as last read back (`config.stretch`): low, high,
+    /// and the image's least and greatest values; `None` without one. Set by
+    /// the window each frame.
+    pub stretch_limits: Option<[f32; 4]>,
     /// Whether this frame's shadows, the image's and the per-facet query's,
     /// were traced with rays:
     /// `shadows.method` "rays" and the GPU able to, set by the window each frame.
@@ -202,6 +206,7 @@ impl Simulation {
             meshes_dirty: false,
             rays: false,
             reference: ReferenceState::default(),
+            stretch_limits: None,
             diagnostics: Diagnostics::default(),
             image_size: (0, 0),
             value_range: (0.0, 1.0),

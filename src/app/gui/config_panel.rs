@@ -445,6 +445,50 @@ pub fn group_response(ui: &mut egui::Ui, c: &mut Config) {
     }
 }
 
+/// `config.stretch` -- Stretch.
+pub fn group_stretch(ui: &mut egui::Ui, c: &mut Config) {
+    setting(ui, "scale", "The function between the limits, DS9's: `\"linear\"`, the default, `\"log\"`, `\"pow\"`, `\"sqrt\"`, `\"squared\"`, `\"asinh\"`, `\"sinh\"`, or `\"histequ\"`, histogram equalisation.", |ui| {
+        egui::ComboBox::from_id_salt("c.stretch.scale")
+            .selected_text(format!("{:?}", c.stretch.scale))
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut c.stretch.scale, crate::app::config::StretchScale::Linear, "Linear").on_hover_text("`x`. The default.");
+                ui.selectable_value(&mut c.stretch.scale, crate::app::config::StretchScale::Log, "Log").on_hover_text("`log(a x + 1) / log(a + 1)`, `a` the exponent: the faint lifted.");
+                ui.selectable_value(&mut c.stretch.scale, crate::app::config::StretchScale::Pow, "Pow").on_hover_text("`(a^x - 1) / (a - 1)`: the bright spread, the inverse of log.");
+                ui.selectable_value(&mut c.stretch.scale, crate::app::config::StretchScale::Sqrt, "Sqrt").on_hover_text("The square root of `x`.");
+                ui.selectable_value(&mut c.stretch.scale, crate::app::config::StretchScale::Squared, "Squared").on_hover_text("`x` squared.");
+                ui.selectable_value(&mut c.stretch.scale, crate::app::config::StretchScale::Asinh, "Asinh").on_hover_text("`asinh(10 x) / asinh(10)`: linear in the faint, logarithmic above.");
+                ui.selectable_value(&mut c.stretch.scale, crate::app::config::StretchScale::Sinh, "Sinh").on_hover_text("`sinh(3 x) / sinh(3)`.");
+                ui.selectable_value(&mut c.stretch.scale, crate::app::config::StretchScale::Histequ, "Histequ").on_hover_text("Histogram equalisation: each value shown as the share of the values between the limits under it.");
+            });
+    });
+    setting(ui, "limits", "The values shown black and white: `\"user\"`, the default, `low` and `high`; `\"minmax\"`, the image's least and greatest; `\"percent\"`; `\"zscale\"`, IRAF's; or `\"zmax\"`, zscale's low and the greatest.", |ui| {
+        egui::ComboBox::from_id_salt("c.stretch.limits")
+            .selected_text(format!("{:?}", c.stretch.limits))
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut c.stretch.limits, crate::app::config::StretchLimits::User, "User").on_hover_text("`low` and `high`, as given. The default.");
+                ui.selectable_value(&mut c.stretch.limits, crate::app::config::StretchLimits::Minmax, "Minmax").on_hover_text("The image's least value and its greatest.");
+                ui.selectable_value(&mut c.stretch.limits, crate::app::config::StretchLimits::Percent, "Percent").on_hover_text("The values `percent` of them lie between, as many cut below as above: from a histogram, to about 1 %.");
+                ui.selectable_value(&mut c.stretch.limits, crate::app::config::StretchLimits::Zscale, "Zscale").on_hover_text("IRAF's zscale, as DS9 and astropy have it: a line fitted to 1000 of the values, sorted, the outliers cut, its slope over `contrast` about the median. For a sky and its faint objects.");
+                ui.selectable_value(&mut c.stretch.limits, crate::app::config::StretchLimits::Zmax, "Zmax").on_hover_text("zscale's low limit, and the greatest value.");
+            });
+    });
+    if c.stretch.limits == crate::app::config::StretchLimits::Percent {
+        setting(ui, "percent", "With `\"percent\"` limits: the share of the values between them, the rest cut as much below as above. 99.5 by default.", |ui| ui.add(egui::Slider::new(&mut c.stretch.percent, 50.0..=100.0).clamping(egui::SliderClamping::Edits)));
+    }
+    if c.stretch.limits == crate::app::config::StretchLimits::User {
+        setting(ui, "low", "With `\"user\"` limits: the value shown black, in the image's values -- 1 is white unstretched.", |ui| ui.add(egui::DragValue::new(&mut c.stretch.low).speed(0.001)));
+    }
+    if c.stretch.limits == crate::app::config::StretchLimits::User {
+        setting(ui, "high", "With `\"user\"` limits: the value shown white.", |ui| ui.add(egui::DragValue::new(&mut c.stretch.high).speed(0.001)));
+    }
+    if c.stretch.scale.has_exponent() {
+        setting(ui, "exponent", "The `\"log\"` and `\"pow\"` scales' exponent `a`: DS9's 1000 by default.", |ui| ui.add(egui::DragValue::new(&mut c.stretch.exponent).speed(10.0)));
+    }
+    if c.stretch.limits.zscale() {
+        setting(ui, "contrast", "zscale's contrast: IRAF's 0.25 by default; less widens the limits.", |ui| ui.add(egui::Slider::new(&mut c.stretch.contrast, 0.01..=1.0).clamping(egui::SliderClamping::Edits)));
+    }
+}
+
 /// `config.debug` -- Debug.
 pub fn group_debug(ui: &mut egui::Ui, c: &mut Config) {
     setting(ui, "app", "Print app lifecycle events: pause and camera-mode changes.", |ui| ui.checkbox(&mut c.debug.app, ""));

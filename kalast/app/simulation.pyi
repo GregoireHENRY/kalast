@@ -124,6 +124,12 @@ class Simulation:
     """Whether a reference image was stopped by hand before it was done
     (`stop_reference`, or the UI's button); `resume_reference` goes on.
     """
+    stretch_limits: tuple[float, float] | None
+    """The values a stretch shows black and white (`config.stretch`), as
+    found on the GPU and read back a frame or so after: `(low, high)`, in
+    the image's values -- `exposure * I/F` before `srgb_mode` stores them.
+    `None` without a stretch, or before its first read.
+    """
     def stop_reference(self) -> None:
         """Stop a reference image's sum where it is, after this frame: the mean
         so far is the image (`reference_image`), done -- as the UI's stop

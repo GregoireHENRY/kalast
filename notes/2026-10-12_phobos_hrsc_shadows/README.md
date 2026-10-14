@@ -674,7 +674,9 @@ threads column by column, not butterfly by butterfly.
 `simple.py` draws its image through the SRC's fitted response, the smear its
 own (`IMAGES`). The window shows the values the image stores, linear; the
 note's figures show their square root scaled to each image's brightest,
-which lifts the shadows and the sky.
+which lifts the shadows and the sky. Since 14 October the window can show
+them so too: `config.stretch`, `"sqrt"` between `"percent"` limits
+(`2026-10-14_display_stretch/`).
 
 ## Not done
 

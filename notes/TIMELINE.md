@@ -6135,4 +6135,25 @@ adaptive, all their points only near an edge. `srgb_mode` no longer begins
 a reference's sum again. Write-ups: `2026-10-12_phobos_hrsc_shadows/` and
 `2026-10-10_ray_traced_shadows/`, 13 October. Open: the halo's light from
 beyond the frame; `compare.py` onto kalast's response; a view stretch for
-the window (the note's figures' square root).
+the window (the note's figures' square root) -- done on 14 October,
+`config.stretch`.
+
+## 2026-10-14 — a stretch, as SAO DS9 scales an image; the examples README from `simple.py`
+
+`config.stretch`: the image's values shown between two limits through a
+function, DS9's -- `linear`, `log`, `pow`, `sqrt`, `squared`, `asinh`,
+`sinh`, `histequ`; limits `user`, `minmax`, `percent`, `zscale`, `zmax` --
+found on the GPU each frame: a histogram of 32 bins an octave, the
+percentiles across their bins, IRAF's zscale on 1000 values bitonic-sorted
+and fitted by the workgroup, astropy's to 6 digits. After the reference's
+mean and the camera's response, before the overlays; the window and exported
+frames, never `sim.reference_image()`; a reference's sum carries on.
+`sim.stretch_limits`; in the UI app under Image. 2.8-3.7 ms a frame of the
+maps at 1008 x 1018 on an M1 Pro, against 3.2 off; zscale's fit on one thread
+had cost 5 ms. `tests/test_stretch.py`. `simple.py`'s comments moved to
+`examples/README.md`, a bullet a choice, as the user had decluttered the
+script; the Phobos and 67P sections there rewritten as that file intends,
+each technique where it first appears and not again. Write-up:
+`2026-10-14_display_stretch/`. Open: MSAA under a stretch (the float path is
+single-sampled); a colour bar for it; DS9's contrast and bias; limits per
+channel.

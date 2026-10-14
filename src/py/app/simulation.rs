@@ -254,6 +254,15 @@ impl Simulation {
         self.inner.borrow().reference.stopped
     }
 
+    #[getter]
+    /// The values a stretch shows black and white (`config.stretch`), as
+    /// found on the GPU and read back a frame or so after: `(low, high)`, in
+    /// the image's values -- `exposure * I/F` before `srgb_mode` stores them.
+    /// `None` without a stretch, or before its first read.
+    fn stretch_limits(&self) -> Option<(f32, f32)> {
+        self.inner.borrow().stretch_limits.map(|l| (l[0], l[1]))
+    }
+
     /// Stop a reference image's sum where it is, after this frame: the mean
     /// so far is the image (`reference_image`), done -- as the UI's stop
     /// button does. Nothing once done.

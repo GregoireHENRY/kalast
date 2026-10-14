@@ -220,8 +220,9 @@ impl LightConfig {
     /// scaled with it, and the debug cube is drawn as bright. With
     /// `shading.srgb_mode = 1` an exported pixel reads `exposure * I/F * 255`:
     /// 4.5 shows I/F 0 to 0.22 from black to white, and anything brighter
-    /// clips at white. The data mode's colours -- a colormap's -- are data,
-    /// and keep theirs.
+    /// clips at white -- without a `stretch`, which shows the values its own
+    /// way. The data mode's colours -- a colormap's -- are data, and keep
+    /// theirs.
     #[getter]
     fn exposure(&self) -> f32 { self.config.borrow().light.exposure }
     #[setter]
@@ -1341,6 +1342,83 @@ impl ResponseConfig {
     }
 }
 
+/// How the image's values are shown, as SAO DS9 scales an image.
+///
+/// `app.simulation.config.stretch`. Reads and writes the live config
+/// through the same handle as every other view of it.
+#[pyclass(unsendable)]
+pub struct StretchConfig {
+    pub config: crate::locked::Locked<crate::app::config::Config>,
+}
+
+#[pymethods]
+impl StretchConfig {
+    /// The function between the limits, DS9's: `"linear"`, the default,
+    /// `"log"`, `"pow"`, `"sqrt"`, `"squared"`, `"asinh"`, `"sinh"`, or
+    /// `"histequ"`, histogram equalisation.
+    #[getter]
+    fn scale(&self) -> &'static str { self.config.borrow().stretch.scale.name() }
+    #[setter]
+    fn set_scale(&mut self, v: &str) -> PyResult<()> {
+        let m = crate::app::config::StretchScale::parse(v).ok_or_else(|| {
+            let names: Vec<String> = crate::app::config::StretchScale::ALL.iter().map(|m| format!("{:?}", m.name())).collect();
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "scale is one of {}, got {v:?}",
+                names.join(", ")
+            ))
+        })?;
+        self.config.borrow_mut().stretch.scale = m;
+        Ok(())
+    }
+    /// The values shown black and white: `"user"`, the default, `low` and
+    /// `high`; `"minmax"`, the image's least and greatest; `"percent"`;
+    /// `"zscale"`, IRAF's; or `"zmax"`, zscale's low and the greatest.
+    #[getter]
+    fn limits(&self) -> &'static str { self.config.borrow().stretch.limits.name() }
+    #[setter]
+    fn set_limits(&mut self, v: &str) -> PyResult<()> {
+        let m = crate::app::config::StretchLimits::parse(v).ok_or_else(|| {
+            let names: Vec<String> = crate::app::config::StretchLimits::ALL.iter().map(|m| format!("{:?}", m.name())).collect();
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "limits is one of {}, got {v:?}",
+                names.join(", ")
+            ))
+        })?;
+        self.config.borrow_mut().stretch.limits = m;
+        Ok(())
+    }
+    /// With `"percent"` limits: the share of the values between them, the
+    /// rest cut as much below as above. 99.5 by default.
+    #[getter]
+    fn percent(&self) -> f32 { self.config.borrow().stretch.percent }
+    #[setter]
+    fn set_percent(&mut self, v: f32) { self.config.borrow_mut().stretch.percent = v; }
+    /// With `"user"` limits: the value shown black, in the image's values
+    /// -- 1 is white unstretched.
+    #[getter]
+    fn low(&self) -> f32 { self.config.borrow().stretch.low }
+    #[setter]
+    fn set_low(&mut self, v: f32) { self.config.borrow_mut().stretch.low = v; }
+    /// With `"user"` limits: the value shown white.
+    #[getter]
+    fn high(&self) -> f32 { self.config.borrow().stretch.high }
+    #[setter]
+    fn set_high(&mut self, v: f32) { self.config.borrow_mut().stretch.high = v; }
+    /// The `"log"` and `"pow"` scales' exponent `a`: DS9's 1000 by default.
+    #[getter]
+    fn exponent(&self) -> f32 { self.config.borrow().stretch.exponent }
+    #[setter]
+    fn set_exponent(&mut self, v: f32) { self.config.borrow_mut().stretch.exponent = v; }
+    /// zscale's contrast: IRAF's 0.25 by default; less widens the limits.
+    #[getter]
+    fn contrast(&self) -> f32 { self.config.borrow().stretch.contrast }
+    #[setter]
+    fn set_contrast(&mut self, v: f32) { self.config.borrow_mut().stretch.contrast = v; }
+    fn __repr__(&self) -> String {
+        format!("{:?}", self.config.borrow().stretch)
+    }
+}
+
 /// Diagnostics and console output.
 ///
 /// `app.simulation.config.debug`. Reads and writes the live config
@@ -1471,6 +1549,9 @@ impl super::config::Config {
     /// What the camera does to the image it records.
     #[getter]
     fn response(&self) -> ResponseConfig { ResponseConfig { config: self.config.clone() } }
+    /// How the image's values are shown, as SAO DS9 scales an image.
+    #[getter]
+    fn stretch(&self) -> StretchConfig { StretchConfig { config: self.config.clone() } }
     /// Diagnostics and console output.
     #[getter]
     fn debug(&self) -> DebugConfig { DebugConfig { config: self.config.clone() } }

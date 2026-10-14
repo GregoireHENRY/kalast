@@ -356,6 +356,8 @@ class Config:
     """The size of the image being rendered, as distinct from the window."""
     response: ResponseConfig
     """What the camera does to the image it records."""
+    stretch: StretchConfig
+    """How the image's values are shown, as SAO DS9 scales an image."""
     debug: DebugConfig
     """Diagnostics and console output."""
 
@@ -533,8 +535,9 @@ class LightConfig:
     scaled with it, and the debug cube is drawn as bright. With
     `shading.srgb_mode = 1` an exported pixel reads `exposure * I/F * 255`:
     4.5 shows I/F 0 to 0.22 from black to white, and anything brighter
-    clips at white. The data mode's colours -- a colormap's -- are data,
-    and keep theirs.
+    clips at white -- without a `stretch`, which shows the values its own
+    way. The data mode's colours -- a colormap's -- are data, and keep
+    theirs.
     """
     sun_as_point: bool
     """The Sun as a point, every shadow hard; on by default.
@@ -1318,6 +1321,37 @@ class ResponseConfig:
     """The smear's direction, degrees from the image's x axis toward its y
     axis, down the image: 0 along the rows.
     """
+
+class StretchConfig:
+    """How the image's values are shown, as SAO DS9 scales an image.
+
+    `app.simulation.config.stretch`. Reads and writes the live config
+    through the same handle as every other view of it.
+    """
+    scale: str
+    """The function between the limits, DS9's: `"linear"`, the default,
+    `"log"`, `"pow"`, `"sqrt"`, `"squared"`, `"asinh"`, `"sinh"`, or
+    `"histequ"`, histogram equalisation.
+    """
+    limits: str
+    """The values shown black and white: `"user"`, the default, `low` and
+    `high`; `"minmax"`, the image's least and greatest; `"percent"`;
+    `"zscale"`, IRAF's; or `"zmax"`, zscale's low and the greatest.
+    """
+    percent: float
+    """With `"percent"` limits: the share of the values between them, the
+    rest cut as much below as above. 99.5 by default.
+    """
+    low: float
+    """With `"user"` limits: the value shown black, in the image's values
+    -- 1 is white unstretched.
+    """
+    high: float
+    """With `"user"` limits: the value shown white."""
+    exponent: float
+    """The `"log"` and `"pow"` scales' exponent `a`: DS9's 1000 by default."""
+    contrast: float
+    """zscale's contrast: IRAF's 0.25 by default; less widens the limits."""
 
 class DebugConfig:
     """Diagnostics and console output.

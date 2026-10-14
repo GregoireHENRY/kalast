@@ -1752,6 +1752,7 @@ impl Window {
             traced.map(|r| &r.image_layout),
             config.shadows.method == crate::app::config::ShadowMethod::Reference,
             config.response.enabled,
+            config.stretch_on(),
         );
         passes.bindings.rays = traced.map(|r| r.image_group.clone());
 
@@ -2247,6 +2248,7 @@ impl Window {
             traced.map(|r| &r.image_layout),
             config.shadows.method == crate::app::config::ShadowMethod::Reference,
             config.response.enabled,
+            config.stretch_on(),
         );
         self.passes.bindings.rays = traced.map(|r| r.image_group.clone());
         // `Passes::new` sizes the offscreen targets from `config.image.width`, which
@@ -2380,6 +2382,16 @@ impl Window {
         simulation.reference.error = reference.error;
         simulation.reference.done = reference.done;
         simulation.reference.stopped = reference.stopped;
+    }
+
+    /// After a frame shown through a stretch: its limits as last read back,
+    /// for the UI and `sim.stretch_limits`, the next read started. Never
+    /// waits.
+    pub fn stretch_after_frame(&mut self, simulation: &mut crate::app::simulation::Simulation) {
+        simulation.stretch_limits = match self.passes.stretch.as_mut().filter(|_| self.passes.stretch_on) {
+            Some(stretch) => stretch.after_frame(&self.device, &self.queue),
+            None => None,
+        };
     }
 
     /// The shadow array's side: `shadows.resolution`, or with the shadows
@@ -2527,10 +2539,11 @@ impl Window {
         // The main pass is built anew to trace, or not to, as well.
         let reference = config.shadows.method == crate::app::config::ShadowMethod::Reference;
         self.rays = rays_wanted(config) && self.raytrace.is_some();
-        // The float pipelines while either a reference or a camera's response
-        // wants them: the other turned on or off keeps them, and a reference's
-        // sum with them.
-        let float = reference || config.response.enabled;
+        // The float pipelines while a reference, a camera's response or a
+        // stretch wants them: another turned on or off keeps them, and a
+        // reference's sum with them.
+        let stretch = config.stretch_on();
+        let float = reference || config.response.enabled || stretch;
         if float != self.passes.float_on || self.rays != self.passes.traced {
             self.rebuild_passes(config);
         }
@@ -2539,6 +2552,7 @@ impl Window {
         }
         self.passes.reference_on = reference;
         self.passes.response_on = config.response.enabled;
+        self.passes.stretch_on = stretch;
         simulation.rays = self.rays;
         if config.shadows.method.traces() && self.raytrace.is_none() && !self.rays_refused {
             self.rays_refused = true;
@@ -4537,8 +4551,10 @@ fn reference_scene(
     // `srgb_mode` the unlit modes' colours.
     let mut c = config.clone();
     c.reference = crate::app::config::Reference { bounces: config.reference.bounces, ..Default::default() };
-    // A camera's response is applied to the mean, not summed.
+    // A camera's response is applied to the mean, not summed, and a stretch
+    // shows it.
     c.response = Default::default();
+    c.stretch = Default::default();
     if config.shading.gamma.is_none() {
         c.light.exposure = if config.light.exposure > 0.0 { 1.0 } else { 0.0 };
         if config.shading.color_mode == crate::app::config::ColorMode::Shaded {

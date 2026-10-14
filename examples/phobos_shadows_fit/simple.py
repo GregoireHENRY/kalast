@@ -1,14 +1,4 @@
 #!/usr/bin/env python
-"""One of the four HRSC SRC images of Phobos, drawn by kalast in its window:
-Phobos where SPICE puts it, seen through the SRC as Mars Express pointed it,
-lit by the Sun and by Mars. Name it below, in `IMAGES`.
-
-Seen through the SRC's response, as the camera recorded the image: its blur,
-Phobos's smear over the exposure, and its scattered light.
-
-`main.py` does the same for the four images, with its options; `compare.py`
-sets them beside the real ones.
-"""
 
 import os
 
@@ -21,10 +11,7 @@ from kalast.util import RPD
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-# Each image's IMAGE_TIME; where its craters put Phobos against SPICE's
-# pointing, pixels along the samples and the lines (`main.py`'s POINTING);
-# and how far Phobos drifted along the samples over the exposure, pixels
-# (`hrsc.py`'s SMEAR).
+# The four images' time with boresight correction and smear. Pick one.
 IMAGES = {
     "h8870": ("2010-12-10T06:44:31.077", 20.7, 14.1, 1.86),
     "h8951": ("2011-01-02T21:16:29.361", 15.4, -4.8, 4.90),
@@ -35,29 +22,20 @@ time, dx, dy, smear = IMAGES["h8870"]
 
 spice.kclear()
 spice.furnsh(os.path.join(HERE, "phobos_hrsc.tm"))
-# Phobos turned as PCK00011 has it, the frame of Ernst et al.'s shape model.
 spice.furnsh("/Users/gregoireh/data/spice/hera/kernels/pck/pck00011.tpc")
 et = spice.str2et(time)
 
 app = App()
 app.simulation.config.axes.style = "off"
 app.simulation.config.wireframe.mode = 0
-# A pixel is exposure x I/F x 255, linear, as an exported frame stores it.
-# Phobos's lit ground is I/F 0.004-0.021 in h8963 (5-95 %): at 40, 0.17-0.85 of
-# white, none clipped; its night side under Mars's light about 0.003. The
-# note's figures show the square root of the image, scaled to its brightest;
-# `srgb_mode = 0` shows it through the sRGB curve, close to that.
 app.simulation.config.shading.srgb_mode = 1
 app.simulation.config.light.exposure = 40.0
 app.simulation.config.light.sun_as_point = False
-# Traced, progressively, to a still image: the Sun's disc, and its light
-# bounced once off the surfaces -- Mars's on Phobos's night side.
 app.simulation.config.shadows.method = "reference"
 app.simulation.config.reference.max_samples = 1024
 app.simulation.config.reference.bounces = 1
-# The SRC's response, as the note fitted it to these images: a core of 2.19
-# pixels, and two halos -- 1.2 % of the light within about 53 pixels, 28 %
-# over about 434 -- what lights the images' sky and shadows; and the smear.
+
+# Fitted.
 app.simulation.config.response.enabled = True
 app.simulation.config.response.core = 2.19
 app.simulation.config.response.halo_share = 0.012
@@ -66,10 +44,8 @@ app.simulation.config.response.halo2_share = 0.282
 app.simulation.config.response.halo2_scale = 434.0
 app.simulation.config.response.smear = smear
 
-# The SRC: 1008 x 1018 pixels of its 1024 x 1024 CCD, each 9 microns behind
-# a 984.76 mm focal length. Looking along its boresight, turned to the
-# image's centre on the CCD (4 pixels along the samples, -1 along the lines)
-# and by where the image's craters put Phobos.
+# SRC is 1008 x 1018 pixels of a 1024 x 1024 CCD
+# Each pixel is 9 microns with 984.76 mm focal length. 
 ifov = 9e-3 / 984.76
 app.simulation.config.image.width = 1008
 app.simulation.config.image.height = 1018
@@ -80,7 +56,7 @@ app.simulation.camera.up = [0.0, -1.0, 0.0]
 app.simulation.camera.projection.fovy = 1018 * ifov
 
 # Phobos: Ernst et al. (2023)'s shape, under Fornasier et al. (2024)'s Hapke
-# fit of HRSC images. Mars: a sphere of its Bond albedo.
+# fit of HRSC images.
 app.simulation.load_mesh(path="/Users/gregoireh/data/mesh/phobos/ernst2023/phobos_g_018m_spc_obj_0000n00000_v004.obj")
 app.simulation.load_mesh(path=os.path.join(HERE, "..", "..", "res", "ico5.obj"))
 phobos, mars = app.simulation.bodies
@@ -88,8 +64,6 @@ phobos.scattering = Hapke(w=0.0736, b=0.265, c=1.0, b0=2.283, h=0.0573, theta_ba
 mars.mesh.colors[:] = 0.25
 mars.mesh.update_gpu_colors()
 
-# Everything in the SRC's frame, as seen from Mars Express: the light time
-# taken off, each body turned as it was when its light left it.
 to_src = numpy.array(spice.pxform("J2000", "MEX_HRSC_SRC", et))
 p_phobos, lt_phobos = spice.spkpos("PHOBOS", et, "J2000", "LT+S", "MEX")
 p_mars, lt_mars = spice.spkpos("MARS", et, "J2000", "LT+S", "MEX")

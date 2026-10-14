@@ -18,8 +18,8 @@ pub struct Passes {
     pub rays: bool,
     /// The main pass built to trace rays, group 7 bound (`Passes::new`).
     pub traced: bool,
-    /// Built single-sampled with the float pipelines, for a reference image
-    /// or a camera's response (`Passes::new`).
+    /// Built single-sampled with the float pipelines, for a reference image,
+    /// a camera's response or a stretch (`Passes::new`).
     pub float_on: bool,
     /// A reference image is made (`shadows.method` "reference"), set each
     /// frame (`Window::update`).
@@ -31,6 +31,10 @@ pub struct Passes {
     /// The size a response was made for and did not fit the GPU at: drawn
     /// without it, not tried again every frame.
     response_refused: Option<(u32, u32)>,
+    /// A stretch shows the image (`config.stretch`), set each frame.
+    pub stretch_on: bool,
+    /// Its passes, made at the image's size when first shown.
+    pub stretch: Option<crate::app::stretch::Stretch>,
     /// The reference image's sums, made at the image's size when first
     /// drawn.
     pub reference: Option<crate::app::reference::Reference>,
@@ -69,10 +73,13 @@ impl Passes {
         // A camera's response is applied (`config.response`): the image
         // drawn as a reference's sample is, into floats, for it to take.
         response: bool,
+        // A stretch shows the image (`config.stretch`): the same, the image
+        // in floats for its limits and function.
+        stretch: bool,
     ) -> Self {
         let layouts_all = uniforms.layouts_all();
         let bindings = uniforms.bindings(device);
-        let float = reference || response;
+        let float = reference || response || stretch;
 
         // Resolved once, so the main pass and the light cube it draws inside
         // cannot disagree about it.
@@ -99,6 +106,8 @@ impl Passes {
             response_on: response,
             response: None,
             response_refused: None,
+            stretch_on: stretch,
+            stretch: None,
             reference: None,
             render,
             light_cube: light_cube::Pass::new(device, format, &layouts_all, samples),
@@ -175,9 +184,11 @@ impl Passes {
         // sum, the mean as the image, what the main pass draws over the
         // scene drawn over the mean. A camera's response: the image drawn
         // into floats -- the mean, or the frame drawn as a sample is --
-        // convolved, then the same over it.
+        // convolved, then the same over it. A stretch: the image so far, in
+        // floats, shown through it.
         let response = self.response_ready(device, size);
-        if self.float_on && (self.reference_on || response) {
+        let stretch = self.stretch_ready(device, size);
+        if self.float_on && (self.reference_on || response || stretch) {
             if self.reference_on {
                 let format = self.render.format();
                 if self.reference.as_ref().is_none_or(|r| r.size != size) {
@@ -196,10 +207,10 @@ impl Passes {
                         timer.and_then(|t| t.scope(super::gpu_timing::Scope::Render)),
                     );
                 }
-            } else if let Some(response) = self.response.as_ref() {
+            } else if let Some(target) = self.float_target() {
                 self.render.render_reference(
                     encoder,
-                    &response.frame_view,
+                    target,
                     &self.depth.texture.view,
                     meshes,
                     &self.bindings,
@@ -253,7 +264,8 @@ impl Passes {
         first: bool,
     ) {
         let response = self.response_ready(device, size);
-        if self.float_on && (self.reference_on || response) {
+        let stretch = self.stretch_ready(device, size);
+        if self.float_on && (self.reference_on || response || stretch) {
             let target = if self.reference_on {
                 let format = self.render.format();
                 if self.reference.as_ref().is_none_or(|r| r.size != size) {
@@ -262,7 +274,7 @@ impl Passes {
                 let reference = self.reference.as_ref().unwrap();
                 (!reference.done && reference.samples() < config.reference.max_samples).then_some(&reference.frame_view)
             } else {
-                self.response.as_ref().map(|r| &r.frame_view)
+                self.float_target()
             };
             if let Some(target) = target {
                 self.render.render_reference_band(
@@ -302,7 +314,7 @@ impl Passes {
         config: &crate::app::config::Config,
         annotations: bool,
     ) {
-        if self.float_on && (self.reference_on || (self.response_on && self.response.is_some())) {
+        if self.float_on && (self.reference_on || self.float_target().is_some()) {
             self.finish_float(queue, encoder, meshes, config, annotations);
             return;
         }
@@ -342,9 +354,32 @@ impl Passes {
         self.response.is_some()
     }
 
+    /// A stretch ready at `size`, made if it was not: `false` where it is
+    /// off, its passes let go.
+    fn stretch_ready(&mut self, device: &wgpu::Device, size: (u32, u32)) -> bool {
+        if !self.stretch_on {
+            self.stretch = None;
+            return false;
+        }
+        let size = (size.0.max(1), size.1.max(1));
+        if self.stretch.as_ref().is_none_or(|s| s.size != size) {
+            self.stretch = Some(crate::app::stretch::Stretch::new(device, size, self.render.format()));
+        }
+        true
+    }
+
+    /// Where a float frame's bodies are drawn without a reference: a camera's
+    /// response's image, which a stretch's takes after it, or a stretch's.
+    fn float_target(&self) -> Option<&wgpu::TextureView> {
+        let response = self.response.as_ref().filter(|_| self.response_on).map(|r| &r.frame_view);
+        let stretch = self.stretch.as_ref().filter(|_| self.stretch_on).map(|s| &s.frame_view);
+        response.or(stretch)
+    }
+
     /// After a float frame's bodies: a reference's sample summed and its mean
     /// resolved, or the frame as drawn, through the camera's response when it
-    /// is on; then the overlays and the annotations over it.
+    /// is on, then through a stretch when one is; then the overlays and the
+    /// annotations over it.
     fn finish_float(
         &mut self,
         queue: &wgpu::Queue,
@@ -356,6 +391,13 @@ impl Passes {
         let srgb_mode = config.shading.srgb_mode;
         let exposure = config.light.exposure as f32;
         let response = self.response.as_mut().filter(|_| self.response_on);
+        // The image before the overlays: the target, or with a stretch its
+        // image in floats, shown through it after.
+        let stretch = self.stretch.as_mut().filter(|_| self.stretch_on);
+        let (out, float) = match stretch.as_ref() {
+            Some(s) => (&s.frame_view, true),
+            None => (&self.render.render_view, false),
+        };
         if self.reference_on {
             if let Some(reference) = self.reference.as_mut() {
                 if !reference.done && reference.samples() < config.reference.max_samples {
@@ -373,14 +415,18 @@ impl Passes {
                             h.finish()
                         };
                         response.apply(queue, encoder, &config.response, srgb_mode, Some(key));
-                        response.show(encoder, &self.render.render_view);
+                        response.show(encoder, out, float);
                     }
-                    None => reference.resolve(queue, encoder, &self.render.render_view, srgb_mode, exposure, false),
+                    None => reference.resolve(queue, encoder, out, srgb_mode, exposure, float),
                 }
             }
         } else if let Some(response) = response {
             response.apply(queue, encoder, &config.response, srgb_mode, None);
-            response.show(encoder, &self.render.render_view);
+            response.show(encoder, out, float);
+        }
+        if let Some(stretch) = stretch {
+            stretch.apply(queue, encoder, &config.stretch, srgb_mode);
+            stretch.show(encoder, &self.render.render_view);
         }
         self.render.render_reference_overlays(
             encoder,

@@ -44,7 +44,7 @@ TARGET = ROOT / "src/py/app/config_gen.rs"
 
 RUST_CONFIG = "crate::app::config::Config"
 # Enums of `config.rs` with `ALL`, `name()` and `parse()`: a name from Python.
-NAMED_ENUMS = {"ShadowMethod", "ColorMode"}
+NAMED_ENUMS = {"ShadowMethod", "ColorMode", "StretchScale", "StretchLimits"}
 RUST_APP = "crate::app::config::AppConfig"
 
 

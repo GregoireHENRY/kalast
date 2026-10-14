@@ -236,54 +236,80 @@ Look at [res/README.md](../res/README.md) to get Hera data.
 - [phobos_shadows_fit](phobos_shadows_fit): four Mars Express HRSC SRC
   images of Phobos, drawn by kalast and compared with the real ones. Its
   [README](phobos_shadows_fit/README.md) says where to get the data.
-    - [phobos_shadows_fit/simple.py](phobos_shadows_fit/simple.py): one of
-      them, named in its table, through the SRC's response
-      (`config.response`), in a short script without a loop.
-    - Needs ESA's Mars Express SPICE set; set `PATH_VALUES` in
-      [phobos_hrsc.tm](phobos_shadows_fit/phobos_hrsc.tm), the 13 kernels
-      these images need -- JPL's MAR099 for Phobos among them, from NAIF's
-      [generic kernels](https://naif.jpl.nasa.gov/pub/naif/generic_kernels/spk/satellites/)
-      (`mar099s.bsp`) -- and the mesh paths in `main.py`. Ernst et al.'s
-      shape model, the default, is on the Small Body Mapping Tool's
-      [shared files](https://sbmt.jhuapl.edu/shared-files/)
-      (`phobos_g_018m_spc_obj_0000n00000_v004.obj`), with NAIF's
-      `pck00011.tpc` for its frame.
-    - [phobos_shadows_fit/main.py](phobos_shadows_fit/main.py): each image at
-      its `IMAGE_TIME`, at the SRC's resolution, pointed as the spacecraft
-      was and turned by where the image's craters put Phobos (`spice`
-      leaves that out). `python main.py rays hapke ernst` picks the shadow
-      method (`maps`, `rays`, `reference`), the law (`hapke`, `lambert`, or
-      `mask` for lit or not) and the shape model (`ernst`, `gaskell`,
-      `dlr`). The reference has Mars in the scene, lighting Phobos's night
-      side. `albedo` lays on Phobos the albedo map fitted to these images
-      ([phobos_src_albedo.npz](phobos_shadows_fit/phobos_src_albedo.npz)),
-      and `libration=0` draws Phobos without its libration in longitude.
+    - [phobos_shadows_fit/simple.py](phobos_shadows_fit/simple.py):
+        - One of the four images, picked in `IMAGES`: its time, the pointing
+          correction in pixels -- where the image's craters put Phobos
+          against SPICE's pointing, measured by `compare.py` -- and how many
+          pixels Phobos drifted during the exposure.
+        - `pck00011.tpc` loaded after the meta-kernel: Phobos's rotation in
+          the frame of Ernst et al.'s shape model.
+        - Positions from SPICE as seen from Mars Express, corrected for
+          light time and aberration (`"LT+S"`), each body turned as it was
+          when its light left it (`et - lt`).
+        - The SRC is 1008 x 1018 pixels of a 1024 x 1024 CCD, 9 micron
+          pixels behind a 984.76 mm focal length: the image's size, and
+          `fovy` the lines times a pixel's angle. The camera looks along
+          the boresight, turned to the image's centre on the CCD and by the
+          pointing correction.
+        - `app.simulation.config.shading.srgb_mode = 1`: an exported pixel
+          is `exposure * I/F * 255`, I/F being the brightness relative to a
+          white surface facing the Sun. The default `0` passes it through
+          the sRGB curve, as a screen shows light.
+        - `app.simulation.config.light.exposure = 40.0`: Phobos is dark, its
+          lit ground at I/F 0.004-0.021 in h8963, so 40 brings it to
+          0.17-0.85 of white without clipping. Its night side, lit by Mars,
+          is around 0.003.
+        - Not in the script: `app.simulation.config.stretch.scale = "sqrt"`
+          with `stretch.limits = "percent"` shows the image as `compare.py`'s
+          figures do, the square root of its brightest 99.5 %, the night side
+          and the sky included. Other scales and limits are SAO DS9's. An
+          exported pixel is then the stretched value, not I/F.
+        - `app.simulation.config.light.sun_as_point = False`: the Sun as a
+          disc, shadows with penumbrae. The default `True` is a point.
+        - `app.simulation.config.shadows.method = "reference"`: the image
+          averaged over many samples a pixel, until it stops changing
+          (`reference.error`) or at `reference.max_samples`. The toolbar
+          shows how far it is and can stop it. `"maps"`, the default, and
+          `"rays"` draw in real time, without bounced light.
+        - `app.simulation.config.reference.bounces = 1`: sunlight reflected
+          once more by the surfaces, Mars's light on Phobos's night side.
+          The default `0` is the direct light alone, twice as fast.
+        - `app.simulation.config.response`: the camera's response, fitted to
+          these images. A blur of 2.19 pixels, two halos spreading 1.2 % of
+          the light over about 53 pixels and 28 % over about 434, which
+          light the images' sky and shadows, and the smear. `enabled =
+          False` shows the image without it.
+        - `phobos.scattering = Hapke(...)`: Phobos reflects light by the
+          Hapke law Fornasier et al. (2024) fitted to HRSC images, its
+          colour left at 1, the law's own albedo. Without a law a body is
+          Lambertian, its colour the albedo.
+        - Mars is a sphere stretched to its radii in its model matrix, of
+          colour 0.25, near its albedo, there for its light on Phobos.
+    - [phobos_shadows_fit/main.py](phobos_shadows_fit/main.py): the four
+      images in a loop, each exported once `sim.reference_done`, with
+      options for the shadow method, the law and the shape model, listed in
+      its docstring. `albedo` colours Phobos with
+      `mesh.colors_from_map` from a map fitted to these images
+      ([phobos_src_albedo.npz](phobos_shadows_fit/phobos_src_albedo.npz)).
     - [phobos_shadows_fit/compare.py](phobos_shadows_fit/compare.py): the
-      shadows as lit-or-not masks against the images', where the craters
-      say the pointing still is, and the brightness where both are lit, as
-      kalast draws it and through the SRC's own response -- its blur, smear
-      and scattered light, in
-      [hrsc.py](phobos_shadows_fit/hrsc.py); figures and a table in
+      images beside kalast's -- shadows as lit-or-not masks, pointing from
+      the craters, brightness through the SRC's response in
+      [hrsc.py](phobos_shadows_fit/hrsc.py) -- figures and a table in
       `out/phobos_hrsc/figures`.
-- [comet67p_shadows_fit](comet67p_shadows_fit): 57 images of comet
-  67P/Churyumov-Gerasimenko from Rosetta's OSIRIS narrow-angle camera, 2014
-  to 2016, phase 2 to 120 deg, drawn by kalast and compared with the real
-  ones. Its [README](comet67p_shadows_fit/README.md) says where to get the
-  data: the images download themselves on first use; the 18 SPICE kernels
-  and Preusker et al.'s SHAP7 shape model are fetched once.
-    - [comet67p_shadows_fit/main.py](comet67p_shadows_fit/main.py): each
-      image at mid-exposure, at the NAC's resolution, pointed as the
-      spacecraft was and moved by where the image's terrain puts the nucleus
-      (`images.csv`; `spice` leaves that out). `python main.py reference
-      hapke shap7` picks the shadow method, the law (`hapke`, `hapke-fit`
-      refitted to these images, `lambert`, `mask`) and the shape model
-      (`shap7`, 44M facets, or `shap7-4m`). `spin=DEG` turns the nucleus about
-      its spin axis, `light=DEG` the light alone, `bounces=N` lights the
-      ground in shadow by the comet's own light.
+- [comet67p_shadows_fit](comet67p_shadows_fit): the same for 57 images of
+  comet 67P/Churyumov-Gerasimenko from Rosetta's OSIRIS narrow-angle camera,
+  2014 to 2016, phase 2 to 120 deg. Its
+  [README](comet67p_shadows_fit/README.md) says where to get the data.
+    - [comet67p_shadows_fit/main.py](comet67p_shadows_fit/main.py): the
+      images download themselves from NASA's PDS on first use
+      ([osiris.py](comet67p_shadows_fit/osiris.py)), drawn on Preusker et
+      al.'s SHAP7 shape model of 44M facets. `hapke-fit` is a Hapke law
+      refitted to these images. `spin=DEG` turns the nucleus about its spin
+      axis and `light=DEG` the light alone, to test the rotation against
+      the shadows. `bounces=N` lights the ground in shadow by the comet's
+      own light.
     - [comet67p_shadows_fit/compare.py](comet67p_shadows_fit/compare.py):
-      the shadows as lit-or-not masks against the images', where the
-      terrain says the pointing still is, and the brightness where both are
-      lit; a figure per image, one sheet of them all and a table in
+      as for Phobos, with one sheet of all the images sorted by phase, in
       `out/67p_osiris/figures`.
 ## Examples that worked but not ready for users
 

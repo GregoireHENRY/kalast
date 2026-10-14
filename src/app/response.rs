@@ -76,6 +76,8 @@ pub struct Response {
     multiply: wgpu::ComputePipeline,
     kernel_spectrum: wgpu::ComputePipeline,
     show: wgpu::RenderPipeline,
+    /// The same into floats, for a stretch to take (`app::stretch`).
+    show_float: wgpu::RenderPipeline,
     /// The settings the spectrum is of.
     kernel: Option<[u32; 7]>,
     /// The sRGB mode the uniforms have.
@@ -235,27 +237,31 @@ impl Response {
             bind_group_layouts: &[Some(&show_layout)],
             immediate_size: 0,
         });
-        let show = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("response show"),
-            layout: Some(&show_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &module,
-                entry_point: Some("vs_show"),
-                buffers: &[],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &module,
-                entry_point: Some("fs_show"),
-                targets: &[Some(wgpu::ColorTargetState { format: target, blend: None, write_mask: wgpu::ColorWrites::ALL })],
-                compilation_options: Default::default(),
-            }),
-            primitive: Default::default(),
-            depth_stencil: None,
-            multisample: Default::default(),
-            multiview_mask: None,
-            cache: None,
-        });
+        let show_into = |format| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("response show"),
+                layout: Some(&show_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &module,
+                    entry_point: Some("vs_show"),
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &module,
+                    entry_point: Some("fs_show"),
+                    targets: &[Some(wgpu::ColorTargetState { format, blend: None, write_mask: wgpu::ColorWrites::ALL })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: Default::default(),
+                depth_stencil: None,
+                multisample: Default::default(),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let show = show_into(target);
+        let show_float = show_into(FORMAT);
         Some(Self {
             size: (w, h),
             n: (nx, ny),
@@ -275,6 +281,7 @@ impl Response {
             multiply: compute_pipeline("cs_multiply"),
             kernel_spectrum: compute_pipeline("cs_kernel"),
             show,
+            show_float,
             kernel: None,
             srgb_mode: None,
             input: None,
@@ -394,8 +401,9 @@ impl Response {
         self.generation += 1;
     }
 
-    /// The last result into `target`, the image.
-    pub fn show(&self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
+    /// The last result into `target`, the image; `float`, a stretch's image
+    /// in floats (`app::stretch`), drawn there as the main pass would.
+    pub fn show(&self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView, float: bool) {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("response show"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -406,7 +414,7 @@ impl Response {
             })],
             ..Default::default()
         });
-        pass.set_pipeline(&self.show);
+        pass.set_pipeline(if float { &self.show_float } else { &self.show });
         let group = match self.result {
             At::A => &self.show_a,
             At::B => &self.show_b,

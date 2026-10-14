@@ -77,6 +77,11 @@ pub const SHADER_REFERENCE: wgpu::ShaderModuleDescriptor =
 pub const SHADER_RESPONSE: wgpu::ShaderModuleDescriptor =
     wgpu::include_wgsl!("../../shaders/response.wgsl");
 
+/// A stretch, the image's values shown as SAO DS9 scales an image
+/// (`app::stretch`).
+pub const SHADER_STRETCH: wgpu::ShaderModuleDescriptor =
+    wgpu::include_wgsl!("../../shaders/stretch.wgsl");
+
 /// Ray-traced shadows (`app::raytrace`): made only on a device with ray
 /// queries, since it does not compile elsewhere.
 pub const SHADER_RAYTRACE: wgpu::ShaderModuleDescriptor =
