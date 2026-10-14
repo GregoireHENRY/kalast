@@ -585,7 +585,10 @@ pub struct Shading {
     /// given in both: the data mode has no use for it.
     ///
     /// The numbers scripts set before 14 October still work for a release,
-    /// with a deprecation warning: 0 is "screen", 1 "linear".
+    /// with a deprecation warning: 0 is "screen", 1 "linear". In the settings
+    /// in the shaded mode only: the data mode stores its colours as given
+    /// whatever it is.
+    /// :when: color_mode == ColorMode::Shaded
     /// :py_custom:
     pub srgb_mode: SrgbMode,
     /// The power law the conversion uses instead of sRGB's own curve, unset
@@ -596,7 +599,7 @@ pub struct Shading {
     /// and a colormap's darkest colours came out darker than they are. Set
     /// it only to reproduce such an image. In the settings with `srgb_mode`
     /// "linear" only; it applies to the colours too, set from a script.
-    /// :when: srgb_mode == SrgbMode::Linear
+    /// :when: color_mode == ColorMode::Shaded && srgb_mode == SrgbMode::Linear
     /// :some: 2.2
     /// :step: 0.01
     pub gamma: Option<Float>,

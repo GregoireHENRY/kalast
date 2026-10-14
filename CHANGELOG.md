@@ -9,6 +9,12 @@ pushed. While betas of a version go out, its section is headed
 `## v<version>-beta`; it becomes `## v<version>` when the version is
 released, and the gate refuses the tag until it has.
 
+## v0.5.15-beta
+
+- The settings show `shading.srgb_mode` in the shaded mode only, and `shading.gamma` with it: the data mode stores its colours as given whatever it is.
+- `examples/didymos/main.py` draws Didymos and Dimorphos under the Hapke law Buratti et al. (2024) fitted to DART's images of the system, the light linear (`srgb_mode = "linear"`) and an exposure of 5.
+- `examples/comet67p_shadows_fit`: `hapke-fit` through the NAC's response (`response`) is 8 % brighter, w 0.0385: the response's halo takes light off lit ground, and the law was fitted without it.
+
 ## v0.5.14
 
 - A large mesh is drawn by the parts the camera can see, each only as fine as the image shows it (`shading.lod`, on by default; `shading.lod_pixels`): Mars from the Hera swing-by, 12.9M facets, drew in 100 ms a frame and now in 1.6-4 ms, within 0.35 % of every facet drawn. The shadow maps hold the camera's own triangles where it looks and coarser ones elsewhere (`shadows.lod_pixels`, `shadows.lod_texels`). A mesh of 16,384 facets or more is prepared for this on a thread of its own once loaded, drawn whole meanwhile.

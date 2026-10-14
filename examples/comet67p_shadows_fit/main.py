@@ -112,8 +112,11 @@ elif LAW == "hapke-fit":
     # The same refitted to 46 of these images, 2 to 94 deg, on SHAP7 in full
     # (notes/2026-10-13_67p_osiris_shadows): w, b, theta_bar and B0 refitted,
     # h and k kept. Fornasier et al.'s darkens too fast with phase beyond its
-    # 54 deg: kalast's I/F 1.6 to 2 times too low at 80-94 deg.
-    sim.bodies[0].scattering = Hapke(w=0.0356, b=0.276, c=1.0, b0=4.73, h=0.061, theta_bar=24.4 * RPD, k=1.2)
+    # 54 deg: kalast's I/F 1.6 to 2 times too low at 80-94 deg. Through the
+    # NAC's response, whose halo takes light off lit ground, 8 % more
+    # (notes/2026-10-14_67p_response_albedo).
+    w = 0.0385 if "response" in sys.argv else 0.0356
+    sim.bodies[0].scattering = Hapke(w=w, b=0.276, c=1.0, b0=4.73, h=0.061, theta_bar=24.4 * RPD, k=1.2)
 if "albedo" in sys.argv:
     # Each facet's colour the albedo of the cube its centre falls in: the
     # images' I/F over kalast's, fitted with a factor per image for what the

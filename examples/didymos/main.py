@@ -5,10 +5,15 @@ import spiceypy as spice
 
 import kalast  # noqa
 from kalast.app import App
+from kalast.scattering import Hapke
+from kalast.util import RPD
 
 
 app = App()
 app.simulation.config.wireframe.mode = 0
+app.simulation.config.shading.color_mode = "shaded"
+app.simulation.config.shading.srgb_mode = "linear"
+app.simulation.config.light.exposure = 5.0
 
 app.simulation.camera.pos = [-1.0, -3.0, 1.0]
 app.simulation.camera.look_anchor()
@@ -19,6 +24,11 @@ app.simulation.load_mesh(
 app.simulation.load_mesh(
     path="/Users/gregoireh/data/mesh/dimorphos/g_00243mm_spc_dimo_v004.obj",
 )
+
+# Buratti et al. (2024), DART's DRACO images and the system's phase curve.
+law = Hapke(w=0.126, b=0.36, c=1.0, b0=0.97, h=0.020, theta_bar=18.0 * RPD, k=1.0)
+app.simulation.bodies[0].scattering = law
+app.simulation.bodies[1].scattering = law
 
 spice.kclear()
 spice.furnsh("/Users/gregoireh/data/spice/hera/kernels/mk/hera_plan.tm")

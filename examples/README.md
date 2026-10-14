@@ -198,6 +198,21 @@ Look at [res/README.md](../res/README.md) to get Hera data.
     - Showcase kalast loading and rendering speed with 2x 3M+ facets meshes.
     - Use SPICE to set Didymos/Dimorphos and Sun positions/orientations.
     - You should run with decimated mesh `10k` or `100k` and compare speed.
+    - `app.simulation.config.shading.color_mode = "shaded"`, the default: lit
+      by the Sun, with shadows.
+    - `app.simulation.config.shading.srgb_mode = "linear"`: an exported pixel
+      is `exposure * I/F * 255`, I/F being the brightness relative to a white
+      surface facing the Sun, as a camera records it. The default `"screen"`
+      stores it through the sRGB curve, as a screen shows light: natural to
+      the eye, but a pixel no longer reads I/F. The data mode stores its
+      colours as given either way.
+    - `app.simulation.config.light.exposure = 5.0`: the light scaled as a
+      camera's exposure does, for a dark surface to show.
+    - `body.scattering = Hapke(...)`: how the surface reflects light, here the
+      Hapke law Buratti et al. (2024) fitted to DART's images of the system,
+      the colour left at 1, the law's own albedo. Without a law a body is
+      Lambertian, its colour the albedo, white by default. Other laws in
+      [docs/API.md](../docs/API.md#kalastscattering--reflected-sunlight).
 - [hera_didymos](hera_didymos):
     - [hera_didymos/afc.py](hera_didymos/afc.py):
         - Load Didymos/Dimorphos/Sun/Earth in AFC FOV frame centered on AFC
@@ -251,12 +266,8 @@ Look at [res/README.md](../res/README.md) to get Hera data.
           `fovy` the lines times a pixel's angle. The camera looks along
           the boresight, turned to the image's centre on the CCD and by the
           pointing correction.
-        - `app.simulation.config.shading.srgb_mode = "linear"`: an exported
-          pixel is `exposure * I/F * 255`, I/F being the brightness relative
-          to a white surface facing the Sun. The default `"screen"` stores it
-          through the sRGB curve, as a screen shows light: natural to the eye,
-          but a pixel no longer reads I/F.
-        - `app.simulation.config.light.exposure = 40.0`: Phobos is dark, its
+        - `app.simulation.config.light.exposure = 40.0`, the light linear as
+          for Didymos: Phobos is dark, its
           lit ground at I/F 0.004-0.021 in h8963, so 40 brings it to
           0.17-0.85 of white without clipping. Its night side, lit by Mars,
           is around 0.003.
@@ -280,10 +291,8 @@ Look at [res/README.md](../res/README.md) to get Hera data.
           the light over about 53 pixels and 28 % over about 434, which
           light the images' sky and shadows, and the smear. `enabled =
           False` shows the image without it.
-        - `phobos.scattering = Hapke(...)`: Phobos reflects light by the
-          Hapke law Fornasier et al. (2024) fitted to HRSC images, its
-          colour left at 1, the law's own albedo. Without a law a body is
-          Lambertian, its colour the albedo.
+        - Phobos's law is the Hapke law Fornasier et al. (2024) fitted to
+          HRSC images.
         - Mars is a sphere stretched to its radii in its model matrix, of
           colour 0.25, near its albedo, there for its light on Phobos.
     - [phobos_shadows_fit/main.py](phobos_shadows_fit/main.py): the four
