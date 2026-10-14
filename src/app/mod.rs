@@ -1384,16 +1384,21 @@ impl App {
         // cannot configure its surface is a real failure, not a slow frame.
         // Five seconds without a turn of the loop, then: a frame drawn in
         // bands, or waiting for a callback on the scripts' thread, turns it
-        // all along, and may take longer than that.
+        // all along, and may take longer than that. Nor a pump that was
+        // busy: the first frame of a mesh of 44M facets -- its upload, its
+        // rays' structures, the pipelines compiled after a build -- took
+        // longer than five seconds inside one pump, and the loop was given
+        // up with nothing wrong.
         let mut deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         let mut turns = self.turns;
         while self.shared.borrow().running && !self.frame_drawn {
+            let pumped = std::time::Instant::now();
             if let winit::platform::pump_events::PumpStatus::Exit(_) =
                 ev.pump_app_events(Some(std::time::Duration::ZERO), self)
             {
                 self.shared.borrow_mut().running = false;
             }
-            if self.turns != turns {
+            if self.turns != turns || pumped.elapsed() > std::time::Duration::from_millis(250) {
                 turns = self.turns;
                 deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
             }

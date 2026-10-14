@@ -6189,3 +6189,13 @@ the app tab's Updates section lists every version GitHub has and installs
 the one chosen, older ones too; `kalast --update --beta`, `--update 0.5.12`,
 `--versions`. Write-up: `2026-10-14_updates_betas_and_versions.md`. Open: a
 downgrade run end to end from a bundle.
+
+## 2026-10-14 — `app.step()` waits out a slow first frame
+
+"step() saw no frame in 5 s; giving up on the loop" ended `main.py`'s loop
+over 67P's 57 images at once: SHAP7's 44M facets uploaded and their rays'
+structures built inside one pump of the event loop, past the five seconds the
+watchdog allowed for a frame. It had ended a test's first run after a build
+too, the shaders compiling. A pump that was busy for a quarter of a second
+now restarts the five seconds: the watchdog is for a loop turning with no
+frame, not one at work. `src/app/mod.rs`, `turn`.

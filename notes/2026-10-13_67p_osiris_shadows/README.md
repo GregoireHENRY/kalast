@@ -17,6 +17,8 @@ says where the data comes from.
 
 ![The 57 images (left of each pair) and kalast's, SHAP7 in full and the refitted law, by phase angle](sheet.jpg)
 
+kalast's are drawn with the reference, SHAP7 in full and the Hapke law refitted to these images (`hapke-fit`, below), without bounced light: ground in shadow is black where the images show it lit by the terrain around it (see "The comet's light on its night side").
+
 ## The images: 57 of 15,570
 
 Every NAC image of the archive's stray-light-corrected reflectance sets
@@ -107,6 +109,8 @@ February 2016's at 50 km goes from 0.394 to 0.603, January 2016's from
 DSK left dark come out where the image has them.
 
 ![The image, DLR's DSK and SHAP7, SPICE's pointing, the image's I/F scale](shape_models.jpg)
+
+Drawn under Fornasier et al. (2015)'s Hapke law, the one published, without bounced light, all three as the square root of their I/F on the image's scale. Under that law kalast is 1.2-1.6 times too dark at 60-90 deg (below), which is the difference in brightness between the columns here; the refitted law takes it away. What it cannot take away is the texture: boulders, fractures and roughness at one to a few of these pixels, 0.35-1.4 m, at or below SHAP7's sampling of 1-1.5 m, which stereophotogrammetry smooths further; and the surface's own albedo, one value all over in kalast.
 
 **A correction.** November 2014's image at 93 deg and 31 km
 (N20141122T163853) had looked like a data problem: kalast drew a sliver of
@@ -210,8 +214,8 @@ ground reads I/F 4.4 x 10^-5 (2.9-6.8 x 10^-5, 5-95 %), at 20:47 nothing
 (6 x 10^-7, the noise). kalast with `bounces=1` -- each pixel's ground lit
 by whatever of the nucleus it sees in sunlight, through the law of both --
 draws the first frame's terrain as the image has it: the cliff, the plateau's
-edge, its shading; I/F 2.3 x 10^-5, the image 1.82 times brighter, r 0.47
-smoothed over 6 pixels. The second it draws black: no sunlit ground in sight.
+edge, its shading; I/F 2.3 x 10^-5, the image 1.87 times brighter (their
+medians), r 0.47 smoothed over 6 pixels. The second it draws black: no sunlit ground in sight.
 The first in 230 s at half resolution and 1024 samples a pixel. Left out of
 kalast's light: a second bounce, presumably a few percent on ground this dark;
 the coma's own light; the boulders, metres across, bright in the image and
