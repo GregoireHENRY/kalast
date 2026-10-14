@@ -9,7 +9,7 @@ pushed. While betas of a version go out, its section is headed
 `## v<version>-beta`; it becomes `## v<version>` when the version is
 released, and the gate refuses the tag until it has.
 
-## v0.5.14-beta
+## v0.5.14
 
 - A large mesh is drawn by the parts the camera can see, each only as fine as the image shows it (`shading.lod`, on by default; `shading.lod_pixels`): Mars from the Hera swing-by, 12.9M facets, drew in 100 ms a frame and now in 1.6-4 ms, within 0.35 % of every facet drawn. The shadow maps hold the camera's own triangles where it looks and coarser ones elsewhere (`shadows.lod_pixels`, `shadows.lod_texels`). A mesh of 16,384 facets or more is prepared for this on a thread of its own once loaded, drawn whole meanwhile.
 - The shading pass moves a third as much data per vertex, which roughly halves it on a mesh of millions of facets.
