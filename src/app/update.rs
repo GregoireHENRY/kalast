@@ -22,10 +22,17 @@
 //! the user's back: the toolbar's button becomes "restart", and that
 //! relaunches this very command line.
 //!
+//! **Betas**, the pre-release of the next version built from main, are
+//! offered beside the releases with `app.config.update_betas`, which the UI
+//! app remembers. **Any version** GitHub lists can be installed instead,
+//! older ones too -- going back -- from the app tab's Updates section.
+//!
 //! `kalast --update` (and `python -m kalast --update`) does check and
-//! install from a terminal, printing what the log panel would show.
-//! `KALAST_UPDATE_PRETEND=0.5.4` makes this copy claim that version, which
-//! is how the path is tried without waiting for a release.
+//! install from a terminal, printing what the log panel would show;
+//! `--beta` takes betas too, `kalast --update 0.5.12` installs that version,
+//! and `kalast --versions` lists them. `KALAST_UPDATE_PRETEND=0.5.4` makes
+//! this copy claim that version, which is how the path is tried without
+//! waiting for a release.
 
 use std::path::{Path, PathBuf};
 
@@ -57,6 +64,16 @@ pub struct Release {
     pub notes: String,
     /// `(file name, download url)`.
     pub assets: Vec<(String, String)>,
+    /// A pre-release: a beta, `v<version>-beta`.
+    pub prerelease: bool,
+}
+
+impl Release {
+    /// Whether it carries the archive for this machine.
+    pub fn has_archive(&self) -> bool {
+        let name = asset_name(&self.version);
+        self.assets.iter().any(|(n, _)| *n == name)
+    }
 }
 
 /// The release to offer, beside the version this is.
@@ -74,6 +91,9 @@ pub struct Update {
     /// `latest` is a newer build of this same version: a newer beta, or the
     /// release this beta's version became.
     pub rebuilt: bool,
+    /// Every release GitHub lists, newest first, betas among them: what a
+    /// version is chosen from. Shared, for the state is copied every frame.
+    pub releases: std::sync::Arc<Vec<Release>>,
 }
 
 impl Update {
@@ -91,7 +111,8 @@ pub enum State {
     #[default]
     Unchecked,
     Checking,
-    UpToDate,
+    /// Nothing newer: the check's answer kept, for the versions it lists.
+    UpToDate(Update),
     Available(Update),
     Installing,
     /// Installed; the toolbar offers a restart.
@@ -171,21 +192,21 @@ fn agent() -> String {
     format!("kalast/{CURRENT}")
 }
 
-/// Ask GitHub. Blocking; run it on a thread.
-pub fn check(current: &str) -> Result<Update, String> {
-    let url = format!("https://api.github.com/repos/{REPO}/releases?per_page=20");
+/// Ask GitHub, betas offered too or not. Blocking; run it on a thread.
+pub fn check(current: &str, betas: bool) -> Result<Update, String> {
+    let url = format!("https://api.github.com/repos/{REPO}/releases?per_page=100");
     let mut response = ureq::get(&url)
         .header("User-Agent", &agent())
         .header("Accept", "application/vnd.github+json")
         .call()
         .map_err(|e| e.to_string())?;
     let body = response.body_mut().read_to_string().map_err(|e| e.to_string())?;
-    parse(&body, current)
+    parse(&body, current, betas)
 }
 
 /// The releases list as GitHub returns it, against `current` and this build.
-pub fn parse(json: &str, current: &str) -> Result<Update, String> {
-    parse_for(json, current, BUILD_COMMIT.zip(BUILD_DATE))
+pub fn parse(json: &str, current: &str, betas: bool) -> Result<Update, String> {
+    parse_for(json, current, BUILD_COMMIT.zip(BUILD_DATE), betas)
 }
 
 /// `parse`, for a build that is `(commit, commit date)` -- or, `None`, for
@@ -197,7 +218,9 @@ pub fn parse(json: &str, current: &str) -> Result<Update, String> {
 /// on GitHub, `v<version>-beta`, when it was built from another commit and
 /// published after this one's commit; once it has one, that release, when it
 /// was made from another commit -- this one being an older beta of it.
-pub fn parse_for(json: &str, current: &str, build: Option<(&str, &str)>) -> Result<Update, String> {
+/// With `betas`, the newest beta is offered too when its version is newer
+/// than this one's and than the release's.
+pub fn parse_for(json: &str, current: &str, build: Option<(&str, &str)>, betas: bool) -> Result<Update, String> {
     let value: serde_json::Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
     let list = value.as_array().ok_or("not a list of releases")?;
     let release = |r: &serde_json::Value| -> Option<Release> {
@@ -223,6 +246,7 @@ pub fn parse_for(json: &str, current: &str, build: Option<(&str, &str)>) -> Resu
                         .collect()
                 })
                 .unwrap_or_default(),
+            prerelease: r["prerelease"].as_bool().unwrap_or(false),
         })
     };
     // Newest first, as GitHub lists them; `true` for a pre-release.
@@ -269,6 +293,16 @@ pub fn parse_for(json: &str, current: &str, build: Option<(&str, &str)>) -> Resu
         latest = stable;
         rebuilt = false;
     }
+    // Betas taken: the newest, when its version is newer still -- the beta
+    // of a version already released is that release's past.
+    if betas {
+        if let Some((_, b)) = releases.iter().find(|(pre, _)| *pre) {
+            if newer(&b.version, &current) && newer(&b.version, &latest.version) {
+                latest = b.clone();
+                rebuilt = false;
+            }
+        }
+    }
 
     Ok(Update {
         current_date: released.map(|r| r.date.clone()).filter(|d| !d.is_empty()),
@@ -277,7 +311,47 @@ pub fn parse_for(json: &str, current: &str, build: Option<(&str, &str)>) -> Resu
         beta: is_beta,
         built: build.filter(|_| is_beta).map(|(_, d)| d.chars().take(10).collect()),
         rebuilt,
+        releases: std::sync::Arc::new(releases.into_iter().map(|(_, r)| r).collect()),
     })
+}
+
+/// The release a version names, as typed: `0.5.12`, `v0.5.12`, or a beta's
+/// `0.5.14-beta`.
+pub fn find<'a>(releases: &'a [Release], wanted: &str) -> Option<&'a Release> {
+    let wanted = wanted.trim().trim_start_matches('v');
+    releases.iter().find(|r| r.tag.trim_start_matches('v') == wanted)
+}
+
+/// This copy's tag, as the versions list marks it: its beta's while it is
+/// one.
+pub fn current_tag(u: &Update) -> String {
+    if u.beta && !u.releases.iter().any(|r| !r.prerelease && r.version == u.current) {
+        format!("v{}-beta", u.current)
+    } else {
+        format!("v{}", u.current)
+    }
+}
+
+/// The versions to choose from, a line each, newest first: tag, date,
+/// beta or not, this copy's, and an archive missing for this machine.
+pub fn versions(u: &Update) -> Vec<String> {
+    let this = current_tag(u);
+    u.releases
+        .iter()
+        .map(|r| {
+            let mut line = format!("{:<15} {}", r.tag, if r.date.is_empty() { "          " } else { &r.date });
+            if r.prerelease {
+                line.push_str("  beta");
+            }
+            if r.tag == this {
+                line.push_str("  (this one)");
+            }
+            if !r.has_archive() {
+                line.push_str("  (no archive for this machine)");
+            }
+            line
+        })
+        .collect()
 }
 
 /// A full commit hash, which is what a release made since betas names.
@@ -297,8 +371,10 @@ pub fn message(u: &Update) -> Vec<String> {
         let what = if u.beta { "beta" } else { "release" };
         return vec![format!("{this} is the latest {what}.")];
     }
-    let available = if u.latest.tag.ends_with("-beta") {
+    let available = if u.latest.prerelease && u.latest.version == u.current {
         format!("a newer beta of v{} (published {})", u.latest.version, u.latest.date)
+    } else if u.latest.prerelease {
+        format!("v{} beta available (published {})", u.latest.version, u.latest.date)
     } else {
         format!("v{} available (released {})", u.latest.version, u.latest.date)
     };
@@ -312,21 +388,26 @@ pub fn message(u: &Update) -> Vec<String> {
 /// Install `u.latest` the way this copy was installed. Blocking; run it on
 /// a thread. `log` gets the progress lines.
 pub fn install(u: &Update, kind: &Kind, log: &dyn Fn(String)) -> Result<(), String> {
+    install_release(&u.latest, kind, log)
+}
+
+/// Install `release` -- any version, older ones too -- the way this copy
+/// was installed. Blocking; run it on a thread.
+pub fn install_release(release: &Release, kind: &Kind, log: &dyn Fn(String)) -> Result<(), String> {
     match kind {
-        Kind::Bundle(dir) => install_bundle(u, dir, log),
-        Kind::Pip => install_pip(u, log),
+        Kind::Bundle(dir) => install_bundle(release, dir, log),
+        Kind::Pip => install_pip(release, log),
         Kind::Source => Err("this kalast is built from source: git pull and build it".to_string()),
     }
 }
 
-fn install_bundle(u: &Update, dir: &Path, log: &dyn Fn(String)) -> Result<(), String> {
-    let name = asset_name(&u.latest.version);
-    let (_, url) = u
-        .latest
+fn install_bundle(release: &Release, dir: &Path, log: &dyn Fn(String)) -> Result<(), String> {
+    let name = asset_name(&release.version);
+    let (_, url) = release
         .assets
         .iter()
         .find(|(n, _)| *n == name)
-        .ok_or_else(|| format!("release v{} carries no {name}", u.latest.version))?;
+        .ok_or_else(|| format!("{} carries no {name}", release.tag))?;
 
     // Inside the bundle folder, so the swap below is a rename on one
     // filesystem and not a copy across two.
@@ -362,9 +443,9 @@ fn install_bundle(u: &Update, dir: &Path, log: &dyn Fn(String)) -> Result<(), St
         return Err(format!("{name} holds no {} folder", inner.display()));
     }
 
-    install_unpacked(&inner, dir, &u.latest.version, &Shipped::new(), log)?;
+    install_unpacked(&inner, dir, &release.version, &Shipped::new(), log)?;
     let _ = std::fs::remove_dir_all(&work);
-    log(format!("installed v{} in {}", u.latest.version, dir.display()));
+    log(format!("installed {} in {}", release.tag, dir.display()));
     Ok(())
 }
 
@@ -691,9 +772,12 @@ pub fn settled_message(outcome: &Result<ExamplesSettled, String>, dir: &Path, ve
     }
 }
 
-fn install_pip(u: &Update, log: &dyn Fn(String)) -> Result<(), String> {
+fn install_pip(release: &Release, log: &dyn Fn(String)) -> Result<(), String> {
+    if release.prerelease {
+        return Err(format!("{} is a beta, made as bundles only: pip has kalast's releases", release.tag));
+    }
     let python = std::env::current_exe().map_err(|e| e.to_string())?;
-    let spec = format!("kalast=={}", u.latest.version);
+    let spec = format!("kalast=={}", release.version);
     log(format!("{} -m pip install --upgrade {spec}", python.display()));
     let out = std::process::Command::new(&python)
         .args(["-m", "pip", "install", "--upgrade", &spec])
@@ -723,16 +807,58 @@ pub fn relaunch() -> Result<(), String> {
     Ok(())
 }
 
-/// `--update` from a terminal: check, say, install. The exit code.
-pub fn run_now() -> i32 {
+/// Whether a command line asks the updater rather than the UI app:
+/// `--update`, `--update=<version>`, `--versions`.
+pub fn asked(args: &[String]) -> bool {
+    args.iter().any(|a| a == "--update" || a.starts_with("--update=") || a == "--versions")
+}
+
+/// `--update` from a terminal: check, say, install -- the newest, betas too
+/// with `--beta`, or the version named after it, `--update 0.5.12` or
+/// `--update=0.5.12`; `--versions` lists them. The exit code.
+pub fn run_now(args: &[String]) -> i32 {
+    let betas = args.iter().any(|a| a == "--beta");
+    // Not a script's path that happens to follow it: a version starts with a
+    // digit, after its `v`.
+    let looks_like_version = |a: &&String| a.trim_start_matches('v').starts_with(|c: char| c.is_ascii_digit());
+    let wanted = args
+        .iter()
+        .position(|a| a == "--update")
+        .and_then(|i| args.get(i + 1))
+        .filter(looks_like_version)
+        .cloned()
+        .or_else(|| args.iter().find_map(|a| a.strip_prefix("--update=").map(str::to_string)));
     let current = current();
-    let update = match check(&current) {
+    let update = match check(&current, betas) {
         Ok(u) => u,
         Err(e) => {
             eprintln!("update check failed: {e}");
             return 1;
         }
     };
+    if args.iter().any(|a| a == "--versions") {
+        for line in versions(&update) {
+            println!("{line}");
+        }
+        return 0;
+    }
+    if let Some(wanted) = wanted {
+        let Some(release) = find(&update.releases, &wanted) else {
+            eprintln!("no release {wanted} on GitHub: `kalast --versions` lists them");
+            return 1;
+        };
+        println!("installing {} in place of v{}", release.tag, update.current);
+        return match install_release(release, &kind(), &|line| println!("{line}")) {
+            Ok(()) => {
+                println!("done: start kalast again to run {}", release.tag);
+                0
+            }
+            Err(e) => {
+                eprintln!("install failed: {e}");
+                1
+            }
+        };
+    }
     for line in message(&update) {
         println!("{line}");
     }
@@ -772,7 +898,7 @@ mod tests {
 
     #[test]
     fn the_list_gives_the_latest_and_this_versions_date() {
-        let u = parse(LIST, "0.5.5").unwrap();
+        let u = parse(LIST, "0.5.5", false).unwrap();
         assert_eq!(u.latest.version, "0.6.0");
         assert_eq!(u.latest.date, "2026-10-01");
         assert_eq!(u.current_date.as_deref(), Some("2026-09-23"));
@@ -789,14 +915,14 @@ mod tests {
 
     #[test]
     fn up_to_date_is_one_line() {
-        let u = parse(LIST, "0.6.0").unwrap();
+        let u = parse(LIST, "0.6.0", false).unwrap();
         assert!(!u.newer());
         assert_eq!(message(&u), vec!["kalast v0.6.0 (released 2026-10-01) is the latest release."]);
     }
 
     #[test]
     fn a_version_github_no_longer_lists_has_no_date() {
-        let u = parse(LIST, "0.1.0").unwrap();
+        let u = parse(LIST, "0.1.0", false).unwrap();
         assert_eq!(u.current_date, None);
         assert_eq!(message(&u)[0].split(" ->").next().unwrap(), "kalast v0.1.0");
     }
@@ -824,7 +950,7 @@ mod tests {
 
     #[test]
     fn a_beta_is_offered_the_newer_beta_of_its_version() {
-        let u = parse_for(BETA, "0.5.10", Some((A, "2026-09-25T14:00:00Z"))).unwrap();
+        let u = parse_for(BETA, "0.5.10", Some((A, "2026-09-25T14:00:00Z")), false).unwrap();
         assert!(u.beta && u.rebuilt && u.newer());
         assert_eq!(u.latest.tag, "v0.5.10-beta");
         assert_eq!(u.latest.version, "0.5.10", "its archives are named for the version");
@@ -836,7 +962,7 @@ mod tests {
 
     #[test]
     fn the_beta_it_is_is_not_offered() {
-        let u = parse_for(BETA, "0.5.10", Some((B, "2026-09-26T09:40:00Z"))).unwrap();
+        let u = parse_for(BETA, "0.5.10", Some((B, "2026-09-26T09:40:00Z")), false).unwrap();
         assert!(u.beta && !u.newer());
         assert_eq!(message(&u), vec!["kalast v0.5.10 beta (built 2026-09-26) is the latest beta."]);
     }
@@ -844,13 +970,13 @@ mod tests {
     /// Another commit, but made after that beta was published: not newer.
     #[test]
     fn a_beta_published_before_this_build_is_not_offered() {
-        let u = parse_for(BETA, "0.5.10", Some((A, "2026-09-27T08:00:00Z"))).unwrap();
+        let u = parse_for(BETA, "0.5.10", Some((A, "2026-09-27T08:00:00Z")), false).unwrap();
         assert!(u.beta && !u.newer());
     }
 
     #[test]
     fn a_beta_is_offered_the_release_its_version_became() {
-        let u = parse_for(RELEASED, "0.5.10", Some((A, "2026-09-25T14:00:00Z"))).unwrap();
+        let u = parse_for(RELEASED, "0.5.10", Some((A, "2026-09-25T14:00:00Z")), false).unwrap();
         assert!(u.beta && u.rebuilt && u.newer());
         assert_eq!(u.latest.tag, "v0.5.10");
         assert_eq!(
@@ -862,7 +988,7 @@ mod tests {
     /// The last beta's bundle is the release's: same commit, nothing to do.
     #[test]
     fn the_release_is_not_offered_to_the_beta_it_was_made_from() {
-        let u = parse_for(RELEASED, "0.5.10", Some((B, "2026-09-26T09:40:00Z"))).unwrap();
+        let u = parse_for(RELEASED, "0.5.10", Some((B, "2026-09-26T09:40:00Z")), false).unwrap();
         assert!(!u.beta && !u.newer());
         assert_eq!(message(&u), vec!["kalast v0.5.10 (released 2026-09-28) is the latest release."]);
     }
@@ -875,7 +1001,7 @@ mod tests {
                 "target_commitish":"cccccccccccccccccccccccccccccccccccccccc","body":"- newer","assets":[]},"#,
             1,
         );
-        let u = parse_for(&list, "0.5.10", Some((A, "2026-09-25T14:00:00Z"))).unwrap();
+        let u = parse_for(&list, "0.5.10", Some((A, "2026-09-25T14:00:00Z")), false).unwrap();
         assert!(u.newer() && !u.rebuilt);
         assert_eq!(u.latest.tag, "v0.5.11");
     }
@@ -884,10 +1010,58 @@ mod tests {
     /// betas are not there for them.
     #[test]
     fn betas_are_offered_to_no_one_else() {
-        assert!(!parse_for(BETA, "0.5.10", None).unwrap().newer(), "a build that knows no commit");
-        let old = parse_for(BETA, "0.5.9", Some((A, "2026-09-20T00:00:00Z"))).unwrap();
+        assert!(!parse_for(BETA, "0.5.10", None, false).unwrap().newer(), "a build that knows no commit");
+        let old = parse_for(BETA, "0.5.9", Some((A, "2026-09-20T00:00:00Z")), false).unwrap();
         assert!(!old.newer() && !old.beta, "0.5.9 is its release, named for a branch");
         assert_eq!(old.latest.tag, "v0.5.9");
+    }
+
+    /// Betas taken: the beta of a newer version is offered, to any build.
+    #[test]
+    fn betas_taken_offer_the_beta_of_a_newer_version() {
+        let u = parse_for(BETA, "0.5.9", None, true).unwrap();
+        assert!(u.newer() && !u.rebuilt);
+        assert_eq!(u.latest.tag, "v0.5.10-beta");
+        assert_eq!(
+            message(&u)[0],
+            "kalast v0.5.9 (released 2026-09-24) -> v0.5.10 beta available (published 2026-09-26). The toolbar's \"update\" button installs it."
+        );
+        let none = parse_for(BETA, "0.5.10", None, true).unwrap();
+        assert!(!none.newer(), "not the beta of this very version");
+    }
+
+    /// A version's beta, once that version is released, is its past.
+    #[test]
+    fn betas_taken_a_released_versions_beta_is_not_offered() {
+        let list = RELEASED.replacen(
+            "},",
+            r#"},{"tag_name":"v0.5.10-beta","published_at":"2026-09-26T10:00:00Z","draft":false,"prerelease":true,
+                "target_commitish":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","body":"Pre-release.","assets":[]},"#,
+            1,
+        );
+        let u = parse_for(&list, "0.5.9", None, true).unwrap();
+        assert_eq!(u.latest.tag, "v0.5.10");
+    }
+
+    /// Every version listed, newest first, found as typed.
+    #[test]
+    fn versions_are_listed_and_found_by_name() {
+        let u = parse_for(BETA, "0.5.9", None, false).unwrap();
+        assert_eq!(u.releases.len(), 2);
+        let lines = versions(&u);
+        assert!(lines[0].starts_with("v0.5.10-beta    2026-09-26  beta"), "{}", lines[0]);
+        assert!(lines[1].contains("(this one)") && lines[1].contains("(no archive for this machine)"), "{}", lines[1]);
+        assert_eq!(find(&u.releases, "0.5.10-beta").map(|r| r.tag.as_str()), Some("v0.5.10-beta"));
+        assert_eq!(find(&u.releases, "v0.5.9").map(|r| r.tag.as_str()), Some("v0.5.9"));
+        assert!(find(&u.releases, "0.5.10").is_none(), "the beta is not the release");
+    }
+
+    /// pip has the releases alone.
+    #[test]
+    fn a_beta_is_not_installed_by_pip() {
+        let u = parse_for(BETA, "0.5.9", None, true).unwrap();
+        let e = install_release(&u.latest, &Kind::Pip, &|_| {}).unwrap_err();
+        assert!(e.contains("is a beta"), "{e}");
     }
 
     #[test]

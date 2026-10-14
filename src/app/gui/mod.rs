@@ -1185,6 +1185,80 @@ fn reference_at_limit(r: &crate::app::simulation::ReferenceState, goal: f32) -> 
     r.done && !r.stopped && r.error.is_none_or(|e| e > goal)
 }
 
+/// The app tab's Updates, after its settings: every version GitHub lists,
+/// to install in place of this one -- a newer one, a beta, or an older one,
+/// going back -- once a check has answered; before, a button that asks.
+fn versions_ui(
+    ui: &mut egui::Ui,
+    state: &crate::app::update::State,
+    choice: &mut Option<String>,
+    install: &mut Option<String>,
+    check: &mut bool,
+) {
+    use crate::app::update::{self, State};
+    let u = match state {
+        State::Available(u) | State::UpToDate(u) => u,
+        _ => {
+            let busy = matches!(state, State::Checking | State::Installing);
+            let words = if matches!(state, State::Installing) { "installing\u{2026}" } else if busy { "asking GitHub\u{2026}" } else { "check now" };
+            let asked = widgets::setting(ui, "versions", "Ask GitHub for the versions there are, betas among them", |ui| {
+                ui.add_enabled(!busy, egui::Button::new(words))
+            });
+            *check |= asked.clicked();
+            return;
+        }
+    };
+    let this = update::current_tag(u);
+    let shown = choice.clone().unwrap_or_else(|| this.clone());
+    let label = |r: &update::Release| {
+        let mut text = format!("{}  {}", r.tag, r.date);
+        if r.tag == this {
+            text.push_str("  (this one)");
+        }
+        text
+    };
+    widgets::setting(
+        ui,
+        "version",
+        "Every version GitHub lists, newest first, betas among them: one to install in place of this one, older ones too",
+        |ui| {
+            egui::ComboBox::from_id_salt("update.version")
+                .selected_text(u.releases.iter().find(|r| r.tag == shown).map(label).unwrap_or(shown.clone()))
+                .width(ui.available_width())
+                .show_ui(ui, |ui| {
+                    for r in u.releases.iter() {
+                        let notes: String = r.notes.lines().take(12).collect::<Vec<_>>().join("\n");
+                        let row = ui.selectable_label(r.tag == shown, label(r));
+                        let row = if notes.is_empty() { row } else { row.on_hover_text(notes) };
+                        if row.clicked() {
+                            *choice = Some(r.tag.clone());
+                        }
+                    }
+                })
+        },
+    );
+    let Some(r) = u.releases.iter().find(|r| r.tag == shown && r.tag != this) else {
+        let asked = widgets::setting(ui, "", "Ask GitHub again", |ui| ui.button("check again"));
+        *check |= asked.clicked();
+        return;
+    };
+    let words = if update::newer(&r.version, &u.current) || (r.version == u.current && r.prerelease != u.beta) {
+        format!("install {}", r.tag)
+    } else {
+        format!("go back to {}", r.tag)
+    };
+    let missing = matches!(update::kind(), update::Kind::Bundle(_)) && !r.has_archive();
+    let clicked = widgets::setting(ui, "", "Download it for this machine and install it in place of this version; the toolbar then offers a restart", |ui| {
+        ui.add_enabled(!missing, egui::Button::new(words))
+    });
+    if missing {
+        widgets::note(ui, &format!("{} carries no archive for this machine", r.tag));
+    }
+    if clicked.clicked() {
+        *install = Some(r.tag.clone());
+    }
+}
+
 /// A reference image in the toolbar, right to left: the button that stops
 /// the sum where it is, or takes it on from there, then its state -- in the
 /// run colour once it has converged, so that it shows.
@@ -1462,6 +1536,12 @@ pub struct Editor {
     /// The toolbar's update and relaunch buttons; see `app::update`.
     pub update_request: bool,
     pub relaunch_request: bool,
+    /// The app tab's Updates: a version to install, by tag, older ones too,
+    /// and a check asked for.
+    pub install_request: Option<String>,
+    pub check_request: bool,
+    /// The version chosen in that list, until installed.
+    version_choice: Option<String>,
     pub save_request: bool,
     /// The window was asked to close over an edited script. The editor puts
     /// the question; the answer comes back as one of the two below, or as
@@ -1776,6 +1856,9 @@ impl Editor {
             open_request: false,
             update_request: false,
             relaunch_request: false,
+            install_request: None,
+            check_request: false,
+            version_choice: None,
             save_request: false,
             rust_release: true,
             build_request: false,
@@ -2064,6 +2147,8 @@ impl Editor {
         let ran = &mut shared.script_ran;
         let (mut run_request, mut save_request) = (false, false);
         let (mut update_request, mut relaunch_request) = (false, false);
+        let (mut install_request, mut check_request) = (None::<String>, false);
+        let mut version_choice = self.version_choice.clone();
         let (mut save_and_quit, mut quit_now, mut cancel_exit) = (false, false, false);
         // A Rust example is built and launched rather than run in this
         // process, so the transport buttons do not apply to one.
@@ -2289,7 +2374,7 @@ impl Editor {
                                 ui.separator();
                                 ui.label("update failed, see the log");
                             }
-                            State::Unchecked | State::Checking | State::UpToDate => {}
+                            State::Unchecked | State::Checking | State::UpToDate(_) => {}
                         }
                     },
                     |ui| {
@@ -2673,7 +2758,13 @@ impl Editor {
                                     Codicon(icons::codicon::CLOUD_DOWNLOAD, palette::SAPPHIRE),
                                     "Updates",
                                     "Updates",
-                                    |ui| config_panel::app_updates(ui, app_config),
+                                    |ui| {
+                                        let betas = app_config.update_betas;
+                                        config_panel::app_updates(ui, app_config);
+                                        // The offer changes with it: asked again.
+                                        check_request |= app_config.update_betas != betas;
+                                        versions_ui(ui, &update_state, &mut version_choice, &mut install_request, &mut check_request);
+                                    },
                                 );
                                 remember |= crate::app::settings::Remembered::of(app_config) != before;
                                 ui.add_space(8.0);
@@ -3337,6 +3428,12 @@ impl Editor {
         }
         self.update_request |= update_request;
         self.relaunch_request |= relaunch_request;
+        if install_request.is_some() {
+            self.install_request = install_request;
+            version_choice = None;
+        }
+        self.check_request |= check_request;
+        self.version_choice = version_choice;
         self.build_request |= build_request;
         self.launch_request |= launch_request;
         let mut platform = output.platform_output;

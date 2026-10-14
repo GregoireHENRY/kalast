@@ -541,5 +541,6 @@ pub fn app_editor(ui: &mut egui::Ui, a: &mut AppConfig) {
 /// `app.config` -- Updates.
 pub fn app_updates(ui: &mut egui::Ui, a: &mut AppConfig) {
     setting(ui, "check for updates", "Ask GitHub for a newer release when the UI app opens, and offer it in the toolbar. On a thread, so nothing waits on it; never when a script runs its own window. Off, kalast touches the network at no point.", |ui| ui.checkbox(&mut a.check_updates, ""));
+    setting(ui, "offer betas", "Offer betas too: the pre-release of the next version, built from main and replaced as it moves on, beside the releases. Remembered.", |ui| ui.checkbox(&mut a.update_betas, ""));
 }
 

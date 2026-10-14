@@ -297,6 +297,10 @@ class AppConfig:
     the toolbar. On a thread, so nothing waits on it; never when a script
     runs its own window. Off, kalast touches the network at no point.
     """
+    update_betas: bool
+    """Offer betas too: the pre-release of the next version, built from main
+    and replaced as it moves on, beside the releases. Remembered.
+    """
 
 class Config:
     @property

@@ -2002,5 +2002,11 @@ impl super::config::AppConfig {
     fn check_updates(&self) -> bool { self.config.borrow().check_updates }
     #[setter]
     fn set_check_updates(&mut self, v: bool) { self.config.borrow_mut().check_updates = v; }
+    /// Offer betas too: the pre-release of the next version, built from main
+    /// and replaced as it moves on, beside the releases. Remembered.
+    #[getter]
+    fn update_betas(&self) -> bool { self.config.borrow().update_betas }
+    #[setter]
+    fn set_update_betas(&mut self, v: bool) { self.config.borrow_mut().update_betas = v; }
 }
 

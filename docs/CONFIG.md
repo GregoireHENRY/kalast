@@ -196,11 +196,29 @@ newer beta of its version, and then that version's release. It knows which
 commit it was built from and when, and a beta on GitHub is newer when it was
 built from another commit and published after that date; the release, when
 it was made from another commit. The last beta's bundle is the release's, so
-it is offered nothing. Pre-releases are offered to nothing else.
+it is offered nothing. Other copies are offered pre-releases only with
+`update_betas`.
+
+**Any version** can be installed instead, from the app tab's Updates section
+once the check has answered -- or its **check now** button: a list of every
+version GitHub has, newest first, betas among them, each with its notes on
+hover, and a button installing the one chosen in place of this one -- a newer
+one, a beta, or an older one, going back. It is installed as an update is, the
+examples you changed kept in `scripts/backup/`, and the toolbar offers a
+restart. A version whose release has no archive for this machine cannot be
+chosen; a pip install has the releases, not the betas.
 
 `kalast --update` (or `python -m kalast --update`) does the same from a
-terminal. `KALAST_UPDATE_PRETEND=0.5.4` makes this copy claim that version,
-to try the path without waiting for a release. `src/app/update.rs`.
+terminal: `--beta` takes betas too, `kalast --update 0.5.12` installs that
+version, older ones too, and `kalast --versions` lists them.
+`KALAST_UPDATE_PRETEND=0.5.4` makes this copy claim that version, to try the
+path without waiting for a release. `src/app/update.rs`.
+
+### `app.config.update_betas: bool` — default `False` *(live, remembered)*
+Offer betas too: the pre-release of the next version, `v<version>-beta`, built
+from main and replaced as it moves on, beside the releases -- when its version
+is newer than this one's and than the newest release's. Ticked in the app tab,
+it asks GitHub again, and the UI app remembers it.
 
 ### The script editor
 

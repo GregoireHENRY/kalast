@@ -6181,3 +6181,11 @@ how the lit image is stored, by name: `"screen"`, the default, or
 `"linear"`; 0 and 1 taken for a release with a deprecation warning.
 `tests/test_srgb_mode.py`. Write-up: `2026-10-12_shadow_method_and_colour_modes/`,
 14 October.
+
+## 2026-10-14 — updates: betas on request, any version, going back
+
+`app.config.update_betas` offers the newest beta too, beside the releases;
+the app tab's Updates section lists every version GitHub has and installs
+the one chosen, older ones too; `kalast --update --beta`, `--update 0.5.12`,
+`--versions`. Write-up: `2026-10-14_updates_betas_and_versions.md`. Open: a
+downgrade run end to end from a bundle.

@@ -1427,8 +1427,25 @@ impl App {
         }
     }
 
+    /// Ask GitHub on a thread, betas too if `update_betas` says so: the
+    /// answer comes off `update_rx` (`serve_update`).
+    fn spawn_update_check(&mut self) {
+        self.shared.borrow_mut().update = crate::app::update::State::Checking;
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.update_rx = Some(rx);
+        let current = crate::app::update::current();
+        let betas = self.config.borrow().update_betas;
+        std::thread::Builder::new()
+            .name("kalast-update-check".into())
+            .spawn(move || {
+                let _ = tx.send(crate::app::update::Msg::Checked(crate::app::update::check(&current, betas)));
+            })
+            .expect("spawn the update check");
+    }
+
     /// The update threads' answers, and the toolbar's update and restart
-    /// buttons. Every frame the editor exists; `try_recv` costs nothing.
+    /// buttons and the app tab's version list. Every frame the editor
+    /// exists; `try_recv` costs nothing.
     fn serve_update(&mut self) {
         use crate::app::update::{self, Msg, State};
         let mut lines: Vec<String> = Vec::new();
@@ -1438,7 +1455,7 @@ impl App {
                 match msg {
                     Msg::Checked(Ok(u)) => {
                         lines.extend(update::message(&u));
-                        shared.update = if u.newer() { State::Available(u) } else { State::UpToDate };
+                        shared.update = if u.newer() { State::Available(u) } else { State::UpToDate(u) };
                     }
                     // Offline, or GitHub is: not worth a line every start.
                     Msg::Checked(Err(_)) => shared.update = State::Unchecked,
@@ -1454,43 +1471,52 @@ impl App {
                 }
             }
         }
-        let (update_request, relaunch_request) = {
+        let (update_request, relaunch_request, install_request, check_request) = {
             let editor = self.editor.as_mut().unwrap();
             (
                 std::mem::take(&mut editor.update_request),
                 std::mem::take(&mut editor.relaunch_request),
+                std::mem::take(&mut editor.install_request),
+                std::mem::take(&mut editor.check_request),
             )
         };
-        if update_request {
-            let taken = {
-                let mut shared = self.shared.borrow_mut();
-                match std::mem::take(&mut shared.update) {
-                    State::Available(u) => {
-                        shared.update = State::Installing;
-                        Some(u)
-                    }
-                    other => {
-                        shared.update = other;
-                        None
-                    }
-                }
-            };
-            if let Some(u) = taken {
-                lines.push(format!("updating to v{}", u.latest.version));
-                let (tx, rx) = std::sync::mpsc::channel();
-                self.update_rx = Some(rx);
-                let kind = update::kind();
-                std::thread::Builder::new()
-                    .name("kalast-update".into())
-                    .spawn(move || {
-                        let progress = tx.clone();
-                        let result = update::install(&u, &kind, &|line| {
-                            let _ = progress.send(Msg::Line(line));
-                        });
-                        let _ = tx.send(Msg::Installed(result));
-                    })
-                    .expect("spawn the update");
+        let idle = !matches!(self.shared.borrow().update, State::Checking | State::Installing);
+        if check_request && idle {
+            self.spawn_update_check();
+        }
+        // The toolbar's button: the newest. The app tab's: the version chosen,
+        // older ones too.
+        let wanted = if update_request {
+            match &self.shared.borrow().update {
+                State::Available(u) => Some((u.latest.clone(), u.current.clone())),
+                _ => None,
             }
+        } else if let Some(tag) = install_request {
+            match &self.shared.borrow().update {
+                State::Available(u) | State::UpToDate(u) => {
+                    update::find(&u.releases, &tag).map(|r| (r.clone(), u.current.clone()))
+                }
+                _ => None,
+            }
+        } else {
+            None
+        };
+        if let Some((release, current)) = wanted {
+            self.shared.borrow_mut().update = State::Installing;
+            lines.push(format!("installing {} in place of v{current}", release.tag));
+            let (tx, rx) = std::sync::mpsc::channel();
+            self.update_rx = Some(rx);
+            let kind = update::kind();
+            std::thread::Builder::new()
+                .name("kalast-update".into())
+                .spawn(move || {
+                    let progress = tx.clone();
+                    let result = update::install_release(&release, &kind, &|line| {
+                        let _ = progress.send(Msg::Line(line));
+                    });
+                    let _ = tx.send(Msg::Installed(result));
+                })
+                .expect("spawn the update");
         }
         if relaunch_request {
             match update::relaunch() {
@@ -1988,8 +2014,8 @@ impl App {
     where
         F: FnMut(&mut Self, &str, &str),
     {
-        if args.iter().any(|a| a == "--update") {
-            std::process::exit(crate::app::update::run_now());
+        if crate::app::update::asked(args) {
+            std::process::exit(crate::app::update::run_now(args));
         }
         self.editor_start(args);
         loop {
@@ -2094,16 +2120,7 @@ impl App {
             if let crate::app::update::Kind::Bundle(dir) = crate::app::update::kind() {
                 crate::app::update::clean_previous(&dir);
             }
-            self.shared.borrow_mut().update = crate::app::update::State::Checking;
-            let (tx, rx) = std::sync::mpsc::channel();
-            self.update_rx = Some(rx);
-            let current = crate::app::update::current();
-            std::thread::Builder::new()
-                .name("kalast-update-check".into())
-                .spawn(move || {
-                    let _ = tx.send(crate::app::update::Msg::Checked(crate::app::update::check(&current)));
-                })
-                .expect("spawn the update check");
+            self.spawn_update_check();
         }
 
         let mut opened_python = false;

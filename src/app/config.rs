@@ -2600,6 +2600,11 @@ pub struct AppConfig {
     /// :section: Updates
     /// :label: check for updates
     pub check_updates: bool,
+    /// Offer betas too: the pre-release of the next version, built from main
+    /// and replaced as it moves on, beside the releases. Remembered.
+    ///
+    /// :label: offer betas
+    pub update_betas: bool,
 }
 
 impl Default for AppConfig {
@@ -2633,6 +2638,7 @@ impl Default for AppConfig {
             python_language_server: String::new(),
             rust_language_server: String::new(),
             check_updates: true,
+            update_betas: false,
         }
     }
 }

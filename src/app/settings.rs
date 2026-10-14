@@ -1,6 +1,7 @@
 //! What the UI app remembers between sessions: `app.config.theme`,
 //! `app.config.fullscreen`, the script editor's settings -- Neovim and its
-//! config, the ruler, the language servers -- and the window: where it was
+//! config, the ruler, the language servers -- whether betas are offered as
+//! updates (`update_betas`), and the window: where it was
 //! left -- on which screen, where on it, how big -- or, with
 //! `remember_window` off, where it is to open every time.
 //!
@@ -58,6 +59,7 @@ pub struct Remembered {
     pub language_servers: bool,
     pub python_language_server: String,
     pub rust_language_server: String,
+    pub update_betas: bool,
     /// Not the config's: written when the app closes (`save_place`), and
     /// kept by `save`.
     pub window: Option<Place>,
@@ -82,6 +84,7 @@ impl Remembered {
             language_servers: config.language_servers,
             python_language_server: config.python_language_server.clone(),
             rust_language_server: config.rust_language_server.clone(),
+            update_betas: config.update_betas,
             window: None,
         }
     }
@@ -113,6 +116,7 @@ impl Remembered {
         config.language_servers = self.language_servers;
         config.python_language_server = self.python_language_server.clone();
         config.rust_language_server = self.rust_language_server.clone();
+        config.update_betas = self.update_betas;
     }
 
     /// `key = value` lines, the TOML this needs and nothing more. A key it
@@ -163,6 +167,7 @@ impl Remembered {
                     }
                 }
                 "neovim" => flag(&mut r.neovim),
+                "update_betas" => flag(&mut r.update_betas),
                 "language_servers" => flag(&mut r.language_servers),
                 "ruler" => {
                     if let Ok(n) = value.parse() {
@@ -212,7 +217,8 @@ impl Remembered {
              ruler = {}\n\
              language_servers = {}\n\
              python_language_server = {}\n\
-             rust_language_server = {}\n",
+             rust_language_server = {}\n\
+             update_betas = {}\n",
             self.theme.name(),
             self.fullscreen,
             self.remember_window,
@@ -229,6 +235,7 @@ impl Remembered {
             self.language_servers,
             quote(&self.python_language_server),
             quote(&self.rust_language_server),
+            self.update_betas,
         ) + &self.window.as_ref().map(place_text).unwrap_or_default()
     }
 }
@@ -381,6 +388,7 @@ mod tests {
                 start_fullscreen: true,
                 python_language_server: "pyright-langserver --stdio".to_string(),
                 rust_language_server: r#""C:\tools\rust analyzer.exe""#.to_string(),
+                update_betas: true,
                 window: Some(Place {
                     monitor: "DELL U2720Q".to_string(),
                     origin: (-2560, 0),
