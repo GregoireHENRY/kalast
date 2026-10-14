@@ -319,7 +319,6 @@ fn correlation(a: &[F], b: &[F]) -> F {
 /// shading `model` (albedo times the law): the whole-pixel shift of best
 /// correlation within `search` first when asked, then Gauss-Newton on all
 /// together. `None` where too few points are seen.
-#[allow(clippy::too_many_arguments)]
 fn register(
     setup: &Setup,
     look: &Look,
@@ -328,7 +327,6 @@ fn register(
     search: Option<F>,
     shift_too: bool,
     offset_too: bool,
-    dark: F,
 ) -> Option<([F; 2], F, F)> {
     // The points seen, lit or in the maplet's shadow, the model nothing
     // there: the shadows' pattern registers as well as the shading.
@@ -336,17 +334,13 @@ fn register(
     if points.iter().filter(|&&k| model[k] > 0.0).count() < 30 {
         return None;
     }
-    let _ = dark;
-    let cut = F::NEG_INFINITY;
     let pairs = |shift: [F; 2]| -> (Vec<F>, Vec<F>) {
         let mut o = Vec::with_capacity(points.len());
         let mut m = Vec::with_capacity(points.len());
         for &k in &points {
             if let Some((v, _, _)) = setup.crop.sample(look.xy[k][0] + shift[0], look.xy[k][1] + shift[1]) {
-                if v >= cut {
-                    o.push(v);
-                    m.push(model[k]);
-                }
+                o.push(v);
+                m.push(model[k]);
             }
         }
         (o, m)
@@ -400,9 +394,6 @@ fn register(
             let Some((v, dx, dy)) = setup.crop.sample(look.xy[k][0] + shift[0], look.xy[k][1] + shift[1]) else {
                 continue;
             };
-            if v < cut {
-                continue;
-            }
             let r = v - scale * model[k] - offset;
             // The residual's derivatives in the unknowns.
             let mut j = [0.0; 4];
@@ -611,7 +602,7 @@ fn passes(
                 return None;
             };
             let search = (options.register && !registered[k]).then_some(options.search);
-            register(st, l, &model[k], report.views[k].shift, search, options.register, options.offset, options.dark)
+            register(st, l, &model[k], report.views[k].shift, search, options.register, options.offset)
         });
         for (k, shift) in shifts.iter().enumerate() {
             registered[k] |= shift.is_some();
