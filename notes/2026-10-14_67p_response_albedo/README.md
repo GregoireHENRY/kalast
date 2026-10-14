@@ -146,6 +146,27 @@ opposition frames' 0.75 and 0.66 to 0.58 and 0.51; the rest rise, 0.66 to
 refitted without the response, whose halo takes light off it. 41 minutes
 for the 57 (`table.md`).
 
+**The law refitted with the response on.** Deep inside lit ground, where
+the halo takes as much as it gives, the images over kalast's through the
+response were 1.081 (1.067 and 1.085 in halves; 1.094, 1.063, 1.098 by
+phase): `hapke-fit`'s w through the response is 0.0385, 8 % more than
+without it (`main.py`). The 57 again, everything else the same:
+
+| | images | IoU | image / kalast | its spread | r |
+|---|---|---|---|---|---|
+| w 0.0356 | 56 | 0.911 | 1.06 | 0.159 | 0.80 |
+| w 0.0385 | 56 | 0.911 | 0.98 | 0.162 | 0.80 |
+| under 40 km | 17 | 0.930 | 1.10 -> 1.02 | 0.142 | 0.59 |
+| 40-120 km | 22 | 0.906 | 1.06 -> 0.98 | 0.155 -> 0.158 | 0.83 |
+| 120 km and more | 17 | 0.909 | 0.96 -> 0.89 | 0.216 -> 0.217 | 0.82 |
+| 90 deg and more | 12 | 0.736 | 0.94 -> 0.87 | 0.385 -> 0.383 | 0.65 |
+
+kalast's brightness within 2 % of the images' over all, the shadows and the
+pixels' scatter as they were. A trend is left with distance and phase:
+close and moderate phases 2 % bright, far and past 90 deg 11-13 % dark --
+the response's halo is one law for nuclei of every size, and the law's
+phase function one for every terrain. 42 minutes for the 57.
+
 ![The 57 and kalast's, a bounce, the NAC's response, the albedo map](sheet.jpg)
 
 ## The shape models
@@ -186,7 +207,7 @@ finer, on request from its authors, and of the surface after perihelion.
 
 - Jets and outbursts, and a coma brighter on the dayside: the frames near
   perihelion.
-- The law refitted with the response on: kalast's lit ground comes out about
-  5 % dark once the halo spreads its light.
+- The trend left with distance and phase: 2 % bright up close, 11-13 % dark
+  from far and past 90 deg.
 - The INF-REFL products, ghosts removed, for the frames they exist for.
 - Relief below SHAP7's metre: what an albedo map cannot hold.

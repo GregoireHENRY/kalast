@@ -725,6 +725,8 @@ TARGETS = {
     # The atmosphere, registered in `kalast.scattering` beside the laws.
     "src/atmosphere.rs": "kalast/scattering.pyi",
     "src/lightcurve.rs": "kalast/lightcurve.pyi",
+    # Maplets from images: the bindings beside the solver, under src/shape/.
+    "src/shape/py.rs": "kalast/shape.pyi",
     # The same, the orbit beside Kepler's equation.
     "src/astro.rs": "kalast/astro.pyi",
     # The generated half of the config bindings. `Config` and `AppConfig` are

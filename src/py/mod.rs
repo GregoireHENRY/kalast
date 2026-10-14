@@ -248,6 +248,16 @@ pub fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
         .getattr("modules")?
         .set_item("kalast._rs.shadowing", shadowing)?;
 
+    let shape = PyModule::new(m.py(), "shape")?;
+    shape.add_class::<crate::shape::py::View>()?;
+    shape.add_class::<crate::shape::py::Maplet>()?;
+    shape.add_class::<crate::shape::py::Report>()?;
+    shape.add_class::<crate::shape::py::ViewReport>()?;
+    m.add_submodule(&shape)?;
+    py.import("sys")?
+        .getattr("modules")?
+        .set_item("kalast._rs.shape", shape)?;
+
     let lightcurve = PyModule::new(m.py(), "lightcurve")?;
     pyadd_f!(lightcurve, crate::lightcurve::py::py_flux);
     pyadd_f!(lightcurve, crate::lightcurve::py::py_lightcurve);

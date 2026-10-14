@@ -1896,3 +1896,48 @@ epoch.
 Hapke. It is checked once per call rather than per facet, and a value outside
 `[0, pi/2)` raises. See `notes/2026-09-11_hapke_roughness.md` for what it
 costs — it is not negligible away from opposition.
+
+## `kalast.shape` — relief from images
+
+A surface's relief finer than its shape model, from the images that see it:
+stereophotoclinometry on **maplets**, square grids of heights and albedo over
+a patch of the shape model. Each pass registers every image to the maplet's
+shading, solves each point's two slopes and albedo from the images that see
+it lit — many Suns tell a slope from an albedo — and integrates the heights
+from the slopes, held to the shape model above a wavelength. Then again,
+from the new heights: their shadows, their facing, where each point falls.
+
+```python
+from kalast.shape import Maplet, View
+
+m = Maplet.from_surface(mesh.positions, mesh.indices, centre, size=201, spacing=0.0005)
+views = [View(image, position, axes, focal, sun, centre=(cx, cy), valid=mask) for ...]
+report = m.solve(views, law, iterations=8, levels=2, anchor=0.010)
+m.heights, m.albedo               # (size, size), [j, i]
+vertices, facets = m.mesh()       # to load, draw, or save
+```
+
+A `View` is one image and its pinhole camera, everything in the body's frame
+and the surface's unit: `image` `(height, width)` in I/F or anything
+proportional — each view's scale is fitted; `position` the camera's centre;
+`axes` the rows of a 3 x 3, `x` to the next column, `y` to the next row, `z`
+the boresight (mirrored is allowed, as an archive may store an image);
+`focal` in pixels; `centre` where the boresight falls, in pixels from the
+image's corner; `sun` toward the Sun. `valid`, true for the pixels to use,
+carries what the maplet cannot see from its own grid: the shape model's
+shadows cast from beyond it, and terrain beyond it hiding it from the camera
+— a render of the shape model in that geometry, its lit pixels whose facet
+is among `m.facets`.
+
+| | |
+|---|---|
+| `Maplet.from_surface(vertices, indices, centre, size, spacing, normal=None)` | over a shape model, along its mean normal there; its heights are also its `reference` |
+| `Maplet(centre, normal, spacing, heights, albedo=None)` | of given heights: a synthetic terrain |
+| `m.solve(views, law, iterations=6, levels=1, anchor=0.0, ...)` | `anchor` the wavelength the shape model keeps (25 spacings by default); `levels` starts coarser by halves; angles in radians. Returns a `Report` |
+| `m.render(view, law, oversample=3)` | the maplet as `view` sees it, its own shadows cast: synthetic images, or the solution beside the image |
+| `m.points()`, `m.normals()`, `m.mesh()`, `m.resampled(size, spacing)` | the grid in the body's frame, as a mesh, at another spacing |
+| `Report` | `views` (a `ViewReport` each: `used`, `pixel`, `shift`, `scale`, `points`, `residual`, `correlation`), and per pass `residual`, `change`, `spacing` |
+
+`law` is a `Hapke` or a `LommelSeeligerLambert`, the one the images are best
+fitted with: the slopes are read through it. See
+`notes/2026-10-14_shape_from_images/` for the method and its checks.

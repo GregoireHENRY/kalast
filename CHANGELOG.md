@@ -14,6 +14,7 @@ released, and the gate refuses the tag until it has.
 - The settings show `shading.srgb_mode` in the shaded mode only, and `shading.gamma` with it: the data mode stores its colours as given whatever it is.
 - `examples/didymos/main.py` draws Didymos and Dimorphos under the Hapke law Buratti et al. (2024) fitted to DART's images of the system, the light linear (`srgb_mode = "linear"`) and an exposure of 5.
 - `examples/comet67p_shadows_fit`: `hapke-fit` through the NAC's response (`response`) is 8 % brighter, w 0.0385: the response's halo takes light off lit ground, and the law was fitted without it.
+- `kalast.shape` derives a surface's relief finer than its shape model from the images that see it, by stereophotoclinometry: `Maplet.from_surface` lays a grid of heights over a patch of the model, and `solve` registers every image to it and reads each point's slopes and albedo from its shading under the images' Suns, through the body's scattering law, then the heights from the slopes, held to the model at long wavelengths. `View` takes an image and its camera; `render` draws a maplet as an image would show it; `mesh` gives it to draw.
 
 ## v0.5.14
 

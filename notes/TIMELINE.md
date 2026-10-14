@@ -6216,3 +6216,29 @@ than SHAP7 only 67P-132M, on request. Write-up:
 `2026-10-14_67p_response_albedo/`. Open: jets and the coma's asymmetry; the
 law refitted with the response on (kalast 6 % dark); INF-REFL's ghost-free
 products; relief below the model's metre.
+
+## 2026-10-14 — v0.5.14 released; 67P's law through the response
+
+v0.5.14-beta's run green, every wheel and bundle; v0.5.14 tagged on the same
+commit, `b1e8d59`, which published the rehearsal's artefacts, PyPI and
+crates.io, and took the beta down. Then v0.5.15 opened, its section a beta's.
+`hapke-fit` through the NAC's response refitted where the halo takes as
+much as it gives, deep inside lit ground: w 0.0385, 8 % more. The 57's
+brightness within 2 % of the images', the scatter and shadows unchanged; a
+trend left with distance and phase, 2 % bright close to 11-13 % dark far and
+past 90 deg. Write-up: `2026-10-14_67p_response_albedo/`.
+
+## 2026-10-14 — `kalast.shape`: relief from images
+
+Stereophotoclinometry, in Rust (`src/shape/`), for Python
+(`kalast.shape`): maplets over a shape model, each image registered to the
+maplet's shading, each point's slopes and albedo from its shading under
+every Sun that lit it, the heights integrated from the slopes, the long
+wavelengths and plane held to the model, the maplet where the images'
+pointing puts it. On terrain drawn by kalast's own reference renderer, the
+relief back to 0.5 mm from 4.2 cm and every view's pointing to 0.07 pixel
+(`tests/test_shape.py`, `cargo test shape::`). Comet 67P under way: Wosret
+beside Abydos, 63 NAC images at 0.05-0.5 m a pixel, LAM's MPCD model of
+Abydos to check against. Write-up: `2026-10-14_shape_from_images/`. Open:
+the 67P result, a maplet merged into the shape model for kalast to draw,
+TIRI's images through the thermal model.

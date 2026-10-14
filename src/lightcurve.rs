@@ -725,7 +725,7 @@ pub(crate) mod py {
     ///
     /// Written out rather than derived, so the error names both types instead
     /// of reporting a failed extraction of the last one tried.
-    fn law_of(obj: &Bound<'_, PyAny>) -> PyResult<Law> {
+    pub(crate) fn law_of(obj: &Bound<'_, PyAny>) -> PyResult<Law> {
         if let Ok(h) = obj.extract::<Hapke>() {
             return Ok(Law::Hapke(h));
         }

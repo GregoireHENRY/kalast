@@ -37,6 +37,7 @@ pub mod py;
 pub mod routines;
 pub mod scattering;
 pub mod shadowing;
+pub mod shape;
 pub mod spice;
 pub mod tpm;
 pub mod util;

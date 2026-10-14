@@ -535,6 +535,7 @@ mod tests {
     }
 
     /// The percentile is the upper edge of the bin holding it.
+    #[test]
     fn the_percentile_is_its_bins_upper_edge() {
         let mut bins = vec![0u32; 96];
         bins[0] = 990; // exactly zero
