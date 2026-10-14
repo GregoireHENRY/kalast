@@ -8,7 +8,8 @@ struct Reference {
     height: u32,
     // The replica this frame adds to (`cs_accumulate`).
     replica: u32,
-    // `shading.srgb_mode`: 1, the samples summed as the values the image
+    // 1 where the image stores values (`Config::stores_values`: `srgb_mode`
+    // "linear", or the data mode): the samples summed as the values the image
     // stores, as `msaa_resolve.wgsl` averages them; 0, as the shader wrote
     // them, linear, which the target encodes.
     srgb_mode: u32,

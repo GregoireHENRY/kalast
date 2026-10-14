@@ -6170,3 +6170,14 @@ the same sample at any exposure, `srgb_mode` or stretch
 (`tests/test_reference_controls.py`); a dim image takes longer than it did,
 the wall of `tests/test_reference.py` 7,248 samples rather than 1,680.
 Write-up: `2026-10-10_ray_traced_shadows/`, 14 October.
+
+## 2026-10-14 — `srgb_mode` by name, colours always as given
+
+`shading.srgb_mode` did two jobs: which side the shader undid the sRGB curve
+on, the given colours (0) or the lit value (1), so the data mode wanted 0
+and the shaded mode either. Colours -- a colormap's, a picked facet's, the
+data mode's -- are now stored as given in both, and `srgb_mode` says only
+how the lit image is stored, by name: `"screen"`, the default, or
+`"linear"`; 0 and 1 taken for a release with a deprecation warning.
+`tests/test_srgb_mode.py`. Write-up: `2026-10-12_shadow_method_and_colour_modes/`,
+14 October.

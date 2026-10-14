@@ -4551,9 +4551,10 @@ fn reference_scene(
     // exposure, which the sum is of the samples over (`reference.rs`) -- only
     // whether there is any light at all -- nor `srgb_mode`, which in the
     // shaded mode changes how the mean is shown and not what is summed: the
-    // sum re-encodes what mode 1 decodes for its target, the stored values
-    // either way. Both change the sum with `shading.gamma`'s power law, and
-    // `srgb_mode` the unlit modes' colours.
+    // sum re-encodes what "linear" decodes for its target, the stored values
+    // either way; and in the data mode changes nothing, its colours stored
+    // as given in both. Both change the shaded sum with `shading.gamma`'s
+    // power law.
     let mut c = config.clone();
     c.reference = crate::app::config::Reference { bounces: config.reference.bounces, ..Default::default() };
     // A camera's response is applied to the mean, not summed, and a stretch
@@ -4562,9 +4563,9 @@ fn reference_scene(
     c.stretch = Default::default();
     if config.shading.gamma.is_none() {
         c.light.exposure = if config.light.exposure > 0.0 { 1.0 } else { 0.0 };
-        if config.shading.color_mode == crate::app::config::ColorMode::Shaded {
-            c.shading.srgb_mode = 0;
-        }
+    }
+    if config.shading.gamma.is_none() || config.shading.color_mode == crate::app::config::ColorMode::Data {
+        c.shading.srgb_mode = crate::app::config::SrgbMode::Screen;
     }
     format!("{c:?}").hash(&mut h);
     // The camera's pose and its own projection settings, not its matrix:
@@ -4634,7 +4635,7 @@ fn build_globals(
         color: Default::default(),
         color_mode: config.shading.color_mode.code(),
 
-        srgb_mode: config.shading.srgb_mode,
+        srgb_mode: config.shading.srgb_mode.code(),
         // Unset is sRGB's own curve, which the shaders take as 0.
         gamma: config.shading.gamma.unwrap_or(0.0) as f32,
 

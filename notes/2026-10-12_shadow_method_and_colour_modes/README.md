@@ -284,6 +284,36 @@ shadows are the rays' (`ray_samples` and `ray_probe` show under both), a sum
 over frames being no answer for a step. A GPU without ray queries draws it
 with the maps, the kalast tab saying so.
 
+## `srgb_mode` by name, colours always as given (14 October)
+
+The user, rendering `didymos/main.py` at the defaults -- shaded, `srgb_mode`
+0 -- asked why two settings seemed to have to change together: 0 described
+as the data's, 1 as the light's, one by name and one by number, and whether
+any example did otherwise. One switch did two jobs: which side the shader
+undid the sRGB curve on, the given colours (0) or the lit value (1). In the
+data mode only 0 made sense -- 1 stored a colormap lighter, and no example
+did it -- but in the shaded mode both did: 0 the light as a screen shows it,
+in proportion to the I/F, the default of `cube/light.py`, the craters,
+`sphere/main.py`, `two_spheres`, `didymos/main.py` and the AFC scripts; 1
+the lit value itself, for the instrument comparisons. And
+`landmark_tracking/main.py` had both on one body: a lit Didymos with its
+landmark facets in their own colours (`mesh.color_modes`), exact in 0 only.
+
+So the colours are decoded whatever the mode -- a picked facet's, the data
+mode's, the colour bar's colormap -- and stored as given; `srgb_mode` says
+only how the lit image is stored, by name like `color_mode`: `"screen"` (0,
+the default) or `"linear"` (1). The numbers are taken for a release, with a
+deprecation warning (`src/py/app/config.rs`, by hand, as `color_mode`'s).
+What reads the image's floats after the main pass -- the reference's sum,
+the MSAA resolve by hand, the camera's response, the stretch -- reads them as
+the values the image stores where the light is linear or the mode is data
+(`Config::stores_values`): a data map's edges are now averaged as stored
+colours too, and its reference no longer begins again on `srgb_mode`.
+`tests/test_srgb_mode.py`: the data mode's two facets at 51 and 153 of 255
+in both modes; the lit plate `exposure * I/F` as it is in `"linear"` and
+through the curve in `"screen"`; a facet of its own colour as given on it in
+both; the numbers taken with their warning, anything else refused.
+
 ## The console
 
 The python tab ran its lines in the running script's own globals -- by

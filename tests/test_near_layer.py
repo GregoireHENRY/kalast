@@ -11,7 +11,7 @@ shadow ends on a straight line, 2.245 from the wall's middle. The camera
 stands over that line, 13 from the middle of it and looking at it, the
 plate reaching the horizon behind: the body's own layer, fitted to every
 patch the camera draws, has texels of several of the image's pixels there.
-The middle row of the image (`shading.srgb_mode = 1`, a lit pixel 200) is
+The middle row of the image (`shading.srgb_mode = "linear"`, a lit pixel 200) is
 read across the line, with the near layer and without: with it, the
 shadow's edge has to be where the line is and as sharp as a couple of
 pixels; without, it is smeared over the coarse layer's texels and moved by
@@ -91,7 +91,7 @@ def main() -> int:
     c.axes.style = "off"
     c.wireframe.mode = 0
     c.shading.msaa = 1
-    c.shading.srgb_mode = 1
+    c.shading.srgb_mode = "linear"
     # The map's own edge, unfiltered: the test is of its texels.
     c.shadows.pcf = 0
     c.light.exposure = LIT / 255.0 / math.sin(ELEVATION)

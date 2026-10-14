@@ -573,29 +573,30 @@ pub struct Shading {
     /// colour, is gone.
     /// :py_custom:
     pub color_mode: ColorMode,
-    /// Which colours come out exactly in the image: the data's (0), or the lit
-    /// values (1).
+    /// How the lit image is stored: "screen", through the sRGB curve as a
+    /// screen shows light (the default), or "linear", the lit value itself.
     ///
-    /// The image is stored through the sRGB curve, which brightens dark
-    /// values, and the shader undoes it on one side. 0: on the data's colours
-    /// -- a colormap's, a picked facet's -- which are stored as they are; lit
-    /// shading is stored through the curve, as a screen shows it, a lit 0.078
-    /// as 0.31. 1: on the lit value, which is stored as it is, so an exported
-    /// pixel reads I/F = value / 255; the data's colours then come out
-    /// lighter. With MSAA in 1, a pixel
-    /// stores the mean of its samples' values, the mean I/F of what it
-    /// covers.
-    /// :choices: 0 = colours exact, 1 = lit values linear
-    pub srgb_mode: u32,
+    /// "screen": a screen showing the image gives off light in proportion
+    /// to the I/F, the natural look -- a lit 0.078 is stored as 0.31.
+    /// "linear": an exported pixel reads `exposure * I/F * 255`, as a linear
+    /// camera records it, darker on a screen; with MSAA a pixel stores the
+    /// mean of its samples' values, the mean I/F of what it covers. Colours
+    /// -- a colormap's, a picked facet's, the data mode's -- are stored as
+    /// given in both: the data mode has no use for it.
+    ///
+    /// The numbers scripts set before 14 October still work for a release,
+    /// with a deprecation warning: 0 is "screen", 1 "linear".
+    /// :py_custom:
+    pub srgb_mode: SrgbMode,
     /// The power law the conversion uses instead of sRGB's own curve, unset
     /// by default.
     ///
     /// 2.2 is how it was done before 7 October, and parted from the curve in
-    /// the dark: with `srgb_mode` 1 a lit 0.078 was stored as 0.047, and a
-    /// colormap's darkest colours came out darker than they are. Set it only
-    /// to reproduce such an image. In the settings with `srgb_mode` 1 only;
-    /// with 0 it applies to the data's colours, set from a script.
-    /// :when: srgb_mode == 1
+    /// the dark: with `srgb_mode` "linear" a lit 0.078 was stored as 0.047,
+    /// and a colormap's darkest colours came out darker than they are. Set
+    /// it only to reproduce such an image. In the settings with `srgb_mode`
+    /// "linear" only; it applies to the colours too, set from a script.
+    /// :when: srgb_mode == SrgbMode::Linear
     /// :some: 2.2
     /// :step: 0.01
     pub gamma: Option<Float>,
@@ -633,7 +634,7 @@ impl Default for Shading {
             render_back_face: false,
             msaa: 4,
             color_mode: ColorMode::Shaded,
-            srgb_mode: 0,
+            srgb_mode: SrgbMode::Screen,
             gamma: None,
             lod: true,
             lod_pixels: 2.0,
@@ -692,7 +693,7 @@ pub struct Light {
     ///
     /// A lit pixel is `exposure * color * albedo * cos(i)`, the ambient term
     /// scaled with it, and the debug cube is drawn as bright. With
-    /// `shading.srgb_mode = 1` an exported pixel reads `exposure * I/F * 255`:
+    /// `shading.srgb_mode = "linear"` an exported pixel reads `exposure * I/F * 255`:
     /// 4.5 shows I/F 0 to 0.22 from black to white, and anything brighter
     /// clips at white -- without a `stretch`, which shows the values its own
     /// way. The data mode's colours -- a colormap's -- are data, and keep
@@ -751,6 +752,46 @@ impl Default for Light {
             // light_zfar: 100.0,
             cube_scale: 0.25,
         }
+    }
+}
+
+/// How the lit image is stored (`shading.srgb_mode`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SrgbMode {
+    /// Through the sRGB curve, as a screen shows light: on a screen, light in
+    /// proportion to the I/F. A lit 0.078 stored as 0.31. The default.
+    Screen,
+    /// The lit value itself: an exported pixel reads exposure x I/F x 255, as
+    /// a linear camera records it. Darker on a screen.
+    Linear,
+}
+
+impl SrgbMode {
+    pub const ALL: [SrgbMode; 2] = [Self::Screen, Self::Linear];
+
+    /// Parsed from Python, where these are plain strings.
+    pub fn parse(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|m| m.name() == s.to_ascii_lowercase())
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Screen => "screen",
+            Self::Linear => "linear",
+        }
+    }
+
+    /// The number the shaders take (`Globals.srgb_mode`), which is also what
+    /// scripts wrote before the names: 0 and 1.
+    pub fn code(&self) -> u32 {
+        match self {
+            Self::Screen => 0,
+            Self::Linear => 1,
+        }
+    }
+
+    pub fn from_code(code: u32) -> Option<Self> {
+        Self::ALL.into_iter().find(|m| m.code() == code)
     }
 }
 
@@ -1161,6 +1202,15 @@ impl Config {
     /// Whether anything casts a shadow: every `shadows.method` but "none".
     pub fn shadows_on(&self) -> bool {
         self.shadows.method != ShadowMethod::None
+    }
+
+    /// Whether the image's floats are the values it stores, decoded for the
+    /// sRGB target -- the light stored `"linear"`, or the data mode's colours,
+    /// stored as given -- rather than light the target encodes as a screen
+    /// shows it: how the passes after the main one read them, the reference's
+    /// sum, the MSAA resolve by hand, the camera's response and the stretch.
+    pub fn stores_values(&self) -> bool {
+        self.shading.color_mode == ColorMode::Data || self.shading.srgb_mode == SrgbMode::Linear
     }
 
     /// Whether the image is shown through a stretch: one set, in the shaded

@@ -6,7 +6,7 @@ its angular radius 0.02 against the sphere's 0.01: no point of the plate
 sees the whole Sun hidden, and under the sphere a quarter of the disc is,
 more with the limb darkening -- Phobos's shadow on Mars, which is at most
 22 % deep. The plate is read back along a line through the shadow's middle
-(`shading.srgb_mode = 1`, so a pixel is the lit fraction times 200) and
+(`shading.srgb_mode = "linear"`, so a pixel is the lit fraction times 200) and
 held to the fraction of the limb-darkened disc the sphere leaves visible,
 integrated here: 1.5 % rms, 4 % at worst, the shader sampling the disc at
 128 points.
@@ -104,7 +104,7 @@ def main() -> int:
     c.axes.style = "off"
     c.wireframe.mode = 0
     c.shading.msaa = 1
-    c.shading.srgb_mode = 1
+    c.shading.srgb_mode = "linear"
     c.light.exposure = LIT / 255.0
     sim = app.simulation
     sim.load_mesh(path=plate)

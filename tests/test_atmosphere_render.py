@@ -6,7 +6,7 @@ the surface under it send back. The shader writes the model again, in f32;
 this holds the two to each other. A plate of albedo 0.2 sits 1000 from its
 body's centre, so the local vertical is its normal, under an atmosphere of
 Mars's radius over scale height; seen and lit at chosen angles, its middle
-pixel is read back as I/F (`shading.srgb_mode = 1`, value / 255 / exposure)
+pixel is read back as I/F (`shading.srgb_mode = "linear"`, value / 255 / exposure)
 against `Atmosphere.iof` at the same angles -- past the terminator too, in
 twilight, where the dust alone is left.
 
@@ -63,7 +63,7 @@ def main() -> int:
     c.axes.style = "off"
     c.wireframe.mode = 0
     c.shading.msaa = 1
-    c.shading.srgb_mode = 1
+    c.shading.srgb_mode = "linear"
     sim = app.simulation
     sim.load_mesh(path=plate)
     body = sim.bodies[0]

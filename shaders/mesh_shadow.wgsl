@@ -2024,12 +2024,10 @@ fn fs_shaded(in: Surface) -> vec4<f32> {
     // what makes a selection visible on one facet without unlighting the rest
     // of the body: the attribute has been on the mesh and in the vertex
     // buffer all along, and nothing read it.
+    // A colour is stored as given, whatever `srgb_mode`, which is the lit
+    // image's: decoded here for the target to encode it back.
     if in.color_mode == 1u {
-        var picked = in.color;
-        if globals.srgb_mode == 0 {
-            picked = srgb_to_linear(picked, globals.gamma);
-        }
-        return vec4<f32>(picked, 1.0);
+        return vec4<f32>(srgb_to_linear(in.color, globals.gamma), 1.0);
     }
 
     // `color_mode == 1` is the unlit mode, and unlit is what a quantitative
@@ -2040,11 +2038,8 @@ fn fs_shaded(in: Surface) -> vec4<f32> {
     let has_values = (body.flags & 2u) != 0u;
 
     if globals.color_mode == 1 {
-        var color = select(in.color, colormap_lookup(in.value), has_values);
-        if globals.srgb_mode == 0 {
-            color = srgb_to_linear(color, globals.gamma);
-        }
-        return vec4<f32>(color, 1.0);
+        let color = select(in.color, colormap_lookup(in.value), has_values);
+        return vec4<f32>(srgb_to_linear(color, globals.gamma), 1.0);
     }
     // } else if globals.color_mode == ??? {
 

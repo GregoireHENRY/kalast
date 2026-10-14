@@ -46,7 +46,7 @@ def main() -> int:
     c.image.width = c.image.height = 200
     c.axes.style = "off"
     c.wireframe.mode = 0
-    c.shading.srgb_mode = 1
+    c.shading.srgb_mode = "linear"
     c.light.exposure = 1.0
     c.shadows.method = "reference"
     c.reference.max_samples = LIMIT
@@ -103,7 +103,7 @@ def main() -> int:
     for _ in range(40):
         app.step()
     before = sim.reference_samples
-    c.shading.srgb_mode = 0
+    c.shading.srgb_mode = "screen"
     app.step()
     check("a new srgb_mode carries the sum on", sim.reference_samples > before, f"{before} samples, then {sim.reference_samples}")
     to_the_end()
@@ -113,7 +113,7 @@ def main() -> int:
     zero = sim.reference_image().copy()
     d = float(numpy.abs(switched - zero).max())
     check("1 then 0 halfway is the sum in 0", d <= 1e-5 * float(zero.max()), f"max |diff| {d:.2e}, brightest {zero.max():.3f}")
-    c.shading.srgb_mode = 1
+    c.shading.srgb_mode = "linear"
 
     again()
     for _ in range(40):

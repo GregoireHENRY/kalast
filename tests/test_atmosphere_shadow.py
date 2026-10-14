@@ -5,7 +5,7 @@ A planet of radius 1000 carries an atmosphere, its dust 0.45 deep at the
 surface with a scale height of 11; the Sun is far along +x. A plate 3000
 behind the planet faces the Sun, set so the ray from its middle toward the
 Sun passes the planet `z` above the surface. Its middle pixel is read back
-(`shading.srgb_mode = 1`, a pixel the lit fraction times 200) and held, the
+(`shading.srgb_mode = "linear"`, a pixel the lit fraction times 200) and held, the
 Sun a point, to `exp(-tau exp(-z / H) sqrt(2 pi (R + z) / H))`, the
 transmission of a grazing ray through an exponential atmosphere, and to 0
 under the limb -- the planet casts into no other body's shadow layer now,
@@ -114,7 +114,7 @@ def main() -> int:
     c.axes.style = "off"
     c.wireframe.mode = 0
     c.shading.msaa = 1
-    c.shading.srgb_mode = 1
+    c.shading.srgb_mode = "linear"
     c.light.exposure = LIT / 255.0
     sim = app.simulation
     sim.load_mesh(path=planet)

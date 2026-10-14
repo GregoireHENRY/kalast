@@ -1299,7 +1299,6 @@ mod tests {
     #[test]
     fn drawing_the_panel_changes_no_setting() {
         let mut c = Config::default();
-        c.shading.srgb_mode = 2; // its list: 0 and 1
         c.light.ambient = 1.5; // 0..=1
         c.colorbar.ticks = 40; // 1..=20
         c.colorbar.length = 900.0;

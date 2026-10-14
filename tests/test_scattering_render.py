@@ -4,7 +4,7 @@
 `body.scattering` makes a lit pixel `exposure * colour * pi * r(i, e, alpha)
 * cos(i)`, with `r` from the law. The shader writes each law again, in f32,
 so this holds the two to each other: a flat plate, seen and lit at chosen
-angles, its middle pixel read back as I/F (`shading.srgb_mode = 1`, so
+angles, its middle pixel read back as I/F (`shading.srgb_mode = "linear"`, so
 value / 255 / exposure) against the CPU law at the same angles. And no law
 at all must still be what the shading always was, `cos(i)`.
 
@@ -84,7 +84,7 @@ def main() -> int:
     c.axes.style = "off"
     c.wireframe.mode = 0
     c.shading.msaa = 1
-    c.shading.srgb_mode = 1
+    c.shading.srgb_mode = "linear"
     sim = app.simulation
     sim.load_mesh(path=plate)
     body = sim.bodies[0]

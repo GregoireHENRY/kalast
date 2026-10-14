@@ -32,7 +32,7 @@ What the Rust source cannot say, the doc comments can:
                                a list of those values instead of a slider
                                (integers only), what follows `=` the
                                value's hover text
-    /// :when: srgb_mode == 1   the row only while that holds, the field
+    /// :when: msaa == 1        the row only while that holds, the field
                                named in its own group, or with its group
                                (`light.sun_as_point == false`) in another;
                                clauses joined by `&&` each so, a method of
@@ -68,6 +68,7 @@ ENUMS = {
     "UiTheme": ("src/app/config.rs", "UiTheme"),
     "ShadowMethod": ("src/app/config.rs", "ShadowMethod"),
     "ColorMode": ("src/app/config.rs", "ColorMode"),
+    "SrgbMode": ("src/app/config.rs", "SrgbMode"),
     "StretchScale": ("src/app/config.rs", "StretchScale"),
     "StretchLimits": ("src/app/config.rs", "StretchLimits"),
 }
@@ -178,7 +179,7 @@ def widget(path: str, name: str, rust: str, doc: str) -> list[str]:
             )
         if when:
             # Shown only while it means something: `shading.gamma` with
-            # `srgb_mode` 1. A field of another group is named with its group:
+            # `srgb_mode` "linear". A field of another group is named with its group:
             # `shadows.second_depth` with `light.sun_as_point == false`.
             return [f"    if {condition(path, when)} {{"] + [f"    {line}" for line in lines] + ["    }"]
         return lines

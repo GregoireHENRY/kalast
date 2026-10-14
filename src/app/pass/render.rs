@@ -111,11 +111,13 @@ struct Msaa {
     samples_group: wgpu::BindGroup,
 }
 
-/// `shading.srgb_mode = 1` with MSAA: the samples averaged as the values the
-/// image stores, by a pass of its own (`msaa_resolve.wgsl`), instead of the
-/// hardware resolve, which averages the light they decode to. In that mode a
-/// stored value is the lit value itself, I/F times the exposure, so a pixel
-/// part lit and part dark has to store the mean of its samples' values.
+/// MSAA where the image stores values -- `shading.srgb_mode = "linear"`, or
+/// the data mode's colours (`Config::stores_values`): the samples averaged as
+/// the values the image stores, by a pass of its own (`msaa_resolve.wgsl`),
+/// instead of the hardware resolve, which averages the light they decode to.
+/// There a stored value is the lit value itself, I/F times the exposure, or a
+/// colour as given, so a pixel part lit and part dark, or between two
+/// colours, has to store the mean of its samples' values.
 struct Resolve {
     pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
@@ -764,9 +766,10 @@ impl Pass {
     }
 
     /// Whether this frame's samples are resolved by `Resolve` rather than by
-    /// the hardware: MSAA on, `srgb_mode` 1, an sRGB image.
+    /// the hardware: MSAA on, an image of values (`Config::stores_values`),
+    /// an sRGB target.
     fn resolves_by_hand(&self, config: &crate::app::config::Config) -> bool {
-        self.msaa.is_some() && config.shading.srgb_mode == 1 && self.format.is_srgb()
+        self.msaa.is_some() && config.stores_values() && self.format.is_srgb()
     }
 
     /// The samples into `render_texture`, averaged as stored values.

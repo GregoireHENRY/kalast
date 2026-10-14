@@ -108,10 +108,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let j = min(i + 1u, 255u);
     var color = mix(colormap.lut[i].rgb, colormap.lut[j].rgb, x - f32(i));
 
-    // The flat path in mesh_shadow.wgsl converts when srgb_mode is 0; match it,
-    // or the bar and a flat data map sit at different brightnesses.
-    if globals.srgb_mode == 0u {
-        color = srgb_to_linear(color, globals.gamma);
-    }
-    return vec4<f32>(color, 1.0);
+    // As the data mode's surface in mesh_shadow.wgsl: a colour stored as
+    // given, whatever `srgb_mode`, or the bar and a data map sit at different
+    // brightnesses.
+    return vec4<f32>(srgb_to_linear(color, globals.gamma), 1.0);
 }

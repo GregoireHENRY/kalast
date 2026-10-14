@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""With `shading.srgb_mode = 1`, MSAA averages the values the image stores.
+"""With `shading.srgb_mode = "linear"`, MSAA averages the values the image stores.
 
 In that mode a stored value is the lit value itself (I/F times the exposure),
 so a pixel a lit plate covers in k of its 4 samples must store k/4 of the
@@ -60,7 +60,7 @@ def main() -> int:
     c.axes.style = "off"
     c.wireframe.mode = 0
     c.shading.msaa = 4
-    c.shading.srgb_mode = 1
+    c.shading.srgb_mode = "linear"
     c.light.exposure = LIT / 255.0
     sim = app.simulation
     sim.load_mesh(path=plate)

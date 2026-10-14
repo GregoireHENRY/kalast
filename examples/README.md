@@ -251,10 +251,11 @@ Look at [res/README.md](../res/README.md) to get Hera data.
           `fovy` the lines times a pixel's angle. The camera looks along
           the boresight, turned to the image's centre on the CCD and by the
           pointing correction.
-        - `app.simulation.config.shading.srgb_mode = 1`: an exported pixel
-          is `exposure * I/F * 255`, I/F being the brightness relative to a
-          white surface facing the Sun. The default `0` passes it through
-          the sRGB curve, as a screen shows light.
+        - `app.simulation.config.shading.srgb_mode = "linear"`: an exported
+          pixel is `exposure * I/F * 255`, I/F being the brightness relative
+          to a white surface facing the Sun. The default `"screen"` stores it
+          through the sRGB curve, as a screen shows light: natural to the eye,
+          but a pixel no longer reads I/F.
         - `app.simulation.config.light.exposure = 40.0`: Phobos is dark, its
           lit ground at I/F 0.004-0.021 in h8963, so 40 brings it to
           0.17-0.85 of white without clipping. Its night side, lit by Mars,

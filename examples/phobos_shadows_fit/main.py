@@ -84,7 +84,7 @@ app = App()
 c = app.simulation.config
 c.axes.style = "off"
 c.wireframe.mode = 0
-c.shading.srgb_mode = 1  # a pixel is exposure x I/F x 255
+c.shading.srgb_mode = "linear"  # a pixel is exposure x I/F x 255
 # Bright and unclipped: Lambert of colour 1 reaches I/F 1 face on, Hapke
 # about 0.05 here; `mask` lights every lit pixel to white.
 c.light.exposure = {"hapke": 12.0, "lambert": 0.8, "mask": 1e4}[LAW]

@@ -481,6 +481,50 @@ impl super::config_gen::ShadingConfig {
     }
 }
 
+/// How the lit image is stored, by hand: a name, and for a release the
+/// numbers scripts wrote before the names, with a deprecation warning. The
+/// field is marked `:py_custom:`.
+#[pymethods]
+impl super::config_gen::ShadingConfig {
+    /// How the lit image is stored: "screen", through the sRGB curve as a
+    /// screen shows light (the default), or "linear", the lit value itself --
+    /// an exported pixel reads `exposure * I/F * 255`. Colours are stored as
+    /// given in both.
+    #[getter]
+    fn srgb_mode(&self) -> &'static str {
+        self.config.borrow().shading.srgb_mode.name()
+    }
+
+    /// The numbers of before still work for a release, with a deprecation
+    /// warning: 0 is "screen", 1 "linear".
+    ///
+    /// :pytype: str
+    #[setter]
+    fn set_srgb_mode(&mut self, v: &Bound<'_, PyAny>) -> PyResult<()> {
+        use crate::app::config::SrgbMode;
+        let names = "\"screen\" or \"linear\"";
+        if let Ok(name) = v.extract::<String>() {
+            let mode = SrgbMode::parse(&name).ok_or_else(|| {
+                pyo3::exceptions::PyValueError::new_err(format!("srgb_mode is one of {names}, got {name:?}"))
+            })?;
+            self.config.borrow_mut().shading.srgb_mode = mode;
+            return Ok(());
+        }
+        let code: u32 = v
+            .extract()
+            .map_err(|_| pyo3::exceptions::PyTypeError::new_err(format!("srgb_mode is one of {names}")))?;
+        let mode = SrgbMode::from_code(code).ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err(format!("srgb_mode is one of {names}, got {code}"))
+        })?;
+        deprecated_value(
+            v.py(),
+            &format!("config.shading.srgb_mode = {code} is deprecated; use \"{}\"", mode.name()),
+        )?;
+        self.config.borrow_mut().shading.srgb_mode = mode;
+        Ok(())
+    }
+}
+
 /// A `DeprecationWarning` at the script's line, as the renamed fields' are
 /// (`config_gen.rs`).
 fn deprecated_value(py: Python<'_>, message: &str) -> PyResult<()> {

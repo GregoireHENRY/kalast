@@ -16,8 +16,9 @@ struct Params {
     axis: u32,
     // 1: the inverse transform's twiddles.
     inverse: u32,
-    // `shading.srgb_mode`: 1, the image's floats are what an sRGB target
-    // stores decoded, the values the image stores taken by encoding them.
+    // 1 where the image stores values (`Config::stores_values`): its floats
+    // are what an sRGB target stores decoded, the values the image stores
+    // taken by encoding them.
     srgb_mode: u32,
 };
 

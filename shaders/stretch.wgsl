@@ -11,9 +11,10 @@ struct Params {
     // The image's size.
     width: u32,
     height: u32,
-    // `shading.srgb_mode`: 1, the frame's floats are what an sRGB target
-    // stores decoded -- the values encoded from them -- and what is shown is
-    // written decoded for the target to store it.
+    // 1 where the image stores values (`Config::stores_values`): the frame's
+    // floats are what an sRGB target stores decoded -- the values encoded
+    // from them -- and what is shown is written decoded for the target to
+    // store it.
     srgb_mode: u32,
     // `StretchScale::code`: linear, log, pow, sqrt, squared, asinh, sinh,
     // histequ.

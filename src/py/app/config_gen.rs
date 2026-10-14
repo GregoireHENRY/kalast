@@ -78,30 +78,14 @@ impl ShadingConfig {
     fn msaa(&self) -> u32 { self.config.borrow().shading.msaa }
     #[setter]
     fn set_msaa(&mut self, v: u32) { self.config.borrow_mut().shading.msaa = v; }
-    /// Which colours come out exactly in the image: the data's (0), or the lit
-    /// values (1).
-    ///
-    /// The image is stored through the sRGB curve, which brightens dark
-    /// values, and the shader undoes it on one side. 0: on the data's colours
-    /// -- a colormap's, a picked facet's -- which are stored as they are; lit
-    /// shading is stored through the curve, as a screen shows it, a lit 0.078
-    /// as 0.31. 1: on the lit value, which is stored as it is, so an exported
-    /// pixel reads I/F = value / 255; the data's colours then come out
-    /// lighter. With MSAA in 1, a pixel
-    /// stores the mean of its samples' values, the mean I/F of what it
-    /// covers.
-    #[getter]
-    fn srgb_mode(&self) -> u32 { self.config.borrow().shading.srgb_mode }
-    #[setter]
-    fn set_srgb_mode(&mut self, v: u32) { self.config.borrow_mut().shading.srgb_mode = v; }
     /// The power law the conversion uses instead of sRGB's own curve, unset
     /// by default.
     ///
     /// 2.2 is how it was done before 7 October, and parted from the curve in
-    /// the dark: with `srgb_mode` 1 a lit 0.078 was stored as 0.047, and a
-    /// colormap's darkest colours came out darker than they are. Set it only
-    /// to reproduce such an image. In the settings with `srgb_mode` 1 only;
-    /// with 0 it applies to the data's colours, set from a script.
+    /// the dark: with `srgb_mode` "linear" a lit 0.078 was stored as 0.047,
+    /// and a colormap's darkest colours came out darker than they are. Set
+    /// it only to reproduce such an image. In the settings with `srgb_mode`
+    /// "linear" only; it applies to the colours too, set from a script.
     #[getter]
     fn gamma(&self) -> Option<Float> { self.config.borrow().shading.gamma }
     #[setter]
@@ -218,7 +202,7 @@ impl LightConfig {
     ///
     /// A lit pixel is `exposure * color * albedo * cos(i)`, the ambient term
     /// scaled with it, and the debug cube is drawn as bright. With
-    /// `shading.srgb_mode = 1` an exported pixel reads `exposure * I/F * 255`:
+    /// `shading.srgb_mode = "linear"` an exported pixel reads `exposure * I/F * 255`:
     /// 4.5 shows I/F 0 to 0.22 from black to white, and anything brighter
     /// clips at white -- without a `stretch`, which shows the values its own
     /// way. The data mode's colours -- a colormap's -- are data, and keep

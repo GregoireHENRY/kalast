@@ -1260,7 +1260,7 @@ and, once it has stopped, why: converged, at its limit, or by hand. Each end
 is printed too.
 
 The mean is the values the image stores, before they are rounded to 8 bits:
-radiance, linear, with `shading.srgb_mode` 0 or 1 alike -- through the
+radiance, linear, with `shading.srgb_mode` `"screen"` or `"linear"` alike -- through the
 camera's response when `config.response` is on (`CONFIG.md`, "Camera
 response"), the error image the mean's own; never through `config.stretch`,
 which only shows it. Both arrays are `None` until the image is done; exporting
@@ -1271,7 +1271,7 @@ After changing anything -- a setting, the camera, `reference.bounces` --
 step once before reading `sim.reference_done`: the change is seen, and the
 sum begun again, when the next frame is drawn, and until then
 `reference_done` still speaks of the last sum. `config.light.exposure`,
-`shading.srgb_mode` in the shaded mode, `config.response` and
+`shading.srgb_mode`, `config.response` and
 `config.stretch` are the exceptions: they change how the mean is shown, done
 or not, and the sum goes on.
 

@@ -388,7 +388,10 @@ impl Passes {
         config: &crate::app::config::Config,
         annotations: bool,
     ) {
-        let srgb_mode = config.shading.srgb_mode;
+        // 1: the frame's floats are the values the image stores, decoded for
+        // its target (`Config::stores_values`), which the passes below
+        // encode to read and decode to write.
+        let srgb_mode = config.stores_values() as u32;
         let exposure = config.light.exposure as f32;
         let response = self.response.as_mut().filter(|_| self.response_on);
         // The image before the overlays: the target, or with a stretch its

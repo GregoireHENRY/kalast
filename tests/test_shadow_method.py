@@ -124,7 +124,7 @@ def main() -> int:
     c.axes.style = "off"
     c.wireframe.mode = 0
     c.shading.msaa = 1
-    c.shading.srgb_mode = 1
+    c.shading.srgb_mode = "linear"
     c.shadows.pcf = 0
     sim = app.simulation
     sim.load_mesh(path=path_plate)

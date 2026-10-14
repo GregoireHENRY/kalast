@@ -18,7 +18,7 @@ app.simulation.config.image.height = 768
 app.simulation.config.image.flip_y = True
 app.simulation.config.axes.style = "off"
 app.simulation.config.wireframe.mode = 0
-app.simulation.config.shading.srgb_mode = 1
+app.simulation.config.shading.srgb_mode = "linear"
 app.simulation.config.light.exposure = 4.5
 app.simulation.config.light.sun_radius = 695700.0
 

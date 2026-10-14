@@ -83,7 +83,7 @@ def main() -> int:
     c.image.width, c.image.height = W, H
     c.axes.style = "off"
     c.wireframe.mode = 0
-    c.shading.srgb_mode = 1
+    c.shading.srgb_mode = "linear"
     c.light.exposure = 1.0
     c.shadows.method = "reference"
     c.reference.max_samples = 64

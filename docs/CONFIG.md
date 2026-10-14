@@ -840,11 +840,11 @@ s.percent = 99.5          # 0.25 % of the values cut below, 0.25 % above
 `examples/phobos_shadows_fit/compare.py`'s figures show HRSC's images. `sim.stretch_limits` reads the limits found.
 
 A value is a pixel's largest channel as the image stores it -- `exposure *
-I/F` with `shading.srgb_mode = 1` -- and the background counts. The limits
+I/F` with `shading.srgb_mode = "linear"` -- and the background counts. The limits
 come from every pixel, each frame, on the GPU; the functions are DS9's, each
 made 1 at the high limit exactly, so the result is within 0.2 % of DS9's.
-What is shown goes where the value went: stored as it is with `srgb_mode = 1`,
-through the sRGB curve with `0`. With a reference image, its mean -- through
+What is shown goes where the value went: stored as it is with `srgb_mode =
+"linear"`, through the sRGB curve with `"screen"`. With a reference image, its mean -- through
 the camera's response when on -- is what is stretched, and changing the
 stretch carries the sum on.
 
@@ -1476,35 +1476,38 @@ exists so a scratch value can be pushed to the GPU without changing the
 uniform layout.
 Accepted: any `int`.
 
-### `shading.srgb_mode: u32` — default `0` *(live)*
-Which colours come out exactly in the image. It is stored through the sRGB
-curve, which brightens dark values, and the shader undoes the curve on one
-side -- with the curve's exact formula, so on that side the stored value is the
-shader's to within one level of 255:
+### `shading.srgb_mode: str` — default `"screen"` *(live)*
+How the lit image is stored. It goes through the sRGB curve, which brightens
+dark values, and the shader can undo the curve first -- with the curve's exact
+formula, so the stored value is then the shader's to within one level of 255:
 
-| Value | Exact | The other side |
+| Value | The lit image | On a screen |
 |---|---|---|
-| `0` | the data's colours: a colormap's, a picked facet's -- stored as given | lit shading through the curve, as a screen shows it: a lit 0.078 stored as 0.31 |
-| `1` | the lit value: an exported pixel reads I/F = value / 255, at any brightness, without a `stretch` | the data's colours come out lighter |
+| `"screen"` | through the curve: a lit 0.078 stored as 0.31 | light in proportion to the I/F, the natural look |
+| `"linear"` | the lit value itself: an exported pixel reads `exposure * I/F * 255`, without a `stretch` | darker, as a linear camera's raw image is |
 
-So `0` for a figure coloured by data -- a temperature map keeps its colormap's
-colours -- and `1` for a lit image compared with a camera's. Accepted: `0` or
-`1`, a list in the settings; any other value converts nothing.
+So `"screen"` to look at a scene, and `"linear"` for a lit image compared with
+a camera's. Colours -- a colormap's, a picked facet's, the data mode's -- are
+stored as given in both: the data mode has no use for it, and a temperature
+map keeps its colormap's colours either way. Accepted: either name, a list in
+the settings. The numbers scripts set before 14 October still work for a
+release, with a deprecation warning: `0` is `"screen"`, `1` `"linear"`; until
+then `1` also stored colours lighter than given.
 
-With `shading.msaa` above 1, in `1` a pixel stores the mean of its samples'
-values -- the mean I/F of what it covers, as a detector integrates it -- by a
-resolve pass of its own; the hardware's averages the light the values decode
-to, which stored a half-covered pixel of a plate at 160 as 117 rather than
-80.
+With `shading.msaa` above 1, in `"linear"` -- and in the data mode -- a pixel
+stores the mean of its samples' values -- the mean I/F of what it covers, as a
+detector integrates it, or the mean of its colours -- by a resolve pass of its
+own; the hardware's averages the light the values decode to, which stored a
+half-covered pixel of a plate at 160 as 117 rather than 80.
 
 ### `shading.gamma: Optional[float]` — default `None` *(live)*
 The power law the conversion uses instead of sRGB's own curve. Unset, the
 curve. `2.2` is how it was done before 7 October, and it parted from the curve
-in the dark: with `srgb_mode = 1` a lit 0.078 was stored as 0.047, 0.05 as
-0.018, against 101 % at 0.5; and with `0` a colormap's darkest colours came out
-darker than they are. Set it only to reproduce such an image. The settings show
-it with `srgb_mode` 1 only, where ticking it gives 2.2; with `0` it still applies
-to the data's colours when a script sets it.
+in the dark: with `srgb_mode = "linear"` a lit 0.078 was stored as 0.047, 0.05
+as 0.018, against 101 % at 0.5; and a colormap's darkest colours came out darker
+than they are. Set it only to reproduce such an image. The settings show it with
+`srgb_mode` `"linear"` only, where ticking it gives 2.2; it still applies to the
+colours when a script sets it.
 
 ---
 
@@ -1538,7 +1541,7 @@ Accepted: `(r, g, b, a)`; alpha dropped. For brightness, `light.exposure`.
 Scales the light by one number, `light.color`'s red, green and blue alike: a
 camera's exposure. A lit pixel is `exposure * color * albedo * cos(i)`, the
 ambient term scaled with it, and the debug light cube is drawn as bright. With
-`shading.srgb_mode = 1` an exported pixel reads `exposure * I/F * 255`: `4.5`
+`shading.srgb_mode = "linear"` an exported pixel reads `exposure * I/F * 255`: `4.5`
 shows I/F 0 to 0.22 from black to white, and a brighter pixel clips at white --
 without a `stretch`, which shows the values its own way (see "Stretch").
 The data mode's colours -- a colormap's -- are data and are not scaled. Multiplied into the light's colour where the light uniform
@@ -2038,12 +2041,12 @@ image's size. A script stepping a still scene does not, and nor does
 multiplied by again as it is shown and read -- the image is linear in it --
 so a new exposure is a new view of the same sum, done or not, and it stops
 where it would have: its error is a share of its own brightest value. Nor
-`shading.srgb_mode` in the shaded mode, which changes how the mean is shown
-and not what is summed: mode 1's target is drawn the sRGB-decoded values the
-sum encodes again, the stored values either way. Both do restart it with
-`shading.gamma` set, whose power law is not linear, and `srgb_mode` in the
-unlit modes, whose colours it changes. Nor `response`, applied to the mean,
-nor `stretch`, which shows it.
+`shading.srgb_mode`, which changes how the mean is shown and not what is
+summed: `"linear"`'s target is drawn the sRGB-decoded values the sum encodes
+again, the stored values either way, and the data mode's colours are stored
+as given in both. Both do restart it with `shading.gamma` set in the shaded
+mode, whose power law is not linear. Nor `response`, applied to the mean, nor
+`stretch`, which shows it.
 
 Measured on the wall of `tests/test_reference.py` (600 x 400, the Sun 25 deg
 up, the lit plate at 0.42): stopped by itself at 7,248 samples, its error

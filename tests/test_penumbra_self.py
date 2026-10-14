@@ -7,7 +7,7 @@ Sun 25 deg above the plate and square to the wall, its angular radius 0.02:
 the wall's shadow ends 8.6 away in a penumbra about 0.9 wide. A second body,
 a ball of radius 0.08, floats 6 toward the Sun from beside that edge, so
 its antumbra falls across the penumbra. The plate is read back along a line
-through both (`shading.srgb_mode = 1`, a pixel the lit fraction times 200)
+through both (`shading.srgb_mode = "linear"`, a pixel the lit fraction times 200)
 and held to the fraction of the limb-darkened disc that rays from the plate
 reach, cast here against the wall and the ball themselves: first with the
 ball off to the side, the wall's shadow alone, then with both.
@@ -148,7 +148,7 @@ def main() -> int:
     c.axes.style = "off"
     c.wireframe.mode = 0
     c.shading.msaa = 1
-    c.shading.srgb_mode = 1
+    c.shading.srgb_mode = "linear"
     c.light.exposure = LIT / 255.0 / math.sin(ELEVATION)
     c.light.sun_as_point = False
     sim = app.simulation

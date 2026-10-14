@@ -1,7 +1,8 @@
-// `shading.srgb_mode = 1` with MSAA: the samples averaged as the values the
-// image stores. In that mode the stored value is the lit value itself (I/F
-// times the exposure), and the shader writes it decoded through sRGB for the
-// target to encode back; the hardware resolve averages the decoded values,
+// MSAA where the image stores values -- `shading.srgb_mode = "linear"`, or the
+// data mode's colours (`Config::stores_values`): the samples averaged as the
+// values the image stores. There the stored value is the lit value itself (I/F
+// times the exposure), or a colour as given, and the shader writes it decoded
+// through sRGB for the target to encode back; the hardware resolve averages the decoded values,
 // so a pixel half lit and half dark stored more than half the light -- 13 %
 // over on a 2 px Phobos. Here each sample is encoded first, the encoded
 // values averaged, and the mean decoded for the target to store as it is.

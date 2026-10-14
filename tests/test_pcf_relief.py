@@ -12,7 +12,7 @@ Dimorphos 45 % of the lit pixels by more than 5 % at pcf 16. Now the taps lie
 on the ground around each point (`sun_lookup` in `mesh_shadow.wgsl`).
 
 The ground is drawn with the shadow test off, then at pcf 0, 4 and 8, linear
-(`shading.srgb_mode = 1`), and every lit pixel held to the first.
+(`shading.srgb_mode = "linear"`), and every lit pixel held to the first.
 
 Opens a window, in the background.
 """
@@ -74,7 +74,7 @@ def main() -> int:
     c.axes.style = "off"
     c.wireframe.mode = 0
     c.shading.msaa = 1
-    c.shading.srgb_mode = 1
+    c.shading.srgb_mode = "linear"
     c.shadows.resolution = 1024
     c.light.exposure = LIT / 255.0
     sim = app.simulation

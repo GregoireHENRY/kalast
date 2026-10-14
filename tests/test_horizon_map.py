@@ -196,7 +196,7 @@ def main() -> int:
     c.axes.style = "off"
     c.wireframe.mode = 0
     c.shading.msaa = 1
-    c.shading.srgb_mode = 1
+    c.shading.srgb_mode = "linear"
     c.shading.lod = False
     exposure = 0.8
     c.light.exposure = exposure

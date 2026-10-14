@@ -36,15 +36,15 @@ pub fn group_shading(ui: &mut egui::Ui, c: &mut Config) {
                 ui.selectable_value(&mut c.shading.color_mode, crate::app::config::ColorMode::Data, "Data").on_hover_text("The data, unlit: a mesh's `values` through the colormap, else its own colours as they are. What a quantitative figure wants: shading a data map makes one value read as two colours.");
             });
     });
-    setting(ui, "srgb_mode", "Which colours come out exactly in the image: the data's (0), or the lit values (1).", |ui| {
+    setting(ui, "srgb_mode", "How the lit image is stored: \"screen\", through the sRGB curve as a screen shows light (the default), or \"linear\", the lit value itself.", |ui| {
         egui::ComboBox::from_id_salt("c.shading.srgb_mode")
-            .selected_text(c.shading.srgb_mode.to_string())
+            .selected_text(format!("{:?}", c.shading.srgb_mode))
             .show_ui(ui, |ui| {
-                ui.selectable_value(&mut c.shading.srgb_mode, 0, "0").on_hover_text("colours exact");
-                ui.selectable_value(&mut c.shading.srgb_mode, 1, "1").on_hover_text("lit values linear");
+                ui.selectable_value(&mut c.shading.srgb_mode, crate::app::config::SrgbMode::Screen, "Screen").on_hover_text("Through the sRGB curve, as a screen shows light: on a screen, light in proportion to the I/F. A lit 0.078 stored as 0.31. The default.");
+                ui.selectable_value(&mut c.shading.srgb_mode, crate::app::config::SrgbMode::Linear, "Linear").on_hover_text("The lit value itself: an exported pixel reads exposure x I/F x 255, as a linear camera records it. Darker on a screen.");
             });
     });
-    if c.shading.srgb_mode == 1 {
+    if c.shading.srgb_mode == crate::app::config::SrgbMode::Linear {
         setting(ui, "gamma", "The power law the conversion uses instead of sRGB's own curve, unset by default.", |ui| {
             let mut on = c.shading.gamma.is_some();
             if ui.checkbox(&mut on, "").changed() {

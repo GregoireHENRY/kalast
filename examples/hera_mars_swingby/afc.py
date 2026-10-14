@@ -17,7 +17,7 @@ app.simulation.config.image.width = 1020
 app.simulation.config.image.height = 1020
 app.simulation.config.axes.style = "off"
 app.simulation.config.wireframe.mode = 0
-app.simulation.config.shading.srgb_mode = 1
+app.simulation.config.shading.srgb_mode = "linear"
 app.simulation.config.light.exposure = 4.5
 
 app.simulation.huds = [Hud("", size=16)]
