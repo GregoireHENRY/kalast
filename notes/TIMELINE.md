@@ -6199,3 +6199,20 @@ watchdog allowed for a frame. It had ended a test's first run after a build
 too, the shaders compiling. A pump that was busy for a quarter of a second
 now restarts the five seconds: the watchdog is for a loop turning with no
 frame, not one at work. `src/app/mod.rs`, `turn`.
+
+## 2026-10-14 — 67P: bounced light, the NAC's response, the coma, an albedo map, SHAP8
+
+The 57 drawn with a bounce: shadows lit by the terrain they see, the IoU
+unchanged. The NAC's response fitted as the SRC's was, on the frames far
+from the nucleus and from perihelion: a core of sigma 0.97 pixels, 13 % of
+the light in a halo over 74 pixels (`main.py`'s `response`). The coma near
+perihelion measured, 4-10 % of the lit nucleus at its limb, Gerig et al.'s
+Afrho, and not what limits those frames; the response is, image over kalast
+0.83 to 0.94 at 90 deg and more. An albedo map of 10 m cubes from 36 images,
+0.88-1.07, held out the scatter 8 % less (`albedo`, 1.2 MB). All together:
+the pixels' spread 0.212 to 0.159, r 0.69 to 0.80. SHAP8-QMAPS, the other
+global model to download, worse than SHAP7 on 21 of 27 close images; finer
+than SHAP7 only 67P-132M, on request. Write-up:
+`2026-10-14_67p_response_albedo/`. Open: jets and the coma's asymmetry; the
+law refitted with the response on (kalast 6 % dark); INF-REFL's ghost-free
+products; relief below the model's metre.

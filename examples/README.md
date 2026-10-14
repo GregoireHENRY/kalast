@@ -308,7 +308,11 @@ Look at [res/README.md](../res/README.md) to get Hera data.
       refitted to these images. `spin=DEG` turns the nucleus about its spin
       axis and `light=DEG` the light alone, to test the rotation against
       the shadows. `bounces=N` lights the ground in shadow by the comet's
-      own light.
+      own light. `response` draws the images as the NAC records them,
+      through its response fitted to them, and `albedo` gives each facet
+      the albedo these images found where it is, from a map of the surface
+      ([67p_albedo.npz](comet67p_shadows_fit/67p_albedo.npz)): a colour
+      per facet from a few lines of numpy.
     - [comet67p_shadows_fit/compare.py](comet67p_shadows_fit/compare.py):
       as for Phobos, with one sheet of all the images sorted by phase, in
       `out/67p_osiris/figures`.

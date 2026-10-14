@@ -269,13 +269,13 @@ the view right; the light alone does not reach a tenth of a degree.
 
 ## Not done
 
-- **The coma**: dust in the scene for the images near perihelion, as Mars's
-  dust is for the Hera swing-by (`body.atmosphere`), but a comet's is
-  neither a layer nor static.
-- **The NAC's response**: its PSF and its stray light, the SRC's
-  `hrsc.response` for Phobos; the archive's products are already corrected
-  for stray light.
-- **An albedo map** of the nucleus from these images, as for Deimos and
-  Phobos: 67P's albedo varies by 10-20 %.
+- **The coma**: measured on 14 October, 4-10 % of the lit nucleus at its
+  limb near perihelion, and not what limits those frames
+  (`2026-10-14_67p_response_albedo/`). Its jets and its asymmetry remain.
+- **The NAC's response**: fitted on 14 October, a core of about a pixel and
+  13 % of the light in a halo; `main.py`'s `response`
+  (`2026-10-14_67p_response_albedo/`).
+- **An albedo map**: fitted on 14 October in 10 m cubes, `main.py`'s
+  `albedo` (`2026-10-14_67p_response_albedo/`).
 - **PLY in kalast**: SHAP7 and other shape models come as PLY; kalast reads
   OBJ, so it is converted once.

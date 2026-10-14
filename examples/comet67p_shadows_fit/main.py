@@ -18,6 +18,10 @@ Sun. `compare.py` sets them beside the real ones.
   `dx` and `dy`.
 - `bounces=N`: with the reference, sunlight bounced N times off the
   surface, what lights ground in shadow -- the night side seen up close.
+- `response`: the image as the NAC records it, through its response fitted
+  to these images (`NAC_RESPONSE`).
+- `albedo`: the nucleus's albedo as these images have it, in cubes of the
+  surface 10 m on a side (`67p_albedo.npz`), 1 where none saw it.
 - `spin=DEG`: the nucleus turned DEG further about its spin axis, for what
   the shadows say of its rotation.
 - `light=DEG`: the light alone as the nucleus turned DEG further would have
@@ -63,8 +67,16 @@ BOUNCES = next((int(a[8:]) for a in sys.argv if a.startswith("bounces=")), 0)
 NAMES = [a for a in sys.argv[1:] if a.startswith("N20")]
 OUT = os.path.join("out", "67p_osiris", f"{METHOD}_{LAW}_{MESH}" + ("-spice" if "spice" in sys.argv else "")
                    + (f"-spin{SPIN:g}" if SPIN else "") + (f"-light{LIGHT:g}" if LIGHT else "")
-                   + (f"-bounces{BOUNCES}" if BOUNCES else ""))
+                   + (f"-bounces{BOUNCES}" if BOUNCES else "") + ("-response" if "response" in sys.argv else "")
+                   + ("-albedo" if "albedo" in sys.argv else ""))
 IFOV = 18.82e-6  # the NAC's pixel, geometric distortion corrected, ROS_OSIRIS_V17.TI
+# The NAC's response fitted to the six of these images from 330 km and more
+# away from perihelion, whose coma it would take for a halo, SHAP7's metre
+# well under their pixels (notes/2026-10-14_67p_response_albedo): a Gaussian
+# core, sigma in pixels, and a share of the light in an exponential halo, its
+# scale in pixels. The archive's products have the Sun's stray light taken
+# out, not the camera's own wings and ghosts.
+NAC_RESPONSE = dict(core=0.97, halo_share=0.133, halo_scale=73.6)
 
 spice.kclear()
 spice.furnsh(os.path.join(HERE, "rosetta.tm"))
@@ -83,6 +95,10 @@ c.shadows.method = METHOD
 c.reference.max_samples = 64
 c.reference.bounces = BOUNCES
 c.export.sync, c.export.hud = True, False
+if "response" in sys.argv:
+    c.response.enabled = True
+    for k, v in NAC_RESPONSE.items():
+        setattr(c.response, k, v)
 # The images are stored with their first line along the NAC's +X, kalast's
 # up: mirrored top to bottom against kalast's view.
 c.image.flip_y = True
@@ -98,6 +114,23 @@ elif LAW == "hapke-fit":
     # h and k kept. Fornasier et al.'s darkens too fast with phase beyond its
     # 54 deg: kalast's I/F 1.6 to 2 times too low at 80-94 deg.
     sim.bodies[0].scattering = Hapke(w=0.0356, b=0.276, c=1.0, b0=4.73, h=0.061, theta_bar=24.4 * RPD, k=1.2)
+if "albedo" in sys.argv:
+    # Each facet's colour the albedo of the cube its centre falls in: the
+    # images' I/F over kalast's, fitted with a factor per image for what the
+    # law leaves (notes/2026-10-14_67p_response_albedo).
+    found = numpy.load(os.path.join(HERE, "67p_albedo.npz"))
+    keys = numpy.cumsum(found["step"], dtype=numpy.int64)  # the cubes seen, as steps from one to the next
+    values = found["albedo"].astype(numpy.float32)
+    mesh = sim.bodies[0].mesh
+    positions, corners = numpy.asarray(mesh.positions), numpy.asarray(mesh.indices).reshape(-1, 3)
+    albedo = numpy.ones(len(corners), numpy.float32)
+    for s in range(0, len(corners), 4_000_000):
+        cube = numpy.floor((positions[corners[s : s + 4_000_000]].mean(axis=1) - found["origin"]) / found["cell"]).astype(numpy.int64)
+        key = cube[:, 0] + found["dims"][0] * (cube[:, 1] + found["dims"][1] * cube[:, 2])
+        at = numpy.minimum(numpy.searchsorted(keys, key), len(keys) - 1)
+        albedo[s : s + 4_000_000] = numpy.where(keys[at] == key, values[at], 1.0)
+    mesh.colors[:] = albedo[:, None]
+    mesh.update_gpu_colors()
 
 for image in csv.DictReader(open(os.path.join(HERE, "images.csv"))):
     name = image["product"][:16]

@@ -14,6 +14,8 @@ and from 9 to 2,900 km, drawn by kalast and set beside the real ones.
 - [images.csv](images.csv): the images, their data sets, and where each
   one's terrain puts the nucleus against SPICE's pointing (`dx`, `dy`, in
   pixels), measured by `compare.py`.
+- [67p_albedo.npz](67p_albedo.npz): the nucleus's albedo fitted to these
+  images, in cubes of the surface 10 m on a side, for `main.py`'s `albedo`.
 
 ## Input data
 
@@ -53,6 +55,9 @@ The paths in the scripts are where these are kept here: set them to yours.
 ```sh
 python main.py reference            # the 57, traced, with SHAP7 in full
 python main.py reference hapke-fit  # the law refitted to these images
+python main.py reference hapke-fit bounces=1 response albedo
+                                    # and the comet's own light in its shadows,
+                                    # the NAC's response, the albedo map
 python main.py rays mask shap7-4m   # lit or not, the reduced model
 python main.py reference N2016      # 2016's only
 python compare.py                   # figures and table
@@ -60,5 +65,6 @@ python compare.py                   # figures and table
 
 On an M1 Pro with 32 GB, SHAP7 in full loads in 20 s and takes nearly all
 the memory, 31 GB at its peak; an image is then about 20 s with `reference`,
-the 57 in 12 minutes. The 4M reduction needs 3.3 GB, and coarsens what the
-closer images show.
+the 57 in 12 minutes -- 32 with a bounce, 40 with the response and the
+albedo map too. The 4M reduction needs 3.3 GB, and coarsens what the closer
+images show.
