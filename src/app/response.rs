@@ -161,6 +161,16 @@ impl Response {
             },
             count: None,
         };
+        let frame_entry = |visibility| wgpu::BindGroupLayoutEntry {
+            binding: 4,
+            visibility,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        };
         let compute = wgpu::ShaderStages::COMPUTE;
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("response"),
@@ -169,21 +179,15 @@ impl Response {
                 storage(1, true, compute),
                 storage(2, false, compute),
                 storage(3, false, compute),
-                wgpu::BindGroupLayoutEntry {
-                    binding: 4,
-                    visibility: compute,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
+                frame_entry(compute),
             ],
         });
+        // The image too, for its alpha: coverage, not light, which the
+        // response leaves as it was.
+        let fragment = wgpu::ShaderStages::FRAGMENT;
         let show_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("response show"),
-            entries: &[uniform(wgpu::ShaderStages::FRAGMENT), storage(1, true, wgpu::ShaderStages::FRAGMENT)],
+            entries: &[uniform(fragment), storage(1, true, fragment), frame_entry(fragment)],
         });
         let params_binding = wgpu::BindingResource::Buffer(wgpu::BufferBinding {
             buffer: &params,
@@ -210,6 +214,7 @@ impl Response {
                 entries: &[
                     wgpu::BindGroupEntry { binding: 0, resource: params_binding.clone() },
                     wgpu::BindGroupEntry { binding: 1, resource: from.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::TextureView(&frame_view) },
                 ],
             })
         };

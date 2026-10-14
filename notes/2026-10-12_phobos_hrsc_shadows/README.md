@@ -672,7 +672,8 @@ M1 Pro -- 167 ms until the columns' stages were given to neighbouring
 threads column by column, not butterfly by butterfly.
 
 `simple.py` draws its image through the SRC's fitted response, the smear its
-own (`IMAGES`). The window shows the values the image stores, linear; the
+own (`IMAGES`). Its alpha is the image's own since 14 October: convolved
+with the rest, it left an exported frame part transparent. The window shows the values the image stores, linear; the
 note's figures show their square root scaled to each image's brightest,
 which lifts the shadows and the sky. Since 14 October the window can show
 them so too: `config.stretch`, `"sqrt"` between `"percent"` limits

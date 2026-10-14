@@ -104,6 +104,8 @@ def main() -> int:
                 break
             app.step()
 
+    alphas: list[int] = []
+
     def frame() -> numpy.ndarray:
         """The frame as exported, 0 to 1, after the limits have been read
         back."""
@@ -113,7 +115,9 @@ def main() -> int:
         for _ in range(3):
             app.step()
         name = sorted(f for f in os.listdir(out) if f.endswith(".png"))[-1]
-        return numpy.asarray(Image.open(os.path.join(out, name)).convert("RGB")).astype(float) / 255.0
+        rgba = numpy.asarray(Image.open(os.path.join(out, name)).convert("RGBA"))
+        alphas.append(int(rgba[..., 3].min()))
+        return rgba[..., :3].astype(float) / 255.0
 
     def close(name: str, got: numpy.ndarray, want: numpy.ndarray, detail: str = "") -> None:
         d = numpy.abs(got - want)
@@ -214,6 +218,17 @@ def main() -> int:
     d = numpy.abs(got - through(plain, low, high, "linear"))
     check("maps through the stretch", float(numpy.percentile(d, 99)) <= 2.0 / 255, f"99 % within {255 * numpy.percentile(d, 99):.2f}/255")
 
+    check("every frame exported opaque", min(alphas) == 255, f"least alpha {min(alphas)} over {len(alphas)} frames")
+
+    # Through the camera's response first: its image shown into the
+    # stretch's, then through the stretch.
+    c.response.enabled = True
+    c.response.core, c.response.halo_share, c.response.halo_scale = 2.0, 0.3, 100.0
+    c.stretch.scale, c.stretch.limits = "sqrt", "minmax"
+    got = frame()
+    low, high = sim.stretch_limits
+    check("through the response, then the stretch: opaque, the limits its image's", alphas[-1] == 255 and 0 <= low < high <= 1,
+          f"least alpha {alphas[-1]}, limits {low:.4f} to {high:.4f}")
     app.close()
     print(f"\n{len(failures)} failure(s)")
     return 1 if failures else 0

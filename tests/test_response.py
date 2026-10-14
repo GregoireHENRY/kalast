@@ -16,7 +16,7 @@ through the response:
 
 Then the image drawn without a reference, the shadows from the maps,
 through the response: the scene within a pixel of the reference's, through
-the same.
+the same. Exported, both opaque: the response spreads light, not coverage.
 
 Opens a window, in the background.
 """
@@ -61,6 +61,12 @@ def response(img: numpy.ndarray, core: float, halos: list[tuple[float, float]], 
     along, across = (y, x) if down else (x, y)
     k = k * spectrum(numpy.clip(smear / 2 + 0.5 - numpy.abs(along), 0, 1) * (across == 0))
     return numpy.fft.irfft2(numpy.fft.rfft2(numpy.pad(img, ((0, h), (0, w)))) * k, s=(2 * h, 2 * w))[:h, :w]
+
+
+def opaque(folder: str) -> int:
+    """The least alpha of the last frame exported to `folder`."""
+    name = sorted(f for f in os.listdir(folder) if f.endswith(".png"))[-1]
+    return int(numpy.asarray(Image.open(os.path.join(folder, name)).convert("RGBA"))[..., 3].min())
 
 
 def main() -> int:
@@ -114,6 +120,13 @@ def main() -> int:
           f"max |diff| {d:.1e}, brightest {want.max():.3f}; {100 * float(numpy.abs(want - raw).max() / raw.max()):.0f} % of it moved")
     check("the light kept within the padded image", abs(got.sum() / raw.sum() - want.sum() / raw.sum()) < 1e-4,
           f"{got.sum() / raw.sum():.5f} of it in the frame against {want.sum() / raw.sum():.5f}")
+    out = tempfile.mkdtemp(prefix="kalast_response_")
+    c.export.dir, c.export.sync, c.export.hud = out, True, False
+    sim.export_once()
+    for _ in range(3):
+        app.step()
+    alpha = opaque(out)
+    check("the reference through it, exported opaque", alpha == 255, f"least alpha {alpha}")
 
     c.response.smear_angle = 90.0
     settle()
@@ -134,7 +147,7 @@ def main() -> int:
     c.response.smear_angle = 0.0
     c.shadows.method = "maps"
     out = tempfile.mkdtemp(prefix="kalast_response_")
-    c.export.dir, c.export.sync, c.export.hud = out, True, False
+    c.export.dir = out
     for _ in range(10):
         app.step()
     sim.export_once()
@@ -146,6 +159,8 @@ def main() -> int:
     d = numpy.abs(frame - want)
     check("without a reference, the maps' frame through it", float(numpy.percentile(d, 99)) <= 2.5 / 255.0,
           f"99 % of pixels within {255 * numpy.percentile(d, 99):.1f} of 255 of the reference's through hrsc.py's")
+    alpha = opaque(out)
+    check("and exported opaque", alpha == 255, f"least alpha {alpha}")
     app.close()
     print(f"\n{len(failures)} failure(s)")
     return 1 if failures else 0

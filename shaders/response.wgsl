@@ -132,7 +132,9 @@ fn vs_show(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
 }
 
 /// The convolved image into the target, as a frame drawn directly would be:
-/// decoded where its floats are the values the image stores.
+/// decoded where its floats are the values the image stores. Its alpha the
+/// image's own, unconvolved: coverage, not light -- convolved, the halos took
+/// a fifth of it away, and an exported frame came out part transparent.
 @fragment
 fn fs_show(@builtin(position) at_px: vec4<f32>) -> @location(0) vec4<f32> {
     let v = src[u32(at_px.y) * params.nx + u32(at_px.x)] / (f32(params.nx) * f32(params.ny));
@@ -140,5 +142,6 @@ fn fs_show(@builtin(position) at_px: vec4<f32>) -> @location(0) vec4<f32> {
     if params.srgb_mode == 1u {
         rgb = decode(rgb);
     }
-    return vec4<f32>(rgb, clamp(v.w, 0.0, 1.0));
+    let alpha = textureLoad(frame, vec2<i32>(at_px.xy), 0).a;
+    return vec4<f32>(rgb, clamp(alpha, 0.0, 1.0));
 }

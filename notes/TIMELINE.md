@@ -6157,3 +6157,10 @@ each technique where it first appears and not again. Write-up:
 `2026-10-14_display_stretch/`. Open: MSAA under a stretch (the float path is
 single-sampled); a colour bar for it; DS9's contrast and bias; limits per
 channel.
+The camera's response convolved the alpha too: the user's h8870 frame through
+it came out 32-86 % opaque, washed out in a viewer. Its alpha is now the
+image's own (`tests/test_response.py`, `tests/test_stretch.py` check exported
+frames opaque). And whether a reference converges depends on the exposure, not
+the response: its goal is in the image's values -- a small scene converged at
+192 samples at exposure 0.2 and stopped at its 512 limit at 1 and 40, the
+response on or off alike, to four digits.
