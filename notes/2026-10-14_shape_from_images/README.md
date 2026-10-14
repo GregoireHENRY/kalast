@@ -151,3 +151,61 @@ Each found on the synthetic terrain, its fix kept:
 - **Registration first, at a coarse level, wide.** Close images' pointing
   from SPICE is tens of pixels off; `search` sets how far the first
   registration looks, at the first level a view is used in.
+
+## Comet 67P: Wosret, beside Abydos -- first look
+
+The patch the NAC saw best, from a search of the archive's 15,343
+orange-filter images against SHAP7 (4M facets) with occlusion and cast
+shadows: 120 m in Wosret, 63 m from Abydos, Philae's last site, centre
+(+2.436, -0.123, -0.333) km. 63 images at 0.05-0.5 m a pixel after their
+labels were read (saturation, the patch lit in at least half), on 25 days
+from September 2014 to September 2016 -- most of them from the 2016 search
+for Philae -- phases mostly 88-111 deg, the Sun only ever from the north
+half of the sky. NASA's SBN, where `osiris.py` fetches from, answered in
+16 s and reset most transfers; ESA's PSA serves the same products in a
+second.
+
+Each image: its camera from SPICE as `examples/comet67p_shadows_fit`'s
+`main.py` sets it; a kalast render of SHAP7 (4M facets, `rays`) for what
+the maplet cannot see -- lit, and the pixel's facet on the patch;
+registered on the maplet itself, on SHAP7's heights at 2 m, as far as
+25 m on the ground, then at 0.5 m. Five whole days held out (12 images),
+the rest solved: 120 m at 0.25 m, 231,000 points, three levels, 11 s.
+
+| held-out day | images | m a pixel | phase | correlation with the image: SHAP7 -> solved |
+|---|---|---|---|---|
+| 2016-05-14 | 4 | 0.15 | 97-99 deg | 0.14-0.25 -> 0.48-0.54 |
+| 2016-03-11 | 2 | 0.29 | 96-98 deg | 0.28-0.31 -> 0.42-0.45 |
+| 2014-12-13 | 2 | 0.33 | 94-96 deg | 0.35-0.38 -> 0.33-0.40 |
+| 2016-06-14 | 3 | 0.50 | 49-54 deg | 0.26-0.30 -> 0.15-0.25 |
+| 2016-08-21 | 1 | 0.09 | 95 deg | 0.15 -> 0.14 |
+
+![Three held-out images, the maplet as SHAP7 has it, and as solved from the other days](wosret_held_out.jpg)
+
+On a day it never saw, the solved maplet draws what the images show and
+SHAP7 does not -- pits, lit rims, the boulder field -- the correlation
+doubled at 0.15 m a pixel. Not yet what the synthetic terrain promised:
+
+- **Registration.** SHAP7's shading at 2 m correlates 0.2-0.57 with images
+  that resolve ten times finer; 23 of the 63 fell under 0.3 and were left
+  out, the two finest (5 cm a pixel) among them. Registering on the
+  shadows' pattern as well as the shading -- the strongest thing these
+  low-Sun images show -- took the held-out median from no gain (0.30 ->
+  0.29) to 0.26 -> 0.41; images seconds apart still disagree by a few
+  pixels.
+- **A ripple** a few pixels across the solved surface, which the images
+  do not show: views a pixel or two apart pulling the slopes their ways.
+  The finest level's residual creeps up over its passes, where the coarser
+  level's falls.
+- **The finest images** gain nothing: at twice finer than the grid they are
+  in the regime the synthetic terrain showed biased; a maplet at 0.125 m
+  registered fewer of them and did worse.
+- **2014's images** gain nothing: the surface before perihelion, or their
+  registration.
+
+Next: coarser images (148 see the patch at 1 m a pixel or finer) for the
+coarse levels, so that each registers on the level before, as SPC builds
+its maplets; the pointing shared by every maplet in an image; LAM's MPCD
+model of Abydos (0.4 m, 380,901 vertices, half the maplet) to compare the
+heights with; the maplet merged into SHAP7 for kalast to draw. The
+pipeline becomes an example once the result holds.

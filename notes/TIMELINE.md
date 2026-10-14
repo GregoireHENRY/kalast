@@ -6237,8 +6237,13 @@ every Sun that lit it, the heights integrated from the slopes, the long
 wavelengths and plane held to the model, the maplet where the images'
 pointing puts it. On terrain drawn by kalast's own reference renderer, the
 relief back to 0.5 mm from 4.2 cm and every view's pointing to 0.07 pixel
-(`tests/test_shape.py`, `cargo test shape::`). Comet 67P under way: Wosret
-beside Abydos, 63 NAC images at 0.05-0.5 m a pixel, LAM's MPCD model of
-Abydos to check against. Write-up: `2026-10-14_shape_from_images/`. Open:
-the 67P result, a maplet merged into the shape model for kalast to draw,
-TIRI's images through the thermal model.
+(`tests/test_shape.py`, `cargo test shape::`). Comet 67P, a first look:
+Wosret beside Abydos, 63 NAC images at 0.05-0.5 m a pixel, five days held
+out -- on them the solved maplet's correlation with the image 0.26 to 0.41,
+doubled at 0.15 m a pixel, pits and rims where SHAP7 is smooth; a ripple
+too, and the finest images registered poorly against SHAP7's shading.
+Registration compares the shadows' pattern as well as the shading since.
+Write-up: `2026-10-14_shape_from_images/`. Open: coarser images for the
+coarse levels, the pointing shared across maplets, LAM's MPCD Abydos to
+compare, a maplet merged into the shape model for kalast to draw, TIRI's
+images through the thermal model.

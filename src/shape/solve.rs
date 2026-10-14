@@ -192,6 +192,12 @@ struct Look {
     usable: Vec<bool>,
     /// The law's I/F at each point's normal, at unit albedo.
     law: Vec<F>,
+    /// Seen within the emission, lit or not: what the registration compares
+    /// -- the shadows' pattern with the rest, the strongest thing a
+    /// low-Sun image shows.
+    shown: Vec<bool>,
+    /// Lit: facing the Sun and in no shadow the maplet casts.
+    lit: Vec<bool>,
 }
 
 fn setup(view: &View, work: &Maplet, law: &Law, options: &Options, coarse: bool) -> Option<Setup> {
@@ -256,6 +262,8 @@ fn look(view: &View, setup: &Setup, work: &Maplet, points: &[V3], normals: &[V3]
         xy: vec![[F::NAN; 2]; n * n],
         usable: vec![false; n * n],
         law: vec![0.0; n * n],
+        shown: vec![false; n * n],
+        lit: vec![false; n * n],
     };
     for k in 0..n * n {
         let Some((x, y, _)) = view.project(points[k]) else {
@@ -269,6 +277,8 @@ fn look(view: &View, setup: &Setup, work: &Maplet, points: &[V3], normals: &[V3]
             out.law[k] = setup.table.eval(mu0, mu, alpha).0;
         }
         out.usable[k] = lit[k] && seen[k] && mu0 >= cos_i && mu >= cos_e && out.law[k] > 0.0;
+        out.shown[k] = seen[k] && mu >= cos_e;
+        out.lit[k] = lit[k] && mu0 > 0.0;
     }
     out
 }
@@ -320,18 +330,14 @@ fn register(
     offset_too: bool,
     dark: F,
 ) -> Option<([F; 2], F, F)> {
-    let points: Vec<usize> = (0..model.len()).filter(|&k| look.usable[k] && model[k] > 0.0).collect();
-    if points.len() < 30 {
+    // The points seen, lit or in the maplet's shadow, the model nothing
+    // there: the shadows' pattern registers as well as the shading.
+    let points: Vec<usize> = (0..model.len()).filter(|&k| look.shown[k] && look.xy[k][0].is_finite()).collect();
+    if points.iter().filter(|&&k| model[k] > 0.0).count() < 30 {
         return None;
     }
-    // Shadows the model does not cast are left out: below `dark` of the
-    // image's median over the points.
-    let seen: Vec<F> = points
-        .iter()
-        .filter_map(|&k| setup.crop.sample(look.xy[k][0] + start[0], look.xy[k][1] + start[1]).map(|s| s.0))
-        .collect();
-    let cut = dark * median(seen);
-    let cut = if cut.is_finite() { cut } else { F::NEG_INFINITY };
+    let _ = dark;
+    let cut = F::NEG_INFINITY;
     let pairs = |shift: [F; 2]| -> (Vec<F>, Vec<F>) {
         let mut o = Vec::with_capacity(points.len());
         let mut m = Vec::with_capacity(points.len());
@@ -588,7 +594,13 @@ fn passes(
         let model: Vec<Vec<F>> = looks
             .iter()
             .map(|l| match l {
-                Some(l) => l.law.iter().zip(&work.albedo).map(|(f, a)| f * a).collect(),
+                Some(l) => l
+                    .law
+                    .iter()
+                    .zip(&work.albedo)
+                    .zip(&l.lit)
+                    .map(|((f, a), &lit)| if lit { f * a } else { 0.0 })
+                    .collect(),
                 None => vec![],
             })
             .collect();
