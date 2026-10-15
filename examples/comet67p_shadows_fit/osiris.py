@@ -1,6 +1,6 @@
 """Reading a Rosetta OSIRIS NAC image of the archive's level-4 sets (I/F,
 geometric distortion corrected): its pixels and the label's few values the
-simulation needs; and fetching it from NASA's PDS Small Bodies Node."""
+simulation needs; and fetching it from ESA's Planetary Science Archive."""
 
 import os
 import re
@@ -8,7 +8,9 @@ import urllib.request
 
 import numpy
 
-SBN = "https://pdssbn.astro.umd.edu/holdings"
+# ESA's Planetary Science Archive: the same products as NASA's PDS Small
+# Bodies Node, under upper-case names.
+PSA = "https://archives.esac.esa.int/psa/ftp/INTERNATIONAL-ROSETTA-MISSION/OSINAC"
 # Where the images are kept: set it to yours.
 DATA = "/Users/gregoireh/data/rosetta/osiris_nac/str_refl"
 
@@ -20,7 +22,7 @@ def fetch(dataset, product, folder=DATA):
     if not os.path.exists(path):
         os.makedirs(folder, exist_ok=True)
         print(f"downloading {product}", flush=True)
-        urllib.request.urlretrieve(f"{SBN}/{dataset.lower()}/data/img/{product.lower()}", path + ".part")
+        urllib.request.urlretrieve(f"{PSA}/{dataset.upper()}/DATA/IMG/{product.upper()}", path + ".part")
         os.replace(path + ".part", path)
     return path
 

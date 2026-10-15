@@ -21,9 +21,9 @@ and from 9 to 2,900 km, drawn by kalast and set beside the real ones.
 
 The paths in the scripts are where these are kept here: set them to yours.
 
-1. **The images**: downloaded by `main.py` on first use, from NASA's
-   [PDS Small Bodies Node](https://pdssbn.astro.umd.edu/), into
-   `osiris.DATA`: 38 MB a full frame, 1.9 GB for the 57. OSIRIS NAC level-4
+1. **The images**: downloaded by `main.py` on first use, from ESA's
+   [Planetary Science Archive](https://archives.esac.esa.int/psa/ftp/INTERNATIONAL-ROSETTA-MISSION/OSINAC/),
+   into `osiris.DATA`: 38 MB a full frame, 1.9 GB for the 57. OSIRIS NAC level-4
    products -- I/F, geometric distortion corrected -- of the
    `RO-C-OSINAC-4-*-67P-*-STR-REFL-V1.0` data sets.
 2. **SPICE kernels**: the 18 that [rosetta.tm](rosetta.tm) lists, 550 MB,
