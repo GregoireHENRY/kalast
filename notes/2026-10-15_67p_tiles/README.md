@@ -168,9 +168,49 @@ tile each), 2000-6488 on the home PC (`handoff_home_pc.md`). The images'
 lines: 5,049 images, 70 GB fetched as floats, 30 GB kept as half floats,
 at 20-27 MB/s from PSA, slower on the closest images of 2016.
 
+## The Abydos tile, five ways
+
+Tile 4341, 12 m from the maplet example's centre, on that example's 13
+held-out images (mean correlation; SHAP7 0.25-0.27):
+
+| | held out | at the model's scale |
+|---|---|---|
+| as planned | 0.359 | 0.406 |
+| without the masks | 0.281 | 0.304 |
+| at the example's centre and normal | 0.423 | 0.474 |
+| the example's centre, the plan's normal | 0.418 | 0.471 |
+| the plan's centre, the example's normal | 0.417 | 0.466 |
+| the 80 images of the Abydos test | 0.417 | 0.463 |
+| both | 0.455 | 0.507 |
+
+The masks are worth a lot here. The rest is the planned tile being unlucky
+rather than misplaced: any small change gives the gain back. Between the
+planned tile and one moved 12 m, the finest images -- 0.05 to 0.2 m a pixel
+-- registered 25 to 54 pixels apart (2.5-5 m on the ground), each run
+locking some of them onto a different match at correlations of 0.1-0.4.
+They tell the most of the relief and are the easiest to misplace: a tile's
+held-out score moves by about 0.06 with them.
+
+What SPC, ASP and MPCD do: fix each image's pointing outside the shape fit,
+from all of it. This run gives the means: an image is in dozens of tiles,
+and each records its shift there -- their consensus is its pointing. A
+second pass over the tiles, each image started there and searched a few
+pixels, is the next step once both machines are done.
+
 ## Open
 
 - The run, then every tile scored on the held-out images (`score`).
+- The second pass: each image's pointing from its shifts in all the tiles
+  that used it, the tiles solved again from it. An image's shift is not its
+  pointing alone: each tile moves too (`follow`, and SHAP7's own error),
+  and its move shows in each image by that image's projection. On the
+  first 446 tiles (22,248 image-tile pairs, 1,491 images): an image's own
+  median shift leaves a median 4.4 px, 45% of pairs over 5 px; a pointing
+  per image and an offset per tile, fitted together (Huber, the offsets
+  held near SHAP7), 2.3 px and 34% -- the rest the wrong locks the second
+  pass is for. The tiles' offsets: 2.6 m at the median, 4.7 m at 90%. The
+  pass: that fit over all 6,489 tiles; each tile from its offset, each
+  image's pointing held, a few pixels searched.
 - The tiles into `comet67p_shadows_fit`: a `tiles` mesh, SHAP7-4M with the
   tiles an image sees at its scale -- about 10M facets, lighter than SHAP7
   in full and finer wherever a tile is.
