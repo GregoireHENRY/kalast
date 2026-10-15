@@ -6266,4 +6266,7 @@ solution at 0.5 m 0.36, MPCD 0.40 -- and started from MPCD the solver
 leaves it for 0.37. `examples/comet67p_shadows_fit/osiris.py` fetches from
 ESA's PSA. Write-up: `2026-10-15_shape_direct/`. Open: that pull away from
 a better surface (the shifts co-adapting with the heights is part of it);
-the finer level; the example once the pipeline reaches MPCD.
+the finer level; the example once the pipeline reaches MPCD. A review of
+how 67P, Bennu, Ryugu, Phobos, Dimorphos and the Moon were shaped: every
+pipeline fixes each image's pointing outside the shape solve, from the
+whole image under priors; next steps ranked in the write-up.

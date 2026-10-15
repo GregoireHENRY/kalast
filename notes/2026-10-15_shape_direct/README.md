@@ -149,13 +149,63 @@ the solution is grainy.
   is open. MPCD was likely built from these images, so its 0.40 is an
   upper bound more than a held-out score.
 
+## What the published models did that this does not
+
+A review of how 67P, Bennu, Ryugu, Phobos, Dimorphos and the Moon were
+shaped from images, and of methods outside the field (user: "are you
+missing something?").
+
+- **Camera geometry is solved outside the shape, from far more than one
+  patch.** SPC measures each maplet's place in an image and solves the
+  image's position and pointing from all of them, over 50 an image, under
+  the navigation's priors (Palmer et al. 2022, PSJ 3, 102); JPL's Dawn
+  models left pointing to orbit determination (Park et al. 2019). SHAP7's
+  block adjustment used 20,000 tie points, starting from SHAP4S's poses
+  because ESA's comet kernels omit a precession worth +-3 m on the surface
+  (Preusker et al. 2017, A&A 607, L1). The Ames Stereo Pipeline removed
+  camera floating from its shape-from-shading in 3.5.0 (April 2025): "more
+  reliable to optimize the cameras beforehand, in bundle adjustment". Here,
+  a shift per image is fitted on the same 120 m as the heights, every pass:
+  the co-adaptation the MPCD start showed.
+- **Few, diverse images, at the grid's scale.** SPC: four or five images a
+  maplet, Suns 60-90 deg apart in azimuth, emission under 60 deg, pixels at
+  most 2-4 spacings. MPCD keeps an image only if it adds 10 deg of view or
+  light or 1.5x of distance; its Abydos model is 14 images at 1-8 m a pixel,
+  cut from LAM's own global model, deformed to 0.25 m (Capanna et al.,
+  EGU2016-4522). Here: 209, many seconds apart, the Suns in two clusters.
+- **Albedo and photometry held.** MPCD has no albedo map; the Ames
+  pipeline floats albedo, exposures and haze only with very diverse light.
+- **A reference of the images' epoch and frame.** SHAP7 is pre-perihelion,
+  built from images to 13 February 2016, Poisson-smoothed; Abydos and
+  Wosret lost about a metre of dust and gained new cavities around
+  perihelion (Hoang et al. 2020; Fornasier et al. 2021).
+- **A quality score at the model's scale.** SPC correlates a held-out image
+  with the model's rendering after a best-fit shift: resampling alone costs
+  0.10-0.15, 0.7 is good, 0.8 the goal (Palmer et al., LPSC 2018, #1106).
+  The scores here are at the images' native pixels, finer than any model.
+
+From outside the field, for the forward model: facet normals rather than
+central differences, which leave the finest relief unconstrained (Queau et
+al. 2018); edge-preserving priors that keep scarps and rims (bilateral
+normal integration, Cao et al. 2022; TGV); images integrated over each
+pixel's footprint; robust losses that weigh edges less (DSO); a soft
+transmittance toward the Sun, annealed, so that a shadow can grow its
+caster (DeepShadow, ShadowNeuS, EO-NeRF for multi-date satellite images,
+whose per-image offsets come on last).
+
 ## Open
 
-- The solver's pull away from a better surface on real images: the
-  registration co-adapting with the heights (a prior on each view's shift,
-  pointing shared by images minutes apart), the images' residual pattern
-  where MPCD and the solution disagree.
-- The finer level: shadows of boulders the coarser level has not grown.
-- The pipeline stays in scratch until it reaches LAM's model; then the
-  example. The coarser images' rows are kept in
-  `~/data/rosetta/osiris_nac/str_refl_rows/`.
+In order, from the review:
+
+1. Each image's pointing from its whole footprint against the global model,
+   under SPICE's priors and smooth in time, fixed during the height solve,
+   re-estimated in an outer loop.
+2. The images thinned to diverse geometry and binned to the grid's scale.
+3. The score at the model's scale, and split-data rebuilds.
+4. Facet normals, an edge-preserving prior, the offset and albedo held.
+5. 2016 alone with a looser reference, against the post-perihelion surface.
+6. Shadows that grow their casters.
+
+The pipeline stays in scratch until it reaches LAM's model; then the
+example. The coarser images' rows are kept in
+`~/data/rosetta/osiris_nac/str_refl_rows/`.
