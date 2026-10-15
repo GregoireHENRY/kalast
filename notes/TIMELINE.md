@@ -6305,3 +6305,29 @@ handed to the home PC (`2026-10-15_67p_tiles/handoff_home_pc.md`); 30 GB
 of image lines. Write-up: `2026-10-15_67p_tiles/`. Open: the run, its
 held-out scores, the tiles into `comet67p_shadows_fit` (a `tiles` mesh:
 SHAP7-4M with the tiles an image sees, about 10M facets).
+
+## 2026-10-15 — Didymos's mutual events for Eli, checked against Pravec and Scheirich
+
+Eli's request (15 nights, then August 2022 to January 2023), her share's
+data (TRAPPIST-North 24 nights, South 8, Les Makes 5) and the earlier five
+simulations reviewed. kalast now: DART's kernels (s542, the impact in it),
+DART's shapes, Hapke, exact clipping (`kalast.lightcurve.flux`), light
+time from the site. **Checked**: with Scheirich et al. (2024)'s spheroids
+and law, kalast gives their predicted events (2022-08-16 primary eclipse
+0.029 against 0.027, the same contacts to 3 min; 11-18 occultation 04:32 to
+05:59 against 04:33 to 05:57, both 0.046). Against the 2022 campaign
+(Moskovitz et al. 2024, 49 events before the impact): secondary eclipses
+the spheroids' depth (0.050), primary eclipses between DART's shape (too
+shallow -- its flat southern cap under the shadow with the Sun 12 deg south)
+and the spheroids (a little deep): a handle on Didymos's southern shape.
+**Found**: DART's kernel turns Didymos at 2.2600 h exactly from a nominal
+phase -- the earlier simulations drifted 54 to 168 deg of light-curve phase
+from the encounter, why some nights matched and some did not; now the
+true periods (Durech et al. 2025). Buratti et al.'s Hapke gives a geometric
+albedo of 0.095 where Didymos's is about 0.18: the level 0.7 mag low.
+45 nights to `out/didymos_eli/`, events read with each night's rotation
+fitted out, as Pravec et al. do; they show in Eli's data before the
+impact and from late November. Write-up: `2026-10-15_didymos_lightcurves/`.
+Open: the albedo; the southern shape from the primary eclipses;
+`lightcurve.flux` holding Python's lock.
+
