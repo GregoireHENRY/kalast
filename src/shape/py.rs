@@ -12,7 +12,7 @@ fn err(e: String) -> PyErr {
 
 /// One image of a surface, and its camera and Sun.
 ///
-/// `image` is `(height, width)`: I/f64, or anything proportional to it -- each
+/// `image` is `(height, width)`: I/F, or anything proportional to it -- each
 /// view's scale is fitted. A pinhole camera at `position`, in the body's
 /// frame and the surface's unit, its `axes` the rows of a 3 x 3: `x` along
 /// the image's rows (to the next column), `y` down its columns (to the next
@@ -270,7 +270,7 @@ impl Maplet {
         Ok(())
     }
 
-    /// Relative albedo, the I/f64's factor on the law's: about 1.
+    /// Relative albedo, the I/F's factor on the law's: about 1.
     #[getter]
     fn albedo<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
         grid(py, &self.inner.albedo, self.inner.n)
@@ -336,7 +336,7 @@ impl Maplet {
     }
 
     /// The maplet as `view` sees it under `law` (a `Hapke` or a
-    /// `LommelSeeligerLambert`): `(height, width)` I/f64, each pixel the mean
+    /// `LommelSeeligerLambert`): `(height, width)` I/F, each pixel the mean
     /// of `oversample` squared rays, its facets lit as the maplet's own
     /// shadows have them; not a number where a ray meets none of it.
     #[pyo3(signature = (view, law, oversample=3))]
@@ -349,20 +349,28 @@ impl Maplet {
     }
 
     /// The heights and albedo from `views` under `law` (a `Hapke` or a
-    /// `LommelSeeligerLambert`), from the heights as they are --
-    /// stereophotoclinometry. Each pass registers every view to the
-    /// maplet's shading, solves each point's slopes and albedo from the
-    /// views that see it lit, and integrates the heights from the slopes,
-    /// held to `reference` above `anchor` (a wavelength in the surface's
-    /// unit, 25 spacings by default). `levels` > 1 starts that many times
-    /// coarser by halves. What is darker than `dark` of its view's median
-    /// is taken for a shadow the maplet does not cast, and left out. Angles
-    /// in radians. See
-    /// `notes/2026-10-14_shape_from_images/`.
+    /// `LommelSeeligerLambert`), from the heights as they are. Each pass
+    /// registers every view to the maplet's shading, then fits the heights
+    /// and the albedo to every point each view shows, lit or in shadow: the
+    /// shading, the cast shadows (their edges `softness` spacings wide,
+    /// their agreement weighted by `shadows`) and the parallax (`stereo`),
+    /// by damped Gauss-Newton, the curvature held by `curvature` -- or, with
+    /// `direct=False`, each point's slopes and albedo from the views that
+    /// see it lit, the heights integrated from the slopes. Either way the
+    /// heights keep `reference` above `anchor` (a wavelength in the
+    /// surface's unit, 25 spacings by default). `levels` > 1 starts that
+    /// many times coarser by halves. A view's first registration looks
+    /// `search` pixels away, or `reach` in the surface's unit if farther;
+    /// `follow` moves the maplet where the views' pointing puts it. What is
+    /// darker than `dark` of its view's lit ground is taken for a shadow the
+    /// maplet does not cast. Angles in radians. See
+    /// `notes/2026-10-14_shape_from_images/` and
+    /// `notes/2026-10-15_shape_direct/`.
     #[pyo3(signature = (
-        views, law, iterations=6, levels=1, anchor=0.0, register=true, search=4.0, resolution=2.0,
+        views, law, iterations=6, levels=1, anchor=0.0, register=true, search=4.0, follow=true, reach=0.0, resolution=2.0,
         incidence=80.0 * super::RPD, emission=75.0 * super::RPD,
-        slope_sigma=0.5, albedo_sigma=0.3, offset=false, dark=0.1, verbose=false
+        slope_sigma=0.5, albedo_sigma=0.3, offset=false, dark=0.1, direct=true, curvature=0.002, softness=0.6, shadows=1.0, stereo=1.0,
+        verbose=false
     ))]
     #[allow(clippy::too_many_arguments)]
     fn solve(
@@ -375,6 +383,8 @@ impl Maplet {
         anchor: f64,
         register: bool,
         search: f64,
+        follow: bool,
+        reach: f64,
         resolution: f64,
         incidence: f64,
         emission: f64,
@@ -382,6 +392,11 @@ impl Maplet {
         albedo_sigma: f64,
         offset: bool,
         dark: f64,
+        direct: bool,
+        curvature: f64,
+        softness: f64,
+        shadows: f64,
+        stereo: f64,
         verbose: bool,
     ) -> PyResult<Report> {
         let law = crate::lightcurve::py::law_of(law)?;
@@ -392,6 +407,8 @@ impl Maplet {
             anchor,
             register,
             search,
+            follow,
+            reach,
             resolution,
             incidence,
             emission,
@@ -399,6 +416,11 @@ impl Maplet {
             albedo_sigma,
             offset,
             dark,
+            direct,
+            curvature,
+            softness,
+            shadows,
+            stereo,
             verbose,
         };
         let inner = &mut self.inner;
@@ -428,7 +450,7 @@ pub struct ViewReport {
     /// Where the maplet's points fall in the image against where its camera
     /// puts them, `(x, y)` in pixels.
     pub shift: [f64; 2],
-    /// The image over the maplet's I/f64.
+    /// The image over the maplet's I/F.
     pub scale: f64,
     /// The image's offset, with `offset=True`.
     pub offset: f64,

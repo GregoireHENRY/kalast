@@ -6247,3 +6247,23 @@ Write-up: `2026-10-14_shape_from_images/`. Open: coarser images for the
 coarse levels, the pointing shared across maplets, LAM's MPCD Abydos to
 compare, a maplet merged into the shape model for kalast to draw, TIRI's
 images through the thermal model.
+
+## 2026-10-15 — `kalast.shape` fits the heights to the images directly
+
+`direct=True`, the default: every point each image shows, lit or in shadow,
+a residual of all the heights at once -- the shading, the cast shadows'
+edges moving with the heights that cast them, the shadows' agreement
+growing casters, the parallax moving where each point falls -- by damped
+Gauss-Newton with each point's albedo eliminated, matrix-free. As good as
+point by point on the test terrain (0.13 cm), and it stays at the truth
+where point by point drifts. `reach`: a view's first registration searches
+metres on the ground, coarse to fine, as it joins its level; `follow`
+weighs the views in metres, moves past a quarter spacing, can be off. 67P:
+551 coarser images by their rows alone (PSA's ranges, 1.2 GB), a synthetic
+Wosret matching the images' statistics to tell method from data; on the
+held-out days, where LAM's MPCD model covers Abydos, SHAP7 0.23, the
+solution at 0.5 m 0.36, MPCD 0.40 -- and started from MPCD the solver
+leaves it for 0.37. `examples/comet67p_shadows_fit/osiris.py` fetches from
+ESA's PSA. Write-up: `2026-10-15_shape_direct/`. Open: that pull away from
+a better surface (the shifts co-adapting with the heights is part of it);
+the finer level; the example once the pipeline reaches MPCD.

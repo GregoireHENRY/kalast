@@ -68,14 +68,14 @@ fn boxed(values: &[F], n: usize, width: usize) -> Vec<F> {
 /// of a constant: `G = D^-1 B^3`, each value the weighted mean of the
 /// grid's within reach, up to the edges -- and a kernel wider than the grid
 /// its mean. `G^T G = B^3 D^-2 B^3`, the box being symmetric.
-struct Lowpass {
+pub(crate) struct Lowpass {
     width: usize,
     /// `B^3 1`.
     norm: Vec<F>,
 }
 
 impl Lowpass {
-    fn new(sigma: F, n: usize) -> Lowpass {
+    pub(crate) fn new(sigma: F, n: usize) -> Lowpass {
         // Three boxes of width w: variance 3 (w^2 - 1) / 12.
         let w = (4.0 * sigma * sigma + 1.0).sqrt().round() as usize;
         let width = (w | 1).max(1);
@@ -94,8 +94,17 @@ impl Lowpass {
         v
     }
 
+    /// `G values`.
+    pub(crate) fn once(&self, values: &[F], n: usize) -> Vec<F> {
+        let mut v = self.three(values, n);
+        for (x, d) in v.iter_mut().zip(&self.norm) {
+            *x /= d;
+        }
+        v
+    }
+
     /// `G^T G values`.
-    fn twice(&self, values: &[F], n: usize) -> Vec<F> {
+    pub(crate) fn twice(&self, values: &[F], n: usize) -> Vec<F> {
         let mut v = self.three(values, n);
         for (x, d) in v.iter_mut().zip(&self.norm) {
             *x /= d * d;
@@ -105,7 +114,7 @@ impl Lowpass {
 
     /// The diagonal of `G^T G` inside the grid: the squared weights of the
     /// 2-D kernel, summed.
-    fn diagonal(&self) -> F {
+    pub(crate) fn diagonal(&self) -> F {
         let w = self.width;
         let mut k = vec![1.0 / w as F; w];
         for _ in 0..2 {
@@ -169,6 +178,38 @@ impl Plane {
 
 }
 
+/// The Gaussian of [`Lowpass`] that passes half of a wave of `wavelength`,
+/// in points `s` apart: `exp(-2 pi^2 sigma^2 / L^2) = 1/2`.
+pub(crate) fn half_at(wavelength: F, s: F) -> F {
+    wavelength * (std::f64::consts::LN_2 / (2.0 * std::f64::consts::PI.powi(2))).sqrt() / s
+}
+
+/// The grid's Laplacian, its edges free: each value less its neighbours',
+/// summed -- `L x`, symmetric.
+pub(crate) fn laplacian(x: &[F], n: usize) -> Vec<F> {
+    let mut y = vec![0.0; n * n];
+    for j in 0..n {
+        for i in 0..n {
+            let at = j * n + i;
+            let mut v = 0.0;
+            if i > 0 {
+                v += x[at] - x[at - 1];
+            }
+            if i + 1 < n {
+                v += x[at] - x[at + 1];
+            }
+            if j > 0 {
+                v += x[at] - x[at - n];
+            }
+            if j + 1 < n {
+                v += x[at] - x[at + n];
+            }
+            y[at] = v;
+        }
+    }
+    y
+}
+
 /// Heights from slopes: the difference between neighbours as the mean of
 /// their two slopes along the edge between them, in least squares, the
 /// heights' long wavelengths held to `reference`'s --
@@ -193,8 +234,7 @@ pub(crate) fn integrate(h: &mut [F], p: &[F], q: &[F], reference: &[F], n: usize
     let len = n * n;
     let mu = 1.0;
     // Half of a wave of `wavelength` through: exp(-2 pi^2 sigma^2 / L^2) = 1/2.
-    let sigma = wavelength * (std::f64::consts::LN_2 / (2.0 * std::f64::consts::PI.powi(2))).sqrt() / s;
-    let lowpass = Lowpass::new(sigma, n);
+    let lowpass = Lowpass::new(half_at(wavelength, s), n);
     let reference = fill(reference, n);
     let anchored = lowpass.twice(&reference, n);
     let mut b = vec![0.0; len];
@@ -367,6 +407,56 @@ pub(crate) fn unblocked(h: &[F], n: usize, s: F, d: [F; 3]) -> Vec<bool> {
         }
     }
     out
+}
+
+/// For each point, the height the terrain toward `d` reaches over it -- what
+/// [`unblocked`] compares the point's own with -- and the point that height
+/// comes from: what casts the point's shadow, whose height moves the
+/// shadow's edge. Of the two points a ray passes between, the nearer.
+/// `NEG_INFINITY` and the point itself where nothing toward `d` is over it,
+/// as on the grid's edge facing `d`; `INFINITY` everywhere for a light below
+/// the maplet's plane.
+pub(crate) fn horizon(h: &[F], n: usize, s: F, d: [F; 3]) -> (Vec<F>, Vec<u32>) {
+    let (du, dv, dw) = (d[0], d[1], d[2]);
+    let mut from: Vec<u32> = (0..(n * n) as u32).collect();
+    if dw <= 0.0 {
+        return (vec![F::INFINITY; n * n], from);
+    }
+    let mut over = vec![F::NEG_INFINITY; n * n];
+    if (du * du + dv * dv).sqrt() < 1e-9 {
+        return (over, from);
+    }
+    let along_u = du.abs() >= dv.abs();
+    let (a, b) = if along_u { (du, dv) } else { (dv, du) };
+    let at = |m: usize, o: usize| if along_u { o * n + m } else { m * n + o };
+    let slide = b / a.abs();
+    let rise = s * dw / a.abs();
+    // As `unblocked`: the higher of each point's own terrain and what is
+    // over it, and where that comes from.
+    let mut block = h.to_vec();
+    let mut source = from.clone();
+    let toward_high = a > 0.0;
+    for step in 1..n {
+        let m = if toward_high { n - 1 - step } else { step };
+        let up = if toward_high { m + 1 } else { m - 1 };
+        for o in 0..n {
+            let k = at(m, o);
+            let x = o as F + slide;
+            if x < 0.0 || x > (n - 1) as F {
+                continue;
+            }
+            let o0 = (x.floor() as usize).min(n - 2);
+            let t = x - o0 as F;
+            let (ka, kb) = (at(up, o0), at(up, o0 + 1));
+            over[k] = (1.0 - t) * block[ka] + t * block[kb] - rise;
+            from[k] = if t < 0.5 { source[ka] } else { source[kb] };
+            if over[k] > h[k] {
+                block[k] = over[k];
+                source[k] = from[k];
+            }
+        }
+    }
+    (over, from)
 }
 
 /// A grid of `n` points `spacing` apart sampled at `m` points `step` apart

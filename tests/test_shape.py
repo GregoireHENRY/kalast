@@ -6,10 +6,11 @@ Rolling ground with boulders and a crater, 6.4 m square at 4 cm, drawn by
 camera pointed a pixel or two off. A maplet of the same 4 cm over the same
 ground, started from the terrain smoothed by 30 cm, its plane kept -- a
 shape model a few times coarser -- held to it above 10 m, where the
-smoothing leaves it right, and solved:
+smoothing leaves it right, and solved both ways, the heights fitted to the
+images directly (the default) and point by point:
 
-- every view used, and its pointing error found back to a tenth of a
-  pixel;
+- every view used, and its pointing error found back to a fifth of a
+  pixel -- a tenth point by point;
 - the heights' RMS against the truth a tenth of what it was, the relief
   under 30 cm the truth's;
 - the images' residual a tenth of what it was.
@@ -111,24 +112,27 @@ def main() -> int:
     n, s = nt, st
     want = truth.heights
     start = coarser(want, 0.30 / s)
-    m = Maplet([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], s, start)
 
     def rms(a: numpy.ndarray) -> float:
         d = a - want
         return float(numpy.sqrt(((d - d.mean()) ** 2).mean()))
 
-    report = m.solve(views, law, iterations=12, anchor=10.0)
-    used = [v.used for v in report.views]
-    check("every view used", all(used), f"{sum(used)} of {len(used)}")
-    off = [math.hypot(v.shift[0] + e[0], v.shift[1] + e[1]) for v, e in zip(report.views, errors)]
-    check("each view's pointing found back to a tenth of a pixel", max(off) < 0.1, f"off by {numpy.round(off, 2).tolist()}")
-    before, after = rms(start), rms(m.heights)
-    check("the heights a tenth as far off the truth", after < before / 10, f"RMS {100 * before:.2f} -> {100 * after:.2f} cm")
-    detail = lambda a: a - coarser(a, 0.30 / s)  # noqa: E731
-    r = numpy.corrcoef(detail(m.heights)[4:-4, 4:-4].ravel(), detail(want)[4:-4, 4:-4].ravel())[0, 1]
-    check("the relief under 30 cm the truth's", r > 0.99, f"correlation {r:.4f}")
-    check("the residual a tenth of what it was", report.residual[-1] < report.residual[0] / 10,
-          f"{report.residual[0]:.4f} -> {report.residual[-1]:.4f}")
+    # Fitted directly, the images a little coarser than the grid, the views'
+    # pointing settles a tenth of a pixel or so off and the heights at 0.2 cm.
+    for direct, iterations, within, how in ((True, 16, 0.2, "directly"), (False, 12, 0.1, "point by point")):
+        m = Maplet([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], s, start)
+        report = m.solve(views, law, iterations=iterations, anchor=10.0, direct=direct)
+        used = [v.used for v in report.views]
+        check(f"{how}: every view used", all(used), f"{sum(used)} of {len(used)}")
+        off = [math.hypot(v.shift[0] + e[0], v.shift[1] + e[1]) for v, e in zip(report.views, errors)]
+        check(f"{how}: each view's pointing found back to {within} pixel", max(off) < within, f"off by {numpy.round(off, 2).tolist()}")
+        before, after = rms(start), rms(m.heights)
+        check(f"{how}: the heights a tenth as far off the truth", after < before / 10, f"RMS {100 * before:.2f} -> {100 * after:.2f} cm")
+        detail = lambda a: a - coarser(a, 0.30 / s)  # noqa: E731
+        r = numpy.corrcoef(detail(m.heights)[4:-4, 4:-4].ravel(), detail(want)[4:-4, 4:-4].ravel())[0, 1]
+        check(f"{how}: the relief under 30 cm the truth's", r > 0.99, f"correlation {r:.4f}")
+        check(f"{how}: the residual a tenth of what it was", report.residual[-1] < report.residual[0] / 10,
+              f"{report.residual[0]:.4f} -> {report.residual[-1]:.4f}")
 
     # Over a mesh of the truth: on it, and its facets found.
     vertices, facets = truth.mesh()

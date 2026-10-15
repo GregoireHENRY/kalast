@@ -16,6 +16,15 @@
 //! heights: their shadows, their facing, where their points fall in each
 //! image.
 //!
+//! By default the heights are fitted to the images directly instead
+//! ([`Options::direct`], `direct.rs`): every point each image shows, lit or
+//! in shadow, is a residual of all the heights at once -- the shading, the
+//! cast shadows' edges, which move with the heights that cast them, and the
+//! parallax, which moves where each point falls in each image: photometric
+//! stereo, shape from shadows and stereo in one least squares. A slope the
+//! Suns barely constrain then weighs as little as it tells, and a shadow
+//! tells the height of what casts it.
+//!
 //! What it takes:
 //!
 //! - the shape model, the maplet's start and the long wavelengths it keeps
@@ -59,6 +68,7 @@ pub(crate) fn reflectance(law: &crate::lightcurve::Law, mu0: F, mu: F, alpha: F)
     law.reflectance(mu0 as crate::Float, mu as crate::Float, alpha as crate::Float) as F
 }
 
+mod direct;
 mod grid;
 mod maplet;
 #[cfg(feature = "python")]

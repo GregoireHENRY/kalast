@@ -1,5 +1,6 @@
 //! Stereophotoclinometry on a maplet: register, shade, integrate.
 
+use super::direct;
 use super::grid;
 use super::maplet::Maplet;
 use super::par_map;
@@ -32,6 +33,18 @@ pub struct Options {
     pub register: bool,
     /// How far, in pixels, the first registration looks.
     pub search: F,
+    /// Move the maplet where the views' pointing puts it on average, its
+    /// reference with it ([`follow`]): for a reference that holds nothing
+    /// sideways -- smooth over the maplet, or an anchor beyond it. A shape
+    /// model with relief across the maplet holds it there itself, through
+    /// the anchor, better than the views' pointing does.
+    pub follow: bool,
+    /// How far, in the surface's unit, the first registration looks, where
+    /// that is farther than `search`: what a spacecraft's position leaves is
+    /// metres on the ground at any distance. A search wider than eight
+    /// pixels goes coarse to fine -- the image and the maplet's shading
+    /// smoothed to a sixth of it first.
+    pub reach: F,
     /// The coarsest a view's pixel may be at the maplet, in spacings. A
     /// view coarser than the spacing tells the slopes at its own scale, and
     /// weighs as the square of the ratio less.
@@ -54,6 +67,26 @@ pub struct Options {
     /// it does not have yet -- and left out: read as slopes, an unmodelled
     /// shadow would flatten what casts it.
     pub dark: F,
+    /// Fit the heights to the images directly, every point each view shows
+    /// lit or in shadow, cast shadows' edges moved by the heights that cast
+    /// them ([`super::direct`]); off, each point's slopes from the views that
+    /// see it lit, then the heights from the slopes.
+    pub direct: bool,
+    /// With `direct`: the curvature penalty against the data's typical
+    /// stiffness, for what no central slope sees.
+    pub curvature: F,
+    /// With `direct`: a shadow's soft edge, in spacings across the ground --
+    /// a fraction of one, for lit ground to stay lit.
+    pub softness: F,
+    /// With `direct`: the weight of the parallax -- a point's height moves
+    /// where it falls in each image, and so what the image shows there:
+    /// stereo, beside the shading and the shadows. 0 for none.
+    pub stereo: F,
+    /// With `direct`: the weight of the shadows' agreement -- each point an
+    /// image shows in shadow held below the terrain's horizon toward the
+    /// Sun, each it shows lit above it -- which grows what casts a shadow
+    /// the maplet does not have yet. 0 for none.
+    pub shadows: F,
     /// A line a pass.
     pub verbose: bool,
 }
@@ -67,6 +100,8 @@ impl Default for Options {
             anchor: 0.0,
             register: true,
             search: 4.0,
+            follow: true,
+            reach: 0.0,
             resolution: 2.0,
             incidence: 80.0 * rad,
             emission: 75.0 * rad,
@@ -74,6 +109,11 @@ impl Default for Options {
             albedo_sigma: 0.3,
             offset: false,
             dark: 0.1,
+            direct: true,
+            curvature: 0.002,
+            softness: 0.6,
+            shadows: 1.0,
+            stereo: 1.0,
             verbose: false,
         }
     }
@@ -182,6 +222,9 @@ struct Setup {
     table: Table,
     pixel: F,
     weight: F,
+    /// The window, in the image's pixels, and the first search's reach.
+    window: [F; 4],
+    radius: F,
 }
 
 /// A view as it sees the maplet in a pass.
@@ -238,15 +281,19 @@ fn setup(view: &View, work: &Maplet, law: &Law, options: &Options, coarse: bool)
         y1 = y1.max(y);
     }
     let sigma = if s > pixel { 0.35 * s / pixel } else { 0.0 };
-    let pad = options.search.max(0.0) + 3.0 * sigma + 3.0;
+    let radius = options.search.max(options.reach / pixel).max(0.0);
+    let pad = radius + 3.0 * sigma + 3.0;
     if x1 + pad < 0.0 || y1 + pad < 0.0 || x0 - pad > view.width as F || y0 - pad > view.height as F {
         return None;
     }
-    let crop = Crop::new(view, x0 - pad, y0 - pad, x1 + pad, y1 + pad, sigma)?;
+    let window = [x0 - pad, y0 - pad, x1 + pad, y1 + pad];
+    let crop = Crop::new(view, window[0], window[1], window[2], window[3], sigma)?;
     Some(Setup {
         crop,
         table: Table::new(law, a0, a1),
         pixel,
+        window,
+        radius,
         weight: (s / pixel).powi(2).min(1.0),
     })
 }
@@ -300,6 +347,24 @@ fn observe(setup: &Setup, look: &Look, shift: [F; 2]) -> Vec<F> {
         .collect()
 }
 
+/// The image at each point shown -- seen within the emission, lit or not --
+/// shifted: not finite elsewhere.
+fn observe_shown(setup: &Setup, look: &Look, shift: [F; 2]) -> Vec<F> {
+    look.xy
+        .iter()
+        .zip(&look.shown)
+        .map(|(xy, &ok)| {
+            if !ok || !xy[0].is_finite() {
+                return F::NAN;
+            }
+            setup
+                .crop
+                .sample(xy[0] + shift[0], xy[1] + shift[1])
+                .map_or(F::NAN, |s| s.0)
+        })
+        .collect()
+}
+
 fn correlation(a: &[F], b: &[F]) -> F {
     let n = a.len() as F;
     if a.len() < 3 {
@@ -313,6 +378,61 @@ fn correlation(a: &[F], b: &[F]) -> F {
         sbb += (y - mb) * (y - mb);
     }
     sab / (saa * sbb).sqrt().max(1e-300)
+}
+
+/// A first search as wide as `radius` pixels from `start`: the image and
+/// the maplet's shading both smoothed to a sixth of it, the shifts a
+/// lattice at half that, the points a smoothing's width apart. The best
+/// shift and the lattice's step, for a narrower search from there.
+#[allow(clippy::too_many_arguments)]
+fn search_wide(view: &View, setup: &Setup, look: &Look, model: &[F], n: usize, s: F, start: [F; 2], radius: F) -> Option<([F; 2], F)> {
+    let sigma = (radius / 6.0).max(1.0);
+    let step = (0.5 * sigma).round().max(1.0);
+    let len = n * n;
+    let mask: Vec<F> = (0..len).map(|k| if look.shown[k] && look.xy[k][0].is_finite() { 1.0 } else { 0.0 }).collect();
+    // The shading smoothed as the image is, in points: the mean of the
+    // shown points under the kernel.
+    let sg = sigma * setup.pixel / s;
+    let (smooth, weight) = if sg >= 0.5 {
+        let lowpass = grid::Lowpass::new(sg, n);
+        let masked: Vec<F> = model.iter().zip(&mask).map(|(m, w)| m * w).collect();
+        let num = lowpass.once(&masked, n);
+        let den = lowpass.once(&mask, n);
+        (num.iter().zip(&den).map(|(a, b)| if *b > 1e-9 { a / b } else { 0.0 }).collect::<Vec<F>>(), den)
+    } else {
+        (model.to_vec(), mask.clone())
+    };
+    let m = (sg.round() as usize).max(1);
+    let points: Vec<usize> = (0..len).filter(|&k| (k % n).is_multiple_of(m) && (k / n).is_multiple_of(m) && mask[k] > 0.0 && weight[k] > 0.5).collect();
+    if points.len() < 30 {
+        return None;
+    }
+    let [x0, y0, x1, y1] = setup.window;
+    let crop = Crop::new(view, x0, y0, x1, y1, sigma.max(0.35 * s / setup.pixel))?;
+    let r = (radius / step).ceil() as i64;
+    let mut best = (F::NEG_INFINITY, start);
+    let (mut o, mut mm) = (Vec::with_capacity(points.len()), Vec::with_capacity(points.len()));
+    for dy in -r..=r {
+        for dx in -r..=r {
+            let shift = [start[0] + dx as F * step, start[1] + dy as F * step];
+            o.clear();
+            mm.clear();
+            for &k in &points {
+                if let Some((v, _, _)) = crop.sample(look.xy[k][0] + shift[0], look.xy[k][1] + shift[1]) {
+                    o.push(v);
+                    mm.push(smooth[k]);
+                }
+            }
+            if o.len() * 2 < points.len() {
+                continue;
+            }
+            let c = correlation(&o, &mm);
+            if c > best.0 {
+                best = (c, shift);
+            }
+        }
+    }
+    best.0.is_finite().then_some((best.1, step))
 }
 
 /// The shift, scale and offset that bring the image onto the maplet's
@@ -477,11 +597,17 @@ fn follow(work: &mut Maplet, views: &[View], reports: &mut [ViewReport]) {
             continue;
         };
         let d = r.shift;
+        // Each view's shift in ground units, all alike: weighed in pixels,
+        // the finest views would set the maplet's place -- their own
+        // pointing's mean, a few of them, where every view's is the
+        // spacecraft's.
+        let scale = j.iter().flatten().map(|x| x * x).sum::<F>() / 2.0;
+        let weight = 1.0 / scale.max(1e-300);
         for a in 0..2 {
             for b in 0..2 {
-                normal[a][b] += j[0][a] * j[0][b] + j[1][a] * j[1][b];
+                normal[a][b] += weight * (j[0][a] * j[0][b] + j[1][a] * j[1][b]);
             }
-            right[a] += j[0][a] * d[0] + j[1][a] * d[1];
+            right[a] += weight * (j[0][a] * d[0] + j[1][a] * d[1]);
         }
         each[k] = Some(j);
     }
@@ -491,7 +617,13 @@ fn follow(work: &mut Maplet, views: &[View], reports: &mut [ViewReport]) {
     }
     let du = (normal[1][1] * right[0] - normal[0][1] * right[1]) / det;
     let dv = (normal[0][0] * right[1] - normal[1][0] * right[0]) / det;
-    if (du * du + dv * dv).sqrt() < 0.01 * s {
+    // Only a move of the ground a quarter of a spacing or more: what the
+    // shape model's place gets wrong, found at a level's first passes. A
+    // bias the views share less than that -- images finer than the grid
+    // register a little along their Suns, as the grid's slopes place a
+    // boulder's flank -- moved the maplet anew every pass: 1.7 m over 36
+    // passes on synthetic terrain whose every view was pointed exactly.
+    if (du * du + dv * dv).sqrt() < 0.25 * s {
         return;
     }
     work.centre += u * du + v * dv;
@@ -575,6 +707,18 @@ fn passes(
         return;
     }
     let [u, v, w] = work.axes;
+    let mut damping: F = 1e-3;
+    let settings = direct::Settings {
+        incidence: options.incidence,
+        albedo_sigma: options.albedo_sigma,
+        anchor: 1.0,
+        curvature: options.curvature,
+        softness: options.softness,
+        shadows: options.shadows,
+        shadow_level: 0.2,
+        lit_level: 0.5,
+        stereo: options.stereo,
+    };
     for pass in 0..=options.iterations {
         let last = pass == options.iterations;
         let points = work.points();
@@ -601,13 +745,24 @@ fn passes(
             let (Some(st), Some(l)) = (setups[k].as_ref(), looks[k].as_ref()) else {
                 return None;
             };
-            let search = (options.register && !registered[k]).then_some(options.search);
-            register(st, l, &model[k], report.views[k].shift, search, options.register, options.offset)
+            let mut start = report.views[k].shift;
+            let mut search = (options.register && !registered[k]).then_some(st.radius);
+            // Wider than eight pixels, coarse to fine.
+            while let Some(radius) = search {
+                if radius <= 8.0 {
+                    break;
+                }
+                let (best, step) = search_wide(&views[k], st, l, &model[k], n, s, start, radius)?;
+                start = best;
+                search = Some(2.0 * step);
+            }
+            register(st, l, &model[k], start, search, options.register, options.offset)
         });
         for (k, shift) in shifts.iter().enumerate() {
             registered[k] |= shift.is_some();
         }
         let mut seen: Vec<Seen> = vec![];
+        let mut shown: Vec<direct::Shown> = vec![];
         let (mut sum_r, mut sum_o, mut count) = (0.0, 0.0, 0usize);
         for k in 0..views.len() {
             let r = &mut report.views[k];
@@ -655,6 +810,36 @@ fn passes(
             sum_r += res.iter().map(|x| x * x).sum::<F>();
             sum_o += o.iter().map(|x| x * x).sum::<F>();
             count += o.len();
+            if options.direct {
+                let all = observe_shown(st, l, shift);
+                let mut res = vec![];
+                let mut lit = vec![];
+                for p in 0..len {
+                    if all[p].is_finite() {
+                        res.push(all[p] - (scale * model[k][p] + offset));
+                        if l.lit[p] {
+                            lit.push(all[p]);
+                        }
+                    }
+                }
+                let mid = median(res.clone());
+                let spread = (1.4826 * median(res.iter().map(|x| (x - mid).abs()).collect())).max(1e-3 * mean_o.abs()).max(1e-30);
+                let lit_ground = median(lit);
+                let dark = options.dark * lit_ground;
+                shown.push(direct::Shown {
+                    view: &views[k],
+                    table: &st.table,
+                    crop: &st.crop,
+                    shift,
+                    mask: all.iter().map(|o| o.is_finite()).collect(),
+                    scale,
+                    offset,
+                    sigma: spread,
+                    weight: st.weight,
+                    dark: if dark.is_finite() { dark } else { F::NEG_INFINITY },
+                    lit: lit_ground,
+                });
+            }
             seen.push(Seen {
                 view: &views[k],
                 table: &st.table,
@@ -674,6 +859,37 @@ fn passes(
                 println!("shape: spacing {s:.4}, {} views, residual {residual:.4} (final)", seen.len());
             }
             break;
+        }
+
+        if options.direct {
+            let before = work.heights.clone();
+            let step = direct::step(work, &shown, wavelength, &settings, &mut damping);
+            // The albedo's median 1 where a view sees it: the views' scales
+            // carry the rest.
+            let seen_any: Vec<bool> = (0..len).map(|p| shown.iter().any(|sv| sv.mask[p])).collect();
+            let shift = median(work.albedo.iter().zip(&seen_any).filter(|(_, s)| **s).map(|(a, _)| a.ln()).collect());
+            if shift.is_finite() {
+                for a in work.albedo.iter_mut() {
+                    *a = (a.ln() - shift).exp();
+                }
+            }
+            grid::hold_plane(&mut work.heights, &work.reference, n);
+            if options.register && options.follow {
+                follow(work, views, &mut report.views);
+            }
+            let change = (work.heights.iter().zip(&before).map(|(a, b)| (a - b).powi(2)).sum::<F>() / len as F).sqrt();
+            report.change.push(change);
+            if options.verbose {
+                println!(
+                    "shape: spacing {s:.4}, pass {}, {} views, residual {residual:.4}, heights moved {change:.3e}; cost {:.4e} -> {:.4e}, {} iterations, damping {damping:.1e}",
+                    pass + 1,
+                    seen.len(),
+                    step.cost[0],
+                    step.cost[1],
+                    step.iterations
+                );
+            }
+            continue;
         }
 
         // The slopes and albedo point by point.
@@ -781,7 +997,7 @@ fn passes(
         let before = work.heights.clone();
         grid::integrate(&mut work.heights, &p, &q, &work.reference, n, s, wavelength);
         grid::hold_plane(&mut work.heights, &work.reference, n);
-        if options.register {
+        if options.register && options.follow {
             follow(work, views, &mut report.views);
         }
         let change = (work.heights.iter().zip(&before).map(|(a, b)| (a - b).powi(2)).sum::<F>() / len as F).sqrt();
@@ -868,6 +1084,15 @@ mod tests {
 
     #[test]
     fn relief_comes_back_from_its_images() {
+        relief(true);
+    }
+
+    #[test]
+    fn relief_comes_back_point_by_point() {
+        relief(false);
+    }
+
+    fn relief(direct: bool) {
         let law = Law::Hapke(Hapke {
             w: 0.0385,
             b: 0.276,
@@ -958,7 +1183,10 @@ mod tests {
         let before = rms(&m.heights);
         // The anchor where the start is right: smoothed by 30 cm, a wave of
         // 10 m keeps 98 % of itself.
-        let options = Options { iterations: 8, anchor: 10.0, ..Default::default() };
+        // Fitted to the images directly, the heights converge in more passes
+        // than point by point -- each step damped until the images agree.
+        let iterations = if direct { 16 } else { 8 };
+        let options = Options { iterations, anchor: 10.0, direct, ..Default::default() };
         let report = m.solve(&views, &law, &options).unwrap();
         let after = rms(&m.heights);
         let used = report.views.iter().filter(|v| v.used).count();

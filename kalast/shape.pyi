@@ -8,7 +8,7 @@ from typing import Sequence
 class View:
     """One image of a surface, and its camera and Sun.
 
-    `image` is `(height, width)`: I/f64, or anything proportional to it -- each
+    `image` is `(height, width)`: I/F, or anything proportional to it -- each
     view's scale is fitted. A pinhole camera at `position`, in the body's
     frame and the surface's unit, its `axes` the rows of a 3 x 3: `x` along
     the image's rows (to the next column), `y` down its columns (to the next
@@ -77,7 +77,7 @@ class Maplet:
     heights: numpy.ndarray
     """Along the normal, `(size, size)`; a copy -- assign to change."""
     albedo: numpy.ndarray
-    """Relative albedo, the I/f64's factor on the law's: about 1."""
+    """Relative albedo, the I/F's factor on the law's: about 1."""
     reference: numpy.ndarray
     """The shape model's heights, not a number where none was found."""
     facets: numpy.ndarray
@@ -98,23 +98,30 @@ class Maplet:
         ...
     def render(self, view: object, law: object, oversample: int = ...) -> numpy.ndarray:
         """The maplet as `view` sees it under `law` (a `Hapke` or a
-        `LommelSeeligerLambert`): `(height, width)` I/f64, each pixel the mean
+        `LommelSeeligerLambert`): `(height, width)` I/F, each pixel the mean
         of `oversample` squared rays, its facets lit as the maplet's own
         shadows have them; not a number where a ray meets none of it.
         """
         ...
-    def solve(self, views: Sequence[object], law: object, iterations: int = ..., levels: int = ..., anchor: float = ..., register: bool = ..., search: float = ..., resolution: float = ..., incidence: float = ..., emission: float = ..., slope_sigma: float = ..., albedo_sigma: float = ..., offset: bool = ..., dark: float = ..., verbose: bool = ...) -> Report:
+    def solve(self, views: Sequence[object], law: object, iterations: int = ..., levels: int = ..., anchor: float = ..., register: bool = ..., search: float = ..., follow: bool = ..., reach: float = ..., resolution: float = ..., incidence: float = ..., emission: float = ..., slope_sigma: float = ..., albedo_sigma: float = ..., offset: bool = ..., dark: float = ..., direct: bool = ..., curvature: float = ..., softness: float = ..., shadows: float = ..., stereo: float = ..., verbose: bool = ...) -> Report:
         """The heights and albedo from `views` under `law` (a `Hapke` or a
-        `LommelSeeligerLambert`), from the heights as they are --
-        stereophotoclinometry. Each pass registers every view to the
-        maplet's shading, solves each point's slopes and albedo from the
-        views that see it lit, and integrates the heights from the slopes,
-        held to `reference` above `anchor` (a wavelength in the surface's
-        unit, 25 spacings by default). `levels` > 1 starts that many times
-        coarser by halves. What is darker than `dark` of its view's median
-        is taken for a shadow the maplet does not cast, and left out. Angles
-        in radians. See
-        `notes/2026-10-14_shape_from_images/`.
+        `LommelSeeligerLambert`), from the heights as they are. Each pass
+        registers every view to the maplet's shading, then fits the heights
+        and the albedo to every point each view shows, lit or in shadow: the
+        shading, the cast shadows (their edges `softness` spacings wide,
+        their agreement weighted by `shadows`) and the parallax (`stereo`),
+        by damped Gauss-Newton, the curvature held by `curvature` -- or, with
+        `direct=False`, each point's slopes and albedo from the views that
+        see it lit, the heights integrated from the slopes. Either way the
+        heights keep `reference` above `anchor` (a wavelength in the
+        surface's unit, 25 spacings by default). `levels` > 1 starts that
+        many times coarser by halves. A view's first registration looks
+        `search` pixels away, or `reach` in the surface's unit if farther;
+        `follow` moves the maplet where the views' pointing puts it. What is
+        darker than `dark` of its view's lit ground is taken for a shadow the
+        maplet does not cast. Angles in radians. See
+        `notes/2026-10-14_shape_from_images/` and
+        `notes/2026-10-15_shape_direct/`.
         """
         ...
 
@@ -131,7 +138,7 @@ class ViewReport:
     puts them, `(x, y)` in pixels.
     """
     scale: float
-    """The image over the maplet's I/f64."""
+    """The image over the maplet's I/F."""
     offset: float
     """The image's offset, with `offset=True`."""
     points: int

@@ -209,3 +209,6 @@ its maplets; the pointing shared by every maplet in an image; LAM's MPCD
 model of Abydos (0.4 m, 380,901 vertices, half the maplet) to compare the
 heights with; the maplet merged into SHAP7 for kalast to draw. The
 pipeline becomes an example once the result holds.
+
+Continued in `2026-10-15_shape_direct/`: the coarser images, the heights
+fitted to the images directly, and LAM's MPCD model as the referee.

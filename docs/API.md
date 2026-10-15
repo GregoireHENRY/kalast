@@ -1899,20 +1899,23 @@ costs — it is not negligible away from opposition.
 
 ## `kalast.shape` — relief from images
 
-A surface's relief finer than its shape model, from the images that see it:
-stereophotoclinometry on **maplets**, square grids of heights and albedo over
-a patch of the shape model. Each pass registers every image to the maplet's
-shading, solves each point's two slopes and albedo from the images that see
-it lit — many Suns tell a slope from an albedo — and integrates the heights
-from the slopes, held to the shape model above a wavelength. Then again,
-from the new heights: their shadows, their facing, where each point falls.
+A surface's relief finer than its shape model, from the images that see it,
+on **maplets**: square grids of heights and albedo over a patch of the shape
+model. Each pass registers every image to the maplet's shading, then fits
+the heights and the albedo to every point each image shows, lit or in
+shadow — the shading under many Suns, which tells a slope from an albedo;
+the cast shadows, whose edges move with the heights that cast them; the
+parallax, which moves where each point falls — held to the shape model above
+a wavelength. With `direct=False`, stereophotoclinometry as Gaskell's: each
+point's slopes and albedo from the images that see it lit, the heights
+integrated from the slopes.
 
 ```python
 from kalast.shape import Maplet, View
 
 m = Maplet.from_surface(mesh.positions, mesh.indices, centre, size=201, spacing=0.0005)
 views = [View(image, position, axes, focal, sun, centre=(cx, cy), valid=mask) for ...]
-report = m.solve(views, law, iterations=8, levels=2, anchor=0.010)
+report = m.solve(views, law, iterations=12, levels=3, anchor=0.010, reach=0.012)
 m.heights, m.albedo               # (size, size), [j, i]
 vertices, facets = m.mesh()       # to load, draw, or save
 ```
@@ -1934,10 +1937,15 @@ is among `m.facets`.
 | `Maplet.from_surface(vertices, indices, centre, size, spacing, normal=None)` | over a shape model, along its mean normal there; its heights are also its `reference` |
 | `Maplet(centre, normal, spacing, heights, albedo=None)` | of given heights: a synthetic terrain |
 | `m.solve(views, law, iterations=6, levels=1, anchor=0.0, ...)` | `anchor` the wavelength the shape model keeps (25 spacings by default); `levels` starts coarser by halves; angles in radians. Returns a `Report` |
+| `reach=0.0`, `search=4.0` | how far a view's first registration looks, in the surface's unit or in pixels, whichever is farther: what SPICE's pointing leaves, metres on the ground |
+| `follow=True` | the maplet goes where the views' pointing puts it, each view weighed in ground units; off, its shape model holds it |
+| `direct=True`, `curvature=0.002`, `shadows=1.0`, `stereo=1.0`, `softness=0.6` | the heights fitted to the images directly; the curvature penalty (0.02 for real images' noise); the shadows' and the parallax's weights; a shadow's edge in spacings |
+| `albedo_sigma=0.3`, `offset=False`, `dark=0.1` | the albedo's freedom from its neighbours (log); an offset per view, for a coma; darker than this share of lit ground, a shadow the maplet does not cast |
 | `m.render(view, law, oversample=3)` | the maplet as `view` sees it, its own shadows cast: synthetic images, or the solution beside the image |
 | `m.points()`, `m.normals()`, `m.mesh()`, `m.resampled(size, spacing)` | the grid in the body's frame, as a mesh, at another spacing |
 | `Report` | `views` (a `ViewReport` each: `used`, `pixel`, `shift`, `scale`, `points`, `residual`, `correlation`), and per pass `residual`, `change`, `spacing` |
 
 `law` is a `Hapke` or a `LommelSeeligerLambert`, the one the images are best
 fitted with: the slopes are read through it. See
-`notes/2026-10-14_shape_from_images/` for the method and its checks.
+`notes/2026-10-14_shape_from_images/` and `notes/2026-10-15_shape_direct/`
+for the method, its checks on synthetic terrain and on comet 67P.
