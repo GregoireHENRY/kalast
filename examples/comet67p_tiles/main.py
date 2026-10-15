@@ -16,6 +16,7 @@ and a day of solving on an M1 Pro.
 """
 
 import collections
+import concurrent.futures
 import csv
 import os
 import re
@@ -100,9 +101,14 @@ def camera(image):
 
 
 def cameras(which):
-    """Every camera `which` (image indices) needs, SPICE being one thread's."""
+    """Every camera `which` (image indices) needs: the labels fetched eight
+    at a time -- each a request to the archive, half a second -- then SPICE,
+    one thread's."""
+    which = sorted(which)
+    with concurrent.futures.ThreadPoolExecutor(8) as pool:
+        list(pool.map(lambda k: osiris.label(images[k]["dataset"], images[k]["product"]), which))
     spice.furnsh(KERNELS)
-    out = {k: camera(images[k]) for k in sorted(which)}
+    out = {k: camera(images[k]) for k in which}
     spice.kclear()
     return out
 
