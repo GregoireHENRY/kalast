@@ -60,6 +60,7 @@ python main.py reference hapke-fit bounces=1 response albedo
                                     # the NAC's response, the albedo map
 python main.py rays mask shap7-4m   # lit or not, the reduced model
 python main.py reference N2016      # 2016's only
+python main.py reference tiles      # SHAP7-4M with the tiles of ../comet67p_tiles
 python compare.py                   # figures and table
 ```
 
@@ -67,4 +68,7 @@ On an M1 Pro with 32 GB, SHAP7 in full loads in 20 s and takes nearly all
 the memory, 31 GB at its peak; an image is then about 20 s with `reference`,
 the 57 in 12 minutes -- 32 with a bounce, 40 with the response and the
 albedo map too. The 4M reduction needs 3.3 GB, and coarsens what the closer
-images show.
+images show. `tiles` puts into it the tiles of
+[../comet67p_tiles](../comet67p_tiles) each image sees, solved from the
+images at 0.5-2 m and drawn at the image's scale -- finer than SHAP7 in full
+wherever a tile is, in a few GB: `TILES` in `main.py` is where they are.
