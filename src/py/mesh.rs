@@ -342,6 +342,35 @@ impl Mesh {
         }
     }
 
+    /// A mesh of `positions` `(n, 3)` and `indices` `(m, 3)` or flat, as a
+    /// file of them would load: flat, each facet its own three vertices, or
+    /// shaded smoothly with `smooth`. For `sim.add_mesh`: a shape model with
+    /// maplets in it (`kalast.shape.compose`), which no file need hold.
+    #[classmethod]
+    #[pyo3(signature = (positions, indices, smooth=false))]
+    pub fn from_arrays(
+        _cls: Bound<'_, pyo3::types::PyType>,
+        py: Python<'_>,
+        positions: numpy::PyArrayLike2<'_, Float, numpy::AllowTypeChange>,
+        indices: numpy::PyReadonlyArrayDyn<'_, u32>,
+        smooth: bool,
+    ) -> PyResult<Self> {
+        let p = positions.as_array();
+        if p.ncols() != 3 {
+            return Err(pyo3::exceptions::PyValueError::new_err("positions are (n, 3)"));
+        }
+        let positions: Vec<Vec3> = p.rows().into_iter().map(|r| Vec3::new(r[0], r[1], r[2])).collect();
+        let indices: Vec<u32> = indices
+            .as_slice()
+            .map_err(|_| pyo3::exceptions::PyValueError::new_err("indices must be contiguous"))?
+            .to_vec();
+        if indices.len() % 3 != 0 || indices.iter().any(|&i| i as usize >= positions.len()) {
+            return Err(pyo3::exceptions::PyValueError::new_err("indices come in threes, each a position"));
+        }
+        let mesh = py.detach(|| crate::mesh::Mesh::from_arrays(positions, indices, smooth));
+        Ok(Self { inner: crate::locked::Locked::new(mesh) })
+    }
+
     #[classmethod]
     #[pyo3(signature = (path, update_pos=None))]
     pub fn load(

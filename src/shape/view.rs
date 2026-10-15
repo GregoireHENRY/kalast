@@ -193,6 +193,40 @@ impl Crop {
         let dy = (1.0 - tx) * (c - a) + tx * (d - b);
         Some((value, dx, dy))
     }
+
+    /// The mean over the triangle `t`, in the image's pixels, and its
+    /// gradient: the image sampled at the centroids of the `m x m` equal
+    /// triangles `t` cuts into -- `m` for a sample every pixel and a half
+    /// along its longest edge, 2 to 8 -- bilinear between the pixels, so
+    /// that it moves smoothly as the triangle does. `None` off the window
+    /// or where a sample's pixels are not valid.
+    pub fn mean_over(&self, t: [[F; 2]; 3]) -> Option<(F, F, F)> {
+        let edge = |a: [F; 2], b: [F; 2]| ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt();
+        let longest = edge(t[0], t[1]).max(edge(t[1], t[2])).max(edge(t[2], t[0]));
+        let m = ((longest / 1.5).ceil() as usize).clamp(2, 8);
+        let (e1, e2) = ([t[1][0] - t[0][0], t[1][1] - t[0][1]], [t[2][0] - t[0][0], t[2][1] - t[0][1]]);
+        let at = |a: F, b: F| [t[0][0] + a * e1[0] + b * e2[0], t[0][1] + a * e1[1] + b * e2[1]];
+        let (mut sum, mut gx, mut gy, mut count) = (0.0, 0.0, 0.0, 0usize);
+        let mf = m as F;
+        for i in 0..m {
+            for j in 0..m - i {
+                // The upward sub-triangle's centroid, and the downward one's.
+                let mut points = vec![at((i as F + 1.0 / 3.0) / mf, (j as F + 1.0 / 3.0) / mf)];
+                if i + j + 1 < m {
+                    points.push(at((i as F + 2.0 / 3.0) / mf, (j as F + 2.0 / 3.0) / mf));
+                }
+                for p in points {
+                    let (v, dx, dy) = self.sample(p[0], p[1])?;
+                    sum += v;
+                    gx += dx;
+                    gy += dy;
+                    count += 1;
+                }
+            }
+        }
+        let c = count as F;
+        Some((sum / c, gx / c, gy / c))
+    }
 }
 
 fn gaussian(sigma: F) -> Vec<f32> {

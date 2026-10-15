@@ -72,6 +72,14 @@ class Mesh:
     def __init__(self, path: str | None = ..., update_pos: object = ..., vertices: Sequence[Vertex] | None = ..., facets: Sequence[Facet] | None = ..., indices: Sequence[int] | numpy.ndarray | None = ..., material_id: int | None = ...) -> None:
         ...
     @classmethod
+    def from_arrays(cls, positions: numpy.ndarray, indices: numpy.ndarray, smooth: bool = ...) -> Mesh:
+        """A mesh of `positions` `(n, 3)` and `indices` `(m, 3)` or flat, as a
+        file of them would load: flat, each facet its own three vertices, or
+        shaded smoothly with `smooth`. For `sim.add_mesh`: a shape model with
+        maplets in it (`kalast.shape.compose`), which no file need hold.
+        """
+        ...
+    @classmethod
     def load(cls, path: str, update_pos: object = ...) -> Mesh:
         ...
     vertices: VerticesView

@@ -6280,3 +6280,28 @@ held-out days is in the relief below 4 m; finer grids, edge-preserving
 curvature, facets as residuals, more passes and the rest tried, none
 closing it -- the table in the write-up. `examples/comet67p_maplet`: the
 pipeline as an example, 209 images by their lines alone (951 MB), 76 s.
+
+## 2026-10-15 — comet 67P whole, in tiles
+
+Asked for the whole comet improved, not a patch: tiles at the finest spacing
+the images allow, loaded per image beside SHAP7 (a global mesh at 0.5 m
+would be 290M facets). `kalast.shape.Surface` (a BVH over the shape model):
+what each image sees lit (`sees`, 9,403 images against 179k samples of
+SHAP7-4M in 2 min), tiles laid as a lattice over the surface
+(`Surface.tiles`), what the rest of the comet hides of a tile or shadows
+(`mask`); `choose` (MPCD's rule for a tile's images); `compose` (tiles into
+the shape model, one mesh); `Mesh.from_arrays`. A spacing where five images
+are as fine as it -- a first rule, ten within twice it, rippled the tiles
+whose finest images were 0.9 m a pixel. 6,489 tiles: 5,667 at 0.5 m, 711
+at 1 m, 111 at 2 m; up to 70 images each, two levels -- the example's
+score at half its CPU on Abydos (mean, not median: the 13 held-out images
+fall in two groups and the median jumps between them). The solver compares
+images finer than 0.4 spacing triangle by triangle (`triangles`): Abydos
+held out 0.41 to 0.45, 11 of 13 images better; no better on the test
+terrain. A fix: the step's trial cost left out the shadows' agreement.
+`examples/comet67p_tiles` (`tiles.csv`, `images.csv`; `fetch`, `solve`,
+`score` by ranges of tiles). Running: tiles 0-1999 on the Mac, 2000-6488
+handed to the home PC (`2026-10-15_67p_tiles/handoff_home_pc.md`); 30 GB
+of image lines. Write-up: `2026-10-15_67p_tiles/`. Open: the run, its
+held-out scores, the tiles into `comet67p_shadows_fit` (a `tiles` mesh:
+SHAP7-4M with the tiles an image sees, about 10M facets).

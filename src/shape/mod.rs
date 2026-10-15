@@ -68,16 +68,21 @@ pub(crate) fn reflectance(law: &crate::lightcurve::Law, mu0: F, mu: F, alpha: F)
     law.reflectance(mu0 as crate::Float, mu as crate::Float, alpha as crate::Float) as F
 }
 
+mod bvh;
+mod compose;
 mod direct;
 mod grid;
 mod maplet;
 #[cfg(feature = "python")]
 pub(crate) mod py;
 mod solve;
+mod surface;
 mod view;
 
+pub use compose::compose;
 pub use maplet::Maplet;
 pub use solve::{Options, Report, ViewReport};
+pub use surface::{choose, plan, Samples, Seen, Surface, Tile, FACING, IN_FRAME, LIT, SEEN};
 pub use view::View;
 
 /// `f(0), ..., f(count - 1)` over the machine's cores, in order.

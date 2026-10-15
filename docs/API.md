@@ -980,6 +980,7 @@ same ratio.
 ```python
 sim.load_mesh(path=..., mat=numpy.eye(4), smooth=False, shadow_path=None)
 sim.add_mesh(mesh, mat=None)
+mesh = kalast.mesh.Mesh.from_arrays(positions, indices, smooth=False)   # one made in the script
 ```
 
 Meshes load **flat**: each facet owns its three vertices, which is what
@@ -1943,6 +1944,7 @@ is among `m.facets`.
 | `direct=True`, `curvature=0.002`, `shadows=1.0`, `stereo=1.0`, `softness=0.6` | the heights fitted to the images directly; the curvature penalty (0.02 for real images' noise); the shadows' and the parallax's weights; a shadow's edge in spacings |
 | `albedo_sigma=0.3`, `offset=False`, `dark=0.1` | the albedo's freedom from its neighbours (log); an offset per view, for a coma; darker than this share of lit ground, a shadow the maplet does not cast |
 | `incidence_weight=0.75` | each view weighs `1 - incidence_weight cos(i)`, its Sun's incidence on the maplet, as SPC weighs images: a high Sun's shading says more of albedo than of slopes |
+| `triangles=0.4` | a view whose pixel is finer than this many spacings is compared, where the maplet lights it, triangle by triangle -- each cell's two, as `mesh` cuts them -- with the image's mean over each; its shadows stay with the points. 0 for none |
 | `m.render(view, law, oversample=3)` | the maplet as `view` sees it, its own shadows cast: synthetic images, or the solution beside the image |
 | `m.points()`, `m.normals()`, `m.mesh()`, `m.resampled(size, spacing)` | the grid in the body's frame, as a mesh, at another spacing |
 | `Report` | `views` (a `ViewReport` each: `used`, `pixel`, `shift`, `scale`, `points`, `residual`, `correlation`), and per pass `residual`, `change`, `spacing` |
@@ -1951,3 +1953,31 @@ is among `m.facets`.
 fitted with: the slopes are read through it. See
 `notes/2026-10-14_shape_from_images/` and `notes/2026-10-15_shape_direct/`
 for the method, its checks on synthetic terrain and on comet 67P.
+
+### A whole body in maplets
+
+```python
+from kalast.shape import Surface, choose, compose
+
+surface = Surface(vertices, indices)                 # rays against the shape model
+points, normals, areas = surface.samples(0.02)       # a point a 20 m cube
+flags, scale, incidence, emission = surface.sees(points, normals, position, axes, focal, (width, height), sun)
+tiles = Surface.tiles(points, normals, areas, finest, size=241, overlap=0.2)   # (m, 7): centre, normal, spacing
+taken = choose(scales, suns, views, seen=None, cap=70)                         # a tile's images
+valid = surface.mask(maplet, view, margin=0.003)     # what the rest of the body hides or shadows
+vertices, indices, albedo = compose(vertices, indices, maplets, spacing=0.0)
+```
+
+| | |
+|---|---|
+| `Surface(vertices, indices)` | a shape model and a bounding volume hierarchy over it: 2.7 s for 4M facets. A reduced model does for what follows |
+| `surface.samples(size)` | the surface in cubes of `size`: a point on it, the facets' mean normal and their area a cube -- two where it crosses a cube twice |
+| `surface.sees(points, normals, position, axes, focal, size, sun, centre=None)` | what a camera sees of the points, as `View` takes a camera: flags (1 in the frame, 2 facing it, 4 nothing between, 8 lit), a pixel's size there, the incidence and emission (radians). 17 ms an image for 179k points |
+| `Surface.tiles(points, normals, areas, finest, size=241, overlap=0.2)` | maplets over the samples, each at the finest spacing its samples allow (`finest`, not a number where none): finest first, laid as a lattice grows over the surface until every sample is on one -- facing within 60 deg of its normal, not under an overhang |
+| `choose(scales, suns, views, seen=None, cap=70, angle=10 deg, ratio=1.5)` | a maplet's images, as MPCD keeps them: finest first, each only if it differs from those taken by `angle` of Sun or view, `ratio` of scale, or the ground it sees |
+| `surface.mask(maplet, view, margin=0.0)` | the view's pixels showing the maplet as its grid can tell it: false where the rest of the surface hides or shadows it, and `margin` around; for `View`'s `valid` |
+| `compose(vertices, indices, maplets, spacing=0.0)` | the shape model with the maplets in it, one mesh: each point the finest maplet's over it, then the one it is most in the middle of; `spacing` draws them coarser, for an image that sees no more. Returns `(vertices, indices, albedo)` |
+
+`kalast.mesh.Mesh.from_arrays(vertices, indices)` makes the composed mesh
+a body's, for `sim.add_mesh`. `examples/comet67p_tiles/` lays and solves the
+whole of comet 67P this way; `notes/2026-10-15_67p_tiles/` has how.

@@ -106,7 +106,7 @@ class Maplet:
         shadows have them; not a number where a ray meets none of it.
         """
         ...
-    def solve(self, views: Sequence[object], law: object, iterations: int = ..., levels: int = ..., anchor: float = ..., register: bool = ..., search: float = ..., follow: bool = ..., reach: float = ..., resolution: float = ..., incidence: float = ..., emission: float = ..., slope_sigma: float = ..., albedo_sigma: float = ..., offset: bool = ..., incidence_weight: float = ..., dark: float = ..., direct: bool = ..., curvature: float = ..., softness: float = ..., shadows: float = ..., stereo: float = ..., verbose: bool = ...) -> Report:
+    def solve(self, views: Sequence[object], law: object, iterations: int = ..., levels: int = ..., anchor: float = ..., register: bool = ..., search: float = ..., follow: bool = ..., reach: float = ..., resolution: float = ..., incidence: float = ..., emission: float = ..., slope_sigma: float = ..., albedo_sigma: float = ..., offset: bool = ..., incidence_weight: float = ..., dark: float = ..., direct: bool = ..., curvature: float = ..., softness: float = ..., shadows: float = ..., stereo: float = ..., triangles: float = ..., verbose: bool = ...) -> Report:
         """The heights and albedo from `views` under `law` (a `Hapke` or a
         `LommelSeeligerLambert`), from the heights as they are. Each pass
         registers every view to the maplet's shading, then fits the heights
@@ -125,7 +125,11 @@ class Maplet:
         maplet does not cast. Each view weighs `1 - incidence_weight
         cos(i)`, `i` its Sun's incidence on the maplet, as SPC weighs its
         images: a high Sun's shading says more of the albedo than of the
-        slopes. Angles in radians. See
+        slopes. A view whose pixel is finer than `triangles` spacings is
+        compared, where the maplet lights it, triangle by triangle -- each
+        cell's two, as `mesh` cuts them -- with the mean of the pixels each
+        covers, rather than smoothed to the points -- its shadows stay with
+        the points; 0 for none. Angles in radians. See
         `notes/2026-10-14_shape_from_images/` and
         `notes/2026-10-15_shape_direct/`.
         """
@@ -168,4 +172,77 @@ class Report:
     """Per pass, the RMS change of the heights."""
     spacing: list[float]
     """Per pass, the spacing it ran at."""
+
+class Surface:
+    """A shape model whole -- `vertices` `(v, 3)`, `indices` `(f, 3)` or flat
+    -- and rays against it: what of it an image sees lit, where maplets go
+    to cover it, and what the rest of it hides of a maplet from an image or
+    from the Sun. A reduced model does: what lies beyond a maplet only
+    shadows it, or stands in front of it.
+    """
+    def __init__(self, vertices: numpy.ndarray, indices: object) -> None:
+        ...
+    def samples(self, size: float) -> tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]:
+        """The surface in cubes `size` on a side (its unit): `(points,
+        normals, areas)`, a point on the surface a cube -- two where it
+        crosses the cube twice -- the facets' mean normal there, and their
+        area.
+        """
+        ...
+    def sees(self, points: numpy.ndarray, normals: numpy.ndarray, position: Sequence[float] | numpy.ndarray, axes: Sequence[Sequence[float] | numpy.ndarray] | numpy.ndarray, focal: float, size: object) -> None:
+        """What a camera sees of `points` `(n, 3)` on the surface, facing along
+        `normals`: the camera as `View` takes it, without the image -- its
+        `size` `(width, height)` in pixels. `(flags, scale, incidence,
+        emission)`: bits 1 in the frame, 2 facing the camera, 4 nothing
+        between them, 8 lit -- the last two only for a point in the frame and
+        facing it; a pixel's size there; the Sun's and the camera's angles
+        to the normal, radians.
+        """
+        ...
+    def mask(self, maplet: object, view: object, margin: float = ...) -> numpy.ndarray:
+        """The pixels of `view` that show `maplet` as its own grid can tell it,
+        `(height, width)`: false where the rest of the surface hides it or
+        shadows it, and `margin` (the surface's unit) around, for the shape
+        model's error; true elsewhere. For `View`'s `valid`, with the
+        image's own.
+        """
+        ...
+    @staticmethod
+    def tiles(points: numpy.ndarray, normals: numpy.ndarray, areas: numpy.ndarray, finest: numpy.ndarray, size: int = ..., overlap: float = ...) -> numpy.ndarray:
+        """Maplets of `size` points on a side over `samples` `(points, normals,
+        areas)` of the surface, each at the finest spacing its images allow
+        -- `finest`, a sample's, not a number where none does -- overlapping
+        by `overlap` of a maplet's width: `(m, 7)`, each a maplet's centre
+        on the surface, its normal and its spacing. Finest first, the
+        maplets of a spacing laid as a lattice grows over the surface, until
+        each sample of that spacing or finer is on one -- facing within 60
+        degrees of its normal, not under an overhang -- and where at least
+        half of what a maplet covers allows its spacing. For
+        `Maplet.from_surface`.
+        """
+        ...
+
+def compose(vertices: numpy.ndarray, indices: object, maplets: object, spacing: float = ...) -> tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]:
+    """The shape model `vertices` `(v, 3)`, `indices` `(f, 3)` or flat, with
+    `maplets` in it, one mesh: `(vertices, indices, albedo)`. A point of the
+    surface is the finest maplet's over it, and among those the one it is
+    most in the middle of; each maplet keeps the cells that are its own and
+    one more all round, so that two meet without a crack, and the shape
+    model loses each facet whose corners are all a maplet's. The shape
+    model's vertices come first; the albedo is 1 on them and each maplet's
+    own on its. `spacing`, if coarser than a maplet's, draws it at that: for
+    an image a few times coarser, which sees no more of it. Only a maplet's
+    cells over the shape model are kept, where its `reference` is known.
+    """
+    ...
+def choose(scales: numpy.ndarray, suns: numpy.ndarray, views: numpy.ndarray, seen: Sequence[Sequence[int] | numpy.ndarray] | numpy.ndarray | None = ..., cap: int = ..., angle: float = ..., ratio: float = ...) -> list[int]:
+    """The images a maplet takes of its candidates, as MPCD keeps them: finest
+    first, each only if it differs from every one taken by `angle` (radians)
+    of Sun or of view, or by `ratio` of scale, or if most of the maplet's
+    ground it sees -- `seen`, a list of sorted sample indices an image --
+    the one it repeats does not; at most `cap`. `scales` `(n,)` a pixel's
+    size at the maplet, `suns` and `views` `(n, 3)` toward the Sun and the
+    camera. Indices into the candidates, in the order taken.
+    """
+    ...
 

@@ -466,6 +466,34 @@ impl Mesh {
         mesh
     }
 
+    /// A mesh of `positions` and `indices`, three a triangle, as a file of
+    /// them would load: flat, or shaded smoothly with `smooth`. For a mesh
+    /// made in a script -- a shape model with maplets in it -- that no file
+    /// need hold.
+    pub fn from_arrays(positions: Vec<Vec3>, indices: Vec<u32>, smooth: bool) -> Self {
+        let bounds = Aabb::from_positions(&positions);
+        let facets = build_facets(&positions, &indices);
+        let mut mesh = Mesh {
+            attrs: vec![Attr::default(); positions.len()],
+            positions,
+            normals: vec![],
+            indices,
+            facets,
+            material_id: None,
+            colors_dirty: false,
+            flat: false,
+            bounds,
+            path: None,
+            values: vec![],
+        };
+        if smooth {
+            mesh.smoothen();
+        } else {
+            mesh.flatten();
+        }
+        mesh
+    }
+
     /// The same through tobj: the general OBJ reader, with texture
     /// coordinates, normals, materials and several objects. What `load`
     /// falls back to, and what its output is tested against.

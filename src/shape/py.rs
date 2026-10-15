@@ -371,14 +371,18 @@ impl Maplet {
     /// maplet does not cast. Each view weighs `1 - incidence_weight
     /// cos(i)`, `i` its Sun's incidence on the maplet, as SPC weighs its
     /// images: a high Sun's shading says more of the albedo than of the
-    /// slopes. Angles in radians. See
+    /// slopes. A view whose pixel is finer than `triangles` spacings is
+    /// compared, where the maplet lights it, triangle by triangle -- each
+    /// cell's two, as `mesh` cuts them -- with the mean of the pixels each
+    /// covers, rather than smoothed to the points -- its shadows stay with
+    /// the points; 0 for none. Angles in radians. See
     /// `notes/2026-10-14_shape_from_images/` and
     /// `notes/2026-10-15_shape_direct/`.
     #[pyo3(signature = (
         views, law, iterations=6, levels=1, anchor=0.0, register=true, search=4.0, follow=true, reach=0.0, resolution=2.0,
         incidence=80.0 * super::RPD, emission=75.0 * super::RPD,
         slope_sigma=0.5, albedo_sigma=0.3, offset=false, incidence_weight=0.75, dark=0.1, direct=true, curvature=0.002, softness=0.6, shadows=1.0, stereo=1.0,
-        verbose=false
+        triangles=0.4, verbose=false
     ))]
     #[allow(clippy::too_many_arguments)]
     fn solve(
@@ -406,6 +410,7 @@ impl Maplet {
         softness: f64,
         shadows: f64,
         stereo: f64,
+        triangles: f64,
         verbose: bool,
     ) -> PyResult<Report> {
         let law = crate::lightcurve::py::law_of(law)?;
@@ -431,6 +436,7 @@ impl Maplet {
             softness,
             shadows,
             stereo,
+            triangles,
             verbose,
         };
         let inner = &mut self.inner;
@@ -543,4 +549,201 @@ impl Report {
             self.residual.last().copied().unwrap_or(f64::NAN)
         )
     }
+}
+
+/// A shape model whole -- `vertices` `(v, 3)`, `indices` `(f, 3)` or flat
+/// -- and rays against it: what of it an image sees lit, where maplets go
+/// to cover it, and what the rest of it hides of a maplet from an image or
+/// from the Sun. A reduced model does: what lies beyond a maplet only
+/// shadows it, or stands in front of it.
+#[pyclass(name = "Surface", module = "kalast.shape")]
+pub struct Surface {
+    inner: super::Surface,
+}
+
+fn vectors(a: PyArrayLike2<'_, f64, AllowTypeChange>, what: &str) -> PyResult<Vec<V3>> {
+    let a = a.as_array();
+    if a.shape()[1] != 3 {
+        return Err(err(format!("{what} are (n, 3)")));
+    }
+    Ok(a.rows().into_iter().map(|r| V3::new(r[0], r[1], r[2])).collect())
+}
+
+fn rows3<'py>(py: Python<'py>, v: &[V3]) -> Bound<'py, PyArray2<f64>> {
+    let flat: Vec<f64> = v.iter().flat_map(|p| p.to_array()).collect();
+    PyArray1::from_vec(py, flat).reshape([v.len(), 3]).expect("n x 3")
+}
+
+#[pymethods]
+impl Surface {
+    #[new]
+    fn new(py: Python<'_>, vertices: PyArrayLike2<'_, f64, AllowTypeChange>, indices: PyReadonlyArrayDyn<'_, u32>) -> PyResult<Self> {
+        let positions = vectors(vertices, "vertices")?;
+        let idx = indices.as_slice().map_err(|_| err("indices must be contiguous".into()))?.to_vec();
+        let inner = py.detach(|| super::Surface::new(positions, idx)).map_err(err)?;
+        Ok(Surface { inner })
+    }
+
+    /// The surface in cubes `size` on a side (its unit): `(points,
+    /// normals, areas)`, a point on the surface a cube -- two where it
+    /// crosses the cube twice -- the facets' mean normal there, and their
+    /// area.
+    fn samples<'py>(&self, py: Python<'py>, size: f64) -> (Bound<'py, PyArray2<f64>>, Bound<'py, PyArray2<f64>>, Bound<'py, PyArray1<f64>>) {
+        let s = py.detach(|| self.inner.samples(size));
+        (rows3(py, &s.points), rows3(py, &s.normals), PyArray1::from_vec(py, s.areas))
+    }
+
+    /// What a camera sees of `points` `(n, 3)` on the surface, facing along
+    /// `normals`: the camera as `View` takes it, without the image -- its
+    /// `size` `(width, height)` in pixels. `(flags, scale, incidence,
+    /// emission)`: bits 1 in the frame, 2 facing the camera, 4 nothing
+    /// between them, 8 lit -- the last two only for a point in the frame and
+    /// facing it; a pixel's size there; the Sun's and the camera's angles
+    /// to the normal, radians.
+    #[pyo3(signature = (points, normals, position, axes, focal, size, sun, centre=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn sees<'py>(
+        &self,
+        py: Python<'py>,
+        points: PyArrayLike2<'_, f64, AllowTypeChange>,
+        normals: PyArrayLike2<'_, f64, AllowTypeChange>,
+        position: [f64; 3],
+        axes: [[f64; 3]; 3],
+        focal: f64,
+        size: (usize, usize),
+        sun: [f64; 3],
+        centre: Option<[f64; 2]>,
+    ) -> PyResult<(Bound<'py, PyArray1<u8>>, Bound<'py, PyArray1<f64>>, Bound<'py, PyArray1<f64>>, Bound<'py, PyArray1<f64>>)> {
+        let (p, n) = (vectors(points, "points")?, vectors(normals, "normals")?);
+        if p.len() != n.len() {
+            return Err(err(format!("{} points, {} normals", p.len(), n.len())));
+        }
+        let camera = super::View {
+            name: String::new(),
+            image: vec![],
+            width: size.0,
+            height: size.1,
+            valid: vec![],
+            position: V3::from(position),
+            axes: M3::from_cols(V3::from(axes[0]), V3::from(axes[1]), V3::from(axes[2])).transpose(),
+            focal,
+            centre: centre.unwrap_or([0.5 * size.0 as f64, 0.5 * size.1 as f64]),
+            sun: V3::from(sun).normalize_or_zero(),
+            weight: 1.0,
+        };
+        let seen = py.detach(|| self.inner.sees(&p, &n, &camera));
+        Ok((
+            PyArray1::from_iter(py, seen.iter().map(|s| s.flags)),
+            PyArray1::from_iter(py, seen.iter().map(|s| s.scale)),
+            PyArray1::from_iter(py, seen.iter().map(|s| s.incidence)),
+            PyArray1::from_iter(py, seen.iter().map(|s| s.emission)),
+        ))
+    }
+
+    /// The pixels of `view` that show `maplet` as its own grid can tell it,
+    /// `(height, width)`: false where the rest of the surface hides it or
+    /// shadows it, and `margin` (the surface's unit) around, for the shape
+    /// model's error; true elsewhere. For `View`'s `valid`, with the
+    /// image's own.
+    #[pyo3(signature = (maplet, view, margin=0.0))]
+    fn mask<'py>(&self, py: Python<'py>, maplet: PyRef<Maplet>, view: PyRef<View>, margin: f64) -> Bound<'py, PyArray2<bool>> {
+        let (m, v) = (&maplet.inner, &view.inner);
+        let valid = py.detach(|| self.inner.mask(m, v, margin));
+        PyArray1::from_iter(py, valid.iter().map(|&b| b != 0)).reshape([v.height, v.width]).expect("image")
+    }
+
+    /// Maplets of `size` points on a side over `samples` `(points, normals,
+    /// areas)` of the surface, each at the finest spacing its images allow
+    /// -- `finest`, a sample's, not a number where none does -- overlapping
+    /// by `overlap` of a maplet's width: `(m, 7)`, each a maplet's centre
+    /// on the surface, its normal and its spacing. Finest first, the
+    /// maplets of a spacing laid as a lattice grows over the surface, until
+    /// each sample of that spacing or finer is on one -- facing within 60
+    /// degrees of its normal, not under an overhang -- and where at least
+    /// half of what a maplet covers allows its spacing. For
+    /// `Maplet.from_surface`.
+    #[staticmethod]
+    #[pyo3(signature = (points, normals, areas, finest, size=241, overlap=0.2))]
+    fn tiles<'py>(
+        py: Python<'py>,
+        points: PyArrayLike2<'_, f64, AllowTypeChange>,
+        normals: PyArrayLike2<'_, f64, AllowTypeChange>,
+        areas: numpy::PyArrayLike1<'_, f64, AllowTypeChange>,
+        finest: numpy::PyArrayLike1<'_, f64, AllowTypeChange>,
+        size: usize,
+        overlap: f64,
+    ) -> PyResult<Bound<'py, PyArray2<f64>>> {
+        let samples = super::Samples {
+            points: vectors(points, "points")?,
+            normals: vectors(normals, "normals")?,
+            areas: areas.as_array().iter().copied().collect(),
+        };
+        let finest: Vec<f64> = finest.as_array().iter().copied().collect();
+        let tiles = py.detach(|| super::plan(&samples, &finest, size, overlap)).map_err(err)?;
+        let flat: Vec<f64> = tiles.iter().flat_map(|t| [t.centre.x, t.centre.y, t.centre.z, t.normal.x, t.normal.y, t.normal.z, t.spacing]).collect();
+        Ok(PyArray1::from_vec(py, flat).reshape([tiles.len(), 7]).expect("m x 7"))
+    }
+
+    fn __repr__(&self) -> String {
+        format!("Surface({} vertices, {} facets)", self.inner.positions.len(), self.inner.indices.len() / 3)
+    }
+}
+
+/// The shape model `vertices` `(v, 3)`, `indices` `(f, 3)` or flat, with
+/// `maplets` in it, one mesh: `(vertices, indices, albedo)`. A point of the
+/// surface is the finest maplet's over it, and among those the one it is
+/// most in the middle of; each maplet keeps the cells that are its own and
+/// one more all round, so that two meet without a crack, and the shape
+/// model loses each facet whose corners are all a maplet's. The shape
+/// model's vertices come first; the albedo is 1 on them and each maplet's
+/// own on its. `spacing`, if coarser than a maplet's, draws it at that: for
+/// an image a few times coarser, which sees no more of it. Only a maplet's
+/// cells over the shape model are kept, where its `reference` is known.
+#[pyfunction]
+#[pyo3(signature = (vertices, indices, maplets, spacing=0.0))]
+pub fn compose<'py>(
+    py: Python<'py>,
+    vertices: PyArrayLike2<'_, f64, AllowTypeChange>,
+    indices: PyReadonlyArrayDyn<'_, u32>,
+    maplets: Vec<PyRef<'py, Maplet>>,
+    spacing: f64,
+) -> PyResult<(Bound<'py, PyArray2<f64>>, Bound<'py, PyArray2<u32>>, Bound<'py, PyArray1<f64>>)> {
+    let positions = vectors(vertices, "vertices")?;
+    let idx = indices.as_slice().map_err(|_| err("indices must be contiguous".into()))?;
+    if idx.len() % 3 != 0 || idx.iter().any(|&i| i as usize >= positions.len()) {
+        return Err(err("indices come in threes, each a vertex".into()));
+    }
+    let inner: Vec<super::Maplet> = maplets.iter().map(|m| m.inner.clone()).collect();
+    let (v, f, a) = py.detach(|| super::compose(&positions, idx, &inner, spacing));
+    let faces = f.len() / 3;
+    Ok((rows3(py, &v), PyArray1::from_vec(py, f).reshape([faces, 3]).expect("f x 3"), PyArray1::from_vec(py, a)))
+}
+
+/// The images a maplet takes of its candidates, as MPCD keeps them: finest
+/// first, each only if it differs from every one taken by `angle` (radians)
+/// of Sun or of view, or by `ratio` of scale, or if most of the maplet's
+/// ground it sees -- `seen`, a list of sorted sample indices an image --
+/// the one it repeats does not; at most `cap`. `scales` `(n,)` a pixel's
+/// size at the maplet, `suns` and `views` `(n, 3)` toward the Sun and the
+/// camera. Indices into the candidates, in the order taken.
+#[pyfunction]
+#[pyo3(signature = (scales, suns, views, seen=None, cap=70, angle=10.0 * super::RPD, ratio=1.5))]
+#[allow(clippy::too_many_arguments)]
+pub fn choose(
+    scales: numpy::PyArrayLike1<'_, f64, AllowTypeChange>,
+    suns: PyArrayLike2<'_, f64, AllowTypeChange>,
+    views: PyArrayLike2<'_, f64, AllowTypeChange>,
+    seen: Option<Vec<Vec<u32>>>,
+    cap: usize,
+    angle: f64,
+    ratio: f64,
+) -> PyResult<Vec<usize>> {
+    let scales: Vec<f64> = scales.as_array().iter().copied().collect();
+    let (suns, views) = (vectors(suns, "suns")?, vectors(views, "views")?);
+    if suns.len() != scales.len() || views.len() != scales.len() || seen.as_ref().is_some_and(|s| s.len() != scales.len()) {
+        return Err(err(format!("{} scales, {} suns, {} views", scales.len(), suns.len(), views.len())));
+    }
+    let unit = |v: Vec<V3>| -> Vec<V3> { v.into_iter().map(|x| x.normalize_or_zero()).collect() };
+    let seen = seen.map(|s| s.into_iter().map(|mut x| { x.sort_unstable(); x }).collect::<Vec<_>>());
+    Ok(super::choose(&scales, &unit(suns), &unit(views), seen.as_deref(), cap, angle, ratio))
 }

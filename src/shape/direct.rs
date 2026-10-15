@@ -54,6 +54,13 @@ pub(crate) struct Shown<'a> {
     pub dark: F,
     /// The image's lit ground, typically: what tells a shadow from light.
     pub lit: F,
+    /// The image itself, unsmoothed, for a view much finer than the grid:
+    /// its lit cells' two triangles each compared with the mean of the
+    /// pixels the triangle covers, where a point would stand for what the
+    /// view resolves within it ([`Facet`]).
+    pub fine: Option<&'a Crop>,
+    /// The triangles' residuals' robust scale.
+    pub fine_sigma: F,
 }
 
 /// How a step goes about it.
@@ -144,6 +151,115 @@ fn stencil(k: usize, n: usize, s: F) -> [[(usize, F); 2]; 2] {
     [[(a, -cp), (b, cp)], [(c, -cq), (d, cq)]]
 }
 
+/// A cell's triangle, as [`Maplet::mesh`] cuts it: `[a, b, d]` and `[a, d,
+/// c]`, `a` the cell's corner `(i, j)`, `b` along `i`, `c` along `j`. Its
+/// slopes along `i` and `j`, each the difference of two corners; its
+/// height for the parallax, its corners' mean; its albedo, `a`'s -- one
+/// albedo a cell, so that the albedo is still eliminated point by point.
+#[derive(Clone, Copy)]
+struct Facet {
+    corners: [usize; 3],
+    p: [(usize, F); 2],
+    q: [(usize, F); 2],
+}
+
+fn facets(n: usize, s: F) -> Vec<Facet> {
+    let mut out = Vec::with_capacity(2 * (n - 1) * (n - 1));
+    let e = 1.0 / s;
+    for j in 0..n - 1 {
+        for i in 0..n - 1 {
+            let a = j * n + i;
+            let (b, c, d) = (a + 1, a + n, a + n + 1);
+            out.push(Facet { corners: [a, b, d], p: [(a, -e), (b, e)], q: [(b, -e), (d, e)] });
+            out.push(Facet { corners: [a, d, c], p: [(c, -e), (d, e)], q: [(a, -e), (c, e)] });
+        }
+    }
+    out
+}
+
+/// A fine view's residual on a triangle and its derivatives: in the
+/// triangle's slopes, the log albedo of its corner `a`, its height (the
+/// parallax). `None` where the view does not show it whole and lit -- a
+/// corner hidden, in a shadow or at its edge, the triangle off the valid
+/// pixels, too steep to the Sun or dark beyond what the maplet casts.
+#[allow(clippy::too_many_arguments)]
+fn facet_residual(work: &Maplet, points: &[V3], f: &Facet, sv: &Shown, light: &Light, cos_i: F, stereo: F) -> Option<(F, F, F, F, F)> {
+    let fine = sv.fine?;
+    let h = &work.heights;
+    if !f.corners.iter().all(|&k| sv.mask[k]) {
+        return None;
+    }
+    for &k in &f.corners {
+        let (l, dl) = lit(light, k, h[k]);
+        if l < 0.99 || (light.from[k] as usize != k && dl * light.tau > 0.01) {
+            return None;
+        }
+    }
+    let view = sv.view;
+    let [u, v, w] = work.axes;
+    let mut tri = [[0.0; 2]; 3];
+    for (m, &k) in f.corners.iter().enumerate() {
+        let c = view.axes * (points[k] - view.position);
+        if c.z <= 0.0 {
+            return None;
+        }
+        tri[m] = [view.centre[0] + view.focal * c.x / c.z + sv.shift[0], view.centre[1] + view.focal * c.y / c.z + sv.shift[1]];
+    }
+    let (o, gx, gy) = fine.mean_over(tri)?;
+    if o < sv.dark {
+        return None;
+    }
+    let p = f.p[0].1 * h[f.p[0].0] + f.p[1].1 * h[f.p[1].0];
+    let q = f.q[0].1 * h[f.q[0].0] + f.q[1].1 * h[f.q[1].0];
+    let t = w - u * p - v * q;
+    let tl = t.length();
+    let normal = t / tl;
+    let dn_dp = (-u + normal * normal.dot(u)) / tl;
+    let dn_dq = (-v + normal * normal.dot(v)) / tl;
+    let centroid = (points[f.corners[0]] + points[f.corners[1]] + points[f.corners[2]]) / 3.0;
+    let sun = view.sun;
+    let to_camera = (view.position - centroid).normalize();
+    let (mu0, mu) = (normal.dot(sun), normal.dot(to_camera));
+    if mu0 < cos_i || mu <= 0.0 {
+        return None;
+    }
+    let alpha = sun.dot(to_camera).clamp(-1.0, 1.0).acos();
+    let (fv, f0, f1) = sv.table.eval(mu0, mu, alpha);
+    let gain = sv.scale * work.albedo[f.corners[0]];
+    let r = o - (gain * fv + sv.offset);
+    let jp = gain * (f0 * sun.dot(dn_dp) + f1 * to_camera.dot(dn_dp));
+    let jq = gain * (f0 * sun.dot(dn_dq) + f1 * to_camera.dot(dn_dq));
+    // The parallax at the centroid, on the mean's own gradient: the mean
+    // over a triangle that moves with its height.
+    let c = view.axes * (centroid - view.position);
+    let cw = view.axes * w;
+    let parallax = [view.focal * (cw.x * c.z - c.x * cw.z) / (c.z * c.z), view.focal * (cw.y * c.z - c.y * cw.z) / (c.z * c.z)];
+    let jst = -stereo * (gx * parallax[0] + gy * parallax[1]);
+    Some((r, jp, jq, gain * fv, if jst.is_finite() { jst } else { 0.0 }))
+}
+
+/// A fine view's triangles' residuals' robust scale, the maplet as it is:
+/// its `fine_sigma`. Not finite if it shows none.
+pub(crate) fn facet_spread(work: &Maplet, sv: &Shown, set: &Settings) -> F {
+    let points = work.points();
+    let light = light(work, sv.view.sun, set.softness);
+    let cos_i = set.incidence.cos();
+    let all = facets(work.n, work.spacing);
+    let res: Vec<F> = par_map(all.len(), |f| facet_residual(work, &points, &all[f], sv, &light, cos_i, set.stereo).map(|r| r.0))
+        .into_iter()
+        .flatten()
+        .collect();
+    if res.len() < 30 {
+        return F::NAN;
+    }
+    let mut sorted = res.clone();
+    sorted.sort_by(F::total_cmp);
+    let mid = sorted[sorted.len() / 2];
+    let mut dev: Vec<F> = res.iter().map(|r| (r - mid).abs()).collect();
+    dev.sort_by(F::total_cmp);
+    1.4826 * dev[dev.len() / 2]
+}
+
 /// Toward the Sun from each point: what is over it, what casts that, and
 /// the soft edge's width in height.
 struct Light {
@@ -191,10 +307,10 @@ fn huber(z: F) -> (F, F) {
     }
 }
 
-/// The data at the heights and albedo as they are: per point, and the
-/// residuals at shadows' edges; and the data's cost. With `cost_only` the
-/// cost alone.
-fn linearise(work: &Maplet, shown: &[Shown], lights: &[Light], set: &Settings, cost_only: bool) -> (Vec<Point>, Vec<Edge>, F) {
+/// The data at the heights and albedo as they are: per point, per
+/// triangle of the fine views, and the residuals at shadows' edges; and
+/// the data's cost. With `cost_only` the cost alone.
+fn linearise(work: &Maplet, shown: &[Shown], lights: &[Light], set: &Settings, cost_only: bool) -> (Vec<Point>, Vec<Point>, Vec<Edge>, F) {
     let n = work.n;
     let len = n * n;
     let points = work.points();
@@ -246,11 +362,48 @@ fn linearise(work: &Maplet, shown: &[Shown], lights: &[Light], set: &Settings, c
                     (0.0, 0.0, 0.0)
                 };
                 let (l, dl) = lit(light, k, h);
+                // A fine view's lit ground is its triangles': the point keeps
+                // what they do not see -- its shadows and their edges.
+                let from = light.from[k];
+                let edge = from as usize != k && dl * light.tau > 0.01;
+                let by_facets = sv.fine.is_some() && l >= 0.99 && !edge;
                 let gain = sv.scale * albedo;
                 let r = o - (gain * f * l + sv.offset);
                 let (loss, hub) = huber(r / sv.sigma);
-                cost += sv.weight * loss;
+                if !by_facets {
+                    cost += sv.weight * loss;
+                }
+                // The shadows' agreement: a point the image shows in shadow
+                // a quarter spacing below the horizon, one it shows lit a
+                // quarter above -- what raising the caster or lowering the
+                // point does, even far from the maplet's own shadows.
+                let over = light.over[k];
+                let mut hinge = None;
+                if set.shadows > 0.0 && over.is_finite() && from as usize != k {
+                    let margin = h - over;
+                    let eps = 0.25 * light.rise;
+                    let target = if o < set.shadow_level * sv.lit && margin > -eps {
+                        Some(-eps)
+                    } else if o > set.lit_level * sv.lit && margin < eps {
+                        Some(eps)
+                    } else {
+                        None
+                    };
+                    if let Some(target) = target {
+                        let sm = 0.5 * light.rise;
+                        let rh = target - margin;
+                        let (lh, hh) = huber(rh / sm);
+                        cost += set.shadows * sv.weight * lh;
+                        hinge = Some((rh, set.shadows * sv.weight * hh / (sm * sm)));
+                    }
+                }
                 if cost_only {
+                    continue;
+                }
+                if let Some((rh, wh)) = hinge {
+                    edges.push(Edge { k: k as u32, from, wt: wh, r: rh, jp: 0.0, jq: 0.0, jsh: 1.0, jl: 0.0, jst: 0.0 });
+                }
+                if by_facets {
                     continue;
                 }
                 pt.seen = true;
@@ -273,37 +426,12 @@ fn linearise(work: &Maplet, shown: &[Shown], lights: &[Light], set: &Settings, c
                 // parallax.
                 let jst = -set.stereo * (gx * parallax[0] + gy * parallax[1]);
                 let jst = if jst.is_finite() { jst } else { 0.0 };
-                let from = light.from[k];
                 pt.d += wt * jl * jl;
                 pt.gp += wt * r * jp;
                 pt.gq += wt * r * jq;
                 pt.gl += wt * r * jl;
                 pt.gs += wt * r * jst;
-                // The shadows' agreement: a point the image shows in shadow
-                // a quarter spacing below the horizon, one it shows lit a
-                // quarter above -- what raising the caster or lowering the
-                // point does, even far from the maplet's own shadows.
-                let over = light.over[k];
-                if set.shadows > 0.0 && over.is_finite() && from as usize != k {
-                    let margin = h - over;
-                    let eps = 0.25 * light.rise;
-                    let target = if o < set.shadow_level * sv.lit && margin > -eps {
-                        Some(-eps)
-                    } else if o > set.lit_level * sv.lit && margin < eps {
-                        Some(eps)
-                    } else {
-                        None
-                    };
-                    if let Some(target) = target {
-                        let sm = 0.5 * light.rise;
-                        let rh = target - margin;
-                        let (lh, hh) = huber(rh / sm);
-                        cost += set.shadows * sv.weight * lh;
-                        let wh = set.shadows * sv.weight * hh / (sm * sm);
-                        edges.push(Edge { k: k as u32, from, wt: wh, r: rh, jp: 0.0, jq: 0.0, jsh: 1.0, jl: 0.0, jst: 0.0 });
-                    }
-                }
-                if from as usize != k && dl * light.tau > 0.01 {
+                if edge {
                     edges.push(Edge { k: k as u32, from, wt, r, jp, jq, jsh, jl, jst });
                 } else {
                     pt.mpp += wt * jp * jp;
@@ -331,7 +459,56 @@ fn linearise(work: &Maplet, shown: &[Shown], lights: &[Light], set: &Settings, c
         edges.extend(e);
         cost += c;
     }
-    (all, edges, cost)
+    // The fine views' triangles: half a point's weight each, two a cell.
+    let fine: Vec<usize> = (0..shown.len()).filter(|&v| shown[v].fine.is_some()).collect();
+    let mut tris = vec![];
+    if !fine.is_empty() {
+        let all_facets = facets(n, work.spacing);
+        let parts = par_map(all_facets.len().div_ceil(chunk), |c| {
+            let range = c * chunk..((c + 1) * chunk).min(all_facets.len());
+            let mut out = Vec::with_capacity(if cost_only { 0 } else { range.len() });
+            let mut cost = 0.0;
+            for f in range {
+                let mut pt = Point::default();
+                for &v in &fine {
+                    let sv = &shown[v];
+                    let Some((r, jp, jq, jl, jst)) = facet_residual(work, &points, &all_facets[f], sv, &lights[v], cos_i, set.stereo) else {
+                        continue;
+                    };
+                    let (loss, hub) = huber(r / sv.fine_sigma);
+                    cost += 0.5 * sv.weight * loss;
+                    if cost_only {
+                        continue;
+                    }
+                    pt.seen = true;
+                    let wt = 0.5 * sv.weight * hub / (sv.fine_sigma * sv.fine_sigma);
+                    pt.mpp += wt * jp * jp;
+                    pt.mpq += wt * jp * jq;
+                    pt.mqq += wt * jq * jq;
+                    pt.cp += wt * jp * jl;
+                    pt.cq += wt * jq * jl;
+                    pt.d += wt * jl * jl;
+                    pt.gp += wt * r * jp;
+                    pt.gq += wt * r * jq;
+                    pt.gl += wt * r * jl;
+                    pt.mss += wt * jst * jst;
+                    pt.msp += wt * jst * jp;
+                    pt.msq += wt * jst * jq;
+                    pt.csl += wt * jst * jl;
+                    pt.gs += wt * r * jst;
+                }
+                if !cost_only {
+                    out.push(pt);
+                }
+            }
+            (out, cost)
+        });
+        for (o, c) in parts {
+            tris.extend(o);
+            cost += c;
+        }
+    }
+    (all, tris, edges, cost)
 }
 
 /// The prior's cost and the neighbours' mean of the log albedo.
@@ -387,10 +564,13 @@ pub(crate) fn step(work: &mut Maplet, shown: &[Shown], wavelength: F, set: &Sett
     }
     let now: &Maplet = work;
     let lights: Vec<Light> = par_map(shown.len(), |v| light(now, shown[v].view.sun, set.softness));
-    let (points, edges, data_cost) = linearise(now, shown, &lights, set, false);
+    let (points, tris, edges, data_cost) = linearise(now, shown, &lights, set, false);
+    // The fine views' triangles, if any: their stencils, and which albedo each takes.
+    let tri_at = if tris.is_empty() { vec![] } else { facets(n, s) };
     // The data's typical stiffness on the heights: a point's slopes'
-    // information over a spacing squared.
+    // information over a spacing squared -- a cell's two triangles' together.
     let mut stiff: Vec<F> = points.iter().filter(|p| p.seen).map(|p| 0.5 * (p.mpp + p.mqq) / (s * s)).filter(|x| *x > 0.0).collect();
+    stiff.extend(tris.chunks(2).filter(|c| c.iter().any(|p| p.seen)).map(|c| c.iter().map(|p| 0.5 * (p.mpp + p.mqq)).sum::<F>() / (s * s)).filter(|x| *x > 0.0));
     if stiff.is_empty() {
         return report;
     }
@@ -406,8 +586,30 @@ pub(crate) fn step(work: &mut Maplet, shown: &[Shown], wavelength: F, set: &Sett
     let before = data_cost + prior_cost + held(&work.heights, &reference, &lowpass, n, mu, lambda);
     report.cost[0] = before;
 
-    let d: Vec<F> = points.iter().map(|p| p.d + wa).collect();
-    let gl: Vec<F> = points.iter().zip(log.iter().zip(&around)).map(|(p, (l, a))| p.gl + wa * (a - l)).collect();
+    let mut d: Vec<F> = points.iter().map(|p| p.d + wa).collect();
+    let mut gl: Vec<F> = points.iter().zip(log.iter().zip(&around)).map(|(p, (l, a))| p.gl + wa * (a - l)).collect();
+    for (t, f) in tris.iter().zip(&tri_at) {
+        d[f.corners[0]] += t.d;
+        gl[f.corners[0]] += t.gl;
+    }
+    // A triangle's slopes and height from the heights `x`.
+    let tri_of = |f: &Facet, x: &[F]| -> (F, F, F) {
+        (
+            f.p[0].1 * x[f.p[0].0] + f.p[1].1 * x[f.p[1].0],
+            f.q[0].1 * x[f.q[0].0] + f.q[1].1 * x[f.q[1].0],
+            (x[f.corners[0]] + x[f.corners[1]] + x[f.corners[2]]) / 3.0,
+        )
+    };
+    // And back: `(yp, yq, ys)` on a triangle onto the heights.
+    let tri_adjoint = |f: &Facet, yp: F, yq: F, ys: F, y: &mut [F]| {
+        y[f.p[0].0] += f.p[0].1 * yp;
+        y[f.p[1].0] += f.p[1].1 * yp;
+        y[f.q[0].0] += f.q[0].1 * yq;
+        y[f.q[1].0] += f.q[1].1 * yq;
+        for &c in &f.corners {
+            y[c] += ys / 3.0;
+        }
+    };
     let stencils: Vec<[[(usize, F); 2]; 2]> = (0..len).map(|k| stencil(k, n, s)).collect();
 
     // `H_ld x` in the slopes' space: `(yp, yq)` and the albedo's `z`, from
@@ -451,6 +653,10 @@ pub(crate) fn step(work: &mut Maplet, shown: &[Shown], wavelength: F, set: &Sett
             y[f] -= e.wt * e.jsh * t;
             z[k] += e.wt * e.jl * t;
         }
+        let tri_x: Vec<(F, F, F)> = tri_at.iter().map(|f| tri_of(f, x)).collect();
+        for ((t, f), &(tp, tq, ts)) in tris.iter().zip(&tri_at).zip(&tri_x) {
+            z[f.corners[0]] += t.cp * tp + t.cq * tq + t.csl * ts;
+        }
         if let Some(out) = z_out {
             *out = z.clone();
         }
@@ -468,6 +674,13 @@ pub(crate) fn step(work: &mut Maplet, shown: &[Shown], wavelength: F, set: &Sett
             yq[k] -= c * e.jq;
             y[k] -= c * (e.jsh + e.jst);
             y[f] += c * e.jsh;
+        }
+        for ((t, f), &(tp, tq, ts)) in tris.iter().zip(&tri_at).zip(&tri_x) {
+            let ua = u[f.corners[0]];
+            let ap = t.mpp * tp + t.mpq * tq + t.msp * ts - t.cp * ua;
+            let aq = t.mpq * tp + t.mqq * tq + t.msq * ts - t.cq * ua;
+            let at = t.mss * ts + t.msp * tp + t.msq * tq - t.csl * ua;
+            tri_adjoint(f, ap, aq, at, y);
         }
         adjoint(&yp, &yq, y);
     };
@@ -504,6 +717,10 @@ pub(crate) fn step(work: &mut Maplet, shown: &[Shown], wavelength: F, set: &Sett
             rhs[f] += c * e.jsh;
         }
         adjoint(&yp, &yq, &mut rhs);
+        for (t, f) in tris.iter().zip(&tri_at) {
+            let ua = u[f.corners[0]];
+            tri_adjoint(f, t.gp - t.cp * ua, t.gq - t.cq * ua, t.gs - t.csl * ua, &mut rhs);
+        }
         let off: Vec<F> = work.heights.iter().zip(&reference).map(|(h, r)| h - r).collect();
         let anchored = lowpass.twice(&off, n);
         let curved = grid::laplacian(&grid::laplacian(&work.heights, n), n);
@@ -532,6 +749,24 @@ pub(crate) fn step(work: &mut Maplet, shown: &[Shown], wavelength: F, set: &Sett
     }
     for k in 0..len {
         diag[k] += points[k].mss;
+    }
+    for (t, f) in tris.iter().zip(&tri_at) {
+        for (a, ca) in f.p {
+            diag[a] += ca * ca * t.mpp;
+        }
+        for (c, cc) in f.q {
+            diag[c] += cc * cc * t.mqq;
+        }
+        for (a, ca) in f.p {
+            for (c, cc) in f.q {
+                if a == c {
+                    diag[a] += 2.0 * ca * cc * t.mpq;
+                }
+            }
+        }
+        for &c in &f.corners {
+            diag[c] += t.mss / 9.0;
+        }
     }
     for e in &edges {
         let j2 = e.wt * e.jsh * e.jsh;
@@ -567,7 +802,7 @@ pub(crate) fn step(work: &mut Maplet, shown: &[Shown], wavelength: F, set: &Sett
         }
         let now: &Maplet = work;
         let lights: Vec<Light> = par_map(shown.len(), |v| light(now, shown[v].view.sun, set.softness));
-        let (_, _, data_after) = linearise(now, shown, &lights, set, true);
+        let (_, _, _, data_after) = linearise(now, shown, &lights, set, true);
         let log_after: Vec<F> = work.albedo.iter().map(|a| a.ln()).collect();
         let (prior_after, _) = albedo_prior(&log_after, n, set.albedo_sigma);
         let after = data_after + prior_after + held(&work.heights, &reference, &lowpass, n, mu, lambda);

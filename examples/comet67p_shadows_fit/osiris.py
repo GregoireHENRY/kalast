@@ -23,7 +23,7 @@ def fetch(dataset, product, folder=DATA, rows=None):
     label and those lines only -- what a patch of the surface needs of a
     frame, a few MB -- kept apart in `folder/rows/`, which `read` reads as
     the frame cut to them."""
-    url = f"{PSA}/{dataset.upper()}/DATA/IMG/{product.upper()}"
+    url = _url(dataset, product)
     if rows is not None:
         return _fetch_rows(url, product, os.path.join(folder, "rows"), *rows)
     path = os.path.join(folder, product)
@@ -33,6 +33,47 @@ def fetch(dataset, product, folder=DATA, rows=None):
         urllib.request.urlretrieve(url, path + ".part")
         os.replace(path + ".part", path)
     return path
+
+
+def label(dataset, product, folder=DATA):
+    """The label of `product` of `dataset`: the first 32 kB of the file,
+    kept in `folder/labels/`."""
+    path = os.path.join(folder, "labels", product[:-4] + ".lbl")
+    if not os.path.exists(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path + ".part", "wb") as f:
+            f.write(_get(_url(dataset, product), 0, 32767))
+        os.replace(path + ".part", path)
+    return open(path, "rb").read().decode("latin-1")
+
+
+def fetch_lines(dataset, product, first, last, folder):
+    """The path to `folder/PRODUCT.npz`: lines `first` to `last` of the
+    frame, and any kept there already, in half floats -- a few MB where a
+    frame is 38. Fetched only if what is kept falls short; `read` reads it."""
+    path = os.path.join(folder, product[:-4] + ".npz")
+    if os.path.exists(path):
+        kept = numpy.load(path)
+        a, b = int(kept["first"]), int(kept["first"]) + kept["image"].shape[0]
+        if a <= first and b >= last:
+            return path
+        first, last = min(a, first), max(b, last)
+    head = label(dataset, product)
+    record, start = _key(head, "RECORD_BYTES", int), _key(head, r"\^IMAGE", int)
+    image = _image_object(head)
+    samples = _key(image, "LINE_SAMPLES", int)
+    dtype = {"PC_REAL": "<f4", "IEEE_REAL": ">f4"}[_key(image, "SAMPLE_TYPE")]
+    offset = (start - 1) * record
+    data = _get(_url(dataset, product), offset + first * samples * 4, offset + last * samples * 4 - 1)
+    pixels = numpy.frombuffer(data, dtype).reshape(last - first, samples).astype(numpy.float16)
+    os.makedirs(folder, exist_ok=True)
+    numpy.savez_compressed(path + ".part.npz", label=numpy.array(head), first=first, image=pixels)
+    os.replace(path + ".part.npz", path)
+    return path
+
+
+def _url(dataset, product):
+    return f"{PSA}/{dataset.upper()}/DATA/IMG/{product.upper()}"
 
 
 def _get(url, first, last):

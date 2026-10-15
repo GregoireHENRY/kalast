@@ -334,6 +334,16 @@ Look at [res/README.md](../res/README.md) to get Hera data.
       over SHAP7, `View` per image, `solve` -- and scored with SHAP7 on 13
       held-out images. Only each image's lines that see the patch download
       (`osiris.fetch(..., rows=...)`), 951 MB for the 222.
+- [comet67p_tiles](comet67p_tiles): comet 67P whole, in tiles at the
+  finest spacing its images allow. Its [README](comet67p_tiles/README.md)
+  says where to get the data.
+    - [comet67p_tiles/main.py](comet67p_tiles/main.py): the 6,489 tiles of
+      [tiles.csv](comet67p_tiles/tiles.csv) over SHAP7, at 0.5, 1 or 2 m,
+      each solved from up to 70 of the 5,315 images of
+      [images.csv](comet67p_tiles/images.csv) -- the lines each needs
+      fetched (`fetch`), several tiles at once (`solve`), scored on eight
+      held-out days (`score`); any range of tiles, resumable.
+
 ## Examples that worked but not ready for users
 
 - [analytical](analytical)

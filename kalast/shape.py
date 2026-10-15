@@ -7,4 +7,7 @@ from kalast._rs.shape import (  # noqa
     Maplet,
     Report,
     ViewReport,
+    Surface,
+    compose,
+    choose,
 )

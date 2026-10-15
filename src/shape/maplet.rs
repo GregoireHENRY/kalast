@@ -385,7 +385,7 @@ fn facet<P: Copy + Into<V3>>(positions: &[P], indices: &[u32], f: usize) -> Opti
 /// `u`, `v` across `normal` and `w` along it, `u x v = w`: `u` toward
 /// increasing longitude about the body's `z` -- east -- and `v` north,
 /// unless `w` is within 25 degrees of a pole, where `u` is about `x`.
-fn frame(normal: V3) -> Result<[V3; 3], String> {
+pub(crate) fn frame(normal: V3) -> Result<[V3; 3], String> {
     let w = normal.normalize_or_zero();
     if w == V3::ZERO || !w.is_finite() {
         return Err("the maplet's normal is not a direction".into());

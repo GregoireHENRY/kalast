@@ -93,6 +93,13 @@ pub struct Options {
     /// Sun, each it shows lit above it -- which grows what casts a shadow
     /// the maplet does not have yet. 0 for none.
     pub shadows: F,
+    /// With `direct`: a view whose pixel is finer than this share of the
+    /// spacing is compared, where the maplet lights it, triangle by
+    /// triangle -- each cell's two, as [`Maplet::mesh`] draws them -- with
+    /// the mean of the pixels each covers, rather than smoothed to the
+    /// points: what it resolves within a cell then tells the cell's slopes.
+    /// Its shadows stay with the points. 0 for none.
+    pub triangles: F,
     /// A line a pass.
     pub verbose: bool,
 }
@@ -121,6 +128,7 @@ impl Default for Options {
             softness: 0.6,
             shadows: 1.0,
             stereo: 1.0,
+            triangles: 0.4,
             verbose: false,
         }
     }
@@ -226,6 +234,8 @@ impl Maplet {
 /// A view as it looks at a level: its window, its law's table, its pixel.
 struct Setup {
     crop: Crop,
+    /// The window unsmoothed, for a view fine enough for the triangles.
+    fine: Option<Crop>,
     table: Table,
     pixel: F,
     weight: F,
@@ -295,8 +305,16 @@ fn setup(view: &View, work: &Maplet, law: &Law, options: &Options, coarse: bool)
     }
     let window = [x0 - pad, y0 - pad, x1 + pad, y1 + pad];
     let crop = Crop::new(view, window[0], window[1], window[2], window[3], sigma)?;
+    let fine = if options.direct && !coarse && pixel < options.triangles * s {
+        // Half a pixel's blur: no more than the optics', and the samples
+        // between pixels smooth.
+        Crop::new(view, window[0], window[1], window[2], window[3], 0.5)
+    } else {
+        None
+    };
     Some(Setup {
         crop,
+        fine,
         table: Table::new(law, a0, a1),
         pixel,
         window,
@@ -861,7 +879,21 @@ fn passes(
                     weight: st.weight,
                     dark: if dark.is_finite() { dark } else { F::NEG_INFINITY },
                     lit: lit_ground,
+                    fine: st.fine.as_ref(),
+                    fine_sigma: spread,
                 });
+                // A fine view's triangles' own spread; none, and it is a
+                // view like the others.
+                if let Some(last) = shown.last_mut() {
+                    if last.fine.is_some() {
+                        let spread = direct::facet_spread(work, last, &settings);
+                        if spread.is_finite() && spread > 0.0 {
+                            last.fine_sigma = spread;
+                        } else {
+                            last.fine = None;
+                        }
+                    }
+                }
             }
             seen.push(Seen {
                 view: &views[k],
@@ -1114,6 +1146,54 @@ mod tests {
     #[test]
     fn relief_comes_back_point_by_point() {
         relief(false);
+    }
+
+    /// A view finer than the grid, of a maplet drawn as `render` draws it:
+    /// its triangles, compared with the means of the pixels they cover,
+    /// agree with it but for the pixels astride their edges.
+    #[test]
+    fn the_triangles_see_the_maplet_as_it_is_drawn() {
+        let law = Law::Hapke(Hapke { w: 0.0385, b: 0.276, c: 1.0, b0: 4.73, h: 0.061, theta_bar: (24.4 * crate::shape::RPD) as crate::Float, k: 1.2 });
+        let (n, s) = (81, 0.08);
+        let truth = Maplet::new(V3::ZERO, V3::Z, n, s, terrain(n, s), vec![1.0; n * n]).unwrap();
+        let deg = crate::shape::RPD;
+        let dir = |az: F, el: F| V3::new((az * deg).cos() * (el * deg).cos(), (az * deg).sin() * (el * deg).cos(), (el * deg).sin());
+        // 0.14 spacing a pixel.
+        let mut v = camera(dir(20.0, 90.0), 75.0, 800, 0.01125, dir(0.0, 55.0), "fine");
+        let image = truth.render(&v, &law, 3);
+        v.image = image.iter().map(|x| if x.is_finite() { *x } else { 0.0 }).collect();
+        v.valid = image.iter().map(|x| x.is_finite() as u8).collect();
+        let options = Options::default();
+        let st = setup(&v, &truth, &law, &options, false).unwrap();
+        let set = direct::Settings {
+            incidence: options.incidence,
+            albedo_sigma: options.albedo_sigma,
+            anchor: 1.0,
+            curvature: options.curvature,
+            softness: options.softness,
+            shadows: options.shadows,
+            shadow_level: 0.2,
+            lit_level: 0.5,
+            stereo: options.stereo,
+        };
+        let sv = direct::Shown {
+            view: &v,
+            table: &st.table,
+            crop: &st.crop,
+            shift: [0.0; 2],
+            mask: vec![true; n * n],
+            scale: 1.0,
+            offset: 0.0,
+            sigma: 1.0,
+            weight: 1.0,
+            dark: F::NEG_INFINITY,
+            lit: 1.0,
+            fine: Some(st.fine.as_ref().expect("a view this fine is compared by triangles")),
+            fine_sigma: 1.0,
+        };
+        let spread = direct::facet_spread(&truth, &sv, &set);
+        let mean = v.image.iter().map(|x| *x as F).sum::<F>() / v.image.len() as F;
+        assert!(spread < 0.01 * mean, "the triangles' residuals' spread {:.4} of the mean", spread / mean);
     }
 
     fn relief(direct: bool) {
