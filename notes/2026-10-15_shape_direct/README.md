@@ -202,6 +202,55 @@ on the maplet as it grows, stays; the context places the coarse images.
 the grid, and a view's search counts only the points on its valid pixels:
 a maplet wider than a close image registers it.
 
+## The gap on 11 March and 14 June
+
+MPCD stays ahead on two held-out days, 0.65-0.67 against 0.52-0.55: low
+Suns from the east, 0.29 and 0.49 m a pixel. On the same light's training
+images too -- 5, 17 and 21 March at 0.20-0.36 m a pixel -- MPCD fits 0.54-0.68
+where the solution fits 0.37-0.54; on the finest, 25 May and 1 June at
+0.10-0.15 m a pixel, the solution fits 0.38-0.52 and MPCD 0.28-0.34. Our
+heights with a uniform albedo score 0.45 on 11 March where MPCD's score
+0.65: the difference is in the relief, below 4 m -- banded, the solution
+agrees with MPCD at 4-12 m (correlation 0.87, SHAP7's 0.82) and 12-30 m
+(0.97 against 0.94), not at 2-4 m (0.61 against 0.64), where MPCD, built
+from 1-8 m a pixel, is no reference either. Tried, from the solution of
+0.44 (0.47 at the model's scale), none closing it:
+
+| change | held out | at the model's scale |
+|---|---|---|
+| the heights smoothed after, 0.5-1 spacing | 0.45-0.46 | 0.47-0.48 |
+| a 0.25 m grid, four levels | 0.30 | 0.31 |
+| 0.25 m from the 0.5 m solution, held to it above 2 m | 0.30-0.34 | 0.33-0.35 |
+| the curvature's penalty linear past an edge (Huber) | 0.28-0.41 | 0.34-0.44 |
+| a stronger curvature penalty, 0.05 and 0.1 | 0.43, 0.40 | 0.45, 0.42 |
+| facets for residuals, as the maplet is drawn | the test terrain worse | |
+| no images finer than 0.25 m a pixel | 0.44 | 0.46 |
+| a registration reaching 30 m | 0.44 | 0.45 |
+| 24 passes a level | 0.39 | 0.43 |
+| SHAP7 held above 25 m, not 12.5 | 0.44 | 0.47 |
+| 2015's images back | 0.42 | 0.45 |
+
+- **Smoothing after** gains a little at the images' pixels: the solution
+  keeps 6 cm of heights that alternate point to point, which no image
+  smoothed to the grid sees -- nor the central slopes -- and a drawing
+  shows as hatching.
+- **Facets** for the residuals, each sampled at its centroid with its own
+  normal, as `render` draws them: worse on the test terrain (0.29 cm
+  against 0.20) -- an image smoothed to the grid averages a cell's facets,
+  which the points' central slopes stand for and a single facet does not.
+- **Finer grids** lose what the 0.5 m level found, held to it or not: 50
+  images at 0.5 m a pixel or finer carry them, under few Suns.
+- **More passes** fit the training images further and the held-out ones
+  less: twelve a level is where that turns.
+
+## The example
+
+`examples/comet67p_maplet/`: the solution above, from 209 images and 13
+held out, every image's lines that see the patch alone (`osiris.fetch(...,
+rows=...)`, 951 MB). Without SHAP7's renders for masks -- every lit pixel
+used, the maplet's own shadows its own -- it scores as with them, 0.433
+against 0.436 where MPCD covers. 5 minutes the first time, 76 s after.
+
 ## What the published models did that this does not
 
 A review of how 67P, Bennu, Ryugu, Phobos, Dimorphos and the Moon were
@@ -248,14 +297,15 @@ whose per-image offsets come on last).
 
 ## Open
 
-1. The weights chosen on these held-out images from here on want a second
+1. The relief below 4 m on 11 March and 14 June: an observation model per
+   image's resolution -- the finest images at their own pixels against
+   the facets, the coarser smoothed against the points -- rather than all
+   smoothed to the grid.
+2. The weights chosen on these held-out images from here on want a second
    set of days to choose on: split-data rebuilds, as Park et al. (2019).
-2. Facet normals and an edge-preserving prior: MPCD's rims are still the
-   sharper on 11 March and 14 June.
 3. Each image's pointing from many landmarks, as SPC: maplets around this
    one, each image's correction shared by those it covers.
-4. 2016 alone with a looser reference, against the post-perihelion surface.
-5. Shadows that grow their casters.
+4. Shadows that grow their casters.
 
 The pipeline stays in scratch until it reaches LAM's model; then the
 example. The coarser images' rows are kept in

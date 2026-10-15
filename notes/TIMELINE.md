@@ -6275,4 +6275,8 @@ disagreed with -- what drew the solver away from MPCD. SPC's weighting,
 `1 - 0.75 cos(i)` per image, now the default (`incidence_weight`): held out
 0.36 to 0.44, past MPCD's 0.41; from MPCD the solver stays. Pointing held
 from SHAP7 over each image's footprint places the coarse images but not
-the finest: the registration in the solve stays.
+the finest: the registration in the solve stays. MPCD's lead on two low-Sun
+held-out days is in the relief below 4 m; finer grids, edge-preserving
+curvature, facets as residuals, more passes and the rest tried, none
+closing it -- the table in the write-up. `examples/comet67p_maplet`: the
+pipeline as an example, 209 images by their lines alone (951 MB), 76 s.

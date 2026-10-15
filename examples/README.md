@@ -311,7 +311,7 @@ Look at [res/README.md](../res/README.md) to get Hera data.
   2014 to 2016, phase 2 to 120 deg. Its
   [README](comet67p_shadows_fit/README.md) says where to get the data.
     - [comet67p_shadows_fit/main.py](comet67p_shadows_fit/main.py): the
-      images download themselves from NASA's PDS on first use
+      images download themselves from ESA's PSA on first use
       ([osiris.py](comet67p_shadows_fit/osiris.py)), drawn on Preusker et
       al.'s SHAP7 shape model of 44M facets. `hapke-fit` is a Hapke law
       refitted to these images. `spin=DEG` turns the nucleus about its spin
@@ -325,6 +325,15 @@ Look at [res/README.md](../res/README.md) to get Hera data.
     - [comet67p_shadows_fit/compare.py](comet67p_shadows_fit/compare.py):
       as for Phobos, with one sheet of all the images sorted by phase, in
       `out/67p_osiris/figures`.
+- [comet67p_maplet](comet67p_maplet): comet 67P's relief finer than its
+  shape model, from the images that see it. Its
+  [README](comet67p_maplet/README.md) says where to get the data.
+    - [comet67p_maplet/main.py](comet67p_maplet/main.py): a patch 120 m
+      square beside Abydos, Philae's last site, solved at 0.5 m by
+      `kalast.shape` from 209 OSIRIS images of 2014 and 2016 -- `Maplet`
+      over SHAP7, `View` per image, `solve` -- and scored with SHAP7 on 13
+      held-out images. Only each image's lines that see the patch download
+      (`osiris.fetch(..., rows=...)`), 951 MB for the 222.
 ## Examples that worked but not ready for users
 
 - [analytical](analytical)
