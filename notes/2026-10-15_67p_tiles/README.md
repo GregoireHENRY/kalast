@@ -168,6 +168,29 @@ tile each), 2000-6488 on the home PC (`handoff_home_pc.md`). The images'
 lines: 5,049 images, 70 GB fetched as floats, 30 GB kept as half floats,
 at 20-27 MB/s from PSA, slower on the closest images of 2016.
 
+## The Mac's share, scored
+
+Tiles 0-1999 -- all at 0.5 m -- solved on the Mac in about five hours of
+the final pass (five at once, `nice`d), none failing once every image was
+in. Each scored on up to three held-out images that see it (`main.py
+score`): 3,568 tile-image pairs over the 1,459 tiles the eight held-out
+days see.
+
+| held-out images | pairs | SHAP7 | tiles | tile better |
+|---|---|---|---|---|
+| all | 3,568 | 0.327 | 0.493 | 83 % |
+| finer than 0.25 m a pixel | 1,079 | 0.263 | 0.463 | 91 % |
+| 0.25-0.5 m a pixel | 1,385 | 0.387 | 0.535 | 80 % |
+| 0.5-1 m a pixel | 1,104 | 0.312 | 0.469 | 78 % |
+
+At the model's own scale: 0.537 against SHAP7's 0.342.
+
+![Each tile's held-out correlation less SHAP7's, over the Mac's share](held_out_gain_mac.png)
+
+The gains cover both regions; the losses cluster near longitude -150 to
+-130, latitude -10 to 0, and a few are scattered -- the tiles the second
+pass is for.
+
 ## The Abydos tile, five ways
 
 Tile 4341, 12 m from the maplet example's centre, on that example's 13
@@ -199,7 +222,8 @@ pixels, is the next step once both machines are done.
 
 ## Open
 
-- The run, then every tile scored on the held-out images (`score`).
+- The rest of the run: tiles 2000-6488 on the home PC (not started at
+  21:17); the Mac working down from 6488 meanwhile, to meet it.
 - The second pass: each image's pointing from its shifts in all the tiles
   that used it, the tiles solved again from it. An image's shift is not its
   pointing alone: each tile moves too (`follow`, and SHAP7's own error),
