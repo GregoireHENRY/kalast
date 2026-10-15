@@ -28,6 +28,9 @@ fn err(e: String) -> PyErr {
 /// beyond it, terrain beyond it between it and the camera (a render of the
 /// shape model in this geometry has both: its lit pixels whose facet is
 /// among `Maplet.facets`) -- and stars, hot pixels, saturation.
+///
+/// `weight`, 1 by default, the view's share against the others: a fraction
+/// each for images taken seconds apart under one geometry.
 #[pyclass(name = "View", module = "kalast.shape", from_py_object)]
 #[derive(Clone)]
 pub struct View {
@@ -37,7 +40,7 @@ pub struct View {
 #[pymethods]
 impl View {
     #[new]
-    #[pyo3(signature = (image, position, axes, focal, sun, centre=None, valid=None, name=String::new()))]
+    #[pyo3(signature = (image, position, axes, focal, sun, centre=None, valid=None, name=String::new(), weight=1.0))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         image: PyArrayLike2<'_, f32, AllowTypeChange>,
@@ -48,6 +51,7 @@ impl View {
         centre: Option<[f64; 2]>,
         valid: Option<PyArrayLike2<'_, u8, AllowTypeChange>>,
         name: String,
+        weight: f64,
     ) -> PyResult<Self> {
         let a = image.as_array();
         let (height, width) = (a.shape()[0], a.shape()[1]);
@@ -74,6 +78,7 @@ impl View {
             focal,
             centre: centre.unwrap_or([0.5 * width as f64, 0.5 * height as f64]),
             sun: sun.normalize_or_zero(),
+            weight,
         };
         inner.check().map_err(err)?;
         Ok(View { inner })
@@ -363,13 +368,16 @@ impl Maplet {
     /// `search` pixels away, or `reach` in the surface's unit if farther;
     /// `follow` moves the maplet where the views' pointing puts it. What is
     /// darker than `dark` of its view's lit ground is taken for a shadow the
-    /// maplet does not cast. Angles in radians. See
+    /// maplet does not cast. Each view weighs `1 - incidence_weight
+    /// cos(i)`, `i` its Sun's incidence on the maplet, as SPC weighs its
+    /// images: a high Sun's shading says more of the albedo than of the
+    /// slopes. Angles in radians. See
     /// `notes/2026-10-14_shape_from_images/` and
     /// `notes/2026-10-15_shape_direct/`.
     #[pyo3(signature = (
         views, law, iterations=6, levels=1, anchor=0.0, register=true, search=4.0, follow=true, reach=0.0, resolution=2.0,
         incidence=80.0 * super::RPD, emission=75.0 * super::RPD,
-        slope_sigma=0.5, albedo_sigma=0.3, offset=false, dark=0.1, direct=true, curvature=0.002, softness=0.6, shadows=1.0, stereo=1.0,
+        slope_sigma=0.5, albedo_sigma=0.3, offset=false, incidence_weight=0.75, dark=0.1, direct=true, curvature=0.002, softness=0.6, shadows=1.0, stereo=1.0,
         verbose=false
     ))]
     #[allow(clippy::too_many_arguments)]
@@ -391,6 +399,7 @@ impl Maplet {
         slope_sigma: f64,
         albedo_sigma: f64,
         offset: bool,
+        incidence_weight: f64,
         dark: f64,
         direct: bool,
         curvature: f64,
@@ -415,6 +424,7 @@ impl Maplet {
             slope_sigma,
             albedo_sigma,
             offset,
+            incidence_weight,
             dark,
             direct,
             curvature,

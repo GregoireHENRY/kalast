@@ -112,21 +112,27 @@ before. Scored on the held-out images where LAM's MPCD model of Abydos
 (0.4 m, Capanna et al.) covers the maplet, each model registered on each
 image on its own:
 
-| model | held out, median correlation |
-|---|---|
-| SHAP7 | 0.21-0.24 |
-| point by point at 0.25 m, 14 October | 0.34 |
-| fitted directly at 0.5 m, every year | 0.35 |
-| **fitted directly at 0.5 m, 2014 and 2016** | **0.36** |
-| LAM's MPCD | 0.40 |
+| model | held out, median correlation | at the model's scale |
+|---|---|---|
+| SHAP7 | 0.21-0.24 | 0.23 |
+| point by point at 0.25 m, 14 October | 0.34 | |
+| fitted directly at 0.5 m, every year | 0.35 | |
+| fitted directly at 0.5 m, 2014 and 2016 | 0.36 | 0.39 |
+| **the same, each image weighed by its Sun's incidence (below)** | **0.44** | **0.47** |
+| LAM's MPCD | 0.40-0.41 | 0.45 |
+
+"At the model's scale": the image and each drawing smoothed to half a
+spacing first, as SPC scores its models; at the images' own pixels every
+model loses what no 0.5 m grid holds.
 
 ![Three held-out images, SHAP7, LAM's MPCD and the solution drawn in them](wosret_held_out.jpg)
 
 `solve(..., iterations=12, levels=3, offset=True, reach=0.012,
 albedo_sigma=0.05, curvature=0.02)` on a maplet of 120 m at 0.5 m, 209
-images, 82 s. The solution draws the pits
-SHAP7 smooths over; MPCD draws them sharper, and its rims and scarps, where
-the solution is grainy.
+images, 60 s. The solution draws the pits SHAP7 smooths over, as MPCD does;
+MPCD's are sharper on 11 March and 14 June (0.65-0.67 against 0.52-0.55),
+the solution's closer on 13 December 2014 and 21 August 2016 (0.43-0.45
+against 0.40, 0.27 against 0.16).
 
 - **2015's images** cost a little (0.35 against 0.36 without them): the
   surface around perihelion, or their pointing at 100-200 km. 2016's alone,
@@ -144,10 +150,57 @@ the solution is grainy.
   does not see worse, 14 June's 0.48-0.58 to 0.35-0.47 at the same phase.
   Not the shadows' term (0.37 without), nor the parallax (0.37), nor the
   law's roughness (theta-bar halved, 0.36 from SHAP7 as at 24 deg): the
-  albedo frozen, 0.31; each view's shift frozen once found, 0.39. The
-  shifts and the heights fitting each other is part of it; what remains
-  is open. MPCD was likely built from these images, so its 0.40 is an
-  upper bound more than a held-out score.
+  albedo frozen, 0.31; each view's shift frozen once found, 0.39. MPCD
+  was likely built from these images, so its 0.40 is an upper bound more
+  than a held-out score.
+
+## Images under a high Sun
+
+What drew the solver away from MPCD, found by solving from MPCD with half
+the images each:
+
+| from MPCD, solved with | 5 March's fit (low Sun, 27 deg up, from the east) |
+|---|---|
+| nothing, MPCD itself | 0.57-0.63 |
+| the images at phase above 80 deg, the Sun low | 0.59 |
+| the images at phase below 70 deg, the Sun high | 0.36 |
+
+7-9 June's 21 images have the Sun 60 deg up: their shading barely moves with
+the slopes, and the albedo's real patches -- held near the neighbours' --
+are fitted as slopes, large ones for so little shading. That false relief
+is what a low Sun's images disagree with: the pits of 5 and 11 March, the
+14 June scarp. SPC weighs its images by `1 - 0.75 cos(i)` for this:
+`incidence_weight=0.75`, now the default, the Sun's incidence at the
+maplet's normal. A Sun 60 deg up weighs 0.35, one 27 deg up 0.66.
+
+- Held out, 0.36 to **0.44** (0.39 to 0.47 at the model's scale): past
+  MPCD's 0.41 (0.45). The weight is SPC's, not fitted to these images.
+- From MPCD, the solver no longer leaves it: 0.40 to 0.42 (0.44 to 0.48).
+- On the synthetic Wosret, pointed 6 m off, unchanged where the truth is
+  known: the relief's correlation 0.712 and 0.713, held out 0.73 and 0.75.
+- The albedo must stay held: freed (`albedo_sigma` 0.3) with the same
+  weights, 0.28.
+
+What did not help, tried first: each view's noise a fixed share of its lit
+ground rather than its residuals' spread (0.26); images seconds apart
+sharing one weight (0.35); images at 0.5 m a pixel or coarser only, MPCD's
+choice (0.34, 0.40 at the model's scale), with the albedo frozen as MPCD
+has it (0.27); no offset (0.35); fewer passes (0.30).
+
+## Each image's pointing from its whole footprint
+
+The review's first item, tried: every image registered once on a context of
+SHAP7 around the patch -- 600 m at 0.5 m, 1 km at 1 m for the coarser --
+over every lit pixel, then held fixed in the solve. 448 of 456 register,
+correlation 0.61; the corrections grow with distance, 5 m on the ground at
+0.05-0.3 m a pixel to 16 m at 2-5 m a pixel, and pairs seconds apart agree
+within a pixel, 1-3 pixels after a slew. But SHAP7 is too smooth to place
+the finest images -- pairs seconds apart disagree by 2-10 pixels there --
+and solved with every pointing held, 0.28. The registration in the solve,
+on the maplet as it grows, stays; the context places the coarse images.
+`solve` now leaves out points where the shape model has no surface under
+the grid, and a view's search counts only the points on its valid pixels:
+a maplet wider than a close image registers it.
 
 ## What the published models did that this does not
 
@@ -195,16 +248,14 @@ whose per-image offsets come on last).
 
 ## Open
 
-In order, from the review:
-
-1. Each image's pointing from its whole footprint against the global model,
-   under SPICE's priors and smooth in time, fixed during the height solve,
-   re-estimated in an outer loop.
-2. The images thinned to diverse geometry and binned to the grid's scale.
-3. The score at the model's scale, and split-data rebuilds.
-4. Facet normals, an edge-preserving prior, the offset and albedo held.
-5. 2016 alone with a looser reference, against the post-perihelion surface.
-6. Shadows that grow their casters.
+1. The weights chosen on these held-out images from here on want a second
+   set of days to choose on: split-data rebuilds, as Park et al. (2019).
+2. Facet normals and an edge-preserving prior: MPCD's rims are still the
+   sharper on 11 March and 14 June.
+3. Each image's pointing from many landmarks, as SPC: maplets around this
+   one, each image's correction shared by those it covers.
+4. 2016 alone with a looser reference, against the post-perihelion surface.
+5. Shadows that grow their casters.
 
 The pipeline stays in scratch until it reaches LAM's model; then the
 example. The coarser images' rows are kept in

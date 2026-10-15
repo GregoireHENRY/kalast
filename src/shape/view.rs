@@ -36,6 +36,10 @@ pub struct View {
     pub centre: [F; 2],
     /// Toward the Sun from the surface, a unit vector in the body's frame.
     pub sun: V3,
+    /// The view's weight against the others, 1 by default: a share of it
+    /// for each of several images taken under one geometry, so that seconds
+    /// apart they count as one.
+    pub weight: F,
 }
 
 impl View {
@@ -88,6 +92,9 @@ impl View {
         }
         if !self.position.is_finite() {
             return Err(format!("view {name}: the camera's position is not finite"));
+        }
+        if !(self.weight >= 0.0 && self.weight.is_finite()) {
+            return Err(format!("view {name}: the weight is {}", self.weight));
         }
         Ok(())
     }
@@ -379,6 +386,7 @@ mod tests {
             focal: 100.0,
             centre: [50.0, 40.0],
             sun: V3::Z,
+            weight: 1.0,
         };
         view.check().unwrap();
         let (x, y, d) = view.project(V3::new(1.0, -0.5, 0.0)).unwrap();

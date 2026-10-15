@@ -1926,7 +1926,8 @@ proportional — each view's scale is fitted; `position` the camera's centre;
 `axes` the rows of a 3 x 3, `x` to the next column, `y` to the next row, `z`
 the boresight (mirrored is allowed, as an archive may store an image);
 `focal` in pixels; `centre` where the boresight falls, in pixels from the
-image's corner; `sun` toward the Sun. `valid`, true for the pixels to use,
+image's corner; `sun` toward the Sun; `weight`, 1 by default, its share
+against the others -- a fraction each for images seconds apart. `valid`, true for the pixels to use,
 carries what the maplet cannot see from its own grid: the shape model's
 shadows cast from beyond it, and terrain beyond it hiding it from the camera
 — a render of the shape model in that geometry, its lit pixels whose facet
@@ -1941,6 +1942,7 @@ is among `m.facets`.
 | `follow=True` | the maplet goes where the views' pointing puts it, each view weighed in ground units; off, its shape model holds it |
 | `direct=True`, `curvature=0.002`, `shadows=1.0`, `stereo=1.0`, `softness=0.6` | the heights fitted to the images directly; the curvature penalty (0.02 for real images' noise); the shadows' and the parallax's weights; a shadow's edge in spacings |
 | `albedo_sigma=0.3`, `offset=False`, `dark=0.1` | the albedo's freedom from its neighbours (log); an offset per view, for a coma; darker than this share of lit ground, a shadow the maplet does not cast |
+| `incidence_weight=0.75` | each view weighs `1 - incidence_weight cos(i)`, its Sun's incidence on the maplet, as SPC weighs images: a high Sun's shading says more of albedo than of slopes |
 | `m.render(view, law, oversample=3)` | the maplet as `view` sees it, its own shadows cast: synthetic images, or the solution beside the image |
 | `m.points()`, `m.normals()`, `m.mesh()`, `m.resampled(size, spacing)` | the grid in the body's frame, as a mesh, at another spacing |
 | `Report` | `views` (a `ViewReport` each: `used`, `pixel`, `shift`, `scale`, `points`, `residual`, `correlation`), and per pass `residual`, `change`, `spacing` |

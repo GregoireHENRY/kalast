@@ -6269,4 +6269,10 @@ a better surface (the shifts co-adapting with the heights is part of it);
 the finer level; the example once the pipeline reaches MPCD. A review of
 how 67P, Bennu, Ryugu, Phobos, Dimorphos and the Moon were shaped: every
 pipeline fixes each image's pointing outside the shape solve, from the
-whole image under priors; next steps ranked in the write-up.
+whole image under priors; next steps ranked in the write-up. Then: images
+under a high Sun turned albedo into false relief, which the low-Sun images
+disagreed with -- what drew the solver away from MPCD. SPC's weighting,
+`1 - 0.75 cos(i)` per image, now the default (`incidence_weight`): held out
+0.36 to 0.44, past MPCD's 0.41; from MPCD the solver stays. Pointing held
+from SHAP7 over each image's footprint places the coarse images but not
+the finest: the registration in the solve stays.

@@ -24,8 +24,11 @@ class View:
     beyond it, terrain beyond it between it and the camera (a render of the
     shape model in this geometry has both: its lit pixels whose facet is
     among `Maplet.facets`) -- and stars, hot pixels, saturation.
+
+    `weight`, 1 by default, the view's share against the others: a fraction
+    each for images taken seconds apart under one geometry.
     """
-    def __init__(self, image: numpy.ndarray, position: Sequence[float] | numpy.ndarray, axes: Sequence[Sequence[float] | numpy.ndarray] | numpy.ndarray, focal: float, sun: Sequence[float] | numpy.ndarray, centre: Sequence[float] | numpy.ndarray | None = ..., valid: numpy.ndarray = ..., name: str = ...) -> None:
+    def __init__(self, image: numpy.ndarray, position: Sequence[float] | numpy.ndarray, axes: Sequence[Sequence[float] | numpy.ndarray] | numpy.ndarray, focal: float, sun: Sequence[float] | numpy.ndarray, centre: Sequence[float] | numpy.ndarray | None = ..., valid: numpy.ndarray = ..., name: str = ..., weight: float = ...) -> None:
         ...
     name: str
     width: int
@@ -103,7 +106,7 @@ class Maplet:
         shadows have them; not a number where a ray meets none of it.
         """
         ...
-    def solve(self, views: Sequence[object], law: object, iterations: int = ..., levels: int = ..., anchor: float = ..., register: bool = ..., search: float = ..., follow: bool = ..., reach: float = ..., resolution: float = ..., incidence: float = ..., emission: float = ..., slope_sigma: float = ..., albedo_sigma: float = ..., offset: bool = ..., dark: float = ..., direct: bool = ..., curvature: float = ..., softness: float = ..., shadows: float = ..., stereo: float = ..., verbose: bool = ...) -> Report:
+    def solve(self, views: Sequence[object], law: object, iterations: int = ..., levels: int = ..., anchor: float = ..., register: bool = ..., search: float = ..., follow: bool = ..., reach: float = ..., resolution: float = ..., incidence: float = ..., emission: float = ..., slope_sigma: float = ..., albedo_sigma: float = ..., offset: bool = ..., incidence_weight: float = ..., dark: float = ..., direct: bool = ..., curvature: float = ..., softness: float = ..., shadows: float = ..., stereo: float = ..., verbose: bool = ...) -> Report:
         """The heights and albedo from `views` under `law` (a `Hapke` or a
         `LommelSeeligerLambert`), from the heights as they are. Each pass
         registers every view to the maplet's shading, then fits the heights
@@ -119,7 +122,10 @@ class Maplet:
         `search` pixels away, or `reach` in the surface's unit if farther;
         `follow` moves the maplet where the views' pointing puts it. What is
         darker than `dark` of its view's lit ground is taken for a shadow the
-        maplet does not cast. Angles in radians. See
+        maplet does not cast. Each view weighs `1 - incidence_weight
+        cos(i)`, `i` its Sun's incidence on the maplet, as SPC weighs its
+        images: a high Sun's shading says more of the albedo than of the
+        slopes. Angles in radians. See
         `notes/2026-10-14_shape_from_images/` and
         `notes/2026-10-15_shape_direct/`.
         """

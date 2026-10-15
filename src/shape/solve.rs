@@ -62,6 +62,12 @@ pub struct Options {
     pub albedo_sigma: F,
     /// An offset per view as well as a scale: a background, a coma.
     pub offset: bool,
+    /// Each view weighs `1 - incidence_weight cos(i)`, `i` its Sun's
+    /// incidence on the maplet, as SPC weighs its images: under a high Sun
+    /// the shading says little of the slopes and much of the albedo, and an
+    /// albedo held near its neighbours' is read as slopes -- false relief
+    /// that a low Sun's images then disagree with. 0 for every view alike.
+    pub incidence_weight: F,
     /// What is darker than this share of its view's median is taken for a
     /// shadow the maplet does not cast -- from terrain beyond it, or relief
     /// it does not have yet -- and left out: read as slopes, an unmodelled
@@ -108,6 +114,7 @@ impl Default for Options {
             slope_sigma: 0.5,
             albedo_sigma: 0.3,
             offset: false,
+            incidence_weight: 0.75,
             dark: 0.1,
             direct: true,
             curvature: 0.002,
@@ -294,7 +301,7 @@ fn setup(view: &View, work: &Maplet, law: &Law, options: &Options, coarse: bool)
         pixel,
         window,
         radius,
-        weight: (s / pixel).powi(2).min(1.0),
+        weight: (s / pixel).powi(2).min(1.0) * view.weight * (1.0 - options.incidence_weight * w.dot(view.sun)).max(0.0),
     })
 }
 
@@ -323,8 +330,11 @@ fn look(view: &View, setup: &Setup, work: &Maplet, points: &[V3], normals: &[V3]
             let alpha = view.sun.dot(to_camera).clamp(-1.0, 1.0).acos();
             out.law[k] = setup.table.eval(mu0, mu, alpha).0;
         }
-        out.usable[k] = lit[k] && seen[k] && mu0 >= cos_i && mu >= cos_e && out.law[k] > 0.0;
-        out.shown[k] = seen[k] && mu >= cos_e;
+        // Where the shape model has no surface under the grid -- beyond a
+        // lobe's edge -- the heights are only filled in: nothing to compare.
+        let known = work.reference[k].is_finite();
+        out.usable[k] = known && lit[k] && seen[k] && mu0 >= cos_i && mu >= cos_e && out.law[k] > 0.0;
+        out.shown[k] = known && seen[k] && mu >= cos_e;
         out.lit[k] = lit[k] && mu0 > 0.0;
     }
     out
@@ -403,12 +413,20 @@ fn search_wide(view: &View, setup: &Setup, look: &Look, model: &[F], n: usize, s
         (model.to_vec(), mask.clone())
     };
     let m = (sg.round() as usize).max(1);
-    let points: Vec<usize> = (0..len).filter(|&k| (k % n).is_multiple_of(m) && (k / n).is_multiple_of(m) && mask[k] > 0.0 && weight[k] > 0.5).collect();
+    let [x0, y0, x1, y1] = setup.window;
+    let crop = Crop::new(view, x0, y0, x1, y1, sigma.max(0.35 * s / setup.pixel))?;
+    // On the image, from where the search starts give or take its reach.
+    let inside = |k: usize| {
+        let (x, y) = (look.xy[k][0] + start[0], look.xy[k][1] + start[1]);
+        x >= x0 - radius && x <= x1 + radius && y >= y0 - radius && y <= y1 + radius
+            && x >= -radius && y >= -radius && x <= view.width as F + radius && y <= view.height as F + radius
+    };
+    let points: Vec<usize> = (0..len)
+        .filter(|&k| (k % n).is_multiple_of(m) && (k / n).is_multiple_of(m) && mask[k] > 0.0 && weight[k] > 0.5 && inside(k))
+        .collect();
     if points.len() < 30 {
         return None;
     }
-    let [x0, y0, x1, y1] = setup.window;
-    let crop = Crop::new(view, x0, y0, x1, y1, sigma.max(0.35 * s / setup.pixel))?;
     let r = (radius / step).ceil() as i64;
     let mut best = (F::NEG_INFINITY, start);
     let (mut o, mut mm) = (Vec::with_capacity(points.len()), Vec::with_capacity(points.len()));
@@ -423,7 +441,7 @@ fn search_wide(view: &View, setup: &Setup, look: &Look, model: &[F], n: usize, s
                     mm.push(smooth[k]);
                 }
             }
-            if o.len() * 2 < points.len() {
+            if o.len() < 30 || o.len() * 4 < points.len() {
                 continue;
             }
             let c = correlation(&o, &mm);
@@ -449,8 +467,13 @@ fn register(
     offset_too: bool,
 ) -> Option<([F; 2], F, F)> {
     // The points seen, lit or in the maplet's shadow, the model nothing
-    // there: the shadows' pattern registers as well as the shading.
-    let points: Vec<usize> = (0..model.len()).filter(|&k| look.shown[k] && look.xy[k][0].is_finite()).collect();
+    // there: the shadows' pattern registers as well as the shading. Those
+    // on the image's valid pixels: a maplet wider than the image -- a
+    // context around a close image's footprint -- falls mostly beyond it.
+    let points: Vec<usize> = (0..model.len())
+        .filter(|&k| look.shown[k] && look.xy[k][0].is_finite())
+        .filter(|&k| setup.crop.sample(look.xy[k][0] + start[0], look.xy[k][1] + start[1]).is_some())
+        .collect();
     if points.iter().filter(|&&k| model[k] > 0.0).count() < 30 {
         return None;
     }
@@ -1079,6 +1102,7 @@ mod tests {
             focal: distance / pixel,
             centre: [size as F / 2.0, size as F / 2.0],
             sun: sun.normalize(),
+            weight: 1.0,
         }
     }
 
