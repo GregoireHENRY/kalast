@@ -6352,7 +6352,16 @@ below; the relief goes further). `osiris.fetch_lines` fixed for Windows.
 under 90 % of their grid, 622 at 0.5 m where 1 and 2 m had been; with each
 tile's relief in the plan for `fetch`. Free registration failed on them
 (three of six trial tiles worse than SHAP7), the pointing held did not
-(all six better). Solved tonight, after the second pass.
+(all six better). **Results**: the second pass, 6,489 tiles none failing,
+on the same 9,833 held-out pairs 0.581 against the first's 0.504 and
+SHAP7's 0.342 -- 92 % better than SHAP7, 79 % better than the first pass;
+tiles below SHAP7 264 of 4,118 (639 in the first). What does it is the
+pointing held; a tile's offset only slides its window over SHAP7. The
+smaller tiles, solved with the pointing held: at 121 points as the big ones
+(0.37 to 0.47 at 0.5 m, 0.32 to 0.50 at 1 and 2 m; 12 of 1,032 failing the
+test, where 106 of the 157 had); at 61 points no better than SHAP7 on the
+held-out images (30 m of ground overfits its images), nor were 121-point
+tiles where the surface turns most (138 places): SHAP7 stays there.
 
 **Light curves.** `lightcurve.flux` cut a binary's primary events short: a
 facet under many smaller ones (Didymos's 23 m under Dimorphos's 5 m)
@@ -6366,7 +6375,11 @@ data's depth, the spheroids' 0.74. Eli's 45 nights re-run, and **every UTC
 day** from August 2022 to January 2023 from Earth's centre, both models
 (`out/didymos_eli/days/`), within 0.002 mag of a site's own.
 
-Open: the second pass's scores; the smaller tiles solved and scored, and
-into `examples/comet67p_tiles` -- with the joint pointing fit, which they
-need; the Mac's tiles with a window cut (at most 1,065); for Eli, the
-albedo, and the comparison with Scheirich et al.'s table re-run.
+Open: the final set (the second pass outside the turning places, the
+121-point tiles in them, the bad and the below-SHAP7 left out) and into
+`examples/comet67p_tiles` with the plan's `size`, `low`, `high` and the
+joint pointing fit -- in kalast -- which the smaller tiles need; the Mac's
+tiles with a window cut (at most 1,065); for Eli, the albedo. The
+comparison with Scheirich et al.'s table was re-run: before the impact
+DART's primary eclipses 0.36 of its depth, the secondary 0.93; after it,
+its depths.
