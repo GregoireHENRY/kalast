@@ -222,9 +222,11 @@ pixels, is the next step once both machines are done.
 
 ## The whole comet, and the second pass
 
-All 6,489 tiles were solved on the Mac by 06:55 on 16 October. The home PC
-never started, so the Mac took its range from the top down overnight
-(about 500 tiles an hour, none failing).
+All 6,489 tiles were solved on the Mac by 06:55 on 16 October, its range
+from the top down overnight (about 500 tiles an hour, none failing). The
+home PC had started all the same, at 17:23 on the 15th, unknown here: it
+solved 2000-6488 too, by the same code (`run_home_pc.md`), and found three
+faults below (*What the home PC found*).
 
 The first pass over the whole comet, each tile on up to three held-out
 images that see it -- 9,833 tile-image pairs, 4,156 tiles:
@@ -263,10 +265,45 @@ Trial on 41 tiles, the same held-out pairs:
 The worst tiles were mostly wrong registrations, and the good ones gain
 too. Started on all tiles at 07:10, into `tiles2/`.
 
+## What the home PC found
+
+`run_home_pc.md`, on its run of 2000-6488; the first two hold for the
+Mac's run too.
+
+- **Tiles where the surface turns.** Where much of a tile's grid has no
+  SHAP7 facing up beneath it -- the neck, the cliffs, mostly the 1 m and
+  2 m tiles, 240 and 480 m across -- the points there are compared with no
+  image, only filled in, but the tile is registered and held to its plane
+  on what is left, and the known part goes with it: down by tens of metres,
+  tilted. Its test, which needs no held-out image (moved over 5 m RMS from
+  SHAP7 where SHAP7 is, or no image used at the end), on the Mac's first
+  pass: 132 tiles -- 6 at 0.5 m, 69 at 1 m, 57 at 2 m; 74 of the 82 with
+  SHAP7 missing under over 70 % of the grid, 38 of 55 at 50-70 %, 15 of 237
+  at 10-50 %, 5 of 6,115 under 10 %; 39 used no image. Only a third are
+  seen by a held-out image, so scoring misses most. The second pass, the
+  same solver, makes them again.
+- **Windows cut short.** `fetch` keeps of each image the lines of its
+  tiles' boxes, a quarter of a tile's half-width above and below its
+  square; `cut` takes the window from the tile's points, which stand
+  outside the box where the relief is higher, and clips it to the lines
+  kept without a word. The home PC, fetching 2000-6488 alone, cut 509 of
+  298,761 tile-image pairs short, in 353 tiles; a tile's result then
+  depends on the tiles fetched with it (tile 2000's heights 0.85 m apart).
+  The Mac kept every tile's lines.
+- **`osiris.fetch_lines` on Windows.** The kept file stayed open, and
+  Windows will not replace an open file: widening an image failed. Closed
+  first now.
+
 ## Open
 
 - The second pass over all tiles, then scored. The tiles still below SHAP7
-  on their held-out images are left as SHAP7 in `compose`.
+  on their held-out images are left as SHAP7 in `compose`, and so are the
+  tiles that fail the home PC's test.
+- The tiles where the surface turns: smaller tiles there, or their points
+  with no surface beneath left out of the registration and the plane as
+  well as the comparison.
+- `fetch` sized from the points `cut` takes, so that a tile's result is its
+  own.
 - `comet67p_shadows_fit`'s `tiles` mesh (SHAP7-4M with the tiles an image
   sees, at its scale) is in, tried on one far image: a close image drawn
   with it beside SHAP7 in full is still to make, with the second pass's

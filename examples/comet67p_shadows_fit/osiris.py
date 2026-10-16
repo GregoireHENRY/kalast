@@ -53,8 +53,9 @@ def fetch_lines(dataset, product, first, last, folder):
     frame is 38. Fetched only if what is kept falls short; `read` reads it."""
     path = os.path.join(folder, product[:-4] + ".npz")
     if os.path.exists(path):
-        kept = numpy.load(path)
-        a, b = int(kept["first"]), int(kept["first"]) + kept["image"].shape[0]
+        # Closed before the file is replaced below: Windows refuses to.
+        with numpy.load(path) as kept:
+            a, b = int(kept["first"]), int(kept["first"]) + kept["image"].shape[0]
         if a <= first and b >= last:
             return path
         first, last = min(a, first), max(b, last)
