@@ -226,6 +226,23 @@ All 6,489 tiles were solved on the Mac by 06:55 on 16 October. The home PC
 never started, so the Mac took its range from the top down overnight
 (about 500 tiles an hour, none failing).
 
+The first pass over the whole comet, each tile on up to three held-out
+images that see it -- 9,833 tile-image pairs, 4,156 tiles:
+
+| | pairs | SHAP7 | tiles | tile better |
+|---|---|---|---|---|
+| all | 9,833 | 0.342 | 0.504 | 83% |
+| tiles at 0.5 m | 9,285 | 0.342 | 0.503 | 83% |
+| tiles at 1 m | 510 | 0.342 | 0.510 | 83% |
+| tiles at 2 m | 38 | 0.351 | 0.448 | 89% |
+| images finer than 0.25 m a pixel | 2,284 | 0.246 | 0.426 | 88% |
+| images at 0.25-0.5 m a pixel | 4,064 | 0.388 | 0.528 | 80% |
+| images at 0.5-1 m a pixel | 3,485 | 0.353 | 0.526 | 83% |
+
+At the model's own scale, 0.544 against SHAP7's 0.357.
+
+![Each tile's held-out correlation less SHAP7's, the whole comet, first pass](held_out_gain_first_pass.png)
+
 The second pass:
 1. Fit each image's pointing and each tile's offset to the first pass's
    shifts, over every tile (`pointing.py`). 312,583 image-tile pairs,
@@ -250,17 +267,6 @@ too. Started on all tiles at 07:10, into `tiles2/`.
 
 - The second pass over all tiles, then scored. The tiles still below SHAP7
   on their held-out images are left as SHAP7 in `compose`.
-- The second pass: each image's pointing from its shifts in all the tiles
-  that used it, the tiles solved again from it. An image's shift is not its
-  pointing alone: each tile moves too (`follow`, and SHAP7's own error),
-  and its move shows in each image by that image's projection. On the
-  first 446 tiles (22,248 image-tile pairs, 1,491 images): an image's own
-  median shift leaves a median 4.4 px, 45% of pairs over 5 px; a pointing
-  per image and an offset per tile, fitted together (Huber, the offsets
-  held near SHAP7), 2.3 px and 34% -- the rest the wrong locks the second
-  pass is for. The tiles' offsets: 2.6 m at the median, 4.7 m at 90%. The
-  pass: that fit over all 6,489 tiles; each tile from its offset, each
-  image's pointing held, a few pixels searched.
 - The tiles into `comet67p_shadows_fit`: a `tiles` mesh, SHAP7-4M with the
   tiles an image sees at its scale -- about 10M facets, lighter than SHAP7
   in full and finer wherever a tile is.
