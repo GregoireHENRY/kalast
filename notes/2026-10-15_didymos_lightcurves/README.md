@@ -39,17 +39,30 @@ July 2022 to 2025, from their nominal pre- and post-impact orbits.
 
 - 2022-11-18, TRAPPIST-North: kalast's occultation of Dimorphos 04:32 to
   05:59, 0.046 mag; the table 04:33 to 05:57, 0.046.
-- Secondary eclipses, August 2022: start within -4 to +1 min, end +3 to +8,
-  depth 0.041-0.045 against 0.043-0.048.
-- **Primary eclipses came out 2-5 times shallower** (0.005-0.016 against
-  0.022-0.029). Not the orbit -- the secondary eclipses, of the same
-  geometry, agree -- but **DART's shape of Didymos**: lopsided north to
-  south (z from -0.338 to +0.267 km), its southern pole a broad flat cap
+- Every third cluster of events from August 2022 to January 2023, 302 (369
+  events), with DART's shapes (`validate.py`; re-run on 2026-10-16 with
+  the true period and the clipping fix -- the first figures, August's,
+  had neither).
+- Secondary eclipses, August 2022 (21): start -4 to +6 min, end -2 to +8,
+  depth 0.041-0.046 against 0.042-0.049; before the impact (39) 0.93 of
+  the table's depth at the median.
+- **Primary eclipses came out 2-3 times shallower** before the impact (38:
+  0.003-0.025 against 0.014-0.036, 0.36 of the table's at the median),
+  crossing 2 mmag 13 min late and 13-16 early. Not the orbit -- the
+  secondary eclipses, of the same geometry, agree -- but **DART's shape of
+  Didymos**: lopsided north to south (z from -0.338 to +0.267 km), its
+  southern pole a broad flat cap
   (radius 0.235 km 275 m below the equator, where a spheroid of the same
   flattening has 0.150). With the Sun 12 deg south of the orbit plane in
   August 2022, Dimorphos's shadow falls on that cap at grazing incidence and
   takes little light.
-- **With their model, kalast gives their numbers.** Scheirich et al.
+- **After the impact** (225 clusters) the depths are the table's: primary
+  eclipses 0.94 at the median, occultations of Didymos 1.19, secondary
+  events 0.94-0.95. Events start up to 30 min earlier than the table's
+  (the secondary eclipses 9 min at the median) and end within minutes:
+  the orbit solution (s542 against their post-impact nominal) or Didymos's
+  shadow, not looked into.
+- **With their model, kalast is within 2-4 mmag of their depths.** Scheirich et al.
   model both bodies as oblate spheroids with DART's axis ratios
   (Didymos 1.369, Dimorphos 1.504 before the impact, a sphere after) under
   Lommel-Seeliger, D2/D1 = 0.223 (0.202 after). The 2022-08-16 primary
