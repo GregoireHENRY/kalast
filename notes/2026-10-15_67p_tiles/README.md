@@ -220,10 +220,36 @@ and each records its shift there -- their consensus is its pointing. A
 second pass over the tiles, each image started there and searched a few
 pixels, is the next step once both machines are done.
 
+## The whole comet, and the second pass
+
+All 6,489 tiles were solved on the Mac by 06:55 on 16 October. The home PC
+never started, so the Mac took its range from the top down overnight
+(about 500 tiles an hour, none failing).
+
+The second pass:
+1. Fit each image's pointing and each tile's offset to the first pass's
+   shifts, over every tile (`pointing.py`). 312,583 image-tile pairs,
+   4,894 images, 6,450 tiles:
+   - residual median 1.83 px, 27% of pairs over 5 px -- the wrong
+     registrations;
+   - tile offsets 2.8 m at the median, 5.2 m at 90%.
+2. Solve each tile again from its offset, every image's pointing held at
+   the fit, 3 px searched, no `follow`.
+
+Trial on 41 tiles, the same held-out pairs:
+
+| | pairs | SHAP7 | first pass | second pass | second better |
+|---|---|---|---|---|---|
+| the 20 that lost most | 39 | 0.419 | 0.179 | 0.363 | 87% |
+| 20 that won, at random | 48 | 0.363 | 0.541 | 0.589 | 65% |
+
+The worst tiles were mostly wrong registrations, and the good ones gain
+too. Started on all tiles at 07:10, into `tiles2/`.
+
 ## Open
 
-- The rest of the run: tiles 2000-6488 on the home PC (not started at
-  21:17); the Mac working down from 6488 meanwhile, to meet it.
+- The second pass over all tiles, then scored. The tiles still below SHAP7
+  on their held-out images are left as SHAP7 in `compose`.
 - The second pass: each image's pointing from its shifts in all the tiles
   that used it, the tiles solved again from it. An image's shift is not its
   pointing alone: each tile moves too (`follow`, and SHAP7's own error),
