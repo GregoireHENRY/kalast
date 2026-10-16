@@ -1,5 +1,9 @@
 # Handoff to the home PC: comet 67P tiles 2000 to 6488
 
+**Done without it, 2026-10-16 06:55: nothing to run.** The Mac solved all
+6,489 tiles overnight (its own share, then this one from the top down).
+The steps below are kept as the recipe for another machine.
+
 From the Mac session of 15 October 2026. Comet 67P is being solved whole,
 in the 6,489 tiles of `examples/comet67p_tiles/tiles.csv` (see `README.md`
 beside this note). The Mac (M1 Pro) solves tiles **0 to 1999**; this
