@@ -69,11 +69,21 @@ before was 0.008 to 0.013 mag shallow, 13 to 23 %.
 
 ## What it changes
 
-- **The Didymos work of 2026-10-15.** The secondary events and Didymos's
-  rotation are as they were; the primary events are a few percent deeper at
-  their middle, up to a fifth in their partial phases, and smooth. Being
-  re-run: the campaign's comparison, Eli's nights and their events, the
-  184 days, and the comparison with Scheirich et al.'s table.
+- **The Didymos work of 2026-10-15** (`2026-10-15_didymos_lightcurves/`),
+  re-run. Eli's 45 nights, the drop's largest change at an epoch where an
+  event is on:
+
+  | | DART's shapes | spheroids |
+  |---|---|---|
+  | 15 nights before the impact | 0.003 mag | 0.001 |
+  | 29 nights after | 0.026 mag (2022-11-22), up to 42 % of the drop | 0.006, 14 % |
+
+  After the impact the phase angle was 50 to 75 deg and Dimorphos's shadow
+  long across Didymos: more of its facets under it, each under more of
+  Dimorphos's. The secondary events and Didymos's rotation are as they
+  were. Chi in the events moved by 0.01 to 0.3 (`events.csv`); what the
+  notes read off it stands. The campaign's comparison, before the impact,
+  moved by the true period it had been run without, hardly by this.
 - **Nothing else.** The clipping serves `lightcurve` and
   `kalast._rs.shadowing.lit_fractions` only; the thermophysical model's
   shadows are the GPU's.

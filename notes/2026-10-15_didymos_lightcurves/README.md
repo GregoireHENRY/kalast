@@ -53,9 +53,10 @@ July 2022 to 2025, from their nominal pre- and post-impact orbits.
   model both bodies as oblate spheroids with DART's axis ratios
   (Didymos 1.369, Dimorphos 1.504 before the impact, a sphere after) under
   Lommel-Seeliger, D2/D1 = 0.223 (0.202 after). The 2022-08-16 primary
-  eclipse: 0.029 mag, 19:48 to 20:52, against their 0.027, 19:45 to 20:51;
-  the secondary eclipse 0.042 against 0.043. Hapke for Lommel-Seeliger
-  changes it by 1-2 mmag.
+  eclipse: 0.029 mag, 19:50 to 20:49, against their 0.027, 19:45 to 20:51;
+  the secondary eclipse 0.047, 13:52 to 14:58, against their 0.043, 13:48
+  to 14:57 (0.042 was written here first; no run gave it). Hapke for
+  Lommel-Seeliger changes it by 1-2 mmag.
 
 ## Against the 2022 campaign's photometry
 
@@ -63,13 +64,19 @@ Moskovitz et al. (2024, PSJ 5:35), Table 4: 38,532 points from 28
 telescopes, with the primary's rotation removed (`Resmag`); public. Its 44
 runs before the impact (10,493 points) cover 49 events. Each simulated with
 both models at the data's light-time-corrected epochs; each model's depth
-scaled to fit the data, pooled by kind:
+scaled to fit the data, pooled by kind (`campaign_table.py`):
 
 | | events | data / DART's shapes | data / spheroids | rms: DART, spheroids, none |
 |---|---|---|---|---|
-| primary eclipses | 16 | 1.32 | 0.75 | 0.0107, 0.0097, 0.0121 |
-| secondary eclipses | 27 | 0.89 | 0.90 | 0.0150, 0.0120, 0.0301 |
-| secondary occultations | 5 | 0.65 | 0.76 | 0.0157, 0.0131, 0.0210 |
+| primary eclipses | 16 | 1.48 | 0.74 | 0.0102, 0.0097, 0.0123 |
+| secondary eclipses | 27 | 0.88 | 0.90 | 0.0152, 0.0120, 0.0300 |
+| secondary occultations | 5 | 0.64 | 0.76 | 0.0164, 0.0131, 0.0218 |
+
+Recomputed on 2026-10-16. The first table (1.32 and 0.75 for the primary
+eclipses) had been run before Didymos turned at its true period, and with
+`lightcurve.flux` cutting the primary's partial events short
+(`2026-10-16_lightcurve_piece_cap/`); the period moved DART's numbers, the
+clipping hardly these.
 
 ![The campaign's events before the impact, stacked, beside kalast's two models](campaign_events.png)
 
@@ -158,10 +165,10 @@ the events, in units of the stated errors (`events.csv`):
 
 - **The events show in Eli's data** where a model lowers chi:
   2022-09-14 TS 1.32 -> 0.63, 09-21 TS 1.65 -> 0.61, 08-24 LM 1.46 -> 1.11,
-  09-30 TN 3.94 -> 2.11, 11-21 TN 0.54 -> 0.28, 11-22 TN 5.58 -> 4.43,
+  09-30 TN 3.94 -> 2.11, 11-21 TN 0.54 -> 0.28, 11-22 TN 5.58 -> 4.37,
   12-18/19 TN 0.26-0.29 -> 0.11-0.15, 2023-01-14/16/17 TN about halved.
 - **Primary eclipses** (09-04, 09-05, 09-12 TS): the spheroids a little
-  better than DART's shape (2.32 -> 1.93; 0.88 -> 0.77; 1.00 -> 0.92).
+  better than DART's shape (2.32 -> 1.92; 0.88 -> 0.78; 1.00 -> 0.92).
 - **Three weeks after the impact** (09-28 to 10-21) the models are worse
   than no event: the events shallower than predicted, the ejecta's
   dilution Moskovitz et al. measure.
