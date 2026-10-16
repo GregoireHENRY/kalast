@@ -39,9 +39,6 @@
 //! - **A phase function on top of the mix.**  See
 //!   [`crate::scattering::LommelSeeligerLambert`], which has no phase
 //!   dependence of its own.
-//! - **Hapke's macroscopic roughness**, which is refused rather than ignored;
-//!   a non-zero `theta_bar` is an error from [`flux_at`] and not a silently
-//!   dropped term.
 
 use crate::scattering::{Hapke, LommelSeeligerLambert};
 use crate::shadowing;
@@ -59,7 +56,7 @@ use pyo3::prelude::*;
 pub enum Law {
     /// The `c LS + (1-c) Lambert` mix of the convex-inversion literature.
     Mix(LommelSeeligerLambert),
-    /// Hapke IMSA, smooth surface.
+    /// Hapke IMSA, with macroscopic roughness when `theta_bar` is not zero.
     Hapke(Hapke),
 }
 
@@ -325,7 +322,8 @@ pub struct Point {
 ///
 /// # Errors
 ///
-/// If the law cannot be evaluated: a [`Hapke`] with non-zero `theta_bar`.
+/// If the law cannot be evaluated: a [`Hapke`] with `theta_bar` outside
+/// `[0, pi/2)`.
 pub fn flux_at(
     tris: &[[Vec3; 3]],
     sun: Vec3,
@@ -339,29 +337,40 @@ pub fn flux_at(
     let observer = observer.normalize();
     let alpha = sun.dot(observer).clamp(-1.0, 1.0).acos();
 
-    let lit = opts
-        .shadowing
-        .then(|| shadowing::lit_fractions(tris, sun));
-    let vis = opts
-        .visibility
-        .then(|| shadowing::lit_fractions(tris, observer));
+    // Each facet's area and its two cosines, zero for a degenerate facet.
+    // The winding is the normal: the mesh must be wound outward, which is
+    // what `mesh::flatten` guarantees and what `flip_facets` repairs.
+    let facets: Vec<(Float, Float, Float)> = tris
+        .iter()
+        .map(|t| {
+            let cross = (t[1] - t[0]).cross(t[2] - t[0]);
+            let two_area = cross.length();
+            if two_area <= 0.0 {
+                return (0.0, 0.0, 0.0);
+            }
+            let n = cross / two_area;
+            (0.5 * two_area, n.dot(sun), n.dot(observer))
+        })
+        .collect();
+
+    // Only what the sum below reads: the lit fraction of a facet facing the
+    // Sun, the visible fraction of one facing both. The rest would be
+    // clipped and thrown away, and the night side is the costliest of all.
+    let lit = opts.shadowing.then(|| {
+        shadowing::lit_fractions_where(tris, sun, |i| facets[i].1 > 0.0)
+    });
+    let vis = opts.visibility.then(|| {
+        shadowing::lit_fractions_where(tris, observer, |i| {
+            facets[i].1 > 0.0 && facets[i].2 > 0.0
+        })
+    });
 
     let mut flux = 0.0;
     let mut illuminated = 0.0;
     let mut lit_area = 0.0;
     let mut overflowed = false;
 
-    for (i, t) in tris.iter().enumerate() {
-        let cross = (t[1] - t[0]).cross(t[2] - t[0]);
-        let two_area = cross.length();
-        if two_area <= 0.0 {
-            continue;
-        }
-        // The winding is the normal: the mesh must be wound outward, which is
-        // what `mesh::flatten` guarantees and what `flip_facets` repairs.
-        let n = cross / two_area;
-
-        let mu0 = n.dot(sun);
+    for (i, &(area, mu0, mu)) in facets.iter().enumerate() {
         if mu0 <= 0.0 {
             continue;
         }
@@ -373,14 +382,12 @@ pub fn flux_at(
             None => 1.0,
         };
 
-        let area = 0.5 * two_area;
         illuminated += area * mu0;
         lit_area += area * mu0 * f_lit;
 
         // After the lit bookkeeping, not before: a facet the observer cannot
         // see is still illuminated, and `lit_fraction` would otherwise report
         // the shadowing of the visible hemisphere only.
-        let mu = n.dot(observer);
         if mu <= 0.0 {
             continue;
         }
@@ -770,6 +777,7 @@ pub(crate) mod py {
     #[pyo3(signature = (vertices, indices, sun, observer, law, shadowing=true, visibility=true))]
     #[allow(clippy::too_many_arguments)]
     pub fn py_flux<'py>(
+        py: Python<'py>,
         vertices: PyArrayLike2<'py, Float, AllowTypeChange>,
         indices: PyReadonlyArrayDyn<'py, u32>,
         sun: &Bound<'py, PyAny>,
@@ -786,17 +794,14 @@ pub(crate) mod py {
                 "flux takes one sun and one observer direction; use lightcurve for a series",
             ));
         }
-        super::flux_at(
-            &tris,
-            s[0],
-            o[0],
-            &law_of(law)?,
-            Options {
-                shadowing,
-                visibility,
-            },
-        )
-        .map_err(PyValueError::new_err)
+        let law = law_of(law)?;
+        let opts = Options {
+            shadowing,
+            visibility,
+        };
+        // Python's lock released, so a script's threads run epochs at once.
+        py.detach(|| super::flux_at(&tris, s[0], o[0], &law, opts))
+            .map_err(PyValueError::new_err)
     }
 
     /// A light curve: one rotating body over a series of epochs.
@@ -815,6 +820,7 @@ pub(crate) mod py {
     #[pyo3(signature = (vertices, indices, spin, sun, observer, epochs, law, shadowing=true, visibility=true))]
     #[allow(clippy::too_many_arguments)]
     pub fn py_lightcurve<'py>(
+        py: Python<'py>,
         vertices: PyArrayLike2<'py, Float, AllowTypeChange>,
         indices: PyReadonlyArrayDyn<'py, u32>,
         spin: Spin,
@@ -826,19 +832,15 @@ pub(crate) mod py {
         visibility: bool,
     ) -> PyResult<Curve> {
         let tris = triangles(vertices, indices)?;
-        let points = super::curve(
-            &tris,
-            &spin,
-            &directions(sun, "sun")?,
-            &directions(observer, "observer")?,
-            &epochs,
-            &law_of(law)?,
-            Options {
-                shadowing,
-                visibility,
-            },
-        )
-        .map_err(PyValueError::new_err)?;
+        let (sun, observer) = (directions(sun, "sun")?, directions(observer, "observer")?);
+        let law = law_of(law)?;
+        let opts = Options {
+            shadowing,
+            visibility,
+        };
+        let points = py
+            .detach(|| super::curve(&tris, &spin, &sun, &observer, &epochs, &law, opts))
+            .map_err(PyValueError::new_err)?;
 
         Ok(Curve {
             flux: points.iter().map(|p| p.flux).collect(),

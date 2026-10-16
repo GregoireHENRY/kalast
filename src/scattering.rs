@@ -258,7 +258,8 @@ pub fn opposition_surge(b0: Float, h: Float, alpha: Float) -> Float {
     b0 / (1.0 + t / h)
 }
 
-/// Hapke's bidirectional reflectance, IMSA form, for a smooth surface.
+/// Hapke's bidirectional reflectance, IMSA form, with macroscopic roughness
+/// when `theta_bar` is not zero.
 #[derive(Debug, Clone, Copy, PartialEq)]
 // `from_py_object` explicitly: pyo3 is changing the default for a
 // `#[pyclass]` that derives Clone, and inheriting a default that is about

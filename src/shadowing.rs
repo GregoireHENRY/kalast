@@ -46,9 +46,14 @@
 //! and exact. So the whole thing needs no dependency, no C++ toolchain in the
 //! `maturin develop` path on two machines, and no general-polygon edge cases.
 //!
-//! The cost is that the piece count can grow with the number of occluders.
-//! [`MAX_PIECES`] bounds it; past that the facet reports what it has and sets
-//! the overflow flag rather than silently returning a wrong area.
+//! The cost is that the piece count can grow with the number of occluders: a
+//! facet under many smaller ones -- a binary's primary under its secondary's
+//! shadow -- is cut along every edge it meets. Such a facet is quartered, and
+//! each quarter clipped against only the occluders that reach it, until each
+//! meets a few; the quarters' areas add up to the facet's exactly.
+//! [`MAX_PIECES`] bounds what is left; past that the facet reports an upper
+//! bound and sets the overflow flag rather than silently returning a wrong
+//! area.
 
 use crate::{Float, Vec3};
 
@@ -62,7 +67,9 @@ const EPS: Float = 1e-12;
 ///
 /// Each occluder can split a piece into at most 3 (a triangle's edge count),
 /// so this is reached only by a facet genuinely shredded by many overlapping
-/// occluders. Hitting it is reported, not hidden: see [`LitArea::overflowed`].
+/// occluders -- and, with facets quartered under many, only by a facet still
+/// shredded at a 4096th of it. Hitting it is reported, not hidden: see
+/// [`LitArea::overflowed`].
 pub const MAX_PIECES: usize = 256;
 
 /// A convex polygon in the projection plane, counter-clockwise.
@@ -279,6 +286,72 @@ pub fn lit_area(target: &[Vec3; 3], occluders: &[[Vec3; 3]], dir: Vec3) -> LitAr
         };
     }
 
+    let proj3 = |p: Vec3| [p.dot(u), p.dot(v), p.dot(dir)];
+    // Past the early return the target has area, so it has a plane.
+    let Some(target_plane) =
+        plane_in_projection(&[proj3(target[0]), proj3(target[1]), proj3(target[2])])
+    else {
+        return LitArea {
+            projected: total,
+            total,
+            overflowed: false,
+        };
+    };
+
+    // An edge-on occluder has no projected area to cast, and no plane.
+    let occ: Vec<Occluder> = occluders
+        .iter()
+        .filter_map(|o| {
+            let poly = Poly2::tri(proj(o[0]), proj(o[1]), proj(o[2]));
+            if poly.is_empty() {
+                return None;
+            }
+            let plane = plane_in_projection(&[proj3(o[0]), proj3(o[1]), proj3(o[2])])?;
+            Some(Occluder { poly, plane })
+        })
+        .collect();
+    let all: Vec<usize> = (0..occ.len()).collect();
+    let (projected, overflowed) = uncovered(&subject, &all, &occ, target_plane, 0);
+
+    LitArea {
+        projected,
+        total,
+        overflowed,
+    }
+}
+
+/// Above this many occluders in front of a region, the region is quartered
+/// and each quarter clipped against only the occluders that reach it.
+///
+/// Subtracting occluders one at a time cuts what is left into convex pieces
+/// along every edge met, so a facet under many small occluders shatters: a
+/// 23 m facet of Didymos under the shadow of Dimorphos's 5 m facets meets 30
+/// to 60 of them, and went past [`MAX_PIECES`] on every epoch of an eclipse.
+/// A quarter meets a quarter of them, and the pieces of a region are a few
+/// times its occluders, so quartering keeps them small; the areas of the
+/// quarters add up to the region's exactly, so nothing is approximated.
+const SPLIT_ABOVE: usize = 8;
+
+/// How many times a facet may be quartered: into 4^6 = 4096 at most.
+const MAX_DEPTH: u32 = 6;
+
+/// An occluder in the projection plane: its triangle, and its plane as
+/// depth `w = a u + b v + c`.
+struct Occluder {
+    poly: Poly2,
+    plane: (Float, Float, Float),
+}
+
+/// The area of `region`, a triangle of the target in the projection plane,
+/// that no occluder in front of the target covers; and whether the piece cap
+/// was hit, which makes the area an upper bound.
+fn uncovered(
+    region: &Poly2,
+    cands: &[usize],
+    occ: &[Occluder],
+    target: (Float, Float, Float),
+    depth: u32,
+) -> (Float, bool) {
     // Which of the two is in front is decided **at the centroid of their
     // overlap**, not at either triangle's own centroid.
     //
@@ -289,53 +362,68 @@ pub fn lit_area(target: &[Vec3; 3], occluders: &[[Vec3; 3]], dir: Vec3) -> LitAr
     // converged ray trace on a cratered sphere, that version disagreed by up
     // to 0.435 on facets with mu_i < 0.05 -- immaterial for flux, since those
     // facets carry 0.22 % of the lit area, but wrong, and wrong in the regime
-    // shadows come from.
-    let proj3 = |p: Vec3| [p.dot(u), p.dot(v), p.dot(dir)];
-    let target_plane = plane_in_projection(&[proj3(target[0]), proj3(target[1]), proj3(target[2])]);
-
-    let mut pieces = vec![subject.clone()];
-    let mut overflowed = false;
-
-    for occ in occluders {
-        let clip = Poly2::tri(proj(occ[0]), proj(occ[1]), proj(occ[2]));
-        if clip.is_empty() {
-            continue;
-        }
-        let overlap = convex_intersection(&subject, &clip);
-        if overlap.is_empty() {
-            continue;
-        }
-        let occ_plane =
-            plane_in_projection(&[proj3(occ[0]), proj3(occ[1]), proj3(occ[2])]);
-        if let (Some(tp), Some(op)) = (target_plane, occ_plane) {
-            let m = centroid(&overlap);
-            let w_t = tp.0 * m[0] + tp.1 * m[1] + tp.2;
-            let w_o = op.0 * m[0] + op.1 * m[1] + op.2;
-            if w_o <= w_t {
-                continue; // behind the target where they meet: no shadow
+    // shadows come from. Two facets that do not cut through each other keep
+    // one in front over all their overlap, so deciding it on a quarter's
+    // share of the overlap gives the same answer.
+    let front: Vec<usize> = cands
+        .iter()
+        .copied()
+        .filter(|&k| {
+            let o = &occ[k];
+            let overlap = convex_intersection(region, &o.poly);
+            if overlap.is_empty() {
+                return false;
             }
-        } else if occ_plane.is_none() {
-            continue; // edge-on occluder has no projected area to cast
+            let m = centroid(&overlap);
+            let w_t = target.0 * m[0] + target.1 * m[1] + target.2;
+            let w_o = o.plane.0 * m[0] + o.plane.1 * m[1] + o.plane.2;
+            w_o > w_t // behind the target where they meet: no shadow
+        })
+        .collect();
+    if front.is_empty() {
+        return (region.area(), false);
+    }
+
+    if front.len() > SPLIT_ABOVE && depth < MAX_DEPTH {
+        let (mut area, mut overflowed) = (0.0, false);
+        for quarter in quarters(region) {
+            let (a, o) = uncovered(&quarter, &front, occ, target, depth + 1);
+            area += a;
+            overflowed |= o;
         }
+        return (area, overflowed);
+    }
+
+    let mut pieces = vec![region.clone()];
+    for &k in &front {
         let mut next = Vec::with_capacity(pieces.len());
         for p in &pieces {
-            next.extend(convex_difference(p, &clip));
-            if next.len() > MAX_PIECES {
-                overflowed = true;
-                break;
-            }
+            next.extend(convex_difference(p, &occ[k].poly));
+        }
+        if next.len() > MAX_PIECES {
+            // What is left before this occluder: the occluders after it are
+            // not subtracted, so an upper bound.
+            return (pieces.iter().map(|p| p.area()).sum(), true);
         }
         pieces = next;
-        if overflowed || pieces.is_empty() {
+        if pieces.is_empty() {
             break;
         }
     }
+    (pieces.iter().map(|p| p.area()).sum(), false)
+}
 
-    LitArea {
-        projected: pieces.iter().map(|p| p.area()).sum(),
-        total,
-        overflowed,
-    }
+/// A triangle cut into four by its edges' midpoints.
+fn quarters(t: &Poly2) -> [Poly2; 4] {
+    let [a, b, c] = [t.pts[0], t.pts[1], t.pts[2]];
+    let mid = |p: [Float; 2], q: [Float; 2]| [0.5 * (p[0] + q[0]), 0.5 * (p[1] + q[1])];
+    let (ab, bc, ca) = (mid(a, b), mid(b, c), mid(c, a));
+    [
+        Poly2::tri(a, ab, ca),
+        Poly2::tri(ab, b, bc),
+        Poly2::tri(ca, bc, c),
+        Poly2::tri(ab, bc, ca),
+    ]
 }
 
 #[cfg(test)]
@@ -497,6 +585,44 @@ mod tests {
             assert!((f - q).abs() > 1e-3, "landed on the quantised value {q}");
         }
     }
+
+    /// A large facet under the shadow of a body of small facets -- Didymos
+    /// under Dimorphos's -- is exact and does not overflow. The body is a
+    /// square slab over the facet, its near and far sides each a 16 x 16 grid
+    /// of triangles, so every shadowed point is under two, and they come in a
+    /// scrambled order. Subtracted one at a time, this shredded the facet
+    /// past the piece cap.
+    #[test]
+    fn a_facet_under_many_small_occluders_is_exact() {
+        let target = [
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(10.0, 0.0, 0.0),
+            Vec3::new(0.0, 10.0, 0.0),
+        ];
+        let (n, lo, hi) = (16, 1.0, 4.5);
+        let s = (hi - lo) / n as Float;
+        let mut occ = Vec::new();
+        for z in [1.0, 2.0] {
+            for i in 0..n {
+                for j in 0..n {
+                    let (x, y) = (lo + i as Float * s, lo + j as Float * s);
+                    let p = |a: Float, b: Float| Vec3::new(a, b, z);
+                    occ.push([p(x, y), p(x + s, y), p(x + s, y + s)]);
+                    occ.push([p(x, y), p(x + s, y + s), p(x, y + s)]);
+                }
+            }
+        }
+        // A fixed scramble, so the order carries no spatial coherence.
+        let mut state = 12345u64;
+        for k in (1..occ.len()).rev() {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            occ.swap(k, (state >> 33) as usize % (k + 1));
+        }
+        let r = lit_area(&target, &occ, Vec3::Z);
+        assert!(!r.overflowed, "overflowed");
+        let want = 50.0 - (hi - lo) * (hi - lo);
+        assert!((r.projected - want).abs() < 1e-9, "got {}, want {want}", r.projected);
+    }
 }
 
 /// Exact lit fraction for every facet of a mesh, looking along `dir`.
@@ -511,6 +637,20 @@ mod tests {
 /// be normalised -- only its direction is used, and depth comparisons are
 /// monotone in its length.
 pub fn lit_fractions(tris: &[[Vec3; 3]], dir: Vec3) -> Vec<LitArea> {
+    lit_fractions_where(tris, dir, |_| true)
+}
+
+/// [`lit_fractions`] for only the facets `need` names, every facet still an
+/// occluder; the others come back unlit, with no area, without the work.
+///
+/// For a caller that reads some facets only -- a flux reads the lit fraction
+/// of a facet facing the Sun and no other. The ones it skips are the
+/// costliest: a night side lies under the whole day side.
+pub fn lit_fractions_where(
+    tris: &[[Vec3; 3]],
+    dir: Vec3,
+    need: impl Fn(usize) -> bool,
+) -> Vec<LitArea> {
     let n = tris.len();
     if n == 0 {
         return vec![];
@@ -560,6 +700,14 @@ pub fn lit_fractions(tris: &[[Vec3; 3]], dir: Vec3) -> Vec<LitArea> {
     let mut cands: Vec<[Vec3; 3]> = Vec::new();
     let mut seen: Vec<u32> = Vec::new();
     for t in 0..n {
+        if !need(t) {
+            out.push(LitArea {
+                projected: 0.0,
+                total: 0.0,
+                overflowed: false,
+            });
+            continue;
+        }
         cands.clear();
         seen.clear();
         let d_t = depth_of(&tris[t]);
@@ -666,10 +814,12 @@ pub(crate) mod py {
     ) -> PyResult<Bound<'py, PyArray1<Float>>> {
         let tris = triangles(vertices, indices)?;
         let d = Vec3::new(direction[0], direction[1], direction[2]);
-        let out: Vec<Float> = super::lit_fractions(&tris, d)
-            .iter()
-            .map(|a| a.fraction())
-            .collect();
+        let out: Vec<Float> = py.detach(|| {
+            super::lit_fractions(&tris, d)
+                .iter()
+                .map(|a| a.fraction())
+                .collect()
+        });
         Ok(PyArray1::from_vec(py, out))
     }
 }

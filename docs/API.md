@@ -1898,6 +1898,10 @@ Hapke. It is checked once per call rather than per facet, and a value outside
 `[0, pi/2)` raises. See `notes/2026-09-11_hapke_roughness.md` for what it
 costs — it is not negligible away from opposition.
 
+**Python's lock is released** while `flux`, `lightcurve` and
+`shadowing.lit_fractions` run, so a script's threads compute epochs at once:
+a binary's night on every core with a `concurrent.futures.ThreadPoolExecutor`.
+
 ## `kalast.shape` — relief from images
 
 A surface's relief finer than its shape model, from the images that see it,

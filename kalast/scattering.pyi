@@ -32,7 +32,9 @@ class LommelSeeligerLambert:
         ...
 
 class Hapke:
-    """Hapke's bidirectional reflectance, IMSA form, for a smooth surface."""
+    """Hapke's bidirectional reflectance, IMSA form, with macroscopic roughness
+    when `theta_bar` is not zero.
+    """
     w: float
     """Single-scattering albedo, `0..1`."""
     b: float
