@@ -267,6 +267,7 @@ too. Started on all tiles at 07:10, into `tiles2/`.
 
 - The second pass over all tiles, then scored. The tiles still below SHAP7
   on their held-out images are left as SHAP7 in `compose`.
-- The tiles into `comet67p_shadows_fit`: a `tiles` mesh, SHAP7-4M with the
-  tiles an image sees at its scale -- about 10M facets, lighter than SHAP7
-  in full and finer wherever a tile is.
+- `comet67p_shadows_fit`'s `tiles` mesh (SHAP7-4M with the tiles an image
+  sees, at its scale) is in, tried on one far image: a close image drawn
+  with it beside SHAP7 in full is still to make, with the second pass's
+  tiles.
