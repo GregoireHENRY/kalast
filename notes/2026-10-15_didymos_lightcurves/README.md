@@ -176,6 +176,21 @@ the events, in units of the stated errors (`events.csv`):
   about the fitted rotation (chi under 1); 2022-12-29 has an outlier that
   dominates.
 
+## Every day, August 2022 to January 2023
+
+Eli asked for all the nights from August 2022 to January 2023 if kalast
+was fast enough: every UTC day of it from Earth's centre, both models,
+every 2 minutes (`days.py`, `out/didymos_eli/days/`, `days.csv` summing
+them up: phase, median magnitude, Scheirich et al.'s predicted events, each
+model's deepest drop). The 184 days took 7 hours on three processes beside
+the 67P tiles, and 3 after the clipping fix of 2026-10-16
+(`2026-10-16_lightcurve_piece_cap/`), which they were run again with.
+
+From Earth's centre against the same epochs from a site -- Les Makes,
+TRAPPIST-South and North: the magnitude within 0.002 outside the events,
+the site up to an Earth radius nearer the system or farther at 0.07-0.1 au;
+an event's times within seconds, the parallax. A day serves any site.
+
 ## Open
 
 - What Eli's analysis wants next: her nights' rotation removed as above

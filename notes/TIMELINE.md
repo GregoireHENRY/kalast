@@ -6331,3 +6331,42 @@ impact and from late November. Write-up: `2026-10-15_didymos_lightcurves/`.
 Open: the albedo; the southern shape from the primary eclipses;
 `lightcurve.flux` holding Python's lock.
 
+
+## 2026-10-16 — Comet 67P whole and a second pass; smaller tiles where it turns; a binary's primary events exact; Eli's every day
+
+**67P.** All 6,489 tiles solved on the Mac by 06:55; on the held-out days,
+9,833 tile-image pairs, mean correlation 0.504 against SHAP7's 0.342, 83 %
+better (images finer than 0.25 m a pixel: 0.426 against 0.246). A second
+pass: each image's pointing and each tile's offset fitted to all the
+tiles' shifts (1.83 px median residual), every tile solved again with the
+pointing held -- on a trial, the 20 worst tiles 0.18 to 0.36, the good
+0.54 to 0.59; running over all. The home PC had started after all and
+solved 2000-6488 again (`2026-10-15_67p_tiles/run_home_pc.md`); it found
+**the tiles where the surface turns** -- the neck, cliffs, mostly 1 and 2 m
+tiles 240-480 m across, SHAP7 missing under most of the grid -- moved 5 to
+174 m from SHAP7 (132 on the Mac's own), and **image windows cut** to the
+lines fetched (`fetch` kept a quarter of a tile's half-width above and
+below; the relief goes further). `osiris.fetch_lines` fixed for Windows.
+**Smaller tiles there**: those 157 tiles' ground planned again at 121 and
+61 points a side, the same spacing rule -- 1,674 tiles, 1,431 with SHAP7
+under 90 % of their grid, 622 at 0.5 m where 1 and 2 m had been; with each
+tile's relief in the plan for `fetch`. Free registration failed on them
+(three of six trial tiles worse than SHAP7), the pointing held did not
+(all six better). Solved tonight, after the second pass.
+
+**Light curves.** `lightcurve.flux` cut a binary's primary events short: a
+facet under many smaller ones (Didymos's 23 m under Dimorphos's 5 m)
+shattered past the clipping's 256 pieces and came out partly lit. Such a
+facet is quartered now, exactly; `flux` clips only the facets it reads (2
+to 11 times faster) and lets go of Python's lock. On Didymos the events
+after the impact went up to 0.043 mag deeper at an epoch, before it 0.005
+(`2026-10-16_lightcurve_piece_cap/`). The campaign's comparison re-run --
+it had predated the true period: DART's primary eclipses 1.48 of the
+data's depth, the spheroids' 0.74. Eli's 45 nights re-run, and **every UTC
+day** from August 2022 to January 2023 from Earth's centre, both models
+(`out/didymos_eli/days/`), within 0.002 mag of a site's own.
+
+Open: the second pass's scores; the smaller tiles solved and scored, and
+into `examples/comet67p_tiles` -- with the joint pointing fit, which they
+need; the Mac's tiles with a window cut (at most 1,065); for Eli, the
+albedo, and the comparison with Scheirich et al.'s table re-run.

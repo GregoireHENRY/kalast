@@ -80,7 +80,18 @@ before was 0.008 to 0.013 mag shallow, 13 to 23 %.
 
   After the impact the phase angle was 50 to 75 deg and Dimorphos's shadow
   long across Didymos: more of its facets under it, each under more of
-  Dimorphos's. The secondary events and Didymos's rotation are as they
+  Dimorphos's. Eli's 184 days, from Earth's centre every 2 minutes, the
+  same way:
+
+  | | epochs in an event | moved over 0.002 mag | the largest |
+  |---|---|---|---|
+  | DART's shapes, 57 days before the impact | 6,630 | 192 | 0.005 mag |
+  | DART's shapes, 127 days after | 27,899 | 9,709 | 0.043 mag (2022-11-09), 59 % of the drop |
+  | spheroids, before | 7,395 | 0 | 0.001 |
+  | spheroids, after | 28,215 | 4,092 | 0.010, 17 % |
+
+  Every epoch that moved went deeper: the overflow only ever lost shadow,
+  never added it. The secondary events and Didymos's rotation are as they
   were. Chi in the events moved by 0.01 to 0.3 (`events.csv`); what the
   notes read off it stands. The campaign's comparison, before the impact,
   moved by the true period it had been run without, hardly by this.
