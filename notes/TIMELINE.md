@@ -6387,7 +6387,7 @@ comparison with Scheirich et al.'s table was re-run: before the impact
 DART's primary eclipses 0.36 of its depth, the secondary 0.93; after it,
 its depths.
 
-## 2026-10-19 — The 67P example in two passes, its pointing fit in kalast; Didymos's plots explained; every note a folder
+## 2026-10-19 — The 67P example in two passes, its pointing fit in kalast; comet 67P's mesh, 312M facets; Didymos's plots explained; every note a folder
 
 **67P.** `kalast.shape.pointing` (Rust): each image's pointing and each
 maplet's offset fitted to every registration at once, as SPC fixes
@@ -6404,6 +6404,22 @@ range's held-out mean by up to 0.016 and on another by nothing: no
 information in the offset; the example keeps the plan's centre.
 Write-up: `2026-10-19_67p_example_two_passes/`.
 
+**67P's mesh.** SHAP7 with the tiles in it,
+`/Users/gregoireh/data/mesh/67p/shap7_tiles/67p_shap7_tiles.ply`: 312
+million facets, 6.6 GB of binary PLY, and the same in 32 regions of 3 to 13
+million facets. The 1,065 tiles whose windows had been cut, solved again,
+changed nothing (held out, 0.560 then 0.561). The final set is 6,941 of the
+7,364 tiles, 408 below SHAP7 on their held-out images and 15 failing left
+out; each tile's points over 5 m off SHAP7 are SHAP7's, since a height
+field cannot follow a wall and they drew combs on cliffs (1.3 % of the
+tiles' ground). Built region by region in 6.5 min, the seams checked. On two
+held-out images drawn whole, the light and shadow are SHAP7's -- SHAP7 in
+full and SHAP7-4M score alike -- and the tiles add the detail under a few
+metres (0.19 against 0.09 at 18 km); at SPICE's pointing, 8 to 40 px off,
+the finer model loses more. `comet67p_shadows_fit` draws its tiles shaded
+smoothly, and refuses the archive's maintenance page as an image.
+Write-up: `2026-10-19_67p_mesh/`.
+
 **Didymos.** Questions on Eli's plots (`2026-10-19_didymos_questions/`):
 Dimorphos's shadow grazes Didymos's **north** pole in 2022 -- the Sun 11-12
 deg and Earth 27-43 deg south of its equator -- where DART's Didymos is
@@ -6419,6 +6435,6 @@ night.
 single-file note made a folder, `notes/<name>/README.md`, and the 199
 references to them rewritten.
 
-Open: the final set of 67P tiles for `compose`; the Mac's tiles with a
-window cut; for Eli, the albedo, 09-04's comparison stars, the north polar
-shape from the primary eclipses.
+Open: the second held-out 67P image when ESA's archive is back; the whole
+mesh drawn at once (untested); for Eli, the albedo, 09-04's comparison
+stars, the north polar shape from the primary eclipses.
