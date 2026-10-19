@@ -24,6 +24,11 @@ shadow falls near Didymos's north pole in 2022, not on its southern cap.
   diagnostic only, and a confusing one: where kalast's curve is out of step
   with the data the best scale shrinks toward zero and the curve goes flat
   (2022-08-26, x0.14); where it is in step it adds nothing (09-12, x0.80).
+  **Replaced** the same day by kalast's rotation shifted in time and scaled
+  to the night outside the events, the events left where kalast has them
+  (`nights.py`'s `rotation_fit`; `kalast_ahead_min`, `amplitude` and
+  `rms_fitted` in `nights.csv`): on 09-12 and 09-14 it follows the data's
+  features, 12 and 10 minutes later than kalast's.
 
 ## Why DART's primary eclipses are small, before the impact
 
@@ -99,8 +104,6 @@ the events, the spheroids a little better (chi 0.11-0.12, DART's 0.15, none
 
 ## Open
 
-- The green curve replaced by kalast's rotation shifted and scaled to the
-  night, the timing it shows.
 - 2022-09-04's comparison stars, on Eli's side.
 - Didymos's north polar region, and the orbit's tilt, from the primary
   eclipses; the light curves' features for the rest of the shape.
