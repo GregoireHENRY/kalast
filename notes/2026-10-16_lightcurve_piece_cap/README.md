@@ -70,7 +70,7 @@ before was 0.008 to 0.013 mag shallow, 13 to 23 %.
 ## What it changes
 
 - **The Didymos work of 2026-10-15** (`2026-10-15_didymos_lightcurves/`),
-  re-run. Eli's 45 nights, the drop's largest change at an epoch where an
+  re-run (`2026-10-16_didymos_every_day/`). Eli's 45 nights, the drop's largest change at an epoch where an
   event is on:
 
   | | DART's shapes | spheroids |

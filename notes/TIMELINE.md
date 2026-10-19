@@ -6362,6 +6362,7 @@ smaller tiles, solved with the pointing held: at 121 points as the big ones
 test, where 106 of the 157 had); at 61 points no better than SHAP7 on the
 held-out images (30 m of ground overfits its images), nor were 121-point
 tiles where the surface turns most (138 places): SHAP7 stays there.
+Write-up: `2026-10-16_67p_second_pass/`.
 
 **Light curves.** `lightcurve.flux` cut a binary's primary events short: a
 facet under many smaller ones (Didymos's 23 m under Dimorphos's 5 m)
@@ -6373,7 +6374,8 @@ after the impact went up to 0.043 mag deeper at an epoch, before it 0.005
 it had predated the true period: DART's primary eclipses 1.48 of the
 data's depth, the spheroids' 0.74. Eli's 45 nights re-run, and **every UTC
 day** from August 2022 to January 2023 from Earth's centre, both models
-(`out/didymos_eli/days/`), within 0.002 mag of a site's own.
+(`out/didymos_eli/days/`), within 0.002 mag of a site's own. Write-up:
+`2026-10-16_didymos_every_day/`.
 
 Open: the final set (the second pass outside the turning places, the
 121-point tiles in them, the bad and the below-SHAP7 left out) and into

@@ -39,37 +39,29 @@ July 2022 to 2025, from their nominal pre- and post-impact orbits.
 
 - 2022-11-18, TRAPPIST-North: kalast's occultation of Dimorphos 04:32 to
   05:59, 0.046 mag; the table 04:33 to 05:57, 0.046.
-- Every third cluster of events from August 2022 to January 2023, 302 (369
-  events), with DART's shapes (`validate.py`; re-run on 2026-10-16 with
-  the true period and the clipping fix -- the first figures, August's,
-  had neither).
-- Secondary eclipses, August 2022 (21): start -4 to +6 min, end -2 to +8,
-  depth 0.041-0.046 against 0.042-0.049; before the impact (39) 0.93 of
-  the table's depth at the median.
-- **Primary eclipses came out 2-3 times shallower** before the impact (38:
-  0.003-0.025 against 0.014-0.036, 0.36 of the table's at the median),
-  crossing 2 mmag 13 min late and 13-16 early. Not the orbit -- the
-  secondary eclipses, of the same geometry, agree -- but **DART's shape of
-  Didymos**: lopsided north to south (z from -0.338 to +0.267 km), its
-  southern pole a broad flat cap
+- Secondary eclipses, August 2022: start within -4 to +1 min, end +3 to +8,
+  depth 0.041-0.045 against 0.043-0.048.
+- **Primary eclipses came out 2-5 times shallower** (0.005-0.016 against
+  0.022-0.029). Not the orbit -- the secondary eclipses, of the same
+  geometry, agree -- but **DART's shape of Didymos**: lopsided north to
+  south (z from -0.338 to +0.267 km), its southern pole a broad flat cap
   (radius 0.235 km 275 m below the equator, where a spheroid of the same
   flattening has 0.150). With the Sun 12 deg south of the orbit plane in
   August 2022, Dimorphos's shadow falls on that cap at grazing incidence and
   takes little light.
-- **After the impact** (225 clusters) the depths are the table's: primary
-  eclipses 0.94 at the median, occultations of Didymos 1.19, secondary
-  events 0.94-0.95. Events start up to 30 min earlier than the table's
-  (the secondary eclipses 9 min at the median) and end within minutes:
-  the orbit solution (s542 against their post-impact nominal) or Didymos's
-  shadow, not looked into.
-- **With their model, kalast is within 2-4 mmag of their depths.** Scheirich et al.
+- **With their model, kalast gives their numbers.** Scheirich et al.
   model both bodies as oblate spheroids with DART's axis ratios
   (Didymos 1.369, Dimorphos 1.504 before the impact, a sphere after) under
   Lommel-Seeliger, D2/D1 = 0.223 (0.202 after). The 2022-08-16 primary
-  eclipse: 0.029 mag, 19:50 to 20:49, against their 0.027, 19:45 to 20:51;
-  the secondary eclipse 0.047, 13:52 to 14:58, against their 0.043, 13:48
-  to 14:57 (0.042 was written here first; no run gave it). Hapke for
-  Lommel-Seeliger changes it by 1-2 mmag.
+  eclipse: 0.029 mag, 19:48 to 20:52, against their 0.027, 19:45 to 20:51;
+  the secondary eclipse 0.042 against 0.043. Hapke for Lommel-Seeliger
+  changes it by 1-2 mmag.
+
+Superseded on 16 October (`2026-10-16_didymos_every_day/`): these were
+August's, run before Didymos turned at its true period and with a fault in
+the clipping since fixed. Every third cluster to January: the primary
+eclipses 2-3 times shallower before the impact, the table's depths after
+it; the spheroids' secondary eclipse 0.047 -- no run gave the 0.042 above.
 
 ## Against the 2022 campaign's photometry
 
@@ -77,19 +69,17 @@ Moskovitz et al. (2024, PSJ 5:35), Table 4: 38,532 points from 28
 telescopes, with the primary's rotation removed (`Resmag`); public. Its 44
 runs before the impact (10,493 points) cover 49 events. Each simulated with
 both models at the data's light-time-corrected epochs; each model's depth
-scaled to fit the data, pooled by kind (`campaign_table.py`):
+scaled to fit the data, pooled by kind:
 
 | | events | data / DART's shapes | data / spheroids | rms: DART, spheroids, none |
 |---|---|---|---|---|
-| primary eclipses | 16 | 1.48 | 0.74 | 0.0102, 0.0097, 0.0123 |
-| secondary eclipses | 27 | 0.88 | 0.90 | 0.0152, 0.0120, 0.0300 |
-| secondary occultations | 5 | 0.64 | 0.76 | 0.0164, 0.0131, 0.0218 |
+| primary eclipses | 16 | 1.32 | 0.75 | 0.0107, 0.0097, 0.0121 |
+| secondary eclipses | 27 | 0.89 | 0.90 | 0.0150, 0.0120, 0.0301 |
+| secondary occultations | 5 | 0.65 | 0.76 | 0.0157, 0.0131, 0.0210 |
 
-Recomputed on 2026-10-16. The first table (1.32 and 0.75 for the primary
-eclipses) had been run before Didymos turned at its true period, and with
-`lightcurve.flux` cutting the primary's partial events short
-(`2026-10-16_lightcurve_piece_cap/`); the period moved DART's numbers, the
-clipping hardly these.
+Superseded on 16 October: run before the true period. Again with it, and
+the clipping fix, the primary eclipses 1.48 and 0.74
+(`2026-10-16_didymos_every_day/`); the reading below stands.
 
 ![The campaign's events before the impact, stacked, beside kalast's two models](campaign_events.png)
 
@@ -178,31 +168,18 @@ the events, in units of the stated errors (`events.csv`):
 
 - **The events show in Eli's data** where a model lowers chi:
   2022-09-14 TS 1.32 -> 0.63, 09-21 TS 1.65 -> 0.61, 08-24 LM 1.46 -> 1.11,
-  09-30 TN 3.94 -> 2.11, 11-21 TN 0.54 -> 0.28, 11-22 TN 5.58 -> 4.37,
+  09-30 TN 3.94 -> 2.11, 11-21 TN 0.54 -> 0.28, 11-22 TN 5.58 -> 4.43,
   12-18/19 TN 0.26-0.29 -> 0.11-0.15, 2023-01-14/16/17 TN about halved.
 - **Primary eclipses** (09-04, 09-05, 09-12 TS): the spheroids a little
-  better than DART's shape (2.32 -> 1.92; 0.88 -> 0.78; 1.00 -> 0.92).
+  better than DART's shape (2.32 -> 1.93; 0.88 -> 0.77; 1.00 -> 0.92).
+- Run again on 16 October with the clipping fix: chi moved by 0.01 to 0.3,
+  the reading stands (`2026-10-16_didymos_every_day/`).
 - **Three weeks after the impact** (09-28 to 10-21) the models are worse
   than no event: the events shallower than predicted, the ejecta's
   dilution Moskovitz et al. measure.
 - TRAPPIST-North's error bars from November on are 3-10 times the scatter
   about the fitted rotation (chi under 1); 2022-12-29 has an outlier that
   dominates.
-
-## Every day, August 2022 to January 2023
-
-Eli asked for all the nights from August 2022 to January 2023 if kalast
-was fast enough: every UTC day of it from Earth's centre, both models,
-every 2 minutes (`days.py`, `out/didymos_eli/days/`, `days.csv` summing
-them up: phase, median magnitude, Scheirich et al.'s predicted events, each
-model's deepest drop). The 184 days took 7 hours on three processes beside
-the 67P tiles, and 3 after the clipping fix of 2026-10-16
-(`2026-10-16_lightcurve_piece_cap/`), which they were run again with.
-
-From Earth's centre against the same epochs from a site -- Les Makes,
-TRAPPIST-South and North: the magnitude within 0.002 outside the events,
-the site up to an Earth radius nearer the system or farther at 0.07-0.1 au;
-an event's times within seconds, the parallax. A day serves any site.
 
 ## Open
 
@@ -213,4 +190,9 @@ an event's times within seconds, the parallax. A day serves any site.
   campaign's HG1G2, for absolute magnitudes.
 - Didymos's southern shape from the primary eclipses.
 - `kalast.lightcurve.flux` holds Python's lock: released, a night's epochs
-  would run on every core.
+  would run on every core. (Released on 16 October:
+  `2026-10-16_lightcurve_piece_cap/`.)
+
+Continued on 16 October in `2026-10-16_didymos_every_day/`: every day of
+the campaign, and all of it again with the true period and the clipping
+fix.
