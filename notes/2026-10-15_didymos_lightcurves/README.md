@@ -49,6 +49,14 @@ July 2022 to 2025, from their nominal pre- and post-impact orbits.
   flattening has 0.150). With the Sun 12 deg south of the orbit plane in
   August 2022, Dimorphos's shadow falls on that cap at grazing incidence and
   takes little light.
+  **Corrected on 19 October** (`2026-10-19_didymos_questions/`): the shadow
+  falls on the north, not on that cap. The Sun 12 deg south of the orbit
+  plane casts Dimorphos's shadow about 0.2 km north of Didymos's equator,
+  near its north pole, lit at grazing incidence and seen from Earth -- 27
+  to 43 deg south -- near the limb. DART's Didymos reaches 0.267 km there,
+  the spheroid 0.296: its polar ground faces the Sun and Earth less, and the
+  shadow takes 0.3-0.5 % of Didymos's light where the spheroid's takes
+  1.1-1.8 %.
 - **With their model, kalast gives their numbers.** Scheirich et al.
   model both bodies as oblate spheroids with DART's axis ratios
   (Didymos 1.369, Dimorphos 1.504 before the impact, a sphere after) under
@@ -90,7 +98,7 @@ one (D2/D1 = 0.223 of 0.730 km). The primary eclipses lie between the two
 shapes: deeper than DART's southern cap allows, shallower than a smooth
 spheroid. **They measure
 Didymos's southern polar shape**, where DART's model rests on the fewest
-views. The secondary events are 10 % shallower than either model: Dimorphos
+views. [Its northern polar region: corrected on 19 October, above.] The secondary events are 10 % shallower than either model: Dimorphos
 a few percent smaller than D2/D1 = 0.223.
 
 ## Didymos's rotation
@@ -188,7 +196,8 @@ the events, in units of the stated errors (`events.csv`):
   dilution (Moskovitz et al.'s half-lives) if she fits through October.
 - The albedo: Hapke's `w` for H = 18.16 at Didymos's size, or the
   campaign's HG1G2, for absolute magnitudes.
-- Didymos's southern shape from the primary eclipses.
+- Didymos's southern shape from the primary eclipses. [Northern: corrected
+  on 19 October.]
 - `kalast.lightcurve.flux` holds Python's lock: released, a night's epochs
   would run on every core. (Released on 16 October:
   `2026-10-16_lightcurve_piece_cap/`.)

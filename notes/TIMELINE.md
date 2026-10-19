@@ -6318,8 +6318,9 @@ and law, kalast gives their predicted events (2022-08-16 primary eclipse
 05:59 against 04:33 to 05:57, both 0.046). Against the 2022 campaign
 (Moskovitz et al. 2024, 49 events before the impact): secondary eclipses
 the spheroids' depth (0.050), primary eclipses between DART's shape (too
-shallow -- its flat southern cap under the shadow with the Sun 12 deg south)
-and the spheroids (a little deep): a handle on Didymos's southern shape.
+shallow -- the shadow grazes Didymos's north pole, flatter in DART's shape;
+the southern cap first written here was wrong, corrected 19 October) and
+the spheroids (a little deep): a handle on Didymos's north polar shape.
 **Found**: DART's kernel turns Didymos at 2.2600 h exactly from a nominal
 phase -- the earlier simulations drifted 54 to 168 deg of light-curve phase
 from the encounter, why some nights matched and some did not; now the
@@ -6328,7 +6329,7 @@ albedo of 0.095 where Didymos's is about 0.18: the level 0.7 mag low.
 45 nights to `out/didymos_eli/`, events read with each night's rotation
 fitted out, as Pravec et al. do; they show in Eli's data before the
 impact and from late November. Write-up: `2026-10-15_didymos_lightcurves/`.
-Open: the albedo; the southern shape from the primary eclipses;
+Open: the albedo; the north polar shape from the primary eclipses;
 `lightcurve.flux` holding Python's lock.
 
 

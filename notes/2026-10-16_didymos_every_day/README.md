@@ -56,9 +56,10 @@ Stacked on their predicted mid-times: the secondary eclipses go 0.050
 deep, the spheroids' depth, beginning and end -- DART's shapes give 0.043,
 its Dimorphos (0.150 km) 15 % smaller in cross-section than the
 photometric one (D2/D1 = 0.223 of 0.730 km). The primary eclipses lie
-between the two shapes: deeper than DART's southern cap allows, shallower
-than a smooth spheroid. **They measure Didymos's southern polar shape**,
-where DART's model rests on the fewest views. The secondary events are
+between the two shapes: deeper than DART's flatter north allows,
+shallower than a smooth spheroid. **They measure Didymos's north polar
+region** -- and the orbit's tilt, a degree of which moves a grazing
+shadow 20 m. The secondary events are
 10 % shallower than either model: Dimorphos a few percent smaller than
 D2/D1 = 0.223.
 
@@ -77,11 +78,14 @@ August's alone, before the true period and the fix.
   0.003-0.025 against 0.014-0.036, 0.36 of the table's at the median),
   crossing 2 mmag 13 min late and 13-16 early. Not the orbit -- the
   secondary eclipses, of the same geometry, agree -- but **DART's shape of
-  Didymos**: lopsided north to south (z from -0.338 to +0.267 km), its
-  southern pole a broad flat cap (radius 0.235 km 275 m below the equator,
-  where a spheroid of the same flattening has 0.150). With the Sun 12 deg
-  south of the orbit plane in August 2022, Dimorphos's shadow falls on
-  that cap at grazing incidence and takes little light.
+  Didymos** near its north pole. With the Sun 11-12 deg south of the orbit
+  plane, Dimorphos's shadow falls about 0.2 km north of Didymos's equator,
+  on ground lit at grazing incidence and seen from Earth -- 27 to 43 deg
+  south -- near the limb. DART's Didymos reaches 0.267 km there, the
+  spheroid 0.296: its polar ground faces the Sun and Earth less, and the
+  shadow takes 0.3-0.5 % of Didymos's light where the spheroid's takes
+  1.1-1.8 % (`2026-10-19_didymos_questions/`; this said the southern cap
+  until 19 October, wrongly).
 - **After the impact** (225 clusters) the depths are the table's: primary
   eclipses 0.94 at the median, occultations of Didymos 1.19, secondary
   events 0.94-0.95. Events start up to 30 min earlier than the table's
@@ -109,7 +113,7 @@ chi in the events moved by 0.01 to 0.3, and what was read off it stands --
 
 - The albedo: Hapke's `w` for H = 18.16 at Didymos's size, or the
   campaign's HG1G2, for absolute magnitudes.
-- Didymos's southern shape from the primary eclipses before the impact.
+- Didymos's north polar shape from the primary eclipses before the impact.
 - After the impact, kalast's events start up to 30 min before the
   table's: the orbit solution (s542 against their nominal) or the shadow.
 - What Eli's analysis wants next: the event depths after the impact with
