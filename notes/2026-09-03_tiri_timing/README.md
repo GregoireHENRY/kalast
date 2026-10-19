@@ -1,6 +1,6 @@
 # The Deimos position error: a render bug, and a ~25 s timing offset behind it
 
-Resolves the unresolved defect in `2026-09-02_HANDOFF_tiri_deimos.md` ("THE
+Resolves the unresolved defect in `2026-09-02_HANDOFF_tiri_deimos/` ("THE
 BUG"), and re-opens something that note had retracted.
 
 Two independent faults were stacked. The first is ours and is fixed. The second

@@ -3661,7 +3661,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     // was tried on 22 September and looked like the panel
                     // dozing between sparse presents; it was the GPU backlog
                     // `Window::render` now bounds
-                    // (`notes/2026-09-23_presenter_thread.md`).
+                    // (`notes/2026-09-23_presenter_thread/`).
                     let present_due = match self.present_interval {
                         Some(interval) => self.present_tried.elapsed() >= interval,
                         None => true,

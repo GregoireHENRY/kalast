@@ -366,7 +366,7 @@ pub struct Ground {
 /// column is near where it settles, under half the spacing of float32 at
 /// 233 K (7.6e-6 K): every one of those steps was dropped, and the logo's
 /// columns froze a few kelvin off their mean below 5 m
-/// (`notes/2026-10-05_tpm_logo_convergence.md`). Carried, the steps add up
+/// (`notes/2026-10-05_tpm_logo_convergence/`). Carried, the steps add up
 /// as they would in float64, for a second float a node.
 ///
 /// Only the layers that need it carry theirs (`CARRY_BELOW`): a column of

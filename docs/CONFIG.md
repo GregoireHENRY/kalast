@@ -143,7 +143,7 @@ Measured on macOS, sampling the frontmost application every 400 ms through a
 It never takes focus at all, and the run is unaffected: same iteration count,
 and the exported frame is **pixel-identical** to a focused run. (Not to be
 confused with an *occluded* window, which used to stop the simulation entirely
-— that was a bug and is fixed; see `notes/2026-09-09_gpu_pass_timings.md`.)
+— that was a bug and is fixed; see `notes/2026-09-09_gpu_pass_timings/`.)
 
 Two things are needed on macOS and this does both: the window is ordered in
 rather than made key, **and** the application is stopped from activating over
@@ -423,7 +423,7 @@ and **the list of present modes the surface supports**
 `src/app/mod.rs:147`.
 Accepted: `True` / `False`.
 Worth enabling once on any new machine -- it is how the vsync cap described in
-`notes/2026-08-25_BENCH_mesh_resolution_results.md` was identified.
+`notes/2026-08-25_BENCH_mesh_resolution_results/` was identified.
 
 ### `debug.window_mesh: bool` — default `false` *(startup only)*
 Prints per-mesh detail as meshes are uploaded. Read at
@@ -457,7 +457,7 @@ two apart.
 that pass was resident on the GPU, queue wait included, so four bodies report
 4.6 ms of shadow passes inside a frame that took 3.9 ms. `span` is first
 timestamp to last and is the figure to compare against a frame time. Full
-write-up in `notes/2026-09-09_gpu_pass_timings.md`.
+write-up in `notes/2026-09-09_gpu_pass_timings/`.
 
 ### `debug.occlusion_queries: bool` — default `False` *(live)*
 Count what each body actually **drew**, with occlusion queries, readable from
@@ -739,7 +739,7 @@ face, so the depth map is identical and the pass is 20 % cheaper (10.9 to
 8.7 ms a frame on the Didymos pair at 3M facets). `true` leaves both passes
 unculled, so non-closed geometry is seen, and casts, from whichever side
 faces the camera or the light. Since 22 September; before that the shadow
-pass was unculled regardless (`notes/2026-09-22_indexed_shadow_pass_and_caster_culling.md`).
+pass was unculled regardless (`notes/2026-09-22_indexed_shadow_pass_and_caster_culling/`).
 
 **This option previously did nothing.** Every pipeline passed `cull_mode:
 None` (no culling at all, equivalent to `render_back_face = true`), with the
@@ -978,7 +978,7 @@ Accepted: `True` / `False`.
 capped. With vsync on, a GPU faster than the display simply reports the refresh
 rate: on a 239 Hz panel the render loop measured exactly 239.46 it/s regardless
 of scene complexity, which made a 3.1M-facet scene look identical to a
-100k-facet one. Details in `notes/2026-08-25_BENCH_mesh_resolution_results.md`.
+100k-facet one. Details in `notes/2026-08-25_BENCH_mesh_resolution_results/`.
 **Fifteen** lines across the examples already set `False` by hand — the sign of
 a wrong default rather than of fifteen careful authors — and all fifteen were
 removed once it became the default. The four in `tests/` were kept
@@ -1893,7 +1893,7 @@ loaded -- and with the Sun a disc, one more for each body with another in its
 layer (`light.sun_as_point`). It used to hold the cap of eight for every
 scene, 2.1 GB at `8192` before a mesh was loaded; a two-body scene at `8192`
 takes 0.54 GB, at the default 0.13 GB. Measured in
-`notes/2026-09-18_memory_meshes_and_shadow_maps.md`.
+`notes/2026-09-18_memory_meshes_and_shadow_maps/`.
 
 A resolution the GPU's memory cannot hold is not taken: the largest power of
 two under it that fits is, and the kalast tab says which. At `16384` a layer
@@ -1911,7 +1911,7 @@ The per-facet shadow query the thermophysical model runs on gave the same
 counts at `4096` as at `8192` in `test_facet_shadow`; with a layer per body
 the texel is 21 cm on Didymos and 4 cm on Dimorphos, against ~1.5 m facets.
 The bias follows the fit, so nothing else moves. Set `8192` back on a script
-that wants the finer texel. `notes/2026-09-22_indexed_main_pass_primitive_index.md`.
+that wants the finer texel. `notes/2026-09-22_indexed_main_pass_primitive_index/`.
 
 ### `shadows.pcf: u32` — default `2` *(live)*
 Smoothing of the shadows' edges: the percentage-closer-filtering kernel's
@@ -1969,7 +1969,7 @@ one texel's depth: **one** texel-depth for the slope term and one for the
 floor. The slope factor was ten until it was measured against ray-traced
 truth, at which point it turned out to be lighting the night side -- a crater
 with the Sun below its plane reported up to 0.6 % of facets sunlit. See
-`notes/2026-09-08_shadow_bias.md`.
+`notes/2026-09-08_shadow_bias/`.
 
 **A receiver-plane term is applied per PCF tap**, on top of these. The
 gradient `d(depth)/d(uv)` is derived from the facet normal and the layer

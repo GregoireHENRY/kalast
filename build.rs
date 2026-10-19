@@ -18,7 +18,7 @@
 //! the same binary recorded as 15.5 drew 3,900. Only the record changes; the
 //! code is linked against the SDK installed. The Python module is left alone:
 //! there the main executable is Python's.
-//! `notes/2026-09-28_macos26_sdk_paces_the_pump.md`.
+//! `notes/2026-09-28_macos26_sdk_paces_the_pump/`.
 //!
 //! And the examples, packed for the bundle's executable to put back in
 //! `examples/` when an older updater left that folder as it was

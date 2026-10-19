@@ -3,7 +3,7 @@
 
 `src/tpm/emit.rs` is now the only implementation. `kalast/tpm/radiance.py`
 used to carry a second one in numpy, with `h`, `c` and `k_B` redefined
-locally, which is the duplication `notes/2026-09-10_code_quality_audit.md`
+locally, which is the duplication `notes/2026-09-10_code_quality_audit/`
 flagged: two closed forms agreeing only by luck, while `kalast.util` already
 re-exported those constants from Rust. Testing the one that survived therefore
 validates both front doors at once, and the last check pins them together.

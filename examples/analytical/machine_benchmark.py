@@ -38,7 +38,7 @@ channel, ~89.6 GB/s; GPU across PCIe):
     CPU radiance x7      3.1M    191.130 ms per call
 
 Two inversions there are real, not noise, and both come from memory rather
-than from compute -- see notes/2026-09-01_machine_comparison.md:
+than from compute -- see notes/2026-09-01_machine_comparison/:
 
   - The CPU rows are SLOWER on the faster CPU, because they are bandwidth
     bound and unified memory has ~4.5x the bandwidth. CPU insolation is equal

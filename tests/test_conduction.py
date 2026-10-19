@@ -157,7 +157,7 @@ def implicit_error(z, dt, scheme):
 # but is not a default feature and maturin does not enable it. At 1e-12
 # absolute this fails by ~1e-9 relative on a 1 cm skin depth, which is the
 # single-precision mantissa and not a formula error. See the f32 finding in
-# `notes/2026-09-10_code_quality_audit.md`; if that decision is ever revisited
+# `notes/2026-09-10_code_quality_audit/`; if that decision is ever revisited
 # these can tighten.
 F32_REL = 1e-6
 

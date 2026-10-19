@@ -9,7 +9,7 @@ that is enough to pin both the value and the convergence.
 
 `examples/analytical/view_factors.py` has computed all of this from the start
 and prints it; this is the same method with the numbers asserted. See
-`notes/2026-09-10_code_quality_audit.md` on why that distinction matters.
+`notes/2026-09-10_code_quality_audit/` on why that distinction matters.
 
 The third section is the one worth keeping. `mesh::view_factor_facets` uses
 the point-to-point form with a guard returning **zero** below `sqrt(area)`

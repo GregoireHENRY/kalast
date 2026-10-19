@@ -14,7 +14,7 @@ So two things are checked here:
    edge take the kernel's blur, and the rest are as at 0.
 2. **Agreement with ray tracing.** The shadow map is a sampled approximation;
    a ray from a facet centroid to the Sun is not. This re-runs, in miniature,
-   the sweep that fitted the bias (`notes/2026-09-08_shadow_bias.md`: slope 1,
+   the sweep that fitted the bias (`notes/2026-09-08_shadow_bias/`: slope 1,
    floor 1, offset sqrt2) -- so a regression in the offset, the bias or the
    projection shows up as facets the map calls lit that the ray says are
    blocked.
@@ -48,7 +48,7 @@ RAY_EPS = 1e-4
 # Sun angles, radians about +X, matching the crater example's own sweep:
 # `sun = [0, 20 sin a, 20 cos a]`. Fifteen of them covering full day, both
 # terminators and the night side -- the same coverage
-# `notes/2026-09-08_shadow_bias.md` used to fit the bias, and for the same
+# `notes/2026-09-08_shadow_bias/` used to fit the bias, and for the same
 # reason. One favourable angle is a weak test: with the Sun high, a 100x error
 # in the bias moved false-lit only 18 -> 24 out of 1540, which no sane budget
 # would catch. The bias earns its keep at grazing incidence, where a shadow

@@ -27,7 +27,7 @@
 //!
 //! where `lit_f` and `vis_f` are the illuminated and visible fractions. Those
 //! fractions are the *other* half of the problem and are quantised to quarters
-//! today -- see `notes/2026-09-10_polygonal_shadowing_assessment.md`, which
+//! today -- see `notes/2026-09-10_polygonal_shadowing_assessment/`, which
 //! measures what that costs. Exact reflectance feeding a quantised area and
 //! vice versa are both half-answers; this is one of the two halves.
 //!

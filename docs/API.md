@@ -320,7 +320,7 @@ the script would configure a simulation nothing draws.
 
 That interpreter is why `python` is a **default** feature rather than an
 optional one. The engine without it is a build away, and that is the shape
-`notes/2026-09-09_rust_core_audit.md` was written for:
+`notes/2026-09-09_rust_core_audit/` was written for:
 
 ```sh
 cargo build --no-default-features        # engine alone, no pyo3, no libpython
@@ -1041,7 +1041,7 @@ surface energy balance, and it is a bias rather than noise, so it does not
 average out over a rotation. A proxy used for *other* bodies only, keeping the
 full mesh in each body's own layer, would keep the saving and drop the acne;
 the shadow array is already per-body, and that is not implemented yet. See
-`notes/2026-09-18_shadow_proxy_measured.md`.
+`notes/2026-09-18_shadow_proxy_measured/`.
 
 ### `sim.rebuild_meshes()` — after changing a mesh's *shape*
 
@@ -1296,7 +1296,7 @@ this array knows which way a facet points.
 
 **This is the TPM's occlusion term, not a rendering detail.** It is read back
 from the shadow map, so it inherits the shadow bias — see the calibration note
-in `notes/2026-09-04_shadow_fixes.md` before trusting absolute values.
+in `notes/2026-09-04_shadow_fixes/` before trusting absolute values.
 
 ### Per-facet insolation — what "lit" means
 
@@ -1480,7 +1480,7 @@ pixel, mean offset under 0.05 px) and, in the AFC example, against a pinhole
 model built from the SPICE vectors (body centres within 1e-4 px).
 `examples/landmark_tracking/main.py` uses `project_facet` for 3000 facets
 and writes their pixels, beside their positions, to `track.csv`. See
-`notes/2026-09-24_image_positions.md`.
+`notes/2026-09-24_image_positions/`.
 
 ### View factors — a precompute, not a per-frame query
 
@@ -1529,7 +1529,7 @@ Two things to hold on to, both measured rather than assumed:
 `penumbra` is the Sun's disc's own pass (`light.sun_as_point = False`), 0
 with a point Sun. The same figures reach a HUD as `{gpu}` (the span) and
 `{gpu_shadow}`, `{gpu_render}`, `{gpu_depth}`, `{gpu_text}`, `{gpu_gui}`,
-`{gpu_penumbra}`. Background in `notes/2026-09-09_gpu_pass_timings.md`.
+`{gpu_penumbra}`. Background in `notes/2026-09-09_gpu_pass_timings/`.
 
 ## `sim.update()`
 
@@ -1805,7 +1805,7 @@ Do not confuse it with `kalast.tpm.roughness`, which is the Kuehrt crater
 correction on the *thermal* side.
 
 **The other half is the lit and visible fractions**, which are quantised to
-quarters today. `notes/2026-09-10_polygonal_shadowing_assessment.md` measures
+quarters today. `notes/2026-09-10_polygonal_shadowing_assessment/` measures
 that at 0.7-40 mmag. Exact reflectance feeding a quantised area is still a
 half-answer.
 
@@ -1836,7 +1836,7 @@ out over a rotation and it is the only one that survives 3.1M facets. **Use
 this one for photometry**, where the quantisation is worth 0.7–40 mmag and
 this brings it to 0.07. Both measured in
 `examples/analytical/shadow_quantisation.py`; see
-`notes/2026-09-10_polygonal_shadowing_implemented.md`.
+`notes/2026-09-10_polygonal_shadowing_implemented/`.
 
 ## `kalast.lightcurve` — the disc integral
 
@@ -1895,7 +1895,7 @@ epoch.
 
 **Hapke's `theta_bar` works here too**, so the pair is exact area × full
 Hapke. It is checked once per call rather than per facet, and a value outside
-`[0, pi/2)` raises. See `notes/2026-09-11_hapke_roughness.md` for what it
+`[0, pi/2)` raises. See `notes/2026-09-11_hapke_roughness/` for what it
 costs — it is not negligible away from opposition.
 
 **Python's lock is released** while `flux`, `lightcurve` and

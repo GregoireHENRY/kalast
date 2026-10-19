@@ -154,7 +154,7 @@ impl Aabb {
 /// ever read: 36 of its 76 bytes, on every vertex of every mesh, 340 MB of a
 /// 3M-facet model. They are gone; a textured OBJ still loads, its texture
 /// coordinates simply are not kept. See
-/// `notes/2026-09-18_memory_meshes_and_shadow_maps.md`.
+/// `notes/2026-09-18_memory_meshes_and_shadow_maps/`.
 ///
 /// Do not reorder these without updating the offsets above, the GPU layout in
 /// `app::gpu`, and the strides the Python views use.
@@ -301,7 +301,7 @@ pub struct Mesh {
     /// positions, and a normal, colour and mode on each that all three
     /// carried identically. The corners are expanded when the GPU buffers are
     /// built and nowhere else, which took a 3M-facet model from 480 MB to
-    /// 187 MB. See `notes/2026-09-18_memory_meshes_and_shadow_maps.md`.
+    /// 187 MB. See `notes/2026-09-18_memory_meshes_and_shadow_maps/`.
     pub positions: Vec<Vec3>,
 
     /// One normal per vertex, for smooth shading. **Empty when `flat`**,
@@ -395,7 +395,7 @@ impl Mesh {
     /// so this is the canonical load plus `flatten`. It used to be a second
     /// representation, one vertex per corner, which for a 3M-facet model was
     /// 293 MB of duplicated positions, normals and colours. See
-    /// `notes/2026-09-18_memory_meshes_and_shadow_maps.md`.
+    /// `notes/2026-09-18_memory_meshes_and_shadow_maps/`.
     pub fn load_flat<P, F>(path: P, update_pos: F) -> Self
     where
         P: AsRef<std::path::Path>,
@@ -1017,7 +1017,7 @@ impl Model {
         // Streamed from the file, not read into a `String` first: the whole
         // text sat in memory for the length of the parse, 163 MB for a 3M
         // facet model, on top of tobj's own working set. Measured in
-        // `notes/2026-09-18_memory_meshes_and_shadow_maps.md`.
+        // `notes/2026-09-18_memory_meshes_and_shadow_maps/`.
         let file = std::fs::File::open(path)
             .unwrap_or_else(|e| panic!("cannot open mesh {}: {e}", path.display()));
         let mut obj_reader = std::io::BufReader::with_capacity(1 << 20, file);

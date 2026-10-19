@@ -1,6 +1,6 @@
 # Ray-traced shadows: the thermophysical model's and the image's (`shadows.rays`)
 
-The handoff of 9 October (`2026-10-09_HANDOFF_ray_tracing.md`), on the home
+The handoff of 9 October (`2026-10-09_HANDOFF_ray_tracing/`), on the home
 PC: RTX 5080, driver 610.88, Windows 11. Step 1 traces the per-facet query
 the thermophysical model reads (`sim.facet_shadow`); step 2, further down,
 the image.

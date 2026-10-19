@@ -2,7 +2,7 @@
 
 `shadow_quantisation.py` measured a *single* body and found the quarter-facet
 quantisation worth 0.7 to 40 mmag, with binary per-facet visibility adding
-little beside it. `notes/2026-09-10_polygonal_shadowing_assessment.md` had
+little beside it. `notes/2026-09-10_polygonal_shadowing_assessment/` had
 claimed partial visibility was a comparable second gap, and corrected itself
 when the single-body measurement said otherwise -- while noting that the claim
 was really about **mutual events**, where one body crosses another, and that

@@ -10,7 +10,7 @@ It happened: the normal offset used to grow with the radius, `lb.x (1 + N)`,
 and lifting the lookup off the surface moves a grazing shadow's edge by far
 more than the lift -- Dimorphos's shadow on Didymos detached from the
 terminator at `pcf = 7` and all but vanished at 16. See
-`notes/2026-09-17_pcf_erosion.md` for the measurements behind the thresholds.
+`notes/2026-09-17_pcf_erosion/` for the measurements behind the thresholds.
 
 This renders the crater from `res/` at shadow resolution 1024 with the Sun at
 33 degrees, exports frames with the shadow test off and at pcf 0 and 4, and

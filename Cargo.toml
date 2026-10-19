@@ -69,7 +69,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kalast_examples)"] }
 # Python is on by default so that `cargo run --bin kalast` can run a `.py`
 # example in its own window, which needs an interpreter in the process. The
 # engine without it is still a build away, and that is the shape the audit in
-# `notes/2026-09-09_rust_core_audit.md` was written for:
+# `notes/2026-09-09_rust_core_audit/` was written for:
 #
 #     cargo build --no-default-features        engine alone, no pyo3
 #     cargo test --lib --no-default-features   tests without a Python install

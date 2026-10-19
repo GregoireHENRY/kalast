@@ -3,7 +3,7 @@
 //! Everything timed here used to be timed by wall clock around a whole frame,
 //! which says how long the frame took and nothing about what took it. The
 //! question this was written for is in
-//! `notes/2026-09-08_step_one_frame_and_a_bad_benchmark.md`: a Rust example
+//! `notes/2026-09-08_step_one_frame_and_a_bad_benchmark/`: a Rust example
 //! sits pinned at the display refresh whatever the workload while the Python
 //! module does not, and no amount of wall-clock timing around `step()`
 //! distinguishes "the GPU is busy" from "the loop is waiting".

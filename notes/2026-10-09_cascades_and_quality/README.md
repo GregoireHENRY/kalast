@@ -53,7 +53,7 @@ settings: a button each above the shadows' rows. `"quick"` was to be the
 cascades; the table made it the one layer. `tests/test_quality.py`.
 
 A `"reference"`, ray traced, waits for the ray tracing
-(`2026-10-09_HANDOFF_ray_tracing.md`).
+(`2026-10-09_HANDOFF_ray_tracing/`).
 
 ## PCF where it shows
 

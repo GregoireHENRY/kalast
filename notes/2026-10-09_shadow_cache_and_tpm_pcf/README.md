@@ -7,7 +7,7 @@ the shadow maps kept from frame to frame "as an option, not the default".
 ## The per-facet query, one for every Sun and filter
 
 `sim.facet_shadow` came from `facet_shadow.wgsl` for a point Sun: one texel
-per point, lit or not, blind to `shadows.pcf` on purpose (`notes/2026-09-17_pcf_erosion.md`,
+per point, lit or not, blind to `shadows.pcf` on purpose (`notes/2026-09-17_pcf_erosion/`,
 `tests/test_facet_shadow.py` asserted it). Now `cs_facets` in
 `mesh_shadow.wgsl` answers for every Sun: each of a facet's corners and centre
 through the image's own `sun_at` and `sun_lookup`, `shadows.pcf`'s kernel

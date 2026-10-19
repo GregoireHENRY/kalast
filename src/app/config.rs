@@ -861,7 +861,7 @@ pub struct Shadows {
     /// 4096 the Didymos pair went from 93 to 106 it/s with the per-facet
     /// shadow query unchanged (texel 21 cm on Didymos, 4 cm on Dimorphos,
     /// with a layer per body). See
-    /// `notes/2026-09-22_indexed_main_pass_primitive_index.md`.
+    /// `notes/2026-09-22_indexed_main_pass_primitive_index/`.
     ///
     /// It also feeds the automatic bias, which is expressed relative to one texel,
     /// so changing it changes the shadow bias with it.

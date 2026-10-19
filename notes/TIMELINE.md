@@ -38,7 +38,7 @@ off**.
 - **`8722023`** New `examples/hera_didymos/` AFC scripts; stale meta-kernel
   path fixed in `examples/didymos/main.py`. Loading both full-resolution
   shape models panicked on wgpu's default 256 MiB buffer cap, recorded in
-  `2026-08-24_hera_didymos_mesh_limits.md` and fixed the next day.
+  `2026-08-24_hera_didymos_mesh_limits/` and fixed the next day.
 
 A bug in `afc_eclip_didy_manual.py` also surfaced: `export_once()` was called
 *before* the `et > etf` check, so past the sweep end the app kept exporting
@@ -85,7 +85,7 @@ Work done on the personal machine, pulled to the laptop on the 26th.
   with nothing tuned by hand), wireframe enabled in two examples.
 
 Write-ups: `2026-08-25_pcf_shadow_comparison/`, `2026-08-25_renderer_auto_fit_wireframe/`,
-`CONFIG.md`, `2026-08-25_BENCH_mesh_resolution_results.md`.
+`CONFIG.md`, `2026-08-25_BENCH_mesh_resolution_results/`.
 
 ---
 
@@ -654,11 +654,11 @@ remembered:
   pass is multisampled: the shadow, facet-id and hemicube passes carry ids and
   depths, and averaging an id gives an id belonging to no facet. Exports are
   unchanged, the pass resolving into the same single-sample target.
-  `notes/2026-09-03_msaa.md`.
+  `notes/2026-09-03_msaa/`.
 - **`examples/hera_mars_swingby` reorganisation started.** `analysis/` for
   deep-dive work, `old/` for superseded scripts, and a new short
   `diffuse_lighting_one_image.py` as the quick-look entry point.
-  `notes/2026-09-03_examples_reorg.md`.
+  `notes/2026-09-03_examples_reorg/`.
 
 ### Open at the end of 3 September
 
@@ -745,7 +745,7 @@ deletes exactly the boilerplate that made the examples long.
 
 ## 4 September, later — shadow map: four bugs, one calibration left open
 
-Full write-up in `2026-09-04_shadow_fixes.md`; the short version.
+Full write-up in `2026-09-04_shadow_fixes/`; the short version.
 
 - **The shadow layer's extent was reverse-engineered from its own matrix**,
   as `1.0 / view_proj.x_axis.x`, which yields `side / |R[0][0]|` rather than
@@ -1129,12 +1129,12 @@ the reason this stretch is worth reading.
   redraw on entry, so one pump could dispatch five, and the work done before
   the call applied to only the first. Python's slower loop happened to get
   one, so it took a Rust example to show it.
-  `notes/2026-09-08_step_one_frame_and_a_bad_benchmark.md`.
+  `notes/2026-09-08_step_one_frame_and_a_bad_benchmark/`.
 - **The shadow bias lit the night side.** Ten texel-depths of slope term,
   largest exactly at grazing incidence. Calibrated against ray-traced truth;
-  `notes/2026-09-08_shadow_bias.md`.
+  `notes/2026-09-08_shadow_bias/`.
 - **The editor viewport was a gamma too dark**, all of it, from one sRGB
-  decode too many. `notes/2026-09-08_editor_gamma.md`.
+  decode too many. `notes/2026-09-08_editor_gamma/`.
 - **`lit` was counting facets nothing was blocking**, not facets in sunlight.
   With the Sun on the far side it read 99.2 % where the answer is 0.
   `sim.facet_illumination` is the quantity; see `API.md`.
@@ -1154,7 +1154,7 @@ loaded; a Python script is executed by an interpreter the binary embeds.
 Nothing is written in an example to make either work, and both still run
 standalone from a terminal.
 
-`notes/2026-09-09_editor_hosts_both_languages.md` has the mechanism, the two
+`notes/2026-09-09_editor_hosts_both_languages/` has the mechanism, the two
 checks that keep the two copies of the crate honest, and the three approaches
 that were tried and are wrong.
 
@@ -1171,7 +1171,7 @@ is for.
   happens inside winit's launch callback, which cannot unwind.
 - Shadow bias is not calibrated against the crater's exact 63.281 %. The
   *slope* term now is, against ray-traced truth -- see
-  `notes/2026-09-08_shadow_bias.md` -- which leaves the absolute figure open.
+  `notes/2026-09-08_shadow_bias/` -- which leaves the absolute figure open.
 - **250 facet-instances over 15 Sun angles** still disagree with a
   centroid ray, all reporting occlusion of 0.5 or 0.75. They are facets
   straddling a shadow edge and a centroid ray cannot adjudicate them; a
@@ -1251,12 +1251,12 @@ on the cube. What *is* worth having is already built: `shadow_path` proxies
 take the shadow passes from 28.5 ms to 6.5 and the frame from 34.5 to 17.4,
 a 2x on the whole frame.
 
-`notes/2026-09-09_gpu_pass_timings.md` has the mechanism, the measurements
+`notes/2026-09-09_gpu_pass_timings/` has the mechanism, the measurements
 and the two bugs the editor path exposed.
 
 ### Handed off
 
-`notes/2026-09-09_HANDOFF_gpu_timing.md` closes the day: what landed, what was
+`notes/2026-09-09_HANDOFF_gpu_timing/` closes the day: what landed, what was
 tried and abandoned with the measurement that abandoned it, and the three
 WebGPU-sample items still open -- reversed-Z first, then primitive picking,
 then occlusion queries.
@@ -1312,7 +1312,7 @@ neighbours two orders of magnitude below the hemicube's own discretisation
 error.
 
 Full write-up, including why swapping the two planes in `perspective_rh` *is*
-the reversed form, in `notes/2026-09-09_reversed_z.md`.
+the reversed form, in `notes/2026-09-09_reversed_z/`.
 
 ### Primitive picking
 
@@ -1367,7 +1367,7 @@ an explicit ray and never touch the unprojection, so nothing caught it. The
 construction lives in `Eye::ray_through_ndc` now, beside the matrices that
 define the convention, and is tested.
 
-`notes/2026-09-09_primitive_picking.md` has the full write-up.
+`notes/2026-09-09_primitive_picking/` has the full write-up.
 
 ### Occlusion queries
 
@@ -1409,7 +1409,7 @@ which, and both counts still read 1. Two bodies behind and one beyond makes the
 counts unequal, so a swap shows. Always check a regression test fails without
 the fix.
 
-`notes/2026-09-09_occlusion_queries.md` has the rest.
+`notes/2026-09-09_occlusion_queries/` has the rest.
 
 ### A window that does not steal focus
 
@@ -1484,7 +1484,7 @@ for the clicks, and `SendInput` with the target granting
 focused window. The handoff records the technique -- it is the way to test a
 pointer gesture here.
 
-`notes/2026-09-09_HANDOFF_axes_grid_gizmo.md` has the failures in full, the
+`notes/2026-09-09_HANDOFF_axes_grid_gizmo/` has the failures in full, the
 traps, and what is left: the editor's letterboxed viewport is untested for
 clicks, and there is no way to keep the widget out of an exported frame while
 keeping the grid.
@@ -1494,7 +1494,7 @@ keeping the grid.
 ## 10 September — the grid's far plane, and a smaller gizmo (Windows)
 
 Short session on top of the previous day's axes work.
-`notes/2026-09-10_grid_far_plane_and_gizmo_size.md`.
+`notes/2026-09-10_grid_far_plane_and_gizmo_size/`.
 
 **The infinite grid was not infinite, and it was the far plane after all.**
 Spotted by eye. `grid.wgsl` clamped its depth to `0.0` past the far plane,
@@ -1526,8 +1526,8 @@ one. macOS never had this because unlinking a mapped file is allowed there.
 
 ## 10 September, later — a code quality audit, and pinning the shadow path
 
-`notes/2026-09-10_code_quality_audit.md` and
-`notes/2026-09-10_pinning_the_shadow_path.md`.
+`notes/2026-09-10_code_quality_audit/` and
+`notes/2026-09-10_pinning_the_shadow_path/`.
 
 Asked whether 280 commits and +46k lines in 17 days had left poor code behind.
 Measured rather than judged. The verdict: **the practices are good and the
@@ -1637,7 +1637,7 @@ all three.
 
 ## 10 September, closing — f32 confirmed, and one Planck
 
-`notes/2026-09-10_f32_decision_and_one_planck.md`. Findings 2 and 3 of the
+`notes/2026-09-10_f32_decision_and_one_planck/`. Findings 2 and 3 of the
 audit, both closed.
 
 **f32 stays, as a decision rather than a default** — geometry throughput, with
@@ -1683,7 +1683,7 @@ The goal is simulating asteroid lightcurves as seen from ground-based
 telescopes. Attached to it, a question about Brož's polygonal partial
 shadowing/visibility algorithm — worth adopting?
 
-Assessed in `notes/2026-09-10_polygonal_shadowing_assessment.md`. Short
+Assessed in `notes/2026-09-10_polygonal_shadowing_assessment/`. Short
 version: **yes, as an additional path for photometry; no, not as a replacement
 for the shadow map.** Each facet is projected twice — once along the Sun
 vector, once along the observer vector — and clipped analytically against the
@@ -1796,7 +1796,7 @@ Suite: 77 Rust tests, 10 Python files.
 ## 11 September — mutual events, and a claim finally checked
 
 `examples/analytical/mutual_event.py`,
-`notes/2026-09-11_mutual_events_measured.md`. The last open item from the
+`notes/2026-09-11_mutual_events_measured/`. The last open item from the
 Brož assessment: it claimed partial visibility was a gap comparable to the
 shadow quantisation, the single-body measurement contradicted that, and the
 correction noted the claim was really about **mutual events** and untested.
@@ -1834,7 +1834,7 @@ finish at all — brute force did not complete in ten minutes.
 
 ## 11 September — handoff
 
-`notes/2026-09-11_HANDOFF_audit_and_photometry.md` covers 10-11 September:
+`notes/2026-09-11_HANDOFF_audit_and_photometry/` covers 10-11 September:
 21 commits, the audit and its own correction, the test backlog from 4 Python
 files to 11, and both halves of the photometry.
 
@@ -1850,7 +1850,7 @@ The lightcurve project for Eli has its pieces now and no driver.
 
 ## 11 September, later — the light curve driver
 
-`src/lightcurve.rs`, `notes/2026-09-11_lightcurve_driver.md`. The handoff's
+`src/lightcurve.rs`, `notes/2026-09-11_lightcurve_driver/`. The handoff's
 closing line was "the lightcurve project for Eli has its pieces now and no
 driver." It has one.
 
@@ -1914,7 +1914,7 @@ is a curve to measure it on.
 
 ## 11 September, last — Hapke's roughness, and a wrong estimate corrected
 
-`notes/2026-09-11_hapke_roughness.md`. `theta_bar` was the last known gap in
+`notes/2026-09-11_hapke_roughness/`. `theta_bar` was the last known gap in
 the photometry and is now implemented: Hapke (1984), effective cosines plus a
 shadowing function, with the azimuth recovered from `(mu0, mu, alpha)`.
 
@@ -1954,7 +1954,7 @@ what it lacks now is a fit — observed curves, a chi-squared and a minimiser.
 
 ## 11 September — handoff, macOS
 
-`notes/2026-09-11_HANDOFF_lightcurve_driver_and_roughness.md` covers this
+`notes/2026-09-11_HANDOFF_lightcurve_driver_and_roughness/` covers this
 machine's half of the day: the disc-integral driver, Hapke's `theta_bar`, and
 the two pre-existing stub defects found while writing the example. 4 commits,
 29 files, +2,658 lines. 87 Rust tests, 12 Python files, `cargo test --release`
@@ -2144,7 +2144,7 @@ what a script needs, and a line that does nothing teaches that it is needed.
 
 ## 15 September — the viewport, tuned against Blender
 
-`notes/2026-09-15_viewport_tuning_and_two_wrong_spaces.md`. A long round of
+`notes/2026-09-15_viewport_tuning_and_two_wrong_spaces/`. A long round of
 visual tuning, settled in the end by rendering frames and measuring pixels
 rather than by adjusting what was complained about. **Two of the four real
 bugs were not what the complaint described.**
@@ -2182,7 +2182,7 @@ session. Fixed in all five.
 
 ## 15 September — the config nested, the bindings generated, one panel
 
-`notes/2026-09-15_nested_config.md`. Asked for as a panel reorganisation --
+`notes/2026-09-15_nested_config/`. Asked for as a panel reorganisation --
 "same topics should be gathered" -- and done at the struct instead, so the
 panel, the Python surface and the docs all follow from one shape.
 
@@ -2223,7 +2223,7 @@ now reverses when the view is upside down, as Blender's does, so a drag to the
 right turns the scene right either way up. And the camera is levelled whenever
 the user takes hold of it -- orbit, WASD look, `T` -- because the WASD look
 yawed about the camera's own up and anchor switches kept a stale `up`, and
-both left the turntable tilted. Note: `2026-09-17_trackpad_gestures.md`.
+both left the turntable tilted. Note: `2026-09-17_trackpad_gestures/`.
 
 ## 2026-09-17 — PCF moved shadows; now it filters
 
@@ -2237,7 +2237,7 @@ radius `R` moves a grazing shadow edge by `sqrt(2 R h)` -- 45 m at pcf 0 and
 handled by the receiver-plane term, whose ceiling is now a slope (tan 85°)
 instead of one texel of depth. Centroid shift 6 px and 3 px, darkness integral
 conserved to 0.3 %, false darkening at pcf 16 down fivefold. `pcf = 0` is
-bit-identical. Note: `2026-09-17_pcf_erosion.md`; test: `tests/test_pcf_filters.py`.
+bit-identical. Note: `2026-09-17_pcf_erosion/`; test: `tests/test_pcf_filters.py`.
 
 ## 2026-09-17 — a rate cap, to watch a mutual event
 
@@ -2330,7 +2330,7 @@ order of magnitude** — I had placed it at a few mmag by analogy with `w` and
 amplitude**, the quantity an axis ratio is fitted to. Roughness acts near the
 limb and terminator, whose share of the disc changes as an elongated body
 turns, so it is structurally a different kind of parameter from the ones I
-reasoned from. Recorded in `2026-09-11_hapke_roughness.md`.
+reasoned from. Recorded in `2026-09-11_hapke_roughness/`.
 
 **Two tests were red on this machine and green on the other**, both the same
 cause: `roughness_terms` returned **NaN** across the whole back-scattering
@@ -2341,7 +2341,7 @@ overflows to `+inf`, and the shadowing denominator evaluates `inf - inf`.
 where roughness does its work — so this was NaN over the part of the body the
 parameter exists to model. Fixed, and pinned by a finiteness test rather than
 by luck: reciprocity caught it only because two NaNs compare unequal.
-`2026-09-17_hapke_nan_at_psi_pi.md`.
+`2026-09-17_hapke_nan_at_psi_pi/`.
 
 Also corrected four descriptions of the render/compute shadow difference that
 `65f5794` invalidated — the `(1 + N)` offset scaling is gone, so filtering is
@@ -2366,7 +2366,7 @@ is allocated at the body count now and grown as bodies arrive: 10k pair at
 8192, footprint 2.39 → 0.87 GB. Fixed alongside, since the smaller array
 would have made it a crash: `facet_shadow` read body *i* from layer *i* even
 with the per-body fit off, where only layer 0 is drawn. Note:
-`2026-09-18_memory_meshes_and_shadow_maps.md`.
+`2026-09-18_memory_meshes_and_shadow_maps/`.
 
 ## 2026-09-18 — two transients off the mesh load
 
@@ -2388,7 +2388,7 @@ parallel from positions and triangles, bit-for-bit the old result, with
 nothing kept: 1.01 → 0.20 s, ~1.5 → ~0.95 GB per mesh. Anything else in the
 format falls back to tobj unchanged. The smooth path followed the same
 day, in tobj's vertex order so the bits agree: 0.94 → 0.17 s. `is_flat()` had been inferred from the kept copy and is an explicit
-flag now. Note: `2026-09-18_memory_meshes_and_shadow_maps.md`.
+flag now. Note: `2026-09-18_memory_meshes_and_shadow_maps/`.
 
 ## 2026-09-18 — the flat build writes once; a cache tried and rejected
 
@@ -2397,7 +2397,7 @@ converts its slices on all cores. A sidecar `<file>.kmesh` cache took a 3M
 load to 75–95 ms and was rejected the same hour: kalast does not leave files
 beside a user's models. Cold load ~200 ms; the frame that uploads the mesh
 260–320 ms of moving 830 MB of fat vertices. Under that means changing what a
-mesh *is* -- see `2026-09-18_memory_meshes_and_shadow_maps.md`.
+mesh *is* -- see `2026-09-18_memory_meshes_and_shadow_maps/`.
 
 ## 2026-09-18 — the vertex, emptied out
 
@@ -2472,7 +2472,7 @@ lower than the registry's maximum.
 ## 18 September — the Windows wheel, and the shadow proxy priced
 
 Pulled the v0.5.0 release work and picked up its handoff.
-`notes/2026-09-18_HANDOFF_windows_wheel_and_shadow_proxy.md`.
+`notes/2026-09-18_HANDOFF_windows_wheel_and_shadow_proxy/`.
 
 **One of the three release failures is fixed.** `wheel windows-x86_64`
 reproduced on this machine: `maturin build` needs a Python interpreter on
@@ -2507,7 +2507,7 @@ recommendation.
 ## 18 September, later — the release run diagnosed, and two hypotheses wrong
 
 `gh` authenticated here, logs read, all three red jobs fixed.
-`notes/2026-09-18_release_run_diagnosed.md`.
+`notes/2026-09-18_release_run_diagnosed/`.
 
 **A fourth problem was hiding the other three.** `gh run view --log` returned
 nothing and the Mac note guessed "still uploading". The run had never
@@ -2622,7 +2622,7 @@ interpreter beside it and rendered 60 frames. **And the workflow now imports
 kalast from the bundle it just built** -- the step whose absence let all three
 v0.5.0 faults ship. Details, including a segfault that turns out to be a
 kalast clone shadowing the installed package, in
-`2026-09-21_a_bundle_that_runs_python.md`.
+`2026-09-21_a_bundle_that_runs_python/`.
 
 ## 2026-09-21 — and a `.rs` example runs from a release too
 
@@ -2644,7 +2644,7 @@ crates.io in 1m15s with guest and host fingerprints identical, and with
 `toolchain/` (458 MB) and wrote nothing to `$HOME`. `release` now waits for
 `crates`, since a bundle published before the crate it compiles against is a
 bundle whose Rust half cannot work. Details in
-`2026-09-21_a_bundle_that_compiles_rust.md`.
+`2026-09-21_a_bundle_that_compiles_rust/`.
 
 ## 2026-09-21 — and the Rust examples ship already built
 
@@ -2761,7 +2761,7 @@ stripped from the cargo child, or pyo3's build script runs a different
 interpreter and dies -- which it did, and the rehearsal reported success
 anyway because `is_current` is a timestamp check and the bundle had been
 handed dylibs from 9 September. Details in
-`2026-09-21_the_editor_stopped_respawning_itself.md`.
+`2026-09-21_the_editor_stopped_respawning_itself/`.
 
 ## 2026-09-21 — v0.5.2, and a CI bill that was self-inflicted
 
@@ -2869,7 +2869,7 @@ pyo3 does not link against. `pyproject.toml` asks for `ext` now.
 
 All measured locally on macOS arm64, no CI: bundle 291 MB unpacked, 113 MB
 compressed, every check passing. Details in
-`2026-09-21_one_compile_not_three.md`.
+`2026-09-21_one_compile_not_three/`.
 
 ## 2026-09-21 — the bundle's interpreter, pruned to what the UI app uses
 
@@ -2887,7 +2887,7 @@ the workflow while it still had an interpreter to ask -- with the two
 build-machine paths rewritten to the user's. Proven locally against the
 source tree; against crates.io it waits for 0.5.3, since the published
 0.5.2 has no `embed` feature to ask for. Details appended to
-`2026-09-21_one_compile_not_three.md`.
+`2026-09-21_one_compile_not_three/`.
 
 ## 2026-09-21 — `./kalast some.obj` no longer opens on a black window
 
@@ -3019,7 +3019,7 @@ at 41.6 it/s with the shadow pass at 19.65 ms of a 24.5 ms span: two 8192²
 layers, every body into every layer, and each flat mesh drawn non-indexed --
 9.4 M corners through a vertex stage that reads a position and a matrix.
 Two changes, no shadow proxies, no change to any shadow a closed mesh casts
-(`notes/2026-09-22_indexed_shadow_pass_and_caster_culling.md`):
+(`notes/2026-09-22_indexed_shadow_pass_and_caster_culling/`):
 
 - `MeshBuffer::shared_positions` (19 MB per 3M model) and `render_depth`:
   the shadow pass draws a flat mesh indexed over its 1.6 M shared vertices
@@ -3072,7 +3072,7 @@ barycentrics need the corners (`INSTANCE_FLAG_CORNERS`). Render pass
 13.1 → 8.2 ms, **93.4 it/s** (93.4 / 93.4 / 92.6), from 41.6 in the
 morning. Seven tests, both cargo feature sets, and four looked-at frames
 (flat, wireframe, smooth, a per-facet colormap ramp).
-`notes/2026-09-22_indexed_main_pass_primitive_index.md`.
+`notes/2026-09-22_indexed_main_pass_primitive_index/`.
 
 A device without the feature falls back to the corners draw with the facet
 passed as a flat varying, exercised by forcing it for one build: identical
@@ -3109,7 +3109,7 @@ and resize), and the frames between run as an occluded window's do. After:
 ~3,000 it/s on either screen. Every probe run from here used a background
 window, which is covered and never presents, so none of them could see it;
 a first change to `start()` measured against those was reverted.
-`notes/2026-09-22_present_paced_by_the_display.md`, which also corrects the
+`notes/2026-09-22_present_paced_by_the_display/`, which also corrects the
 2026-09-08 note's "pinned Rust binary" reading.
 
 Reverted the same evening: on the adaptive-refresh built-in panel a present
@@ -3131,7 +3131,7 @@ exclusive snatch lock). `main` presents every frame as before; the loop stays
 paced by the display for light scenes (about two iterations per refresh),
 and a covered window runs free. The proper fix is the simulation on its own
 thread with the winit thread presenting -- a plan, not an evening.
-`notes/2026-09-22_present_paced_by_the_display.md`.
+`notes/2026-09-22_present_paced_by_the_display/`.
 
 ## 2026-09-23 — the screen no longer paces the loop: 2,850 it/s at 120 fps on screen
 
@@ -3148,7 +3148,7 @@ per refresh interval of the window's current display. Visible window: light
 scene 2,850 it/s with 118 presents/s (was 300 here, 120 on the 60 Hz
 monitor); `_10k` Didymos ~100 it/s, SPICE-bound, 74 presents/s; covered
 ceiling 3,060 unchanged. `step()` is at most two frames ahead of the GPU
-now, which every benchmark note wanted. `notes/2026-09-23_presenter_thread.md`.
+now, which every benchmark note wanted. `notes/2026-09-23_presenter_thread/`.
 
 ## 2026-09-23 — v0.5.5 shipped
 
@@ -3214,7 +3214,7 @@ laptop (the notch's 32 points), equal on a monitor with no notch and no Dock,
 so there it read as a press one frame after `F` and undid it. Not read while
 fullscreen or on the way in or out now. Same commit: the focus-mode toolbar
 takes its row's height instead of a fixed 30 points that looked like two rows.
-Write-up: `2026-09-23_fullscreen_second_screen.md`. Open: the user confirms
+Write-up: `2026-09-23_fullscreen_second_screen/`. Open: the user confirms
 `F` on the second screen; the window cannot be placed there from a script.
 
 ## 2026-09-23 — every panel folds, one at a time too (for v0.5.7)
@@ -3230,7 +3230,7 @@ four. The arrow keys fold the panel on their edge (`Editor::toggle_panel`);
 they were free, and egui keeps them while a text field has the focus. And
 from a script, one field per panel -- `toolbar_folded`, `log_folded`,
 `script_folded`, `simulation_folded` -- live and written back like
-`panels_folded`. Write-up: `2026-09-23_fold_any_panel.md`.
+`panels_folded`. Write-up: `2026-09-23_fold_any_panel/`.
 
 ## 2026-09-23 — applying to the SignPath Foundation
 
@@ -3287,7 +3287,7 @@ every frame since only it knows the size drawn. Python: `sim.project(point)`,
 `out/hera_didymos/afc/screen.csv`. Checked against the rasteriser's facet-id
 map (no half-pixel bias, mean offset under 0.05 px) and, on a scratch copy of
 the AFC example, against a pinhole model from the SPICE vectors (1e-4 px).
-Write-up: `2026-09-24_image_positions.md`. Open: no visibility flag -- a
+Write-up: `2026-09-24_image_positions/`. Open: no visibility flag -- a
 facet turned away still gets a position; and a pinned `image.width`/`height`
 set before the window opens is ignored, the render taking the window's size
 (found here, not fixed).
@@ -4631,7 +4631,7 @@ later.
 Open: someone else's program that links kalast as a library records its own
 toolchain's SDK and would need the same argument.
 
-See `notes/2026-09-28_macos26_sdk_paces_the_pump.md`.
+See `notes/2026-09-28_macos26_sdk_paces_the_pump/`.
 
 ## 2026-09-28 — the python tab while a Rust example runs
 
@@ -4653,7 +4653,7 @@ The fix has three parts:
 
 Verified: a queued line saw the crater example's one body at iteration 1 while
 its loop ran, and closed it. There is a new unit test for the restore. See
-`notes/2026-09-28_console_during_a_rust_example.md`.
+`notes/2026-09-28_console_during_a_rust_example/`.
 
 ## 2026-09-28 — the bundle's `PYTHONHOME` kept out of language servers and Neovim
 
@@ -4684,7 +4684,7 @@ were tried:
 completion list now keeps a name and its type apart.
 `tools/lsp_check.py`, run by the release workflow on every bundle, asks the
 bundle's server through the protocol what follows `app.simulation.`. See
-`notes/2026-09-28_a_language_server_in_the_bundle.md`.
+`notes/2026-09-28_a_language_server_in_the_bundle/`.
 
 ## 2026-09-28 — the Neovim config kalast ships
 
@@ -4706,7 +4706,7 @@ beside the settings, read through `XDG_CONFIG_HOME` and
 `NVIM_APPNAME=kalast-nvim`), `"user"`, or a path.
 
 A fresh start installs three plugins, 9.2 MB, in 9 s. See
-`notes/2026-09-28_neovim_config_shipped.md`.
+`notes/2026-09-28_neovim_config_shipped/`.
 
 ## 2026-09-28 — an untitled script saves: a dialog, and no E32 in Neovim
 
@@ -4735,7 +4735,7 @@ was silent the same way; completions still worked. The bundle now carries a
 `ty.toml` (`tools/bundle-ty.toml`) that makes it a project of its own,
 without its `python/`. `tools/lsp_check.py` now checks from inside the
 bundle and expects an error reported as well as completions. Without the
-file it fails. See `notes/2026-09-28_a_language_server_in_the_bundle.md`.
+file it fails. See `notes/2026-09-28_a_language_server_in_the_bundle/`.
 
 ## 2026-09-28 — Neovim's last message cleared on a mode change
 
@@ -4760,7 +4760,7 @@ text. Cmd+C and Cmd+X copy and cut the selection instead of acting as
 `<C-c>`/`<C-x>`. VS Code's Cmd/Option editing keys work, the ones that
 depend on the mode through `<Cmd>lua kalast_keys.…`, and no `<D-x>` is sent.
 The mode Neovim reports is now current after Insert mode. See
-`notes/2026-09-28_neovim_keys_as_typed.md`.
+`notes/2026-09-28_neovim_keys_as_typed/`.
 
 ## 2026-09-29 — Neovim in the editor: a search's matches highlighted
 
@@ -4771,7 +4771,7 @@ grid's cells by highlight, and at each flush turns the cells drawn with
 `Search`, `CurSearch` or `IncSearch` into spans of the buffer's lines,
 drawn behind the text. `incsearch`, `hlsearch`, the current match and
 `:noh` are Neovim's own. Not done: `MatchParen`, and `:s`'s live preview.
-See `notes/2026-09-29_neovim_search_highlights.md`.
+See `notes/2026-09-29_neovim_search_highlights/`.
 
 ## 2026-09-29 — the window where it was left; names whole; READMEs as pages; pandas
 
@@ -4790,7 +4790,7 @@ See `notes/2026-09-29_neovim_search_highlights.md`.
 - `mesh` folders are plain folders; the bundle ships pandas for
   `landmark_tracking/main.py`.
 
-See `notes/2026-09-29_window_place_and_panel_fixes.md`.
+See `notes/2026-09-29_window_place_and_panel_fixes/`.
 
 ## 2026-09-29 — the scripts tab, the editor's files, render as its own act
 
@@ -4806,7 +4806,7 @@ See `notes/2026-09-29_window_place_and_panel_fixes.md`.
   Compile, debug or release, beside it.
 - Updates never touch `scripts` and send the old `examples` to the Trash.
 
-See `notes/2026-09-29_scripts_tab_and_editor_files.md`.
+See `notes/2026-09-29_scripts_tab_and_editor_files/`.
 
 ## 2026-09-29 — a thermophysical model over every facet at once
 
@@ -4829,7 +4829,7 @@ See `notes/2026-09-29_scripts_tab_and_editor_files.md`.
 Open: a nonuniform grid over every facet, for the Hera scripts to leave
 `routine.step_*`; one thread.
 
-See `notes/2026-09-29_tpm_every_facet_at_once.md`.
+See `notes/2026-09-29_tpm_every_facet_at_once/`.
 
 ## 2026-09-29 — the editor's rows by the galley
 
@@ -4923,7 +4923,7 @@ and a layered column's energy over a rotation. 158 us a step at 5120 by
 51, against 56 with one `Properties`. The stub generator now carries a
 signature's annotations (`prop: "Properties | Ground"`).
 
-See `notes/2026-09-29_tpm_every_facet_at_once.md`.
+See `notes/2026-09-29_tpm_every_facet_at_once/`.
 
 ## 2026-09-30 — the colour bar's caption turned, its extremes formatted, `vertical` in one choice
 
@@ -4999,7 +4999,7 @@ spins at most; one start for the body left the polar night 96 K warm after
 angle summed, a sphere's 1/4 at any tilt, and a spun column radiating as
 its start. `scripts/sphere/tpm_obliquity.py` in the dev bundle uses it.
 
-See `notes/2026-09-29_tpm_every_facet_at_once.md`.
+See `notes/2026-09-29_tpm_every_facet_at_once/`.
 
 ## 2026-09-30 — a Neovim error goes as Insert or a new command begins
 
@@ -5261,7 +5261,7 @@ the new ones in place by rename, times kept for the precompiled Rust examples.
 What was shipped: `res/examples-shipped.txt` from every tag and the tree,
 `tools/gen_examples_shipped.py`, `tests/test_examples_shipped.py`. Tried end
 to end on the published v0.5.10 bundle. Write-up:
-`2026-10-01_examples_kept_through_updates.md`.
+`2026-10-01_examples_kept_through_updates/`.
 
 Open: Windows and Linux not run end to end; the real v0.5.10 download path
 only once v0.5.11 is out.
@@ -5276,7 +5276,7 @@ real, keeping `cube` (edited) and `mine` (added) in
 `include`, so no GitHub release, and PyPI's 0.5.11 sdist cannot build. The
 same code goes out as v0.5.12, with the list fixed and
 `tests/test_crate_package.py` run by the rehearsal's `sdist` job. Write-up:
-`2026-10-01_v0.5.11_half_published.md`.
+`2026-10-01_v0.5.11_half_published/`.
 
 v0.5.12 released (`a2f30e5`: GitHub release, crates.io, PyPI). The published
 v0.5.10 bundle then updated itself to it through its own `kalast --update`,
@@ -5295,7 +5295,7 @@ stay in place. This version's updater moves changed examples to
 which drops the new examples, the executable installs its own copy
 (`build.rs` pack, `examples/.kalast-version`). Tried end to end from a fresh
 unpack, from v0.5.12, and through the new updater for real. Not released yet:
-0.5.13, `## v0.5.13-beta`. Write-up: `2026-10-01_examples_back_at_the_root.md`.
+0.5.13, `## v0.5.13-beta`. Write-up: `2026-10-01_examples_back_at_the_root/`.
 
 ## 2026-10-01 — `K` steps a script's own loop; the wireframe's defaults
 
@@ -5304,7 +5304,7 @@ key arrived before the frame decided to advance, and the frame took the
 iteration itself. Step and `K` now ask, and the frame grants at its end, so the
 loop gets its turn. The wireframe defaults to mode 2 in `(0.01, 0.01, 0.01)`.
 `tpm_logo.py` steps a spin exactly and shows TPM it/s in a HUD. Write-up:
-`2026-10-01_step_key_and_wireframe_defaults.md`.
+`2026-10-01_step_key_and_wireframe_defaults/`.
 
 ## 2026-10-02 — the shipped-examples list frozen, out of `res/`
 
@@ -5313,7 +5313,7 @@ the list of every example released up to v0.5.12 stays only for older
 `examples/` folders, frozen in `src/app/examples-until-v0.5.12.txt`. Its
 generator and test are gone. The root `kalast.app` runs the repository
 (`python -m kalast`), so examples are edited in git directly. See
-`2026-10-01_examples_back_at_the_root.md`.
+`2026-10-01_examples_back_at_the_root/`.
 
 ## 2026-10-02 — v0.5.13 released
 
@@ -5332,7 +5332,7 @@ passed in 26 minutes from a cold cache.
 `examples/sphere/tpm_plot.py` draws the last run of any sphere TPM script,
 which each now saves when it stops (`out/sphere/<script>.npz`, a meridian's
 columns 24 times a spin). Manifests at 0.5.14, `## v0.5.14-beta` opened.
-Write-up: `2026-10-02_sphere_tpm_plot.md`.
+Write-up: `2026-10-02_sphere_tpm_plot/`.
 
 ## 2026-10-05 — the logo's run: a warm start, 30 orbits; float32 freezes graded depths
 
@@ -5343,7 +5343,7 @@ orbit, and the run lasts 30.31 orbits: the surface settles within 0.1 K by the
 10th. Below about 5 m the column does not: float32 rounds away the thick
 layers' steps, and it freezes a few kelvin off its mean. Open: the engine's
 fix -- a compensated sum, a step of their own for thick layers, or float64 --
-the user's call. Write-up: `2026-10-05_tpm_logo_convergence.md`.
+the user's call. Write-up: `2026-10-05_tpm_logo_convergence/`.
 
 ## 2026-10-06 — a `Ground` carries its remainder: graded columns settle
 
@@ -5354,7 +5354,7 @@ now carries what each step leaves over (Kahan), in the layers whose steps are
 under 1/16 of the differences around them, measured every 64 steps: the logo
 settles to within 0.1 K at every depth; graded steps cost 5-16 % more, equal
 layers nothing. Chosen by the user over float64. Write-up:
-`2026-10-05_tpm_logo_convergence.md`, "6 October".
+`2026-10-05_tpm_logo_convergence/`, "6 October".
 
 ## 2026-10-06 — the image's mirrors; a pinned image size that holds
 
@@ -5364,7 +5364,7 @@ for an instrument whose images are stored mirrored -- TIRI's browse images are,
 gizmo follow; with one mirror on, the scene pass culls the other side.
 `image.width`/`height` now hold in the editor and from a plain window's first
 frame: both had been ignored, and exports came out at the window's Retina size.
-Write-up: `2026-10-06_image_flip_and_pinned_size.md`.
+Write-up: `2026-10-06_image_flip_and_pinned_size/`.
 
 ## 2026-10-06 — the Selection header crashed the UI app
 
@@ -5387,7 +5387,7 @@ uses the curve's own formula, not a 2.2 power: `srgb_mode = 1` stores a lit
 image's value exactly, I/F = value / 255 (a lit 0.078 had come out 0.047);
 `shading.gamma` unset by default. Open: Hapke in the shader, after the user
 tries the normal albedo. Write-up:
-`2026-10-07_msaa_counts_and_overlay_antialiasing.md`.
+`2026-10-07_msaa_counts_and_overlay_antialiasing/`.
 
 ## 2026-10-07 — albedo maps for Mars and Deimos, tried on AFC 12:08:31
 
@@ -5451,7 +5451,7 @@ the instance buffer, a lean shader build -- halving it. GPU span at p10: 1.6
 ms far, 4 ms at closest approach; the medians, 4-9 ms, are other apps' GPU
 work, which stalls even a 10k-facet scene. Open: horizon maps for the
 terrain's own shadows, averaged attributes per simplified triangle.
-Write-up: `2026-10-07_chunked_lod.md`.
+Write-up: `2026-10-07_chunked_lod/`.
 
 ## 2026-10-07 — the Sun as a disc; MSAA averaging stored values
 
@@ -5847,7 +5847,7 @@ The ray-tracing half is on `main`: rays for the shadows (`shadows.rays`),
 the reference image (`reference.enabled`) with bounces, compaction, the
 presets row, the crash at 16384 fixed. None of it has run on Metal. What to
 try first on the M1 Pro, the Metal risks, and what is open:
-`2026-10-12_HANDOFF_ray_tracing_to_laptop.md`.
+`2026-10-12_HANDOFF_ray_tracing_to_laptop/`.
 
 ## 2026-10-12 — ray tracing on Metal (M1 Pro)
 
@@ -6187,7 +6187,7 @@ how the lit image is stored, by name: `"screen"`, the default, or
 `app.config.update_betas` offers the newest beta too, beside the releases;
 the app tab's Updates section lists every version GitHub has and installs
 the one chosen, older ones too; `kalast --update --beta`, `--update 0.5.12`,
-`--versions`. Write-up: `2026-10-14_updates_betas_and_versions.md`. Open: a
+`--versions`. Write-up: `2026-10-14_updates_betas_and_versions/`. Open: a
 downgrade run end to end from a bundle.
 
 ## 2026-10-14 — `app.step()` waits out a slow first frame

@@ -1,0 +1,156 @@
+# Handoff, 2 September 2026 — home desktop to work laptop
+
+**Status: unfinished, paused mid-task.** Written to be merged with the same
+day's laptop work and picked up later. Nothing here is blocked on anything;
+the open items are listed at the end.
+
+Continues `2026-09-01_HANDOFF/`. Machine numbers are in
+`2026-09-01_machine_comparison/`.
+
+## Phase 2: output usable, run never completed
+
+Nothing is running now. The segment was run twice on the desktop and **neither
+run reached the end**, for the same reason both times -- a deadlock four steps
+from the finish, fixed in `7d1aead`:
+
+incrementing past the last step lands on 1,310, a multiple of `VF_EVERY`, so a
+view-factor rebuild was started that nothing would read. `before_render` then
+returned early because `step > n_steps`, skipping the `vf.request` that is the
+only thing advancing the builder, while `after_render` returned while
+`vf.busy` and never reached `save()`. Full-CPU spin, indefinitely.
+
+The signature is the log stopping after `view factors ready at step 1,305`
+with the process alive and busy. **The first run was assumed lost to the
+window being closed; it had already deadlocked at the same point** and would
+not have completed either way.
+
+**The output survived the second time**, because snapshots are now written as
+they are taken rather than held to the end:
+
+| | |
+|---|---|
+| snapshots | **262 / 262**, spanning the full 20.28 h |
+| epoch frames | both bodies, at **+18.76 s** from 05:36 UTC |
+| values | all finite; Didymos 87-350 K, Dimorphos 120-379 K |
+| missing | `history.csv`, and the final column state |
+
+In `out/hera_didymos/phase2_mutual_heat_mutual/` (gitignored, desktop only).
+
+**This unblocks the TIRI product**: `tiri_fits.py` reads only
+`{body}/tsurf_at_epoch.npy`, which is present and validated. The two missing
+files matter only for diagnostics and for continuing the segment further.
+
+A re-run is ~5.5 h and now has checkpointing, so it would resume rather than
+restart. Not needed for the data product.
+
+## Phase 1 states, if the laptop needs them
+
+Regenerated here on the re-cut meshes, so they are *not* the states the laptop
+had. `out/` is gitignored, so they did not travel — regenerate rather than
+assume, it is minutes on a GPU:
+
+| state | mesh | steps | rate |
+|---|---|---|---|
+| `didymos_tpm_3orbit_v2` | **100k** | 3,243,534 | 0.06 ms/step, ~3 min |
+| `dimorphos_tpm_v2` | 10k | 644,850 | 0.04 ms/step, ~25 s |
+| `didymos_tpm_3orbit` | 10k | 3,243,534 | 0.03 ms/step, ~110 s |
+
+Two traps the previous handoff did not mention, both of which cost time here:
+
+- **Phase 1's `OUT` does not match phase 2's `RESTART`.** Phase 1 writes
+  `{body}_tpm`; phase 2 wants `didymos_tpm_3orbit_v2` and `dimorphos_tpm_v2`.
+  Those names exist only in phase 2's `RESTART` dict, so set `OUT` by hand.
+- **Didymos's phase 1 must run on the 100k mesh**, not the 10k one `tpm.py`
+  names. Phase 2 loads Didymos at 100k and hard-checks facet count and mesh
+  sha256 against the restart state. `heating_preflight.py` separately wants
+  10k states under the non-`_v2` names, so all three above are needed.
+
+Didymos's area-weighted surface mean came out 259.2 K on both 10k and 100k,
+which is a free check that the spin-up is not resolution-sensitive.
+
+## Committed today
+
+- `b571b18` — survive a zero-area resize instead of panicking on minimise.
+  Windows sends `Resized(0, 0)` when a window is minimised and wgpu rejects a
+  zero-area surface with a *panic*. macOS does not, so this never showed up on
+  the laptop; it killed a phase 2 segment at step 105. Minimising now pauses
+  the run and restoring resumes it.
+- `d1462b5` — the HUD says what the view-factor rebuild is doing, on its own
+  line, because a single line overflowed a 512 px window and was clipped.
+- `4c03449` — why shrinking `VF_CHUNK` is *not* the fix for the frozen window.
+- `e6677f1` — phase 2 snapshots written as they are taken, and the HUD says
+  when it is safe to close.
+- `b321951` — resumable checkpoints, and `Config::export_hud`.
+- `7d1aead` — stop phase 2 deadlocking itself after the last step.
+
+### Two of those are unverified
+
+`b321951` compiles and nothing more:
+
+- **`export_hud` is not installed.** It was written while phase 2 held
+  `kalast/_rs.pyd` open, so `maturin develop` could not overwrite it and only
+  `cargo build --release --lib` was run. Nothing holds the file now, so a
+  plain `maturin develop --release` will install it. Then check it visually --
+  export one frame each way and diff -- before relying on it.
+- **The checkpoint resume path has never been exercised.** The writing side is
+  straightforward; the reading side restores columns, epoch frame, history and
+  both counters, and has not once been run. Test it deliberately: start a run,
+  let it pass step 100, kill it, restart, and confirm it prints
+  `resuming from checkpoint at step ...` and continues rather than restarting.
+
+Do not assume either works because it is committed.
+
+## What the two failed runs actually taught
+
+The first run was diagnosed as "lost because the window was closed at step
+1,305". That was wrong, and worth recording because the wrong diagnosis was
+plausible and self-consistent: the window *had* been closed at that point, and
+nothing had been written. The deadlock above is the real reason it stopped
+there, and the second run proved it by reaching exactly the same step
+untouched.
+
+Three distinct problems were tangled together, and each needed its own fix:
+
+1. Snapshots accumulated in memory and written only at the end -- so a failure
+   anywhere destroyed everything. Fixed in `e6677f1`.
+2. The HUD read `1,305/1,309` with no indication work remained. Fixed in
+   `e6677f1`; the run now says `keep open -- closes itself when finished`.
+3. The deadlock that stopped it at 1,305 in the first place. Fixed in
+   `7d1aead`, and only findable once (1) stopped destroying the evidence.
+
+The lesson worth carrying: on this codebase the window *is* the run. There is
+no headless path for anything going through the render loop, so anything that
+stops the event loop stops the physics.
+
+## Doing other work on the laptop
+
+Nothing here blocks the laptop. Points of friction:
+
+- **Paths.** Twelve scripts carry absolute paths; the desktop uses `C:/data`
+  and the laptop `/Users/gregoireh/data`. Those edits are deliberately never
+  committed (see `CLAUDE.md`), so a pull will not disturb the laptop's copies.
+  `local_paths.toml` on each machine records the substitution.
+- **The desktop's GPU is free** -- nothing is running there now.
+- **`C:/data/hera` does not exist on the desktop**, so the TIRI band response
+  and the Mars-swingby image lists are missing there. `tiri_fits.py`,
+  `tiri_movie.py` and `analytical/backends.py` cannot run on the desktop at
+  all. They can on the laptop. **Worth copying `hera/tiri/response.csv` to the
+  desktop while both machines are reachable.**
+
+## Open, for whoever picks this up
+
+In rough order of how much they block:
+
+1. **Install and verify `export_hud`** -- `maturin develop --release`, then
+   export a frame each way and diff. Committed but never installed.
+2. **Exercise the checkpoint resume path.** Start a run, pass step 100, kill
+   it, restart, confirm it prints `resuming from checkpoint at step ...`.
+   Never once run.
+3. **Output path mismatch downstream.** Phase 2 writes
+   `phase2_mutual_heat_mutual`; `tiri_fits.py:69` and `tiri_movie.py:41` both
+   hardcode `out/hera_didymos/phase2_mutual`. One line each, but they will
+   fail confusingly until changed.
+4. **Copy `hera/tiri/response.csv` to the desktop** while both machines are
+   reachable, or the TIRI product can only be built on the laptop.
+5. **Optional: re-run phase 2** for `history.csv` and the final column state.
+   ~5.5 h, now resumable, and not needed for the data product.

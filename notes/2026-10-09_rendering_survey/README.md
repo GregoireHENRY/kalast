@@ -711,7 +711,7 @@ APL's LunarShader applies a sigmoid to a centre ray [34].
 22. Roberts, "The Unreasonable Effectiveness of Quasirandom Sequences", 2018. https://extremelearning.com.au/?p=71
 23. Epic, "Cinematic Rendering Image Quality Settings" (Movie Render Queue). https://dev.epicgames.com/documentation/en-us/unreal-engine/cinematic-rendering-image-quality-settings-in-unreal-engine
 24. Brochard et al., "Scientific image rendering for space scenes with the SurRender software", IAC 2018, arXiv:1810.01423. https://arxiv.org/pdf/1810.01423
-25. kalast, `notes/2026-10-07_msaa_counts_and_overlay_antialiasing.md` (local probe on the M1 Pro).
+25. kalast, `notes/2026-10-07_msaa_counts_and_overlay_antialiasing/` (local probe on the M1 Pro).
 26. wgpu-hal 30.0.1, `src/metal/adapter.rs` (local crate source, sample-count mask).
 
 ### Takeaways for kalast

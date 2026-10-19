@@ -1,6 +1,6 @@
 # 2026-10-12 — ray tracing on Metal (M1 Pro)
 
-The home PC's handoff (`2026-10-12_HANDOFF_ray_tracing_to_laptop.md`): none of
+The home PC's handoff (`2026-10-12_HANDOFF_ray_tracing_to_laptop/`): none of
 the ray tracing had run on Metal. Pulled, built, tried on the work laptop
 (M1 Pro, macOS 26.4.1, Metal, no ray-tracing hardware: Apple's driver
 traverses in shader code).

@@ -2,7 +2,7 @@
 
 The number that decides whether Brož's polygonal partial-shadowing algorithm
 is worth implementing here -- see
-`notes/2026-09-10_polygonal_shadowing_assessment.md`, which argued from the
+`notes/2026-09-10_polygonal_shadowing_assessment/`, which argued from the
 mechanism that it was disqualifying for photometry without measuring it.
 
 `facet_shadow` samples 4 points per facet (three vertices and the centroid),

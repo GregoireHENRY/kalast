@@ -124,7 +124,7 @@ pub const DEPTH_CLEAR: f32 = 0.0;
 /// Its projection is orthographic, so stored depth is linear in view-space z
 /// and precision is already uniform over the range -- reversing it would buy
 /// nothing. Against that, the biases in `mesh_shadow.wgsl` are calibrated
-/// against this sense (`notes/2026-09-08_shadow_bias.md`) and the per-facet
+/// against this sense (`notes/2026-09-08_shadow_bias/`) and the per-facet
 /// query (`cs_facets`) reads the maps with the same comparison, so flipping it
 /// would move the illumination the thermophysical model runs on in exchange
 /// for no precision at all.
@@ -696,7 +696,7 @@ fn attr_group(
 /// 32 bytes a vertex, 830 MB for a 3M-facet model -- and then staged whole
 /// again by `create_buffer_init`, so the first frame cost 2.3 GB of transient
 /// RAM for the Didymos pair. Written in slices this size, the transient is one
-/// slice: 23 MB. `notes/2026-09-18_memory_meshes_and_shadow_maps.md`.
+/// slice: 23 MB. `notes/2026-09-18_memory_meshes_and_shadow_maps/`.
 const UPLOAD_CHUNK: usize = 1 << 18;
 
 /// Fill `buffer` with `n` elements produced a slice at a time.

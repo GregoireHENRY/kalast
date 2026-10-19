@@ -275,7 +275,7 @@ pub struct ShadowFit {
 /// straddling a shadow edge, which report partial occlusion rather than
 /// none.
 ///
-/// See `notes/2026-09-08_shadow_bias.md` for the sweep.
+/// See `notes/2026-09-08_shadow_bias/` for the sweep.
 pub const BIAS_SCALE_FACTOR: Float = 1.0;
 
 /// Floor, in units of one texel's depth, for surfaces facing the light

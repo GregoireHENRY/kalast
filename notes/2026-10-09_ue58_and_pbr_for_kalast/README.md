@@ -18,7 +18,7 @@ announced for the end of 2027, with no rendering technique named.
 | Nanite | Cluster DAG, GPU culling, a visibility buffer, software raster of small triangles with 64-bit atomics | The LOD patch tree, cut per view and per shadow layer on the CPU | GPU culling into one indirect draw; the software raster needs 64-bit atomics, which the M1 Pro lacks. kalast's frames are GPU-bound (Didymos pair 1.8 ms GPU of 1.9) |
 | Lumen | Real-time GI: screen traces, distance fields, a surface cache, temporally filtered | None in the image | Not as such: biased and history-dependent. Light bounced into shadowed craters from radiosity over the TPM's view factors, or path traced (the ray tracing handoff) |
 | MegaLights | Many lights, sampled stochastically, ray traced, denoised | One light | Nothing |
-| Hardware RT, Path Tracer | Inline ray queries; a separate unbiased progressive reference with jittered samples, TAA off | Being started on the home PC (`2026-10-09_HANDOFF_ray_tracing.md`) | The template for `quality = "reference"` |
+| Hardware RT, Path Tracer | Inline ray queries; a separate unbiased progressive reference with jittered samples, TAA off | Being started on the home PC (`2026-10-09_HANDOFF_ray_tracing/`) | The template for `quality = "reference"` |
 | TSR | Temporal upscaling and antialiasing from history | MSAA 1/2/4, overlay antialiasing | Not for exports (history, not reproducible); for interactive use MSAA plus SMAA or FXAA, about 1 ms |
 | Substrate | Layered materials | Reflectance laws per body | Nothing |
 
