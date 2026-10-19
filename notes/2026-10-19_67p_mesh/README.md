@@ -49,3 +49,19 @@ On 100 tiles at 0.5 m and SHAP7 around them, `compose` took 2.6 s for
 text, 20 GB. `compose` over all of it at once would hold some 20 GB of
 tiles: it runs region by region, each region's facets kept, the regions
 meeting cell for cell since each sees every tile over its border.
+
+## A first drawing, and smooth shading
+
+A held-out OSIRIS image (N20141001T025452, 18.2 km, 0.34 m a pixel, phase
+95 deg) drawn by `comet67p_shadows_fit`'s `tiles` mesh -- SHAP7-4M with the
+180 tiles it sees -- beside the image (`preview.py`):
+
+![The image, the tiles drawn flat, the tiles drawn smooth](first_render_flat_vs_smooth.png)
+
+Drawn flat (the middle), each 0.5 m cell's two triangles take their own
+normals, 1.5 pixels across here: stripes along the diagonals. The OBJ that
+`shap7` loads is smoothed; the tiles' mesh, made by `Mesh.from_arrays`,
+was not -- `smooth=True` (the right) draws them alike. The large forms are
+the image's; its long shadows are not all there, which is SHAP7's relief
+(the tiles keep it above 2.5 m) or the drawing -- SHAP7 in full, drawn the
+same way, will tell.
