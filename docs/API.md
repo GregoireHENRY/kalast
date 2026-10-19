@@ -1961,7 +1961,7 @@ for the method, its checks on synthetic terrain and on comet 67P.
 ### A whole body in maplets
 
 ```python
-from kalast.shape import Surface, choose, compose
+from kalast.shape import Surface, choose, compose, pointing
 
 surface = Surface(vertices, indices)                 # rays against the shape model
 points, normals, areas = surface.samples(0.02)       # a point a 20 m cube
@@ -1969,6 +1969,7 @@ flags, scale, incidence, emission = surface.sees(points, normals, position, axes
 tiles = Surface.tiles(points, normals, areas, finest, size=241, overlap=0.2)   # (m, 7): centre, normal, spacing
 taken = choose(scales, suns, views, seen=None, cap=70)                         # a tile's images
 valid = surface.mask(maplet, view, margin=0.003)     # what the rest of the body hides or shadows
+fit, behind, offsets, residuals = pointing(positions, axes, focal, centres, normals, image, tile, shift, weight, offset_sigma=0.01)
 vertices, indices, albedo = compose(vertices, indices, maplets, spacing=0.0)
 ```
 
@@ -1980,8 +1981,11 @@ vertices, indices, albedo = compose(vertices, indices, maplets, spacing=0.0)
 | `Surface.tiles(points, normals, areas, finest, size=241, overlap=0.2)` | maplets over the samples, each at the finest spacing its samples allow (`finest`, not a number where none): finest first, laid as a lattice grows over the surface until every sample is on one -- facing within 60 deg of its normal, not under an overhang |
 | `choose(scales, suns, views, seen=None, cap=70, angle=10 deg, ratio=1.5)` | a maplet's images, as MPCD keeps them: finest first, each only if it differs from those taken by `angle` of Sun or view, `ratio` of scale, or the ground it sees |
 | `surface.mask(maplet, view, margin=0.0)` | the view's pixels showing the maplet as its grid can tell it: false where the rest of the surface hides or shadows it, and `margin` around; for `View`'s `valid` |
+| `pointing(positions, axes, focal, centres, normals, image, tile, shift, weight, offset_sigma, huber=3.0, iterations=25)` | each image's pointing from its registrations in many maplets: every shift (`ViewReport.shift`) fitted at once as the image's pointing and the maplet's offset on the ground, as SPC fixes pointing from the whole surface. Cameras as `View` takes them, `focal` a number or one each; maplets by centre and normal; one row a registration. Returns `(pointing (n, 2) pixels to add to each camera's centre, behind (n,) registrations each rests on, offsets (m, 2), residuals (p,))`. 0.3 s for 312k registrations |
 | `compose(vertices, indices, maplets, spacing=0.0)` | the shape model with the maplets in it, one mesh: each point the finest maplet's over it, then the one it is most in the middle of; `spacing` draws them coarser, for an image that sees no more. Returns `(vertices, indices, albedo)` |
 
 `kalast.mesh.Mesh.from_arrays(vertices, indices)` makes the composed mesh
 a body's, for `sim.add_mesh`. `examples/comet67p_tiles/` lays and solves the
-whole of comet 67P this way; `notes/2026-10-15_67p_tiles/` has how.
+whole of comet 67P this way -- a first pass, each image registered on its
+own; `pointing`; a second, each image's pointing held -- and
+`notes/2026-10-15_67p_tiles/`, `2026-10-16_67p_second_pass/` have how.

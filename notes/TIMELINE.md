@@ -6386,3 +6386,39 @@ tiles with a window cut (at most 1,065); for Eli, the albedo. The
 comparison with Scheirich et al.'s table was re-run: before the impact
 DART's primary eclipses 0.36 of its depth, the secondary 0.93; after it,
 its depths.
+
+## 2026-10-19 — The 67P example in two passes, its pointing fit in kalast; Didymos's plots explained; every note a folder
+
+**67P.** `kalast.shape.pointing` (Rust): each image's pointing and each
+maplet's offset fitted to every registration at once, as SPC fixes
+pointing -- Friday's fit to print precision, 312,583 registrations in 0.3 s.
+`examples/comet67p_tiles` now runs it: `fetch`, `first` (the 241-point
+tiles, each image registered on its own), `pointing`, `second` (every tile,
+each image's pointing held), `score`; a plan of 7,364 tiles (6,332 of 241
+points, 1,032 of 121 where the surface turns), each with its size and
+SHAP7's relief under it, so that `fetch` keeps every line a tile needs.
+Checked end to end against Friday's run: the first pass bit-identical on 29
+of 30 tiles, the pointing within 0.025 px at the median. Placing the second
+pass's tiles by the fitted offset, or at random, or not at all moves a
+range's held-out mean by up to 0.016 and on another by nothing: no
+information in the offset; the example keeps the plan's centre.
+Write-up: `2026-10-19_67p_example_two_passes/`.
+
+**Didymos.** Questions on Eli's plots (`2026-10-19_didymos_questions/`):
+Dimorphos's shadow grazes Didymos's **north** pole in 2022 -- the Sun 11-12
+deg and Earth 27-43 deg south of its equator -- where DART's Didymos is
+flatter (pole at 0.267 km, the spheroid's 0.296) and takes 3-4 times less
+light; the earlier notes had the southern cap, corrected. kalast's rotation
+runs 10-12 min ahead of the data on 2022-09-12 and 09-14 and is in step
+around the encounter; 09-04's 0.09 mag dip is in the data but no eclipse.
+The plots' green curve is now kalast's rotation shifted and scaled to each
+night.
+
+**Notes.** Friday's work moved into Friday's folders
+(`2026-10-16_67p_second_pass/`, `2026-10-16_didymos_every_day/`); every
+single-file note made a folder, `notes/<name>/README.md`, and the 199
+references to them rewritten.
+
+Open: the final set of 67P tiles for `compose`; the Mac's tiles with a
+window cut; for Eli, the albedo, 09-04's comparison stars, the north polar
+shape from the primary eclipses.

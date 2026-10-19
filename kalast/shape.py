@@ -10,4 +10,5 @@ from kalast._rs.shape import (  # noqa
     Surface,
     compose,
     choose,
+    pointing,
 )

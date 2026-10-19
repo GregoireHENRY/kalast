@@ -73,6 +73,7 @@ mod compose;
 mod direct;
 mod grid;
 mod maplet;
+mod pointing;
 #[cfg(feature = "python")]
 pub(crate) mod py;
 mod solve;
@@ -81,6 +82,7 @@ mod view;
 
 pub use compose::compose;
 pub use maplet::Maplet;
+pub use pointing::{pointing, Camera, Pointing, Registration};
 pub use solve::{Options, Report, ViewReport};
 pub use surface::{choose, plan, Samples, Seen, Surface, Tile, FACING, IN_FRAME, LIT, SEEN};
 pub use view::View;

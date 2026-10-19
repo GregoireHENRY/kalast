@@ -337,12 +337,14 @@ Look at [res/README.md](../res/README.md) to get Hera data.
 - [comet67p_tiles](comet67p_tiles): comet 67P whole, in tiles at the
   finest spacing its images allow. Its [README](comet67p_tiles/README.md)
   says where to get the data.
-    - [comet67p_tiles/main.py](comet67p_tiles/main.py): the 6,489 tiles of
+    - [comet67p_tiles/main.py](comet67p_tiles/main.py): the 7,364 tiles of
       [tiles.csv](comet67p_tiles/tiles.csv) over SHAP7, at 0.5, 1 or 2 m,
-      each solved from up to 70 of the 5,315 images of
+      each solved from up to 70 of the 5,334 images of
       [images.csv](comet67p_tiles/images.csv) -- the lines each needs
-      fetched (`fetch`), several tiles at once (`solve`), scored on eight
-      held-out days (`score`); any range of tiles, resumable.
+      fetched (`fetch`), a first pass with each image registered on its
+      own (`first`), each image's pointing from all of them (`pointing`),
+      every tile again with it held (`second`), scored on eight held-out
+      days (`score`); any range of tiles, resumable.
 
 ## Examples that worked but not ready for users
 

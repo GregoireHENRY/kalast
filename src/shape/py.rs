@@ -747,3 +747,82 @@ pub fn choose(
     let seen = seen.map(|s| s.into_iter().map(|mut x| { x.sort_unstable(); x }).collect::<Vec<_>>());
     Ok(super::choose(&scales, &unit(suns), &unit(views), seen.as_deref(), cap, angle, ratio))
 }
+
+/// Each image's pointing, from its registrations in many maplets: every
+/// maplet's shift in every image fitted at once as the image's pointing and
+/// the maplet's offset on the ground (`s = P + J o`), as SPC fixes an
+/// image's pointing from all the surface. Cameras: `positions` `(n, 3)`,
+/// `axes` `(n, 3, 3)` by rows as a `View`'s, `focal` a number or `(n,)`.
+/// Maplets: `centres` and `normals` `(m, 3)`. Registrations: `image`,
+/// `tile` `(p,)` indices into those, `shift` `(p, 2)` as a `ViewReport`'s,
+/// `weight` `(p,)`. `offset_sigma`, in the surface's unit, how far a
+/// maplet may move for one pixel of residual; `huber`, pixels, past which
+/// a residual weighs as its square root. Gives `(pointing (n, 2) pixels
+/// to add to each camera's centre, behind (n,) registrations each image's
+/// rests on, offsets (m, 2), residuals (p,))`.
+#[pyfunction]
+#[pyo3(signature = (positions, axes, focal, centres, normals, image, tile, shift, weight, offset_sigma, huber=3.0, iterations=25))]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+pub fn pointing<'py>(
+    py: Python<'py>,
+    positions: PyArrayLike2<'_, f64, AllowTypeChange>,
+    axes: numpy::PyArrayLike3<'_, f64, AllowTypeChange>,
+    focal: &Bound<'py, PyAny>,
+    centres: PyArrayLike2<'_, f64, AllowTypeChange>,
+    normals: PyArrayLike2<'_, f64, AllowTypeChange>,
+    image: numpy::PyArrayLike1<'_, i64, AllowTypeChange>,
+    tile: numpy::PyArrayLike1<'_, i64, AllowTypeChange>,
+    shift: PyArrayLike2<'_, f64, AllowTypeChange>,
+    weight: numpy::PyArrayLike1<'_, f64, AllowTypeChange>,
+    offset_sigma: f64,
+    huber: f64,
+    iterations: usize,
+) -> PyResult<(Bound<'py, PyArray2<f64>>, Bound<'py, PyArray1<i64>>, Bound<'py, PyArray2<f64>>, Bound<'py, PyArray1<f64>>)> {
+    let positions = vectors(positions, "positions")?;
+    let axes = axes.as_array();
+    if axes.shape() != [positions.len(), 3, 3] {
+        return Err(err(format!("axes are {:?} for {} cameras: (n, 3, 3)", axes.shape(), positions.len())));
+    }
+    let focal: Vec<f64> = match focal.extract::<f64>() {
+        Ok(f) => vec![f; positions.len()],
+        Err(_) => focal.extract::<Vec<f64>>().map_err(|_| err("focal is a number or (n,)".into()))?,
+    };
+    if focal.len() != positions.len() {
+        return Err(err(format!("{} focal lengths for {} cameras", focal.len(), positions.len())));
+    }
+    let cameras: Vec<super::Camera> = (0..positions.len())
+        .map(|k| {
+            let row = |r: usize| V3::new(axes[[k, r, 0]], axes[[k, r, 1]], axes[[k, r, 2]]);
+            super::Camera { position: positions[k], axes: M3::from_cols(row(0), row(1), row(2)).transpose(), focal: focal[k] }
+        })
+        .collect();
+    let (centres, normals) = (vectors(centres, "centres")?, vectors(normals, "normals")?);
+    if centres.len() != normals.len() {
+        return Err(err(format!("{} centres, {} normals", centres.len(), normals.len())));
+    }
+    let tiles: Vec<(V3, V3)> = centres.into_iter().zip(normals).collect();
+    let (image, tile, weight) = (image.as_array(), tile.as_array(), weight.as_array());
+    let shift = shift.as_array();
+    let p = image.len();
+    if tile.len() != p || weight.len() != p || shift.shape() != [p, 2] {
+        return Err(err(format!("{p} images, {} tiles, {} weights, shifts {:?}: all (p,), shifts (p, 2)", tile.len(), weight.len(), shift.shape())));
+    }
+    let mut registrations = Vec::with_capacity(p);
+    for i in 0..p {
+        let (k, t) = (image[i], tile[i]);
+        if k < 0 || t < 0 {
+            return Err(err(format!("registration {i}: image {k}, tile {t}")));
+        }
+        registrations.push(super::Registration { image: k as usize, tile: t as usize, shift: [shift[[i, 0]], shift[[i, 1]]], weight: weight[i] });
+    }
+    let fit = py
+        .detach(|| super::pointing(&cameras, &tiles, &registrations, offset_sigma, huber, iterations))
+        .map_err(err)?;
+    let two = |v: &[[f64; 2]]| PyArray1::from_vec(py, v.iter().flatten().copied().collect()).reshape([v.len(), 2]).expect("n x 2");
+    Ok((
+        two(&fit.images),
+        PyArray1::from_vec(py, fit.behind.iter().map(|&b| b as i64).collect()),
+        two(&fit.offsets),
+        PyArray1::from_vec(py, fit.residuals),
+    ))
+}

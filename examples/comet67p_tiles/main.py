@@ -1,18 +1,21 @@
 #!/usr/bin/env python
 """Comet 67P whole, finer than its shape model where its images allow:
-Preusker et al.'s SHAP7 under 6,489 tiles of 241 x 241 points, each at the
-finest spacing -- 0.5, 1 or 2 m -- that five of Rosetta's OSIRIS NAC images
-resolve, solved by kalast.shape from up to 70 of the images that see it
-(`tiles.csv`, `images.csv`). Eight days of images are left out of every
-tile, to score it on.
+Preusker et al.'s SHAP7 under 7,364 tiles, each at the finest spacing --
+0.5, 1 or 2 m -- that five of Rosetta's OSIRIS NAC images resolve, solved
+by kalast.shape from up to 70 of the images that see it (`tiles.csv`,
+`images.csv`): 6,332 of 241 x 241 points, and 1,032 of 121 where the
+surface turns too much for a larger one. Eight days of images are left out
+of every tile, to score it on.
 
-    python main.py fetch [A B]   # the lines of each image tiles A to B need
-    python main.py solve [A B]   # tiles A to B, several at once
-    python main.py score [A B]   # each solved tile on the held-out images that see it
+    python main.py fetch [A B]    # the lines of each image tiles A to B need
+    python main.py first [A B]    # the 241-point tiles, each image registered on its own
+    python main.py pointing       # each image's pointing, from all the first pass's tiles
+    python main.py second [A B]   # every tile again, each image's pointing held
+    python main.py score [A B]    # each tile on the held-out images that see it
 
 Tiles A, A+1, ..., B-1: all of them by default. Each step keeps what it made
 and starts again where it stopped. The whole comet: 30 GB of image lines,
-and a day of solving on an M1 Pro.
+and two days of solving on an M1 Pro.
 """
 
 import collections
@@ -29,7 +32,7 @@ import spiceypy as spice
 from scipy import ndimage
 
 from kalast.scattering import Hapke
-from kalast.shape import Maplet, Surface, View
+from kalast.shape import Maplet, Surface, View, pointing
 from kalast.util import RPD
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -47,7 +50,6 @@ WORKERS = 5  # tiles solved at once: each takes one to two cores
 # `hapke-fit` of comet67p_shadows_fit: Hapke's law fitted to 57 NAC images.
 LAW = Hapke(w=0.0356, b=0.276, c=1.0, b0=4.73, h=0.061, theta_bar=24.4 * RPD, k=1.2)
 IFOV = 18.82e-6  # the NAC's pixel, rad
-SIZE = 241
 
 tiles = list(csv.DictReader(open(os.path.join(HERE, "tiles.csv"))))
 images = list(csv.DictReader(open(os.path.join(HERE, "images.csv"))))
@@ -69,12 +71,13 @@ def frame(w):
 
 
 def box(tile):
-    """The corners of a tile's square, a quarter of its width above and below."""
+    """The corners of a tile's square, as low and as high as SHAP7 under it:
+    every point of the tile is inside, so its images' lines are kept whole."""
     c = numpy.array([float(tile[k]) for k in "xyz"])
     w = numpy.array([float(tile[k]) for k in ("nx", "ny", "nz")])
-    half = 0.5 * (SIZE - 1) * float(tile["spacing"])
+    half = 0.5 * (int(tile["size"]) - 1) * float(tile["spacing"])
     u, v = frame(w)
-    return numpy.array([c + a * half * u + b * half * v + e * 0.25 * half * w for a in (-1, 1) for b in (-1, 1) for e in (-1, 1)])
+    return numpy.array([c + a * half * u + b * half * v + e * w for a in (-1, 1) for b in (-1, 1) for e in (float(tile["low"]), float(tile["high"]))])
 
 
 def camera(image):
@@ -194,16 +197,55 @@ if step == "fetch":
     print(f"{len(need)} images, {sum(b - a for a, b in need.values()) * 2048 * 4 / 1e9:.0f} GB of lines at most", flush=True)
     parallel(sorted(need), lambda k: os.path.basename(osiris.fetch_lines(images[k]["dataset"], images[k]["product"], *need[k], LINES)))
 
-if step not in ("fetch", "solve", "score"):
+if step not in ("fetch", "first", "pointing", "second", "score"):
     sys.exit(__doc__)
 
-if step in ("solve", "score"):
+if step == "pointing":
+    # Each image is in dozens of tiles and records its shift in each: its
+    # pointing is what they share, each tile's own offset apart -- fitted to
+    # all of them at once, as SPC and MPCD fix an image's pointing outside
+    # the shape fit (kalast.shape.pointing).
+    names = {r["product"][:16]: int(r["image"]) for r in images}
+    found = sorted(f for f in os.listdir(os.path.join(OUT, "first")) if f.startswith("t") and f.endswith(".npz"))
+    centres, normals, pairs = [], [], []
+    for t, f in enumerate(found):
+        d = numpy.load(os.path.join(OUT, "first", f))
+        centres.append(d["centre"])
+        normals.append(d["axes"][2])
+        for name, used, shift, corr in zip(d["views"], d["used"], d["shift"], d["correlation"]):
+            if used and str(name) in names and numpy.isfinite(shift).all():
+                # Each weighs as its registration's last correlation.
+                pairs.append((names[str(name)], t, *shift, max(float(corr[1]), 0.05)))
+    pairs = numpy.array(pairs)
+    which = sorted(set(pairs[:, 0].astype(int).tolist()))
+    cams = cameras(which)
+    column = {k: i for i, k in enumerate(which)}
+    fit, behind, _, residual = pointing(
+        numpy.array([cams[k]["position"] for k in which]), numpy.array([cams[k]["axes"] for k in which]), 1 / IFOV,
+        numpy.array(centres), numpy.array(normals), [column[int(k)] for k in pairs[:, 0]], pairs[:, 1].astype(int),
+        pairs[:, 2:4], pairs[:, 4], offset_sigma=0.01)
+    numpy.savez(os.path.join(OUT, "pointing.npz"), image=[images[k]["product"][:16] for k in which], pointing=fit, behind=behind)
+    print(f"{len(which)} images' pointing from {len(found)} tiles, {len(pairs)} registrations: "
+          f"residual median {numpy.median(residual):.2f} px, {(residual > 5).mean():.0%} over 5 px -- the wrong locks the second pass is for")
+
+if step in ("first", "second", "score"):
     surface = ply(SHAP7)
     context = Surface(*ply(SHAP7_4M))
-    os.makedirs(os.path.join(OUT, "tiles"), exist_ok=True)
+    for folder in ("first", "second"):
+        os.makedirs(os.path.join(OUT, folder), exist_ok=True)
 
-if step == "solve":
-    todo = [t for t in todo if not os.path.exists(os.path.join(OUT, "tiles", f"t{t:05d}.npz"))]
+if step in ("first", "second"):
+    if step == "first":
+        # Smaller tiles -- where the surface turns -- are too little ground to
+        # register an image on: the second pass solves them, the images'
+        # pointing held.
+        todo = [t for t in todo if int(tiles[t]["size"]) == 241]
+        held = None
+    else:
+        p = numpy.load(os.path.join(OUT, "pointing.npz"))
+        # An image's pointing from three tiles or more.
+        held = {str(n): q for n, q, b in zip(p["image"], p["pointing"], p["behind"]) if b >= 3}
+    todo = [t for t in todo if not os.path.exists(os.path.join(OUT, step, f"t{t:05d}.npz"))]
     cams = cameras({k for t in todo for k in ids(tiles[t]["images"])})
 
     def solve(t):
@@ -211,19 +253,29 @@ if step == "solve":
         s = float(tile["spacing"])
         c = [float(tile[k]) for k in "xyz"]
         w = [float(tile[k]) for k in ("nx", "ny", "nz")]
-        maplet = Maplet.from_surface(*surface, c, SIZE, s, normal=w)
+        maplet = Maplet.from_surface(*surface, c, int(tile["size"]), s, normal=w)
         points = maplet.points().reshape(-1, 3)
-        # Each image's pointing searched 24 spacings on the ground; what the
-        # rest of the comet hides of the tile, or shadows, left out of it.
+        # What the rest of the comet hides of the tile, or shadows, left out
+        # of it.
         reach = 24 * s
         views = []
         for k in ids(tile["images"]):
-            if (found := cut(k, cams[k], points, reach)) is not None:
-                hidden = context.mask(maplet, view(k, cams[k], *found), margin=0.002 + 2 * s)
-                views.append(view(k, cams[k], *found, valid=hidden))
-        report = maplet.solve(views, LAW, iterations=12, levels=2, offset=True, reach=reach, albedo_sigma=0.05, curvature=0.02)
+            cam = cams[k]
+            if held is not None and (q := held.get(images[k]["product"][:16])) is not None:
+                cam = dict(cam, centre=(cam["centre"][0] + q[0], cam["centre"][1] + q[1]))
+            if (found := cut(k, cam, points, reach)) is not None:
+                hidden = context.mask(maplet, view(k, cam, *found), margin=0.002 + 2 * s)
+                views.append(view(k, cam, *found, valid=hidden))
+        if held is None:
+            # Each image's pointing searched 24 spacings on the ground.
+            report = maplet.solve(views, LAW, iterations=12, levels=2, offset=True, reach=reach, albedo_sigma=0.05, curvature=0.02)
+        else:
+            # Each image where its pointing puts it, a few pixels searched,
+            # the tile kept where SHAP7 has it.
+            report = maplet.solve(views, LAW, iterations=12, levels=2, offset=True, reach=0.0, search=3.0, follow=False,
+                                  albedo_sigma=0.05, curvature=0.02)
         r = report.views
-        numpy.savez(os.path.join(OUT, "tiles", f"t{t:05d}.npz"), heights=maplet.heights.astype(numpy.float32),
+        numpy.savez(os.path.join(OUT, step, f"t{t:05d}.npz"), heights=maplet.heights.astype(numpy.float32),
                     albedo=maplet.albedo.astype(numpy.float32), reference=maplet.reference.astype(numpy.float32),
                     centre=maplet.centre, axes=maplet.axes, spacing=s, views=[v.name for v in r], used=[v.used for v in r],
                     shift=[v.shift for v in r], correlation=[v.correlation for v in r], residual=report.residual)
@@ -233,14 +285,14 @@ if step == "solve":
     parallel(todo, solve)
 
 if step == "score":
-    # Each solved tile in up to three held-out images that see it, the
-    # finest: SHAP7 and the solution each registered on the image on its
-    # own, drawn in it, and correlated with it where it shows the tile lit
+    # Each tile of the second pass in up to three held-out images that see
+    # it, the finest: SHAP7 and the solution each registered on the image on
+    # its own, drawn in it, and correlated with it where it shows the tile lit
     # and nothing else hides or shadows it -- at its pixels, and smoothed to
     # half the tile's spacing, the model's own scale.
     scores = os.path.join(OUT, "scores.csv")
     done = {(r["tile"], r["image"]) for r in csv.DictReader(open(scores))} if os.path.exists(scores) else set()
-    solved = [t for t in todo if os.path.exists(os.path.join(OUT, "tiles", f"t{t:05d}.npz"))]
+    solved = [t for t in todo if os.path.exists(os.path.join(OUT, "second", f"t{t:05d}.npz"))]
     cams = cameras({k for t in solved for k in ids(tiles[t]["held"])})
     jobs = []
     for t in solved:
@@ -254,7 +306,7 @@ if step == "score":
 
     def score(job):
         t, k = job
-        d = numpy.load(os.path.join(OUT, "tiles", f"t{t:05d}.npz"))
+        d = numpy.load(os.path.join(OUT, "second", f"t{t:05d}.npz"))
         s, w = float(d["spacing"]), d["axes"][2]
         heights, albedo, reference = d["heights"].astype(float), d["albedo"].astype(float), d["reference"].astype(float)
         models = {"shap7": Maplet(d["centre"], w, s, numpy.where(numpy.isfinite(reference), reference, heights)),

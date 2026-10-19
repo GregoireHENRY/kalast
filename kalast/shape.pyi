@@ -245,4 +245,19 @@ def choose(scales: numpy.ndarray, suns: numpy.ndarray, views: numpy.ndarray, see
     camera. Indices into the candidates, in the order taken.
     """
     ...
+def pointing(positions: numpy.ndarray, axes: numpy.ndarray, focal: object, centres: numpy.ndarray, normals: numpy.ndarray, image: numpy.ndarray, tile: numpy.ndarray, shift: numpy.ndarray, weight: numpy.ndarray, offset_sigma: float, huber: float = ..., iterations: int = ...) -> tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray, numpy.ndarray]:
+    """Each image's pointing, from its registrations in many maplets: every
+    maplet's shift in every image fitted at once as the image's pointing and
+    the maplet's offset on the ground (`s = P + J o`), as SPC fixes an
+    image's pointing from all the surface. Cameras: `positions` `(n, 3)`,
+    `axes` `(n, 3, 3)` by rows as a `View`'s, `focal` a number or `(n,)`.
+    Maplets: `centres` and `normals` `(m, 3)`. Registrations: `image`,
+    `tile` `(p,)` indices into those, `shift` `(p, 2)` as a `ViewReport`'s,
+    `weight` `(p,)`. `offset_sigma`, in the surface's unit, how far a
+    maplet may move for one pixel of residual; `huber`, pixels, past which
+    a residual weighs as its square root. Gives `(pointing (n, 2) pixels
+    to add to each camera's centre, behind (n,) registrations each image's
+    rests on, offsets (m, 2), residuals (p,))`.
+    """
+    ...
 
