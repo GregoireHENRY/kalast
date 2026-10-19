@@ -14,10 +14,17 @@ good tile is, each tile at its own spacing elsewhere.
   5,334 images, the store 27 to 29 GB.
 - [ ] The 1,065 tiles whose image windows had been cut, solved again (second
   pass) and scored again. Their earlier results: `second_cut/`,
-  `scores_cut.csv`.
+  `scores_cut.csv`. 703 solved at 16:48: heights 1.05 m RMS from their
+  first solve at the median (2.8 m at the 90th percentile), the same images
+  used, the same fit to them.
+- [x] The mesh builder (scratch `build_mesh.py`): 32 regions about k-means
+  centres of SHAP7's facets, each `compose`d with every tile reaching it;
+  each region a binary PLY, then the whole. Two regions welded: no facet in
+  both, no edge in three.
+- [x] Walls left to SHAP7: a tile's points over 5 m off SHAP7 (below).
 - [ ] The final set: every tile but those that fail the home PC's test and
   those below SHAP7 on their held-out images.
-- [ ] The mesh, region by region, and previews beside SHAP7.
+- [ ] The mesh, and previews beside SHAP7.
 
 ## What a tile adds
 
@@ -65,3 +72,29 @@ was not -- `smooth=True` (the right) draws them alike. The large forms are
 the image's; its long shadows are not all there, which is SHAP7's relief
 (the tiles keep it above 2.5 m) or the drawing -- SHAP7 in full, drawn the
 same way, will tell.
+
+## Walls: a tile's points far off SHAP7 left to it
+
+Region 24 drawn from above under a low Sun (`region_view.py`, kalast's
+rays) has combs on a cliff, tall thin triangles side by side; turning the
+Sun 25 deg does not turn them, so they are the mesh's. The tiles there, of
+121 points at 1 and 2 m where the surface turns, run 30 to 90 m off SHAP7
+along the walls: a height field cannot follow a wall near square to its
+plane, and SHAP7's facets farther than `compose`'s depth from a tile (8 to
+26 m) are not its, so they stay too -- two surfaces.
+
+Over the second pass's 6,970 tiles, each tile's farthest point off SHAP7:
+3.7 m at the median, 17.5 m at the 90th percentile, 50 m at the 99th. The
+held-out gain falls with it, +0.23 under 10 m, +0.19 at 10-20 m, +0.16 at
+20-40 m, +0.11 over 40 m. The tiles keep SHAP7's relief above 2.5 m
+(above), so a point over 5 m off it is not the finer relief they add: those
+points, and two more all round, are SHAP7's -- their reference set unknown,
+which `compose` reads as no tile there. 1.3 % of the tiles' ground, in
+2,736 tiles; the combs go:
+
+![A cliff in region 24: SHAP7, the tiles as solved, the tiles with their points over 5 m off SHAP7 left to it](cliff_masked.png)
+
+Drawn with shadow maps instead, much of the region under that 12 deg Sun
+was lit where the rays shadow it. The previews below are drawn with the
+reference; the first drawing above, with maps, may have lost its long
+shadows the same way.
