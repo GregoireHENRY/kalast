@@ -62,8 +62,9 @@ MESHES = {
     # fraction of its memory. Made again for each image.
     "tiles": SHAP7 + "/cg-dlr_spg-shap7-v1.0_4Mfacets.ply",
 }
-# Where ../comet67p_tiles keeps its solved tiles here, for `tiles`.
-TILES = "/Users/gregoireh/data/mesh/67p/tiles/tiles"
+# Where ../comet67p_tiles' solved tiles are here, for `tiles`: its second
+# pass's, those that fail or fall below SHAP7 left out.
+TILES = "/Users/gregoireh/data/mesh/67p/tiles_v2/final"
 # By name, in any order: the UI app passes arguments of its own.
 METHOD = next((a for a in sys.argv if a in ("maps", "rays", "reference")), "maps")
 LAW = next((a for a in sys.argv if a in ("hapke", "hapke-fit", "lambert", "mask")), "hapke")
@@ -138,7 +139,9 @@ def tiled(position, axes, pixel):
             maplets.append(m)
     v, f, _ = compose(vertices, facets, maplets, spacing=pixel)
     print(f"{len(maplets)} tiles in the shape model, {len(f)} facets", flush=True)
-    return Mesh.from_arrays(v, f)
+    # Shaded smoothly, as SHAP7's OBJ is: a cell's two triangles drawn flat
+    # stripe the ground along their diagonal.
+    return Mesh.from_arrays(v, f, smooth=True)
 
 
 def dress():

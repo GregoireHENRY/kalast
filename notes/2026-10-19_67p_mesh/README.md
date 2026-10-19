@@ -12,19 +12,25 @@ good tile is, each tile at its own spacing elsewhere.
   hard links, no copy).
 - [x] Every image's lines fetched whole for its tiles (the relief box):
   5,334 images, the store 27 to 29 GB.
-- [ ] The 1,065 tiles whose image windows had been cut, solved again (second
-  pass) and scored again. Their earlier results: `second_cut/`,
-  `scores_cut.csv`. 703 solved at 16:48: heights 1.05 m RMS from their
-  first solve at the median (2.8 m at the 90th percentile), the same images
-  used, the same fit to them.
+- [x] The 1,065 tiles whose image windows had been cut, solved again (second
+  pass) and scored again; their earlier results in `second_cut/` and
+  `scores_cut.csv`. Nothing to see: heights 1.14 m RMS from their first
+  solve at the median (3.5 m at the 90th percentile), 48.8 images used a
+  tile both times, the same fit to them (0.684, 0.683); on their 1,772
+  held-out pairs, 0.560 then 0.561 against SHAP7's 0.367 and 0.366.
 - [x] The mesh builder (scratch `build_mesh.py`): 32 regions about k-means
   centres of SHAP7's facets, each `compose`d with every tile reaching it;
   each region a binary PLY, then the whole. Two regions welded: no facet in
   both, no edge in three.
 - [x] Walls left to SHAP7: a tile's points over 5 m off SHAP7 (below).
-- [ ] The final set: every tile but those that fail the home PC's test and
-  those below SHAP7 on their held-out images.
-- [ ] The mesh, and previews beside SHAP7.
+- [x] The final set (`tiles_v2/final/`, scratch `select_final.py`): 6,941
+  of the 7,364 tiles -- 408 below SHAP7 on their held-out images and 15
+  that fail the home PC's test left out. Kept, of 241 points: 5,404 at
+  0.5 m, 614 at 1 m, 52 at 2 m; of 121: 478, 350 and 43. Their points over
+  5 m off SHAP7 marked unknown: 1.9 of their 133 km2 (overlaps counted),
+  the most at 2 m, 7 and 11 %, where the ground is roughest.
+- [ ] The mesh: building, 17:47.
+- [ ] Previews beside SHAP7.
 
 ## What a tile adds
 
