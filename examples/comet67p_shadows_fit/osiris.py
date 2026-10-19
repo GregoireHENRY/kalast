@@ -31,6 +31,13 @@ def fetch(dataset, product, folder=DATA, rows=None):
         os.makedirs(folder, exist_ok=True)
         print(f"downloading {product}", flush=True)
         urllib.request.urlretrieve(url, path + ".part")
+        # The archive answers a page of its own when it is down, as if it
+        # were the product.
+        with open(path + ".part", "rb") as f:
+            if f.read(14) != b"PDS_VERSION_ID":
+                f.close()
+                os.remove(path + ".part")
+                raise OSError(f"{url}: not a product -- the archive down?")
         os.replace(path + ".part", path)
     return path
 
