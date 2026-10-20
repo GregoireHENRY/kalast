@@ -207,6 +207,13 @@ class Surface:
         image's own.
         """
         ...
+    def draw(self, view: object) -> numpy.ndarray:
+        """What `view`'s camera sees of the surface, `(height, width)`: 0
+        nothing, 1 the surface unlit -- facing away from the Sun or in a
+        shadow -- 2 lit; a ray through each pixel's middle, the view's image
+        unused. To register an image on the surface by `align`.
+        """
+        ...
     @staticmethod
     def tiles(points: numpy.ndarray, normals: numpy.ndarray, areas: numpy.ndarray, finest: numpy.ndarray, size: int = ..., overlap: float = ...) -> numpy.ndarray:
         """Maplets of `size` points on a side over `samples` `(points, normals,
@@ -222,6 +229,75 @@ class Surface:
         """
         ...
 
+class Hull:
+    """A body's visual hull: its silhouettes in images that show it against
+    the sky, carved into a closed mesh -- the start of a shape model made
+    from images alone.
+
+    `radius`, in the surface's unit: a sphere about the frame's origin the
+    body is inside -- nothing beyond it is the body, which keeps stars and
+    a coma's glow out. `add` each image as a `View`; `mesh` carves them.
+    """
+    def __init__(self, radius: float) -> None:
+        ...
+    radius: float
+    names: list[str]
+    """The views' names, in the order added."""
+    centres: numpy.ndarray
+    """Where each view's boresight falls, `(n, 2)` pixels, as `shift`
+    left it.
+    """
+    def add(self, view: object, threshold: float = ..., within: numpy.ndarray = ...) -> None:
+        """`view`'s silhouette added: what the hull takes of each pixel,
+        `(height, width)` -- 1 the body, or what may be: lit (brighter than
+        `threshold` of the image's lit ground, its 99.5th percentile), or
+        behind lit ground seen from the Sun, the night side and the shadows;
+        -1 the sky; 0 not valid in the view. The body is within the bounding
+        sphere, or with `within`, `(vertices, facets)`, within that closed
+        mesh -- an earlier hull -- widened by `margin`, the surface's unit:
+        what lets a view that does not hold the whole body carve where the
+        sphere runs past its frame.
+        """
+        ...
+    def add_many(self, views: object, threshold: float = ..., within: numpy.ndarray = ...) -> None:
+        """`add` for each of `views`, over the machine's cores: their classes,
+        in order.
+        """
+        ...
+    def shift(self, index: int, dx: float, dy: float) -> None:
+        """View `index`'s pointing moved: `(dx, dy)` pixels added to where its
+        boresight falls, as `align` finds them.
+        """
+        ...
+    def value(self, points: numpy.ndarray, rank: int = ...) -> numpy.ndarray:
+        """The hull's signed distance at `points` `(n, 3)`, in the surface's
+        unit, positive inside: of each view's distance to its silhouette's
+        edge at the point's projection, the `rank`-th least (1 to 8).
+        """
+        ...
+    def mesh(self, size: float, rank: int = ..., relax: int = ...) -> tuple[numpy.ndarray, numpy.ndarray, object]:
+        """The hull as a closed mesh, `(vertices (v, 3), facets (f, 3), report)`:
+        cubes of `size` over the bounding sphere, the surface where `value`
+        crosses zero by marching tetrahedra, its largest piece kept; then
+        `relax` rounds of each vertex moved toward its neighbours' middle
+        across the surface. `rank` 2: one view wrong carves nothing alone.
+        `report`: `cubes` the grid's, `visited` those evaluated, `dropped`
+        the facets of the other pieces, `genus` (0 for a body with no hole
+        through it), `volume`.
+        """
+        ...
+    def __len__(self) -> int:
+        ...
+
+def align(a: numpy.ndarray, b: numpy.ndarray, search: int = ...) -> tuple[tuple[float, float], float]:
+    """The shift that best lays mask `b` on mask `a`, both `(height, width)`:
+    `((dx, dy), share)`, `b` moved by `(dx, dy)` pixels matching `a`, and
+    the share of their union both hold there -- for a surface drawn in an
+    image's geometry (`Surface.draw`) against the image's lit pixels, what
+    to add to the camera's centre. Whole pixels within `search`, then to
+    half a pixel.
+    """
+    ...
 def compose(vertices: numpy.ndarray, indices: object, maplets: object, spacing: float = ...) -> tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]:
     """The shape model `vertices` `(v, 3)`, `indices` `(f, 3)` or flat, with
     `maplets` in it, one mesh: `(vertices, indices, albedo)`. A point of the

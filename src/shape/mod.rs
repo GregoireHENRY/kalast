@@ -72,6 +72,7 @@ mod bvh;
 mod compose;
 mod direct;
 mod grid;
+mod hull;
 mod maplet;
 mod pointing;
 #[cfg(feature = "python")]
@@ -81,6 +82,7 @@ mod surface;
 mod view;
 
 pub use compose::compose;
+pub use hull::{align, classify, Footprint, Hull, HullReport, Silhouette, BODY, SKY, UNKNOWN};
 pub use maplet::Maplet;
 pub use pointing::{pointing, Camera, Pointing, Registration};
 pub use solve::{Options, Report, ViewReport};

@@ -8,6 +8,8 @@ from kalast._rs.shape import (  # noqa
     Report,
     ViewReport,
     Surface,
+    Hull,
+    align,
     compose,
     choose,
     pointing,

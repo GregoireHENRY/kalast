@@ -13,10 +13,19 @@ model to start from.
 ## Progress
 
 - [x] The plan (below).
-- [ ] Silhouette images: 200-300 full NAC frames with the whole nucleus in
-  view, 60-500 km away, phase under 70 deg, from every side; downloaded.
-- [ ] The visual hull in kalast (Rust): the images' silhouettes carved into
-  a closed mesh; checked on a synthetic body first.
+- [ ] Silhouette images: 340 full NAC frames picked, 60-600 km away, phase
+  31-70 deg, from 178 of 180 directions around the nucleus (scratch
+  `select_hull.py`); 336 of them whole frames. Downloading from NASA's
+  Small Bodies Node: ESA's archive went back into maintenance at 16:40,
+  every product answered with its maintenance page.
+- [x] The visual hull in kalast (Rust, `src/shape/hull.rs`):
+  `kalast.shape.Hull` carves the views' silhouettes into a closed mesh by
+  marching tetrahedra; `Surface.draw` and `align` register a view on it.
+  An ellipsoid from 60 synthetic views: volume within 0.1 %, vertices an
+  eighth of a pixel off at the median, genus 0, every edge in two facets.
+  A view that does not hold the whole body carves within an earlier hull
+  (`within`), where the bounding sphere would leave its night side and the
+  sky past its frame alike.
 - [ ] 67P's hull, each image's pointing refined on it; against SHAP7.
 - [ ] Tiles over it, coarse to fine: each image registered on each tile;
   each image's pointing and each tile's place -- its height too, the stereo

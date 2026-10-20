@@ -1989,3 +1989,33 @@ a body's, for `sim.add_mesh`. `examples/comet67p_tiles/` lays and solves the
 whole of comet 67P this way -- a first pass, each image registered on its
 own; `pointing`; a second, each image's pointing held -- and
 `notes/2026-10-15_67p_tiles/`, `2026-10-16_67p_second_pass/` have how.
+
+### A shape from silhouettes: the visual hull
+
+No shape model to start from: the images that show the body against the sky
+say where it is not. Every view's sky carved away, what is left is the
+visual hull -- the body, its concavities filled where no limb crosses them
+-- as one closed mesh, for maplets to dig out.
+
+```python
+from kalast.shape import Hull, Surface, align
+
+hull = Hull(radius=3.0)                              # the body is inside this sphere
+hull.add_many(views, threshold=0.1)                  # a silhouette a View
+vertices, facets, report = hull.mesh(0.020)          # 20 m cubes, closed
+hull2 = Hull(radius=3.0)
+hull2.add_many(views, within=(vertices, facets), margin=0.1)   # views that do not hold the whole body carve too
+drawn = Surface(vertices, facets).draw(view)          # 0 nothing, 1 unlit, 2 lit
+(dx, dy), share = align(view_lit, drawn == 2)         # the view's pointing, in pixels
+hull2.shift(k, dx, dy)
+```
+
+| | |
+|---|---|
+| `Hull(radius)` | an empty hull: nothing beyond `radius` of the frame's origin is the body, which keeps stars and a coma's glow out |
+| `hull.add(view, threshold=0.1, within=None, margin=0.05)`, `hull.add_many(views, ...)` | a view's silhouette, and what it takes of each pixel, `(height, width)`: 1 the body, or what may be -- lit, brighter than `threshold` of the image's lit ground, or behind lit ground from the Sun: the night side, the shadows -- -1 the sky, 0 not valid. `within`, `(vertices, facets)` of an earlier hull widened by `margin`, bounds the body tighter than the sphere: a view that does not hold the whole body cannot tell what lies past its frame toward the Sun otherwise |
+| `hull.mesh(size, rank=2, relax=3)` | the hull, `(vertices, facets, report)`: cubes of `size`, the surface where the views' distances to their silhouettes' edges -- the `rank`-th least, so that one view wrong carves nothing alone -- cross zero, by marching tetrahedra, closed and two-manifold; its largest piece. `report`: `genus`, `volume`, `dropped` |
+| `hull.value(points, rank=2)` | that distance, in the surface's unit, positive inside |
+| `hull.shift(index, dx, dy)`, `hull.centres`, `hull.names` | a view's pointing moved, in pixels |
+| `surface.draw(view)` | what the view's camera sees of a surface, `(height, width)`: 0 nothing, 1 unlit, 2 lit -- a ray a pixel |
+| `align(a, b, search=16)` | the shift, to half a pixel, that lays mask `b` on mask `a` -- a surface drawn in an image's geometry on its lit pixels -- and the share of their union both hold there |

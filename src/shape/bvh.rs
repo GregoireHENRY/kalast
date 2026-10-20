@@ -88,8 +88,7 @@ impl Bvh {
     }
 
     /// The first triangle the ray meets before `far`: its distance and its
-    /// facet in the mesh's order. What the tests check the hierarchy by.
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// facet in the mesh's order.
     pub fn first(&self, origin: V3, dir: V3, far: F, skip: &dyn Fn(u32) -> bool) -> Option<(F, u32)> {
         self.trace(origin, dir, far, false, skip)
     }

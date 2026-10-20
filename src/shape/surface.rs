@@ -240,6 +240,38 @@ impl Surface {
         }
         valid
     }
+
+    /// What `view`'s camera sees of the surface, a ray through each pixel's
+    /// middle: 0 nothing, 1 the surface unlit -- facing away from the Sun
+    /// or in a shadow -- 2 lit. The view's image is not used: for drawing
+    /// the surface as an image would show it, to register one on the other.
+    pub fn draw(&self, view: &View) -> Vec<u8> {
+        let none = |_: u32| false;
+        let inverse = view.axes.transpose();
+        par_map(view.height, |r| {
+            (0..view.width)
+                .map(|c| {
+                    let d = inverse * V3::new((c as F + 0.5 - view.centre[0]) / view.focal, (r as F + 0.5 - view.centre[1]) / view.focal, 1.0);
+                    let d = d.normalize();
+                    let Some((t, f)) = self.bvh.first(view.position, d, F::INFINITY, &none) else {
+                        return 0u8;
+                    };
+                    let tri = self.corners(f as usize);
+                    let n = (tri[1] - tri[0]).cross(tri[2] - tri[0]).normalize_or_zero();
+                    if n.dot(view.sun) <= 0.0 {
+                        return 1;
+                    }
+                    let p = view.position + d * t + n * self.lift;
+                    if self.bvh.blocked(p, view.sun, F::INFINITY, &none) {
+                        1
+                    } else {
+                        2
+                    }
+                })
+                .collect::<Vec<u8>>()
+        })
+        .concat()
+    }
 }
 
 /// Points of a surface in cubes `cell` on a side, to find those near a

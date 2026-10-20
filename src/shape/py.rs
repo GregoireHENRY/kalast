@@ -652,6 +652,16 @@ impl Surface {
         PyArray1::from_iter(py, valid.iter().map(|&b| b != 0)).reshape([v.height, v.width]).expect("image")
     }
 
+    /// What `view`'s camera sees of the surface, `(height, width)`: 0
+    /// nothing, 1 the surface unlit -- facing away from the Sun or in a
+    /// shadow -- 2 lit; a ray through each pixel's middle, the view's image
+    /// unused. To register an image on the surface by `align`.
+    fn draw<'py>(&self, py: Python<'py>, view: PyRef<View>) -> Bound<'py, PyArray2<u8>> {
+        let v = &view.inner;
+        let drawn = py.detach(|| self.inner.draw(v));
+        PyArray1::from_vec(py, drawn).reshape([v.height, v.width]).expect("image")
+    }
+
     /// Maplets of `size` points on a side over `samples` `(points, normals,
     /// areas)` of the surface, each at the finest spacing its images allow
     /// -- `finest`, a sample's, not a number where none does -- overlapping
@@ -687,6 +697,188 @@ impl Surface {
     fn __repr__(&self) -> String {
         format!("Surface({} vertices, {} facets)", self.inner.positions.len(), self.inner.indices.len() / 3)
     }
+}
+
+/// A body's visual hull: its silhouettes in images that show it against
+/// the sky, carved into a closed mesh -- the start of a shape model made
+/// from images alone.
+///
+/// `radius`, in the surface's unit: a sphere about the frame's origin the
+/// body is inside -- nothing beyond it is the body, which keeps stars and
+/// a coma's glow out. `add` each image as a `View`; `mesh` carves them.
+#[pyclass(name = "Hull", module = "kalast.shape")]
+pub struct Hull {
+    inner: super::Hull,
+}
+
+#[pymethods]
+impl Hull {
+    #[new]
+    fn new(radius: f64) -> PyResult<Self> {
+        if !(radius > 0.0 && radius.is_finite()) {
+            return Err(err(format!("a radius of {radius}")));
+        }
+        Ok(Hull { inner: super::Hull::new(radius) })
+    }
+
+    #[getter]
+    fn radius(&self) -> f64 {
+        self.inner.radius
+    }
+
+    /// The views' names, in the order added.
+    #[getter]
+    fn names(&self) -> Vec<String> {
+        self.inner.silhouettes.iter().map(|s| s.name.clone()).collect()
+    }
+
+    /// Where each view's boresight falls, `(n, 2)` pixels, as `shift`
+    /// left it.
+    #[getter]
+    fn centres<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
+        let flat: Vec<f64> = self.inner.silhouettes.iter().flat_map(|s| s.centre).collect();
+        PyArray1::from_vec(py, flat).reshape([self.inner.silhouettes.len(), 2]).expect("n x 2")
+    }
+
+    /// `view`'s silhouette added: what the hull takes of each pixel,
+    /// `(height, width)` -- 1 the body, or what may be: lit (brighter than
+    /// `threshold` of the image's lit ground, its 99.5th percentile), or
+    /// behind lit ground seen from the Sun, the night side and the shadows;
+    /// -1 the sky; 0 not valid in the view. The body is within the bounding
+    /// sphere, or with `within`, `(vertices, facets)`, within that closed
+    /// mesh -- an earlier hull -- widened by `margin`, the surface's unit:
+    /// what lets a view that does not hold the whole body carve where the
+    /// sphere runs past its frame.
+    #[pyo3(signature = (view, threshold=0.1, within=None, margin=0.05))]
+    fn add<'py>(
+        &mut self,
+        py: Python<'py>,
+        view: PyRef<View>,
+        threshold: f64,
+        within: Option<(PyArrayLike2<'_, f64, AllowTypeChange>, PyReadonlyArrayDyn<'_, u32>)>,
+        margin: f64,
+    ) -> PyResult<Bound<'py, PyArray2<i8>>> {
+        let v = &view.inner;
+        let bound = match within {
+            Some((vertices, facets)) => {
+                let vertices = vectors(vertices, "within's vertices")?;
+                let facets: Vec<u32> = facets.as_array().iter().copied().collect();
+                if facets.len() % 3 != 0 || facets.iter().any(|&i| i as usize >= vertices.len()) {
+                    return Err(err("within's facets come in threes, each a vertex".into()));
+                }
+                Some((vertices, facets))
+            }
+            None => None,
+        };
+        let hull = &mut self.inner;
+        let classes = py
+            .detach(|| hull.add(v, threshold, bound.as_ref().map(|(p, f)| (p.as_slice(), f.as_slice(), margin))))
+            .map_err(err)?;
+        Ok(PyArray1::from_vec(py, classes).reshape([v.height, v.width]).expect("image"))
+    }
+
+    /// `add` for each of `views`, over the machine's cores: their classes,
+    /// in order.
+    #[pyo3(signature = (views, threshold=0.1, within=None, margin=0.05))]
+    fn add_many<'py>(
+        &mut self,
+        py: Python<'py>,
+        views: Vec<PyRef<'py, View>>,
+        threshold: f64,
+        within: Option<(PyArrayLike2<'_, f64, AllowTypeChange>, PyReadonlyArrayDyn<'_, u32>)>,
+        margin: f64,
+    ) -> PyResult<Vec<Bound<'py, PyArray2<i8>>>> {
+        let bound = match within {
+            Some((vertices, facets)) => {
+                let vertices = vectors(vertices, "within's vertices")?;
+                let facets: Vec<u32> = facets.as_array().iter().copied().collect();
+                if facets.len() % 3 != 0 || facets.iter().any(|&i| i as usize >= vertices.len()) {
+                    return Err(err("within's facets come in threes, each a vertex".into()));
+                }
+                Some((vertices, facets))
+            }
+            None => None,
+        };
+        let inner: Vec<&super::View> = views.iter().map(|v| &v.inner).collect();
+        let sizes: Vec<(usize, usize)> = inner.iter().map(|v| (v.height, v.width)).collect();
+        let hull = &mut self.inner;
+        let classes = py
+            .detach(|| hull.add_many(&inner, threshold, bound.as_ref().map(|(p, f)| (p.as_slice(), f.as_slice(), margin))))
+            .map_err(err)?;
+        Ok(classes.into_iter().zip(sizes).map(|(c, (h, w))| PyArray1::from_vec(py, c).reshape([h, w]).expect("image")).collect())
+    }
+
+    /// View `index`'s pointing moved: `(dx, dy)` pixels added to where its
+    /// boresight falls, as `align` finds them.
+    fn shift(&mut self, index: usize, dx: f64, dy: f64) -> PyResult<()> {
+        let n = self.inner.silhouettes.len();
+        let s = self.inner.silhouettes.get_mut(index).ok_or_else(|| err(format!("view {index} of {n}")))?;
+        s.centre[0] += dx;
+        s.centre[1] += dy;
+        Ok(())
+    }
+
+    /// The hull's signed distance at `points` `(n, 3)`, in the surface's
+    /// unit, positive inside: of each view's distance to its silhouette's
+    /// edge at the point's projection, the `rank`-th least (1 to 8).
+    #[pyo3(signature = (points, rank=2))]
+    fn value<'py>(&self, py: Python<'py>, points: PyArrayLike2<'_, f64, AllowTypeChange>, rank: usize) -> PyResult<Bound<'py, PyArray1<f64>>> {
+        let points = vectors(points, "points")?;
+        let hull = &self.inner;
+        let chunk = 4096;
+        let values = py.detach(|| super::par_map(points.len().div_ceil(chunk), |c| hull.values(&points[c * chunk..((c + 1) * chunk).min(points.len())], rank)).concat());
+        Ok(PyArray1::from_vec(py, values))
+    }
+
+    /// The hull as a closed mesh, `(vertices (v, 3), facets (f, 3), report)`:
+    /// cubes of `size` over the bounding sphere, the surface where `value`
+    /// crosses zero by marching tetrahedra, its largest piece kept; then
+    /// `relax` rounds of each vertex moved toward its neighbours' middle
+    /// across the surface. `rank` 2: one view wrong carves nothing alone.
+    /// `report`: `cubes` the grid's, `visited` those evaluated, `dropped`
+    /// the facets of the other pieces, `genus` (0 for a body with no hole
+    /// through it), `volume`.
+    #[pyo3(signature = (size, rank=2, relax=3))]
+    #[allow(clippy::type_complexity)]
+    fn mesh<'py>(&self, py: Python<'py>, size: f64, rank: usize, relax: usize) -> PyResult<(Bound<'py, PyArray2<f64>>, Bound<'py, PyArray2<u32>>, Bound<'py, pyo3::types::PyDict>)> {
+        let hull = &self.inner;
+        let (v, f, r) = py.detach(|| hull.mesh(size, rank, relax)).map_err(err)?;
+        let report = pyo3::types::PyDict::new(py);
+        report.set_item("cubes", r.cubes)?;
+        report.set_item("visited", r.visited)?;
+        report.set_item("dropped", r.dropped)?;
+        report.set_item("genus", r.genus)?;
+        report.set_item("volume", r.volume)?;
+        let faces = f.len() / 3;
+        Ok((rows3(py, &v), PyArray1::from_vec(py, f).reshape([faces, 3]).expect("f x 3"), report))
+    }
+
+    fn __len__(&self) -> usize {
+        self.inner.silhouettes.len()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("Hull({} views, radius {})", self.inner.silhouettes.len(), self.inner.radius)
+    }
+}
+
+/// The shift that best lays mask `b` on mask `a`, both `(height, width)`:
+/// `((dx, dy), share)`, `b` moved by `(dx, dy)` pixels matching `a`, and
+/// the share of their union both hold there -- for a surface drawn in an
+/// image's geometry (`Surface.draw`) against the image's lit pixels, what
+/// to add to the camera's centre. Whole pixels within `search`, then to
+/// half a pixel.
+#[pyfunction]
+#[pyo3(signature = (a, b, search=16))]
+pub fn align(py: Python<'_>, a: PyArrayLike2<'_, bool, AllowTypeChange>, b: PyArrayLike2<'_, bool, AllowTypeChange>, search: usize) -> PyResult<((f64, f64), f64)> {
+    let (a, b) = (a.as_array(), b.as_array());
+    if a.shape() != b.shape() {
+        return Err(err(format!("masks of {:?} and {:?}", a.shape(), b.shape())));
+    }
+    let (h, w) = (a.shape()[0], a.shape()[1]);
+    let (a, b): (Vec<bool>, Vec<bool>) = (a.iter().copied().collect(), b.iter().copied().collect());
+    let ([dx, dy], share) = py.detach(|| super::align(&a, &b, w, h, search));
+    Ok(((dx, dy), share))
 }
 
 /// The shape model `vertices` `(v, 3)`, `indices` `(f, 3)` or flat, with
