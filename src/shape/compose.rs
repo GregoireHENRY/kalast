@@ -423,19 +423,19 @@ pub fn merge<P: Copy + Into<V3> + Sync>(
     // The mesh's own field: inside by the crossings of three rays, the
     // distance that of its nearest vertex, no more than `depth`.
     let bvh = super::bvh::Bvh::new(&base, indices);
-    let cell = depth.max(size) / 4.0;
+    let cell = depth.max(size) / 2.0;
     let mut grid: HashMap<(i64, i64, i64), Vec<u32>> = HashMap::new();
     let key = |p: V3| ((p.x / cell).floor() as i64, (p.y / cell).floor() as i64, (p.z / cell).floor() as i64);
     for (k, p) in base.iter().enumerate() {
         grid.entry(key(*p)).or_default().push(k as u32);
     }
     let rays = [V3::new(0.123, 0.456, 0.881).normalize(), V3::new(-0.702, 0.311, -0.640).normalize(), V3::new(0.533, -0.811, 0.241).normalize()];
+    let normals = vertex_normals(&base, indices);
     let own = |p: V3| -> F {
-        let votes = rays.iter().filter(|d| bvh.crossings(p, **d) % 2 == 1).count();
         let (a, b, c) = key(p);
         // Ring by ring out from the point's cell, until what is found is
         // nearer than the next ring can be.
-        let mut nearest = F::INFINITY;
+        let (mut nearest, mut which) = (F::INFINITY, None);
         for r in 0..=4i64 {
             for x in a - r..=a + r {
                 for y in b - r..=b + r {
@@ -444,7 +444,10 @@ pub fn merge<P: Copy + Into<V3> + Sync>(
                             continue;
                         }
                         for &k in grid.get(&(x, y, z)).into_iter().flatten() {
-                            nearest = nearest.min((base[k as usize] - p).length_squared());
+                            let d = (base[k as usize] - p).length_squared();
+                            if d < nearest {
+                                (nearest, which) = (d, Some(k as usize));
+                            }
                         }
                     }
                 }
@@ -454,7 +457,14 @@ pub fn merge<P: Copy + Into<V3> + Sync>(
             }
         }
         let d = nearest.sqrt().min(depth);
-        if votes >= 2 {
+        // Near the mesh, inside by its nearest vertex's normal; far from it,
+        // by the crossings of three rays -- slow through a large mesh, and
+        // seldom asked.
+        let inside = match which {
+            Some(k) if nearest.sqrt() < 2.0 * depth => (base[k] - p).dot(normals[k]) > 0.0,
+            _ => rays.iter().filter(|d| bvh.crossings(p, **d) % 2 == 1).count() >= 2,
+        };
+        if inside {
             d
         } else {
             -d
