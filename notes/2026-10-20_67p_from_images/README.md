@@ -143,11 +143,21 @@ model to start from.
   | round 2 | 121 | 20.62 | 19, 140 | 199, 616 |
   | round 3 | 121 | 19.97 | 18, 103 | 133, 499 |
   | round 4 | 121 | 19.64 | 18, 80 | 92, 409 |
+  | round 6 | 121 | 19.20 | 16, 53 | 48, 275 |
+  | round 8 | 121 | 19.00 | 16, 39 | 40, 178 |
+  | round 10 | 121 | 18.89 | 17, 33 | 38, 124 |
 
   Every tile stays in view of its frames, and the hollows dig by about a
   third of what is left a round:
 
   ![SHAP7 and the merged mesh after three rounds at 40 m](merged_40m_round3.png)
+
+  After ten: the volume within 1.8 % of SHAP7's, the surface within 20 m of
+  it on 57 %, within 50 m on 93 %; what is left, the neck's deepest part,
+  50-100 m too full, and regions 20-40 m off either way -- the next for the
+  20 m tiles, 600 m wide, laid once on this mesh.
+
+  ![SHAP7 coloured by how far the 40 m result is from it](difference_40m_merged_round10.png)
 - [ ] The tiles merged into the mesh (Rust): its vertices moved, one closed
   mesh still.
 - [ ] Again at 20 m and at 10 m; each version against SHAP7.
