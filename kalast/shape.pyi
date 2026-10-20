@@ -319,16 +319,19 @@ def compose(vertices: numpy.ndarray, indices: object, maplets: object, spacing: 
     cells over the shape model are kept, where its `reference` is known.
     """
     ...
-def fuse(vertices: numpy.ndarray, indices: object, maplets: object, relax: int = ...) -> tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]:
+def fuse(vertices: numpy.ndarray, indices: object, maplets: object, relax: int = ..., smooth: int = ..., step: float = ...) -> tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]:
     """The maplets' relief laid into the shape model itself, `vertices` `(v,
-    3)`, `indices` `(f, 3)` or flat: each vertex moved along the normal of
-    each maplet over it to the maplet's surface there, the maplets weighed
-    toward their middles; a vertex facing away from a maplet, or far off its
-    surface, not its. The facets are kept, and the mesh as closed as it was:
-    what the next round of maplets is laid on. Then `relax` rounds of each
-    vertex moved halfway toward its neighbours' middle across the surface.
-    Gives `(vertices (v, 3), moved (v,) along each vertex's normal, outward
-    positive, cover (v,) the maplets' summed weight, 0 where none is)`.
+    3)`, `indices` `(f, 3)` or flat: each vertex moved along its own normal
+    to where that line meets each maplet's surface over it, the maplets
+    weighed toward their middles; a maplet facing far from the vertex, or
+    whose surface is far, not its. The moves smoothed over the mesh, `smooth`
+    rounds, and held to `step` (the surface's unit) if positive -- a surface
+    moved far gets there in rounds rather than folding. The facets are kept,
+    and the mesh as closed as it was: what the next round of maplets is laid
+    on. Then `relax` rounds of each vertex moved halfway toward its
+    neighbours' middle across the surface. Gives `(vertices (v, 3), moved
+    (v,) along each vertex's normal, outward positive, cover (v,) the
+    maplets' summed weight, 0 where none is)`.
     """
     ...
 def choose(scales: numpy.ndarray, suns: numpy.ndarray, views: numpy.ndarray, seen: Sequence[Sequence[int] | numpy.ndarray] | numpy.ndarray | None = ..., cap: int = ..., angle: float = ..., ratio: float = ...) -> list[int]:

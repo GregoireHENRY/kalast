@@ -925,16 +925,19 @@ pub fn compose<'py>(
 }
 
 /// The maplets' relief laid into the shape model itself, `vertices` `(v,
-/// 3)`, `indices` `(f, 3)` or flat: each vertex moved along the normal of
-/// each maplet over it to the maplet's surface there, the maplets weighed
-/// toward their middles; a vertex facing away from a maplet, or far off its
-/// surface, not its. The facets are kept, and the mesh as closed as it was:
-/// what the next round of maplets is laid on. Then `relax` rounds of each
-/// vertex moved halfway toward its neighbours' middle across the surface.
-/// Gives `(vertices (v, 3), moved (v,) along each vertex's normal, outward
-/// positive, cover (v,) the maplets' summed weight, 0 where none is)`.
+/// 3)`, `indices` `(f, 3)` or flat: each vertex moved along its own normal
+/// to where that line meets each maplet's surface over it, the maplets
+/// weighed toward their middles; a maplet facing far from the vertex, or
+/// whose surface is far, not its. The moves smoothed over the mesh, `smooth`
+/// rounds, and held to `step` (the surface's unit) if positive -- a surface
+/// moved far gets there in rounds rather than folding. The facets are kept,
+/// and the mesh as closed as it was: what the next round of maplets is laid
+/// on. Then `relax` rounds of each vertex moved halfway toward its
+/// neighbours' middle across the surface. Gives `(vertices (v, 3), moved
+/// (v,) along each vertex's normal, outward positive, cover (v,) the
+/// maplets' summed weight, 0 where none is)`.
 #[pyfunction]
-#[pyo3(signature = (vertices, indices, maplets, relax=2))]
+#[pyo3(signature = (vertices, indices, maplets, relax=2, smooth=3, step=0.0))]
 #[allow(clippy::type_complexity)]
 pub fn fuse<'py>(
     py: Python<'py>,
@@ -942,6 +945,8 @@ pub fn fuse<'py>(
     indices: PyReadonlyArrayDyn<'_, u32>,
     maplets: Vec<PyRef<'py, Maplet>>,
     relax: usize,
+    smooth: usize,
+    step: f64,
 ) -> PyResult<(Bound<'py, PyArray2<f64>>, Bound<'py, PyArray1<f64>>, Bound<'py, PyArray1<f64>>)> {
     let positions = vectors(vertices, "vertices")?;
     let idx = indices.as_slice().map_err(|_| err("indices must be contiguous".into()))?;
@@ -949,7 +954,7 @@ pub fn fuse<'py>(
         return Err(err("indices come in threes, each a vertex".into()));
     }
     let inner: Vec<super::Maplet> = maplets.iter().map(|m| m.inner.clone()).collect();
-    let (v, moved, cover) = py.detach(|| super::fuse(&positions, idx, &inner, relax));
+    let (v, moved, cover) = py.detach(|| super::fuse(&positions, idx, &inner, relax, smooth, step));
     Ok((rows3(py, &v), PyArray1::from_vec(py, moved), PyArray1::from_vec(py, cover)))
 }
 

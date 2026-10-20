@@ -195,18 +195,22 @@ pub fn compose<P: Copy + Into<V3> + Sync>(positions: &[P], indices: &[u32], mapl
 }
 
 /// The maplets' relief laid into the shape model itself: each vertex moved
-/// along the normal of each maplet over it to the maplet's surface there,
-/// the maplets weighed toward their middles, `(1 - s^2)^2` of the share `s`
-/// of the half-width along each side; a vertex facing away from a maplet,
-/// or farther off its surface than `compose`'s depth, not its. The facets
-/// are the shape model's, and the mesh as closed as it was: what the next
-/// round of maplets is laid on. Where maplets disagree enough to turn a
-/// facet over, its corners' moves are averaged with their neighbours'
-/// until none is. Then `relax` rounds of each vertex moved
-/// halfway toward its neighbours' middle across the surface, which keeps
-/// the triangles even. With each vertex's move along its normal, outward
-/// positive, and the maplets' summed weight on it -- 0 where none is.
-pub fn fuse<P: Copy + Into<V3> + Sync>(positions: &[P], indices: &[u32], maplets: &[Maplet], relax: usize) -> (Vec<V3>, Vec<F>, Vec<F>) {
+/// along its own normal to where that line meets each maplet's surface over
+/// it -- the maplets weighed toward their middles, `(1 - s^2)^2` of the
+/// share `s` of the half-width along each side; a maplet facing more than
+/// 78 deg away from the vertex, or whose surface the line meets farther off
+/// than `compose`'s depth, not its. The moves are smoothed over the mesh,
+/// `smooth` rounds of each the mean of its own and its neighbours', and held
+/// to `step` (the surface's unit) if positive, so that a surface moved far
+/// gets there in rounds, its neighbours with it, rather than folding. The
+/// facets are the shape model's, and the mesh as closed as it was: what the
+/// next round of maplets is laid on. Where moves still turn a facet over,
+/// its corners' moves are averaged with their neighbours' until none is.
+/// Then `relax` rounds of each vertex moved halfway toward its neighbours'
+/// middle across the surface, which keeps the triangles even. With each
+/// vertex's move along its normal, outward positive, and the maplets'
+/// summed weight on it -- 0 where none is.
+pub fn fuse<P: Copy + Into<V3> + Sync>(positions: &[P], indices: &[u32], maplets: &[Maplet], relax: usize, smooth: usize, step: F) -> (Vec<V3>, Vec<F>, Vec<F>) {
     let base: Vec<V3> = positions.iter().map(|p| (*p).into()).collect();
     let placed: Vec<Placed> = maplets
         .iter()
@@ -223,10 +227,26 @@ pub fn fuse<P: Copy + Into<V3> + Sync>(positions: &[P], indices: &[u32], maplets
     }
     let normals = vertex_normals(&base, indices);
     let taper = |s: F| (1.0 - s * s).max(0.0).powi(2);
-    let moves: Vec<(V3, F)> = par_map(base.len(), |k| {
+    // A maplet's height at `(x, y)` of its square, if known there.
+    let height_at = |m: &Maplet, half: F, x: F, y: F| -> Option<F> {
+        if x.abs() > half || y.abs() > half {
+            return None;
+        }
+        let mid = (m.n - 1) as F / 2.0;
+        let (fi, fj) = (x / m.spacing + mid, y / m.spacing + mid);
+        let (i, j) = ((fi.floor().max(0.0) as usize).min(m.n - 2), (fj.floor().max(0.0) as usize).min(m.n - 2));
+        let (tx, ty) = (fi - i as F, fj - j as F);
+        let known = |a: usize, b: usize| m.reference[b * m.n + a].is_finite();
+        if !(known(i, j) && known(i + 1, j) && known(i, j + 1) && known(i + 1, j + 1)) {
+            return None;
+        }
+        let h = |a: usize, b: usize| m.heights[b * m.n + a];
+        Some((1.0 - ty) * ((1.0 - tx) * h(i, j) + tx * h(i + 1, j)) + ty * ((1.0 - tx) * h(i, j + 1) + tx * h(i + 1, j + 1)))
+    };
+    let moves: Vec<(F, F)> = par_map(base.len(), |k| {
         let (p, n) = (base[k], normals[k]);
         let (a, b, c) = index.key(p);
-        let (mut sum, mut weight) = (V3::ZERO, 0.0);
+        let (mut sum, mut weight) = (0.0, 0.0);
         for x in a - 1..=a + 1 {
             for y in b - 1..=b + 1 {
                 for z in c - 1..=c + 1 {
@@ -234,28 +254,36 @@ pub fn fuse<P: Copy + Into<V3> + Sync>(positions: &[P], indices: &[u32], maplets
                         let pl = &placed[t];
                         let m = pl.maplet;
                         let w = m.axes[2];
-                        if n.dot(w) < 0.2 {
+                        let cos = n.dot(w);
+                        if cos < 0.2 {
                             continue;
                         }
-                        let [lx, ly, lz] = m.local(p - m.centre);
-                        if lx.abs() > pl.half || ly.abs() > pl.half {
+                        // Along the normal to the maplet's surface: where the
+                        // line's height over the maplet meets the maplet's
+                        // height under it, a few fixed-point steps.
+                        let mut s = 0.0;
+                        let mut met = None;
+                        for _ in 0..8 {
+                            let [lx, ly, lz] = m.local(p + n * s - m.centre);
+                            let Some(h) = height_at(m, pl.half, lx, ly) else {
+                                break;
+                            };
+                            let ds = (h - lz) / cos;
+                            s += ds;
+                            if ds.abs() < 1e-3 * m.spacing {
+                                met = Some(s);
+                                break;
+                            }
+                        }
+                        let Some(s) = met else {
+                            continue;
+                        };
+                        if s.abs() > pl.depth {
                             continue;
                         }
-                        let mid = (m.n - 1) as F / 2.0;
-                        let (fi, fj) = (lx / m.spacing + mid, ly / m.spacing + mid);
-                        let (i, j) = ((fi.floor() as usize).min(m.n - 2), (fj.floor() as usize).min(m.n - 2));
-                        let (tx, ty) = (fi - i as F, fj - j as F);
-                        let known = |a: usize, b: usize| m.reference[b * m.n + a].is_finite();
-                        if !(known(i, j) && known(i + 1, j) && known(i, j + 1) && known(i + 1, j + 1)) {
-                            continue;
-                        }
-                        let h = |a: usize, b: usize| m.heights[b * m.n + a];
-                        let height = (1.0 - ty) * ((1.0 - tx) * h(i, j) + tx * h(i + 1, j)) + ty * ((1.0 - tx) * h(i, j + 1) + tx * h(i + 1, j + 1));
-                        if (lz - height).abs() > pl.depth {
-                            continue;
-                        }
+                        let [lx, ly, _] = m.local(p + n * s - m.centre);
                         let share = taper(lx / pl.half) * taper(ly / pl.half);
-                        sum += w * ((height - lz) * share);
+                        sum += s * share;
                         weight += share;
                     }
                 }
@@ -264,13 +292,9 @@ pub fn fuse<P: Copy + Into<V3> + Sync>(positions: &[P], indices: &[u32], maplets
         if weight > 0.0 {
             (sum / weight, weight)
         } else {
-            (V3::ZERO, 0.0)
+            (0.0, 0.0)
         }
     });
-    let mut shift: Vec<V3> = moves.iter().map(|(d, _)| *d).collect();
-    // A facet turned over by the move -- its corners moved by maplets that
-    // disagree -- folds the surface: the moves of its corners averaged with
-    // their neighbours' until none is.
     let neighbours = {
         let mut n: Vec<Vec<u32>> = vec![vec![]; base.len()];
         for t in indices.chunks_exact(3) {
@@ -281,6 +305,35 @@ pub fn fuse<P: Copy + Into<V3> + Sync>(positions: &[P], indices: &[u32], maplets
         }
         n
     };
+    // The moves along the normals, smoothed where maplets cover, held to a
+    // step.
+    let covered: Vec<bool> = moves.iter().map(|(_, w)| *w > 0.0).collect();
+    let mut along: Vec<F> = moves.iter().map(|(s, _)| *s).collect();
+    for _ in 0..smooth {
+        let before = along.clone();
+        for (k, near) in neighbours.iter().enumerate() {
+            if !covered[k] || near.is_empty() {
+                continue;
+            }
+            let (mut total, mut count) = (before[k], 1.0);
+            for &j in near {
+                if covered[j as usize] {
+                    total += before[j as usize];
+                    count += 1.0;
+                }
+            }
+            along[k] = total / count;
+        }
+    }
+    if step > 0.0 {
+        for a in along.iter_mut() {
+            *a = a.clamp(-step, step);
+        }
+    }
+    let mut shift: Vec<V3> = along.iter().zip(&normals).map(|(a, n)| *n * *a).collect();
+    // A facet turned over by the move -- its corners moved by maplets that
+    // disagree -- folds the surface: the moves of its corners averaged with
+    // their neighbours' until none is.
     let normal_of = |p: &[V3], t: &[u32]| (p[t[1] as usize] - p[t[0] as usize]).cross(p[t[2] as usize] - p[t[0] as usize]);
     for _ in 0..50 {
         let moved: Vec<V3> = base.iter().zip(&shift).map(|(p, d)| *p + *d).collect();
@@ -443,7 +496,7 @@ mod tests {
         for h in m.heights.iter_mut() {
             *h += 0.05;
         }
-        let (out, moved, cover) = fuse(&v, &idx, &[m], 0);
+        let (out, moved, cover) = fuse(&v, &idx, &[m], 0, 0, 0.0);
         assert_eq!(out.len(), v.len());
         let top = (0..v.len()).max_by(|&a, &b| v[a].z.total_cmp(&v[b].z)).unwrap();
         assert!((moved[top] - 0.05).abs() < 0.005, "the top rose {}", moved[top]);

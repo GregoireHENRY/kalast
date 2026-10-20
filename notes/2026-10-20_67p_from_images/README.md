@@ -74,6 +74,33 @@ model to start from.
   (`pointing(..., fixed=...)`) and hold the model in SPICE's frame.
 
   ![SHAP7, the hull and round 1 at 40 m](round_40m_1.png)
+
+  Rounds 3 to 5, the limb frames holding their pointing:
+
+  | | volume, km3 | SHAP7 against it, m: median, rms | SHAP7 inside by, 90 %, 99 % | residual, px |
+  |---|---|---|---|---|
+  | 40 m, round 3 (130 tiles of 176 with five frames) | 19.75 | 18, 90 | 110, 422 | 6.3 |
+  | 40 m, round 4 (131 of 198) | 19.34 | 17, 64 | 68, 291 | 5.5 |
+  | 40 m, round 5 (131 of 210) | 19.06 | 16, 50 | 43, 227 | 5.2 |
+
+  Within 20 m of SHAP7 on 57 % of its surface after round 4, within 50 m
+  on 87 %; what is left is mostly the neck, filled by the hull by up to
+  700 m and dug at 100-190 m a round:
+
+  ![SHAP7 coloured by how far round 4 is from it](difference_40m_round4.png)
+
+  But the neck dug so came out crumpled: each vertex was moved along its
+  tile's normal, and where the tiles over a saddle sink 100-190 m a round
+  the surface's parts pass through each other. Tiles laid on it grew in
+  number, 124 to 210, while those any frame sees stayed at about 130: the
+  rest lie under the crumpled surface.
+
+  ![Round 5: the neck open from +y as SHAP7's, crumpled from +z and -z](round_40m_5_crumpled.png)
+
+  `fuse` now moves each vertex along its own normal, to where that line
+  meets the tile's surface, smooths the moves over the mesh and holds them
+  to a step a round (1.5 spacings): a surface moved far gets there in
+  rounds, its neighbours with it. The 40 m rounds again from the hull.
 - [ ] The tiles merged into the mesh (Rust): its vertices moved, one closed
   mesh still.
 - [ ] Again at 20 m and at 10 m; each version against SHAP7.
