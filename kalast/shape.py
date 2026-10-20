@@ -12,6 +12,7 @@ from kalast._rs.shape import (  # noqa
     align,
     compose,
     fuse,
+    merge,
     choose,
     pointing,
 )

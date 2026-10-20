@@ -530,11 +530,24 @@ impl Hull {
     /// small errors cut through the body, a fin no view carved -- which a
     /// shape to lay maplets on wants: one piece, no handle.
     pub fn mesh(&self, size: F, rank: usize, relax: usize, smooth: F) -> Result<(Vec<V3>, Vec<u32>, HullReport), String> {
-        if !(size > 0.0 && self.radius > 0.0) {
-            return Err(format!("a cube of {size} in a sphere of {}", self.radius));
+        march(self.radius, size, relax, smooth, &|p: &[V3]| self.values(p, rank))
+    }
+}
+
+/// The closed surface where `field` -- positive inside, about the distance
+/// to the surface in the surface's unit, no faster than that across space
+/// -- crosses zero, within the sphere of `radius` about the origin: cubes
+/// of `size`, the field smoothed first by a Gaussian of `smooth` if
+/// positive, marching tetrahedra, the largest piece kept; then `relax`
+/// rounds of each vertex moved toward its neighbours' middle across the
+/// surface (and back onto it when not smoothed). `field` takes points by
+/// the thousand. [`Hull::mesh`]'s, and the maplets' merged ([`merge`]).
+pub fn march<Fd: Fn(&[V3]) -> Vec<F> + Sync>(radius: F, size: F, relax: usize, smooth: F, field: &Fd) -> Result<(Vec<V3>, Vec<u32>, HullReport), String> {
+        if !(size > 0.0 && radius > 0.0) {
+            return Err(format!("a cube of {size} in a sphere of {}", radius));
         }
         // Nodes along each axis, the sphere inside with a cube to spare.
-        let n = (2.0 * self.radius / size).ceil() as usize + 3;
+        let n = (2.0 * radius / size).ceil() as usize + 3;
         if n > (1 << 20) {
             return Err(format!("{n} cubes a side: a larger size"));
         }
@@ -553,7 +566,7 @@ impl Hull {
             let chunk = 4096;
             let middles: Vec<F> = par_map(total.div_ceil(chunk), |c| {
                 let points: Vec<V3> = (c * chunk..((c + 1) * chunk).min(total)).map(middle).collect();
-                self.values(&points, rank)
+                field(&points)
             })
             .concat();
             (0..total).filter(|&b| middles[b].abs() <= 1.5 * half + 3.0 * smooth.max(0.0)).collect()
@@ -584,7 +597,7 @@ impl Hull {
                     }
                 }
             }
-            let mut wide = self.values(&nodes, rank);
+            let mut wide = field(&nodes);
             if halo > 0 {
                 // Along each axis in turn, the halo's own values left as they
                 // come out.
@@ -705,7 +718,7 @@ impl Hull {
         report.dropped = dropped;
         let mut vertices = vertices;
         for _ in 0..relax {
-            vertices = self.relaxed(&vertices, &facets, rank, smooth <= 0.0);
+            vertices = relaxed(&vertices, &facets, field, smooth <= 0.0);
         }
         let edges = {
             let mut e: Vec<(u32, u32)> = facets.chunks_exact(3).flat_map(|t| [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])]).map(|(a, b)| (a.min(b), a.max(b))).collect();
@@ -722,43 +735,42 @@ impl Hull {
         Ok((vertices, facets, report))
     }
 
-    /// Each vertex moved halfway toward its neighbours' middle across the
-    /// surface, then, with `onto`, onto the surface along its normal by the
-    /// hull's distance there -- not when the surface was smoothed, which
-    /// that would undo.
-    fn relaxed(&self, vertices: &[V3], facets: &[u32], rank: usize, onto: bool) -> Vec<V3> {
-        let mut sum = vec![V3::ZERO; vertices.len()];
-        let mut count = vec![0u32; vertices.len()];
-        let mut normal = vec![V3::ZERO; vertices.len()];
-        for t in facets.chunks_exact(3) {
-            let (a, b, c) = (t[0] as usize, t[1] as usize, t[2] as usize);
-            let n = (vertices[b] - vertices[a]).cross(vertices[c] - vertices[a]);
-            for (x, y) in [(a, b), (b, c), (c, a)] {
-                sum[x] += vertices[y];
-                count[x] += 1;
-                normal[x] += n;
-            }
+/// Each vertex moved halfway toward its neighbours' middle across the
+/// surface, then, with `onto`, onto the surface along its normal by the
+/// field's distance there -- not when the surface was smoothed, which
+/// that would undo.
+fn relaxed<Fd: Fn(&[V3]) -> Vec<F> + Sync>(vertices: &[V3], facets: &[u32], field: &Fd, onto: bool) -> Vec<V3> {
+    let mut sum = vec![V3::ZERO; vertices.len()];
+    let mut count = vec![0u32; vertices.len()];
+    let mut normal = vec![V3::ZERO; vertices.len()];
+    for t in facets.chunks_exact(3) {
+        let (a, b, c) = (t[0] as usize, t[1] as usize, t[2] as usize);
+        let n = (vertices[b] - vertices[a]).cross(vertices[c] - vertices[a]);
+        for (x, y) in [(a, b), (b, c), (c, a)] {
+            sum[x] += vertices[y];
+            count[x] += 1;
+            normal[x] += n;
         }
-        par_map(vertices.len(), |i| {
-            let p = vertices[i];
-            let n = normal[i].normalize_or_zero();
-            if count[i] == 0 || n == V3::ZERO {
-                return p;
-            }
-            let towards = sum[i] / count[i] as F - p;
-            let q = p + 0.5 * (towards - towards.dot(n) * n);
-            if !onto {
-                return q;
-            }
-            // Positive inside: the surface is outward by the distance.
-            let d = self.value(q, rank);
-            if d.is_finite() {
-                q + d.clamp(-0.5 * towards.length(), 0.5 * towards.length()) * n
-            } else {
-                q
-            }
-        })
     }
+    par_map(vertices.len(), |i| {
+        let p = vertices[i];
+        let n = normal[i].normalize_or_zero();
+        if count[i] == 0 || n == V3::ZERO {
+            return p;
+        }
+        let towards = sum[i] / count[i] as F - p;
+        let q = p + 0.5 * (towards - towards.dot(n) * n);
+        if !onto {
+            return q;
+        }
+        // Positive inside: the surface is outward by the distance.
+        let d = field(&[q])[0];
+        if d.is_finite() {
+            q + d.clamp(-0.5 * towards.length(), 0.5 * towards.length()) * n
+        } else {
+            q
+        }
+    })
 }
 
 /// The shift that best lays mask `b` on the signs `a`, both `w` by `h` row

@@ -93,6 +93,40 @@ impl Bvh {
         self.trace(origin, dir, far, false, skip)
     }
 
+    /// How many triangles the ray from `origin` along unit `dir` meets: odd
+    /// inside a closed mesh, even outside.
+    pub fn crossings(&self, origin: V3, dir: V3) -> usize {
+        if self.tris.is_empty() {
+            return 0;
+        }
+        let o = [origin.x as f32, origin.y as f32, origin.z as f32];
+        let d = [dir.x as f32, dir.y as f32, dir.z as f32];
+        let inv = d.map(|x| 1.0 / x);
+        let mut count = 0;
+        let mut stack = [0u32; 128];
+        let mut top = 1;
+        while top > 0 {
+            top -= 1;
+            let node = &self.nodes[stack[top] as usize];
+            if node.count > 0 {
+                let first = node.first as usize;
+                for k in first..first + node.count as usize {
+                    if triangle(&self.tris[k], o, d).is_some() {
+                        count += 1;
+                    }
+                }
+                continue;
+            }
+            for child in [node.first as usize, node.first as usize + 1] {
+                if enter(&self.nodes[child], o, inv, f32::INFINITY).is_some() {
+                    stack[top] = child as u32;
+                    top += 1;
+                }
+            }
+        }
+        count
+    }
+
     fn trace(&self, origin: V3, dir: V3, far: F, any: bool, skip: &dyn Fn(u32) -> bool) -> Option<(F, u32)> {
         if self.tris.is_empty() {
             return None;

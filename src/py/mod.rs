@@ -260,6 +260,7 @@ pub fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     shape.add_function(wrap_pyfunction!(crate::shape::py::pointing, &shape)?)?;
     shape.add_function(wrap_pyfunction!(crate::shape::py::align, &shape)?)?;
     shape.add_function(wrap_pyfunction!(crate::shape::py::fuse, &shape)?)?;
+    shape.add_function(wrap_pyfunction!(crate::shape::py::merge, &shape)?)?;
     m.add_submodule(&shape)?;
     py.import("sys")?
         .getattr("modules")?

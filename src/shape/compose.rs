@@ -385,6 +385,129 @@ pub fn fuse<P: Copy + Into<V3> + Sync>(positions: &[P], indices: &[u32], maplets
     (vertices, moved, moves.into_iter().map(|(_, w)| w).collect())
 }
 
+/// The maplets merged into a closed mesh made again: the surface where a
+/// field crosses zero, the maplets' where they are and the mesh's
+/// elsewhere, extracted as [`Hull::mesh`](super::Hull::mesh) extracts a
+/// hull ([`march`](super::march)): cubes of `size`, smoothed by `smooth`,
+/// `relax` rounds after. A maplet's field is the distance along its normal
+/// from its surface, positive below it -- inside the body -- weighed toward
+/// its middle and fading out at `depth` from its surface; where the
+/// maplets weigh less than a half, the mesh's own distance makes up the
+/// rest -- inside it by a ray's crossings, the distance to its nearest
+/// vertex. Unlike [`fuse`], whatever the maplets do -- sink a saddle by
+/// hundreds of metres, part its walls -- the mesh that comes out is closed
+/// and does not fold: what the next round of maplets is laid on.
+pub fn merge<P: Copy + Into<V3> + Sync>(
+    positions: &[P],
+    indices: &[u32],
+    maplets: &[Maplet],
+    size: F,
+    smooth: F,
+    relax: usize,
+    depth: F,
+) -> Result<(Vec<V3>, Vec<u32>, super::HullReport), String> {
+    let base: Vec<V3> = positions.iter().map(|p| (*p).into()).collect();
+    if base.is_empty() || indices.len() < 3 {
+        return Err("an empty mesh".into());
+    }
+    let placed: Vec<Placed> = maplets
+        .iter()
+        .map(|m| Placed { maplet: m, half: 0.5 * (m.n - 1) as F * m.spacing, depth })
+        .collect();
+    let widest = placed.iter().map(|p| 2.0 * p.half).fold(0.0, F::max).max(size);
+    let mut index = Index { cell: widest * std::f64::consts::SQRT_2, cubes: HashMap::new() };
+    for (t, p) in placed.iter().enumerate() {
+        let key = index.key(p.maplet.centre);
+        index.cubes.entry(key).or_default().push(t);
+    }
+    // The mesh's own field: inside by the crossings of three rays, the
+    // distance that of its nearest vertex, no more than `depth`.
+    let bvh = super::bvh::Bvh::new(&base, indices);
+    let cell = depth.max(size) / 4.0;
+    let mut grid: HashMap<(i64, i64, i64), Vec<u32>> = HashMap::new();
+    let key = |p: V3| ((p.x / cell).floor() as i64, (p.y / cell).floor() as i64, (p.z / cell).floor() as i64);
+    for (k, p) in base.iter().enumerate() {
+        grid.entry(key(*p)).or_default().push(k as u32);
+    }
+    let rays = [V3::new(0.123, 0.456, 0.881).normalize(), V3::new(-0.702, 0.311, -0.640).normalize(), V3::new(0.533, -0.811, 0.241).normalize()];
+    let own = |p: V3| -> F {
+        let votes = rays.iter().filter(|d| bvh.crossings(p, **d) % 2 == 1).count();
+        let (a, b, c) = key(p);
+        // Ring by ring out from the point's cell, until what is found is
+        // nearer than the next ring can be.
+        let mut nearest = F::INFINITY;
+        for r in 0..=4i64 {
+            for x in a - r..=a + r {
+                for y in b - r..=b + r {
+                    for z in c - r..=c + r {
+                        if (x - a).abs() < r && (y - b).abs() < r && (z - c).abs() < r {
+                            continue;
+                        }
+                        for &k in grid.get(&(x, y, z)).into_iter().flatten() {
+                            nearest = nearest.min((base[k as usize] - p).length_squared());
+                        }
+                    }
+                }
+            }
+            if nearest.sqrt() <= r as F * cell {
+                break;
+            }
+        }
+        let d = nearest.sqrt().min(depth);
+        if votes >= 2 {
+            d
+        } else {
+            -d
+        }
+    };
+    let taper = |s: F| (1.0 - s * s).max(0.0).powi(2);
+    let field = |points: &[V3]| -> Vec<F> {
+        points
+            .iter()
+            .map(|&p| {
+                let (a, b, c) = index.key(p);
+                let (mut sum, mut weight) = (0.0, 0.0);
+                for x in a - 1..=a + 1 {
+                    for y in b - 1..=b + 1 {
+                        for z in c - 1..=c + 1 {
+                            for &t in index.cubes.get(&(x, y, z)).into_iter().flatten() {
+                                let pl = &placed[t];
+                                let m = pl.maplet;
+                                let [lx, ly, lz] = m.local(p - m.centre);
+                                if lx.abs() > pl.half || ly.abs() > pl.half {
+                                    continue;
+                                }
+                                let mid = (m.n - 1) as F / 2.0;
+                                let (fi, fj) = (lx / m.spacing + mid, ly / m.spacing + mid);
+                                let (i, j) = ((fi.floor().max(0.0) as usize).min(m.n - 2), (fj.floor().max(0.0) as usize).min(m.n - 2));
+                                let (tx, ty) = (fi - i as F, fj - j as F);
+                                let known = |a: usize, b: usize| m.reference[b * m.n + a].is_finite();
+                                if !(known(i, j) && known(i + 1, j) && known(i, j + 1) && known(i + 1, j + 1)) {
+                                    continue;
+                                }
+                                let h = |a: usize, b: usize| m.heights[b * m.n + a];
+                                let height = (1.0 - ty) * ((1.0 - tx) * h(i, j) + tx * h(i + 1, j)) + ty * ((1.0 - tx) * h(i, j + 1) + tx * h(i + 1, j + 1));
+                                let below = height - lz;
+                                let share = taper(lx / pl.half) * taper(ly / pl.half) * taper(below / depth);
+                                sum += share * below;
+                                weight += share;
+                            }
+                        }
+                    }
+                }
+                let rest = (0.5 - weight).max(0.0);
+                if rest > 0.0 {
+                    sum += rest * own(p);
+                    weight += rest;
+                }
+                sum / weight
+            })
+            .collect()
+    };
+    let radius = base.iter().map(|p| p.length()).fold(0.0, F::max) + depth + 2.0 * size;
+    super::march(radius, size, relax, smooth, &field)
+}
+
 /// Each vertex's normal: its facets', weighed by their areas.
 fn vertex_normals(vertices: &[V3], indices: &[u32]) -> Vec<V3> {
     let mut normals = vec![V3::ZERO; vertices.len()];
@@ -525,5 +648,43 @@ mod tests {
                 assert_eq!(moved[k], 0.0, "vertex {k} at z {} moved", v[k].z);
             }
         }
+    }
+
+    #[test]
+    fn merge_makes_a_closed_mesh_with_a_maplet_sunk_in_it() {
+        // The sphere of fuse's test; a maplet over its top sunk 0.1 into
+        // it. Meshed again: one closed piece, no handle, dented under the
+        // maplet's middle by about that, as it was far from it.
+        let (mut v, mut idx) = (
+            vec![V3::X, -V3::X, V3::Y, -V3::Y, V3::Z, -V3::Z],
+            vec![0u32, 2, 4, 2, 1, 4, 1, 3, 4, 3, 0, 4, 2, 0, 5, 1, 2, 5, 3, 1, 5, 0, 3, 5],
+        );
+        for _ in 0..5 {
+            let mut middle: HashMap<(u32, u32), u32> = HashMap::new();
+            let mut out = vec![];
+            for t in idx.chunks_exact(3) {
+                let mut mid = |a: u32, b: u32| {
+                    *middle.entry((a.min(b), a.max(b))).or_insert_with(|| {
+                        v.push(((v[a as usize] + v[b as usize]) / 2.0).normalize());
+                        (v.len() - 1) as u32
+                    })
+                };
+                let (ab, bc, ca) = (mid(t[0], t[1]), mid(t[1], t[2]), mid(t[2], t[0]));
+                out.extend_from_slice(&[t[0], ab, ca, ab, t[1], bc, ca, bc, t[2], ab, bc, ca]);
+            }
+            idx = out;
+        }
+        let mut m = Maplet::from_surface(&v, &idx, V3::Z, Some(V3::Z), 21, 0.04).unwrap();
+        for h in m.heights.iter_mut() {
+            *h -= 0.1;
+        }
+        let (out, oidx, report) = merge(&v, &idx, &[m], 0.03, 0.03, 2, 0.3).unwrap();
+        assert_eq!(report.genus, 0, "{report:?}");
+        assert_eq!(report.dropped, 0, "{report:?}");
+        let top = out.iter().map(|p| p.z).fold(F::MIN, F::max);
+        assert!((top - 0.9).abs() < 0.04, "the top at {top}, the maplet's middle at 0.9");
+        let equator = out.iter().filter(|p| p.z.abs() < 0.05).map(|p| p.length()).fold(0.0, F::max);
+        assert!((equator - 1.0).abs() < 0.03, "the equator at {equator}");
+        assert!(oidx.len() % 3 == 0 && !out.is_empty());
     }
 }

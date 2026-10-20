@@ -958,6 +958,49 @@ pub fn fuse<'py>(
     Ok((rows3(py, &v), PyArray1::from_vec(py, moved), PyArray1::from_vec(py, cover)))
 }
 
+/// The maplets merged into a closed mesh made again, `(vertices, facets,
+/// report)` as `Hull.mesh` gives them: the surface where a field crosses
+/// zero -- each maplet's distance along its normal from its surface,
+/// positive below it, weighed toward its middle and fading out at `depth`
+/// from it; where the maplets weigh less than a half, the mesh's own
+/// distance (`vertices` `(v, 3)`, `indices` `(f, 3)` or flat) -- in cubes of
+/// `size`, smoothed by `smooth`, `relax` rounds after. Whatever the maplets
+/// do -- sink a saddle by hundreds of metres, part its walls -- the mesh that
+/// comes out is closed and does not fold, where `fuse`'s may: what the next
+/// round of maplets is laid on.
+#[pyfunction]
+#[pyo3(signature = (vertices, indices, maplets, size, smooth=0.0, relax=2, depth=0.4))]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
+pub fn merge<'py>(
+    py: Python<'py>,
+    vertices: PyArrayLike2<'_, f64, AllowTypeChange>,
+    indices: PyReadonlyArrayDyn<'_, u32>,
+    maplets: Vec<PyRef<'py, Maplet>>,
+    size: f64,
+    smooth: f64,
+    relax: usize,
+    depth: f64,
+) -> PyResult<(Bound<'py, PyArray2<f64>>, Bound<'py, PyArray2<u32>>, Bound<'py, pyo3::types::PyDict>)> {
+    let positions = vectors(vertices, "vertices")?;
+    let idx = indices.as_slice().map_err(|_| err("indices must be contiguous".into()))?;
+    if idx.len() % 3 != 0 || idx.iter().any(|&i| i as usize >= positions.len()) {
+        return Err(err("indices come in threes, each a vertex".into()));
+    }
+    if !(size > 0.0 && depth > 0.0) {
+        return Err(err(format!("size {size}, depth {depth}: both positive")));
+    }
+    let inner: Vec<super::Maplet> = maplets.iter().map(|m| m.inner.clone()).collect();
+    let (v, f, r) = py.detach(|| super::merge(&positions, idx, &inner, size, smooth, relax, depth)).map_err(err)?;
+    let report = pyo3::types::PyDict::new(py);
+    report.set_item("cubes", r.cubes)?;
+    report.set_item("visited", r.visited)?;
+    report.set_item("dropped", r.dropped)?;
+    report.set_item("genus", r.genus)?;
+    report.set_item("volume", r.volume)?;
+    let faces = f.len() / 3;
+    Ok((rows3(py, &v), PyArray1::from_vec(py, f).reshape([faces, 3]).expect("f x 3"), report))
+}
+
 /// The images a maplet takes of its candidates, as MPCD keeps them: finest
 /// first, each only if it differs from every one taken by `angle` (radians)
 /// of Sun or of view, or by `ratio` of scale, or if most of the maplet's

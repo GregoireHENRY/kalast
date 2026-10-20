@@ -334,6 +334,19 @@ def fuse(vertices: numpy.ndarray, indices: object, maplets: object, relax: int =
     maplets' summed weight, 0 where none is)`.
     """
     ...
+def merge(vertices: numpy.ndarray, indices: object, maplets: object, size: float, smooth: float = ..., relax: int = ..., depth: float = ...) -> tuple[numpy.ndarray, numpy.ndarray, PyDict]:
+    """The maplets merged into a closed mesh made again, `(vertices, facets,
+    report)` as `Hull.mesh` gives them: the surface where a field crosses
+    zero -- each maplet's distance along its normal from its surface,
+    positive below it, weighed toward its middle and fading out at `depth`
+    from it; where the maplets weigh less than a half, the mesh's own
+    distance (`vertices` `(v, 3)`, `indices` `(f, 3)` or flat) -- in cubes of
+    `size`, smoothed by `smooth`, `relax` rounds after. Whatever the maplets
+    do -- sink a saddle by hundreds of metres, part its walls -- the mesh that
+    comes out is closed and does not fold, where `fuse`'s may: what the next
+    round of maplets is laid on.
+    """
+    ...
 def choose(scales: numpy.ndarray, suns: numpy.ndarray, views: numpy.ndarray, seen: Sequence[Sequence[int] | numpy.ndarray] | numpy.ndarray | None = ..., cap: int = ..., angle: float = ..., ratio: float = ...) -> list[int]:
     """The images a maplet takes of its candidates, as MPCD keeps them: finest
     first, each only if it differs from every one taken by `angle` (radians)
