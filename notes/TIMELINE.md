@@ -6438,3 +6438,23 @@ references to them rewritten.
 Open: the second held-out 67P image when ESA's archive is back; the whole
 mesh drawn at once (untested); for Eli, the albedo, 09-04's comparison
 stars, the north polar shape from the primary eclipses.
+
+## 2026-10-20 — Comet 67P's mesh reviewed: the tiles change little
+
+The user, on the mesh's figures: the largest shadows are not the images',
+the tiles look like noise, the PLY is an agglomerate of patches, "this cant
+be a final product". Measured on the two held-out images, each drawing
+moved to fit: of the image's shadow, kalast draws 27 and 50 % with SHAP7, 37
+and 65 % with the tiles -- the tiles keep SHAP7's relief above 2.5 m, and
+where the Sun is 12-19 deg above SHAP7's facets a metre of height casts 9
+to 25 pixels of shadow; SHAP7's facets there are 2.2 and 4.0 m. The night-side image drawn
+with the tiles is unchanged (r 0.51 both). The mesh: 99.9 % of its facets
+the tiles', facing out as SHAP7's, but no vertex shared between two tiles or
+a tile and SHAP7 -- 1-2 % of its edges open, patches overlapping, not a
+closed surface. The data folder's 35 GB listed, what was downloaded and
+what made here. Write-up: `2026-10-20_67p_mesh_review/`.
+
+Open: the user's decision -- stop the 67P shape work, or build a model of
+67P from the OSIRIS images with kalast, SHAP7 the yardstick, as a test for
+Hera's AFC images; then Eli's light curves (the albedo, 09-04's comparison
+stars, the north polar shape from the primary eclipses).

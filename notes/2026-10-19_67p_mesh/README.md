@@ -1,5 +1,10 @@
 # Comet 67P's mesh: SHAP7 with the tiles in it
 
+**Reviewed on 20 October** (`2026-10-20_67p_mesh_review/`): the tiles
+change little of what the images show -- of their shadow, 37 and 65 % drawn
+against SHAP7's 27 and 50 % -- since they keep SHAP7's relief above 2.5 m;
+and the mesh is not one closed surface but separate patches.
+
 19 October 2026. The tiles of `2026-10-16_67p_second_pass/` and
 `2026-10-19_67p_example_two_passes/` into one shape model: SHAP7 where no
 good tile is, each tile at its own spacing elsewhere.
