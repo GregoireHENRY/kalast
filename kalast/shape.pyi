@@ -275,6 +275,11 @@ class Hull:
         edge at the point's projection, the `rank`-th least (1 to 8).
         """
         ...
+    def distances(self, points: numpy.ndarray) -> numpy.ndarray:
+        """Each view's own signed distance at `points` `(n, 3)`, `(views, n)`:
+        which views carve where -- NaN behind a view's camera.
+        """
+        ...
     def mesh(self, size: float, rank: int = ..., relax: int = ...) -> tuple[numpy.ndarray, numpy.ndarray, object]:
         """The hull as a closed mesh, `(vertices (v, 3), facets (f, 3), report)`:
         cubes of `size` over the bounding sphere, the surface where `value`
@@ -290,12 +295,13 @@ class Hull:
         ...
 
 def align(a: numpy.ndarray, b: numpy.ndarray, search: int = ...) -> tuple[tuple[float, float], float]:
-    """The shift that best lays mask `b` on mask `a`, both `(height, width)`:
-    `((dx, dy), share)`, `b` moved by `(dx, dy)` pixels matching `a`, and
-    the share of their union both hold there -- for a surface drawn in an
-    image's geometry (`Surface.draw`) against the image's lit pixels, what
-    to add to the camera's centre. Whole pixels within `search`, then to
-    half a pixel.
+    """The shift that best lays mask `b` on the signs `a`, both `(height,
+    width)`: `((dx, dy), score)`, `b` moved by `(dx, dy)` pixels holding most
+    where `a` is 1 and least where it is -1 -- 0 for no matter -- and that
+    as a share of `a`'s nonzero pixels. For a surface's outline drawn in an
+    image's geometry (`Surface.draw(view) > 0`) against the image -- 1 where
+    it shows the body lit, -1 on the sky -- what to add to the camera's
+    centre. Whole pixels within `search`, then to half a pixel.
     """
     ...
 def compose(vertices: numpy.ndarray, indices: object, maplets: object, spacing: float = ...) -> tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]:
@@ -311,6 +317,18 @@ def compose(vertices: numpy.ndarray, indices: object, maplets: object, spacing: 
     cells over the shape model are kept, where its `reference` is known.
     """
     ...
+def fuse(vertices: numpy.ndarray, indices: object, maplets: object, relax: int = ...) -> tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]:
+    """The maplets' relief laid into the shape model itself, `vertices` `(v,
+    3)`, `indices` `(f, 3)` or flat: each vertex moved along the normal of
+    each maplet over it to the maplet's surface there, the maplets weighed
+    toward their middles; a vertex facing away from a maplet, or far off its
+    surface, not its. The facets are kept, and the mesh as closed as it was:
+    what the next round of maplets is laid on. Then `relax` rounds of each
+    vertex moved halfway toward its neighbours' middle across the surface.
+    Gives `(vertices (v, 3), moved (v,) along each vertex's normal, outward
+    positive, cover (v,) the maplets' summed weight, 0 where none is)`.
+    """
+    ...
 def choose(scales: numpy.ndarray, suns: numpy.ndarray, views: numpy.ndarray, seen: Sequence[Sequence[int] | numpy.ndarray] | numpy.ndarray | None = ..., cap: int = ..., angle: float = ..., ratio: float = ...) -> list[int]:
     """The images a maplet takes of its candidates, as MPCD keeps them: finest
     first, each only if it differs from every one taken by `angle` (radians)
@@ -321,7 +339,7 @@ def choose(scales: numpy.ndarray, suns: numpy.ndarray, views: numpy.ndarray, see
     camera. Indices into the candidates, in the order taken.
     """
     ...
-def pointing(positions: numpy.ndarray, axes: numpy.ndarray, focal: object, centres: numpy.ndarray, normals: numpy.ndarray, image: numpy.ndarray, tile: numpy.ndarray, shift: numpy.ndarray, weight: numpy.ndarray, offset_sigma: float, huber: float = ..., iterations: int = ...) -> tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray, numpy.ndarray]:
+def pointing(positions: numpy.ndarray, axes: numpy.ndarray, focal: object, centres: numpy.ndarray, normals: numpy.ndarray, image: numpy.ndarray, tile: numpy.ndarray, shift: numpy.ndarray, weight: numpy.ndarray, offset_sigma: float, huber: float = ..., iterations: int = ..., height_sigma: float = ...) -> tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray, numpy.ndarray]:
     """Each image's pointing, from its registrations in many maplets: every
     maplet's shift in every image fitted at once as the image's pointing and
     the maplet's offset on the ground (`s = P + J o`), as SPC fixes an
@@ -331,9 +349,12 @@ def pointing(positions: numpy.ndarray, axes: numpy.ndarray, focal: object, centr
     `tile` `(p,)` indices into those, `shift` `(p, 2)` as a `ViewReport`'s,
     `weight` `(p,)`. `offset_sigma`, in the surface's unit, how far a
     maplet may move for one pixel of residual; `huber`, pixels, past which
-    a residual weighs as its square root. Gives `(pointing (n, 2) pixels
-    to add to each camera's centre, behind (n,) registrations each image's
-    rests on, offsets (m, 2), residuals (p,))`.
+    a residual weighs as its square root. `height_sigma`, if positive, frees
+    each maplet's height too -- the parallax across its images tells it,
+    where the surface under the maplets is a first guess -- held so to
+    zero. Gives `(pointing (n, 2) pixels to add to each camera's centre,
+    behind (n,) registrations each image's rests on, offsets (m, 2) -- (m,
+    3) with the heights, along each maplet's u, v and w -- residuals (p,))`.
     """
     ...
 
