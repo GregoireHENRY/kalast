@@ -151,8 +151,10 @@ not the images.
   relief above a few metres (`2026-10-14_shape_from_images/`).
 - 15 October, the whole comet: kept as tiles in SHAP7 rather than one new
   global mesh -- the comet at 0.5 m is about 290 million facets, and SHAP7's
-  44 million already take 31 GB in kalast on this Mac
-  (`2026-10-15_67p_tiles/`). Chosen here, not put to the user as a choice.
+  44 million, 835 MB as PLY and 1.9 GB as the OBJ kalast loads, already
+  take 31 GB of memory at the peak while kalast draws them on this Mac, 12
+  GB resident (measured again on 20 October, `/usr/bin/time -l`;
+  `2026-10-15_67p_tiles/`). Chosen here, not put to the user as a choice.
 
 So the tiles could not change anything larger than a few metres -- the
 shadows above -- and the mesh is SHAP7 with patches on it.
