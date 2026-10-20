@@ -11,15 +11,18 @@ import urllib.request
 import numpy
 
 # ESA's Planetary Science Archive: the same products as NASA's PDS Small
-# Bodies Node, under upper-case names.
+# Bodies Node, under upper-case names -- which serves them too, under
+# lower-case ones, when ESA's is down for maintenance.
 PSA = "https://archives.esac.esa.int/psa/ftp/INTERNATIONAL-ROSETTA-MISSION/OSINAC"
+SBN = "https://pdssbn.astro.umd.edu/holdings"
 # Where the images are kept: set it to yours.
 DATA = "/Users/gregoireh/data/rosetta/osiris_nac/str_refl"
 
 
 def fetch(dataset, product, folder=DATA, rows=None):
     """The path to `product` of `dataset` in `folder`, downloaded first if it
-    is not there: 38 MB a full frame. With `rows`, `(first, last)`, the
+    is not there -- from ESA's archive, or NASA's when ESA's is down: 38 MB a
+    full frame. With `rows`, `(first, last)`, the
     label and those lines only -- what a patch of the surface needs of a
     frame, a few MB -- kept apart in `folder/rows/`, which `read` reads as
     the frame cut to them."""
@@ -30,15 +33,20 @@ def fetch(dataset, product, folder=DATA, rows=None):
     if not os.path.exists(path):
         os.makedirs(folder, exist_ok=True)
         print(f"downloading {product}", flush=True)
-        urllib.request.urlretrieve(url, path + ".part")
-        # The archive answers a page of its own when it is down, as if it
-        # were the product.
-        with open(path + ".part", "rb") as f:
-            if f.read(14) != b"PDS_VERSION_ID":
-                f.close()
-                os.remove(path + ".part")
-                raise OSError(f"{url}: not a product -- the archive down?")
-        os.replace(path + ".part", path)
+        # ESA's archive answers a page of its own when it is down, as if it
+        # were the product: NASA's copy then.
+        for source in (url, f"{SBN}/{dataset.lower()}/data/img/{product.lower()}"):
+            try:
+                urllib.request.urlretrieve(source, path + ".part")
+            except OSError:
+                continue
+            with open(path + ".part", "rb") as f:
+                ok = f.read(14) == b"PDS_VERSION_ID"
+            if ok:
+                os.replace(path + ".part", path)
+                return path
+            os.remove(path + ".part")
+        raise OSError(f"{product}: neither ESA's archive nor NASA's gave it -- both down?")
     return path
 
 

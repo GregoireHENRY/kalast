@@ -1981,8 +1981,10 @@ vertices, indices, albedo = compose(vertices, indices, maplets, spacing=0.0)
 | `Surface.tiles(points, normals, areas, finest, size=241, overlap=0.2)` | maplets over the samples, each at the finest spacing its samples allow (`finest`, not a number where none): finest first, laid as a lattice grows over the surface until every sample is on one -- facing within 60 deg of its normal, not under an overhang |
 | `choose(scales, suns, views, seen=None, cap=70, angle=10 deg, ratio=1.5)` | a maplet's images, as MPCD keeps them: finest first, each only if it differs from those taken by `angle` of Sun or view, `ratio` of scale, or the ground it sees |
 | `surface.mask(maplet, view, margin=0.0)` | the view's pixels showing the maplet as its grid can tell it: false where the rest of the surface hides or shadows it, and `margin` around; for `View`'s `valid` |
-| `pointing(positions, axes, focal, centres, normals, image, tile, shift, weight, offset_sigma, huber=3.0, iterations=25)` | each image's pointing from its registrations in many maplets: every shift (`ViewReport.shift`) fitted at once as the image's pointing and the maplet's offset on the ground, as SPC fixes pointing from the whole surface. Cameras as `View` takes them, `focal` a number or one each; maplets by centre and normal; one row a registration. Returns `(pointing (n, 2) pixels to add to each camera's centre, behind (n,) registrations each rests on, offsets (m, 2), residuals (p,))`. 0.3 s for 312k registrations |
-| `compose(vertices, indices, maplets, spacing=0.0)` | the shape model with the maplets in it, one mesh: each point the finest maplet's over it, then the one it is most in the middle of; `spacing` draws them coarser, for an image that sees no more. Returns `(vertices, indices, albedo)` |
+| `pointing(positions, axes, focal, centres, normals, image, tile, shift, weight, offset_sigma, huber=3.0, iterations=25, height_sigma=0.0, fixed=None)` | each image's pointing from its registrations in many maplets: every shift (`ViewReport.shift`) fitted at once as the image's pointing and the maplet's offset on the ground, as SPC fixes pointing from the whole surface. Cameras as `View` takes them, `focal` a number or one each; maplets by centre and normal; one row a registration. `height_sigma`, if positive, frees each maplet's height too -- the images' parallax tells it where the surface under the maplets is a first guess. `fixed`, `(n,)` true for the cameras whose pointing is known, which keep it: they hold the maplets where they are on the whole. Returns `(pointing (n, 2) pixels to add to each camera's centre, behind (n,) registrations each rests on, offsets (m, 2) -- (m, 3) with heights -- residuals (p,))`. 0.3 s for 312k registrations |
+| `compose(vertices, indices, maplets, spacing=0.0)` | the shape model with the maplets in it, one mesh: each point the finest maplet's over it, then the one it is most in the middle of; `spacing` draws them coarser, for an image that sees no more. Returns `(vertices, indices, albedo)` -- pieces that overlap, not one closed surface |
+| `merge(vertices, indices, maplets, size, smooth=0.0, relax=2, depth=0.4)` | the maplets merged into a closed mesh made again: the surface where their distances along their normals -- positive below each, fading at `depth` -- and the old mesh's where they weigh little cross zero, in cubes of `size`, smoothed by `smooth`. Returns `(vertices, facets, report)` as `Hull.mesh`: one closed piece whatever the maplets do, the next round's surface |
+| `fuse(vertices, indices, maplets, relax=2, smooth=3, step=0.0)` | the maplets' relief laid into the mesh by moving its vertices along their normals, the facets kept: for small moves; a saddle sunk far folds, where `merge` does not |
 
 `kalast.mesh.Mesh.from_arrays(vertices, indices)` makes the composed mesh
 a body's, for `sim.add_mesh`. `examples/comet67p_tiles/` lays and solves the
@@ -2002,11 +2004,11 @@ from kalast.shape import Hull, Surface, align
 
 hull = Hull(radius=3.0)                              # the body is inside this sphere
 hull.add_many(views, threshold=0.1)                  # a silhouette a View
-vertices, facets, report = hull.mesh(0.020)          # 20 m cubes, closed
+vertices, facets, report = hull.mesh(0.020, smooth=0.030)   # 20 m cubes, closed, no tunnel
 hull2 = Hull(radius=3.0)
 hull2.add_many(views, within=(vertices, facets), margin=0.1)   # views that do not hold the whole body carve too
 drawn = Surface(vertices, facets).draw(view)          # 0 nothing, 1 unlit, 2 lit
-(dx, dy), share = align(view_lit, drawn == 2)         # the view's pointing, in pixels
+(dx, dy), score = align(signs, drawn > 0)             # signs: 1 the lit limb, -1 the sky by it
 hull2.shift(k, dx, dy)
 ```
 
@@ -2014,8 +2016,12 @@ hull2.shift(k, dx, dy)
 |---|---|
 | `Hull(radius)` | an empty hull: nothing beyond `radius` of the frame's origin is the body, which keeps stars and a coma's glow out |
 | `hull.add(view, threshold=0.1, within=None, margin=0.05)`, `hull.add_many(views, ...)` | a view's silhouette, and what it takes of each pixel, `(height, width)`: 1 the body, or what may be -- lit, brighter than `threshold` of the image's lit ground, or behind lit ground from the Sun: the night side, the shadows -- -1 the sky, 0 not valid. `within`, `(vertices, facets)` of an earlier hull widened by `margin`, bounds the body tighter than the sphere: a view that does not hold the whole body cannot tell what lies past its frame toward the Sun otherwise |
-| `hull.mesh(size, rank=2, relax=3)` | the hull, `(vertices, facets, report)`: cubes of `size`, the surface where the views' distances to their silhouettes' edges -- the `rank`-th least, so that one view wrong carves nothing alone -- cross zero, by marching tetrahedra, closed and two-manifold; its largest piece. `report`: `genus`, `volume`, `dropped` |
+| `hull.mesh(size, rank=2, relax=3, smooth=0.0)` | the hull, `(vertices, facets, report)`: cubes of `size`, the surface where the views' distances to their silhouettes' edges -- the `rank`-th least, so that one view wrong carves nothing alone -- cross zero, smoothed first by `smooth` (closing the tunnels a few pixels' errors cut), by marching tetrahedra, closed and two-manifold; its largest piece. `report`: `genus`, `volume`, `dropped` |
 | `hull.value(points, rank=2)` | that distance, in the surface's unit, positive inside |
 | `hull.shift(index, dx, dy)`, `hull.centres`, `hull.names` | a view's pointing moved, in pixels |
 | `surface.draw(view)` | what the view's camera sees of a surface, `(height, width)`: 0 nothing, 1 unlit, 2 lit -- a ray a pixel |
-| `align(a, b, search=16)` | the shift, to half a pixel, that lays mask `b` on mask `a` -- a surface drawn in an image's geometry on its lit pixels -- and the share of their union both hold there |
+| `align(a, b, search=16)` | the shift, to half a pixel, that lays mask `b` on the signs `a` -- 1 where `b` should hold, -1 where not, 0 no matter -- and that score: a surface's outline drawn in an image's geometry (`draw(view) > 0`) on the image's lit limb and the sky beside it |
+| `hull.distances(points)` | each view's own signed distance there, `(views, n)`: which carve where |
+
+`examples/comet67p_from_images/` makes comet 67P's shape this way from 354
+OSIRIS images: the hull, then maplets at 40, 20 and 10 m, each round merged.

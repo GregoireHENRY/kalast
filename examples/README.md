@@ -345,6 +345,14 @@ Look at [res/README.md](../res/README.md) to get Hera data.
       own (`first`), each image's pointing from all of them (`pointing`),
       every tile again with it held (`second`), scored on eight held-out
       days (`score`); any range of tiles, resumable.
+- [comet67p_from_images](comet67p_from_images): comet 67P's shape from 354
+  OSIRIS images and the kernels alone, no shape model to start from. Its
+  [README](comet67p_from_images/README.md) says where to get the data.
+    - [comet67p_from_images/main.py](comet67p_from_images/main.py): the
+      frames of [frames.csv](comet67p_from_images/frames.csv) fetched
+      (`fetch`), their silhouettes carved into a closed hull (`hull`),
+      maplets over it at 40, 20 and 10 m, the mesh made again from them
+      each round (`tiles`), the result against SHAP7 (`compare`).
 
 ## Examples that worked but not ready for users
 
