@@ -125,6 +125,29 @@ model to start from.
   surface as it is now, 106 of the 121 have five frames of the 335, and 18
   more frames from the archive serve the rest bar 12. The rounds go on so,
   from round 4.
+
+  On that layout the tiles did not fold the surface less: whatever the
+  smoothing and the steps, moving one mesh's vertices hundreds of metres
+  into a saddle folds it -- the dug neck needs walls the hull's mesh has no
+  facets for. So each round now makes the mesh again (`merge`): the tiles
+  as a field over space -- each one's distance along its normal from its
+  surface, positive below it, weighed toward its middle and fading at 400 m
+  from it -- the last mesh's own distance where the tiles weigh little,
+  and the surface where that crosses zero by the hull's marching tetrahedra
+  (`march`, shared): closed, genus 0, 24 s for 1M facets at 20 m. From
+  the hull again, on the fixed layout:
+
+  | merged, 40 m | tiles with five frames | volume, km3 | SHAP7 against it, m: median, rms | SHAP7 inside by, 90 %, 99 % |
+  |---|---|---|---|---|
+  | round 1 | 121 of 121 | 21.39 | 22, 175 | 262, 714 |
+  | round 2 | 121 | 20.62 | 19, 140 | 199, 616 |
+  | round 3 | 121 | 19.97 | 18, 103 | 133, 499 |
+  | round 4 | 121 | 19.64 | 18, 80 | 92, 409 |
+
+  Every tile stays in view of its frames, and the hollows dig by about a
+  third of what is left a round:
+
+  ![SHAP7 and the merged mesh after three rounds at 40 m](merged_40m_round3.png)
 - [ ] The tiles merged into the mesh (Rust): its vertices moved, one closed
   mesh still.
 - [ ] Again at 20 m and at 10 m; each version against SHAP7.
