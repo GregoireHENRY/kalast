@@ -185,7 +185,28 @@ model to start from.
   ![SHAP7 coloured by how far the 20 m result is from it](difference_20m_round4.png)
 
 - [ ] At 10 m: tiles of 31 x 31 points, 300 m, on the 20 m result, merged
-  in 10 m cubes.
+  in 10 m cubes -- 2,187 tiles, 40 frames each at the median, about 40
+  minutes a round. The first merge took over half an hour: every point the
+  small tiles weigh little asked three rays through the 4M-facet mesh
+  whether it was inside; near the mesh its nearest vertex's normal answers
+  now, the rays only far from it.
+- The 20 m result drawn on the 57 images of `2026-10-13_67p_osiris_shadows/`
+  as SHAP7 was there -- the reference, the refitted law -- lit or not cut
+  as `compare.py` cuts them, the lit pixels' IoU at the median:
+
+  | phase (deg) | images | SHAP7 (13 October) | ours at 20 m |
+  |---|---|---|---|
+  | 0-30 | 8 | 0.976 | 0.962 |
+  | 30-60 | 18 | 0.935 | 0.898 |
+  | 60-90 | 18 | 0.885 | 0.763 |
+  | 90-100 | 6 | 0.543 | 0.442 |
+  | 100-125 | 6 | 0.746 | 0.651 |
+  | all | 56 | 0.905 | 0.844 |
+
+  Nearly SHAP7's where the Sun is high; the lower it is, the more the
+  shadows are relief of a few metres, which SHAP7 holds at 1-1.5 m and the
+  20 m mesh does not. SHAP7's column is from 13 October, its pointing
+  `images.csv`'s, fitted on SHAP7: both drawn again today at the end.
 - [ ] Against SHAP7 at 10 m: heights, volume, the 57 images of
   `2026-10-13_67p_osiris_shadows/` drawn with both.
 - [ ] Made usable: an example, `docs/API.md`, the changelog, the bundle.
