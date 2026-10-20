@@ -160,7 +160,32 @@ model to start from.
   ![SHAP7 coloured by how far the 40 m result is from it](difference_40m_merged_round10.png)
 - [ ] The tiles merged into the mesh (Rust): its vertices moved, one closed
   mesh still.
-- [ ] Again at 20 m and at 10 m; each version against SHAP7.
+- [x] At 20 m: tiles of 31 x 31 points, 600 m, laid once on the 40 m
+  result (510 tiles, all but one with five frames, 40 at the median),
+  merged in 10 m cubes -- 4.1M facets, genus 0, 90 s a merge:
+
+  | 20 m | volume, km3 (SHAP7 18.56) | SHAP7 against it, m: median, rms | SHAP7 inside by, 90 %, 99 % |
+  |---|---|---|---|
+  | round 1 | 18.84 | 14.0, 25.4 | 30, 89 |
+  | round 2 | 18.80 | 12.7, 22.2 | 27, 68 |
+  | round 3 | 18.77 | 11.8, 20.1 | 25, 55 |
+  | round 4 | 18.76 | 11.4, 18.2 | 24, 50 |
+
+  Within 20 m of SHAP7 on 77 % of its surface, within 50 m on 98.4 %.
+  Part of that is where each model stands, not its shape: the north a
+  little outside SHAP7, the south a little inside. SHAP7 laid on the mesh
+  at its best (iterated closest points, scratch `icp.py`) moves 21 m --
+  (2.8, 13.3, 16.5) m -- and turns 0.21 deg; then the difference is 7.1 m
+  at the median, 16.4 m rms, within 10 m on 66 %, within 20 m on 92 %.
+  The model stands where SPICE's kernels put it -- the frames registered
+  by their limbs hold it there -- and SHAP7 where DLR's solution put it;
+  0.2 deg is the size of the comet's attitude kernels' own error
+  (`2026-10-13_67p_osiris_shadows/`).
+
+  ![SHAP7 coloured by how far the 20 m result is from it](difference_20m_round4.png)
+
+- [ ] At 10 m: tiles of 31 x 31 points, 300 m, on the 20 m result, merged
+  in 10 m cubes.
 - [ ] Against SHAP7 at 10 m: heights, volume, the 57 images of
   `2026-10-13_67p_osiris_shadows/` drawn with both.
 - [ ] Made usable: an example, `docs/API.md`, the changelog, the bundle.
