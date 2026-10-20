@@ -53,7 +53,27 @@ model to start from.
 
 - [ ] Tiles over it, coarse to fine: each image registered on each tile;
   each image's pointing and each tile's place -- its height too, the stereo
-  -- fitted at once; the relief solved from the shading.
+  -- fitted at once; the relief solved from the shading. Running at 40 m
+  (scratch `spc67p.py`): tiles of 31 x 31 points, 40 frames each at the
+  median, Fornasier et al. (2015)'s published Hapke law -- nothing fitted on
+  a shape model. Each round, the tiles merged into the mesh by `fuse`:
+
+  | | volume, km3 (SHAP7 18.56) | SHAP7 against it, m: median, rms | SHAP7 inside by, 90 %, 99 % | the fit's residual, px |
+  |---|---|---|---|---|
+  | the hull | 22.80 | 45, 193 | 295, 758 | |
+  | 40 m, round 1 (124 tiles) | 21.28 | 25, 160 | 242, 646 | 20.5 |
+  | 40 m, round 2 (154 tiles) | 20.41 | 19, 122 | 166, 534 | 5.1 |
+
+  The tiles go down where the hull is too full -- 26 then 10 m at the
+  median, 111 then 78 m at the 10th percentile -- and the fit's residual
+  falls as the surface comes nearer the frames'. Two things found: where
+  tiles disagree a move can turn a facet over (0.24 % in round 1), which
+  `fuse` now untangles; and every tile moved one way with every frame's
+  pointing the other explains the shifts alike -- far frames moved 9 px --
+  so the frames registered by their limbs now keep their pointing
+  (`pointing(..., fixed=...)`) and hold the model in SPICE's frame.
+
+  ![SHAP7, the hull and round 1 at 40 m](round_40m_1.png)
 - [ ] The tiles merged into the mesh (Rust): its vertices moved, one closed
   mesh still.
 - [ ] Again at 20 m and at 10 m; each version against SHAP7.

@@ -75,7 +75,11 @@ pub struct Pointing {
 /// maplet may move for one pixel of residual -- a maplet few images tie
 /// stays near where it was. `huber`, pixels: past it a residual weighs as
 /// its square root. `height_sigma`, if positive, frees each maplet's height
-/// as well, held so to zero.
+/// as well, held so to zero. `fixed`, if not empty, a flag a camera: those
+/// set keep their pointing, 0 -- images whose pointing is known, from their
+/// limbs, say -- and hold the maplets where they are on the whole: without
+/// them, every maplet moved one way and every image's pointing the other
+/// explain the shifts alike, and only `offset_sigma` holds them.
 #[allow(clippy::too_many_arguments)]
 pub fn pointing(
     cameras: &[Camera],
@@ -85,7 +89,11 @@ pub fn pointing(
     huber: F,
     iterations: usize,
     height_sigma: F,
+    fixed: &[bool],
 ) -> Result<Pointing, String> {
+    if !fixed.is_empty() && fixed.len() != cameras.len() {
+        return Err(format!("{} flags for {} cameras", fixed.len(), cameras.len()));
+    }
     if !(offset_sigma > 0.0 && offset_sigma.is_finite()) || !(huber > 0.0 && huber.is_finite()) {
         return Err(format!("offset_sigma {offset_sigma}, huber {huber}: both must be positive"));
     }
@@ -164,7 +172,7 @@ pub fn pointing(
             offsets[t] = [o.x, o.y, o.z];
         }
         for (k, members) in by_image.iter().enumerate() {
-            if members.is_empty() {
+            if members.is_empty() || fixed.get(k).copied().unwrap_or(false) {
                 continue;
             }
             for (c, value) in images[k].iter_mut().enumerate() {
@@ -271,7 +279,7 @@ mod tests {
                 registrations.push(Registration { image: k, tile: t, shift, weight: 1.0 });
             }
         }
-        let fit = pointing(&cameras, &tiles, &registrations, 0.01, 3.0, 25, 0.0).unwrap();
+        let fit = pointing(&cameras, &tiles, &registrations, 0.01, 3.0, 25, 0.0, &[]).unwrap();
         let err: Vec<F> = (0..cameras.len())
             .filter(|&k| fit.behind[k] >= 3)
             .map(|k| ((fit.images[k][0] - truth_p[k][0]).powi(2) + (fit.images[k][1] - truth_p[k][1]).powi(2)).sqrt())
@@ -327,7 +335,7 @@ mod tests {
                 registrations.push(Registration { image: k, tile: t, shift, weight: 1.0 });
             }
         }
-        let fit = pointing(&cameras, &tiles, &registrations, 0.01, 3.0, 40, 0.1).unwrap();
+        let fit = pointing(&cameras, &tiles, &registrations, 0.01, 3.0, 40, 0.1, &[]).unwrap();
         let err: Vec<F> = (0..tiles.len()).map(|t| (fit.offsets[t][2] - truth_o[t][2]).abs()).collect();
         let worst = err.iter().cloned().fold(0.0, F::max);
         // A 0.2-pixel noise is 0.0008 on the ground here; a height is seen
@@ -342,7 +350,7 @@ mod tests {
         let cameras = [Camera { position: V3::ZERO, axes: M3::IDENTITY, focal: 100.0 }];
         let tiles = [(V3::new(0.0, 0.0, -1.0), V3::Z)];
         let r = [Registration { image: 0, tile: 0, shift: [0.0, 0.0], weight: 1.0 }];
-        assert!(pointing(&cameras, &tiles, &r, 0.01, 3.0, 5, 0.0).is_err());
+        assert!(pointing(&cameras, &tiles, &r, 0.01, 3.0, 5, 0.0, &[]).is_err());
     }
 
     #[test]

@@ -994,11 +994,14 @@ pub fn choose(
 /// a residual weighs as its square root. `height_sigma`, if positive, frees
 /// each maplet's height too -- the parallax across its images tells it,
 /// where the surface under the maplets is a first guess -- held so to
-/// zero. Gives `(pointing (n, 2) pixels to add to each camera's centre,
-/// behind (n,) registrations each image's rests on, offsets (m, 2) -- (m,
-/// 3) with the heights, along each maplet's u, v and w -- residuals (p,))`.
+/// zero. `fixed`, `(n,)` true for the cameras whose pointing is known --
+/// from their limbs, say -- which keep it and hold the maplets where they
+/// are on the whole. Gives `(pointing (n, 2) pixels to add to each camera's
+/// centre, behind (n,) registrations each image's rests on, offsets (m, 2)
+/// -- (m, 3) with the heights, along each maplet's u, v and w -- residuals
+/// (p,))`.
 #[pyfunction]
-#[pyo3(signature = (positions, axes, focal, centres, normals, image, tile, shift, weight, offset_sigma, huber=3.0, iterations=25, height_sigma=0.0))]
+#[pyo3(signature = (positions, axes, focal, centres, normals, image, tile, shift, weight, offset_sigma, huber=3.0, iterations=25, height_sigma=0.0, fixed=None))]
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn pointing<'py>(
     py: Python<'py>,
@@ -1015,7 +1018,9 @@ pub fn pointing<'py>(
     huber: f64,
     iterations: usize,
     height_sigma: f64,
+    fixed: Option<Vec<bool>>,
 ) -> PyResult<(Bound<'py, PyArray2<f64>>, Bound<'py, PyArray1<i64>>, Bound<'py, PyArray2<f64>>, Bound<'py, PyArray1<f64>>)> {
+    let fixed = fixed.unwrap_or_default();
     let positions = vectors(positions, "positions")?;
     let axes = axes.as_array();
     if axes.shape() != [positions.len(), 3, 3] {
@@ -1054,7 +1059,7 @@ pub fn pointing<'py>(
         registrations.push(super::Registration { image: k as usize, tile: t as usize, shift: [shift[[i, 0]], shift[[i, 1]]], weight: weight[i] });
     }
     let fit = py
-        .detach(|| super::pointing(&cameras, &tiles, &registrations, offset_sigma, huber, iterations, height_sigma))
+        .detach(|| super::pointing(&cameras, &tiles, &registrations, offset_sigma, huber, iterations, height_sigma, &fixed))
         .map_err(err)?;
     let two = |v: &[[f64; 2]]| PyArray1::from_vec(py, v.iter().flatten().copied().collect()).reshape([v.len(), 2]).expect("n x 2");
     let columns = if height_sigma > 0.0 { 3 } else { 2 };

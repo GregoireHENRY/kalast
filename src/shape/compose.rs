@@ -200,7 +200,9 @@ pub fn compose<P: Copy + Into<V3> + Sync>(positions: &[P], indices: &[u32], mapl
 /// of the half-width along each side; a vertex facing away from a maplet,
 /// or farther off its surface than `compose`'s depth, not its. The facets
 /// are the shape model's, and the mesh as closed as it was: what the next
-/// round of maplets is laid on. Then `relax` rounds of each vertex moved
+/// round of maplets is laid on. Where maplets disagree enough to turn a
+/// facet over, its corners' moves are averaged with their neighbours'
+/// until none is. Then `relax` rounds of each vertex moved
 /// halfway toward its neighbours' middle across the surface, which keeps
 /// the triangles even. With each vertex's move along its normal, outward
 /// positive, and the maplets' summed weight on it -- 0 where none is.
@@ -265,7 +267,45 @@ pub fn fuse<P: Copy + Into<V3> + Sync>(positions: &[P], indices: &[u32], maplets
             (V3::ZERO, 0.0)
         }
     });
-    let mut vertices: Vec<V3> = base.iter().zip(&moves).map(|(p, (d, _))| *p + *d).collect();
+    let mut shift: Vec<V3> = moves.iter().map(|(d, _)| *d).collect();
+    // A facet turned over by the move -- its corners moved by maplets that
+    // disagree -- folds the surface: the moves of its corners averaged with
+    // their neighbours' until none is.
+    let neighbours = {
+        let mut n: Vec<Vec<u32>> = vec![vec![]; base.len()];
+        for t in indices.chunks_exact(3) {
+            for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+                n[a as usize].push(b);
+                n[b as usize].push(a);
+            }
+        }
+        n
+    };
+    let normal_of = |p: &[V3], t: &[u32]| (p[t[1] as usize] - p[t[0] as usize]).cross(p[t[2] as usize] - p[t[0] as usize]);
+    for _ in 0..50 {
+        let moved: Vec<V3> = base.iter().zip(&shift).map(|(p, d)| *p + *d).collect();
+        let mut bad = vec![false; base.len()];
+        let mut any = false;
+        for t in indices.chunks_exact(3) {
+            if normal_of(&base, t).dot(normal_of(&moved, t)) <= 0.0 {
+                any = true;
+                for &k in t {
+                    bad[k as usize] = true;
+                }
+            }
+        }
+        if !any {
+            break;
+        }
+        let before = shift.clone();
+        for (k, near) in neighbours.iter().enumerate() {
+            if bad[k] && !near.is_empty() {
+                let mean = near.iter().map(|&j| before[j as usize]).sum::<V3>() / near.len() as F;
+                shift[k] = 0.5 * (before[k] + mean);
+            }
+        }
+    }
+    let mut vertices: Vec<V3> = base.iter().zip(&shift).map(|(p, d)| *p + *d).collect();
     for _ in 0..relax {
         vertices = relaxed(&vertices, indices);
     }
