@@ -100,7 +100,31 @@ model to start from.
   `fuse` now moves each vertex along its own normal, to where that line
   meets the tile's surface, smooths the moves over the mesh and holds them
   to a step a round (1.5 spacings): a surface moved far gets there in
-  rounds, its neighbours with it. The 40 m rounds again from the hull.
+  rounds, its neighbours with it. The 40 m rounds again from the hull, the
+  hull's triangles relaxed first; `fuse` relaxing before it untangles, and
+  putting back what stays turned over: no facet turned over after a round.
+
+  | the 40 m rounds again | tiles with five frames, of those laid | volume, km3 | SHAP7 against it, m: median, rms | SHAP7 inside by, 90 %, 99 % |
+  |---|---|---|---|---|
+  | round 1 | 121 of 121 | 21.31 | 23, 174 | 256, 715 |
+  | round 2 | 225 of 283 | 20.85 | 20, 156 | 225, 652 |
+  | round 3 | 210 of 383 | 20.50 | 21, 135 | 193, 574 |
+  | round 4 | 187 of ? | 20.51 | 19, 126 | 162, 538 |
+
+  Clean, but the hollows hardly dig: within 20 m of SHAP7 on 55 % of its
+  surface, 50 m on 82 %, the neck and the small lobe's large depression
+  still 100 m and more too full.
+
+  ![SHAP7 coloured by how far round 4 is from it](difference_40m_clean_round4.png)
+
+  Why: `Surface.tiles`, laid afresh on each round's rougher surface, put
+  down more tiles every round -- 121, 283, 383, 608 -- many facing into
+  the body on the backs of bumps, which no frame sees; of the 297 laid over
+  the hollows in round 4, 57 had five frames. Laid once on the hull and
+  kept -- SPC keeps its landmarks so -- each tile's middle found on the
+  surface as it is now, 106 of the 121 have five frames of the 335, and 18
+  more frames from the archive serve the rest bar 12. The rounds go on so,
+  from round 4.
 - [ ] The tiles merged into the mesh (Rust): its vertices moved, one closed
   mesh still.
 - [ ] Again at 20 m and at 10 m; each version against SHAP7.
