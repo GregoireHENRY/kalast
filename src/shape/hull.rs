@@ -705,52 +705,50 @@ impl Hull {
     }
 }
 
-/// The shift that best lays mask `b` on mask `a`, both `w` by `h` row by
-/// row: `(dx, dy)` such that `b` at `(x - dx, y - dy)` matches `a` at `(x,
-/// y)` -- for a model drawn in an image, what to add to the camera's centre
-/// -- and the share of their union both hold there. Whole pixels within
+/// The shift that best lays mask `b` on the signs `a`, both `w` by `h` row
+/// by row: `(dx, dy)` such that `b` at `(x - dx, y - dy)` holds most where
+/// `a` is 1 and least where it is -1 -- 0 for no matter -- and that score
+/// as a share of `a`'s nonzero pixels. For a surface's outline drawn in an
+/// image's geometry against the image: 1 where it shows the body lit, -1
+/// on the sky; what to add to the camera's centre. Whole pixels within
 /// `search`, a quarter of the resolution first, then to half a pixel by a
 /// parabola through the best and its neighbours.
-pub fn align(a: &[bool], b: &[bool], w: usize, h: usize, search: usize) -> ([F; 2], F) {
-    // Both at a quarter: a cell holds if most of it does.
-    let shrink = |m: &[bool]| -> (Vec<bool>, usize, usize) {
-        let (sw, sh) = (w.div_ceil(4), h.div_ceil(4));
-        let mut count = vec![0u8; sw * sh];
-        for r in 0..h {
-            for c in 0..w {
-                count[(r / 4) * sw + c / 4] += m[r * w + c] as u8;
-            }
+pub fn align(a: &[i8], b: &[bool], w: usize, h: usize, search: usize) -> ([F; 2], F) {
+    // A quarter: `a` summed over each cell, `b` held where most of it does.
+    let (sw, sh) = (w.div_ceil(4), h.div_ceil(4));
+    let mut qa = vec![0i32; sw * sh];
+    let mut count = vec![0u8; sw * sh];
+    for r in 0..h {
+        for c in 0..w {
+            qa[(r / 4) * sw + c / 4] += a[r * w + c] as i32;
+            count[(r / 4) * sw + c / 4] += b[r * w + c] as u8;
         }
-        (count.into_iter().map(|n| n >= 8).collect(), sw, sh)
-    };
-    let score = |a: &[bool], b: &[bool], w: usize, h: usize, dx: i64, dy: i64| -> F {
-        let (mut both, mut either) = (0usize, 0usize);
+    }
+    let qb: Vec<bool> = count.into_iter().map(|n| n >= 8).collect();
+    fn score<T: Copy + Into<i32> + Sync>(a: &[T], b: &[bool], w: usize, h: usize, dx: i64, dy: i64) -> F {
+        let mut sum = 0i64;
         for r in 0..h as i64 {
             let rb = r - dy;
+            if rb < 0 || rb >= h as i64 {
+                continue;
+            }
             for c in 0..w as i64 {
                 let cb = c - dx;
-                let x = a[(r * w as i64 + c) as usize];
-                let y = rb >= 0 && cb >= 0 && rb < h as i64 && cb < w as i64 && b[(rb * w as i64 + cb) as usize];
-                both += (x && y) as usize;
-                either += (x || y) as usize;
+                if cb >= 0 && cb < w as i64 && b[(rb * w as i64 + cb) as usize] {
+                    sum += a[(r * w as i64 + c) as usize].into() as i64;
+                }
             }
         }
-        if either == 0 {
-            0.0
-        } else {
-            both as F / either as F
-        }
-    };
-    let best_of = |a: &[bool], b: &[bool], w: usize, h: usize, around: (i64, i64), reach: i64| {
+        sum as F
+    }
+    fn best<T: Copy + Into<i32> + Sync>(a: &[T], b: &[bool], w: usize, h: usize, around: (i64, i64), reach: i64) -> ((i64, i64), F) {
         let shifts: Vec<(i64, i64)> = (-reach..=reach).flat_map(|y| (-reach..=reach).map(move |x| (around.0 + x, around.1 + y))).collect();
         let scores = par_map(shifts.len(), |k| score(a, b, w, h, shifts[k].0, shifts[k].1));
         let k = (0..shifts.len()).max_by(|&i, &j| scores[i].total_cmp(&scores[j])).unwrap_or(0);
         (shifts[k], scores[k])
-    };
-    let (qa, qw, qh) = shrink(a);
-    let (qb, _, _) = shrink(b);
-    let ((cx, cy), _) = best_of(&qa, &qb, qw, qh, (0, 0), (search / 4 + 1) as i64);
-    let ((x, y), top) = best_of(a, b, w, h, (4 * cx, 4 * cy), 4);
+    }
+    let ((cx, cy), _) = best(&qa, &qb, sw, sh, (0, 0), (search / 4 + 1) as i64);
+    let ((x, y), top) = best(a, b, w, h, (4 * cx, 4 * cy), 4);
     // Half a pixel either way, by a parabola through three.
     let vertex = |m: F, z: F, p: F| {
         let d = m - 2.0 * z + p;
@@ -762,7 +760,8 @@ pub fn align(a: &[bool], b: &[bool], w: usize, h: usize, search: usize) -> ([F; 
     };
     let fx = vertex(score(a, b, w, h, x - 1, y), top, score(a, b, w, h, x + 1, y));
     let fy = vertex(score(a, b, w, h, x, y - 1), top, score(a, b, w, h, x, y + 1));
-    ([x as F + fx, y as F + fy], top)
+    let total = a.iter().filter(|&&v| v != 0).count().max(1);
+    ([x as F + fx, y as F + fy], top / total as F)
 }
 
 /// The largest piece of a mesh, by its facets, and how many facets the

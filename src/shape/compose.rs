@@ -194,6 +194,121 @@ pub fn compose<P: Copy + Into<V3> + Sync>(positions: &[P], indices: &[u32], mapl
     (kept_vertices, out_indices, kept_albedo)
 }
 
+/// The maplets' relief laid into the shape model itself: each vertex moved
+/// along the normal of each maplet over it to the maplet's surface there,
+/// the maplets weighed toward their middles, `(1 - s^2)^2` of the share `s`
+/// of the half-width along each side; a vertex facing away from a maplet,
+/// or farther off its surface than `compose`'s depth, not its. The facets
+/// are the shape model's, and the mesh as closed as it was: what the next
+/// round of maplets is laid on. Then `relax` rounds of each vertex moved
+/// halfway toward its neighbours' middle across the surface, which keeps
+/// the triangles even. With each vertex's move along its normal, outward
+/// positive, and the maplets' summed weight on it -- 0 where none is.
+pub fn fuse<P: Copy + Into<V3> + Sync>(positions: &[P], indices: &[u32], maplets: &[Maplet], relax: usize) -> (Vec<V3>, Vec<F>, Vec<F>) {
+    let base: Vec<V3> = positions.iter().map(|p| (*p).into()).collect();
+    let placed: Vec<Placed> = maplets
+        .iter()
+        .map(|m| {
+            let half = 0.5 * (m.n - 1) as F * m.spacing;
+            Placed { maplet: m, half, depth: 10.0 * m.spacing + 0.05 * half }
+        })
+        .collect();
+    let widest = placed.iter().map(|p| 2.0 * p.half).fold(0.0, F::max).max(1e-12);
+    let mut index = Index { cell: widest * std::f64::consts::SQRT_2, cubes: HashMap::new() };
+    for (t, p) in placed.iter().enumerate() {
+        let key = index.key(p.maplet.centre);
+        index.cubes.entry(key).or_default().push(t);
+    }
+    let normals = vertex_normals(&base, indices);
+    let taper = |s: F| (1.0 - s * s).max(0.0).powi(2);
+    let moves: Vec<(V3, F)> = par_map(base.len(), |k| {
+        let (p, n) = (base[k], normals[k]);
+        let (a, b, c) = index.key(p);
+        let (mut sum, mut weight) = (V3::ZERO, 0.0);
+        for x in a - 1..=a + 1 {
+            for y in b - 1..=b + 1 {
+                for z in c - 1..=c + 1 {
+                    for &t in index.cubes.get(&(x, y, z)).into_iter().flatten() {
+                        let pl = &placed[t];
+                        let m = pl.maplet;
+                        let w = m.axes[2];
+                        if n.dot(w) < 0.2 {
+                            continue;
+                        }
+                        let [lx, ly, lz] = m.local(p - m.centre);
+                        if lx.abs() > pl.half || ly.abs() > pl.half {
+                            continue;
+                        }
+                        let mid = (m.n - 1) as F / 2.0;
+                        let (fi, fj) = (lx / m.spacing + mid, ly / m.spacing + mid);
+                        let (i, j) = ((fi.floor() as usize).min(m.n - 2), (fj.floor() as usize).min(m.n - 2));
+                        let (tx, ty) = (fi - i as F, fj - j as F);
+                        let known = |a: usize, b: usize| m.reference[b * m.n + a].is_finite();
+                        if !(known(i, j) && known(i + 1, j) && known(i, j + 1) && known(i + 1, j + 1)) {
+                            continue;
+                        }
+                        let h = |a: usize, b: usize| m.heights[b * m.n + a];
+                        let height = (1.0 - ty) * ((1.0 - tx) * h(i, j) + tx * h(i + 1, j)) + ty * ((1.0 - tx) * h(i, j + 1) + tx * h(i + 1, j + 1));
+                        if (lz - height).abs() > pl.depth {
+                            continue;
+                        }
+                        let share = taper(lx / pl.half) * taper(ly / pl.half);
+                        sum += w * ((height - lz) * share);
+                        weight += share;
+                    }
+                }
+            }
+        }
+        if weight > 0.0 {
+            (sum / weight, weight)
+        } else {
+            (V3::ZERO, 0.0)
+        }
+    });
+    let mut vertices: Vec<V3> = base.iter().zip(&moves).map(|(p, (d, _))| *p + *d).collect();
+    for _ in 0..relax {
+        vertices = relaxed(&vertices, indices);
+    }
+    let moved = base.iter().zip(&vertices).zip(&normals).map(|((a, b), n)| (*b - *a).dot(*n)).collect();
+    (vertices, moved, moves.into_iter().map(|(_, w)| w).collect())
+}
+
+/// Each vertex's normal: its facets', weighed by their areas.
+fn vertex_normals(vertices: &[V3], indices: &[u32]) -> Vec<V3> {
+    let mut normals = vec![V3::ZERO; vertices.len()];
+    for t in indices.chunks_exact(3) {
+        let (a, b, c) = (t[0] as usize, t[1] as usize, t[2] as usize);
+        let n = (vertices[b] - vertices[a]).cross(vertices[c] - vertices[a]);
+        normals[a] += n;
+        normals[b] += n;
+        normals[c] += n;
+    }
+    normals.into_iter().map(|n| n.normalize_or_zero()).collect()
+}
+
+/// Each vertex moved halfway toward its neighbours' middle, across the
+/// surface only: the triangles evened, the shape kept.
+fn relaxed(vertices: &[V3], indices: &[u32]) -> Vec<V3> {
+    let normals = vertex_normals(vertices, indices);
+    let mut sum = vec![V3::ZERO; vertices.len()];
+    let mut count = vec![0u32; vertices.len()];
+    for t in indices.chunks_exact(3) {
+        for (x, y) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+            sum[x as usize] += vertices[y as usize];
+            count[x as usize] += 1;
+        }
+    }
+    (0..vertices.len())
+        .map(|k| {
+            if count[k] == 0 {
+                return vertices[k];
+            }
+            let d = sum[k] / count[k] as F - vertices[k];
+            vertices[k] + 0.5 * (d - d.dot(normals[k]) * normals[k])
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -257,6 +372,46 @@ mod tests {
                 (m - centre).length() < 5.0
             });
             assert!(!flat, "the shape model is left under the maplet at {centre}");
+        }
+    }
+
+    #[test]
+    fn fuse_moves_a_closed_mesh_onto_its_maplets() {
+        // A sphere of radius 1, an octahedron refined; a maplet on its top,
+        // its heights 0.05 above the sphere: the vertices under its middle
+        // rise by that, those beyond it stay, and no facet is lost.
+        let (mut v, mut idx) = (
+            vec![V3::X, -V3::X, V3::Y, -V3::Y, V3::Z, -V3::Z],
+            vec![0u32, 2, 4, 2, 1, 4, 1, 3, 4, 3, 0, 4, 2, 0, 5, 1, 2, 5, 3, 1, 5, 0, 3, 5],
+        );
+        for _ in 0..5 {
+            let mut middle: HashMap<(u32, u32), u32> = HashMap::new();
+            let mut out = vec![];
+            for t in idx.chunks_exact(3) {
+                let mut mid = |a: u32, b: u32| {
+                    *middle.entry((a.min(b), a.max(b))).or_insert_with(|| {
+                        v.push(((v[a as usize] + v[b as usize]) / 2.0).normalize());
+                        (v.len() - 1) as u32
+                    })
+                };
+                let (ab, bc, ca) = (mid(t[0], t[1]), mid(t[1], t[2]), mid(t[2], t[0]));
+                out.extend_from_slice(&[t[0], ab, ca, ab, t[1], bc, ca, bc, t[2], ab, bc, ca]);
+            }
+            idx = out;
+        }
+        let mut m = Maplet::from_surface(&v, &idx, V3::Z, Some(V3::Z), 21, 0.04).unwrap();
+        for h in m.heights.iter_mut() {
+            *h += 0.05;
+        }
+        let (out, moved, cover) = fuse(&v, &idx, &[m], 0);
+        assert_eq!(out.len(), v.len());
+        let top = (0..v.len()).max_by(|&a, &b| v[a].z.total_cmp(&v[b].z)).unwrap();
+        assert!((moved[top] - 0.05).abs() < 0.005, "the top rose {}", moved[top]);
+        assert!(cover[top] > 0.9);
+        for k in 0..v.len() {
+            if v[k].z < 0.8 {
+                assert_eq!(moved[k], 0.0, "vertex {k} at z {} moved", v[k].z);
+            }
         }
     }
 }

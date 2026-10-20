@@ -830,6 +830,16 @@ impl Hull {
         Ok(PyArray1::from_vec(py, values))
     }
 
+    /// Each view's own signed distance at `points` `(n, 3)`, `(views, n)`:
+    /// which views carve where -- NaN behind a view's camera.
+    fn distances<'py>(&self, py: Python<'py>, points: PyArrayLike2<'_, f64, AllowTypeChange>) -> PyResult<Bound<'py, PyArray2<f64>>> {
+        let points = vectors(points, "points")?;
+        let hull = &self.inner;
+        let rows = py.detach(|| super::par_map(hull.silhouettes.len(), |k| points.iter().map(|p| hull.silhouettes[k].at(*p).unwrap_or(f64::NAN)).collect::<Vec<f64>>()));
+        let n = points.len();
+        Ok(PyArray1::from_vec(py, rows.concat()).reshape([hull.silhouettes.len(), n]).expect("views x n"))
+    }
+
     /// The hull as a closed mesh, `(vertices (v, 3), facets (f, 3), report)`:
     /// cubes of `size` over the bounding sphere, the surface where `value`
     /// crosses zero by marching tetrahedra, its largest piece kept; then
@@ -862,23 +872,24 @@ impl Hull {
     }
 }
 
-/// The shift that best lays mask `b` on mask `a`, both `(height, width)`:
-/// `((dx, dy), share)`, `b` moved by `(dx, dy)` pixels matching `a`, and
-/// the share of their union both hold there -- for a surface drawn in an
-/// image's geometry (`Surface.draw`) against the image's lit pixels, what
-/// to add to the camera's centre. Whole pixels within `search`, then to
-/// half a pixel.
+/// The shift that best lays mask `b` on the signs `a`, both `(height,
+/// width)`: `((dx, dy), score)`, `b` moved by `(dx, dy)` pixels holding most
+/// where `a` is 1 and least where it is -1 -- 0 for no matter -- and that
+/// as a share of `a`'s nonzero pixels. For a surface's outline drawn in an
+/// image's geometry (`Surface.draw(view) > 0`) against the image -- 1 where
+/// it shows the body lit, -1 on the sky -- what to add to the camera's
+/// centre. Whole pixels within `search`, then to half a pixel.
 #[pyfunction]
 #[pyo3(signature = (a, b, search=16))]
-pub fn align(py: Python<'_>, a: PyArrayLike2<'_, bool, AllowTypeChange>, b: PyArrayLike2<'_, bool, AllowTypeChange>, search: usize) -> PyResult<((f64, f64), f64)> {
+pub fn align(py: Python<'_>, a: PyArrayLike2<'_, i8, AllowTypeChange>, b: PyArrayLike2<'_, bool, AllowTypeChange>, search: usize) -> PyResult<((f64, f64), f64)> {
     let (a, b) = (a.as_array(), b.as_array());
     if a.shape() != b.shape() {
         return Err(err(format!("masks of {:?} and {:?}", a.shape(), b.shape())));
     }
     let (h, w) = (a.shape()[0], a.shape()[1]);
-    let (a, b): (Vec<bool>, Vec<bool>) = (a.iter().copied().collect(), b.iter().copied().collect());
-    let ([dx, dy], share) = py.detach(|| super::align(&a, &b, w, h, search));
-    Ok(((dx, dy), share))
+    let (a, b): (Vec<i8>, Vec<bool>) = (a.iter().copied().collect(), b.iter().copied().collect());
+    let ([dx, dy], score) = py.detach(|| super::align(&a, &b, w, h, search));
+    Ok(((dx, dy), score))
 }
 
 /// The shape model `vertices` `(v, 3)`, `indices` `(f, 3)` or flat, with
@@ -909,6 +920,35 @@ pub fn compose<'py>(
     let (v, f, a) = py.detach(|| super::compose(&positions, idx, &inner, spacing));
     let faces = f.len() / 3;
     Ok((rows3(py, &v), PyArray1::from_vec(py, f).reshape([faces, 3]).expect("f x 3"), PyArray1::from_vec(py, a)))
+}
+
+/// The maplets' relief laid into the shape model itself, `vertices` `(v,
+/// 3)`, `indices` `(f, 3)` or flat: each vertex moved along the normal of
+/// each maplet over it to the maplet's surface there, the maplets weighed
+/// toward their middles; a vertex facing away from a maplet, or far off its
+/// surface, not its. The facets are kept, and the mesh as closed as it was:
+/// what the next round of maplets is laid on. Then `relax` rounds of each
+/// vertex moved halfway toward its neighbours' middle across the surface.
+/// Gives `(vertices (v, 3), moved (v,) along each vertex's normal, outward
+/// positive, cover (v,) the maplets' summed weight, 0 where none is)`.
+#[pyfunction]
+#[pyo3(signature = (vertices, indices, maplets, relax=2))]
+#[allow(clippy::type_complexity)]
+pub fn fuse<'py>(
+    py: Python<'py>,
+    vertices: PyArrayLike2<'_, f64, AllowTypeChange>,
+    indices: PyReadonlyArrayDyn<'_, u32>,
+    maplets: Vec<PyRef<'py, Maplet>>,
+    relax: usize,
+) -> PyResult<(Bound<'py, PyArray2<f64>>, Bound<'py, PyArray1<f64>>, Bound<'py, PyArray1<f64>>)> {
+    let positions = vectors(vertices, "vertices")?;
+    let idx = indices.as_slice().map_err(|_| err("indices must be contiguous".into()))?;
+    if idx.len() % 3 != 0 || idx.iter().any(|&i| i as usize >= positions.len()) {
+        return Err(err("indices come in threes, each a vertex".into()));
+    }
+    let inner: Vec<super::Maplet> = maplets.iter().map(|m| m.inner.clone()).collect();
+    let (v, moved, cover) = py.detach(|| super::fuse(&positions, idx, &inner, relax));
+    Ok((rows3(py, &v), PyArray1::from_vec(py, moved), PyArray1::from_vec(py, cover)))
 }
 
 /// The images a maplet takes of its candidates, as MPCD keeps them: finest
@@ -949,11 +989,14 @@ pub fn choose(
 /// `tile` `(p,)` indices into those, `shift` `(p, 2)` as a `ViewReport`'s,
 /// `weight` `(p,)`. `offset_sigma`, in the surface's unit, how far a
 /// maplet may move for one pixel of residual; `huber`, pixels, past which
-/// a residual weighs as its square root. Gives `(pointing (n, 2) pixels
-/// to add to each camera's centre, behind (n,) registrations each image's
-/// rests on, offsets (m, 2), residuals (p,))`.
+/// a residual weighs as its square root. `height_sigma`, if positive, frees
+/// each maplet's height too -- the parallax across its images tells it,
+/// where the surface under the maplets is a first guess -- held so to
+/// zero. Gives `(pointing (n, 2) pixels to add to each camera's centre,
+/// behind (n,) registrations each image's rests on, offsets (m, 2) -- (m,
+/// 3) with the heights, along each maplet's u, v and w -- residuals (p,))`.
 #[pyfunction]
-#[pyo3(signature = (positions, axes, focal, centres, normals, image, tile, shift, weight, offset_sigma, huber=3.0, iterations=25))]
+#[pyo3(signature = (positions, axes, focal, centres, normals, image, tile, shift, weight, offset_sigma, huber=3.0, iterations=25, height_sigma=0.0))]
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn pointing<'py>(
     py: Python<'py>,
@@ -969,6 +1012,7 @@ pub fn pointing<'py>(
     offset_sigma: f64,
     huber: f64,
     iterations: usize,
+    height_sigma: f64,
 ) -> PyResult<(Bound<'py, PyArray2<f64>>, Bound<'py, PyArray1<i64>>, Bound<'py, PyArray2<f64>>, Bound<'py, PyArray1<f64>>)> {
     let positions = vectors(positions, "positions")?;
     let axes = axes.as_array();
@@ -1008,13 +1052,12 @@ pub fn pointing<'py>(
         registrations.push(super::Registration { image: k as usize, tile: t as usize, shift: [shift[[i, 0]], shift[[i, 1]]], weight: weight[i] });
     }
     let fit = py
-        .detach(|| super::pointing(&cameras, &tiles, &registrations, offset_sigma, huber, iterations))
+        .detach(|| super::pointing(&cameras, &tiles, &registrations, offset_sigma, huber, iterations, height_sigma))
         .map_err(err)?;
     let two = |v: &[[f64; 2]]| PyArray1::from_vec(py, v.iter().flatten().copied().collect()).reshape([v.len(), 2]).expect("n x 2");
-    Ok((
-        two(&fit.images),
-        PyArray1::from_vec(py, fit.behind.iter().map(|&b| b as i64).collect()),
-        two(&fit.offsets),
-        PyArray1::from_vec(py, fit.residuals),
-    ))
+    let columns = if height_sigma > 0.0 { 3 } else { 2 };
+    let offsets = PyArray1::from_vec(py, fit.offsets.iter().flat_map(|o| o[..columns].to_vec()).collect())
+        .reshape([fit.offsets.len(), columns])
+        .expect("m x 2 or 3");
+    Ok((two(&fit.images), PyArray1::from_vec(py, fit.behind.iter().map(|&b| b as i64).collect()), offsets, PyArray1::from_vec(py, fit.residuals)))
 }

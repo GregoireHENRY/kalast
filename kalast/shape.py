@@ -11,6 +11,7 @@ from kalast._rs.shape import (  # noqa
     Hull,
     align,
     compose,
+    fuse,
     choose,
     pointing,
 )

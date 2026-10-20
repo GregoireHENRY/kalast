@@ -81,7 +81,7 @@ mod solve;
 mod surface;
 mod view;
 
-pub use compose::compose;
+pub use compose::{compose, fuse};
 pub use hull::{align, classify, Footprint, Hull, HullReport, Silhouette, BODY, SKY, UNKNOWN};
 pub use maplet::Maplet;
 pub use pointing::{pointing, Camera, Pointing, Registration};

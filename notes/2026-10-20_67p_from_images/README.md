@@ -27,6 +27,24 @@ model to start from.
   (`within`), where the bounding sphere would leave its night side and the
   sky past its frame alike.
 - [ ] 67P's hull, each image's pointing refined on it; against SHAP7.
+  First runs (scratch `hull67p.py`, 335 frames; one, N20151027T000147,
+  holds no nucleus -- stray light -- and with it every point had one view
+  carving it already; frames with no lit ground are left out now):
+
+  | stage | volume, km3 (SHAP7 18.56) | genus | SHAP7 inside the hull by, m: median, 90 %, 99 % | SHAP7 outside by 20 m+ |
+  |---|---|---|---|---|
+  | A, every frame within the bounding sphere | 22.83 | 47 | 42, 282, 748 | 1.52 % |
+  | B, registered on A, carved again | 23.10 | 76 | 48, 293, 769 | 0.78 % |
+  | C, again | 23.20 | 58 | 51, 296, 778 | 1.04 % |
+  | D, within C widened 150 m: the close frames carve | 21.27 | 1,156 | 33, 157, 329 | 3.27 % |
+
+  The hull holds the nucleus to within 20 m on 97-99 % of SHAP7's surface;
+  its excess is the concavities and the night sides no frame saw past.
+  Registering on the lit pixels does not settle (8, then 5, then 3 px):
+  the hull's filled concavities are lit where the frames show shadow. Next:
+  registering on the outline -- lit pixels on the hull, sky off it -- and
+  the topology (genus 0 wanted; the close frames' pointing errors cut
+  tunnels).
 - [ ] Tiles over it, coarse to fine: each image registered on each tile;
   each image's pointing and each tile's place -- its height too, the stereo
   -- fitted at once; the relief solved from the shading.
