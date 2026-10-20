@@ -204,10 +204,11 @@ pub fn compose<P: Copy + Into<V3> + Sync>(positions: &[P], indices: &[u32], mapl
 /// to `step` (the surface's unit) if positive, so that a surface moved far
 /// gets there in rounds, its neighbours with it, rather than folding. The
 /// facets are the shape model's, and the mesh as closed as it was: what the
-/// next round of maplets is laid on. Where moves still turn a facet over,
-/// its corners' moves are averaged with their neighbours' until none is.
-/// Then `relax` rounds of each vertex moved halfway toward its neighbours'
-/// middle across the surface, which keeps the triangles even. With each
+/// next round of maplets is laid on. Then `relax` rounds of each vertex
+/// moved halfway toward its neighbours' middle across the surface, which
+/// keeps the triangles even; and where a facet is turned over -- maplets
+/// that disagree, a sliver tipped -- its corners' moves averaged with their
+/// neighbours' until none is. With each
 /// vertex's move along its normal, outward positive, and the maplets'
 /// summed weight on it -- 0 where none is.
 pub fn fuse<P: Copy + Into<V3> + Sync>(positions: &[P], indices: &[u32], maplets: &[Maplet], relax: usize, smooth: usize, step: F) -> (Vec<V3>, Vec<F>, Vec<F>) {
@@ -330,12 +331,16 @@ pub fn fuse<P: Copy + Into<V3> + Sync>(positions: &[P], indices: &[u32], maplets
             *a = a.clamp(-step, step);
         }
     }
-    let mut shift: Vec<V3> = along.iter().zip(&normals).map(|(a, n)| *n * *a).collect();
+    let mut vertices: Vec<V3> = base.iter().zip(&along).zip(&normals).map(|((p, a), n)| *p + *n * *a).collect();
+    for _ in 0..relax {
+        vertices = relaxed(&vertices, indices);
+    }
     // A facet turned over by the move -- its corners moved by maplets that
-    // disagree -- folds the surface: the moves of its corners averaged with
-    // their neighbours' until none is.
+    // disagree, or a sliver the relaxing tipped -- folds the surface: the
+    // moves of its corners averaged with their neighbours' until none is.
+    let mut shift: Vec<V3> = vertices.iter().zip(&base).map(|(v, p)| *v - *p).collect();
     let normal_of = |p: &[V3], t: &[u32]| (p[t[1] as usize] - p[t[0] as usize]).cross(p[t[2] as usize] - p[t[0] as usize]);
-    for _ in 0..50 {
+    for _ in 0..400 {
         let moved: Vec<V3> = base.iter().zip(&shift).map(|(p, d)| *p + *d).collect();
         let mut bad = vec![false; base.len()];
         let mut any = false;
@@ -358,10 +363,24 @@ pub fn fuse<P: Copy + Into<V3> + Sync>(positions: &[P], indices: &[u32], maplets
             }
         }
     }
-    let mut vertices: Vec<V3> = base.iter().zip(&shift).map(|(p, d)| *p + *d).collect();
-    for _ in 0..relax {
-        vertices = relaxed(&vertices, indices);
+    // What averaging leaves turned over goes back where it was, a facet's
+    // corners at a time, until none is: the mesh as it came is untangled.
+    loop {
+        let moved: Vec<V3> = base.iter().zip(&shift).map(|(p, d)| *p + *d).collect();
+        let mut any = false;
+        for t in indices.chunks_exact(3) {
+            if normal_of(&base, t).dot(normal_of(&moved, t)) <= 0.0 {
+                any = true;
+                for &k in t {
+                    shift[k as usize] = V3::ZERO;
+                }
+            }
+        }
+        if !any {
+            break;
+        }
     }
+    let vertices: Vec<V3> = base.iter().zip(&shift).map(|(p, d)| *p + *d).collect();
     let moved = base.iter().zip(&vertices).zip(&normals).map(|((a, b), n)| (*b - *a).dot(*n)).collect();
     (vertices, moved, moves.into_iter().map(|(_, w)| w).collect())
 }
