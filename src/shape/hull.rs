@@ -520,11 +520,16 @@ impl Hull {
 
     /// The hull as a mesh: `(vertices, facets)` and what it took. Cubes of
     /// `size` over the bounding sphere; the surface where [`Hull::value`]
-    /// crosses zero, by marching tetrahedra, its largest piece kept. Then
-    /// `relax` rounds of each vertex moved toward its neighbours' middle
-    /// across the surface and back onto it: the tetrahedra's slivers
-    /// evened out.
-    pub fn mesh(&self, size: F, rank: usize, relax: usize) -> Result<(Vec<V3>, Vec<u32>, HullReport), String> {
+    /// crosses zero -- smoothed first by a Gaussian of `smooth`, the
+    /// surface's unit, if positive -- by marching tetrahedra, its largest
+    /// piece kept. Then `relax` rounds of each vertex moved toward its
+    /// neighbours' middle across the surface and back onto it: the
+    /// tetrahedra's slivers evened out.
+    ///
+    /// The smoothing closes what is thinner than it -- a tunnel two views'
+    /// small errors cut through the body, a fin no view carved -- which a
+    /// shape to lay maplets on wants: one piece, no handle.
+    pub fn mesh(&self, size: F, rank: usize, relax: usize, smooth: F) -> Result<(Vec<V3>, Vec<u32>, HullReport), String> {
         if !(size > 0.0 && self.radius > 0.0) {
             return Err(format!("a cube of {size} in a sphere of {}", self.radius));
         }
@@ -551,7 +556,15 @@ impl Hull {
                 self.values(&points, rank)
             })
             .concat();
-            (0..total).filter(|&b| middles[b].abs() <= 1.5 * half).collect()
+            (0..total).filter(|&b| middles[b].abs() <= 1.5 * half + 3.0 * smooth.max(0.0)).collect()
+        };
+        // The smoothing's reach in nodes, and its weights.
+        let sigma = smooth.max(0.0) / size;
+        let halo = if sigma > 0.0 { (3.0 * sigma).ceil() as usize } else { 0 };
+        let kernel: Vec<F> = {
+            let raw: Vec<F> = (0..=2 * halo).map(|k| (-0.5 * ((k as F - halo as F) / sigma.max(1e-12)).powi(2)).exp()).collect();
+            let total: F = raw.iter().sum();
+            raw.iter().map(|w| w / total).collect()
         };
         let key = |i: usize, j: usize, k: usize, dir: usize| ((((k * n + j) * n + i) as u64) << 3) | dir as u64;
         // Each near block's triangles: their corners' edges, by key, and
@@ -560,16 +573,55 @@ impl Hull {
             let b = near[m];
             let (bi, bj, bk) = (b % blocks * B, (b / blocks) % blocks * B, b / (blocks * blocks) * B);
             let (ni, nj, nk) = ((n - 1 - bi).min(B) + 1, (n - 1 - bj).min(B) + 1, (n - 1 - bk).min(B) + 1);
-            let mut nodes = Vec::with_capacity(ni * nj * nk);
-            for k in 0..nk {
-                for j in 0..nj {
-                    for i in 0..ni {
-                        nodes.push(node(bi + i, bj + j, bk + k));
+            // The block's nodes and `halo` more all round, for the smoothing.
+            let (hi, hj, hk) = (ni + 2 * halo, nj + 2 * halo, nk + 2 * halo);
+            let mut nodes = Vec::with_capacity(hi * hj * hk);
+            for k in 0..hk {
+                for j in 0..hj {
+                    for i in 0..hi {
+                        let at = |b: usize, x: usize| (b + x) as F - halo as F;
+                        nodes.push(origin + V3::new(at(bi, i), at(bj, j), at(bk, k)) * size);
                     }
                 }
             }
-            // Never on a node: a crossing is strictly between two.
-            let values: Vec<F> = self.values(&nodes, rank).into_iter().map(|v| if v == 0.0 { 1e-12 } else { v }).collect();
+            let mut wide = self.values(&nodes, rank);
+            if halo > 0 {
+                // Along each axis in turn, the halo's own values left as they
+                // come out.
+                let mut next = wide.clone();
+                for axis in 0..3 {
+                    let stride = [1, hi, hi * hj][axis];
+                    let len = [hi, hj, hk][axis];
+                    for k in 0..hk {
+                        for j in 0..hj {
+                            for i in 0..hi {
+                                let pos = [i, j, k][axis];
+                                let at = (k * hj + j) * hi + i;
+                                if pos < halo || pos + halo >= len {
+                                    next[at] = wide[at];
+                                    continue;
+                                }
+                                let mut sum = 0.0;
+                                for (q, w) in kernel.iter().enumerate() {
+                                    sum += w * wide[at + q * stride - halo * stride];
+                                }
+                                next[at] = sum;
+                            }
+                        }
+                    }
+                    std::mem::swap(&mut wide, &mut next);
+                }
+            }
+            let mut values = Vec::with_capacity(ni * nj * nk);
+            for k in 0..nk {
+                for j in 0..nj {
+                    for i in 0..ni {
+                        let v = wide[((k + halo) * hj + j + halo) * hi + i + halo];
+                        // Never on a node: a crossing is strictly between two.
+                        values.push(if v == 0.0 { 1e-12 } else { v });
+                    }
+                }
+            }
             let mut points: Vec<(u64, V3)> = vec![];
             let mut triangles: Vec<[u64; 3]> = vec![];
             for k in 0..nk - 1 {
@@ -653,7 +705,7 @@ impl Hull {
         report.dropped = dropped;
         let mut vertices = vertices;
         for _ in 0..relax {
-            vertices = self.relaxed(&vertices, &facets, rank);
+            vertices = self.relaxed(&vertices, &facets, rank, smooth <= 0.0);
         }
         let edges = {
             let mut e: Vec<(u32, u32)> = facets.chunks_exact(3).flat_map(|t| [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])]).map(|(a, b)| (a.min(b), a.max(b))).collect();
@@ -671,9 +723,10 @@ impl Hull {
     }
 
     /// Each vertex moved halfway toward its neighbours' middle across the
-    /// surface, then onto the surface along its normal by the hull's
-    /// distance there.
-    fn relaxed(&self, vertices: &[V3], facets: &[u32], rank: usize) -> Vec<V3> {
+    /// surface, then, with `onto`, onto the surface along its normal by the
+    /// hull's distance there -- not when the surface was smoothed, which
+    /// that would undo.
+    fn relaxed(&self, vertices: &[V3], facets: &[u32], rank: usize, onto: bool) -> Vec<V3> {
         let mut sum = vec![V3::ZERO; vertices.len()];
         let mut count = vec![0u32; vertices.len()];
         let mut normal = vec![V3::ZERO; vertices.len()];
@@ -694,6 +747,9 @@ impl Hull {
             }
             let towards = sum[i] / count[i] as F - p;
             let q = p + 0.5 * (towards - towards.dot(n) * n);
+            if !onto {
+                return q;
+            }
             // Positive inside: the surface is outward by the distance.
             let d = self.value(q, rank);
             if d.is_finite() {
@@ -916,7 +972,7 @@ mod tests {
         for v in &far {
             first.add(v, 0.05, None).unwrap();
         }
-        let (v1, f1, _) = first.mesh(0.04, 2, 2).unwrap();
+        let (v1, f1, _) = first.mesh(0.04, 2, 2, 0.0).unwrap();
         let mut sphere = Hull::new(1.3);
         let mut within = Hull::new(1.3);
         let (mut sky_sphere, mut sky_within) = (0, 0);
@@ -928,7 +984,7 @@ mod tests {
         for v in &far {
             within.add(v, 0.05, Some((&v1, &f1, 0.05))).unwrap();
         }
-        let (vertices, _, report) = within.mesh(0.04, 2, 2).unwrap();
+        let (vertices, _, report) = within.mesh(0.04, 2, 2, 0.0).unwrap();
         assert_eq!(report.genus, 0, "{report:?}");
         let worst = vertices.iter().map(|p| (p.length() - p.length() / (*p / AXES).length()).abs()).fold(0.0, F::max);
         assert!(worst < 0.03, "a vertex {worst} off the ellipsoid");
@@ -944,7 +1000,7 @@ mod tests {
             hull.add(&view(from, sun), 0.05, None).unwrap();
         }
         let size = 0.04;
-        let (vertices, facets, report) = hull.mesh(size, 2, 3).unwrap();
+        let (vertices, facets, report) = hull.mesh(size, 2, 3, 0.0).unwrap();
         assert_eq!(report.genus, 0, "{report:?}");
         assert_eq!(report.dropped, 0, "{report:?}");
         // Every vertex near the ellipsoid: a visual hull of a convex body is
@@ -959,6 +1015,10 @@ mod tests {
         assert!(worst < 0.03, "a vertex {worst} off the ellipsoid");
         let truth = 4.0 / 3.0 * std::f64::consts::PI * AXES.x * AXES.y * AXES.z;
         assert!((report.volume / truth - 1.0).abs() < 0.02, "volume {} against {truth}", report.volume);
+        // Smoothed by a cube: still one closed piece, a little rounder.
+        let (_, _, smoothed) = hull.mesh(size, 2, 3, size).unwrap();
+        assert_eq!(smoothed.genus, 0, "{smoothed:?}");
+        assert!((smoothed.volume / truth - 1.0).abs() < 0.03, "smoothed volume {} against {truth}", smoothed.volume);
         // Closed: every edge in two facets, once each way.
         let mut edges: HashMap<(u32, u32), i32> = HashMap::new();
         for t in facets.chunks_exact(3) {

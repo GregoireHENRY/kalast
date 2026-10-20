@@ -845,14 +845,16 @@ impl Hull {
     /// crosses zero by marching tetrahedra, its largest piece kept; then
     /// `relax` rounds of each vertex moved toward its neighbours' middle
     /// across the surface. `rank` 2: one view wrong carves nothing alone.
-    /// `report`: `cubes` the grid's, `visited` those evaluated, `dropped`
-    /// the facets of the other pieces, `genus` (0 for a body with no hole
-    /// through it), `volume`.
-    #[pyo3(signature = (size, rank=2, relax=3))]
+    /// `smooth`, the surface's unit, a Gaussian the distance is smoothed by
+    /// first: what is thinner -- a tunnel small errors cut, a fin -- closes,
+    /// for a shape of one piece and no handle. `report`: `cubes` the
+    /// grid's, `visited` those evaluated, `dropped` the facets of the other
+    /// pieces, `genus` (0 for a body with no hole through it), `volume`.
+    #[pyo3(signature = (size, rank=2, relax=3, smooth=0.0))]
     #[allow(clippy::type_complexity)]
-    fn mesh<'py>(&self, py: Python<'py>, size: f64, rank: usize, relax: usize) -> PyResult<(Bound<'py, PyArray2<f64>>, Bound<'py, PyArray2<u32>>, Bound<'py, pyo3::types::PyDict>)> {
+    fn mesh<'py>(&self, py: Python<'py>, size: f64, rank: usize, relax: usize, smooth: f64) -> PyResult<(Bound<'py, PyArray2<f64>>, Bound<'py, PyArray2<u32>>, Bound<'py, pyo3::types::PyDict>)> {
         let hull = &self.inner;
-        let (v, f, r) = py.detach(|| hull.mesh(size, rank, relax)).map_err(err)?;
+        let (v, f, r) = py.detach(|| hull.mesh(size, rank, relax, smooth)).map_err(err)?;
         let report = pyo3::types::PyDict::new(py);
         report.set_item("cubes", r.cubes)?;
         report.set_item("visited", r.visited)?;

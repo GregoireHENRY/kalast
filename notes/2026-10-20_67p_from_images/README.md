@@ -26,25 +26,31 @@ model to start from.
   A view that does not hold the whole body carves within an earlier hull
   (`within`), where the bounding sphere would leave its night side and the
   sky past its frame alike.
-- [ ] 67P's hull, each image's pointing refined on it; against SHAP7.
-  First runs (scratch `hull67p.py`, 335 frames; one, N20151027T000147,
-  holds no nucleus -- stray light -- and with it every point had one view
-  carving it already; frames with no lit ground are left out now):
+- [x] 67P's hull (scratch `hull67p_v2.py`): 335 frames, one left out that
+  holds no nucleus -- stray light, which marked every point as seen
+  against the sky once already. Each frame registered on the hull by its
+  limb -- its lit pixels next to the sky on the hull, that sky off it --
+  three times; 56 frames have a limb to register by, moved 2.7 px at the
+  median the first time, 0.6 px the third. Then smoothed by 30 m before
+  meshing, which closes the tunnels small errors cut: one closed piece,
+  genus 0, 1.1M facets at 20 m (`hullsm_20_30.ply`).
 
-  | stage | volume, km3 (SHAP7 18.56) | genus | SHAP7 inside the hull by, m: median, 90 %, 99 % | SHAP7 outside by 20 m+ |
+  | | volume, km3 (SHAP7 18.56) | genus | SHAP7 inside the hull by, m: median, 90 %, 99 % | SHAP7 outside by 20 m+ |
   |---|---|---|---|---|
-  | A, every frame within the bounding sphere | 22.83 | 47 | 42, 282, 748 | 1.52 % |
-  | B, registered on A, carved again | 23.10 | 76 | 48, 293, 769 | 0.78 % |
-  | C, again | 23.20 | 58 | 51, 296, 778 | 1.04 % |
-  | D, within C widened 150 m: the close frames carve | 21.27 | 1,156 | 33, 157, 329 | 3.27 % |
+  | carved, pointing as SPICE has it | 22.83 | 47 | 42, 282, 748 | 1.52 % |
+  | the limbs registered, three times | 22.81 | 38 | 42, 282, 748 | 1.29 % |
+  | smoothed by 30 m: the start | 22.80 | 0 | 45, 295, 758 | 1.90 % |
+  | smoothed by 50 m | 22.77 | 0 | 45, 302, 769 | 2.92 % |
 
-  The hull holds the nucleus to within 20 m on 97-99 % of SHAP7's surface;
-  its excess is the concavities and the night sides no frame saw past.
-  Registering on the lit pixels does not settle (8, then 5, then 3 px):
-  the hull's filled concavities are lit where the frames show shadow. Next:
-  registering on the outline -- lit pixels on the hull, sky off it -- and
-  the topology (genus 0 wanted; the close frames' pointing errors cut
-  tunnels).
+  SHAP7's surface lies within 20 m of the hull or inside it on 98 % of it;
+  inside by 45 m at the median and up to 760 m -- the neck, the pits, the
+  night sides no frame saw past, what the tiles are for. The frames that
+  do not hold the whole nucleus carve little within the bounding sphere;
+  within an earlier hull they carved more but cut into it too -- their
+  pointing, a few pixels at 1-3 m a pixel, is the tiles' to fix.
+
+  ![The hull from six sides beside SHAP7](hull_first.png)
+
 - [ ] Tiles over it, coarse to fine: each image registered on each tile;
   each image's pointing and each tile's place -- its height too, the stereo
   -- fitted at once; the relief solved from the shading.

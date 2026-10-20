@@ -280,15 +280,17 @@ class Hull:
         which views carve where -- NaN behind a view's camera.
         """
         ...
-    def mesh(self, size: float, rank: int = ..., relax: int = ...) -> tuple[numpy.ndarray, numpy.ndarray, object]:
+    def mesh(self, size: float, rank: int = ..., relax: int = ..., smooth: float = ...) -> tuple[numpy.ndarray, numpy.ndarray, object]:
         """The hull as a closed mesh, `(vertices (v, 3), facets (f, 3), report)`:
         cubes of `size` over the bounding sphere, the surface where `value`
         crosses zero by marching tetrahedra, its largest piece kept; then
         `relax` rounds of each vertex moved toward its neighbours' middle
         across the surface. `rank` 2: one view wrong carves nothing alone.
-        `report`: `cubes` the grid's, `visited` those evaluated, `dropped`
-        the facets of the other pieces, `genus` (0 for a body with no hole
-        through it), `volume`.
+        `smooth`, the surface's unit, a Gaussian the distance is smoothed by
+        first: what is thinner -- a tunnel small errors cut, a fin -- closes,
+        for a shape of one piece and no handle. `report`: `cubes` the
+        grid's, `visited` those evaluated, `dropped` the facets of the other
+        pieces, `genus` (0 for a body with no hole through it), `volume`.
         """
         ...
     def __len__(self) -> int:
