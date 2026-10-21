@@ -244,8 +244,9 @@ solution did. What is left over 50 m is the deepest part of the neck.
 - [x] Against SHAP7 at 10 m: heights, volume, the 57 images of
   `2026-10-13_67p_osiris_shadows/` drawn with both.
 - [x] Made usable: `examples/comet67p_from_images/` (`fetch`, `hull`,
-  `tiles`, `compare`; its `hull` gives this note's hull to the facet, its
-  first 40 m round 124 maplets and 21.20 km3, as here), `docs/API.md`,
+  `tiles`, `compare`; its `hull` gives this note's hull to the facet; its
+  first 40 m round lays 124 maplets, not this note's 121, and ends at
+  21.20 km3, not 21.39; its other 16 rounds not run), `docs/API.md`,
   the changelog, the bundle `dist/kalast-dev-f427ab2-dirty-macos-arm64`.
   The meshes in `/Users/gregoireh/data/mesh/67p/from_images/`: the hull, the
   40, 20 and 10 m results as PLY, the 10 m as OBJ for `load_mesh`.
