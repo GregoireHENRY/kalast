@@ -1564,8 +1564,9 @@ shows I/F 0 to 0.22 from black to white, and a brighter pixel clips at white --
 without a `stretch`, which shows the values its own way (see "Stretch").
 The data mode's colours -- a colormap's -- are data and are not scaled. Multiplied into the light's colour where the light uniform
 is filled, `src/app/window.rs`.
-Accepted: any float `>= 0.0`; the settings' slider stops at 10, a script does
-not.
+Accepted: any float `>= 0.0`. The settings' slider runs from 0.1 to 1000,
+logarithmic -- a decade a quarter of its length; a script sets any value, and
+the slider keeps one set outside its range until it is moved.
 
 ### `light.sun_as_point: bool` — default `True` *(live)*
 The Sun as a point: every shadow hard. `False` makes it a disc of

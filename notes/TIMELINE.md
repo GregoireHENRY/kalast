@@ -6570,3 +6570,13 @@ fit the orbit only -- while DART's orbit team found it more elongated,
 
 Open: Didymos's size from the events' durations of Eli's campaign, beside
 the north polar shape.
+
+## 2026-10-21 — The exposure slider, logarithmic to 1000
+
+The user: "exposure slider in UI app is limited to 10...". `light.exposure`
+carried `:range: 0.0..=10.0`, where `examples/lightcurve_didymos/scene.py`
+sets 20 and `examples/phobos_shadows_fit/simple.py` 40: a script's value was
+kept, the sliders clamping edits only, but the settings could not reach it,
+and moving the slider brought it under 10. Now 0.1 to 1000 on a logarithmic
+scale, as `sim.state.rate_limit`'s: the panel generator's new `:log:`
+marker.

@@ -27,6 +27,8 @@ What the Rust source cannot say, the doc comments can:
     /// :label: window width    what the widget is called, when the field
                                name alone is ambiguous
     /// :range: 0..=16          slider bounds instead of a drag field
+    /// :log:                   that slider logarithmic, for a range of
+                               decades (an exposure: 0.1..=1000.0)
     /// :step: 0.01             drag speed
     /// :choices: 1 = off, 2, 4
                                a list of those values instead of a slider
@@ -216,7 +218,8 @@ def widget(path: str, name: str, rust: str, doc: str) -> list[str]:
             # shown with, so opening a section rewrote whatever a script had
             # set outside the range -- the colour bar's 320-pixel length
             # became 1, and the bar vanished, when "Data colouring" opened.
-            return row([f"ui.add(egui::Slider::new(&mut {path}, {rng}).clamping(egui::SliderClamping::Edits))"])
+            log = ".logarithmic(true)" if marker(doc, "log") is not None else ""
+            return row([f"ui.add(egui::Slider::new(&mut {path}, {rng}).clamping(egui::SliderClamping::Edits){log})"])
         speed = step or ("0.01" if rust in ("f32", "f64", "Float") else "1.0")
         return row([f"ui.add(egui::DragValue::new(&mut {path}).speed({speed}))"])
 

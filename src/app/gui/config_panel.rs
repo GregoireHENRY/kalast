@@ -76,7 +76,7 @@ pub fn group_light(ui: &mut egui::Ui, c: &mut Config) {
             };
         }
     });
-    setting(ui, "exposure", "Scales the light by one number, `color`'s red, green and blue alike: a camera's exposure.", |ui| ui.add(egui::Slider::new(&mut c.light.exposure, 0.0..=10.0).clamping(egui::SliderClamping::Edits)));
+    setting(ui, "exposure", "Scales the light by one number, `color`'s red, green and blue alike: a camera's exposure.", |ui| ui.add(egui::Slider::new(&mut c.light.exposure, 0.1..=1000.0).clamping(egui::SliderClamping::Edits).logarithmic(true)));
     setting(ui, "sun_as_point", "The Sun as a point, every shadow hard; on by default.", |ui| ui.checkbox(&mut c.light.sun_as_point, ""));
     if c.light.sun_as_point == false {
         setting(ui, "sun_radius", "The Sun's radius in the scene's units, with `sun_as_point` off: 695,700, the Sun's in km. A scene in metres wants 6.957e8.", |ui| ui.add(egui::DragValue::new(&mut c.light.sun_radius).speed(1000.0)));

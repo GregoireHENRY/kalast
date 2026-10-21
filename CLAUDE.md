@@ -91,6 +91,7 @@
     Which groups share a header is decided there and nowhere else. The Rust doc
     comments carry what the type cannot: | marker | effect | |---|---| | `///
     :range: 0..=16` | a slider with those bounds instead of a drag field | |
+    `/// :log:` | that slider logarithmic, for a range of decades | |
     `/// :step: 0.01` | drag speed | | `/// :choices: 1 = off, 2, 4` | a
     list of those values (integers), what follows `=` on hover | | `/// :when:
     srgb_mode == 1` | the row only while that holds, in its own group | | `/// :some: 2.2` |

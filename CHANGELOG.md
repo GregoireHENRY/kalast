@@ -12,6 +12,7 @@ released, and the gate refuses the tag until it has.
 ## v0.5.15-beta
 
 - The settings show `shading.srgb_mode` in the shaded mode only, and `shading.gamma` with it: the data mode stores its colours as given whatever it is.
+- The settings' `light.exposure` slider runs from 0.1 to 1000 on a logarithmic scale; it stopped at 10, where dark bodies in linear light want 20 to 40.
 - `examples/didymos/main.py` draws Didymos and Dimorphos under the Hapke law Buratti et al. (2024) fitted to DART's images of the system, the light linear (`srgb_mode = "linear"`) and an exposure of 5.
 - `examples/comet67p_shadows_fit` is now `examples/comet67p_mesh_and_shadows`, its `main.py` now `shadows.py`, beside `mesh.py`, which makes the comet's shape from its images (below).
 - `examples/comet67p_mesh_and_shadows/shadows.py`: `hapke-fit` through the NAC's response (`response`) is 8 % brighter, w 0.0385: the response's halo takes light off lit ground, and the law was fitted without it.

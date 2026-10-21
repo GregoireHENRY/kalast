@@ -701,7 +701,8 @@ pub struct Light {
     /// clips at white -- without a `stretch`, which shows the values its own
     /// way. The data mode's colours -- a colormap's -- are data, and keep
     /// theirs.
-    /// :range: 0.0..=10.0
+    /// :range: 0.1..=1000.0
+    /// :log:
     pub exposure: f32,
     /// The Sun as a point, every shadow hard; on by default.
     ///
