@@ -213,6 +213,15 @@ Look at [res/README.md](../res/README.md) to get Hera data.
       the colour left at 1, the law's own albedo. Without a law a body is
       Lambertian, its colour the albedo, white by default. Other laws in
       [docs/API.md](../docs/API.md#kalastscattering--reflected-sunlight).
+- [lightcurve](lightcurve): Didymos and Dimorphos one night from an
+  observatory on Earth, their mutual events in it. Its
+  [README](lightcurve/README.md) says where to get the data.
+    - [lightcurve/main.py](lightcurve/main.py): TRAPPIST-North on
+      2022-11-18, the bodies placed from DART's SPICE kernels at the time
+      their light left, `kalast.lightcurve.flux` each epoch on a thread of
+      its own -- with DART's shape models (`meshes`), with Scheirich et
+      al.'s spheroids from `res/ico5.obj` (`ellipsoids`), or both: what
+      Didymos's rotation and the real shapes change in the events.
 - [hera_didymos](hera_didymos):
     - [hera_didymos/afc.py](hera_didymos/afc.py):
         - Load Didymos/Dimorphos/Sun/Earth in AFC FOV frame centered on AFC
@@ -345,7 +354,6 @@ Look at [res/README.md](../res/README.md) to get Hera data.
     - [hera_didymos/tpm_phase2.py](hera_didymos/tpm_phase2.py)
     - [hera_didymos/tpm.py](hera_didymos/tpm.py)
 - [hera_mars_swingby](hera_mars_swingby)
-- [lightcurve](lightcurve)
 
 ## Legacy examples
 

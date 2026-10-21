@@ -6522,3 +6522,22 @@ run.
 Open: 67P finer than 10 m, later, at the user's word; next, Eli's light
 curves -- the albedo, 09-04's comparison stars, the north polar shape from
 the primary eclipses.
+
+## 2026-10-21 — The light-curve example: Didymos and Dimorphos from an observatory
+
+At the user's asking, `examples/lightcurve/main.py` draws Didymos and
+Dimorphos one night as TRAPPIST-North saw them, 2022-11-18, rather than a
+lone triaxial ellipsoid: DART's kernels place the bodies when their light
+left, `flux` an epoch a thread (SPICE first, on one), with DART's PDS shape
+models, Scheirich et al.'s spheroids from `res/ico5.obj`, or both -- 30 s
+for both. DART's shapes add Didymos's rotation, about 0.1 mag either way at
+60 deg of phase, and change the events: the shadow on Didymos 0.097 against
+0.109, Dimorphos hidden 0.040-0.046 against 0.049. Checked against Eli's run
+of the night: her spheroids under Lommel-Seeliger, which the example gives
+too (0.1015 against her 0.1010). A README with the data's links; the example
+moved up among those that run once the data is there. Write-up:
+`2026-10-21_lightcurve_example/`.
+
+Open: `lightcurve` and `Spin` have no example of their own now; Eli's light
+curves -- the albedo, 09-04's comparison stars, the north polar shape from
+the primary eclipses.
