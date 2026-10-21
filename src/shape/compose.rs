@@ -385,6 +385,60 @@ pub fn fuse<P: Copy + Into<V3> + Sync>(positions: &[P], indices: &[u32], maplets
     (vertices, moved, moves.into_iter().map(|(_, w)| w).collect())
 }
 
+/// Points in cubes `cell` on a side, dense over their box: a cube's points
+/// by its three indices, no hashing -- a merge asks it billions of times.
+struct Dense {
+    lo: V3,
+    cell: F,
+    n: [i64; 3],
+    start: Vec<u32>,
+    items: Vec<u32>,
+}
+
+impl Dense {
+    fn new(points: &[V3], cell: F) -> Dense {
+        let lo = points.iter().fold(V3::splat(F::INFINITY), |a, p| a.min(*p)) - V3::splat(cell);
+        let hi = points.iter().fold(V3::splat(F::NEG_INFINITY), |a, p| a.max(*p)) + V3::splat(cell);
+        let n = [0, 1, 2].map(|a| (((hi[a] - lo[a]) / cell).ceil() as i64).max(1));
+        let mut grid = Dense { lo, cell, n, start: vec![], items: vec![] };
+        let cubes = (n[0] * n[1] * n[2]) as usize;
+        let mut count = vec![0u32; cubes + 1];
+        let flat: Vec<usize> = points.iter().map(|p| grid.flat(grid.key(*p)).expect("inside its own box")).collect();
+        for &c in &flat {
+            count[c + 1] += 1;
+        }
+        for c in 0..cubes {
+            count[c + 1] += count[c];
+        }
+        let mut fill = count.clone();
+        let mut items = vec![0u32; points.len()];
+        for (k, &c) in flat.iter().enumerate() {
+            items[fill[c] as usize] = k as u32;
+            fill[c] += 1;
+        }
+        grid.start = count;
+        grid.items = items;
+        grid
+    }
+
+    fn key(&self, p: V3) -> (i64, i64, i64) {
+        let q = ((p - self.lo) / self.cell).floor();
+        (q.x as i64, q.y as i64, q.z as i64)
+    }
+
+    fn flat(&self, (i, j, k): (i64, i64, i64)) -> Option<usize> {
+        let [a, b, c] = self.n;
+        (i >= 0 && j >= 0 && k >= 0 && i < a && j < b && k < c).then(|| ((k * b + j) * a + i) as usize)
+    }
+
+    fn cube(&self, key: (i64, i64, i64)) -> &[u32] {
+        match self.flat(key) {
+            Some(c) => &self.items[self.start[c] as usize..self.start[c + 1] as usize],
+            None => &[],
+        }
+    }
+}
+
 /// The maplets merged into a closed mesh made again: the surface where a
 /// field crosses zero, the maplets' where they are and the mesh's
 /// elsewhere, extracted as [`Hull::mesh`](super::Hull::mesh) extracts a
@@ -415,24 +469,18 @@ pub fn merge<P: Copy + Into<V3> + Sync>(
         .map(|m| Placed { maplet: m, half: 0.5 * (m.n - 1) as F * m.spacing, depth })
         .collect();
     let widest = placed.iter().map(|p| 2.0 * p.half).fold(0.0, F::max).max(size);
-    let mut index = Index { cell: widest * std::f64::consts::SQRT_2, cubes: HashMap::new() };
-    for (t, p) in placed.iter().enumerate() {
-        let key = index.key(p.maplet.centre);
-        index.cubes.entry(key).or_default().push(t);
-    }
-    // The mesh's own field: inside by the crossings of three rays, the
-    // distance that of its nearest vertex, no more than `depth`.
+    let centres: Vec<V3> = placed.iter().map(|p| p.maplet.centre).collect();
+    let index = Dense::new(&centres, widest * std::f64::consts::SQRT_2);
+    // The mesh's own field: inside by its nearest vertex's normal, or far
+    // from it by the crossings of three rays; the distance that of its
+    // nearest vertex, no more than `depth`.
     let bvh = super::bvh::Bvh::new(&base, indices);
     let cell = depth.max(size) / 2.0;
-    let mut grid: HashMap<(i64, i64, i64), Vec<u32>> = HashMap::new();
-    let key = |p: V3| ((p.x / cell).floor() as i64, (p.y / cell).floor() as i64, (p.z / cell).floor() as i64);
-    for (k, p) in base.iter().enumerate() {
-        grid.entry(key(*p)).or_default().push(k as u32);
-    }
+    let grid = Dense::new(&base, cell);
     let rays = [V3::new(0.123, 0.456, 0.881).normalize(), V3::new(-0.702, 0.311, -0.640).normalize(), V3::new(0.533, -0.811, 0.241).normalize()];
     let normals = vertex_normals(&base, indices);
     let own = |p: V3| -> F {
-        let (a, b, c) = key(p);
+        let (a, b, c) = grid.key(p);
         // Ring by ring out from the point's cell, until what is found is
         // nearer than the next ring can be.
         let (mut nearest, mut which) = (F::INFINITY, None);
@@ -443,7 +491,7 @@ pub fn merge<P: Copy + Into<V3> + Sync>(
                         if (x - a).abs() < r && (y - b).abs() < r && (z - c).abs() < r {
                             continue;
                         }
-                        for &k in grid.get(&(x, y, z)).into_iter().flatten() {
+                        for &k in grid.cube((x, y, z)) {
                             let d = (base[k as usize] - p).length_squared();
                             if d < nearest {
                                 (nearest, which) = (d, Some(k as usize));
@@ -480,8 +528,8 @@ pub fn merge<P: Copy + Into<V3> + Sync>(
                 for x in a - 1..=a + 1 {
                     for y in b - 1..=b + 1 {
                         for z in c - 1..=c + 1 {
-                            for &t in index.cubes.get(&(x, y, z)).into_iter().flatten() {
-                                let pl = &placed[t];
+                            for &t in index.cube((x, y, z)) {
+                                let pl = &placed[t as usize];
                                 let m = pl.maplet;
                                 let [lx, ly, lz] = m.local(p - m.centre);
                                 if lx.abs() > pl.half || ly.abs() > pl.half {
