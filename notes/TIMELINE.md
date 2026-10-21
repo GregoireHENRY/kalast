@@ -6458,3 +6458,40 @@ Open: the user's decision -- stop the 67P shape work, or build a model of
 67P from the OSIRIS images with kalast, SHAP7 the yardstick, as a test for
 Hera's AFC images; then Eli's light curves (the albedo, 09-04's comparison
 stars, the north polar shape from the primary eclipses).
+
+## 2026-10-20 — Comet 67P from its images alone
+
+The user, after the review: "yes" to building 67P from the OSIRIS images
+with kalast, SHAP7 only to measure against, coarse and whole first --
+a test for Hera's AFC images. From 354 frames, SPICE and a published Hapke
+law, nothing of any shape model:
+
+- **The hull** (`kalast.shape.Hull`, Rust): each frame's silhouette -- the
+  sky what is neither lit nor behind lit ground from the Sun -- carved, the
+  frames that show a limb registered on it (`Surface.draw`, `align`),
+  meshed by marching tetrahedra and smoothed by 30 m: one closed piece,
+  22.8 km3, within 20 m of SHAP7 on 98 % of its surface, the hollows
+  filled.
+- **Maplets over it**, ten rounds at 40 m, four at 20 m, three at 10 m:
+  each frame registered on each, all the frames' pointing and the maplets'
+  places and heights fitted at once (`pointing(height_sigma, fixed)`, the
+  limb frames holding the model in SPICE's frame), each round's mesh made
+  again from the maplets (`merge`: their heights as a field, the surface
+  where it crosses zero) -- moving the old mesh's vertices folded the neck
+  as it was dug.
+- **The result**, `/Users/gregoireh/data/mesh/67p/from_images/`: 4.2M
+  facets, genus 0, 18.70 km3 against SHAP7's 18.56; 10.4 m from SHAP7 at
+  the median as the kernels place both, 4.9 m once laid on it (a 21 m,
+  0.12 deg difference of frames), within 10 m on 82 % and 20 m on 96 %. On
+  the 57 images of 13 October the lit pixels' IoU is 0.839 at the median
+  against SHAP7's 0.905 -- 0.964 against 0.976 under 30 deg of phase, the
+  gap the relief of a few metres SHAP7 has at 1-1.5 m.
+
+`examples/comet67p_from_images/` runs it: `fetch`, `hull`, `tiles`,
+`compare`. `osiris.fetch` falls back to NASA's archive when ESA's is in
+maintenance, as it was most of the day. Write-up:
+`2026-10-20_67p_from_images/`.
+
+Open: finer than 10 m -- maplets of 5 m and the close frames for them; the
+deepest part of the neck, 50-100 m too full; for Eli, the albedo, 09-04's
+comparison stars, the north polar shape from the primary eclipses.
