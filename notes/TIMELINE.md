@@ -6542,6 +6542,26 @@ shape model -- poses from SPICE every frame, the night in a loop on the
 iteration count at a capped 30 frames a second, `P` to pause. Write-up:
 `2026-10-21_lightcurve_example/`.
 
-Open: `lightcurve` and `Spin` have no example of their own now; Eli's light
-curves -- the albedo, 09-04's comparison stars, the north polar shape from
-the primary eclipses.
+Open: `lightcurve` and `Spin` have no example of their own now; `flux` on
+DART's finest models (3,145,728 facets each) puts the system 6.8 mmag below
+its two bodies with no event under way -- `main.py` keeps the 49,152-facet
+ones, 0.5 s an epoch against 40-58 s; Eli's light curves -- the albedo,
+09-04's comparison stars, the north polar shape from the primary eclipses.
+
+## 2026-10-21 — Didymos's size, and the example's spheroid
+
+The user asked why the example's spheroid is 0.730 km by volume rather than
+half of Daly et al. 2023's 851 × 849 × 620 m. 0.730 km is the volume of
+DART's v003 model (0.2038 km3, measured), and 1.369 is Scheirich et al.
+2024's ratio from v003's best-fit ellipsoid, 819 × 796 × 590 m -- not
+849/620, and no size from Scheirich et al., as said at first in the chat.
+Published, Didymos is 710 to 761 m by volume: DART's PCK beside s542 710 m,
+v003 730 m, Daly et al. 761 ± 26 m, the radar model about 760 m. v003 rests
+on 40 % of the surface at 5 m a pixel, and on no limbs. On the night of
+2022-11-18 the size moves the events' durations, 3 to 5 min for 30 m, and
+the level, not the depths. The example keeps 730 m, the mesh's volume, so
+that its two curves differ by shape alone. Write-up:
+`2026-10-21_didymos_size/`.
+
+Open: Didymos's size from the events' durations of Eli's campaign, beside
+the north polar shape.

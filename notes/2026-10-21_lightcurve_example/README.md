@@ -23,8 +23,10 @@ needed no data. Now `examples/lightcurve/main.py`:
 - **The shapes**: DART's PDS models (Didymos v003 at 9.3 m, Dimorphos v004
   at 1.94 m, 49,152 facets each; 0.28 s an epoch for the system, 0.23 s
   for the two apart), or Scheirich et al. (2024)'s spheroids from
-  `res/ico5.obj` under the same law. The files used are the copies in
-  `/Users/gregoireh/data/mesh` and `/Users/gregoireh/data/spice/dart`; the
+  `res/ico5.obj` under the same law -- their sizes, and how well
+  Didymos's is known, in `2026-10-21_didymos_size/`. The files used are
+  the copies in `/Users/gregoireh/data/mesh` and
+  `/Users/gregoireh/data/spice/dart`; the
   example's README links the public ones -- NAIF's DART archive, the PDS
   Small Bodies Node -- checked, of the same sizes.
 
@@ -83,7 +85,32 @@ in a background window: both shape sets, and stills at four moments:
 The events where `main.py` puts them: the shadow across Didymos at 00:52,
 Dimorphos gone at 05:10, at 06:30 a crescent of it left by Didymos's shadow.
 
+## The shape models' resolution
+
+The user, editing `scene.py`, asked why it drew the 49,152-facet models
+"instead of /Users/gregoireh/data/mesh/didymos/g_01165mm_spc_didy_v003.obj
+and /Users/gregoireh/data/mesh/dimorphos/g_00243mm_spc_dimo_v004.obj" --
+the same models at their finest, 3,145,728 facets each (170 MB each here,
+231 MB on the PDS).
+
+- `scene.py`: for no reason. Drawn, the finest is the one to use, and they
+  load in 0.3 s. The user is setting them.
+- `main.py`: for the time. On the finest, `flux` takes 40 to 58 s an epoch
+  for the system and the two bodies apart, against 0.5 s: the night would
+  take about two and a half hours on one thread, against 30 s.
+- And a fault, not looked into yet. On the finest models at 03:00, no event
+  under way, the bodies 1.17 km apart, the system comes out 6.8 mmag
+  fainter than its two bodies apart: 1.421363e-3 against 1.371387e-3 +
+  5.885791e-5 = 1.430245e-3, nothing overflowed, lit fractions 0.99813
+  (the system), 0.99819 (Didymos) and 0.96407 (Dimorphos). At 49,152 facets
+  it is 0.0. The drop at 00:52 is 75.4 mmag against 72.7, at 05:10 42.5
+  against 46.4; the system is fainter than at 49,152 facets by 3.0, 9.4 and
+  1.1 mmag at 00:52, 03:00 and 05:10.
+
 ## Open
 
-`lightcurve` and `Spin`, the single rotating body, have no example now;
-`docs/API.md` keeps the stretched `ico3` as their snippet.
+- `lightcurve` and `Spin`, the single rotating body, have no example now;
+  `docs/API.md` keeps the stretched `ico3` as their snippet.
+- `flux` on 3,145,728-facet models: the system 6.8 mmag below its two
+  bodies with no event under way (above).
+- Didymos's size: `2026-10-21_didymos_size/`.
