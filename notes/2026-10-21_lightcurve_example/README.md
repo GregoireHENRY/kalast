@@ -59,6 +59,30 @@ slow change alone.
 - **The spheroids' slow change outside the events**, 7 mmag over four
   hours: the phase angle, 60.57 to 60.39 deg, at Hapke's 0.04 mag a degree.
 
+## The night drawn: `scene.py`
+
+The user renamed the folder `examples/lightcurve_didymos`, and asked for
+"one simple human readable/editable python example "scene.py" with the
+renderer showing the scene of the night, either with ellipsoid or with
+mesh".
+
+`scene.py`, one flat script, its settings at the top: each frame the poses
+from SPICE as `main.py` has them (the emission time, Didymos at its true
+period), in J2000 so that the camera's up is celestial north; the camera
+20 km out on the line to the observatory, 2.4 km top to bottom, its right
+west -- east left, as on a sky image; the time in a HUD. The spheroids are
+`res/ico5.obj` loaded smooth and stretched by their pose, which the
+renderer takes with the normals turned by its inverse transpose. The night
+plays in a loop on the iteration count, 30 s of it a frame, the frame rate
+capped at 30 (`sim.state.rate_limited`): 24 s on screen, and `P` pauses
+it -- with vsync off it would otherwise run as fast as the GPU draws. Run
+in a background window: both shape sets, and stills at four moments:
+
+![The night drawn: DART's shapes above, the spheroids below](scene_2022-11-18.png)
+
+The events where `main.py` puts them: the shadow across Didymos at 00:52,
+Dimorphos gone at 05:10, at 06:30 a crescent of it left by Didymos's shadow.
+
 ## Open
 
 `lightcurve` and `Spin`, the single rotating body, have no example now;

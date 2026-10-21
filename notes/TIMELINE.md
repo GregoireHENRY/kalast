@@ -6535,7 +6535,11 @@ for both. DART's shapes add Didymos's rotation, about 0.1 mag either way at
 0.109, Dimorphos hidden 0.040-0.046 against 0.049. Checked against Eli's run
 of the night: her spheroids under Lommel-Seeliger, which the example gives
 too (0.1015 against her 0.1010). A README with the data's links; the example
-moved up among those that run once the data is there. Write-up:
+moved up among those that run once the data is there. The user renamed the
+folder `examples/lightcurve_didymos` and asked for `scene.py` beside it: the
+night drawn by the renderer, as the observatory looks at it, north up, either
+shape model -- poses from SPICE every frame, the night in a loop on the
+iteration count at a capped 30 frames a second, `P` to pause. Write-up:
 `2026-10-21_lightcurve_example/`.
 
 Open: `lightcurve` and `Spin` have no example of their own now; Eli's light

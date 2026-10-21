@@ -1,6 +1,6 @@
 KPL/MK
 
-The kernels main.py needs: time, Earth's size and turning (for the
+The kernels main.py and scene.py need: time, Earth's size and turning (for the
 observatory), where Earth and the Sun are (DE430), where the Didymos system
 is (its barycentre, solution s205) and where its two bodies are about it
 (solution s542, DART's impact in it: Dimorphos's orbit 11.921 h before,

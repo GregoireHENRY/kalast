@@ -21,7 +21,11 @@ al. (2024)'s Hapke law, what each body shadows or hides of the other exact.
       the same law, so that the shapes alone differ. Scheirich et al.
       predict under Lommel-Seeliger's: with it, the shadow takes about
       0.10 mag at its deepest rather than 0.109.
-- [didymos.tm](didymos.tm): the SPICE kernels it loads.
+- [scene.py](scene.py): the same night drawn by kalast's renderer, as the
+  observatory looks at it, north up: DART's shape models, or the spheroids
+  with `ellipsoids`. It plays in a loop, 30 s of the night a frame at 30
+  frames a second; `P` pauses it.
+- [didymos.tm](didymos.tm): the SPICE kernels both load.
 
 ![The night with DART's shapes and with spheroids](../../notes/2026-10-21_lightcurve_example/didymos_2022-11-18.png)
 
@@ -54,12 +58,16 @@ The paths in the scripts are where these are kept here: set them to yours.
 python main.py              # both shape models, 30 s on an M1 Pro
 python main.py ellipsoids   # the spheroids alone, no shape model to download
 python main.py --plot
+python scene.py             # the night drawn, DART's shapes
+python scene.py ellipsoids  # the night drawn, the spheroids
 ```
 
-Another night, another site: `START`, `END` and `SITE` in `main.py`. The
+![The night drawn: DART's shapes above, the spheroids below](../../notes/2026-10-21_lightcurve_example/scene_2022-11-18.png)
+
+Another night, another site: `START`, `END` and `SITE` in each script. The
 kernels hold the system from 2001 to the end of 2024, the impact on
-2022-09-26 in them. DART's kernel turns Didymos at 2.2600 h; `main.py`
-turns it at its true period, 2.2603891 h before the impact and 2.260440 h
+2022-09-26 in them. DART's kernel turns Didymos at 2.2600 h; both scripts
+turn it at its true period, 2.2603891 h before the impact and 2.260440 h
 after (Durech et al. 2025), its phase the kernel's at the impact. Even so,
 the 2022 campaign's photometry puts DART's Didymos 8 to 50 deg off in its
 turning, by date: read the rotation's phase loosely, the events' times
