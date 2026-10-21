@@ -85,6 +85,36 @@ in a background window: both shape sets, and stills at four moments:
 The events where `main.py` puts them: the shadow across Didymos at 00:52,
 Dimorphos gone at 05:10, at 06:30 a crescent of it left by Didymos's shadow.
 
+### The projection
+
+The user asked whether `fovy = 2 * numpy.arctan(1.2 / DISTANCE)` was
+TRAPPIST-North's, and expected an orthographic view. It is not the
+telescope's: it frames 2.4 km at the system, ±1.2 km for Dimorphos's
+orbit, from a camera put 20 km out on the line to the observatory.
+TRAPPIST-North's camera has 0.60" pixels over 19.8'; that night the system
+was 0.147 au away, where 1 km is 9.4 mas, and the 2.4 km framed are 22
+mas -- a 27th of a pixel, under seeing of an arcsecond or more. The
+telescope sees a point, whose light `main.py` sums; the scene is what a
+telescope able to resolve the system would show.
+
+From 0.147 au that view is orthographic. In perspective from 20 km, the
+system's near and far sides, ±1.2 km, differ in scale by up to 6 % each
+way: at 00:52 Dimorphos, nearer the camera, is drawn 4 % larger and 21
+pixels (37 m) further out than in the orthographic view. kalast's camera
+has both: `set_orthographic()`, and `side`, the half-height in km, in place
+of `fovy`:
+
+```python
+sim.camera.projection.set_orthographic()
+sim.camera.projection.side = 1.2  # km: 2.4 km top to bottom
+```
+
+`DISTANCE` then only puts the camera outside the system; the near and far
+planes fit themselves, 17.4 to 22.6 km. Checked in a background window, on
+the finest models:
+
+![Perspective against orthographic, 00:52 and 05:10](scene_projection.png)
+
 ## The shape models' resolution
 
 The user, editing `scene.py`, asked why it drew the 49,152-facet models
