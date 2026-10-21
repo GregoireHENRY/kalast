@@ -6593,3 +6593,26 @@ shapes at 49,152 facets, as `main.py` has them; 32 s and 90 s on one
 thread. `didymos.tm` is `kernels.tm`, the user's name. Then `main.py`
 removed at the user's word, `lightcurve.py` in its place. Write-up:
 `2026-10-21_lightcurve_example/`.
+
+## 2026-10-21 — `flux` summed in double precision; a binary as two lists
+
+Why `flux` was off on DART's finest models, the user asked: not the
+shadows -- with both passes off, the system still depended on the order of
+its facets, 7.12 mmag faint with Didymos's first -- but the sum, in `f32`
+in the Python build, where Dimorphos's 0.24 m facets after Didymos's each
+added about half a step and were rounded away. `flux_at` sums in `f64`
+now; a Rust test of a million small facets after a large one, 0.99 % faint
+before. On the finest models the events are within 1.5 mmag of the
+49,152-facet ones. And `flux` takes a binary as two lists,
+`flux([v1, v2], [i1, i2], ...)`, at the user's word: no stacking and
+offsetting of indices in scripts. Write-up: `2026-10-21_flux_double_sum/`.
+
+## 2026-10-21 — `scene_lightcurve.py`, the night drawn and its light curve
+
+At the user's asking, the two scripts in one: `scene.py`'s night, each
+frame's light summed on a thread of its own so the drawing keeps 30 frames
+a second, the plot written and opened at the night's end -- a matplotlib
+window beside kalast's takes the process down on macOS. 721 points, a
+point every 30 s, the curve `lightcurve.py` gives; the plot with the
+night's end for the spheroids, 39 s after it for DART's shapes. Write-up:
+`2026-10-21_lightcurve_example/`.

@@ -1,5 +1,9 @@
 #!/usr/bin/env python
-import matplotlib.pyplot as plt
+import os
+import subprocess
+import sys
+
+import matplotlib
 import numpy
 import spiceypy as spice
 
@@ -8,9 +12,13 @@ from kalast.lightcurve import flux
 from kalast.scattering import Hapke
 from kalast.util import RPD
 
+# Drawn to a file and opened: a plot window cannot open beside kalast's.
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
+
 KERNELS = "examples/lightcurve_didymos/kernels.tm"
 
-# DART's shape models at 49,152 facets: 0.3 s an epoch, where the finest
+# DART's shape models at 49,152 facets: 0.5 s an epoch, where the finest
 # (3,145,728 facets, scene.py's) take 40 to 58 s.
 DIDYMOS = "/Users/gregoireh/data/mesh/didymos/didymos_g_9309mm_spc_obj_0000n00000_v003.obj"
 DIMORPHOS = "/Users/gregoireh/data/mesh/dimorphos/dimorphos_g_1940mm_spc_obj_0000n00000_v004.obj"
@@ -35,6 +43,8 @@ DT = 120.0  # seconds of the night between two points of the light curve
 # Buratti et al. (2024), from DART's images and the system's phase curve.
 LAW = Hapke(w=0.126, b=0.36, c=1.0, b0=0.97, h=0.020, theta_bar=18.0 * RPD, k=1.0)
 
+PLOT = "out/lightcurve_didymos.png"
+
 if SHAPES == "meshes":
     meshes = [kalast.mesh.Mesh(path=DIDYMOS), kalast.mesh.Mesh(path=DIMORPHOS)]
     stretch = [numpy.ones(3), numpy.ones(3)]
@@ -42,9 +52,6 @@ else:
     ico = kalast.mesh.Mesh(path="res/ico5.obj")
     meshes = [ico, ico]
     stretch = EXTENTS
-
-# The two bodies as one mesh for `flux`: Dimorphos's facets after Didymos's vertices.
-indices = numpy.concatenate([meshes[0].indices, meshes[1].indices + len(meshes[0].positions)])
 
 spice.furnsh(KERNELS)
 radii = spice.bodvrd("EARTH", "RADII", 3)[1]
@@ -78,9 +85,9 @@ for et in ets:
     to_sun = numpy.array(spice.spkpos("SUN", te, "J2000", "NONE", "DIDYMOS_BARYCENTER")[0])
     to_sun /= numpy.linalg.norm(to_sun)
 
-    # The light the observatory gets: every facet's, as lit and as seen, with
-    # what each body shadows and hides of the other.
-    fluxes.append(flux(numpy.vstack(vertices), indices, to_sun, to_site, LAW).flux)
+    # The light the observatory gets: every facet of the two, as lit and as
+    # seen, each body shadowing and hiding the other.
+    fluxes.append(flux(vertices, [mesh.indices for mesh in meshes], to_sun, to_site, LAW).flux)
 
 spice.kclear()
 
@@ -93,4 +100,10 @@ plt.gca().invert_yaxis()  # brighter up
 plt.xlabel("UTC (h)")
 plt.ylabel("mmag")
 plt.title(f"Didymos and Dimorphos from TRAPPIST-North, {START[:10]}, {SHAPES}")
-plt.show()
+os.makedirs(os.path.dirname(PLOT), exist_ok=True)
+plt.savefig(PLOT, dpi=120)
+print(f"wrote {PLOT}")
+if sys.platform == "win32":
+    os.startfile(PLOT)
+else:
+    subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", PLOT])

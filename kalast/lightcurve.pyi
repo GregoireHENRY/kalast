@@ -96,7 +96,7 @@ class Curve:
     def __len__(self) -> int:
         ...
 
-def flux(vertices: numpy.ndarray, indices: object, sun: object, observer: object, law: object, shadowing: bool = ..., visibility: bool = ...) -> Point:
+def flux(vertices: numpy.ndarray | Sequence[numpy.ndarray], indices: numpy.ndarray | Sequence[numpy.ndarray], sun: object, observer: object, law: object, shadowing: bool = ..., visibility: bool = ...) -> Point:
     """The disc-integrated flux at one epoch.
 
     `vertices` is `(n, 3)` in any float dtype, `indices` is `(m, 3)` or
@@ -104,6 +104,11 @@ def flux(vertices: numpy.ndarray, indices: object, sun: object, observer: object
     `mesh.positions * axes` is float64 -- and
     `sun` and `observer` point from the body toward each, in the mesh's own
     frame. `law` is a `Hapke` or a `LommelSeeligerLambert`.
+
+    Several bodies -- a binary -- are two lists of the same length, each
+    body's vertices placed in one frame and its own indices:
+    `flux([v1, v2], [i1, i2], sun, observer, law)`. Their facets are
+    summed together, so each shadows and hides the others.
 
     Use this when the geometry is placed already -- a binary, or a body
     whose vertices you move yourself. `lightcurve` is the rotating

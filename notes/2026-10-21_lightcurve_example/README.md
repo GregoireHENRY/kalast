@@ -135,7 +135,10 @@ the same models at their finest, 3,145,728 facets each (170 MB each here,
   (the system), 0.99819 (Didymos) and 0.96407 (Dimorphos). At 49,152 facets
   it is 0.0. The drop at 00:52 is 75.4 mmag against 72.7, at 05:10 42.5
   against 46.4; the system is fainter than at 49,152 facets by 3.0, 9.4 and
-  1.1 mmag at 00:52, 03:00 and 05:10.
+  1.1 mmag at 00:52, 03:00 and 05:10. **Found and fixed the same day**
+  (`2026-10-21_flux_double_sum/`): `flux` summed its facets in `f32`, and
+  Dimorphos's, after Didymos's, were rounded away; summed in `f64`, -0.0
+  mmag at 03:00, 71.2 at 00:52, 46.1 at 05:10.
 
 ## `lightcurve.py`
 
@@ -162,10 +165,38 @@ name for `didymos.tm`.
 Then, at the user's word, `main.py` removed: `lightcurve.py` in its place.
 The night with both shape models side by side, above, is `main.py`'s.
 
+The index arithmetic for the binary -- the bodies stacked, Dimorphos's
+indices offset by Didymos's vertex count -- went when `flux` took the
+bodies as two lists, at the user's word (`2026-10-21_flux_double_sum/`):
+`flux(vertices, [mesh.indices for mesh in meshes], ...)`.
+
+## `scene_lightcurve.py`, the two in one
+
+The user: "is it possible to put lighcurve and scene in one script? the
+lightcurve accumulate over the rendering and show the plot at the end".
+
+`scene_lightcurve.py`: `scene.py`'s night, and each frame the bodies' light
+from the same poses, `flux` submitted to a `ThreadPoolExecutor` -- it lets go
+of Python's lock -- so that the drawing keeps its 30 frames a second; a
+point a frame, 30 s of the night. At the night's end the scene pauses, and
+once every point is summed the plot is written to
+`out/lightcurve_didymos.png` and opened in the system's viewer. With
+`meshes`, the finest models drawn and the 49,152-facet ones summed, posed
+alike.
+
+Not a plot window: a matplotlib window in a process where kalast's window
+has opened takes it down on macOS, after `app.close()` too
+(`2026-10-21_flux_double_sum/`). `lightcurve.py` writes and opens its plot
+the same way, so that it shows one in the UI app too, where scripts get
+`agg`.
+
+Run in a background window, plot to scratch: 721 points, 118 mmag with the
+spheroids and 218 with DART's shapes, as `lightcurve.py` has them. The night
+drawn in 24.2 s and 24.6 s; the plot at 24.4 s with the spheroids, at 63.5 s
+with DART's shapes -- 139 of their 721 points summed when the night ended.
+
 ## Open
 
 - `lightcurve` and `Spin`, the single rotating body, have no example now;
   `docs/API.md` keeps the stretched `ico3` as their snippet.
-- `flux` on 3,145,728-facet models: the system 6.8 mmag below its two
-  bodies with no event under way (above).
 - Didymos's size: `2026-10-21_didymos_size/`.

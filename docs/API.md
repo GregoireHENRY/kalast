@@ -1883,6 +1883,19 @@ curve.magnitude()                 # relative magnitudes, median-referenced
 | `Point` | one epoch: `flux`, `alpha`, `lit_fraction`, `overflowed` |
 | `Curve` | arrays: `flux`, `alpha`, `phase`, `epoch`, `lit_fraction`, `overflowed`, `magnitude(reference=None)` |
 
+**A binary is two lists** to `flux`, each body's vertices placed in one frame
+and its own indices, as `kalast.mesh.Mesh` hands them back:
+
+```python
+flux([didymos_vertices, dimorphos_vertices], [didymos.indices, dimorphos.indices], sun, observer, law)
+```
+
+Their facets are summed together, so each body shadows and hides the other --
+no concatenating, no offsetting the second body's indices by hand.
+`examples/lightcurve_didymos/lightcurve.py` does so. The sum is in double
+precision whatever kalast's float: a fine mesh's facets each add a millionth of
+the total or less.
+
 **`shadowing=False, visibility=False` is exact for a convex shape**, not an
 approximation: no facet occludes another there, so both clipping passes return
 1 and cost the run. Most shape-inversion models are convex, and it is the

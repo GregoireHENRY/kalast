@@ -365,4 +365,28 @@ check(
 )
 check("test_curve_reports_no_overflow", curve.overflowed is False)
 
+# --- 8. several bodies ----------------------------------------------------
+# A binary given as two lists, each body's indices its own, is the one mesh a
+# script would otherwise concatenate and offset by hand -- the same facets, so
+# the same flux to the bit. And it is one scene: a moon between its primary
+# and the Sun and the observer shadows and hides some of it, which the two
+# drawn apart cannot.
+PRI, FPRI = as32(*icosphere("res/ico3.obj"))
+MOON = (PRI * 0.25 + numpy.float32([0.0, 0.0, 2.0])).astype(numpy.float32)
+TOWARD = [0.1, 0.0, 1.0]
+listed = flux([PRI, MOON], [FPRI, FPRI], TOWARD, TOWARD, LS).flux
+by_hand = flux(numpy.vstack([PRI, MOON]), numpy.concatenate([FPRI, FPRI + len(PRI)]), TOWARD, TOWARD, LS).flux
+apart = flux(PRI, FPRI, TOWARD, TOWARD, LS).flux + flux(MOON, FPRI, TOWARD, TOWARD, LS).flux
+check("test_bodies_as_lists_are_their_facets_together", listed == by_hand, f"{listed:.6e} vs {by_hand:.6e}")
+check("test_bodies_shadow_and_hide_each_other", listed < 0.99 * apart, f"{mmag(listed, apart):+.1f} mmag against apart")
+check(
+    "test_one_body_as_rows_is_still_one_body",
+    flux(PRI.tolist(), FPRI, TOWARD, TOWARD, LS).flux == flux(PRI, FPRI, TOWARD, TOWARD, LS).flux,
+)
+try:
+    flux([PRI, MOON], [FPRI], TOWARD, TOWARD, LS)
+    check("test_bodies_need_their_own_indices", False, "no error")
+except ValueError as e:
+    check("test_bodies_need_their_own_indices", "indices" in str(e), str(e))
+
 sys.exit(1 if failures else 0)

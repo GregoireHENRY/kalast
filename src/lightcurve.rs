@@ -365,9 +365,13 @@ pub fn flux_at(
         })
     });
 
-    let mut flux = 0.0;
-    let mut illuminated = 0.0;
-    let mut lit_area = 0.0;
+    // Summed in f64, whatever `Float` is. A fine mesh's facets each add a
+    // millionth of the total or less, under f32's step once the sum has grown:
+    // on DART's 3,145,728-facet models, Dimorphos's facets after Didymos's were
+    // rounded away, the pair 7 mmag faint by the order of its facets alone.
+    let mut flux = 0.0f64;
+    let mut illuminated = 0.0f64;
+    let mut lit_area = 0.0f64;
     let mut overflowed = false;
 
     for (i, &(area, mu0, mu)) in facets.iter().enumerate() {
@@ -382,8 +386,8 @@ pub fn flux_at(
             None => 1.0,
         };
 
-        illuminated += area * mu0;
-        lit_area += area * mu0 * f_lit;
+        illuminated += (area * mu0) as f64;
+        lit_area += (area * mu0 * f_lit) as f64;
 
         // After the lit bookkeeping, not before: a facet the observer cannot
         // see is still illuminated, and `lit_fraction` would otherwise report
@@ -399,14 +403,14 @@ pub fn flux_at(
             None => 1.0,
         };
 
-        flux += law.reflectance(mu0, mu, alpha) * mu0 * mu * area * f_lit * f_vis;
+        flux += (law.reflectance(mu0, mu, alpha) * mu0 * mu * area * f_lit * f_vis) as f64;
     }
 
     Ok(Point {
-        flux,
+        flux: flux as Float,
         alpha,
         lit_fraction: if illuminated > 0.0 {
-            lit_area / illuminated
+            (lit_area / illuminated) as Float
         } else {
             0.0
         },
@@ -615,6 +619,30 @@ mod tests {
     }
 
     #[test]
+    fn a_million_small_facets_after_a_large_one_still_count() {
+        // A primary's facets summed first, then a secondary's, each a
+        // hundred-millionth of the running sum: under f32's step, so an f32
+        // sum rounded every one of them away -- what made a binary on DART's
+        // 3,145,728-facet models 7 mmag faint, by the order of its facets.
+        let law = Law::Mix(LommelSeeligerLambert { w: 0.1, c: 0.0 });
+        let opts = Options {
+            shadowing: false,
+            visibility: false,
+        };
+        let big = [Vec3::ZERO, Vec3::new(2.0, 0.0, 0.0), Vec3::new(0.0, 1.0, 0.0)];
+        let s = (2e-8 as Float).sqrt();
+        let small = [Vec3::new(5.0, 0.0, 0.0), Vec3::new(5.0 + s, 0.0, 0.0), Vec3::new(5.0, s, 0.0)];
+        let n = 1_000_000;
+        let mut tris = vec![big];
+        tris.extend(std::iter::repeat_n(small, n));
+        let sun = Vec3::new(0.3, 0.0, 1.0);
+        let one = |t: [Vec3; 3]| flux_at(&[t], sun, Vec3::Z, &law, opts).unwrap().flux;
+        let want = one(big) as f64 + n as f64 * one(small) as f64;
+        let got = flux_at(&tris, sun, Vec3::Z, &law, opts).unwrap().flux as f64;
+        assert!((got / want - 1.0).abs() < 1e-6, "{got} against {want}");
+    }
+
+    #[test]
     fn an_impossible_roughness_is_refused_by_the_integral_too() {
         let tris = sphere(6, 12);
         // Past pi/2 the slope distribution's normalisation divides by zero,
@@ -639,6 +667,7 @@ pub(crate) mod py {
     use numpy::{AllowTypeChange, PyArray1, PyArrayLike2, PyReadonlyArrayDyn};
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
+    use pyo3::types::{PyList, PyTuple};
 
     use super::{Float, Hapke, Law, LommelSeeligerLambert, Options, Point, Spin, Vec3};
     use crate::shadowing::py::triangles;
@@ -758,6 +787,39 @@ pub(crate) mod py {
         Ok(v.into_iter().map(Vec3::from).collect())
     }
 
+    /// One body's `vertices` and `indices`, or several bodies' as two lists,
+    /// each body's indices its own: all their facets in one list, so that
+    /// each body shadows and hides the others.
+    ///
+    /// A list whose first item is 2-D is a list of bodies; a list of
+    /// 3-number rows is one body's vertices, as before.
+    fn bodies<'py>(
+        vertices: &Bound<'py, PyAny>,
+        indices: &Bound<'py, PyAny>,
+    ) -> PyResult<Vec<[Vec3; 3]>> {
+        let listed = |o: &Bound<'py, PyAny>| o.is_instance_of::<PyList>() || o.is_instance_of::<PyTuple>();
+        if listed(vertices) {
+            let vs: Vec<Bound<'py, PyAny>> = vertices.extract()?;
+            let two_d = |v: &Bound<'py, PyAny>| v.extract::<PyArrayLike2<'py, Float, AllowTypeChange>>().is_ok();
+            if vs.first().is_some_and(two_d) {
+                let fs: Vec<Bound<'py, PyAny>> = if listed(indices) { indices.extract()? } else { Vec::new() };
+                if fs.len() != vs.len() {
+                    return Err(PyValueError::new_err(format!(
+                        "{} bodies' vertices but {} lists of indices: give each body its own indices",
+                        vs.len(),
+                        fs.len()
+                    )));
+                }
+                let mut tris = Vec::new();
+                for (v, f) in vs.iter().zip(&fs) {
+                    tris.extend(triangles(v.extract()?, f.extract()?)?);
+                }
+                return Ok(tris);
+            }
+        }
+        triangles(vertices.extract()?, indices.extract()?)
+    }
+
     /// The disc-integrated flux at one epoch.
     ///
     /// `vertices` is `(n, 3)` in any float dtype, `indices` is `(m, 3)` or
@@ -765,6 +827,11 @@ pub(crate) mod py {
     /// `mesh.positions * axes` is float64 -- and
     /// `sun` and `observer` point from the body toward each, in the mesh's own
     /// frame. `law` is a `Hapke` or a `LommelSeeligerLambert`.
+    ///
+    /// Several bodies -- a binary -- are two lists of the same length, each
+    /// body's vertices placed in one frame and its own indices:
+    /// `flux([v1, v2], [i1, i2], sun, observer, law)`. Their facets are
+    /// summed together, so each shadows and hides the others.
     ///
     /// Use this when the geometry is placed already -- a binary, or a body
     /// whose vertices you move yourself. `lightcurve` is the rotating
@@ -774,19 +841,19 @@ pub(crate) mod py {
     /// occludes another there, so both passes return 1 and cost the run.
     #[pyfunction]
     #[pyo3(name = "flux")]
-    #[pyo3(signature = (vertices, indices, sun, observer, law, shadowing=true, visibility=true))]
+    #[pyo3(signature = (vertices: "numpy.ndarray | Sequence[numpy.ndarray]", indices: "numpy.ndarray | Sequence[numpy.ndarray]", sun, observer, law, shadowing=true, visibility=true))]
     #[allow(clippy::too_many_arguments)]
     pub fn py_flux<'py>(
         py: Python<'py>,
-        vertices: PyArrayLike2<'py, Float, AllowTypeChange>,
-        indices: PyReadonlyArrayDyn<'py, u32>,
+        vertices: &Bound<'py, PyAny>,
+        indices: &Bound<'py, PyAny>,
         sun: &Bound<'py, PyAny>,
         observer: &Bound<'py, PyAny>,
         law: &Bound<'py, PyAny>,
         shadowing: bool,
         visibility: bool,
     ) -> PyResult<Point> {
-        let tris = triangles(vertices, indices)?;
+        let tris = bodies(vertices, indices)?;
         let s = directions(sun, "sun")?;
         let o = directions(observer, "observer")?;
         if s.len() != 1 || o.len() != 1 {

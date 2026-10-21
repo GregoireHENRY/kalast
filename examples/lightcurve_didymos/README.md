@@ -10,9 +10,10 @@ bodies from DART's SPICE kernels, at the time their light left for the
 site, and `kalast.lightcurve.flux` sums every facet's light under Buratti et
 al. (2024)'s Hapke law, what each body shadows or hides of the other exact.
 
-- [lightcurve.py](lightcurve.py): the light curve, plotted -- the
-  system's magnitude about the night's mean, every 2 minutes -- with one
-  shape model or the other, `SHAPES` at its top:
+- [lightcurve.py](lightcurve.py): the light curve, plotted to
+  `out/lightcurve_didymos.png` and opened -- the system's magnitude about
+  the night's mean, every 2 minutes -- with one shape model or the other,
+  `SHAPES` at its top:
     - `meshes`: DART's shape models of the two;
     - `ellipsoids`: Scheirich et al. (2024)'s, the bodies the system's events
       are predicted with -- oblate spheroids of DART's volume and axis
@@ -26,7 +27,13 @@ al. (2024)'s Hapke law, what each body shadows or hides of the other exact.
   DART's shape models at their finest or the spheroids, `SHAPES` at its
   top. 30 s of the night a frame at 30 frames a second, to the night's
   end; `P` pauses it.
-- [kernels.tm](kernels.tm): the SPICE kernels both load.
+- [scene_lightcurve.py](scene_lightcurve.py): the two in one -- the night
+  drawn as `scene.py` draws it, and its light curve made as it goes, a
+  point a frame, each frame's light summed on a thread of its own so that
+  the drawing keeps its pace; at the night's end the plot is written and
+  opened, the scene left paused. DART's shapes are drawn at their finest,
+  their light taken from the 49,152-facet models.
+- [kernels.tm](kernels.tm): the SPICE kernels the three load.
 
 ![The night with DART's shapes and with spheroids](../../notes/2026-10-21_lightcurve_example/didymos_2022-11-18.png)
 
@@ -51,7 +58,8 @@ The paths in the scripts are where these are kept here: set them to yours.
    [didymos_g_9309mm_spc_obj_0000n00000_v003.obj](https://pdssbn.astro.umd.edu/holdings/pds4-dart_shapemodel-v1.0/data_derived_didymos_model_v003/didymos_g_9309mm_spc_obj_0000n00000_v003.obj)
    and
    [dimorphos_g_1940mm_spc_obj_0000n00000_v004.obj](https://pdssbn.astro.umd.edu/holdings/pds4-dart_shapemodel-v1.0/data_derived_dimorphos_model_v004/dimorphos_g_1940mm_spc_obj_0000n00000_v004.obj),
-   `DIDYMOS` and `DIMORPHOS` in `lightcurve.py`.
+   `DIDYMOS` and `DIMORPHOS` in `lightcurve.py`, `DIDYMOS_LIGHT` and
+   `DIMORPHOS_LIGHT` in `scene_lightcurve.py`.
    `scene.py` draws the same models at their finest, 3,145,728 facets each,
    231 MB each:
    [didymos_g_1165mm_spc_obj_0000n00000_v003.obj](https://pdssbn.astro.umd.edu/holdings/pds4-dart_shapemodel-v1.0/data_derived_didymos_model_v003/didymos_g_1165mm_spc_obj_0000n00000_v003.obj)
@@ -61,13 +69,17 @@ The paths in the scripts are where these are kept here: set them to yours.
 
 ## Running
 
-From kalast's folder, where `lightcurve.py` and `scene.py` name their files
-from:
+From kalast's folder, where the scripts name their files from:
 
 ```sh
-python examples/lightcurve_didymos/lightcurve.py   # the light curve: 32 s (spheroids) to 90 s (DART's shapes)
-python examples/lightcurve_didymos/scene.py        # the night drawn
+python examples/lightcurve_didymos/lightcurve.py         # the light curve: 32 s (spheroids) to 90 s (DART's shapes)
+python examples/lightcurve_didymos/scene.py              # the night drawn
+python examples/lightcurve_didymos/scene_lightcurve.py   # both: the plot at the night's end, 24 s (spheroids) to a minute
 ```
+
+A plot window cannot open in a process where kalast's window has opened --
+on macOS the two take the process down -- so the plots are drawn to a file
+and opened in the system's viewer.
 
 ![The night drawn: DART's shapes above, the spheroids below](../../notes/2026-10-21_lightcurve_example/scene_2022-11-18.png)
 
