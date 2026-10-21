@@ -6580,3 +6580,15 @@ kept, the sliders clamping edits only, but the settings could not reach it,
 and moving the slider brought it under 10. Now 0.1 to 1000 on a logarithmic
 scale, as `sim.state.rate_limit`'s: the panel generator's new `:log:`
 marker.
+
+## 2026-10-21 — `lightcurve.py`, the light curve in `scene.py`'s form
+
+The user made `scene.py` their own -- the spheroids' radii in `EXTENTS`,
+`SHAPES` at the top, paths from kalast's folder, orthographic, the night
+played once -- and asked for "the part of the lightcurve creation", leaving
+`scene.py` as it is. `examples/lightcurve_didymos/lightcurve.py` takes its
+settings and its SPICE block and calls `flux` once an epoch in a plain
+loop, the night plotted: 118 mmag with the spheroids, 218 with DART's
+shapes at 49,152 facets, as `main.py` has them; 32 s and 90 s on one
+thread. `didymos.tm` is `kernels.tm`, the user's name. Write-up:
+`2026-10-21_lightcurve_example/`.

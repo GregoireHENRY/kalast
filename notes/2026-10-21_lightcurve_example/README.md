@@ -137,6 +137,28 @@ the same models at their finest, 3,145,728 facets each (170 MB each here,
   against 46.4; the system is fainter than at 49,152 facets by 3.0, 9.4 and
   1.1 mmag at 00:52, 03:00 and 05:10.
 
+## `lightcurve.py`
+
+The user edited `scene.py` into their own: the spheroids' radii in
+`EXTENTS`, the shape model in `SHAPES` at its top, the paths from kalast's
+folder, the camera orthographic, the night played once. Then: "now i want
+to add the part of the lightcurve creation. Keep scene.py as it is".
+
+`lightcurve.py`, in `scene.py`'s form and with its settings: each epoch the
+same SPICE block, the two bodies posed as `scene.py` poses them (`turn @
+diag(EXTENTS)`, then the place), one mesh of the two, and
+`kalast.lightcurve.flux` once, in a plain loop every 2 minutes; the
+system's magnitude about the night's mean, plotted. With `meshes`, DART's
+models at 49,152 facets rather than `scene.py`'s finest: 0.5 s an epoch
+against 40 to 58 s.
+
+Checked against `main.py`: 181 points, 118 mmag from brightest to faintest
+with the spheroids and 218 with DART's shapes, as `main.py` has them; with
+the spheroids the faintest point at 00:52, Dimorphos's shadow. On one
+thread, 32 s for the spheroids, 90 s for DART's shapes; `main.py` does both
+in 30 s, an epoch a thread. `main.py` loads `kernels.tm` now, the user's
+name for `didymos.tm`.
+
 ## Open
 
 - `lightcurve` and `Spin`, the single rotating body, have no example now;

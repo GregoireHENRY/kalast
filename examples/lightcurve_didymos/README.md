@@ -21,11 +21,16 @@ al. (2024)'s Hapke law, what each body shadows or hides of the other exact.
       the same law, so that the shapes alone differ. Scheirich et al.
       predict under Lommel-Seeliger's: with it, the shadow takes about
       0.10 mag at its deepest rather than 0.109.
+- [lightcurve.py](lightcurve.py): the light curve alone, plotted -- the
+  system's magnitude about the night's mean, every 2 minutes -- with
+  DART's shape models or the spheroids, `SHAPES` at its top, the
+  spheroids' radii in `EXTENTS`.
 - [scene.py](scene.py): the same night drawn by kalast's renderer, as the
-  observatory looks at it, north up: DART's shape models, or the spheroids
-  with `ellipsoids`. It plays in a loop, 30 s of the night a frame at 30
-  frames a second; `P` pauses it.
-- [didymos.tm](didymos.tm): the SPICE kernels both load.
+  observatory looks at it, north up, orthographic, 2.4 km top to bottom:
+  DART's shape models at their finest or the spheroids, `SHAPES` at its
+  top. 30 s of the night a frame at 30 frames a second, to the night's
+  end; `P` pauses it.
+- [kernels.tm](kernels.tm): the SPICE kernels the three load.
 
 ![The night with DART's shapes and with spheroids](../../notes/2026-10-21_lightcurve_example/didymos_2022-11-18.png)
 
@@ -40,7 +45,7 @@ Dimorphos takes 0.040 to 0.046 as it turns, the sphere 0.049 throughout.
 
 The paths in the scripts are where these are kept here: set them to yours.
 
-1. **SPICE kernels**: the seven [didymos.tm](didymos.tm) lists, 171 MB --
+1. **SPICE kernels**: the seven [kernels.tm](kernels.tm) lists, 171 MB --
    DE430 120 MB of it, DART's system solution 51 MB -- from NAIF's
    [DART SPICE archive](https://naif.jpl.nasa.gov/pub/naif/pds/pds4/dart/dart_spice/spice_kernels/),
    in their folders there. Set its `PATH_VALUES`.
@@ -50,23 +55,32 @@ The paths in the scripts are where these are kept here: set them to yours.
    [didymos_g_9309mm_spc_obj_0000n00000_v003.obj](https://pdssbn.astro.umd.edu/holdings/pds4-dart_shapemodel-v1.0/data_derived_didymos_model_v003/didymos_g_9309mm_spc_obj_0000n00000_v003.obj)
    and
    [dimorphos_g_1940mm_spc_obj_0000n00000_v004.obj](https://pdssbn.astro.umd.edu/holdings/pds4-dart_shapemodel-v1.0/data_derived_dimorphos_model_v004/dimorphos_g_1940mm_spc_obj_0000n00000_v004.obj),
-   `MESHES` in `main.py`.
+   `MESHES` in `main.py`, `DIDYMOS` and `DIMORPHOS` in `lightcurve.py`.
+   `scene.py` draws the same models at their finest, 3,145,728 facets each,
+   231 MB each:
+   [didymos_g_1165mm_spc_obj_0000n00000_v003.obj](https://pdssbn.astro.umd.edu/holdings/pds4-dart_shapemodel-v1.0/data_derived_didymos_model_v003/didymos_g_1165mm_spc_obj_0000n00000_v003.obj)
+   and
+   [dimorphos_g_0243mm_spc_obj_0000n00000_v004.obj](https://pdssbn.astro.umd.edu/holdings/pds4-dart_shapemodel-v1.0/data_derived_dimorphos_model_v004/dimorphos_g_0243mm_spc_obj_0000n00000_v004.obj).
+   A light curve on them would take 40 to 58 s an epoch.
 
 ## Running
 
+From kalast's folder, where `lightcurve.py` and `scene.py` name their files
+from:
+
 ```sh
-python main.py              # both shape models, 30 s on an M1 Pro
-python main.py ellipsoids   # the spheroids alone, no shape model to download
-python main.py --plot
-python scene.py             # the night drawn, DART's shapes
-python scene.py ellipsoids  # the night drawn, the spheroids
+python examples/lightcurve_didymos/main.py              # both shape models, 30 s on an M1 Pro
+python examples/lightcurve_didymos/main.py ellipsoids   # the spheroids alone, no shape model to download
+python examples/lightcurve_didymos/main.py --plot
+python examples/lightcurve_didymos/lightcurve.py        # the light curve plotted, SHAPES at its top
+python examples/lightcurve_didymos/scene.py             # the night drawn, SHAPES at its top
 ```
 
 ![The night drawn: DART's shapes above, the spheroids below](../../notes/2026-10-21_lightcurve_example/scene_2022-11-18.png)
 
 Another night, another site: `START`, `END` and `SITE` in each script. The
 kernels hold the system from 2001 to the end of 2024, the impact on
-2022-09-26 in them. DART's kernel turns Didymos at 2.2600 h; both scripts
+2022-09-26 in them. DART's kernel turns Didymos at 2.2600 h; the scripts
 turn it at its true period, 2.2603891 h before the impact and 2.260440 h
 after (Durech et al. 2025), its phase the kernel's at the impact. Even so,
 the 2022 campaign's photometry puts DART's Didymos 8 to 50 deg off in its

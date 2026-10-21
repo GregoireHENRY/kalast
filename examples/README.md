@@ -223,11 +223,15 @@ Look at [res/README.md](../res/README.md) to get Hera data.
       DART's shape models (`meshes`), with Scheirich et al.'s spheroids
       from `res/ico5.obj` (`ellipsoids`), or both: what Didymos's rotation
       and the real shapes change in the events.
+    - [lightcurve_didymos/lightcurve.py](lightcurve_didymos/lightcurve.py):
+      the light curve alone, in a few lines, a plain loop: one shape model
+      or the other, `SHAPES` at its top, `kalast.lightcurve.flux` each
+      epoch, the night plotted.
     - [lightcurve_didymos/scene.py](lightcurve_didymos/scene.py): the same
-      night drawn, as the observatory looks at it, north up, with either
-      shape model -- the poses set from SPICE every frame, the time in a
-      HUD, the frame rate capped (`sim.state.rate_limited`), the spheroids
-      a sphere stretched by its pose.
+      night drawn, as the observatory looks at it, north up, orthographic,
+      with either shape model -- the poses set from SPICE every frame, the
+      time in a HUD, the frame rate capped (`sim.state.rate_limited`), the
+      spheroids a sphere stretched by its pose.
 - [hera_didymos](hera_didymos):
     - [hera_didymos/afc.py](hera_didymos/afc.py):
         - Load Didymos/Dimorphos/Sun/Earth in AFC FOV frame centered on AFC

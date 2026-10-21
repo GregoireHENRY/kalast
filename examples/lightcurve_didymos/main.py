@@ -36,7 +36,7 @@ from kalast.util import RPD
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 # Where these are kept here: set them to yours.
-KERNELS = os.path.join(HERE, "didymos.tm")  # and its PATH_VALUES
+KERNELS = os.path.join(HERE, "kernels.tm")  # and its PATH_VALUES
 MESHES = (
     "/Users/gregoireh/data/mesh/didymos/didymos_g_9309mm_spc_obj_0000n00000_v003.obj",
     "/Users/gregoireh/data/mesh/dimorphos/dimorphos_g_1940mm_spc_obj_0000n00000_v004.obj",
