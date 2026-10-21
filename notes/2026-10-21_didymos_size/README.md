@@ -48,6 +48,37 @@ page for v003, delivered 30 May 2023 (in
 819 × 796 × 590 ± 14 m, extents along its axes 819 ± 1, 801 ± 4 and
 607 ± 1 m.
 
+## Which ellipsoid, at 730 m
+
+The user settled on 730 m by volume "for now", and asked which of three
+ellipsoids that is:
+
+| | what it is | volume (km3) | by volume (m) |
+|---|---|---|---|
+| 824 × 801 × 607 | v003's extents at 1.165 m: the box around it | 0.2097 | 737.1 |
+| 819 × 796 × 590 | DART's best-fit ellipsoid to v003, ± 14 m | 0.2014 | 727.2 |
+| 811 × 811 × 592 | the example's spheroid | 0.2037 | 730.0 |
+
+- The box holds 3 % more than the model it is around.
+- The spheroid is the best fit made round in its equator (√(819 × 796) =
+  807 m) and scaled by 0.4 % to v003's volume: Scheirich et al.'s shape.
+  It has no rotation of its own, so the night shows the events alone.
+- For Didymos's rotation in the curve, the best fit scaled to 730 m:
+  822.1 × 799.0 × 592.2 m. Its three numbers do not say where its long
+  axis points in Didymos's frame, so it cannot be turned with Didymos yet.
+
+The radii taken, in km:
+
+| | a | b | c |
+|---|---|---|---|
+| Didymos | 0.4053 | 0.4053 | 0.2960 |
+| Dimorphos after the impact: a sphere, 0.202 of Didymos | 0.0737 | 0.0737 | 0.0737 |
+| Dimorphos before it: 0.223 of Didymos, 1.504 equator to pole | 0.0933 | 0.0933 | 0.0620 |
+
+The impact: 2022-09-26 23:14:24 UTC. Dimorphos before it is 162.8 m by
+volume, bigger than DART's v004 at 149.8 m: 0.223 is the campaign
+photometry's ratio, not DART's images'.
+
 ## Didymos's size, as published
 
 | | across (m) | by volume | volume (km3) |

@@ -6560,7 +6560,9 @@ v003 730 m, Daly et al. 761 ± 26 m, the radar model about 760 m. v003 rests
 on 40 % of the surface at 5 m a pixel, and on no limbs. On the night of
 2022-11-18 the size moves the events' durations, 3 to 5 min for 30 m, and
 the level, not the depths. The example keeps 730 m, the mesh's volume, so
-that its two curves differ by shape alone. Write-up:
+that its two curves differ by shape alone, and the user takes it for the
+ellipsoid: radii Didymos 0.4053, 0.4053, 0.2960 km; Dimorphos 0.0737 after
+the impact, 0.0933, 0.0933, 0.0620 before. Write-up:
 `2026-10-21_didymos_size/`.
 
 Open: Didymos's size from the events' durations of Eli's campaign, beside
