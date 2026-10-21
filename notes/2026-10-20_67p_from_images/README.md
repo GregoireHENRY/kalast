@@ -10,14 +10,36 @@ A test of what kalast can do with Hera's AFC images of Didymos and
 Dimorphos: a shape model from a spacecraft's images and its kernels, no
 model to start from.
 
+**The result**: `/Users/gregoireh/data/mesh/67p/from_images/67p_from_images_10m.ply`,
+4.2M facets in 10 m cubes, one closed piece, genus 0 -- from 354 OSIRIS
+frames, SPICE and Fornasier et al.'s published Hapke law, nothing of any
+shape model. Against SHAP7:
+
+| | as the kernels place both | SHAP7 laid on it at its best |
+|---|---|---|
+| volume | 18.70 km3, SHAP7's 18.56 (+0.75 %) | |
+| distance, median | 10.4 m | 4.9 m |
+| rms | 17.0 m | 12.3 m |
+| within 10 m of SHAP7 | 48 % | 82 % |
+| within 20 m | 84 % | 96 % |
+| within 50 m | 98.9 % | 99.1 % |
+
+Laid on it, SHAP7 moves 21 m -- (2.9, 14.5, 15.3) m -- and turns 0.12 deg:
+where the kernels put the comet and its frames against where DLR's
+solution did. What is left over 50 m is the deepest part of the neck.
+
+![SHAP7, the hull and the model from the images](final_six_sides.png)
+
+![SHAP7 coloured by how far the model is from it](difference_10m_final.png)
+
 ## Progress
 
 - [x] The plan (below).
-- [ ] Silhouette images: 340 full NAC frames picked, 60-600 km away, phase
+- [x] Silhouette images: 340 full NAC frames picked, 60-600 km away, phase
   31-70 deg, from 178 of 180 directions around the nucleus (scratch
-  `select_hull.py`); 336 of them whole frames. Downloading from NASA's
-  Small Bodies Node: ESA's archive went back into maintenance at 16:40,
-  every product answered with its maintenance page.
+  `select_hull.py`); 336 of them whole frames, downloaded from NASA's
+  Small Bodies Node in ten minutes: ESA's archive went back into
+  maintenance at 16:40, every product answered with its maintenance page.
 - [x] The visual hull in kalast (Rust, `src/shape/hull.rs`):
   `kalast.shape.Hull` carves the views' silhouettes into a closed mesh by
   marching tetrahedra; `Surface.draw` and `align` register a view on it.
@@ -51,7 +73,7 @@ model to start from.
 
   ![The hull from six sides beside SHAP7](hull_first.png)
 
-- [ ] Tiles over it, coarse to fine: each image registered on each tile;
+- [x] Tiles over it, coarse to fine: each image registered on each tile;
   each image's pointing and each tile's place -- its height too, the stereo
   -- fitted at once; the relief solved from the shading. Running at 40 m
   (scratch `spc67p.py`): tiles of 31 x 31 points, 40 frames each at the
@@ -158,8 +180,8 @@ model to start from.
   20 m tiles, 600 m wide, laid once on this mesh.
 
   ![SHAP7 coloured by how far the 40 m result is from it](difference_40m_merged_round10.png)
-- [ ] The tiles merged into the mesh (Rust): its vertices moved, one closed
-  mesh still.
+- [x] The tiles merged into the mesh (Rust): `merge`, the mesh made again
+  each round from the tiles -- moving its vertices (`fuse`) folded it.
 - [x] At 20 m: tiles of 31 x 31 points, 600 m, laid once on the 40 m
   result (510 tiles, all but one with five frames, 40 at the median),
   merged in 10 m cubes -- 4.1M facets, genus 0, 90 s a merge:
@@ -184,30 +206,42 @@ model to start from.
 
   ![SHAP7 coloured by how far the 20 m result is from it](difference_20m_round4.png)
 
-- [ ] At 10 m: tiles of 31 x 31 points, 300 m, on the 20 m result, merged
+- [x] At 10 m: tiles of 31 x 31 points, 300 m, on the 20 m result, merged
   in 10 m cubes -- 2,187 tiles, 40 frames each at the median, about 40
-  minutes a round. The first merge took over half an hour: every point the
+  minutes a round; the joint fit's residual 2.4 px, the frames moved 0.7 px,
+  the tiles' heights 1 m at the median: settled.
+
+  | 10 m | volume, km3 | SHAP7 against it, m: median, rms | SHAP7 inside by, 90 %, 99 % |
+  |---|---|---|---|
+  | round 1 | 18.72 | 11.0, 18.6 | |
+  | round 2 | 18.71 | 10.5, 15.8 | 21, 40 |
+  | round 3 | 18.70 | 10.1, 15.1 | 20, 37 | The first merge took over half an hour: every point the
   small tiles weigh little asked three rays through the 4M-facet mesh
   whether it was inside; near the mesh its nearest vertex's normal answers
   now, the rays only far from it.
-- The 20 m result drawn on the 57 images of `2026-10-13_67p_osiris_shadows/`
-  as SHAP7 was there -- the reference, the refitted law -- lit or not cut
-  as `compare.py` cuts them, the lit pixels' IoU at the median:
+- [x] On the 57 images of `2026-10-13_67p_osiris_shadows/`, drawn as SHAP7
+  was there -- the reference, the refitted law, `images.csv`'s pointing --
+  and cut lit or not as its `compare.py` cuts them: the lit pixels' IoU at
+  the median (each image's in `table.md`):
 
-  | phase (deg) | images | SHAP7 (13 October) | ours at 20 m |
-  |---|---|---|---|
-  | 0-30 | 8 | 0.976 | 0.962 |
-  | 30-60 | 18 | 0.935 | 0.898 |
-  | 60-90 | 18 | 0.885 | 0.763 |
-  | 90-100 | 6 | 0.543 | 0.442 |
-  | 100-125 | 6 | 0.746 | 0.651 |
-  | all | 56 | 0.905 | 0.844 |
+  | phase (deg) | images | SHAP7 | ours, 20 m | ours, 10 m |
+  |---|---|---|---|---|
+  | 0-30 | 8 | 0.976 | 0.962 | 0.964 |
+  | 30-60 | 18 | 0.935 | 0.898 | 0.904 |
+  | 60-90 | 18 | 0.885 | 0.763 | 0.774 |
+  | 90-100 | 6 | 0.543 | 0.442 | 0.474 |
+  | 100-125 | 6 | 0.746 | 0.651 | 0.670 |
+  | all | 56 | 0.905 | 0.844 | 0.839 |
 
-  Nearly SHAP7's where the Sun is high; the lower it is, the more the
-  shadows are relief of a few metres, which SHAP7 holds at 1-1.5 m and the
-  20 m mesh does not. SHAP7's column is from 13 October, its pointing
-  `images.csv`'s, fitted on SHAP7: both drawn again today at the end.
-- [ ] Against SHAP7 at 10 m: heights, volume, the 57 images of
+  SHAP7 drawn again today gives its 13 October figures to the third
+  decimal. Under a high Sun the model from the images draws them nearly as
+  SHAP7 does; the lower the Sun, the more the shadows are relief of a few
+  metres, which SHAP7 holds at 1-1.5 m and a 10 m model does not -- 10 m
+  above 20 m in every bin, SHAP7 above both in all. The brightness where
+  both are lit: r 0.58 at the median against SHAP7's 0.69. (`images.csv`'s
+  pointing was fitted on SHAP7, which helps it by a little: the model sits
+  21 m off SHAP7's frame.)
+- [x] Against SHAP7 at 10 m: heights, volume, the 57 images of
   `2026-10-13_67p_osiris_shadows/` drawn with both.
 - [ ] Made usable: an example, `docs/API.md`, the changelog, the bundle.
 
