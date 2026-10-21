@@ -1987,10 +1987,7 @@ vertices, indices, albedo = compose(vertices, indices, maplets, spacing=0.0)
 | `fuse(vertices, indices, maplets, relax=2, smooth=3, step=0.0)` | the maplets' relief laid into the mesh by moving its vertices along their normals, the facets kept: for small moves; a saddle sunk far folds, where `merge` does not |
 
 `kalast.mesh.Mesh.from_arrays(vertices, indices)` makes the composed mesh
-a body's, for `sim.add_mesh`. `examples/comet67p_tiles/` lays and solves the
-whole of comet 67P this way -- a first pass, each image registered on its
-own; `pointing`; a second, each image's pointing held -- and
-`notes/2026-10-15_67p_tiles/`, `2026-10-16_67p_second_pass/` have how.
+a body's, for `sim.add_mesh`.
 
 ### A shape from silhouettes: the visual hull
 
@@ -2023,5 +2020,6 @@ hull2.shift(k, dx, dy)
 | `align(a, b, search=16)` | the shift, to half a pixel, that lays mask `b` on the signs `a` -- 1 where `b` should hold, -1 where not, 0 no matter -- and that score: a surface's outline drawn in an image's geometry (`draw(view) > 0`) on the image's lit limb and the sky beside it |
 | `hull.distances(points)` | each view's own signed distance there, `(views, n)`: which carve where |
 
-`examples/comet67p_from_images/` makes comet 67P's shape this way from 354
-OSIRIS images: the hull, then maplets at 40, 20 and 10 m, each round merged.
+`examples/comet67p_mesh_and_shadows/mesh.py` makes comet 67P's shape this
+way from 354 OSIRIS images: the hull, then maplets at 40, 20 and 10 m, each
+round merged.

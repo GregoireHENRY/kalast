@@ -306,53 +306,33 @@ Look at [res/README.md](../res/README.md) to get Hera data.
       the craters, brightness through the SRC's response in
       [hrsc.py](phobos_shadows_fit/hrsc.py) -- figures and a table in
       `out/phobos_hrsc/figures`.
-- [comet67p_shadows_fit](comet67p_shadows_fit): the same for 57 images of
-  comet 67P/Churyumov-Gerasimenko from Rosetta's OSIRIS narrow-angle camera,
+- [comet67p_mesh_and_shadows](comet67p_mesh_and_shadows): comet
+  67P/Churyumov-Gerasimenko from Rosetta's OSIRIS narrow-angle camera: its
+  shape made from 354 of its images, and 57 of them drawn as Phobos's are,
   2014 to 2016, phase 2 to 120 deg. Its
-  [README](comet67p_shadows_fit/README.md) says where to get the data.
-    - [comet67p_shadows_fit/main.py](comet67p_shadows_fit/main.py): the
-      images download themselves from ESA's PSA on first use
-      ([osiris.py](comet67p_shadows_fit/osiris.py)), drawn on Preusker et
-      al.'s SHAP7 shape model of 44M facets. `hapke-fit` is a Hapke law
+  [README](comet67p_mesh_and_shadows/README.md) says where to get the data.
+    - [comet67p_mesh_and_shadows/mesh.py](comet67p_mesh_and_shadows/mesh.py):
+      the shape from the images and the kernels alone, no shape model to
+      start from -- the frames of
+      [frames.csv](comet67p_mesh_and_shadows/frames.csv) fetched
+      (`fetch`), their silhouettes carved into a closed hull (`hull`),
+      maplets over it at 40, 20 and 10 m, the mesh made again from them
+      each round (`tiles`), the result against SHAP7 (`compare`).
+    - [comet67p_mesh_and_shadows/shadows.py](comet67p_mesh_and_shadows/shadows.py):
+      the images download themselves from ESA's PSA on first use
+      ([osiris.py](comet67p_mesh_and_shadows/osiris.py)), drawn on Preusker
+      et al.'s SHAP7 shape model of 44M facets. `hapke-fit` is a Hapke law
       refitted to these images. `spin=DEG` turns the nucleus about its spin
       axis and `light=DEG` the light alone, to test the rotation against
       the shadows. `bounces=N` lights the ground in shadow by the comet's
       own light. `response` draws the images as the NAC records them,
       through its response fitted to them, and `albedo` gives each facet
       the albedo these images found where it is, from a map of the surface
-      ([67p_albedo.npz](comet67p_shadows_fit/67p_albedo.npz)): a colour
-      per facet from a few lines of numpy.
-    - [comet67p_shadows_fit/compare.py](comet67p_shadows_fit/compare.py):
+      ([67p_albedo.npz](comet67p_mesh_and_shadows/67p_albedo.npz)): a
+      colour per facet from a few lines of numpy.
+    - [comet67p_mesh_and_shadows/compare.py](comet67p_mesh_and_shadows/compare.py):
       as for Phobos, with one sheet of all the images sorted by phase, in
       `out/67p_osiris/figures`.
-- [comet67p_maplet](comet67p_maplet): comet 67P's relief finer than its
-  shape model, from the images that see it. Its
-  [README](comet67p_maplet/README.md) says where to get the data.
-    - [comet67p_maplet/main.py](comet67p_maplet/main.py): a patch 120 m
-      square beside Abydos, Philae's last site, solved at 0.5 m by
-      `kalast.shape` from 209 OSIRIS images of 2014 and 2016 -- `Maplet`
-      over SHAP7, `View` per image, `solve` -- and scored with SHAP7 on 13
-      held-out images. Only each image's lines that see the patch download
-      (`osiris.fetch(..., rows=...)`), 951 MB for the 222.
-- [comet67p_tiles](comet67p_tiles): comet 67P whole, in tiles at the
-  finest spacing its images allow. Its [README](comet67p_tiles/README.md)
-  says where to get the data.
-    - [comet67p_tiles/main.py](comet67p_tiles/main.py): the 7,364 tiles of
-      [tiles.csv](comet67p_tiles/tiles.csv) over SHAP7, at 0.5, 1 or 2 m,
-      each solved from up to 70 of the 5,334 images of
-      [images.csv](comet67p_tiles/images.csv) -- the lines each needs
-      fetched (`fetch`), a first pass with each image registered on its
-      own (`first`), each image's pointing from all of them (`pointing`),
-      every tile again with it held (`second`), scored on eight held-out
-      days (`score`); any range of tiles, resumable.
-- [comet67p_from_images](comet67p_from_images): comet 67P's shape from 354
-  OSIRIS images and the kernels alone, no shape model to start from. Its
-  [README](comet67p_from_images/README.md) says where to get the data.
-    - [comet67p_from_images/main.py](comet67p_from_images/main.py): the
-      frames of [frames.csv](comet67p_from_images/frames.csv) fetched
-      (`fetch`), their silhouettes carved into a closed hull (`hull`),
-      maplets over it at 40, 20 and 10 m, the mesh made again from them
-      each round (`tiles`), the result against SHAP7 (`compare`).
 
 ## Examples that worked but not ready for users
 

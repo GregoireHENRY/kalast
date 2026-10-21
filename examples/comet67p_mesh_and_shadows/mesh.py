@@ -8,10 +8,10 @@ height fitted at once (`pointing`), the relief from the shading
 (`Maplet.solve`) -- each round merged into the mesh made again (`merge`):
 40 m, 20 m, then 10 m. SHAP7 only measures the result.
 
-    python main.py fetch      # the 354 frames of frames.csv, 38 MB each
-    python main.py hull       # the hull; the frames that show a limb registered on it
-    python main.py tiles      # the rounds, each kept, from where they stopped
-    python main.py compare    # against SHAP7
+    python mesh.py fetch      # the 354 frames of frames.csv, 38 MB each
+    python mesh.py hull       # the hull; the frames that show a limb registered on it
+    python mesh.py tiles      # the rounds, each kept, from where they stopped
+    python mesh.py compare    # against SHAP7
 
 Into out/67p_from_images/: hull.ply, then 40m_1.ply ... 10m_3.ply, each
 with its frames' pointing (.npz).
@@ -30,16 +30,14 @@ import spiceypy as spice
 from scipy import ndimage
 from scipy.spatial import cKDTree
 
+import osiris
 from kalast.scattering import Hapke
 from kalast.shape import Hull, Maplet, Surface, View, align, choose, merge, pointing
 from kalast.util import RPD
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(HERE, "..", "comet67p_shadows_fit"))
-import osiris  # noqa: E402
-
 # Where these are kept here: set them to yours.
-KERNELS = os.path.join(HERE, "..", "comet67p_shadows_fit", "rosetta.tm")
+KERNELS = os.path.join(HERE, "rosetta.tm")
 SHAP7 = "/Users/gregoireh/data/mesh/67p/shap7/cg-dlr_spg-shap7-v1.0.ply"  # for `compare` only
 OUT = "out/67p_from_images"
 

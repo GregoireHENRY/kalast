@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""The OSIRIS NAC images beside kalast's, from `main.py`'s runs.
+"""The OSIRIS NAC images beside kalast's, from `shadows.py`'s runs.
 
 Within the nucleus's outline -- the pixels kalast's facets cover, widened by
 40 pixels, the coma and the stars left out -- each image cut to lit or not,
@@ -36,7 +36,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join("out", "67p_osiris", "figures")
-EXPOSURE = {"hapke": 12.0, "hapke-fit": 12.0, "lambert": 0.8, "mask": 1e4}  # main.py's
+EXPOSURE = {"hapke": 12.0, "hapke-fit": 12.0, "lambert": 0.8, "mask": 1e4}  # shadows.py's
 LIT = 0.2
 PEAK = 2.0
 

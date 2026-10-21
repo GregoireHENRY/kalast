@@ -6495,3 +6495,30 @@ maintenance, as it was most of the day. Write-up:
 Open: finer than 10 m -- maplets of 5 m and the close frames for them; the
 deepest part of the neck, 50-100 m too full; for Eli, the albedo, 09-04's
 comparison stars, the north polar shape from the primary eclipses.
+
+## 2026-10-21 — The 67P examples: two removed, two made one
+
+`examples/comet67p_tiles` and `examples/comet67p_maplet` removed, at the
+user's word: both laid relief over SHAP7, what the review of 20 October set
+aside, and `comet67p_from_images` makes the shape now. Neither was in a
+release. `comet67p_shadows_fit` lost its `tiles` option. No example uses
+`compose` or `fuse` now. Their data is left where it is: 29 GB of image
+lines in `/Users/gregoireh/data/rosetta/osiris_nac/str_refl/tiles67p`,
+12 GB in `/Users/gregoireh/data/mesh/67p/shap7_tiles`, 951 MB in
+`str_refl/rows`.
+
+Then, at the user's asking, the two left made one,
+`examples/comet67p_mesh_and_shadows/`: `mesh.py`, the shape from the images
+(`comet67p_from_images/main.py`), and `shadows.py`, the 57 images drawn
+(`comet67p_shadows_fit/main.py`), beside `compare.py`, `osiris.py` and
+`rosetta.tm`, which both use; one README. The outputs stay in
+`out/67p_from_images/` and `out/67p_osiris/`.
+
+`mesh.py` was checked through its hull and first round only:
+the hull is the note's to the facet; the first round lays 124 maplets, not
+121, and ends at 21.20 km3, not 21.39. Its other 16 rounds, five hours, not
+run.
+
+Open: 67P finer than 10 m, later, at the user's word; next, Eli's light
+curves -- the albedo, 09-04's comparison stars, the north polar shape from
+the primary eclipses.

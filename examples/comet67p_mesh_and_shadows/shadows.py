@@ -7,13 +7,13 @@ its attitude kernel has it, seen through the NAC as the spacecraft pointed
 it -- moved by where the image's terrain puts the nucleus -- and lit by the
 Sun. `compare.py` sets them beside the real ones.
 
-    python main.py [METHOD] [LAW] [MESH] [NAME ...]
+    python shadows.py [METHOD] [LAW] [MESH] [NAME ...]
 
 - METHOD: the shadows, `maps` (the default), `rays` or `reference`.
 - LAW: `hapke` (Fornasier et al. 2015), `hapke-fit` (refitted to these
   images, below), `lambert`, or `mask` -- lit or not, for comparing shadows
   alone.
-- MESH: `shap7` (the default), `shap7-4m` or `tiles`, below.
+- MESH: `shap7` (the default) or `shap7-4m`, below.
 - `spice`: the camera pointed as SPICE has it alone, without `images.csv`'s
   `dx` and `dy`.
 - `bounces=N`: with the reference, sunlight bounced N times off the
@@ -36,7 +36,6 @@ Frames go to out/67p_osiris/METHOD_LAW_MESH/IMAGE/, with the facets' ids
 
 import csv
 import os
-import re
 import sys
 
 import numpy
@@ -57,14 +56,7 @@ MESHES = {
     # Its reduction to 4M facets, for smaller machines: coarser than most
     # of these images' pixels.
     "shap7-4m": SHAP7 + "/cg-dlr_spg-shap7-v1.0_4Mfacets.obj",
-    # The reduction with ../comet67p_tiles' tiles in it, those each image
-    # sees, at its scale: finer than SHAP7 in full wherever a tile is, in a
-    # fraction of its memory. Made again for each image.
-    "tiles": SHAP7 + "/cg-dlr_spg-shap7-v1.0_4Mfacets.ply",
 }
-# Where ../comet67p_tiles' solved tiles are here, for `tiles`: its second
-# pass's, those that fail or fall below SHAP7 left out.
-TILES = "/Users/gregoireh/data/mesh/67p/tiles_v2/final"
 # By name, in any order: the UI app passes arguments of its own.
 METHOD = next((a for a in sys.argv if a in ("maps", "rays", "reference")), "maps")
 LAW = next((a for a in sys.argv if a in ("hapke", "hapke-fit", "lambert", "mask")), "hapke")
@@ -111,76 +103,37 @@ if "response" in sys.argv:
 # up: mirrored top to bottom against kalast's view.
 c.image.flip_y = True
 sim = app.simulation
-
-
-def tiled(position, axes, pixel):
-    """SHAP7-4M with the tiles a camera at `position`, turned by `axes`
-    (the NAC's in the comet's frame, by rows), sees: each tile whose middle
-    is in its frame and faces it, drawn at the scale of the image's
-    `pixel` (km) if coarser than its own."""
-    from kalast.mesh import Mesh
-    from kalast.shape import Maplet, compose
-
-    raw = open(MESHES["tiles"], "rb").read()
-    end = raw.index(b"end_header\n") + len(b"end_header\n")
-    nv, nf = (int(re.search(rb"element " + e + rb" (\d+)", raw[:end])[1]) for e in (b"vertex", b"face"))
-    vertices = numpy.frombuffer(raw, "<f4", 3 * nv, end).reshape(-1, 3)
-    facets = numpy.ascontiguousarray(numpy.frombuffer(raw, [("n", "u1"), ("i", "<i4", 3)], nf, end + 12 * nv)["i"], dtype=numpy.uint32)
-    maplets = []
-    for t in csv.DictReader(open(os.path.join(HERE, "..", "comet67p_tiles", "tiles.csv"))):
-        c = numpy.array([float(t[k]) for k in "xyz"])
-        n = numpy.array([float(t[k]) for k in ("nx", "ny", "nz")])
-        q = axes @ (c - position)
-        path = os.path.join(TILES, f"t{int(t['tile']):05d}.npz")
-        if q[2] > 0 and abs(q[0]) < 1100 * IFOV * q[2] and abs(q[1]) < 1100 * IFOV * q[2] and n @ (position - c) > 0 and os.path.exists(path):
-            d = numpy.load(path)
-            m = Maplet(d["centre"], d["axes"][2], float(d["spacing"]), d["heights"], d["albedo"])
-            m.reference = d["reference"]
-            maplets.append(m)
-    v, f, _ = compose(vertices, facets, maplets, spacing=pixel)
-    print(f"{len(maplets)} tiles in the shape model, {len(f)} facets", flush=True)
-    # Shaded smoothly, as SHAP7's OBJ is: a cell's two triangles drawn flat
-    # stripe the ground along their diagonal.
-    return Mesh.from_arrays(v, f, smooth=True)
-
-
-def dress():
-    """The nucleus, `sim.bodies[0]`, under LAW, and coloured by `albedo`."""
-    if LAW == "hapke":
-        # Fornasier et al. (2015)'s Hapke 2012 fit of the NAC's images in its
-        # orange filter (649 nm), at phases 1.3 to 54 deg.
-        sim.bodies[0].scattering = Hapke(w=0.034, b=0.42, c=1.0, b0=2.25, h=0.061, theta_bar=28.0 * RPD, k=1.2)
-    elif LAW == "hapke-fit":
-        # The same refitted to 46 of these images, 2 to 94 deg, on SHAP7 in full
-        # (notes/2026-10-13_67p_osiris_shadows): w, b, theta_bar and B0 refitted,
-        # h and k kept. Fornasier et al.'s darkens too fast with phase beyond its
-        # 54 deg: kalast's I/F 1.6 to 2 times too low at 80-94 deg. Through the
-        # NAC's response, whose halo takes light off lit ground, 8 % more
-        # (notes/2026-10-14_67p_response_albedo).
-        w = 0.0385 if "response" in sys.argv else 0.0356
-        sim.bodies[0].scattering = Hapke(w=w, b=0.276, c=1.0, b0=4.73, h=0.061, theta_bar=24.4 * RPD, k=1.2)
-    if "albedo" in sys.argv:
-        # Each facet's colour the albedo of the cube its centre falls in: the
-        # images' I/F over kalast's, fitted with a factor per image for what the
-        # law leaves (notes/2026-10-14_67p_response_albedo).
-        found = numpy.load(os.path.join(HERE, "67p_albedo.npz"))
-        keys = numpy.cumsum(found["step"], dtype=numpy.int64)  # the cubes seen, as steps from one to the next
-        values = found["albedo"].astype(numpy.float32)
-        mesh = sim.bodies[0].mesh
-        positions, corners = numpy.asarray(mesh.positions), numpy.asarray(mesh.indices).reshape(-1, 3)
-        albedo = numpy.ones(len(corners), numpy.float32)
-        for s in range(0, len(corners), 4_000_000):
-            cube = numpy.floor((positions[corners[s : s + 4_000_000]].mean(axis=1) - found["origin"]) / found["cell"]).astype(numpy.int64)
-            key = cube[:, 0] + found["dims"][0] * (cube[:, 1] + found["dims"][1] * cube[:, 2])
-            at = numpy.minimum(numpy.searchsorted(keys, key), len(keys) - 1)
-            albedo[s : s + 4_000_000] = numpy.where(keys[at] == key, values[at], 1.0)
-        mesh.colors[:] = albedo[:, None]
-        mesh.update_gpu_colors()
-
-
-if MESH != "tiles":
-    sim.load_mesh(path=MESHES[MESH])
-    dress()
+sim.load_mesh(path=MESHES[MESH])
+if LAW == "hapke":
+    # Fornasier et al. (2015)'s Hapke 2012 fit of the NAC's images in its
+    # orange filter (649 nm), at phases 1.3 to 54 deg.
+    sim.bodies[0].scattering = Hapke(w=0.034, b=0.42, c=1.0, b0=2.25, h=0.061, theta_bar=28.0 * RPD, k=1.2)
+elif LAW == "hapke-fit":
+    # The same refitted to 46 of these images, 2 to 94 deg, on SHAP7 in full
+    # (notes/2026-10-13_67p_osiris_shadows): w, b, theta_bar and B0 refitted,
+    # h and k kept. Fornasier et al.'s darkens too fast with phase beyond its
+    # 54 deg: kalast's I/F 1.6 to 2 times too low at 80-94 deg. Through the
+    # NAC's response, whose halo takes light off lit ground, 8 % more
+    # (notes/2026-10-14_67p_response_albedo).
+    w = 0.0385 if "response" in sys.argv else 0.0356
+    sim.bodies[0].scattering = Hapke(w=w, b=0.276, c=1.0, b0=4.73, h=0.061, theta_bar=24.4 * RPD, k=1.2)
+if "albedo" in sys.argv:
+    # Each facet's colour the albedo of the cube its centre falls in: the
+    # images' I/F over kalast's, fitted with a factor per image for what the
+    # law leaves (notes/2026-10-14_67p_response_albedo).
+    found = numpy.load(os.path.join(HERE, "67p_albedo.npz"))
+    keys = numpy.cumsum(found["step"], dtype=numpy.int64)  # the cubes seen, as steps from one to the next
+    values = found["albedo"].astype(numpy.float32)
+    mesh = sim.bodies[0].mesh
+    positions, corners = numpy.asarray(mesh.positions), numpy.asarray(mesh.indices).reshape(-1, 3)
+    albedo = numpy.ones(len(corners), numpy.float32)
+    for s in range(0, len(corners), 4_000_000):
+        cube = numpy.floor((positions[corners[s : s + 4_000_000]].mean(axis=1) - found["origin"]) / found["cell"]).astype(numpy.int64)
+        key = cube[:, 0] + found["dims"][0] * (cube[:, 1] + found["dims"][1] * cube[:, 2])
+        at = numpy.minimum(numpy.searchsorted(keys, key), len(keys) - 1)
+        albedo[s : s + 4_000_000] = numpy.where(keys[at] == key, values[at], 1.0)
+    mesh.colors[:] = albedo[:, None]
+    mesh.update_gpu_colors()
 
 for image in csv.DictReader(open(os.path.join(HERE, "images.csv"))):
     name = image["product"][:16]
@@ -196,11 +149,6 @@ for image in csv.DictReader(open(os.path.join(HERE, "images.csv"))):
     p_comet, lt = spice.spkpos("CHURYUMOV-GERASIMENKO", et, "J2000", "LT+S", "ROSETTA")
     p_sun, _ = spice.spkpos("SUN", et, "J2000", "LT+S", "ROSETTA")
     body = numpy.array(spice.pxform("67P/C-G_CK", "J2000", et - lt))
-    if MESH == "tiles":
-        if sim.bodies:
-            sim.remove_body(0)
-        sim.add_mesh(tiled(-body.T @ numpy.array(p_comet), to_nac @ body, label["distance"] * IFOV))
-        dress()
     sim.bodies[0].mat[:3, :3] = to_nac @ body @ numpy.array(spice.axisar([0.0, 0.0, 1.0], SPIN * RPD))
     sim.bodies[0].mat[:3, 3] = to_nac @ p_comet
     turn = body @ numpy.array(spice.axisar([0.0, 0.0, 1.0], -LIGHT * RPD)) @ body.T
