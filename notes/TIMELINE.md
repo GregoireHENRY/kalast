@@ -6590,5 +6590,6 @@ played once -- and asked for "the part of the lightcurve creation", leaving
 settings and its SPICE block and calls `flux` once an epoch in a plain
 loop, the night plotted: 118 mmag with the spheroids, 218 with DART's
 shapes at 49,152 facets, as `main.py` has them; 32 s and 90 s on one
-thread. `didymos.tm` is `kernels.tm`, the user's name. Write-up:
+thread. `didymos.tm` is `kernels.tm`, the user's name. Then `main.py`
+removed at the user's word, `lightcurve.py` in its place. Write-up:
 `2026-10-21_lightcurve_example/`.

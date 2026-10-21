@@ -1900,10 +1900,10 @@ costs — it is not negligible away from opposition.
 
 **Python's lock is released** while `flux`, `lightcurve` and
 `shadowing.lit_fractions` run, so a script's threads compute epochs at once:
-a binary's night on every core with a `concurrent.futures.ThreadPoolExecutor`.
-`examples/lightcurve_didymos/main.py` does so for Didymos and Dimorphos from an
-observatory, placed by SPICE -- on one thread first: SPICE is not
-thread-safe.
+a binary's night on every core with a `concurrent.futures.ThreadPoolExecutor`,
+the geometry placed on one thread first: SPICE is not thread-safe.
+`examples/lightcurve_didymos/lightcurve.py` computes such a night, Didymos and
+Dimorphos from an observatory placed by SPICE, in a plain loop.
 
 ## `kalast.shape` — relief from images
 

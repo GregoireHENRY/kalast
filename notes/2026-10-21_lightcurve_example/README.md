@@ -159,6 +159,9 @@ thread, 32 s for the spheroids, 90 s for DART's shapes; `main.py` does both
 in 30 s, an epoch a thread. `main.py` loads `kernels.tm` now, the user's
 name for `didymos.tm`.
 
+Then, at the user's word, `main.py` removed: `lightcurve.py` in its place.
+The night with both shape models side by side, above, is `main.py`'s.
+
 ## Open
 
 - `lightcurve` and `Spin`, the single rotating body, have no example now;
