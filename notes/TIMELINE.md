@@ -6562,7 +6562,10 @@ on 40 % of the surface at 5 m a pixel, and on no limbs. On the night of
 the level, not the depths. The example keeps 730 m, the mesh's volume, so
 that its two curves differ by shape alone, and the user takes it for the
 ellipsoid: radii Didymos 0.4053, 0.4053, 0.2960 km; Dimorphos 0.0737 after
-the impact, 0.0933, 0.0933, 0.0620 before. Write-up:
+the impact, 0.0933, 0.0933, 0.0620 before. Dimorphos is a sphere after the
+impact by Scheirich et al.'s choice -- it may have been tumbling, and they
+fit the orbit only -- while DART's orbit team found it more elongated,
+182 × 139 × 123 m in the kernels' PCK. Write-up:
 `2026-10-21_didymos_size/`.
 
 Open: Didymos's size from the events' durations of Eli's campaign, beside

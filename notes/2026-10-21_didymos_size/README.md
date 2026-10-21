@@ -79,6 +79,35 @@ The impact: 2022-09-26 23:14:24 UTC. Dimorphos before it is 162.8 m by
 volume, bigger than DART's v004 at 149.8 m: 0.223 is the campaign
 photometry's ratio, not DART's images'.
 
+## Dimorphos after the impact: why a sphere
+
+The user: "why dimorphos is considered a sphere after the impact?"
+
+Scheirich et al. 2024's choice, not a measurement: "it is possible that
+Dimorphos entered a tumbling state a few tens of days after the impact due
+to resonances among system's natural frequencies" (Agrusa et al., Meyer et
+al.), so they "approximate Dimorphos with a sphere for simplicity". "The
+spherical approximation of Dimorphos prevent us from fitting the
+shape-induced rotational lightcurves. The scope of this paper is limited to
+obtaining the parameters of the mutual orbit." Their best data, December
+2022 and January 2023, did show Dimorphos's rotation, "suggesting some
+degree of tumbling".
+
+Measured, Dimorphos came out of the impact more elongated, an oblate
+spheroid become a triaxial ellipsoid (Naidu et al. 2024, DART's orbit team,
+as JPL reported it on 19 March 2024). The PCK beside s542 holds their
+"best-fit dimensions": 181.6 × 138.6 × 122.6 m -- radii 0.09078, 0.06932
+and 0.06131 km, 145.6 m by volume -- its equator 1.31 long to wide, where
+DART's v004 before the impact is 1.06. `DIMORPHOS_FIXED` after the impact
+points its X axis at Didymos, so the example could turn that ellipsoid with
+it, if Dimorphos was not tumbling.
+
+The sphere's 0.202 is the size the events' depths ask of a sphere: a
+cross-section. A synchronous, elongated Dimorphos is seen end-on in the
+events, its long axis on Didymos, and the PCK's ellipsoid shows then 80 % of
+the area of its sphere of equal volume. An elongated Dimorphos takes its
+own volume, not 0.202's.
+
 ## Didymos's size, as published
 
 | | across (m) | by volume | volume (km3) |
@@ -160,6 +189,9 @@ At 761 m the mesh would have to grow 4 % too.
 - Barnouin et al. 2024, *The geology and evolution of the Near-Earth binary
   asteroid system (65803) Didymos*, Nature Communications 15, 6202:
   <https://pmc.ncbi.nlm.nih.gov/articles/PMC11289119/>
+- JPL, 19 March 2024, on Naidu et al. 2024: Dimorphos's orbit and shape
+  changed by the impact:
+  <https://www.jpl.nasa.gov/news/nasa-study-asteroids-orbit-shape-changed-after-dart-impact/>
 - DART's page for v003, from `notes.txt` (it did not answer from here):
   <https://dart.jhuapl.edu/SOC/project-data/derived_products/flight/shape_model/Palmer_didymos-v003/Didymos_SPC_v003.html>
 - `didymos_system_15.tpc`, NAIF's DART archive:
