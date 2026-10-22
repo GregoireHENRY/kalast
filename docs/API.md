@@ -194,6 +194,11 @@ it raises. There, matplotlib draws to files (`agg`) unless the script chooses
 another backend -- a window of its own opened off the main thread takes the
 process down on macOS.
 
+**A run starts as the first did:** a namespace of its own, and matplotlib
+with no figure and its settings as read at start. The modules a script
+imports stay loaded from one run to the next, so another library's state
+carries over -- SPICE's kernels, unless the script clears them.
+
 What differs inside is only where the scene lands. It has always been rendered
 into `render_texture` and blitted to the swapchain at the end — the editor
 skips the blit and lets egui sample that texture into the centre of the
@@ -1917,6 +1922,25 @@ a binary's night on every core with a `concurrent.futures.ThreadPoolExecutor`,
 the geometry placed on one thread first: SPICE is not thread-safe.
 `examples/lightcurve_didymos/lightcurve.py` computes such a night, Didymos and
 Dimorphos from an observatory placed by SPICE, in a plain loop.
+
+## `kalast.plot.style` — figure styles
+
+`kalast.plot.style.load(name)` gives the figures made after it one of
+kalast's matplotlib styles:
+
+| | |
+|---|---|
+| `"paper"` | Arial, large labels, ticks inside on all four sides, 6 × 5 in, saved at 500 dpi to a tight box |
+| `"style1"` | Helvetica, ticks inside on all four sides, 4 × 4 in, SVG when the file name gives no format |
+| `"lightcurve"` | a light curve as Scheirich et al. (2024) draw one: Helvetica, ticks inside on the left and bottom with minor ones, observations as open circles in a blue and a red that alternate, the curve meeting the frame |
+
+```python
+import kalast.plot
+kalast.plot.style.load("lightcurve")
+plt.plot(t, observed, "o")        # open circles, blue, then red for the next
+plt.plot(t, model, "k-")          # the model, a black line, as theirs
+plt.gca().invert_yaxis()          # brighter up: no style can turn an axis over
+```
 
 ## `kalast.shape` — relief from images
 

@@ -200,3 +200,5 @@ with DART's shapes -- 139 of their 721 points summed when the night ended.
 - `lightcurve` and `Spin`, the single rotating body, have no example now;
   `docs/API.md` keeps the stretched `ico3` as their snippet.
 - Didymos's size: `2026-10-21_didymos_size/`.
+- Continued 2026-10-22, the plot upside down every other run in the UI app,
+  the curve's rise, a light-curve style: `2026-10-22_lightcurve_plot/`.

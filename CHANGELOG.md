@@ -13,6 +13,8 @@ released, and the gate refuses the tag until it has.
 
 - The settings show `shading.srgb_mode` in the shaded mode only, and `shading.gamma` with it: the data mode stores its colours as given whatever it is.
 - The settings' `light.exposure` slider runs from 0.1 to 1000 on a logarithmic scale; it stopped at 10, where dark bodies in linear light want 20 to 40.
+- A script run again in the UI app finds matplotlib as a new process would: no figure left from the last run, and its settings as read at start. A plot was drawn over the last run's in the next colour, and one turned brighter-up with `invert_yaxis()` came out upside down every other run.
+- `kalast.plot.style.load("lightcurve")` draws light curves as Scheirich et al. (2024) do: Helvetica, ticks inside on the left and bottom, observations as open circles in a blue and a red that alternate, the model a black line.
 - `kalast.lightcurve.flux` takes several bodies as two lists, each body's indices its own: `flux([v1, v2], [i1, i2], sun, observer, law)` for a binary, without concatenating the meshes and offsetting the second's indices by hand.
 - `kalast.lightcurve.flux` sums in double precision: on meshes of millions of facets a small body's light, summed after a large one's, was rounded away -- Didymos and Dimorphos on DART's 3,145,728-facet models came out 7 mmag faint by the order of their facets alone. On 49,152 facets the sum was within 3 parts in a million.
 - `examples/didymos/main.py` draws Didymos and Dimorphos under the Hapke law Buratti et al. (2024) fitted to DART's images of the system, the light linear (`srgb_mode = "linear"`) and an exposure of 5.

@@ -1,0 +1,50 @@
+# Light curves as Scheirich et al. (2024, PSJ 5:17) draw them, after their
+# Figure 5: Helvetica, a thin frame, ticks inside on the left and bottom
+# only with minor ones between, observations as open circles in a blue and
+# a red that alternate night by night, and the model as a thick black line,
+# `ax.plot(t, model, "k-")`.
+#
+# A style cannot turn an axis over: brighter up is the script's
+# `ax.invert_yaxis()`.
+
+figure.figsize: 6.0, 3.6
+
+# Helvetica where it is installed, Arial where not: the first found, with
+# no warning for the others.
+font.family: sans-serif
+font.sans-serif: Helvetica, Arial, Liberation Sans, DejaVu Sans
+font.size: 10.0
+mathtext.default: regular
+
+axes.linewidth: 0.8
+axes.titlesize: medium
+axes.labelsize: medium
+axes.xmargin: 0.0
+axes.prop_cycle: cycler('color', ['1f449c', 'f05039'])
+
+xtick.direction: in
+xtick.top: False
+xtick.minor.visible: True
+xtick.major.size: 4.0
+xtick.major.width: 0.8
+xtick.minor.size: 2.0
+xtick.minor.width: 0.6
+
+ytick.direction: in
+ytick.right: False
+ytick.minor.visible: True
+ytick.major.size: 4.0
+ytick.major.width: 0.8
+ytick.minor.size: 2.0
+ytick.minor.width: 0.6
+
+lines.linewidth: 2.0
+lines.markersize: 3.5
+lines.markeredgewidth: 0.6
+lines.markerfacecolor: none
+
+legend.frameon: False
+
+savefig.dpi: 300
+savefig.bbox: tight
+savefig.pad_inches: 0.02

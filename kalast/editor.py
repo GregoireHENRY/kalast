@@ -226,6 +226,26 @@ class _ScriptApp:
                 break
 
 
+def _fresh_matplotlib() -> None:
+    """Matplotlib as a new process finds it: no figure, and its settings as
+    it read them at start.
+
+    A run's namespace is its own, but the modules it imports are the
+    interpreter's and stay loaded from one run to the next, matplotlib's
+    state with them. Its pyplot kept the last run's figure current: a
+    script's `plt.plot` drew over its previous curve in the cycle's next
+    colour, and `invert_yaxis()`, which flips, turned the axis back every
+    other run. A style a script chose stayed chosen for the next.
+    """
+    pyplot = sys.modules.get("matplotlib.pyplot")
+    if pyplot is not None:
+        pyplot.close("all")
+    matplotlib = sys.modules.get("matplotlib")
+    if matplotlib is not None:
+        # All but the backend, which this leaves as it is.
+        matplotlib.rc_file_defaults()
+
+
 def run_toplevel(app: Any, source: str, path: str) -> None:
     """Execute a script as the program, with the editor drawn around it.
 
@@ -243,6 +263,7 @@ def run_toplevel(app: Any, source: str, path: str) -> None:
     module.__name__ = "__main__"
     module.__dict__["kalast"] = kalast
     _script_globals = module.__dict__
+    _fresh_matplotlib()
 
     proxy = _ScriptApp(app)
 
@@ -287,6 +308,7 @@ def make_runner() -> Callable[[Any, str, str], None]:
         module.__name__ = "__main__"
         module.__dict__["kalast"] = kalast
         _script_globals = module.__dict__
+        _fresh_matplotlib()
 
         # Patched on the real module, so both `from kalast.app import App` and
         # `kalast.app.App()` resolve to the live app. Restored afterwards:

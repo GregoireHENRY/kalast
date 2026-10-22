@@ -6616,3 +6616,30 @@ window beside kalast's takes the process down on macOS. 721 points, a
 point every 30 s, the curve `lightcurve.py` gives; the plot with the
 night's end for the spheroids, 39 s after it for DART's shapes. Write-up:
 `2026-10-21_lightcurve_example/`.
+
+## 2026-10-22 — The light-curve plot: a fresh matplotlib each run, and a style
+
+`scene_lightcurve.py`'s plot came out upside down every other run in the UI
+app, its colour changing each time. The app runs each script in a fresh
+namespace but one interpreter, and pyplot's figure stayed current: each run
+drew over the last one's in the cycle's next colour, and `invert_yaxis()`
+flipped the axis back. Both runners in `kalast/editor.py` now close pyplot's
+figures and restore matplotlib's settings as it read them at start, so a run
+finds matplotlib as a new process would (`tests/test_rerun_matplotlib.py`).
+
+The curve's rise between events, 1.68 mmag/h, is the phase angle: it falls
+from 60.63 to 60.38 deg over the night, at 39 mmag per degree. `flux` is at
+unit distances, and Pravec's and Scheirich's curves are also reduced to a
+fixed phase.
+
+`kalast/plot/lightcurve.mplstyle`: light curves as Scheirich et al. (2024)
+draw them in their Figure 5:
+- Helvetica;
+- ticks inside, on the left and bottom;
+- observations as open circles, alternating blue and red;
+- the model drawn as a black line.
+
+The note compares it with `paper`, `style1` and no style. Write-up:
+`2026-10-22_lightcurve_plot/`.
+
+Open: whether the examples take the style, a curve reduced to a fixed phase.
