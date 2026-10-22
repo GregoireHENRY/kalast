@@ -6642,4 +6642,14 @@ draw them in their Figure 5:
 The note compares it with `paper`, `style1` and no style. Write-up:
 `2026-10-22_lightcurve_plot/`.
 
-Open: whether the examples take the style, a curve reduced to a fixed phase.
+Then, at the user's word, `lightcurve.py` and `scene_lightcurve.py` show
+the night as the observatory measured it: `MAGNITUDES = "apparent"`, each
+epoch's flux over `(r * delta)**2`, flat between the events within
+0.24 mmag/h. The phase angle's 1.68 mmag/h is nearly undone by the
+distances. `"reduced"` gives unit distances and one phase angle, the law's
+own phase curve -- a sphere's light -- taken out. Both plot in the new
+style, a black cross a point. A pool's thread must not read a `Mesh`: it is
+unsendable, so `scene_lightcurve.py` takes the arrays once.
+
+Open: the primary's rotation, which Pravec and Scheirich subtract, is still
+in the reduced curve with DART's shapes.

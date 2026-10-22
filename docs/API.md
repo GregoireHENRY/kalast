@@ -1857,8 +1857,11 @@ F = sum_f  r_f(mu0, mu, alpha) * mu0_f * mu_f * A_f * lit_f * vis_f
 `F` is in **mesh area units, per steradian, per unit incident irradiance**.
 Scaling to a real flux is the caller's, because it needs the mesh's length
 unit and two distances the module is not given:
-`F * SOLAR_CONSTANT / r_au**2 / delta**2`. A light curve needs none of it —
-`magnitude()` takes the ratio that removes every constant factor.
+`F * SOLAR_CONSTANT / r_au**2 / delta**2`. A light curve needs none of it
+while the distances hold — `magnitude()` takes the ratio that removes every
+constant factor. Over a night they change: Didymos's on 2022-11-18 took
+8.8 mmag, which `examples/lightcurve_didymos` puts back by dividing each
+epoch's flux by `(r * delta)**2`.
 
 ```python
 import numpy, kalast.mesh
@@ -1919,7 +1922,9 @@ costs — it is not negligible away from opposition.
 **Python's lock is released** while `flux`, `lightcurve` and
 `shadowing.lit_fractions` run, so a script's threads compute epochs at once:
 a binary's night on every core with a `concurrent.futures.ThreadPoolExecutor`,
-the geometry placed on one thread first: SPICE is not thread-safe.
+the geometry placed on one thread first: SPICE is not thread-safe. Take a
+`Mesh`'s arrays there too: a `Mesh` is used on the thread that made it only,
+and another thread reading `mesh.indices` raises.
 `examples/lightcurve_didymos/lightcurve.py` computes such a night, Didymos and
 Dimorphos from an observatory placed by SPICE, in a plain loop.
 

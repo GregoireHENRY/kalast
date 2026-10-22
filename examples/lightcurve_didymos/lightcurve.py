@@ -8,6 +8,7 @@ import numpy
 import spiceypy as spice
 
 import kalast.mesh
+import kalast.plot
 from kalast.lightcurve import flux
 from kalast.scattering import Hapke
 from kalast.util import RPD
@@ -15,6 +16,8 @@ from kalast.util import RPD
 # Drawn to a file and opened: a plot window cannot open beside kalast's.
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+
+kalast.plot.style.load("lightcurve")  # as Scheirich et al. (2024) draw theirs
 
 KERNELS = "examples/lightcurve_didymos/kernels.tm"
 
@@ -35,7 +38,12 @@ EXTENTS = [
 # - meshes
 SHAPES = "ellipsoids"
 
-SITE = (-7.8664, 31.20622, 2.751)  # TRAPPIST-North: longitude, latitude (deg), altitude (km)
+# options:
+# - apparent: as the observatory measured it, the distances and the phase angle as they were
+# - reduced: at unit distances and one phase angle, as Pravec et al. (2022) and Scheirich et al. (2024) give theirs
+MAGNITUDES = "apparent"
+
+SITE =(-7.8664, 31.20622, 2.751)  # TRAPPIST-North: longitude, latitude (deg), altitude (km)
 START, END = "2022-11-18T00:30", "2022-11-18T06:30"  # UTC
 
 DT = 120.0  # seconds of the night between two points of the light curve
@@ -53,6 +61,10 @@ else:
     meshes = [ico, ico]
     stretch = EXTENTS
 
+# A sphere under the same law: its light is the law's phase curve, which
+# `reduced` takes out.
+sphere = kalast.mesh.Mesh(path="res/ico5.obj")
+
 spice.furnsh(KERNELS)
 radii = spice.bodvrd("EARTH", "RADII", 3)[1]
 station = spice.georec(SITE[0] * RPD, SITE[1] * RPD, SITE[2], radii[0], (radii[0] - radii[2]) / radii[0])
@@ -67,7 +79,8 @@ for et in ets:
     # Where the system is from the observatory, and when its light left it.
     state, light_time = spice.spkcpo("DIDYMOS_BARYCENTER", et, "J2000", "OBSERVER", "CN", station, "EARTH", "IAU_EARTH")
     te = et - light_time
-    to_site = -numpy.array(state[:3]) / numpy.linalg.norm(state[:3])
+    delta = numpy.linalg.norm(state[:3])
+    to_site = -numpy.array(state[:3]) / delta
 
     # The bodies about the system's barycentre. DART's kernel turns Didymos
     # at 2.2600 h; its true period is 2.2603891 h before the impact and
@@ -83,11 +96,18 @@ for et in ets:
         place = spice.spkpos(name, te, "J2000", "NONE", "DIDYMOS_BARYCENTER")[0]
         vertices.append(mesh.positions @ (turn @ numpy.diag(axes)).T + place)
     to_sun = numpy.array(spice.spkpos("SUN", te, "J2000", "NONE", "DIDYMOS_BARYCENTER")[0])
-    to_sun /= numpy.linalg.norm(to_sun)
+    r = numpy.linalg.norm(to_sun)
+    to_sun /= r
 
     # The light the observatory gets: every facet of the two, as lit and as
     # seen, each body shadowing and hiding the other.
-    fluxes.append(flux(vertices, [mesh.indices for mesh in meshes], to_sun, to_site, LAW).flux)
+    light = flux(vertices, [mesh.indices for mesh in meshes], to_sun, to_site, LAW).flux
+    if MAGNITUDES == "apparent":
+        light /= (r * delta) ** 2  # the Sun's light at r, seen from delta
+    else:
+        # At one phase angle: the law's phase curve, a sphere's light, taken out.
+        light /= flux(sphere.positions, sphere.indices, to_sun, to_site, LAW, shadowing=False, visibility=False).flux
+    fluxes.append(light)
 
 spice.kclear()
 
@@ -95,11 +115,11 @@ spice.kclear()
 magnitude = -2.5 * numpy.log10(numpy.array(fluxes) / numpy.mean(fluxes))
 utc = (ets - midnight) / 3600
 
-plt.plot(utc, magnitude * 1000, ".-")
+plt.plot(utc, magnitude * 1000, "k+")
 plt.gca().invert_yaxis()  # brighter up
 plt.xlabel("UTC (h)")
-plt.ylabel("mmag")
-plt.title(f"Didymos and Dimorphos from TRAPPIST-North, {START[:10]}, {SHAPES}")
+plt.ylabel("Relative magnitude (mmag)")
+plt.title(f"Didymos and Dimorphos from TRAPPIST-North, {START[:10]}, {SHAPES}, {MAGNITUDES}")
 os.makedirs(os.path.dirname(PLOT), exist_ok=True)
 plt.savefig(PLOT, dpi=120)
 print(f"wrote {PLOT}")

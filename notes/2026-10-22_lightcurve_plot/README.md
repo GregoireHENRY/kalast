@@ -104,9 +104,57 @@ family warns at every draw.
 A style cannot turn an axis over, nor tell a model from data: brighter up
 stays the script's `invert_yaxis()`, and the black line its `"k-"`.
 
+## Apparent or reduced, a cross a point
+
+The user, of the measurements that would have been almost flat: "then it
+should show flat"; of the fixed phase: "it would be better to include it as
+option no?"; and "show lightcurve without line connecting and with +
+symbol, using black lightcurve style version".
+
+`lightcurve.py` and `scene_lightcurve.py` have `MAGNITUDES` at their top,
+beside `SHAPES`:
+- `apparent`, the default: each epoch's flux over `(r * delta)**2`, the
+  system's distances from the Sun and the site;
+- `reduced`: over a sphere's flux under the same law at the same Sun and
+  site, the law's own phase curve -- unit distances and one phase angle.
+  Pravec et al. (2022) reduce with H-G, G = 0.20, which falls 29.1 mmag a
+  degree at 60 deg against the law's 38.7: over this night 7.3 mmag
+  against 9.7, so reduced by it the curve would keep 2.4 mmag of the phase.
+
+Both plot with `kalast.plot.style.load("lightcurve")`, `"k+"`, "Relative
+magnitude (mmag)". Between the events, 2.0 to 4.5 h, the spheroids:
+
+| | mmag/h |
+|---|---|
+| unit distances, the night's phase angle, before | -1.68 |
+| `apparent` | -0.24 |
+| `reduced` | -0.05 |
+
+| | |
+|---|---|
+| ![](apparent_ellipsoids.png) | `scene_lightcurve.py`, spheroids, `apparent`: a point every 30 s |
+| ![](reduced_ellipsoids.png) | the same, `reduced` |
+| ![](apparent_meshes.png) | `lightcurve.py`, DART's shapes, `apparent`: every 2 min, Didymos's rotation in it |
+| ![](reduced_meshes.png) | the same, `reduced` |
+
+`examples/lightcurve_didymos/README.md` now shows `didymos_2022-11-18.png`,
+yesterday's figure drawn again: both shapes, `apparent`, each system with
+its events' drop in the new style. The drops are unchanged, since they are
+ratios at one epoch: 0.095 and 0.109 mag for the shadow, 0.040 to 0.046
+and 0.049 for Dimorphos hidden.
+
+**A Mesh stays on its thread.** `scene_lightcurve.py`'s pool first ran a
+function that read `mesh.indices` on its worker threads:
+"kalast::py::mesh::Mesh is unsendable, but sent to another thread", a
+panic. The script now takes the arrays once, before the night, which also
+saves copying them each frame. `docs/API.md` says so beside the threads.
+
+Run each way from copies in scratch, the plot redirected:
+- `lightcurve.py`: 34 s with the spheroids, 91 s with DART's shapes;
+- `scene_lightcurve.py`: 25 to 26 s with the spheroids.
+
 ## Open
 
-- Whether the examples use the `lightcurve` style, and draw their curve
-  `"k-"`: the user's choice.
-- A light curve reduced to a fixed phase, to set beside Pravec's and
-  Scheirich's.
+- The primary's rotation, which Pravec and Scheirich subtract from their
+  data before the events are fitted, is still in the reduced curve with
+  DART's shapes.

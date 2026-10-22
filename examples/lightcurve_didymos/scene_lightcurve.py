@@ -10,6 +10,7 @@ import spiceypy as spice
 
 import kalast.app
 import kalast.mesh
+import kalast.plot
 from kalast.app import App
 from kalast.lightcurve import flux
 from kalast.scattering import Hapke
@@ -18,6 +19,8 @@ from kalast.util import RPD
 # No plot window beside kalast's: drawn to a file, opened at the night's end.
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+
+kalast.plot.style.load("lightcurve")  # as Scheirich et al. (2024) draw theirs
 
 KERNELS = "examples/lightcurve_didymos/kernels.tm"
 
@@ -41,7 +44,12 @@ EXTENTS = [
 # - meshes
 SHAPES = "ellipsoids"
 
-SITE = (-7.8664, 31.20622, 2.751)  # TRAPPIST-North: longitude, latitude (deg), altitude (km)
+# options:
+# - apparent: as the observatory measured it, the distances and the phase angle as they were
+# - reduced: at unit distances and one phase angle, as Pravec et al. (2022) and Scheirich et al. (2024) give theirs
+MAGNITUDES = "apparent"
+
+SITE =(-7.8664, 31.20622, 2.751)  # TRAPPIST-North: longitude, latitude (deg), altitude (km)
 START, END = "2022-11-18T00:30", "2022-11-18T06:30"  # UTC
 
 DT = 30.0  # seconds of the night a frame, and between two points of the light curve
@@ -74,12 +82,17 @@ else:
     stretch[:] = EXTENTS
     meshes = [kalast.mesh.Mesh(path=ico), kalast.mesh.Mesh(path=ico)]
 
+# A sphere under the same law: its light is the law's phase curve, which
+# `reduced` takes out.
+sphere = kalast.mesh.Mesh(path="res/ico5.obj")
+
 for body in sim.bodies:
     body.scattering = LAW
 
 sim.camera.projection.set_orthographic()
 sim.camera.projection.side = 1.2
 
+spice.kclear()
 spice.furnsh(KERNELS)
 radii = spice.bodvrd("EARTH", "RADII", 3)[1]
 station = spice.georec(SITE[0] * RPD, SITE[1] * RPD, SITE[2], radii[0], (radii[0] - radii[2]) / radii[0])
@@ -90,6 +103,22 @@ midnight = spice.str2et(START[:10])
 
 # The light curve, made as the night is drawn: each frame's light on a thread
 # of its own, `flux` letting go of Python's lock, so the drawing keeps its pace.
+# The meshes' arrays are taken here, once: a Mesh stays on the thread that
+# made it.
+indices = [mesh.indices for mesh in meshes]
+ball = sphere.positions, sphere.indices
+
+
+def light(vertices, to_sun, to_site, r, delta):
+    # The light the observatory gets: every facet of the two, as lit and as
+    # seen, each body shadowing and hiding the other.
+    f = flux(vertices, indices, to_sun, to_site, LAW).flux
+    if MAGNITUDES == "apparent":
+        return f / (r * delta) ** 2  # the Sun's light at r, seen from delta
+    # At one phase angle: the law's phase curve, a sphere's light, taken out.
+    return f / flux(*ball, to_sun, to_site, LAW, shadowing=False, visibility=False).flux
+
+
 pool = ThreadPoolExecutor()
 times, points = [], []
 plotted = False
@@ -98,13 +127,13 @@ et = et0
 while app.running:
     # The night drawn and all its light summed: the light curve, once.
     if not plotted and et > etf and all(p.done() for p in points):
-        fluxes = numpy.array([p.result().flux for p in points])
+        fluxes = numpy.array([p.result() for p in points])
         magnitude = -2.5 * numpy.log10(fluxes / fluxes.mean())  # about the night's mean
-        plt.plot((numpy.array(times) - midnight) / 3600, magnitude * 1000, ".-")
+        plt.plot((numpy.array(times) - midnight) / 3600, magnitude * 1000, "k+")
         plt.gca().invert_yaxis()  # brighter up
         plt.xlabel("UTC (h)")
-        plt.ylabel("mmag")
-        plt.title(f"Didymos and Dimorphos from TRAPPIST-North, {START[:10]}, {SHAPES}")
+        plt.ylabel("Relative magnitude (mmag)")
+        plt.title(f"Didymos and Dimorphos from TRAPPIST-North, {START[:10]}, {SHAPES}, {MAGNITUDES}")
         os.makedirs(os.path.dirname(PLOT), exist_ok=True)
         plt.savefig(PLOT, dpi=120)
         print(f"wrote {PLOT}")
@@ -129,7 +158,8 @@ while app.running:
     # Where the system is from the observatory, and when its light left it.
     state, light_time = spice.spkcpo("DIDYMOS_BARYCENTER", et, "J2000", "OBSERVER", "CN", station, "EARTH", "IAU_EARTH")
     te = et - light_time
-    to_site = -numpy.array(state[:3]) / numpy.linalg.norm(state[:3])
+    delta = numpy.linalg.norm(state[:3])
+    to_site = -numpy.array(state[:3]) / delta
 
     # The bodies about the system's barycentre. DART's kernel turns Didymos
     # at 2.2600 h; its true period is 2.2603891 h before the impact and
@@ -150,10 +180,9 @@ while app.running:
     to_sun = numpy.array(spice.spkpos("SUN", te, "J2000", "NONE", "DIDYMOS_BARYCENTER")[0])
     sim.sun.pos = to_sun.tolist()
 
-    # The light the observatory gets: every facet of the two, as lit and as
-    # seen, each body shadowing and hiding the other.
+    # The light the observatory gets, on a thread of the pool.
     times.append(et)
-    points.append(pool.submit(flux, vertices, [mesh.indices for mesh in meshes], to_sun, to_site, LAW))
+    points.append(pool.submit(light, vertices, to_sun, to_site, numpy.linalg.norm(to_sun), delta))
 
     # The camera on the line to the observatory, celestial north up.
     sim.camera.pos = (to_site * DISTANCE).tolist()

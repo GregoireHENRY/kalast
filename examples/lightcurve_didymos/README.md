@@ -11,9 +11,9 @@ site, and `kalast.lightcurve.flux` sums every facet's light under Buratti et
 al. (2024)'s Hapke law, what each body shadows or hides of the other exact.
 
 - [lightcurve.py](lightcurve.py): the light curve, plotted to
-  `out/lightcurve_didymos.png` and opened -- the system's magnitude about
-  the night's mean, every 2 minutes -- with one shape model or the other,
-  `SHAPES` at its top:
+  `out/lightcurve_didymos.png` as Scheirich et al. (2024) draw theirs and
+  opened -- the system's magnitude about the night's mean, every 2
+  minutes -- with one shape model or the other, `SHAPES` at its top:
     - `meshes`: DART's shape models of the two;
     - `ellipsoids`: Scheirich et al. (2024)'s, the bodies the system's events
       are predicted with -- oblate spheroids of DART's volume and axis
@@ -22,6 +22,13 @@ al. (2024)'s Hapke law, what each body shadows or hides of the other exact.
       law, so that the shapes alone differ. Scheirich et al. predict under
       Lommel-Seeliger's: with it, the shadow takes about 0.10 mag at its
       deepest rather than 0.109.
+
+  and its magnitudes one way or the other, `MAGNITUDES`:
+    - `apparent`: as the observatory measured them, the system's distances
+      from the Sun and from the site and its phase angle as they were;
+    - `reduced`: at unit distances and one phase angle, as Pravec et al.
+      (2022) and Scheirich et al. give theirs -- the law's own phase curve,
+      a sphere's light under it, taken out.
 - [scene.py](scene.py): the same night drawn by kalast's renderer, as the
   observatory looks at it, north up, orthographic, 2.4 km top to bottom:
   DART's shape models at their finest or the spheroids, `SHAPES` at its
@@ -32,14 +39,18 @@ al. (2024)'s Hapke law, what each body shadows or hides of the other exact.
   point a frame, each frame's light summed on a thread of its own so that
   the drawing keeps its pace; at the night's end the plot is written and
   opened, the scene left paused. DART's shapes are drawn at their finest,
-  their light taken from the 49,152-facet models.
+  their light taken from the 49,152-facet models; `SHAPES` and `MAGNITUDES`
+  as in `lightcurve.py`.
 - [kernels.tm](kernels.tm): the SPICE kernels the three load.
 
-![The night with DART's shapes and with spheroids](../../notes/2026-10-21_lightcurve_example/didymos_2022-11-18.png)
+![The night with DART's shapes and with spheroids](../../notes/2026-10-22_lightcurve_plot/didymos_2022-11-18.png)
 
 DART's shapes add Didymos's rotation, a tenth of a magnitude either way at
 this phase; a spheroid turning about its axis has none, and what is left
-is the events and the phase angle's slow change. The events differ too,
+is the events. The phase angle closing over the night, 60.63 to 60.38 deg,
+brightens the system 1.7 mmag an hour, and its distances growing take 1.5
+of it back: the apparent curve is flat between the events within
+0.25 mmag an hour, the reduced one within 0.05. The events differ too,
 sampled every 2 minutes: Dimorphos's shadow takes 0.095 mag from
 DART's Didymos, 0.109 from the spheroid; hidden whole, DART's elongated
 Dimorphos takes 0.040 to 0.046 as it turns, the sphere 0.049 throughout.

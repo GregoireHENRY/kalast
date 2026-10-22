@@ -221,7 +221,9 @@ Look at [res/README.md](../res/README.md) to get Hera data.
       DART's SPICE kernels at the time their light left,
       `kalast.lightcurve.flux` each epoch in a plain loop, the night
       plotted -- with DART's shape models (`meshes`) or Scheirich et al.'s
-      spheroids from `res/ico5.obj` (`ellipsoids`), `SHAPES` at its top.
+      spheroids from `res/ico5.obj` (`ellipsoids`), `SHAPES` at its top;
+      apparent magnitudes or reduced to unit distances and one phase angle,
+      `MAGNITUDES`.
     - [lightcurve_didymos/scene.py](lightcurve_didymos/scene.py): the same
       night drawn, as the observatory looks at it, north up, orthographic,
       with either shape model -- the poses set from SPICE every frame, the
