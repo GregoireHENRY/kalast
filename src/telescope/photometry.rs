@@ -7,6 +7,7 @@
 /// The circle the light is summed in and the ring the sky is read from,
 /// radii in pixels.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "python", pyo3::pyclass(get_all, set_all, from_py_object, module = "kalast.telescope"))]
 pub struct Aperture {
     pub radius: f64,
     pub inner: f64,

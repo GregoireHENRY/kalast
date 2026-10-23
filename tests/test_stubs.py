@@ -19,6 +19,7 @@ import kalast.astro
 import kalast.lightcurve
 import kalast.mesh
 import kalast.scattering
+import kalast.telescope
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -137,6 +138,22 @@ def _a_ground():
     return kalast.tpm.core.Ground(prop, 3, 2)
 
 
+def _a_reduction():
+    """A small frame of a target among comparison stars, and its reduction:
+    the two `kalast.telescope` classes no constructor makes."""
+    import kalast.telescope as t
+
+    stars = [
+        t.Source(124.6 + dx / 3600, 15.2 + dy / 3600, 13.5, comparison=True)
+        for dx, dy in ((-60, -50), (55, -45), (-50, 60), (65, 55))
+    ]
+    frame = t.expose(
+        t.Telescope(width=256, height=256), t.Band(), t.Sky(), t.Effects(),
+        t.Exposure("2022-11-18T03:30:00", 60.0, 124.6, 15.2), t.Source(124.6, 15.2, 14.0), stars,
+    )
+    return frame, t.reduce(frame, stars, t.Aperture(7.0, 13.0, 23.0))
+
+
 def _cases():
     """`(stub, class, live object)` triples, built once.
 
@@ -150,6 +167,7 @@ def _cases():
     app = kalast.app.App()
     app.config.open_in_background = True
     _mesh = _a_mesh()
+    _reduced = _a_reduction()
     _CASES = [
         # App first: `app.simulation.config.<tab>` is the whole point, and it
         # was the one class this test did not cover when the stubs first
@@ -179,6 +197,15 @@ def _cases():
         ("kalast/app/config.pyi", "ResponseConfig", app.simulation.config.response),
         ("kalast/app/config.pyi", "StretchConfig", app.simulation.config.stretch),
         ("kalast/app/config.pyi", "PhotometryConfig", app.simulation.config.photometry),
+        ("kalast/telescope.pyi", "Telescope", kalast.telescope.Telescope()),
+        ("kalast/telescope.pyi", "Band", kalast.telescope.Band()),
+        ("kalast/telescope.pyi", "Sky", kalast.telescope.Sky()),
+        ("kalast/telescope.pyi", "Effects", kalast.telescope.Effects()),
+        ("kalast/telescope.pyi", "Source", kalast.telescope.Source(0.0, 0.0, 10.0)),
+        ("kalast/telescope.pyi", "Exposure", kalast.telescope.Exposure("2022-11-18T03:30:00", 1.0, 0.0, 0.0)),
+        ("kalast/telescope.pyi", "Aperture", kalast.telescope.Aperture(1.0, 2.0, 3.0)),
+        ("kalast/telescope.pyi", "Frame", _reduced[0]),
+        ("kalast/telescope.pyi", "Reduction", _reduced[1]),
         ("kalast/app/config.pyi", "DebugConfig", app.simulation.config.debug),
         ("kalast/app/simulation.pyi", "Simulation", app.simulation),
         ("kalast/app/simulation.pyi", "State", app.simulation.state),

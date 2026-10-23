@@ -20,11 +20,11 @@ realistic night, "but every effects as option", the frames as FITS files.
 - [x] The rendered flux against `flux` over the night, shadow maps and rays:
       0.13 to 0.23 mmag rms.
 - [x] `scene_lightcurve.py` on the rendered flux, no thread pool.
-- [ ] The field's stars from Gaia, cached, in Cousins R.
-- [ ] `kalast.telescope` in Python.
-- [ ] `examples/lightcurve_didymos/telescope.py`: the night as FITS frames,
+- [x] The field's stars from Gaia, cached, in Cousins R.
+- [x] `kalast.telescope` in Python (`tests/test_telescope.py`).
+- [x] `examples/lightcurve_didymos/telescope.py`: the night as FITS frames,
       their photometry, its light curve.
-- [ ] Docs, changelog, timeline, bundle.
+- [x] Docs, changelog, timeline; the bundle with the last commit.
 
 ## Two questions first
 
@@ -208,3 +208,72 @@ What `src/telescope/` has, each tested (25 tests):
 The aperture's area was first sampled 7 x 7 at its edge: 0.09 px² off,
 changing as the target crosses pixels from frame to frame -- about 0.5
 mmag of sky. It is now exact (1e-9).
+
+### The rest of it
+
+- **`gaia.rs`.** A cone of `gaiadr3.gaia_source` asked of ESA's archive
+  (TAP, synchronous, CSV, through `ureq`), its answer kept in a file. Each
+  star:
+  - is carried from 2016.0 by its proper motion;
+  - gets its magnitude in V, Rc or Ic by Riello et al.'s Table C.2, inside
+    each polynomial's range of colour;
+  - without a colour, is drawn at a typical `G - band` but is no
+    comparison star.
+
+  1,006 stars to G = 19 within 0.3 deg of the night's track, 995 with a
+  colour, in 0.5 s.
+- **`reduce`.** The target, at its ephemeris's place, is centred and
+  measured. Comparison stars are kept when they are:
+  - inside the frame, ring included, and two rings from the target;
+  - alone: no catalogue star within their ring brighter than theirs plus
+    2.5 mag;
+  - under 95 % of saturation, and measured to 1 %.
+
+  The zero point comes from them, the target's magnitude from it.
+- **Python, `kalast.telescope`.**
+  - The engine's structs are the classes, each with keyword defaults.
+  - A `Frame` carries `data` (numpy, astropy's rows), `header` (a dict)
+    and `write`.
+  - The functions are `expose` (Python's lock let go), `read`, `reduce`,
+    `gaia`, `airmass` and `julian_date`.
+  - The stub is generated from `mod.rs`, `photometry.rs` and `py.rs`
+    together.
+
+**The night**, `telescope.py` copied to scratch with its outputs there:
+- 181 exposures of 90 s every 2 minutes, in Rc;
+- the telescope pointed at the track's middle all night, so every frame
+  has the same comparison stars;
+- the target's magnitude from `flux` (the spheroids) at its distances;
+- all 181 frames reduced, about 119 comparison stars each;
+- 12.7 mmag a frame, the measured curve 12.7 mmag rms about the model: the
+  errors say what the scatter is;
+- 134 s, 1.4 GB of frames.
+
+The measured curve sits 3.8 mmag fainter than the model. The target trails
+2" in 90 s against tracked stars, so a 7-pixel aperture loses a little more
+of its light than of theirs. At 4 pixels, in a first trial at 120 s, the
+loss was 36 mmag.
+
+![A frame: 03:30 UTC, the field and the target's aperture](telescope_frame.png)
+
+![The night through TRAPPIST-North, reduced from its frames, beside the model](telescope_night.png)
+
+`tests/test_telescope.py`:
+- a frame written as FITS comes back as it was;
+- reduced at airmass 1 and 2, the target's magnitude is its own within its
+  errors, mean pulls -0.30 and -0.21 over 12 frames;
+- with the effects off, the target's electrons alone, 8e-5 off.
+
+`tests/test_stubs.py` covers the new classes, the three config groups
+missing from it included (`response`, `stretch`, `photometry`). Its six
+`kalast.shape` classes were already uncovered before today, and still are.
+
+## Open
+
+- `kalast.shape`'s six classes uncovered in `tests/test_stubs.py`, from
+  before today.
+- The primary's rotation subtracted, as Pravec and Scheirich do, for the
+  reduced curve with DART's shapes.
+- The model's level: Buratti et al.'s Hapke parameters leave the system
+  0.6-0.8 mag fainter than H = 18.16 (`2026-10-15_didymos_lightcurves/`),
+  so the frames' noise is that much higher than TRAPPIST's.

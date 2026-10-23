@@ -729,6 +729,11 @@ TARGETS = {
     "src/shape/py.rs": "kalast/shape.pyi",
     # The same, the orbit beside Kepler's equation.
     "src/astro.rs": "kalast/astro.pyi",
+    # A telescope's frames: the classes declared with the engine's structs,
+    # their constructors and the functions in py.rs, parsed as one text.
+    "src/telescope/mod.rs": "kalast/telescope.pyi",
+    "src/telescope/photometry.rs": "kalast/telescope.pyi",
+    "src/telescope/py.rs": "kalast/telescope.pyi",
     # The generated half of the config bindings. `Config` and `AppConfig` are
     # *declared* in config.rs and get most of their accessors here, under
     # `impl super::config::Config` -- so both files are parsed as one text for

@@ -1995,6 +1995,68 @@ plt.plot(t, model, "k-")          # the model, a black line, as theirs
 plt.gca().invert_yaxis()          # brighter up: no style can turn an axis over
 ```
 
+## `kalast.telescope` — a telescope's frames of a night, and their photometry
+
+What a ground-based observer records of a target kalast models, and what a
+night's reduction makes of it: a FITS frame an exposure -- the target and
+the field's stars spread by the seeing, the sky, the detector's noise --
+then each frame measured, its zero point from its comparison stars, the
+target's magnitude, a light curve. A model is checked the way the data it
+is compared with were made.
+
+```python
+import kalast.telescope as telescope
+
+camera = telescope.Telescope()               # TRAPPIST-North's, by default
+band, sky = telescope.Band("Rc"), telescope.Sky()
+effects = telescope.Effects()                # every effect on; Effects(stars=False, ...)
+stars = telescope.gaia(ra, dec, 0.30, band="Rc", year=2022.88, cache="out/gaia.csv")
+mag = band.magnitude(flux, r_au, delta_km)   # from lightcurve.flux or sim.fluxes()
+frame = telescope.expose(camera, band, sky, effects,
+                         telescope.Exposure(start_iso, 90.0, ra0, dec0, airmass, seed=i),
+                         telescope.Source(ra, dec, mag, rate), stars, "(65803) Didymos")
+frame.write("out/frames/0001.fits")
+red = telescope.reduce(telescope.read("out/frames/0001.fits"), stars, telescope.Aperture(7.0, 13.0, 23.0))
+red.mag, red.error, red.zero_point, red.comparisons
+```
+
+| | |
+|---|---|
+| `Telescope(...)` | optics and camera: TRAPPIST-North's published 0.60 m at F/8, 2048 x 2048 pixels of 0.60", 1.1 e-/ADU, 7 e- read noise, 0.15 e-/s dark, 100,000 e- full well; assumed 0.35 obstruction, 0.60 throughput, 1000 ADU bias. `zero_rate(band)`: electrons a second from magnitude 0 |
+| `Band(name)` | B, V, Rc or Ic: the Sun's magnitude in it (Willmer 2018) and a magnitude-zero star's photons (Bessell et al. 1998); `magnitude(flux, r, delta)`, a target's from its disc integral |
+| `Sky(...)` | seeing FWHM 2", Moffat beta 3, 20.5 mag a square arcsecond, 0.10 mag an airmass, the site at 2751 m: assumed |
+| `Effects(...)` | each on unless switched off: `psf`, `trail`, `sky`, `stars`, `extinction`, `scintillation`, `photon_noise`, `dark`, `read_noise`, `bias`, `saturation` |
+| `Source(ra, dec, mag, rate, comparison)` | degrees, magnitude above the air, motion in arcsec/s east and north; `comparison`, known well enough to calibrate a frame |
+| `Exposure(start, duration, ra, dec, airmass, seed)` | when (UTC ISO), how long, where the frame is centred, through how much air; the same seed, the same frame |
+| `gaia(ra, dec, radius, g_max, band, year, cache)` | the field's stars from Gaia DR3 as `Source`s, in the band by Riello et al. (2021), carried to `year`; asked of ESA's archive once, kept in `cache` |
+| `expose(...)` | a frame in ADU, its header and WCS; Python's lock let go |
+| `read(path)`, `Frame.write(path)` | FITS, one image: unsigned 16-bit counts or floats; any `BITPIX` read, so a real night's frames too. `Frame.data` is `(height, width)` as astropy indexes it, `Frame.header` a dict |
+| `reduce(frame, stars, aperture, target=None)` | the target where its ephemeris puts it (`TARGRA`, `TARGDEC` by default), centred; comparison stars in the frame, away from it, with no catalogue neighbour in their ring, unsaturated, measured to 1 %; the zero point their weighted mean, outliers set aside by the median absolute deviation. `Reduction`: `time` (JD mid-exposure), `mag`, `error`, `zero_point` and its `error` and `scatter`, `comparisons`, the target's `x`, `y`, `flux`, `sky` |
+| `airmass(altitude)`, `julian_date(iso)` | Kasten & Young (1989); UTC |
+
+**A frame's header** says what a camera's would:
+- when, how long, through what: `DATE-OBS`, `EXPTIME`, `FILTER`,
+  `MJD-OBS`, `JD-MID`;
+- the camera and the air: `AIRMASS`, `GAIN`, `RDNOISE`, `SATURATE`;
+- the sky's projection: the WCS, `RA---TAN`, north up and east left;
+- the night as it was made: `SEEING`, `SKYMAG`, `EXTINCT`;
+- the target: its predicted `TARGRA` and `TARGDEC`, and `TARGMAG` above
+  the air;
+- the `EFFECTS` it was made with.
+
+AstroImageJ and astropy read the frames as they do a telescope's.
+
+`examples/lightcurve_didymos/telescope.py` makes Didymos's night of
+2022-11-18 through TRAPPIST-North and reduces it:
+- 181 frames of 90 s in Rc;
+- 119 comparison stars a frame;
+- 12.7 mmag a frame, the measured curve 12.7 mmag rms about the model;
+- the measured curve 3.8 mmag fainter than the model: the target trails
+  against the stars and loses that much more outside a 7-pixel aperture.
+
+Not modelled: flat fields, fringing, cosmic rays, a sky changing through
+the night, colour terms, a frame's rotation.
+
 ## `kalast.shape` — relief from images
 
 A surface's relief finer than its shape model, from the images that see it,

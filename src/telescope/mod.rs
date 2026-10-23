@@ -28,10 +28,16 @@
 //! - Field rotation and a frame's skew: north is up, east left.
 
 pub mod fits;
+pub mod gaia;
 pub mod noise;
 pub mod photometry;
 pub mod psf;
+#[cfg(feature = "python")]
+pub mod py;
 pub mod wcs;
+
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
 
 use noise::Rng;
 use psf::Moffat;
@@ -45,6 +51,7 @@ use wcs::Wcs;
 /// 100,000 e-. The obstruction, the throughput and the bias level are not
 /// published: assumed.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "python", pyclass(get_all, set_all, from_py_object, module = "kalast.telescope"))]
 pub struct Telescope {
     pub name: String,
     pub camera: String,
@@ -106,6 +113,7 @@ impl Telescope {
 /// star (Bessell, Castelli & Plez 1998's photon flux at the band's
 /// effective wavelength, times its width).
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "python", pyclass(get_all, set_all, from_py_object, module = "kalast.telescope"))]
 pub struct Band {
     pub name: String,
     pub sun: f64,
@@ -136,6 +144,7 @@ impl Band {
 
 /// The site and the night.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "python", pyclass(get_all, set_all, from_py_object, module = "kalast.telescope"))]
 pub struct Sky {
     /// Seeing, the full width at half maximum of a star, arcseconds.
     pub seeing: f64,
@@ -159,6 +168,7 @@ impl Default for Sky {
 
 /// What a frame has of what a real one would: each on by default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "python", pyclass(get_all, set_all, from_py_object, module = "kalast.telescope"))]
 pub struct Effects {
     /// Seeing and the optics spread a point source (Moffat); off, its light
     /// lands in one pixel.
@@ -225,18 +235,23 @@ impl Effects {
 
 /// A point on the sky and its magnitude above the atmosphere; `rate` its
 /// motion against the stars, arcseconds a second east (along the sky, the
-/// right ascension's rate times the declination's cosine) and north.
+/// right ascension's rate times the declination's cosine) and north;
+/// `comparison`, whether its magnitude is known well enough to calibrate a
+/// frame by (`reduce`).
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "python", pyclass(get_all, set_all, from_py_object, module = "kalast.telescope"))]
 pub struct Source {
     pub ra: f64,
     pub dec: f64,
     pub mag: f64,
     pub rate: (f64, f64),
+    pub comparison: bool,
 }
 
 /// One exposure: when, how long, where the telescope points, through how
 /// much air.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "python", pyclass(get_all, set_all, from_py_object, module = "kalast.telescope"))]
 pub struct Exposure {
     /// Its start, UTC, ISO 8601: `2022-11-18T00:30:00.000`.
     pub start: String,
@@ -390,6 +405,113 @@ pub fn expose(
     fits::Image { width: w, height: h, data, header }
 }
 
+/// What a frame's reduction finds: the target's magnitude in the frame's
+/// band, through its comparison stars.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "python", pyclass(get_all, from_py_object, module = "kalast.telescope"))]
+pub struct Reduction {
+    /// Mid-exposure, Julian date, UTC.
+    pub time: f64,
+    /// The target's magnitude, and its error from frame to frame: its own
+    /// photometry's and its zero point's.
+    pub mag: f64,
+    pub error: f64,
+    /// The frame's zero point -- catalogue less instrumental magnitude --
+    /// its error from frame to frame, and its stars' scatter about it, the
+    /// catalogue's errors in it.
+    pub zero_point: f64,
+    pub zero_point_error: f64,
+    pub zero_point_scatter: f64,
+    /// Comparison stars used.
+    pub comparisons: usize,
+    /// Where the target's light is centred, zero-based pixels.
+    pub x: f64,
+    pub y: f64,
+    /// Its counts above the sky in the aperture, their error, the sky a
+    /// pixel, ADU.
+    pub flux: f64,
+    pub flux_error: f64,
+    pub sky: f64,
+    /// The frame's airmass, from its header.
+    pub airmass: f64,
+}
+
+/// A frame reduced as a night's frames are. The target is measured where
+/// `target` (degrees) puts it -- its ephemeris; the header's `TARGRA` and
+/// `TARGDEC` when `None` -- and centred there. Each comparison star in
+/// `stars` is measured where the catalogue puts it: those in the frame with
+/// their ring, away from the target, with no catalogue star within their
+/// ring brighter than 2.5 mag below them, unsaturated and measured to 1 %.
+/// The frame's zero point comes from them ([`photometry::zero_point`]).
+/// `GAIN`, `EXPTIME` and `SATURATE` are read from the header. `None` where
+/// the target cannot be measured, or fewer than two stars can.
+pub fn reduce(
+    frame: &fits::Image,
+    stars: &[Source],
+    aperture: &photometry::Aperture,
+    target: Option<(f64, f64)>,
+) -> Option<Reduction> {
+    let h = &frame.header;
+    let wcs = Wcs::from_header(h)?;
+    let gain = h.f64("GAIN").unwrap_or(1.0);
+    let exposure = h.f64("EXPTIME")?;
+    let saturate = h.f64("SATURATE").unwrap_or(65535.0);
+    let (ra, dec) = match target {
+        Some(t) => t,
+        None => (h.f64("TARGRA")?, h.f64("TARGDEC")?),
+    };
+    let (w, ht, data) = (frame.width, frame.height, &frame.data);
+    let (tx, ty) = wcs.pixel(ra, dec)?;
+    let t = photometry::measure(data, w, ht, tx, ty, aperture, gain, true)?;
+    let (m_t, e_t) = t.magnitude(gain, exposure)?;
+
+    let placed: Vec<Option<(f64, f64)>> = stars.iter().map(|s| wcs.pixel(s.ra, s.dec)).collect();
+    let margin = aperture.outer + 2.0;
+    let (mut catalogue, mut instrumental) = (Vec::new(), Vec::new());
+    for (k, star) in stars.iter().enumerate() {
+        let Some((x, y)) = placed[k] else { continue };
+        if !star.comparison || x < margin || y < margin || x > w as f64 - 1.0 - margin || y > ht as f64 - 1.0 - margin {
+            continue;
+        }
+        if (x - t.x).hypot(y - t.y) < 2.0 * aperture.outer {
+            continue;
+        }
+        let crowded = stars.iter().zip(&placed).enumerate().any(|(j, (other, at))| {
+            j != k
+                && other.mag < star.mag + 2.5
+                && at.is_some_and(|(ox, oy)| (ox - x).hypot(oy - y) < aperture.outer)
+        });
+        if crowded {
+            continue;
+        }
+        let Some(m) = photometry::measure(data, w, ht, x, y, aperture, gain, true) else { continue };
+        if m.peak >= 0.95 * saturate || m.flux <= 0.0 || m.error > 0.01 * m.flux {
+            continue;
+        }
+        if let Some(inst) = m.magnitude(gain, exposure) {
+            catalogue.push(star.mag);
+            instrumental.push(inst);
+        }
+    }
+    let zp = photometry::zero_point(&catalogue, &instrumental)?;
+    let time = h.f64("JD-MID").or_else(|| Some(julian_date(h.str("DATE-OBS")?)? + 0.5 * exposure / 86_400.0))?;
+    Some(Reduction {
+        time,
+        mag: m_t + zp.value,
+        error: (e_t * e_t + zp.error * zp.error).sqrt(),
+        zero_point: zp.value,
+        zero_point_error: zp.error,
+        zero_point_scatter: zp.scatter,
+        comparisons: zp.stars,
+        x: t.x,
+        y: t.y,
+        flux: t.flux,
+        flux_error: t.error,
+        sky: t.sky,
+        airmass: h.f64("AIRMASS").unwrap_or(f64::NAN),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -430,7 +552,7 @@ mod tests {
         let band = Band::named("Rc").unwrap();
         let sky = Sky::default();
         let exposure = Exposure { start: "2022-11-18T03:00:00".into(), duration: 60.0, ra: 124.6, dec: 15.2, airmass: 1.2, seed: 1 };
-        let target = Source { ra: 124.6, dec: 15.2, mag: 16.0, rate: (0.0, 0.0) };
+        let target = Source { ra: 124.6, dec: 15.2, mag: 16.0, rate: (0.0, 0.0), comparison: false };
         let frame = expose(&tel, &band, &sky, &quiet(), &exposure, &target, &[], "test");
         let adu: f64 = frame.data.iter().map(|&v| v as f64).sum();
         let expected = tel.zero_rate(&band) * 10f64.powf(-0.4 * 16.0) * 60.0 / tel.gain;
@@ -448,7 +570,7 @@ mod tests {
     fn a_header_says_what_the_frame_is() {
         let tel = Telescope { width: 64, height: 64, ..Default::default() };
         let exposure = Exposure { start: "2022-11-18T03:00:00".into(), duration: 120.0, ra: 124.6, dec: 15.2, airmass: 1.1, seed: 4 };
-        let target = Source { ra: 124.6, dec: 15.2, mag: 16.0, rate: (0.02, 0.0) };
+        let target = Source { ra: 124.6, dec: 15.2, mag: 16.0, rate: (0.02, 0.0), comparison: false };
         let frame = expose(&tel, &Band::named("V").unwrap(), &Sky::default(), &Effects::default(), &exposure, &target, &[], "Didymos");
         let h = &frame.header;
         assert_eq!(h.str("FILTER"), Some("V"));
@@ -469,7 +591,7 @@ mod tests {
         let effects = Effects { psf: false, stars: false, scintillation: false, trail: false, ..Effects::default() };
         let exposure = Exposure { start: "2022-11-18T03:00:00".into(), duration: 120.0, ra: 0.0, dec: 0.0, airmass: 1.0, seed: 9 };
         // The target far off the frame.
-        let target = Source { ra: 10.0, dec: 10.0, mag: 30.0, rate: (0.0, 0.0) };
+        let target = Source { ra: 10.0, dec: 10.0, mag: 30.0, rate: (0.0, 0.0), comparison: false };
         let frame = expose(&tel, &band, &sky, &effects, &exposure, &target, &[], "blank");
         let n = frame.data.len() as f64;
         let mean = frame.data.iter().map(|&v| v as f64).sum::<f64>() / n;

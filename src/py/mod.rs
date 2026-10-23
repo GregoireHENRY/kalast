@@ -277,6 +277,13 @@ pub fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
         .getattr("modules")?
         .set_item("kalast._rs.lightcurve", lightcurve)?;
 
+    let telescope = PyModule::new(m.py(), "telescope")?;
+    crate::telescope::py::register(&telescope)?;
+    m.add_submodule(&telescope)?;
+    py.import("sys")?
+        .getattr("modules")?
+        .set_item("kalast._rs.telescope", telescope)?;
+
     let scattering = PyModule::new(m.py(), "scattering")?;
     pyadd_f!(scattering, crate::scattering::lambert);
     pyadd_f!(scattering, crate::scattering::lommel_seeliger);

@@ -6692,5 +6692,17 @@ The telescope's core is written (`src/telescope/`, 25 tests):
 
 Write-up: `2026-10-23_photometry/`.
 
-Open: the Gaia stars, `kalast.telescope` in Python, the example making a
-night's FITS frames and their light curve.
+Then the telescope, in Python as `kalast.telescope`:
+- the field's stars from Gaia DR3, cached, in Rc by Riello et al. (2021);
+- `expose`: a FITS frame, every effect switchable;
+- `reduce`: aperture photometry against the comparison stars.
+
+`examples/lightcurve_didymos/telescope.py` makes Didymos's night through
+TRAPPIST-North and reduces it from its frames: 181 frames of 90 s, 12.7
+mmag each, about 119 comparison stars. The curve is 3.8 mmag fainter than
+the model, the target's trail against the stars.
+
+Open:
+- the primary's rotation subtracted for the reduced curve;
+- the model's level, 0.6-0.8 mag faint;
+- `kalast.shape`'s classes uncovered by `tests/test_stubs.py`.

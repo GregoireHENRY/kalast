@@ -42,7 +42,14 @@ al. (2024)'s Hapke law, what each body shadows or hides of the other exact.
   plot is written and opened, the scene left paused. `SHAPES` and
   `MAGNITUDES` as in `lightcurve.py`; the rendered light agrees with
   `lightcurve.py`'s within 0.2 mmag rms.
-- [kernels.tm](kernels.tm): the SPICE kernels the three load.
+- [telescope.py](telescope.py): the night as TRAPPIST-North recorded it, and
+  its reduction. Each 2 minutes a 90 s exposure in Rc, written as a FITS
+  frame, the field's stars from Gaia and the target at its light. The
+  frames are then read back and reduced as a real night's are: the target
+  in an aperture, the zero point from the comparison stars, the light curve
+  plotted beside the model. Every effect of the frames is in `EFFECTS`, all
+  on by default; `SHAPES` as in `lightcurve.py`.
+- [kernels.tm](kernels.tm): the SPICE kernels the scripts load.
 
 ![The night with DART's shapes and with spheroids](../../notes/2026-10-22_lightcurve_plot/didymos_2022-11-18.png)
 
@@ -77,6 +84,11 @@ The paths in the scripts are where these are kept here: set them to yours.
    and
    [dimorphos_g_0243mm_spc_obj_0000n00000_v004.obj](https://pdssbn.astro.umd.edu/holdings/pds4-dart_shapemodel-v1.0/data_derived_dimorphos_model_v004/dimorphos_g_0243mm_spc_obj_0000n00000_v004.obj).
    A light curve on them would take 40 to 58 s an epoch.
+3. **The field's stars**, for `telescope.py`: asked of ESA's Gaia archive
+   the first time, 1,006 stars to G = 19 within 0.3 deg, and kept in
+   `out/gaia_didymos_2022-11-18.csv` after that. Its frames take 1.4 GB in
+   `out/trappist_2022-11-18/`, 8 MB each: a smaller `Telescope(width=...,
+   height=...)` or a longer `DT` takes less.
 
 ## Running
 
@@ -86,6 +98,7 @@ From kalast's folder, where the scripts name their files from:
 python examples/lightcurve_didymos/lightcurve.py         # the light curve: 32 s (spheroids) to 90 s (DART's shapes)
 python examples/lightcurve_didymos/scene.py              # the night drawn
 python examples/lightcurve_didymos/scene_lightcurve.py   # both: the plot at the night's end, 25 s
+python examples/lightcurve_didymos/telescope.py          # the frames, then their reduction: 2 min
 ```
 
 A plot window cannot open in a process where kalast's window has opened --
