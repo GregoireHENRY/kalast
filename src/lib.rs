@@ -39,6 +39,7 @@ pub mod scattering;
 pub mod shadowing;
 pub mod shape;
 pub mod spice;
+pub mod telescope;
 pub mod tpm;
 pub mod util;
 pub mod meshes;
