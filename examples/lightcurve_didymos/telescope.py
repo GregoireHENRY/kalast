@@ -75,6 +75,9 @@ sim.config.light.exposure = 20.0
 sim.config.huds = [kalast.app.Hud("")]
 # Each frame's light, from the frame itself: the telescope's target.
 sim.config.photometry.enabled = True
+# The window shows the telescope's frames as they are made, not the bodies:
+# False to watch the bodies instead (the settings, Image, telescope).
+sim.config.telescope.show = True
 
 stretch = [numpy.ones(3), numpy.ones(3)]
 

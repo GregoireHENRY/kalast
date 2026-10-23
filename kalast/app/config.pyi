@@ -365,6 +365,8 @@ class Config:
     """How the image's values are shown, as SAO DS9 scales an image."""
     photometry: PhotometryConfig
     """The flux of what the camera sees, each frame."""
+    telescope: TelescopeConfig
+    """A telescope's frames of the night (`sim.expose`)."""
     debug: DebugConfig
     """Diagnostics and console output."""
 
@@ -1366,6 +1368,19 @@ class PhotometryConfig:
     enabled: bool
     """Draw the image for photometry and measure each frame that advances:
     the light of what the camera sees, for `sim.fluxes()`.
+    """
+
+class TelescopeConfig:
+    """A telescope's frames of the night (`sim.expose`).
+
+    `app.simulation.config.telescope`. Reads and writes the live config
+    through the same handle as every other view of it.
+    """
+    show: bool
+    """Show the telescope's last frame in the window instead of the scene:
+    fitted to the image, its rows as DS9 shows them. Through the stretch
+    when `stretch` is on, linear from 3 sigma under its sky to 20 above
+    otherwise. The bodies are still drawn, for their light.
     """
 
 class DebugConfig:

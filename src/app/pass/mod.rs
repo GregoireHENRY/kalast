@@ -215,6 +215,9 @@ impl Passes {
         // Photometry: the bodies drawn once, for the light curve, and that
         // image the frame -- not while a reference image is summed.
         let photometry = self.photometry_on && !self.reference_on && self.photometry.is_some();
+        // The scene's image, or a telescope's frame shown in its place: no
+        // overlays of the scene over that.
+        let mut scene = true;
         if self.float_on && (self.reference_on || response || stretch || photometry) {
             if photometry {
                 let tag = self.photometry_tag.take();
@@ -244,13 +247,22 @@ impl Passes {
                     // where they are, on the GPU.
                     let requests = std::mem::take(&mut self.telescope_requests);
                     if let (false, Some((tiles, n_tiles))) = (requests.is_empty(), p.tiles()) {
-                        let telescope = self.telescope.get_or_insert_with(|| crate::app::telescope::Telescope::new(device));
+                        let format = self.render.format();
+                        let telescope = self.telescope.get_or_insert_with(|| crate::app::telescope::Telescope::new(device, format));
                         for request in requests {
                             telescope.expose(device, queue, encoder, request, tiles, n_tiles, area);
                         }
                     }
                 }
-                p.show(queue, encoder, out, float, config);
+                // The window shows the telescope's last frame
+                // (`telescope.show`), or the scene drawn.
+                match self.telescope.as_ref().filter(|t| config.telescope.show && t.has_frame()) {
+                    Some(telescope) => {
+                        telescope.show(device, queue, encoder, out, float, size);
+                        scene = false;
+                    }
+                    None => p.show(queue, encoder, out, float, config),
+                }
             } else if self.reference_on {
                 let format = self.render.format();
                 if self.reference.as_ref().is_none_or(|r| r.size != size) {
@@ -281,7 +293,7 @@ impl Passes {
                     timer.and_then(|t| t.scope(super::gpu_timing::Scope::Render)),
                 );
             }
-            self.finish_float(queue, encoder, meshes, config, annotations);
+            self.finish_float(queue, encoder, meshes, config, annotations, scene);
             return;
         }
         self.render.render(
@@ -377,7 +389,7 @@ impl Passes {
         annotations: bool,
     ) {
         if self.float_on && (self.reference_on || self.float_target().is_some()) {
-            self.finish_float(queue, encoder, meshes, config, annotations);
+            self.finish_float(queue, encoder, meshes, config, annotations, true);
             return;
         }
         self.render.render_band_finish(
@@ -449,6 +461,9 @@ impl Passes {
         meshes: &[super::gpu::MeshBuffer],
         config: &crate::app::config::Config,
         annotations: bool,
+        // `false`: a telescope's frame is shown, not the scene: none of the
+        // scene's overlays over it.
+        scene: bool,
     ) {
         // 1: the frame's floats are the values the image stores, decoded for
         // its target (`Config::stores_values`), which the passes below
@@ -492,6 +507,9 @@ impl Passes {
         if let Some(stretch) = stretch {
             stretch.apply(queue, encoder, &config.stretch, srgb_mode);
             stretch.show(encoder, &self.render.render_view);
+        }
+        if !scene {
+            return;
         }
         self.render.render_reference_overlays(
             encoder,

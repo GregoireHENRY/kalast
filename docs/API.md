@@ -1284,9 +1284,19 @@ Against `kalast.lightcurve.flux` over Didymos's night of 2022-11-18, a frame
 every 30 s at 2116 x 1376 pixels (`notes/2026-10-23_photometry/`): the light
 curves 0.13 to 0.23 mmag apart rms, 0.8 at most, with the shadow maps or
 rays, the spheroids or DART's shapes; the absolute flux within 1.3e-4.
-What remains is each pixel deciding at a limb or a shadow's edge. DART's
-finest shapes, 3.1M facets each, drawn so in 5.1 ms a frame on an M1 Pro,
-against 3.9 by their levels of detail.
+What remains is each pixel deciding at a limb or a shadow's edge, all in or
+all out, where the CPU clips each facet exactly. It falls as the pixels
+shrink, a halving dividing it by 2.8 -- with rays, the spheroids:
+
+| image height | pixel | rendered against `flux`, rms (max) |
+|---|---|---|
+| 688 | 3.5 m | 0.394 mmag (1.08) |
+| 1376 | 1.7 m | 0.128 (0.41) |
+| 2752 | 0.87 m | 0.046 (0.16) |
+
+`sim.config.image.height` sets it apart from the window. DART's finest
+shapes, 3.1M facets each, drawn for photometry in 5.1 ms a frame on an M1
+Pro, against 3.9 by their levels of detail.
 
 **An orthographic camera shades as an observer far off**: every point seen
 along its axis. Toward the camera's position, a body's shading tilted with
@@ -2077,6 +2087,9 @@ frame from the same plan as `expose` (`telescope::Plan`): the target along
 its trail, the stars, the seeing, the sky, then the noise drawn on the GPU.
 The frame is read back a frame or two later, and its FITS written on a
 thread of its own, with `TARGMAG` the rendered magnitude.
+`sim.config.telescope.show` shows the last frame in the window in place of
+the scene, as DS9 shows the file: through the stretch when it is on,
+otherwise linear from 3 sigma under the sky to 20 above it.
 
 Without noise the two makers give the same light pixel by pixel, within a
 count rounding at peaks of 35,000; with it their noise is Poisson's

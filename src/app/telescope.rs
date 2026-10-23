@@ -107,6 +107,18 @@ struct Slot {
 /// Frames in flight at once.
 const RING: usize = 3;
 
+/// `Show` in `telescope_show.wgsl`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct Show {
+    frame: [u32; 2],
+    image: [u32; 2],
+    low: f32,
+    high: f32,
+    raw: u32,
+    _pad: u32,
+}
+
 /// The buffers of a frame's size.
 struct Buffers {
     size: (usize, usize),
@@ -128,10 +140,20 @@ pub struct Telescope {
     writing: Arc<AtomicUsize>,
     /// Exposures asked while every slot was busy: not made.
     pub dropped: u64,
+    /// The last frame shown in the window (`telescope.show`): into its
+    /// format, and into a float frame for the stretch.
+    show_layout: wgpu::BindGroupLayout,
+    show: wgpu::RenderPipeline,
+    show_float: wgpu::RenderPipeline,
+    show_buffer: wgpu::Buffer,
+    /// The last frame made: its size, and the counts it is shown between
+    /// without a stretch -- 3 sigma under its sky to 20 above.
+    last: Option<((usize, usize), f32, f32)>,
 }
 
 impl Telescope {
-    pub fn new(device: &wgpu::Device) -> Self {
+    /// Its pipelines; `format` the window's, which a frame is shown into.
+    pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
         let entry = |binding, ty| wgpu::BindGroupLayoutEntry { binding, visibility: wgpu::ShaderStages::COMPUTE, ty, count: None };
         let storage = |read_only| wgpu::BindingType::Buffer {
             ty: wgpu::BufferBindingType::Storage { read_only },
@@ -166,7 +188,54 @@ impl Telescope {
             })
         };
         let buffer = |label, size, usage| device.create_buffer(&wgpu::BufferDescriptor { label: Some(label), size, usage, mapped_at_creation: false });
+
+        let show_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("telescope show"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: storage(true),
+                    count: None,
+                },
+            ],
+        });
+        let show_module = device.create_shader_module(super::gpu::SHADER_TELESCOPE_SHOW);
+        let show_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("telescope show"),
+            bind_group_layouts: &[Some(&show_layout)],
+            immediate_size: 0,
+        });
+        let make_show = |format: wgpu::TextureFormat| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("telescope show"),
+                layout: Some(&show_pipeline_layout),
+                vertex: wgpu::VertexState { module: &show_module, entry_point: Some("vs_show"), buffers: &[], compilation_options: Default::default() },
+                fragment: Some(wgpu::FragmentState {
+                    module: &show_module,
+                    entry_point: Some("fs_show"),
+                    targets: &[Some(wgpu::ColorTargetState { format, blend: None, write_mask: wgpu::ColorWrites::ALL })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
         Self {
+            show: make_show(format),
+            show_float: make_show(crate::app::reference::FORMAT),
+            show_buffer: buffer("telescope show", std::mem::size_of::<Show>() as u64, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST),
+            show_layout,
+            last: None,
             light: compute("cs_light"),
             splat: compute("cs_splat"),
             read: compute("cs_read"),
@@ -322,8 +391,51 @@ impl Telescope {
         encoder.copy_buffer_to_buffer(&self.rendered, 0, &slot.buffer, bytes, 16);
 
         let header = tel::header(tel, &request.band, &request.sky, &request.effects, &request.exposure, &request.target, &request.object, &plan.wcs);
+        // Shown without a stretch from 3 sigma under the sky to 20 above it.
+        let gain = tel.gain;
+        let sky = plan.background / gain + if effects.bias { tel.bias } else { 0.0 };
+        let read = if effects.read_noise { tel.read_noise } else { 0.0 };
+        let sigma = ((if effects.photon_noise { plan.background } else { 0.0 }) + read * read).sqrt().max(1.0) / gain;
+        self.last = Some(((w, h), (sky - 3.0 * sigma) as f32, (sky + 20.0 * sigma) as f32));
         slot.state = State::Copied(Box::new(Pending { request, header }));
         true
+    }
+
+    /// Whether a frame has been made, to be shown.
+    pub fn has_frame(&self) -> bool {
+        self.last.is_some()
+    }
+
+    /// The last frame made shown into `out`, an image `size` big: its counts
+    /// as they are into a float frame (`float`) for the stretch to show, or
+    /// from 3 sigma under its sky to 20 above it, black to white.
+    pub fn show(&self, device: &wgpu::Device, queue: &wgpu::Queue, encoder: &mut wgpu::CommandEncoder, out: &wgpu::TextureView, float: bool, size: (u32, u32)) {
+        let (Some(((w, h), low, high)), Some(buffers)) = (self.last, self.buffers.as_ref()) else {
+            return;
+        };
+        let show = Show { frame: [w as u32, h as u32], image: [size.0.max(1), size.1.max(1)], low, high, raw: float as u32, _pad: 0 };
+        queue.write_buffer(&self.show_buffer, 0, bytemuck::bytes_of(&show));
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("telescope show"),
+            layout: &self.show_layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: self.show_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: buffers.image.as_entire_binding() },
+            ],
+        });
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("telescope show"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: out,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+            })],
+            ..Default::default()
+        });
+        pass.set_pipeline(if float { &self.show_float } else { &self.show });
+        pass.set_bind_group(0, Some(&group), &[]);
+        pass.draw(0..3, 0..1);
     }
 
     /// After the frame's submit: what it copied mapped, what is mapped read

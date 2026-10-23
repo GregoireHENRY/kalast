@@ -932,6 +932,20 @@ detail, multisampling, smooth normals.
 
 ---
 
+## Telescope
+
+A telescope's frames, made on the GPU from the rendered light
+(`sim.expose`, `API.md`, `kalast.telescope`).
+
+### `telescope.show: bool` — default `False` *(live)*
+The window shows the telescope's last frame in place of the scene, fitted to
+the image, its rows as DS9 shows a FITS file's. It goes through the stretch
+when `stretch` is on, and is linear from 3 sigma under its sky to 20 above
+otherwise. The bodies are still drawn, for their light, and the scene's
+overlays are left out.
+
+---
+
 ## Presentation
 
 ### `wireframe.antialias`, `axes.antialias`, `hud.antialias`: `bool` — default `true` *(live)*

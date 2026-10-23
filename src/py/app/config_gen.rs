@@ -1430,6 +1430,30 @@ impl PhotometryConfig {
     }
 }
 
+/// A telescope's frames of the night (`sim.expose`).
+///
+/// `app.simulation.config.telescope`. Reads and writes the live config
+/// through the same handle as every other view of it.
+#[pyclass(unsendable)]
+pub struct TelescopeConfig {
+    pub config: crate::locked::Locked<crate::app::config::Config>,
+}
+
+#[pymethods]
+impl TelescopeConfig {
+    /// Show the telescope's last frame in the window instead of the scene:
+    /// fitted to the image, its rows as DS9 shows them. Through the stretch
+    /// when `stretch` is on, linear from 3 sigma under its sky to 20 above
+    /// otherwise. The bodies are still drawn, for their light.
+    #[getter]
+    fn show(&self) -> bool { self.config.borrow().telescope.show }
+    #[setter]
+    fn set_show(&mut self, v: bool) { self.config.borrow_mut().telescope.show = v; }
+    fn __repr__(&self) -> String {
+        format!("{:?}", self.config.borrow().telescope)
+    }
+}
+
 /// Diagnostics and console output.
 ///
 /// `app.simulation.config.debug`. Reads and writes the live config
@@ -1566,6 +1590,9 @@ impl super::config::Config {
     /// The flux of what the camera sees, each frame.
     #[getter]
     fn photometry(&self) -> PhotometryConfig { PhotometryConfig { config: self.config.clone() } }
+    /// A telescope's frames of the night (`sim.expose`).
+    #[getter]
+    fn telescope(&self) -> TelescopeConfig { TelescopeConfig { config: self.config.clone() } }
     /// Diagnostics and console output.
     #[getter]
     fn debug(&self) -> DebugConfig { DebugConfig { config: self.config.clone() } }

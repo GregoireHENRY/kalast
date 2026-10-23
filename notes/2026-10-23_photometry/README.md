@@ -386,6 +386,57 @@ and maps `PathBuf` to `str | os.PathLike[str]`. The same fix completed
 signatures in `kalast.mesh`, `kalast.shape` and `kalast.routines`
 (`Surface.add` its `margin` and return, `Surface.sees` its `sun`).
 
+## The rendered flux's 0.13-0.23 mmag, the images, the telescope's view
+
+The user: "why still 0.13-0.23 mmag rms from flux?"; of my "smoother in
+tone": "why smoother in tone? also i dont see smoothed facet running
+scene_lightcurve.py"; and of `telescope.py`: "i was expecting to see the
+frame of the fits being renderer then exported to fits but i see the two
+bodies".
+
+**The difference from `flux` is the pixels' sampling.** A pixel at a limb
+or a shadow's edge is all in or all out, where the CPU clips each facet
+exactly. With rays, so that the shadows are exact too, the spheroids'
+night at three image sizes:
+
+| image height | pixel | rms (max) |
+|---|---|---|
+| 688 | 3.5 m | 0.394 mmag (1.08) |
+| 1376 | 1.7 m | 0.128 (0.41) |
+| 2752 | 0.87 m | 0.046 (0.16) |
+
+A halving divides it by 2.8 to 3.1, the 2^1.5 of random half-pixel
+decisions along an outline. It goes to the exact integral.
+
+**"Smoother in tone" and "facets faintly" were wrong**, said from a glance
+at two images. Measured at 00:52 (the PNGs, 8-bit levels), the usual image
+against the photometric one:
+- inside the bodies they differ by 0.7 of a level on average, with no
+  offset (-0.000 the spheroids, -0.144 DART's shapes). The spheroid's
+  facets differ from the smooth shading by less than a level at exposure
+  20: they do not show;
+- the differences of 10 levels or more are at edges, 553 of 559 within two
+  pixels of a limb or a shadow (the spheroids). The usual image's four
+  samples smooth an edge; the photometric image's one does not. DART's
+  shapes add 154 elsewhere, where their levels of detail differ from the
+  full meshes.
+
+**The telescope's frames in the window.** `telescope.show`
+(`TelescopeView` in the config, the panel's Image topic, under
+photometry):
+- the last frame `sim.expose` made, in place of the scene,
+  `shaders/telescope_show.wgsl`;
+- fitted to the image, its first row at the bottom as DS9 shows a FITS
+  file;
+- through the stretch when it is on, otherwise linear from 3 sigma under
+  the sky to 20 above it, from the frame's plan;
+- the bodies still drawn, for their light; the scene's overlays left out.
+
+`telescope.py` turns it on. Checked: the FITS file's five brightest stars
+are where DS9 puts them in the window, each white over a sky of 25.
+
+![The window at 03:30: the telescope's frame](telescope_window.png)
+
 ## Open
 
 - `kalast.shape`'s six classes uncovered in `tests/test_stubs.py`, from

@@ -1238,6 +1238,11 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config) {
             let cut = if f.clipped { ", a body cut by the frame" } else { "" };
             note(ui, &format!("{:.6e} at iteration {}{cut}", f.flux, f.iteration));
         }
+        subheading(ui, "telescope").on_hover_text(
+            "A telescope's frames, made on the GPU from the rendered light (sim.expose): the last one shown in \
+             place of the scene, the bodies still drawn for their light.",
+        );
+        ui.push_id("telescope", |ui| group_telescope(ui, c));
     });
 
     topic(ui, codicon::RECORD_KEYS, palette::FLAMINGO, "Controls", |ui| group_controls(ui, c));

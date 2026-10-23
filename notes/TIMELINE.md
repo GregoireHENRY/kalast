@@ -6725,3 +6725,17 @@ CPU's pixel by pixel, with Poisson's noise. `telescope.py` draws the night
 and its 181 frames in 8.8 s, against 134 s on the CPU.
 
 The stub generator now reads tuple parameters and paths.
+
+## 2026-10-23 — The telescope's frames in the window; the rendered flux's sampling
+
+`telescope.show` shows the telescope's last frame in place of the scene, as
+DS9 shows the FITS file, and `telescope.py` turns it on.
+
+The rendered flux's 0.13-0.23 mmag from `flux` is the pixels' sampling at
+limbs and shadow edges: with rays, 0.39, 0.13 and 0.046 mmag rms at 3.5, 1.7
+and 0.87 m a pixel.
+
+What I said of the photometric image in chat, "smoother in tone" and its
+facets "faintly" shown, was wrong. It differs from the usual one by 0.7 of a
+level inside, with no offset, and differs at edges, where it has one sample
+a pixel.

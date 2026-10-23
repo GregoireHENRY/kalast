@@ -53,7 +53,8 @@ al. (2024)'s Hapke law, what each body shadows or hides of the other exact.
   (`sim.expose`), the field's stars from Gaia, written as a FITS frame. The
   frames are then read back and reduced as a real night's are: the target
   in an aperture, the zero point from the comparison stars. The measured Rc
-  is plotted beside the rendered Rc. Every effect of the frames is in
+  is plotted beside the rendered Rc. The window shows the frames as they are
+  made (`telescope.show`); switch it off to watch the bodies instead. Every effect of the frames is in
   `EFFECTS`, all on by default; `SHAPES` as in `scene.py`.
 - [kernels.tm](kernels.tm): the SPICE kernels the scripts load.
 

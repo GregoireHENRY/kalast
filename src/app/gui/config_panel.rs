@@ -496,6 +496,11 @@ pub fn group_photometry(ui: &mut egui::Ui, c: &mut Config) {
     setting(ui, "enabled", "Draw the image for photometry and measure each frame that advances: the light of what the camera sees, for `sim.fluxes()`.", |ui| ui.checkbox(&mut c.photometry.enabled, ""));
 }
 
+/// `config.telescope` -- Telescope.
+pub fn group_telescope(ui: &mut egui::Ui, c: &mut Config) {
+    setting(ui, "show", "Show the telescope's last frame in the window instead of the scene: fitted to the image, its rows as DS9 shows them. Through the stretch when `stretch` is on, linear from 3 sigma under its sky to 20 above otherwise. The bodies are still drawn, for their light.", |ui| ui.checkbox(&mut c.telescope.show, ""));
+}
+
 /// `config.debug` -- Debug.
 pub fn group_debug(ui: &mut egui::Ui, c: &mut Config) {
     setting(ui, "app", "Print app lifecycle events: pause and camera-mode changes.", |ui| ui.checkbox(&mut c.debug.app, ""));

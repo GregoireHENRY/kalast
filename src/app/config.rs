@@ -1639,6 +1639,16 @@ pub struct Photometry {
     pub enabled: bool,
 }
 
+/// A telescope's frames, made from the rendered light (`sim.expose`).
+#[derive(Clone, Debug, Default)]
+pub struct TelescopeView {
+    /// Show the telescope's last frame in the window instead of the scene:
+    /// fitted to the image, its rows as DS9 shows them. Through the stretch
+    /// when `stretch` is on, linear from 3 sigma under its sky to 20 above
+    /// otherwise. The bodies are still drawn, for their light.
+    pub show: bool,
+}
+
 /// The shaded ground grid of the `blender` axes style.
 #[derive(Clone, Debug)]
 pub struct Grid {
@@ -2296,6 +2306,8 @@ pub struct Config {
     pub stretch: Stretch,
     /// The flux of what the camera sees, each frame.
     pub photometry: Photometry,
+    /// A telescope's frames of the night (`sim.expose`).
+    pub telescope: TelescopeView,
     /// Diagnostics and console output.
     pub debug: Diagnostics,
 }
@@ -2320,6 +2332,7 @@ impl Default for Config {
             response: Response::default(),
             stretch: Stretch::default(),
             photometry: Photometry::default(),
+            telescope: TelescopeView::default(),
             debug: Diagnostics::default(),
         }
     }
