@@ -362,6 +362,8 @@ class Config:
     """What the camera does to the image it records."""
     stretch: StretchConfig
     """How the image's values are shown, as SAO DS9 scales an image."""
+    photometry: PhotometryConfig
+    """The flux of what the camera sees, each frame."""
     debug: DebugConfig
     """Diagnostics and console output."""
 
@@ -1353,6 +1355,17 @@ class StretchConfig:
     """The `"log"` and `"pow"` scales' exponent `a`: DS9's 1000 by default."""
     contrast: float
     """zscale's contrast: IRAF's 0.25 by default; less widens the limits."""
+
+class PhotometryConfig:
+    """The flux of what the camera sees, each frame.
+
+    `app.simulation.config.photometry`. Reads and writes the live config
+    through the same handle as every other view of it.
+    """
+    enabled: bool
+    """Measure each frame that advances the simulation: the light of what
+    the camera sees, from the frame's own shadows, for `sim.fluxes()`.
+    """
 
 class DebugConfig:
     """Diagnostics and console output.

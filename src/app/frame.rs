@@ -184,6 +184,16 @@ impl Projection {
         Mat4::from_scale(Vec3::new(x, y, 1.0)) * projection
     }
 
+    /// A pixel's area in the scene's units squared, for an image `height`
+    /// pixels tall: an orthographic camera's, whose pixels are all one size;
+    /// `None` for a perspective one, whose are not.
+    pub fn pixel_area(&self, height: u32) -> Option<Float> {
+        (self.mode == ProjectionMode::Orthographic && height > 0).then(|| {
+            let side = 2.0 * self.resolved.side * self.viewport_scale / height as Float;
+            side * side
+        })
+    }
+
     fn unmirrored(&self, aspect: Float) -> Mat4 {
         let Resolved {
             near,

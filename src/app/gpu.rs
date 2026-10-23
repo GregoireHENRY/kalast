@@ -82,6 +82,10 @@ pub const SHADER_RESPONSE: wgpu::ShaderModuleDescriptor =
 pub const SHADER_STRETCH: wgpu::ShaderModuleDescriptor =
     wgpu::include_wgsl!("../../shaders/stretch.wgsl");
 
+/// The flux of what the camera sees, summed by tiles (`app::photometry`).
+pub const SHADER_PHOTOMETRY: wgpu::ShaderModuleDescriptor =
+    wgpu::include_wgsl!("../../shaders/photometry.wgsl");
+
 /// Ray-traced shadows (`app::raytrace`): made only on a device with ray
 /// queries, since it does not compile elsewhere.
 pub const SHADER_RAYTRACE: wgpu::ShaderModuleDescriptor =
@@ -284,6 +288,7 @@ impl RenderPipeline {
             buffers,
             wgpu::BlendState::REPLACE,
             0,
+            &[],
         )
     }
 
@@ -315,6 +320,40 @@ impl RenderPipeline {
             buffers,
             wgpu::BlendState::REPLACE,
             immediate_size,
+            &[],
+        )
+    }
+
+    /// The main pass's mesh pipeline built for photometry (`pass::photometry`):
+    /// the shader's `PHOTOMETRY` constant set, so a fragment is what it adds
+    /// to the flux -- its law times the Sun it sees, with its facet's own
+    /// normal -- into a float target, single-sampled.
+    #[allow(clippy::too_many_arguments)]
+    pub fn photometric(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        cull_mode: Option<wgpu::Face>,
+        shader: wgpu::ShaderModuleDescriptor,
+        bind_group_layouts: &[Option<&wgpu::BindGroupLayout>],
+        buffers: &[Option<wgpu::VertexBufferLayout>],
+        immediate_size: u32,
+    ) -> Self {
+        Self::build(
+            device,
+            format,
+            cull_mode,
+            shader,
+            bind_group_layouts,
+            true,
+            true,
+            1,
+            true,
+            DEPTH_COMPARE,
+            wgpu::PrimitiveTopology::TriangleList,
+            buffers,
+            wgpu::BlendState::REPLACE,
+            immediate_size,
+            &[("PHOTOMETRY", 1.0)],
         )
     }
 
@@ -356,6 +395,7 @@ impl RenderPipeline {
             buffers,
             wgpu::BlendState::ALPHA_BLENDING,
             0,
+            &[],
         )
     }
 
@@ -387,6 +427,9 @@ impl RenderPipeline {
         buffers: &[Option<wgpu::VertexBufferLayout>],
         blend: wgpu::BlendState,
         immediate_size: u32,
+        // The fragment stage's pipeline-overridable constants: none but the
+        // photometry's (`photometric`).
+        constants: &[(&str, f64)],
     ) -> Self {
         // wireframe: bool,
 
@@ -432,7 +475,7 @@ impl RenderPipeline {
                         .then_some(blend),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
-                compilation_options: Default::default(),
+                compilation_options: wgpu::PipelineCompilationOptions { constants, ..Default::default() },
             })
         } else {
             None
@@ -1498,6 +1541,21 @@ impl MeshBuffer {
             }
             return;
         }
+        if immediates {
+            pass.set_immediates(0, bytemuck::cast_slice(&[0u32, u32::MAX]));
+        }
+        if corners {
+            self.render(pass);
+        } else {
+            self.render_depth(pass);
+        }
+    }
+
+    /// As `render_shaded`, the whole mesh whatever its level of detail: the
+    /// photometry's draw (`app::photometry`), every facet as the CPU's disc
+    /// integral has it.
+    pub fn render_full(&self, pass: &mut wgpu::RenderPass, corners: bool, immediates: bool) {
+        pass.set_bind_group(ATTRS_GROUP, Some(&self.attr_bind_group), &[]);
         if immediates {
             pass.set_immediates(0, bytemuck::cast_slice(&[0u32, u32::MAX]));
         }

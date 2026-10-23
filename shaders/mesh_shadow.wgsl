@@ -36,9 +36,42 @@ struct Globals {
     camera_pos: vec3<f32>,
     // A reference image's sample, plus one (`reference`); 0 otherwise.
     ray_frame: u32,
+    // Toward the camera along its axis, and 1 for an orthographic camera:
+    // see `view_dir_at`.
+    view_axis: vec3<f32>,
+    orthographic: u32,
 };
 @group(0) @binding(0)
 var<uniform> globals: Globals;
+
+/// Photometry's build (`gpu::RenderPipeline::photometric`): a fragment is
+/// what it adds to the flux of what the camera sees -- the body's law times
+/// the Sun it sees, `pi r mu0 * shadow`, with its facet's own normal, as
+/// `lightcurve::flux` sums them -- and nothing of the image's: no colour,
+/// no ambient light, no exposure, no wireframe. False in every other
+/// pipeline, where the compiler folds it away.
+override PHOTOMETRY: bool = false;
+
+/// The direction a point is seen from: toward the eye, or for an
+/// orthographic camera along its axis -- an observer far off, every pixel's
+/// ray parallel. Toward the eye there tilted across a body by its size over
+/// the camera's distance: 0.02 rad over Didymos from 20 km, about 1 % in its
+/// shading.
+fn view_dir_at(p: vec3<f32>) -> vec3<f32> {
+    if globals.orthographic != 0u {
+        return globals.view_axis;
+    }
+    return normalize(globals.camera_pos - p);
+}
+
+/// Where the ray through the pixel at `p` comes from: the eye, or for an
+/// orthographic camera the point as far back along its axis.
+fn eye_for(p: vec3<f32>) -> vec3<f32> {
+    if globals.orthographic != 0u {
+        return p + globals.view_axis * length(globals.camera_pos - p);
+    }
+    return globals.camera_pos;
+}
 
 struct Camera {
     view_proj: mat4x4<f32>,
@@ -1738,7 +1771,7 @@ fn surface(vertex: VertexOutput, prim: u32) -> Surface {
     in.facet = prim;
     if (body.flags & 1u) != 0u {
         var facet = prim;
-        if (body.flags & 8u) != 0u { facet = facet_of[chunk.facet_base + prim]; } //@imm
+        if !PHOTOMETRY && (body.flags & 8u) != 0u { facet = facet_of[chunk.facet_base + prim]; } //@imm
         in.facet = facet;
         let attr = attrs[facet];
         let normal_matrix = mat3x3<f32>(body.normal[0].xyz, body.normal[1].xyz, body.normal[2].xyz);
@@ -1765,6 +1798,15 @@ fn fs_main(vertex: VertexOutput) -> @location(0) vec4<f32> { //@noprim
     in.pixel = pixel;
     in.dpx = dpx;
     in.dpy = dpy;
+    // Photometry: a smooth mesh's facet normal, from the plane its pixels
+    // lie on -- the interpolated one is not the facet's -- and no wireframe.
+    if PHOTOMETRY {
+        if (body.flags & 1u) == 0u {
+            let n = normalize(cross(dpx, dpy));
+            in.world_normal = select(-n, n, dot(n, view_dir_at(in.world_pos)) > 0.0);
+        }
+        return fs_shaded(in);
+    }
     // The barycentrics are corners' coordinates, which only a non-indexed
     // draw has (flag bit 2): a shared-vertex draw would be covered in noise,
     // so it is drawn shaded instead. The CPU side warns once for a smooth
@@ -2026,7 +2068,7 @@ fn fs_shaded(in: Surface) -> vec4<f32> {
     // buffer all along, and nothing read it.
     // A colour is stored as given, whatever `srgb_mode`, which is the lit
     // image's: decoded here for the target to encode it back.
-    if in.color_mode == 1u {
+    if !PHOTOMETRY && in.color_mode == 1u {
         return vec4<f32>(srgb_to_linear(in.color, globals.gamma), 1.0);
     }
 
@@ -2037,7 +2079,7 @@ fn fs_shaded(in: Surface) -> vec4<f32> {
     // falls back to its vertex colours, which is what mode 1 always meant.
     let has_values = (body.flags & 2u) != 0u;
 
-    if globals.color_mode == 1 {
+    if !PHOTOMETRY && globals.color_mode == 1 {
         let color = select(in.color, colormap_lookup(in.value), has_values);
         return vec4<f32>(srgb_to_linear(color, globals.gamma), 1.0);
     }
@@ -2122,7 +2164,7 @@ fn fs_shaded(in: Surface) -> vec4<f32> {
             // 534 pixels of Didymos dark on facets lit throughout. Looked for //@rt
             // from eight of the surface's pixels in front: a level of detail's //@rt
             // cut is within about two of the full mesh. //@rt
-            let p = ray_seen_point(globals.camera_pos, in.world_pos, 8.0 * in.pixel); //@rt
+            let p = ray_seen_point(eye_for(in.world_pos), in.world_pos, 8.0 * in.pixel); //@rt
             // A reference image's sample, plus one, in the low 24 bits; its //@rt
             // bounces in the top eight. //@rt
             let frame = globals.ray_frame & 0xffffffu; //@rt
@@ -2156,7 +2198,7 @@ fn fs_shaded(in: Surface) -> vec4<f32> {
                         var most = 0.0; //@rt
                         for (var k = 0u; k < 4u; k++) { //@rt
                             let o = ray_pixel_point(k, 4u); //@rt
-                            let q = ray_seen_hit(globals.camera_pos, in.world_pos + o.x * in.dpx + o.y * in.dpy, 8.0 * in.pixel); //@rt
+                            let q = ray_seen_hit(eye_for(in.world_pos + o.x * in.dpx + o.y * in.dpy), in.world_pos + o.x * in.dpx + o.y * in.dpy, 8.0 * in.pixel); //@rt
                             if q.w > 0.0 { //@rt
                                 let share = ray_sun_seen(q.xyz, in.world_normal, view.light.pos, view.light.sun_radius, samples, view.light.ray_probe, ray_turn(key + k)); //@rt
                                 seen += share; //@rt
@@ -2168,7 +2210,7 @@ fn fs_shaded(in: Surface) -> vec4<f32> {
                         if points > 4u && most - least > 1.0e-3 { //@rt
                             for (var k = 0u; k < points; k++) { //@rt
                                 let o = ray_pixel_point(k, points); //@rt
-                                let q = ray_seen_hit(globals.camera_pos, in.world_pos + o.x * in.dpx + o.y * in.dpy, 8.0 * in.pixel); //@rt
+                                let q = ray_seen_hit(eye_for(in.world_pos + o.x * in.dpx + o.y * in.dpy), in.world_pos + o.x * in.dpx + o.y * in.dpy, 8.0 * in.pixel); //@rt
                                 if q.w > 0.0 { //@rt
                                     seen += ray_sun_seen(q.xyz, in.world_normal, view.light.pos, view.light.sun_radius, samples, view.light.ray_probe, ray_turn(key + 4u + k)); //@rt
                                     found += 1u; //@rt
@@ -2187,7 +2229,7 @@ fn fs_shaded(in: Surface) -> vec4<f32> {
             // crater's floor in its own shadow is lit by its walls. //@rt
             if frame > 0u && (globals.ray_frame >> 24u) > 0u { //@rt
                 let lp = body.law_params; //@rt
-                bounced = ray_bounced(p, in.world_normal, normalize(globals.camera_pos - in.world_pos), body.law, //@rt
+                bounced = ray_bounced(p, in.world_normal, view_dir_at(in.world_pos), body.law, //@rt
                     vec4<f32>(lp[0], lp[1], lp[2], lp[3]), vec4<f32>(lp[4], lp[5], lp[6], lp[7]), //@rt
                     view.light.pos, view.light.sun_radius, frame - 1u, vec2<u32>(in.frag.xy), globals.ray_frame >> 24u); //@rt
             } //@rt
@@ -2202,11 +2244,14 @@ fn fs_shaded(in: Surface) -> vec4<f32> {
     }
 
     // lighting: the body's law, from where the Sun and the camera are
-    let view_dir = normalize(globals.camera_pos - in.world_pos);
+    let view_dir = view_dir_at(in.world_pos);
     let alpha = acos(clamp(dot(light_dir, view_dir), -1.0, 1.0));
     let q = body.law_params;
     let reflected = law_factor(body.law, vec4<f32>(q[0], q[1], q[2], q[3]), vec4<f32>(q[4], q[5], q[6], q[7]),
         ndotl, dot(in.world_normal, view_dir), alpha);
+    if PHOTOMETRY {
+        return vec4<f32>(reflected * shadow, 0.0, 0.0, 1.0);
+    }
     let ambient_color = view.light.color * globals.ambient_strength;
     let diffuse_color = view.light.color * reflected;
     var color = (ambient_color + diffuse_color * shadow) * object_color.xyz;

@@ -85,6 +85,14 @@ pub struct Simulation {
     /// and the image's least and greatest values; `None` without one. Set by
     /// the window each frame.
     pub stretch_limits: Option<[f32; 4]>,
+    /// The flux of what the camera saw, frame by frame (`config.photometry`):
+    /// appended as the readbacks arrive, a frame or two after their frames,
+    /// for a script to take (`take_fluxes`).
+    pub fluxes: Vec<crate::app::photometry::Flux>,
+    /// The last of them, for the panel.
+    pub photometry_last: Option<crate::app::photometry::Flux>,
+    /// Readbacks of fluxes still in flight, set by the window each frame.
+    pub photometry_pending: usize,
     /// Whether this frame's shadows, the image's and the per-facet query's,
     /// were traced with rays:
     /// `shadows.method` "rays" and the GPU able to, set by the window each frame.
@@ -174,6 +182,13 @@ pub struct Diagnostics {
 }
 
 impl Simulation {
+    /// The fluxes measured since the last call (`config.photometry`), in
+    /// the order of their iterations: each arrives a frame or two after the
+    /// frame it measures.
+    pub fn take_fluxes(&mut self) -> Vec<crate::app::photometry::Flux> {
+        std::mem::take(&mut self.fluxes)
+    }
+
     pub fn new() -> Self {
         let mut sun = crate::app::frame::Eye::new();
         sun.projection.mode = crate::app::frame::ProjectionMode::Orthographic;
@@ -207,6 +222,9 @@ impl Simulation {
             rays: false,
             reference: ReferenceState::default(),
             stretch_limits: None,
+            fluxes: Vec::new(),
+            photometry_last: None,
+            photometry_pending: 0,
             diagnostics: Diagnostics::default(),
             image_size: (0, 0),
             value_range: (0.0, 1.0),

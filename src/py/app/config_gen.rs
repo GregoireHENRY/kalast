@@ -1408,6 +1408,28 @@ impl StretchConfig {
     }
 }
 
+/// The flux of what the camera sees, each frame.
+///
+/// `app.simulation.config.photometry`. Reads and writes the live config
+/// through the same handle as every other view of it.
+#[pyclass(unsendable)]
+pub struct PhotometryConfig {
+    pub config: crate::locked::Locked<crate::app::config::Config>,
+}
+
+#[pymethods]
+impl PhotometryConfig {
+    /// Measure each frame that advances the simulation: the light of what
+    /// the camera sees, from the frame's own shadows, for `sim.fluxes()`.
+    #[getter]
+    fn enabled(&self) -> bool { self.config.borrow().photometry.enabled }
+    #[setter]
+    fn set_enabled(&mut self, v: bool) { self.config.borrow_mut().photometry.enabled = v; }
+    fn __repr__(&self) -> String {
+        format!("{:?}", self.config.borrow().photometry)
+    }
+}
+
 /// Diagnostics and console output.
 ///
 /// `app.simulation.config.debug`. Reads and writes the live config
@@ -1541,6 +1563,9 @@ impl super::config::Config {
     /// How the image's values are shown, as SAO DS9 scales an image.
     #[getter]
     fn stretch(&self) -> StretchConfig { StretchConfig { config: self.config.clone() } }
+    /// The flux of what the camera sees, each frame.
+    #[getter]
+    fn photometry(&self) -> PhotometryConfig { PhotometryConfig { config: self.config.clone() } }
     /// Diagnostics and console output.
     #[getter]
     fn debug(&self) -> DebugConfig { DebugConfig { config: self.config.clone() } }

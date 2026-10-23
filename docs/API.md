@@ -1207,8 +1207,9 @@ race. See CLAUDE.md.
 
 ## GPU results
 
-All three follow the same rule: **request in `before_render`, read in
-`after_render`.**
+The per-facet queries follow the same rule: **request in `before_render`,
+read in `after_render`.** The flux of what the camera sees arrives a frame
+or two later, tagged with its iteration.
 
 ### Per-facet occlusion — feeds the TPM
 
@@ -1238,6 +1239,47 @@ frame, and on a GPU without ray queries, where the shadow maps answer.
 
 With `config.shadows.method = "none"`, no shadows: `0.0` for each point facing
 the Sun, `1.0` for each facing away, as the image has it.
+
+### The flux of what the camera sees — a light curve from the frames
+
+```python
+sim.config.photometry.enabled = True     # each frame that advances, measured
+sim.camera.projection.set_orthographic()
+...
+app.step()
+for iteration, flux, clipped in sim.fluxes():   # what has come back since the last call
+    ...
+```
+
+Each frame that advances the simulation, the bodies are drawn a second time
+after the image, by the main pass's own shader built for photometry: the
+frame's poses, its shadow maps or rays and the bodies' scattering laws --
+nothing recomputed on the CPU -- with each facet's own normal, the full
+meshes rather than their levels of detail, and nothing of the image's
+colour, ambient light, exposure or wireframe. Every pixel's I/F, summed
+times its area over pi, is the **disc integral `kalast.lightcurve.flux`
+gives**, in the scene's units squared per steradian per unit irradiance:
+the two are compared as they are.
+
+- **One flux an iteration**, tagged with the iteration the frame was drawn
+  at -- the poses a script set before the step that drew it. None while
+  paused.
+- **A frame or two late.** Read back without waiting: `sim.fluxes()` returns
+  what has arrived and empties the queue; at a run's end, step on, paused,
+  until `sim.fluxes_pending` is 0.
+- **An orthographic camera**, whose pixels are all one area: a perspective
+  camera's frames are not measured, said once. `clipped` is a lit body cut
+  by the frame's edge, its light short.
+
+Against `kalast.lightcurve.flux` over Didymos's night of 2022-11-18, a frame
+every 30 s at 2116 x 1376 pixels (`notes/2026-10-23_photometry/`): the light
+curves 0.13 to 0.23 mmag apart rms, 0.8 at most, with the shadow maps or
+rays, the spheroids or DART's shapes; the absolute flux within 1.3e-4.
+What remains is each pixel deciding at a limb or a shadow's edge.
+
+**An orthographic camera shades as an observer far off**: every point seen
+along its axis. Toward the camera's position, a body's shading tilted with
+the camera's distance -- 0.02 rad over Didymos from 20 km.
 
 ### A reference image
 
@@ -1927,6 +1969,12 @@ the geometry placed on one thread first: SPICE is not thread-safe. Take a
 and another thread reading `mesh.indices` raises.
 `examples/lightcurve_didymos/lightcurve.py` computes such a night, Didymos and
 Dimorphos from an observatory placed by SPICE, in a plain loop.
+
+**A scene drawn anyway can take its light from its frames instead**
+(`config.photometry`, "The flux of what the camera sees" under GPU results):
+the same disc integral, from the frame's own shadows, summed on the GPU, no
+thread pool. `examples/lightcurve_didymos/scene_lightcurve.py` does, DART's
+shapes at their finest.
 
 ## `kalast.plot.style` — figure styles
 

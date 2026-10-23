@@ -263,6 +263,23 @@ impl Simulation {
         self.inner.borrow().stretch_limits.map(|l| (l[0], l[1]))
     }
 
+    /// The flux of what the camera saw, frame by frame, since the last call
+    /// (`config.photometry.enabled`): `(iteration, flux, clipped)` in the
+    /// order of the iterations. `flux` is the disc integral
+    /// `kalast.lightcurve.flux` gives, `sum(I/F x pixel area) / pi` in the
+    /// scene's units squared; `clipped`, a lit body cut by the frame's edge,
+    /// its light short. Each frame's arrives a frame or two after it: at a
+    /// run's end, step on until `fluxes_pending` is 0 for the last ones.
+    fn fluxes(&self) -> Vec<(u64, f64, bool)> {
+        self.inner.borrow_mut().take_fluxes().into_iter().map(|f| (f.iteration, f.flux, f.clipped)).collect()
+    }
+
+    #[getter]
+    /// Fluxes still being read back (`fluxes`): measured, not yet arrived.
+    fn fluxes_pending(&self) -> usize {
+        self.inner.borrow().photometry_pending
+    }
+
     /// Stop a reference image's sum where it is, after this frame: the mean
     /// so far is the image (`reference_image`), done -- as the UI's stop
     /// button does. Nothing once done.

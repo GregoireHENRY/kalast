@@ -47,6 +47,9 @@ pub struct Passes {
 
     pub depth: depth::Pass,
     pub occlusion: super::occlusion::Occlusion,
+    /// The flux of what the camera sees (`config.photometry`), built with
+    /// the main pass's layouts while it is on.
+    pub photometry: Option<crate::app::photometry::Photometry>,
 
     pub bindings: Bindings,
 }
@@ -94,6 +97,10 @@ impl Passes {
             shaded.push(Some(rays));
         }
         let render = render::Pass::new(device, format, config, &shaded, size, samples, float, rays.is_some());
+        let photometry = config
+            .photometry
+            .enabled
+            .then(|| crate::app::photometry::Photometry::new(device, config, &shaded, rays.is_some()));
 
         Self {
             shadow: shadow::Pass::new(device, config, &uniforms.layouts_for_shadow()),
@@ -124,6 +131,8 @@ impl Passes {
                 &uniforms.view.layout,
                 samples,
             ),
+
+            photometry,
 
             bindings,
         }

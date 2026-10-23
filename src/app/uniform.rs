@@ -71,6 +71,13 @@ pub struct Globals {
     /// A reference image's sample, plus one (`reference`); 0 otherwise: where
     /// `_padding2` was, so every shader's copy still binds.
     pub ray_frame: u32,
+    /// Toward the camera along its axis: the direction every point is seen
+    /// from when `orthographic` -- an observer far off, each pixel's ray
+    /// parallel to the others, where toward `camera_pos` tilted across a
+    /// body as the camera's distance made it. Appended at 128.
+    pub view_axis: [f32; 3],
+    /// 1 for an orthographic camera.
+    pub orthographic: u32,
 }
 
 #[repr(C)]

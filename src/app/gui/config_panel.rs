@@ -491,6 +491,11 @@ pub fn group_stretch(ui: &mut egui::Ui, c: &mut Config) {
     }
 }
 
+/// `config.photometry` -- Photometry.
+pub fn group_photometry(ui: &mut egui::Ui, c: &mut Config) {
+    setting(ui, "enabled", "Measure each frame that advances the simulation: the light of what the camera sees, from the frame's own shadows, for `sim.fluxes()`.", |ui| ui.checkbox(&mut c.photometry.enabled, ""));
+}
+
 /// `config.debug` -- Debug.
 pub fn group_debug(ui: &mut egui::Ui, c: &mut Config) {
     setting(ui, "app", "Print app lifecycle events: pause and camera-mode changes.", |ui| ui.checkbox(&mut c.debug.app, ""));

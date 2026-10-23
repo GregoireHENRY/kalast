@@ -1623,6 +1623,22 @@ impl Default for Reference {
     }
 }
 
+/// The flux of what the camera sees, from the frame itself: `sim.fluxes()`.
+///
+/// Each frame that advances the simulation, the bodies are drawn a second
+/// time -- the same poses, shadows and scattering law, the full meshes,
+/// each facet's own normal, nothing of the image's colour, ambient light or
+/// exposure -- and every pixel's I/F summed times its area: the disc
+/// integral `kalast.lightcurve.flux` gives, read back a frame or two later,
+/// tagged with the iteration it was drawn at. An orthographic camera only,
+/// every body in the frame.
+#[derive(Clone, Debug, Default)]
+pub struct Photometry {
+    /// Measure each frame that advances the simulation: the light of what
+    /// the camera sees, from the frame's own shadows, for `sim.fluxes()`.
+    pub enabled: bool,
+}
+
 /// The shaded ground grid of the `blender` axes style.
 #[derive(Clone, Debug)]
 pub struct Grid {
@@ -2278,6 +2294,8 @@ pub struct Config {
     pub response: Response,
     /// How the image's values are shown, as SAO DS9 scales an image.
     pub stretch: Stretch,
+    /// The flux of what the camera sees, each frame.
+    pub photometry: Photometry,
     /// Diagnostics and console output.
     pub debug: Diagnostics,
 }
@@ -2301,6 +2319,7 @@ impl Default for Config {
             image: Image::default(),
             response: Response::default(),
             stretch: Stretch::default(),
+            photometry: Photometry::default(),
             debug: Diagnostics::default(),
         }
     }

@@ -20,6 +20,7 @@ pub mod gpu;
 pub mod gpu_timing;
 pub mod occlusion;
 pub mod pass;
+pub mod photometry;
 pub mod raytrace;
 pub mod reference;
 pub mod response;
@@ -3729,6 +3730,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         win.reference_after_frame(&sim_cfg.borrow(), &mut sim);
                         // A stretch's limits, read back a frame or so late.
                         win.stretch_after_frame(&mut sim);
+                        win.photometry_after_frame(&mut sim);
                     }
 
                     // Asked of a frame once it is drawn; left undrawn, the

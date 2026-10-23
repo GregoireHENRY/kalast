@@ -130,6 +130,18 @@ class Simulation:
     the image's values -- `exposure * I/F` before `srgb_mode` stores them.
     `None` without a stretch, or before its first read.
     """
+    def fluxes(self) -> list[tuple[int, float, bool]]:
+        """The flux of what the camera saw, frame by frame, since the last call
+        (`config.photometry.enabled`): `(iteration, flux, clipped)` in the
+        order of the iterations. `flux` is the disc integral
+        `kalast.lightcurve.flux` gives, `sum(I/F x pixel area) / pi` in the
+        scene's units squared; `clipped`, a lit body cut by the frame's edge,
+        its light short. Each frame's arrives a frame or two after it: at a
+        run's end, step on until `fluxes_pending` is 0 for the last ones.
+        """
+        ...
+    fluxes_pending: int
+    """Fluxes still being read back (`fluxes`): measured, not yet arrived."""
     def stop_reference(self) -> None:
         """Stop a reference image's sum where it is, after this frame: the mean
         so far is the image (`reference_image`), done -- as the UI's stop

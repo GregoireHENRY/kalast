@@ -2,7 +2,6 @@
 import os
 import subprocess
 import sys
-from concurrent.futures import ThreadPoolExecutor
 
 import matplotlib
 import numpy
@@ -24,13 +23,9 @@ kalast.plot.style.load("lightcurve")  # as Scheirich et al. (2024) draw theirs
 
 KERNELS = "examples/lightcurve_didymos/kernels.tm"
 
-# Drawn at their finest.
+# Drawn and measured at their finest.
 DIDYMOS = "/Users/gregoireh/data/mesh/didymos/g_01165mm_spc_didy_v003.obj"
 DIMORPHOS = "/Users/gregoireh/data/mesh/dimorphos/g_00243mm_spc_dimo_v004.obj"
-# Their light from the same models at 49,152 facets: 0.5 s a frame, where the
-# finest take 40 to 58 s.
-DIDYMOS_LIGHT = "/Users/gregoireh/data/mesh/didymos/didymos_g_9309mm_spc_obj_0000n00000_v003.obj"
-DIMORPHOS_LIGHT = "/Users/gregoireh/data/mesh/dimorphos/dimorphos_g_1940mm_spc_obj_0000n00000_v004.obj"
 
 # Ellipsoids extents matching diameter equivalent sphere same volume as meshes above
 # Dimorphos assumed sphere post impact due to tumbling not characterized.
@@ -68,19 +63,18 @@ sim.config.light.exposure = 20.0
 sim.config.huds = [kalast.app.Hud("")]
 sim.state.rate_limited = True
 sim.state.rate_limit = 30.0  # frames a second
+sim.config.photometry.enabled = True  # each frame's light, from the frame itself
 
 stretch = [numpy.ones(3), numpy.ones(3)]
 
 if SHAPES == "meshes":
     sim.load_mesh(path=DIDYMOS)
     sim.load_mesh(path=DIMORPHOS)
-    meshes = [kalast.mesh.Mesh(path=DIDYMOS_LIGHT), kalast.mesh.Mesh(path=DIMORPHOS_LIGHT)]
 else:
     ico = "res/ico5.obj"
     sim.load_mesh(path=ico, smooth=True)
     sim.load_mesh(path=ico, smooth=True)
     stretch[:] = EXTENTS
-    meshes = [kalast.mesh.Mesh(path=ico), kalast.mesh.Mesh(path=ico)]
 
 # A sphere under the same law: its light is the law's phase curve, which
 # `reduced` takes out.
@@ -101,35 +95,26 @@ et0 = spice.str2et(START)
 etf = spice.str2et(END)
 midnight = spice.str2et(START[:10])
 
-# The light curve, made as the night is drawn: each frame's light on a thread
-# of its own, `flux` letting go of Python's lock, so the drawing keeps its pace.
-# The meshes' arrays are taken here, once: a Mesh stays on the thread that
-# made it.
-indices = [mesh.indices for mesh in meshes]
-ball = sphere.positions, sphere.indices
-
-
-def light(vertices, to_sun, to_site, r, delta):
-    # The light the observatory gets: every facet of the two, as lit and as
-    # seen, each body shadowing and hiding the other.
-    f = flux(vertices, indices, to_sun, to_site, LAW).flux
-    if MAGNITUDES == "apparent":
-        return f / (r * delta) ** 2  # the Sun's light at r, seen from delta
-    # At one phase angle: the law's phase curve, a sphere's light, taken out.
-    return f / flux(*ball, to_sun, to_site, LAW, shadowing=False, visibility=False).flux
-
-
-pool = ThreadPoolExecutor()
-times, points = [], []
+# The light curve, made as the night is drawn: each frame's light summed on
+# the GPU from the frame itself -- its shadows, the bodies' law -- and read
+# back a frame or two later, by iteration.
+times, scale, light = {}, {}, {}
+cut = set()  # frames whose edge cut a lit body: its light short
 plotted = False
 et = et0
 
 while app.running:
-    # The night drawn and all its light summed: the light curve, once.
-    if not plotted and et > etf and all(p.done() for p in points):
-        fluxes = numpy.array([p.result() for p in points])
+    for iteration, f, clipped in sim.fluxes():
+        light[iteration] = f
+        if clipped:
+            cut.add(iteration)
+
+    # The night drawn and all its light back: the light curve, once.
+    if not plotted and et > etf and sim.fluxes_pending == 0:
+        its = [i for i in sorted(times) if i in light]
+        fluxes = numpy.array([light[i] * scale[i] for i in its])
         magnitude = -2.5 * numpy.log10(fluxes / fluxes.mean())  # about the night's mean
-        plt.plot((numpy.array(times) - midnight) / 3600, magnitude * 1000, "k+")
+        plt.plot((numpy.array([times[i] for i in its]) - midnight) / 3600, magnitude * 1000, "k+")
         plt.gca().invert_yaxis()  # brighter up
         plt.xlabel("UTC (h)")
         plt.ylabel("Relative magnitude (mmag)")
@@ -137,6 +122,8 @@ while app.running:
         os.makedirs(os.path.dirname(PLOT), exist_ok=True)
         plt.savefig(PLOT, dpi=120)
         print(f"wrote {PLOT}")
+        if cut:
+            print(f"{len(cut)} frames cut a lit body at their edge, their light short: widen projection.side")
         if sys.platform == "win32":
             os.startfile(PLOT)
         else:
@@ -170,19 +157,19 @@ while app.running:
         numpy.array(spice.pxform("DIDYMOS_FIXED", "J2000", te)) @ spice.axisar([0.0, 0.0, 1.0], spin),
         numpy.array(spice.pxform("DIMORPHOS_FIXED", "J2000", te)),
     ]
-    vertices = []
-    for body, mesh, name, turn, axes in zip(sim.bodies, meshes, ("DIDYMOS", "DIMORPHOS"), turns, stretch):
-        pose = turn @ numpy.diag(axes)
-        place = spice.spkpos(name, te, "J2000", "NONE", "DIDYMOS_BARYCENTER")[0]
-        body.mat[:3, :3] = pose
-        body.mat[:3, 3] = place
-        vertices.append(mesh.positions @ pose.T + place)
+    for body, name, turn, axes in zip(sim.bodies, ("DIDYMOS", "DIMORPHOS"), turns, stretch):
+        body.mat[:3, :3] = turn @ numpy.diag(axes)
+        body.mat[:3, 3] = spice.spkpos(name, te, "J2000", "NONE", "DIDYMOS_BARYCENTER")[0]
     to_sun = numpy.array(spice.spkpos("SUN", te, "J2000", "NONE", "DIDYMOS_BARYCENTER")[0])
     sim.sun.pos = to_sun.tolist()
 
-    # The light the observatory gets, on a thread of the pool.
-    times.append(et)
-    points.append(pool.submit(light, vertices, to_sun, to_site, numpy.linalg.norm(to_sun), delta))
+    # This frame's light, measured as it is drawn, and what it is scaled by.
+    times[sim.state.iteration] = et
+    if MAGNITUDES == "apparent":
+        scale[sim.state.iteration] = 1 / (numpy.linalg.norm(to_sun) * delta) ** 2  # the Sun's light at r, seen from delta
+    else:
+        # At one phase angle: the law's phase curve, a sphere's light, taken out.
+        scale[sim.state.iteration] = 1 / flux(sphere.positions, sphere.indices, to_sun, to_site, LAW, shadowing=False, visibility=False).flux
 
     # The camera on the line to the observatory, celestial north up.
     sim.camera.pos = (to_site * DISTANCE).tolist()
@@ -192,5 +179,4 @@ while app.running:
 
     app.step()
 
-pool.shutdown(cancel_futures=True)
 spice.kclear()

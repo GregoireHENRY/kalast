@@ -15,7 +15,7 @@ sat on the simulation's config by accident.
 follows it: `app.simulation.config.<group>.<field>`. The groups are `shading`,
 `light`, `shadows`, `wireframe`, `selection`, `data`, `colorbar`, `axes`,
 `grid`, `hud`, `export`, `controls`, `image`, `reference`, `response`,
-`stretch` and `debug`, and every entry below
+`stretch`, `photometry` and `debug`, and every entry below
 is headed by its full path. Each `config.<group>` is a *live view* -- it reads
 and writes the same config as every other view, so
 `app.simulation.config.grid.color = ...` takes effect exactly as the flat name
@@ -912,6 +912,19 @@ The `"log"` and `"pow"` scales' `a`, DS9's default.
 ### `stretch.contrast: float` — default `0.25` *(live)*
 zscale's contrast, IRAF's default: the limits are the fitted line's ends with
 its slope divided by it, so less widens them.
+
+## Photometry
+
+The flux of what the camera sees, from the frame itself, for `sim.fluxes()`
+(`API.md`, "The flux of what the camera sees").
+
+### `photometry.enabled: bool` — default `False` *(live, rebuilds pipelines)*
+Each frame that advances the simulation, the bodies drawn a second time --
+the same poses, shadow maps or rays, and scattering law; the full meshes,
+each facet's own normal, nothing of the image's colour, ambient light or
+exposure -- and every pixel's I/F summed times its area: the disc integral
+`kalast.lightcurve.flux` gives. An orthographic camera only, every body in
+the frame. A frame measured is drawn whole, never in bands.
 
 ---
 

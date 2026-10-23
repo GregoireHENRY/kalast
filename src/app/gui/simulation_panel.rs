@@ -1227,6 +1227,16 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config) {
         if let Some([low, high, least, greatest]) = sim.stretch_limits {
             note(ui, &format!("now {} to {}, the image {} to {}", short(low), short(high), short(least), short(greatest)));
         }
+        subheading(ui, "photometry").on_hover_text(
+            "The flux of what the camera sees, from the frame itself: the bodies drawn a second time, every \
+             pixel's I/F summed times its area -- the disc integral kalast.lightcurve.flux gives -- for \
+             sim.fluxes(). An orthographic camera only.",
+        );
+        ui.push_id("photometry", |ui| group_photometry(ui, c));
+        if let Some(f) = sim.photometry_last.filter(|_| c.photometry.enabled) {
+            let cut = if f.clipped { ", a body cut by the frame" } else { "" };
+            note(ui, &format!("{:.6e} at iteration {}{cut}", f.flux, f.iteration));
+        }
     });
 
     topic(ui, codicon::RECORD_KEYS, palette::FLAMINGO, "Controls", |ui| group_controls(ui, c));

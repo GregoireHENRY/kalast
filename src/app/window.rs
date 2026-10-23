@@ -1254,6 +1254,11 @@ pub struct Window {
     /// How long a traced frame's bodies took the GPU, last measured: how many
     /// bands the next is cut into, each about `BAND_MS`.
     traced_ms: f64,
+    /// This frame's light measured (`config.photometry`): the iteration it
+    /// is drawn at and a pixel's area, set in `update`, taken by `render`.
+    photometry_tag: Option<(u64, f64)>,
+    /// Photometry asked of a perspective camera, said once.
+    photometry_warned: bool,
     /// A traced frame drawn whole, being timed: when it was sent, and when the
     /// GPU finished it, set by the queue's callback.
     traced_probe: Option<(std::time::Instant, std::sync::Arc<std::sync::Mutex<Option<std::time::Instant>>>)>,
@@ -1685,7 +1690,7 @@ impl Window {
         */
 
         let mut globals = build_globals(config, None, (0.0, 1.0), (surface_config.width, surface_config.height));
-        globals.camera_pos = camera_pos(&simulation.camera);
+        camera_view(&mut globals, &simulation.camera);
         let globals = super::gpu::UniformBuffer::new(&device, globals);
 
         let camera = super::uniform::Camera {
@@ -1780,6 +1785,8 @@ impl Window {
             frame_submissions: std::collections::VecDeque::new(),
             banded: None,
             traced_ms: 0.0,
+            photometry_tag: None,
+            photometry_warned: false,
             traced_probe: None,
             held: None,
             facet_wanted: Vec::new(),
@@ -2389,6 +2396,21 @@ impl Window {
         simulation.reference.stopped = reference.stopped;
     }
 
+    /// After a frame: the fluxes read back since the last
+    /// (`config.photometry`), into the simulation. Never waits.
+    pub fn photometry_after_frame(&mut self, simulation: &mut crate::app::simulation::Simulation) {
+        if let Some(photometry) = self.passes.photometry.as_mut() {
+            let got = photometry.after_frame(&self.device);
+            if let Some(last) = got.last() {
+                simulation.photometry_last = Some(*last);
+            }
+            simulation.fluxes.extend(got);
+            simulation.photometry_pending = photometry.pending();
+        } else {
+            simulation.photometry_pending = 0;
+        }
+    }
+
     /// After a frame shown through a stretch: its limits as last read back,
     /// for the UI and `sim.stretch_limits`, the next read started. Never
     /// waits.
@@ -2549,7 +2571,7 @@ impl Window {
         // reference's sum with them.
         let stretch = config.stretch_on();
         let float = reference || config.response.enabled || stretch;
-        if float != self.passes.float_on || self.rays != self.passes.traced {
+        if float != self.passes.float_on || self.rays != self.passes.traced || config.photometry.enabled != self.passes.photometry.is_some() {
             self.rebuild_passes(config);
         }
         if !reference {
@@ -2703,7 +2725,21 @@ impl Window {
         let bounces = config.reference.bounces.min(4);
         self.uniforms.globals.uniform.ray_frame =
             self.reference_sample(config, simulation).map_or(0, |k| (bounces << 24) | (k + 1));
-        self.uniforms.globals.uniform.camera_pos = camera_pos(&simulation.camera);
+        camera_view(&mut self.uniforms.globals.uniform, &simulation.camera);
+        // The frame's light (`config.photometry`), when it advances the
+        // simulation -- one flux an iteration -- and the camera is
+        // orthographic, its pixels all one area.
+        self.photometry_tag = None;
+        if config.photometry.enabled && !simulation.state.held {
+            match simulation.camera.projection.pixel_area(self.render_size.1) {
+                Some(area) => self.photometry_tag = Some((simulation.state.iteration as u64, area as f64)),
+                None if !self.photometry_warned => {
+                    self.photometry_warned = true;
+                    eprintln!("photometry: the camera is perspective, its pixels of many areas; frames are measured with an orthographic one");
+                }
+                None => {}
+            }
+        }
 
         // Resampled to the uniform's fixed 256 entries, so any length of table
         // works -- matplotlib's 256 passes through untouched.
@@ -4000,7 +4036,9 @@ impl Window {
         // rather than after a whole image of rays -- 0.14 to 0.4 s on an M1
         // Pro. The image as it was is shown meanwhile (`display`), and
         // `render_continue` carries the frame on.
-        if self.probe_traced() && bands && surface_texture.is_none() && self.traced_ms > BANDED_ABOVE_MS {
+        // A frame measured for its light is drawn whole: its sum wants every
+        // band.
+        if self.probe_traced() && bands && surface_texture.is_none() && self.traced_ms > BANDED_ABOVE_MS && self.photometry_tag.is_none() {
             let rows = self.render_size.1.max(1);
             let total = ((self.traced_ms / BAND_MS).ceil() as u32).clamp(2, MAX_BANDS).min(rows);
             self.hold_image();
@@ -4036,6 +4074,25 @@ impl Window {
             self.render_size,
             self.uniforms.view.uniform.camera.view_proj,
         );
+
+        // The frame's light, after the image and in its encoder: the same
+        // poses, the same shadow maps or rays.
+        if let Some((iteration, area)) = self.photometry_tag.take() {
+            let passes = &mut self.passes;
+            if let Some(photometry) = passes.photometry.as_mut() {
+                photometry.render(
+                    &self.device,
+                    &mut encoder,
+                    &self.meshes,
+                    &passes.bindings,
+                    passes.penumbra.read_group(),
+                    config,
+                    self.render_size,
+                    iteration,
+                    area,
+                );
+            }
+        }
 
         if let (Some(texture), false) = (&surface_texture, axes_after_export) {
             self.blit(&mut encoder, texture);
@@ -4527,9 +4584,11 @@ fn rays_wanted(config: &crate::app::config::Config) -> bool {
     config.shadows.method.traces()
 }
 
-/// Where the camera is, as the uniform holds it.
-fn camera_pos(camera: &super::frame::Eye) -> [f32; 3] {
-    [camera.pos.x as f32, camera.pos.y as f32, camera.pos.z as f32]
+/// Where the camera is and which way it looks, as the uniform holds them.
+fn camera_view(globals: &mut super::uniform::Globals, camera: &super::frame::Eye) {
+    globals.camera_pos = [camera.pos.x as f32, camera.pos.y as f32, camera.pos.z as f32];
+    globals.view_axis = [-camera.dir.x as f32, -camera.dir.y as f32, -camera.dir.z as f32];
+    globals.orthographic = (camera.projection.mode == super::frame::ProjectionMode::Orthographic) as u32;
 }
 
 /// What a reference image is of: the settings but its own, the camera, the

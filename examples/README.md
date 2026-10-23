@@ -231,8 +231,8 @@ Look at [res/README.md](../res/README.md) to get Hera data.
       spheroids a sphere stretched by its pose.
     - [lightcurve_didymos/scene_lightcurve.py](lightcurve_didymos/scene_lightcurve.py):
       the two in one -- the night drawn and its light curve made as it goes,
-      each frame's `flux` on a thread of its own so the drawing keeps its
-      pace, the plot written and opened at the night's end.
+      each frame's light summed on the GPU from the frame itself
+      (`config.photometry`), the plot written and opened at the night's end.
 - [hera_didymos](hera_didymos):
     - [hera_didymos/afc.py](hera_didymos/afc.py):
         - Load Didymos/Dimorphos/Sun/Earth in AFC FOV frame centered on AFC

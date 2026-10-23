@@ -6653,3 +6653,44 @@ unsendable, so `scene_lightcurve.py` takes the arrays once.
 
 Open: the primary's rotation, which Pravec and Scheirich subtract, is still
 in the reduced curve with DART's shapes.
+
+## 2026-10-23 — The rendered frame's flux; a telescope's frames, begun
+
+The user asked for `scene_lightcurve.py`'s light to come from the rendered
+scene rather than `flux` recomputing its shadows on a thread pool -- "one
+source of truth" -- both methods to agree.
+
+**The orthographic camera.** The orthographic camera now shades along its
+axis, as an observer far off. It used to shade toward its position: from
+20 km that tilted Didymos's shading by up to 0.02 rad, about 1 % of its
+light.
+
+**The photometry pass.** `config.photometry.enabled` draws the bodies again
+each frame that advances, with the main pass's shader built for photometry
+(`override PHOTOMETRY`):
+- the same shadows and law;
+- the full meshes, each facet's own normal;
+- nothing of the image's colour or exposure.
+
+The pass sums every pixel's I/F times its area on the GPU, and
+`sim.fluxes()` reads the sums back by iteration.
+
+**Against `flux`, on the night:**
+- within 0.13 to 0.23 mmag rms, with shadow maps or rays;
+- the absolute flux within 1.3e-4.
+
+`scene_lightcurve.py` takes its light from it. DART's finest shapes are now
+measured at 30 frames a second, the plot at the night's end.
+
+The telescope's core is written (`src/telescope/`, 25 tests):
+- noise;
+- FITS;
+- the projection;
+- Moffat's PSF;
+- aperture photometry, with the disc's exact area in each pixel;
+- a frame through TRAPPIST-North's camera.
+
+Write-up: `2026-10-23_photometry/`.
+
+Open: the Gaia stars, `kalast.telescope` in Python, the example making a
+night's FITS frames and their light curve.

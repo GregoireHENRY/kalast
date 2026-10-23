@@ -14,11 +14,12 @@ realistic night, "but every effects as option", the frames as FITS files.
 
 - [x] The telescope's core in Rust, `src/telescope/`: noise, FITS, the
       sky's projection, the PSF, aperture photometry, a frame (25 tests).
-- [ ] The orthographic camera's view direction: its axis.
-- [ ] A photometry pass: the rendered frame's flux, summed on the GPU, read
-      back by iteration.
-- [ ] The rendered flux against `flux` over the night, shadow maps and rays.
-- [ ] `scene_lightcurve.py` on the rendered flux, no thread pool.
+- [x] The orthographic camera's view direction: its axis.
+- [x] A photometry pass: the rendered frame's flux, summed on the GPU, read
+      back by iteration (`tests/test_photometry.py`, 11 checks).
+- [x] The rendered flux against `flux` over the night, shadow maps and rays:
+      0.13 to 0.23 mmag rms.
+- [x] `scene_lightcurve.py` on the rendered flux, no thread pool.
 - [ ] The field's stars from Gaia, cached, in Cousins R.
 - [ ] `kalast.telescope` in Python.
 - [ ] `examples/lightcurve_didymos/telescope.py`: the night as FITS frames,
@@ -77,6 +78,84 @@ same frame, on the same poses and shadows, using the same shader's law.
   tagged with its iteration.
 
 `flux` stays the exact reference: the two must agree.
+
+### Built
+
+- **The orthographic view.** `Globals` gains the camera's axis and an
+  orthographic flag, appended at 128 bytes so every shader's shorter copy
+  still binds. `view_dir_at` gives the axis for an orthographic camera and
+  the direction toward the eye otherwise; `eye_for` starts an orthographic
+  pixel's rays back along the axis.
+- **One shader, built twice.** `override PHOTOMETRY: bool = false` in
+  `mesh_shadow.wgsl`, set only by `gpu::RenderPipeline::photometric`, where
+  the compiler folds it away in every other pipeline. With it:
+  - `fs_main` takes a smooth mesh's facet normal from the plane of its
+    pixels (`cross(dpdx, dpdy)`, turned toward the viewer) and draws no
+    wireframe;
+  - `fs_shaded` skips the colour modes and returns the law times the shadow
+    the moment both are known;
+  - `surface` ignores the level of detail's facet table, as the meshes are
+    drawn whole (`MeshBuffer::render_full`).
+- **The pass**, `src/app/photometry.rs`.
+  - It draws into an R32Float target at the image's size, single-sampled,
+    with its own depth buffer and the main pass's bind groups (penumbra at
+    6, rays at 7). It runs after the image, in the frame's encoder.
+  - `shaders/photometry.wgsl` sums 16 x 16 tiles pairwise in f32, the tile
+    beside what of it lies on the frame's edge; the CPU adds the tiles in
+    f64.
+  - Four readback slots, each tagged with its iteration and the pixel's
+    area, `(2 side / height)^2`. They are mapped after the submit and
+    collected without waiting.
+  - Only frames that advance are measured: one flux an iteration.
+  - A measured frame is never drawn in bands.
+  - A perspective camera is refused, said once.
+- **The API.** `config.photometry.enabled` (generated panel row, under
+  Image); `sim.fluxes()`, `(iteration, flux, clipped)` since the last call;
+  `sim.fluxes_pending`. From Rust: `Simulation::take_fluxes`.
+
+### Against `flux`
+
+`tests/test_photometry.py`, a rough Hapke sphere smooth-shaded in the
+image, against the CPU:
+
+| | rendered over CPU, less one |
+|---|---|
+| 5 deg of phase | +4.8e-5 |
+| 40 deg | +8.4e-5 |
+| 75 deg | +1.6e-4 |
+| a moon before it, its shadow on it (106 mmag), shadow maps | +7.7e-5 |
+| the same, rays | +5.9e-5 |
+
+The rest of that test's checks:
+- each iteration that advanced has its flux, once;
+- none while paused;
+- a body the frame cuts is flagged;
+- a perspective camera is not measured.
+
+**The night of 2022-11-18**, a frame every 30 s, 721 frames at 2116 x 1376
+pixels (1.7 m a pixel), every frame measured and none cut. Light curves
+about their means, rendered less CPU:
+
+| | shadow maps | rays |
+|---|---|---|
+| spheroids | 0.152 mmag rms, max 0.76; flux ratio 1.000003 | 0.128 rms, max 0.41; 0.999988 |
+| DART's shapes, 49,152 facets | 0.228 rms, max 0.79; 1.000129 | 0.135 rms, max 0.48; 1.000011 |
+
+![The rendered flux against the CPU's over the night](rendered_against_cpu.png)
+
+Noise of a few tenths of a mmag: each pixel deciding at a limb or a
+shadow's edge. With the maps it is slightly larger, and the spheroids dip
+0.5 mmag in the eclipse at 00:52, where the maps' texels lie along the
+shadow's edge.
+
+**`scene_lightcurve.py` on it**, the rendered flux taken by iteration:
+- the spheroids: 721 frames in 24.3 s;
+- DART's shapes at their finest, 3,145,728 facets each, every frame drawn
+  whole for photometry: 24.7 s.
+
+Both held their 30 frames a second, every frame measured. The plot comes as
+the night ends. On the CPU's 49,152-facet copies it came 39 s later, and
+took the drawing's threads.
 
 ## The telescope
 
