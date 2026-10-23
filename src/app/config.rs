@@ -1626,7 +1626,7 @@ impl Default for Reference {
 /// The flux of what the camera sees, from the frame itself: `sim.fluxes()`.
 ///
 /// The image drawn for photometry, once -- the frame's shadows and the
-/// bodies' scattering laws, the full meshes, each facet's own normal,
+/// bodies' scattering laws, the full meshes with their own normals,
 /// floats, nothing of the ambient light, the bodies' colours or the
 /// wireframe -- shown, and each frame that advances summed: every pixel's
 /// I/F times its area, the disc integral `kalast.lightcurve.flux` gives,

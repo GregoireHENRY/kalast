@@ -6739,3 +6739,14 @@ What I said of the photometric image in chat, "smoother in tone" and its
 facets "faintly" shown, was wrong. It differs from the usual one by 0.7 of a
 level inside, with no offset, and differs at edges, where it has one sample
 a pixel.
+
+## 2026-10-23 — Photometry shades smooth meshes smooth; the telescope switch only with frames
+
+Photometry had shaded every facet with its own normal, to match `flux`, so
+the spheroids loaded smooth showed flat facets, as the user saw. The
+agreement with `flux` is the same with the meshes' own normals: 0.125 mmag
+rms with rays against 0.128, 0.150 with maps against 0.152. Smooth meshes
+are shaded smooth now, the image as always inside the bodies.
+
+`telescope.show` is in the settings only once a script has made a
+telescope frame.

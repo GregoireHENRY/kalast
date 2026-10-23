@@ -16,7 +16,7 @@ released, and the gate refuses the tag until it has.
 - An orthographic camera shades as an observer far off does: every point seen along the camera's axis, rather than toward the camera's position, which tilted a body's shading with the camera's distance -- 0.02 rad across Didymos from 20 km, about 1 % of its light.
 - `sim.config.photometry.enabled` draws the image for photometry and measures the light of what the camera sees from it. The bodies are drawn once:
   - with the frame's own shadows (maps or rays) and their scattering laws;
-  - with the full meshes and each facet's own normal, into floats.
+  - with the full meshes and their own normals, smooth where the mesh was loaded smooth, into floats.
 
   That image is shown, and each frame that advances is summed on the GPU, every pixel's I/F times its area: the disc integral `kalast.lightcurve.flux` gives, read with `sim.fluxes()` a frame or two later and tagged with its iteration. On Didymos's night of 2022-11-18 the two agree within 0.13 to 0.23 mmag rms, the absolute flux within 1.3e-4. An orthographic camera only; off, the image is drawn as before.
 - `kalast.telescope` makes a night's frames as a telescope records them, and their photometry.

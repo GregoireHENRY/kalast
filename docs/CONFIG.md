@@ -920,7 +920,7 @@ The flux of what the camera sees, from the frame itself, for `sim.fluxes()`
 
 ### `photometry.enabled: bool` — default `False` *(live, rebuilds pipelines)*
 The image drawn for photometry, once: the frame's shadow maps or rays and
-the bodies' scattering laws, the full meshes, each facet's own normal,
+the bodies' scattering laws, the full meshes with their own normals,
 single-sampled floats, nothing of the ambient light, the bodies' colours or
 the wireframe. That image is shown, at the exposure, through the response
 and the stretch when they are on, and each frame that advances it is summed
@@ -938,7 +938,9 @@ A telescope's frames, made on the GPU from the rendered light
 (`sim.expose`, `API.md`, `kalast.telescope`).
 
 ### `telescope.show: bool` — default `False` *(live)*
-The window shows the telescope's last frame in place of the scene, fitted to
+In the settings once a script has made a telescope frame (`sim.expose`):
+before that there is none to show. The window shows the telescope's last
+frame in place of the scene, fitted to
 the image, its rows as DS9 shows a FITS file's. It goes through the stretch
 when `stretch` is on, and is linear from 3 sigma under its sky to 20 above
 otherwise. The bodies are still drawn, for their light, and the scene's

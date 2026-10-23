@@ -2422,8 +2422,10 @@ impl Window {
             let got = telescope.after_frame(&self.device);
             simulation.exposed.extend(got);
             simulation.exposures_pending = telescope.pending() + simulation.exposures.len();
+            simulation.telescope_frame = telescope.has_frame();
         } else {
             simulation.exposures_pending = simulation.exposures.len();
+            simulation.telescope_frame = false;
         }
     }
 

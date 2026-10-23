@@ -437,6 +437,37 @@ are where DS9 puts them in the window, each white over a sky of 25.
 
 ![The window at 03:30: the telescope's frame](telescope_window.png)
 
+## Smooth meshes shaded smooth; the telescope's switch where it means something
+
+The user: "i still see flat facets in scene_lightcurve.py, did you forget to
+address this question?". I had: "i dont see smoothed facet" read as "I do
+not see the facets". It meant the spheroids showed flat facets, loaded
+`smooth=True` and shaded each facet flat by photometry mode -- ico5's 20,480
+facets some 8 pixels wide on Didymos, plain to see.
+
+The facets' normals were there to match `flux`, which sums flat facets. The
+spheroids' night with the mesh's own smooth normals instead (a temporary
+shader, measured, then made so):
+
+| | facets' normals | smooth, as loaded |
+|---|---|---|
+| maps | 0.152 mmag rms, max 0.76; 1.000003 | 0.150, 0.76; 0.999984 |
+| rays | 0.128, 0.41; 0.999988 | 0.125, 0.39; 0.999952 |
+
+The agreement is the pixels' sampling's, not the normals'. The total moves
+by 4e-5. So photometry now draws each mesh with its own normals, smooth
+where it was loaded smooth: the image at 00:52 is the usual one's inside
+the bodies to 0.002 of a level, 0.1 % of the pixels differing, all at the
+outline, where the usual image takes four samples a pixel.
+
+![00:52, the spheroids: as always (left), for photometry (right), smooth now](one_draw_smooth.png)
+
+The user also asked: "why can i turn on telescope show ON for scripts
+without telescope settings like scene_lightcurve.py?" The switch was in the
+settings whatever the script, and did nothing without a frame to show. It
+is shown now only once a script has made a telescope frame
+(`sim.telescope_frame`, set by the window).
+
 ## Open
 
 - `kalast.shape`'s six classes uncovered in `tests/test_stubs.py`, from

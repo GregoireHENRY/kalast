@@ -1229,7 +1229,7 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config) {
         }
         subheading(ui, "photometry").on_hover_text(
             "The flux of what the camera sees, from the frame itself: the image drawn for photometry -- full \
-             meshes, each facet's own normal, floats, no ambient light -- and every pixel's I/F summed times \
+             meshes with their own normals, floats, no ambient light -- and every pixel's I/F summed times \
              its area, the disc integral kalast.lightcurve.flux gives, for sim.fluxes(). An orthographic \
              camera only.",
         );
@@ -1238,11 +1238,15 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config) {
             let cut = if f.clipped { ", a body cut by the frame" } else { "" };
             note(ui, &format!("{:.6e} at iteration {}{cut}", f.flux, f.iteration));
         }
-        subheading(ui, "telescope").on_hover_text(
-            "A telescope's frames, made on the GPU from the rendered light (sim.expose): the last one shown in \
-             place of the scene, the bodies still drawn for their light.",
-        );
-        ui.push_id("telescope", |ui| group_telescope(ui, c));
+        // Only once a script has made a telescope frame (`sim.expose`): before
+        // that there is none to show, and the switch would do nothing.
+        if sim.telescope_frame {
+            subheading(ui, "telescope").on_hover_text(
+                "A telescope's frames, made on the GPU from the rendered light (sim.expose): the last one shown \
+                 in place of the scene, the bodies still drawn for their light.",
+            );
+            ui.push_id("telescope", |ui| group_telescope(ui, c));
+        }
     });
 
     topic(ui, codicon::RECORD_KEYS, palette::FLAMINGO, "Controls", |ui| group_controls(ui, c));

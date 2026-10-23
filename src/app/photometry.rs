@@ -4,10 +4,10 @@
 //! With `photometry.enabled` the frame's bodies are drawn once, by the main
 //! pass's own shader built for photometry (`PHOTOMETRY` in
 //! `mesh_shadow.wgsl`): the frame's poses, its shadow maps or rays, the
-//! bodies' scattering laws -- each pixel the I/F the Sun leaves on it, with
-//! its facet's own normal, the full meshes rather than their levels of
-//! detail, single-sampled into floats, nothing of the ambient light, the
-//! bodies' colours or the wireframe. That image is the frame: shown as the
+//! bodies' scattering laws -- each pixel the I/F the Sun leaves on it, the
+//! meshes' own normals (a smooth mesh's interpolated), the full meshes rather
+//! than their levels of detail, single-sampled into floats, nothing of the
+//! ambient light, the bodies' colours or the wireframe. That image is the frame: shown as the
 //! main pass would store it (`show`), the camera's response and the stretch
 //! after it as on any float frame, the overlays over it. Each frame that
 //! advances the simulation, the same image is summed on the GPU by tiles,

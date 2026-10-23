@@ -1798,13 +1798,13 @@ fn fs_main(vertex: VertexOutput) -> @location(0) vec4<f32> { //@noprim
     in.pixel = pixel;
     in.dpx = dpx;
     in.dpy = dpy;
-    // Photometry: a smooth mesh's facet normal, from the plane its pixels
-    // lie on -- the interpolated one is not the facet's -- and no wireframe.
+    // Photometry: the mesh's own normals, as the image draws them -- a
+    // smooth mesh's interpolated, a flat one's its facets' -- and no
+    // wireframe. Against `lightcurve::flux`, which sums flat facets, the
+    // spheroids' night of 2022-11-18 agrees as well either way, 0.125 mmag
+    // rms smooth against 0.128 with the facets' normals: the pixels'
+    // sampling, not the normals, sets it.
     if PHOTOMETRY {
-        if (body.flags & 1u) == 0u {
-            let n = normalize(cross(dpx, dpy));
-            in.world_normal = select(-n, n, dot(n, view_dir_at(in.world_pos)) > 0.0);
-        }
         return fs_shaded(in);
     }
     // The barycentrics are corners' coordinates, which only a non-indexed

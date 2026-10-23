@@ -100,6 +100,9 @@ pub struct Simulation {
     /// read or written, set by the window each frame.
     pub exposed: Vec<crate::app::telescope::Exposed>,
     pub exposures_pending: usize,
+    /// A telescope frame has been made, to be shown (`telescope.show`):
+    /// what the settings show its switch for.
+    pub telescope_frame: bool,
     /// Whether this frame's shadows, the image's and the per-facet query's,
     /// were traced with rays:
     /// `shadows.method` "rays" and the GPU able to, set by the window each frame.
@@ -249,6 +252,7 @@ impl Simulation {
             exposures: Vec::new(),
             exposed: Vec::new(),
             exposures_pending: 0,
+            telescope_frame: false,
             diagnostics: Diagnostics::default(),
             image_size: (0, 0),
             value_range: (0.0, 1.0),

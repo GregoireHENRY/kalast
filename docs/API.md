@@ -1256,7 +1256,10 @@ the frame's bodies are drawn by the main pass's own shader built for
 photometry:
 - the frame's poses, shadow maps or rays, and the bodies' scattering laws,
   nothing recomputed on the CPU;
-- each facet's own normal and the full meshes, not their levels of detail;
+- the full meshes, not their levels of detail, with their own normals: a
+  mesh loaded smooth is shaded smooth, as in the image -- against `flux`,
+  which sums flat facets, the agreement is the same either way, 0.125 mmag
+  rms smooth against 0.128 with the facets' normals;
 - single-sampled floats, each pixel its I/F times the Sun it sees;
 - nothing of the ambient light, the bodies' colours or the wireframe.
 
