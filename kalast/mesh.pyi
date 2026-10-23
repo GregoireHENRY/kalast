@@ -3,6 +3,7 @@
 # Regenerate after changing any #[pyclass]:  python tools/gen_stubs.py
 
 import numpy  # noqa: F401
+import os  # noqa: F401
 from typing import Sequence
 
 class Vertex:
@@ -69,7 +70,7 @@ class Mesh:
         shadow map and hemicube drawing the old winding.
         """
         ...
-    def __init__(self, path: str | None = ..., update_pos: object = ..., vertices: Sequence[Vertex] | None = ..., facets: Sequence[Facet] | None = ..., indices: Sequence[int] | numpy.ndarray | None = ..., material_id: int | None = ...) -> None:
+    def __init__(self, path: str | None = ..., update_pos: object | None = ..., vertices: Sequence[Vertex] | None = ..., facets: Sequence[Facet] | None = ..., indices: Sequence[int] | numpy.ndarray | None = ..., material_id: int | None = ...) -> None:
         ...
     @classmethod
     def from_arrays(cls, positions: numpy.ndarray, indices: numpy.ndarray, smooth: bool = ...) -> Mesh:
@@ -80,7 +81,7 @@ class Mesh:
         """
         ...
     @classmethod
-    def load(cls, path: str, update_pos: object = ...) -> Mesh:
+    def load(cls, path: str, update_pos: object | None = ...) -> Mesh:
         ...
     vertices: VerticesView
     indices: numpy.ndarray
@@ -259,7 +260,7 @@ def intersect_triangle(p: Sequence[float] | numpy.ndarray, u: Sequence[float] | 
     ...
 def intersect_triangle_moller_trumblore(p: Sequence[float] | numpy.ndarray, u: Sequence[float] | numpy.ndarray, a: Sequence[float] | numpy.ndarray, b: Sequence[float] | numpy.ndarray, c: Sequence[float] | numpy.ndarray) -> numpy.ndarray | None:
     ...
-def intersect_mesh(mesh: object, p: Sequence[float] | numpy.ndarray, u: Sequence[float] | numpy.ndarray, exit_first: bool = ...) -> tuple[int, numpy.ndarray] | None:
+def intersect_mesh(mesh: Mesh, p: Sequence[float] | numpy.ndarray, u: Sequence[float] | numpy.ndarray, exit_first: bool = ...) -> tuple[int, numpy.ndarray] | None:
     ...
 def view_factor_scalar_with_area(area_b: float, angle_at_a: float, angle_at_b: float, distance_a2b: float) -> float:
     """Compute the view factor between a facet A and B with area of facet B."""
@@ -269,7 +270,7 @@ def view_factor_scalar(angle_at_a: float, angle_at_b: float, distance_a2b: float
     You can actually multiply by the area of facet A instead of B if A is transmitting energy to B.
     """
     ...
-def view_factor_facets(face_a: object, face_b: object, trans_b2a: numpy.ndarray) -> float:
+def view_factor_facets(face_a: Facet, face_b: Facet, trans_b2a: numpy.ndarray) -> float:
     ...
 def view_factor_triangles(tri_a: numpy.ndarray, tri_b: numpy.ndarray, ratio: float = ..., max_level: int = ...) -> float:
     """View factor `F(A->B)` between two triangles given as (3, 3) arrays of

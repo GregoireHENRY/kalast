@@ -38,6 +38,10 @@ pub struct Passes {
     /// the window before `render`.
     pub photometry_on: bool,
     pub photometry_tag: Option<(u64, f64)>,
+    /// Telescope frames to make of this frame's light, set by the window
+    /// before `render`, and their pass, made with the first.
+    pub telescope_requests: Vec<crate::app::telescope::Request>,
+    pub telescope: Option<crate::app::telescope::Telescope>,
     /// Its passes, made at the image's size when first shown.
     pub stretch: Option<crate::app::stretch::Stretch>,
     /// The reference image's sums, made at the image's size when first
@@ -124,6 +128,8 @@ impl Passes {
             stretch: None,
             photometry_on: config.photometry.enabled,
             photometry_tag: None,
+            telescope_requests: Vec::new(),
+            telescope: None,
             reference: None,
             render,
             light_cube: light_cube::Pass::new(device, format, &layouts_all, samples),
@@ -234,6 +240,15 @@ impl Passes {
                 );
                 if let Some((iteration, area)) = tag {
                     p.measure(encoder, iteration, area);
+                    // Telescope frames of this frame's light, from its sums
+                    // where they are, on the GPU.
+                    let requests = std::mem::take(&mut self.telescope_requests);
+                    if let (false, Some((tiles, n_tiles))) = (requests.is_empty(), p.tiles()) {
+                        let telescope = self.telescope.get_or_insert_with(|| crate::app::telescope::Telescope::new(device));
+                        for request in requests {
+                            telescope.expose(device, queue, encoder, request, tiles, n_tiles, area);
+                        }
+                    }
                 }
                 p.show(queue, encoder, out, float, config);
             } else if self.reference_on {

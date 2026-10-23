@@ -3,6 +3,8 @@
 # Regenerate after changing any #[pyclass]:  python tools/gen_stubs.py
 
 import numpy  # noqa: F401
+import os  # noqa: F401
+import os
 from typing import Sequence
 
 class Telescope:
@@ -134,7 +136,7 @@ class Source:
     mag: float
     rate: object
     comparison: bool
-    def __init__(self, ra: float, dec: float, mag: float, rate: object = ...) -> None:
+    def __init__(self, ra: float, dec: float, mag: float, rate: tuple[float, float] = ..., comparison: bool = ...) -> None:
         """A point on the sky, degrees, and its magnitude above the atmosphere;
         `rate` its motion against the stars, arcseconds a second east and
         north.
@@ -217,7 +219,7 @@ class Frame:
     """Its header's cards, the structural ones aside, as a dict."""
     width: int
     height: int
-    def write(self, path: object, storage: str = ...) -> None:
+    def write(self, path: str | os.PathLike[str], storage: str = ...) -> None:
         """Write it as a FITS file: unsigned 16-bit counts, as the camera does
         (`"u16"`), or 32-bit floats (`"f32"`).
         """
@@ -231,12 +233,12 @@ def expose(telescope: Telescope, band: Band, sky: Sky, effects: Effects, exposur
     meanwhile.
     """
     ...
-def read(path: PathBuf) -> Frame:
+def read(path: str | os.PathLike[str]) -> Frame:
     """A FITS file's primary image and its header: kalast's frames, or a real
     night's.
     """
     ...
-def reduce(frame: Frame, stars: Sequence[Source], aperture: Aperture, target: object = ...) -> None:
+def reduce(frame: Frame, stars: Sequence[Source], aperture: Aperture, target: tuple[float, float] | None = ...) -> Reduction | None:
     """A frame reduced as a night's frames are: the target measured where
     `target` (degrees) puts it -- the header's `TARGRA` and `TARGDEC` by
     default -- its comparison stars where `stars` puts them, its zero point
@@ -244,7 +246,7 @@ def reduce(frame: Frame, stars: Sequence[Source], aperture: Aperture, target: ob
     measured.
     """
     ...
-def gaia(ra: float, dec: float, radius: float, g_max: float = ..., band: str = ..., year: float = ..., cache: PathBuf | None = ...) -> list[Source]:
+def gaia(ra: float, dec: float, radius: float, g_max: float = ..., band: str = ..., year: float = ..., cache: str | os.PathLike[str] | None = ...) -> list[Source]:
     """The field's stars from Gaia DR3 within `radius` degrees of (`ra`, `dec`)
     and brighter than `g_max` in G, as sources in `band` -- Riello et al.
     (2021)'s magnitudes, comparison stars where those are known -- carried

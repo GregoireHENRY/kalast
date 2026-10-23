@@ -3,12 +3,20 @@
 # Regenerate after changing any #[pyclass]:  python tools/gen_stubs.py
 
 import numpy  # noqa: F401
+import os  # noqa: F401
+import os
 from typing import Sequence
+from kalast.telescope import Band
 from kalast.app.body import Body
 from kalast.app.config import Config
+from kalast.telescope import Effects
+from kalast.telescope import Exposure
 from kalast.app.frame import Eye
 from kalast.app.config import Hud
 from kalast.mesh import Mesh
+from kalast.telescope import Sky
+from kalast.telescope import Source
+from kalast.telescope import Telescope
 
 class Simulation:
     def reset(self) -> None:
@@ -142,6 +150,28 @@ class Simulation:
         ...
     fluxes_pending: int
     """Fluxes still being read back (`fluxes`): measured, not yet arrived."""
+    def expose(self, path: str | os.PathLike[str], exposure: Exposure, target: tuple[float, float], rate: tuple[float, float], r: float, delta: float, stars: Sequence[Source], telescope: Telescope | None = ..., band: Band | None = ..., sky: Sky | None = ..., effects: Effects | None = ..., object: str = ...) -> None:
+        """Ask for a telescope's frame of the frame this step draws, written to
+        `path` as FITS a frame or two later: the target's light the frame's
+        own photometry (`config.photometry.enabled`), the frame made on the
+        GPU -- the target spread along its trail and the field's `stars` by
+        the seeing, the sky, the noise -- as `kalast.telescope.expose` makes
+        one on the CPU. `target` is where the target is (degrees) and `rate`
+        how it moves (arcsec/s east and north), `r` its distance from the Sun
+        in au and `delta` from the observer in km. TRAPPIST-North, Cousins R
+        and a dark night at Oukaimeden unless `telescope`, `band`, `sky` say
+        otherwise; every effect unless `effects` switches some off.
+        """
+        ...
+    exposures_pending: int
+    """Telescope frames asked and not yet written (`expose`)."""
+    def exposed(self) -> list[tuple[int, str | os.PathLike[str], float, float]]:
+        """The telescope frames written since the last call (`expose`):
+        `(iteration, path, flux, mag)` in the order of their iterations,
+        `flux` the target's rendered light and `mag` its magnitude above the
+        atmosphere in the band.
+        """
+        ...
     def stop_reference(self) -> None:
         """Stop a reference image's sum where it is, after this frame: the mean
         so far is the image (`reference_image`), done -- as the UI's stop
@@ -401,7 +431,7 @@ class Simulation:
         a body that does not exist.
         """
         ...
-    def request_hemicube(self, body: int = ..., facets: numpy.ndarray = ..., resolution: int = ..., batch: int = ...) -> None:
+    def request_hemicube(self, body: int = ..., facets: numpy.ndarray | None = ..., resolution: int = ..., batch: int = ...) -> None:
         """Ask for hemicube view factors for `facets` of `body`, this frame.
 
         Request from `before_render`, read with `hemicube` from

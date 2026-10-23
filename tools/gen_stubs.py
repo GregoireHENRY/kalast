@@ -28,6 +28,8 @@ SCALARS = {
     "()": "None",
     "PyAny": "object",
     "PyObject": "object",
+    "PathBuf": "str | os.PathLike[str]",
+    "std::path::PathBuf": "str | os.PathLike[str]",
 }
 
 
@@ -62,6 +64,21 @@ def py_type(rust: str) -> str:
     # A pyclass elsewhere in the tree: keep the bare name.
     t = t.split("::")[-1]
     return t if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", t) else "object"
+
+
+def split_args(args: str) -> list:
+    """A Rust parameter list's parameters: split at the commas outside any
+    bracket, so `rate: (f64, f64)` and `Option<(f64, f64)>` stay whole."""
+    parts, depth, cur = [], 0, ""
+    for ch in args:
+        if ch == "," and depth == 0:
+            parts.append(cur)
+            cur = ""
+            continue
+        depth += (ch in "<([") - (ch in ">)]")
+        cur += ch
+    parts.append(cur)
+    return parts
 
 
 def accepted(annotation: str) -> str:
@@ -305,7 +322,7 @@ def parse(src: str):
             # commonly writes `#[getter]` then `///`. Capture the whole
             # prelude and pull the two apart afterwards.
             r"((?:[ \t]*(?:///[^\n]*|#\[(?:[^\[\]]|\[[^\]]*\])*\])[ \t]*\n)*)"
-            r"[ \t]*(?:pub )?fn (\w+)\s*(?:<[^>]*>)?\s*\(([^)]*)\)(?:\s*->\s*([^{]+))?",
+            r"[ \t]*(?:pub )?fn (\w+)\s*(?:<[^>]*>)?\s*\(((?:[^()]|\([^()]*\))*)\)(?:\s*->\s*([^{]+))?",
             body,
         ):
             prelude, name, args, ret = fm.groups()
@@ -348,14 +365,14 @@ def parse(src: str):
                 # left three of those out of the stub entirely.
                 attr = sm.group(1) or name.removeprefix("set_")
                 typ = "object"
-                for a in args.split(","):
+                for a in split_args(args):
                     a = a.strip()
                     if a and not a.startswith(("&self", "self", "mut self", "py:")) and ":" in a:
                         typ = accepted(py_type(a.split(":", 1)[1]))
                 by_name[cls].append(("setter", attr, override or typ, doc))
             else:
                 types = {}
-                for a in args.split(","):
+                for a in split_args(args):
                     a = a.strip()
                     if not a or a.startswith(("&self", "self", "slf", "mut self", "py:")):
                         continue
@@ -405,7 +422,7 @@ def rust_functions() -> dict:
         src = re.sub(r"(?<!/)//(?!/)[^\n]*", "", rs.read_text(encoding="utf-8"))
         for fm in re.finditer(
             r"((?:[ \t]*(?:///[^\n]*|#\[(?:[^\[\]]|\[[^\]]*\])*\])[ \t]*\n)*)"
-            r"[ \t]*(?:pub(?:\([^)]*\))? )?(?:const )?fn (\w+)\s*(?:<[^>]*>)?\s*\(([^)]*)\)(?:\s*->\s*([^{]+))?",
+            r"[ \t]*(?:pub(?:\([^)]*\))? )?(?:const )?fn (\w+)\s*(?:<[^>]*>)?\s*\(((?:[^()]|\([^()]*\))*)\)(?:\s*->\s*([^{]+))?",
             src,
         ):
             prelude, name, args, ret = fm.groups()
@@ -417,7 +434,7 @@ def rust_functions() -> dict:
             doc = clean_doc("\n".join(l for l in prelude.splitlines() if l.strip().startswith("///")))
             override, doc = pytype_override(doc)
             types = {}
-            for a in args.split(","):
+            for a in split_args(args):
                 a = a.strip()
                 if not a or ":" not in a or a.startswith(("py:", "_py:")):
                     continue
@@ -637,6 +654,7 @@ def render(classes, index=None, here: str = "", module=((), set())) -> str:
         "# Regenerate after changing any #[pyclass]:  python tools/gen_stubs.py",
         "",
         "import numpy  # noqa: F401",
+        "import os  # noqa: F401",
     ]
     out += imports
     out.append("")

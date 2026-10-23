@@ -3,6 +3,7 @@
 # Regenerate after changing any #[pyclass]:  python tools/gen_stubs.py
 
 import numpy  # noqa: F401
+import os  # noqa: F401
 from kalast.tpm.properties import Properties
 
 class Column:

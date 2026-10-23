@@ -3,6 +3,7 @@
 # Regenerate after changing any #[pyclass]:  python tools/gen_stubs.py
 
 import numpy  # noqa: F401
+import os  # noqa: F401
 from typing import Sequence
 
 class View:
@@ -28,7 +29,7 @@ class View:
     `weight`, 1 by default, the view's share against the others: a fraction
     each for images taken seconds apart under one geometry.
     """
-    def __init__(self, image: numpy.ndarray, position: Sequence[float] | numpy.ndarray, axes: Sequence[Sequence[float] | numpy.ndarray] | numpy.ndarray, focal: float, sun: Sequence[float] | numpy.ndarray, centre: Sequence[float] | numpy.ndarray | None = ..., valid: numpy.ndarray = ..., name: str = ..., weight: float = ...) -> None:
+    def __init__(self, image: numpy.ndarray, position: Sequence[float] | numpy.ndarray, axes: Sequence[Sequence[float] | numpy.ndarray] | numpy.ndarray, focal: float, sun: Sequence[float] | numpy.ndarray, centre: Sequence[float] | numpy.ndarray | None = ..., valid: numpy.ndarray | None = ..., name: str = ..., weight: float = ...) -> None:
         ...
     name: str
     width: int
@@ -58,7 +59,7 @@ class Maplet:
     given heights -- a synthetic terrain; `Maplet.from_surface` one over a
     shape model, to `solve` from images.
     """
-    def __init__(self, centre: Sequence[float] | numpy.ndarray, normal: Sequence[float] | numpy.ndarray, spacing: float, heights: numpy.ndarray, albedo: numpy.ndarray = ...) -> None:
+    def __init__(self, centre: Sequence[float] | numpy.ndarray, normal: Sequence[float] | numpy.ndarray, spacing: float, heights: numpy.ndarray, albedo: numpy.ndarray | None = ...) -> None:
         ...
     @staticmethod
     def from_surface(vertices: numpy.ndarray, indices: object, centre: Sequence[float] | numpy.ndarray, size: int, spacing: float, normal: Sequence[float] | numpy.ndarray | None = ...) -> Maplet:
@@ -189,7 +190,7 @@ class Surface:
         area.
         """
         ...
-    def sees(self, points: numpy.ndarray, normals: numpy.ndarray, position: Sequence[float] | numpy.ndarray, axes: Sequence[Sequence[float] | numpy.ndarray] | numpy.ndarray, focal: float, size: object) -> None:
+    def sees(self, points: numpy.ndarray, normals: numpy.ndarray, position: Sequence[float] | numpy.ndarray, axes: Sequence[Sequence[float] | numpy.ndarray] | numpy.ndarray, focal: float, size: tuple[int, int], sun: Sequence[float] | numpy.ndarray, centre: Sequence[float] | numpy.ndarray | None = ...) -> tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray, numpy.ndarray]:
         """What a camera sees of `points` `(n, 3)` on the surface, facing along
         `normals`: the camera as `View` takes it, without the image -- its
         `size` `(width, height)` in pixels. `(flags, scale, incidence,
@@ -247,7 +248,7 @@ class Hull:
     """Where each view's boresight falls, `(n, 2)` pixels, as `shift`
     left it.
     """
-    def add(self, view: object, threshold: float = ..., within: numpy.ndarray = ...) -> None:
+    def add(self, view: object, threshold: float = ..., within: tuple[numpy.ndarray, object] | None = ..., margin: float = ...) -> numpy.ndarray:
         """`view`'s silhouette added: what the hull takes of each pixel,
         `(height, width)` -- 1 the body, or what may be: lit (brighter than
         `threshold` of the image's lit ground, its 99.5th percentile), or
@@ -259,7 +260,7 @@ class Hull:
         sphere runs past its frame.
         """
         ...
-    def add_many(self, views: object, threshold: float = ..., within: numpy.ndarray = ...) -> None:
+    def add_many(self, views: Sequence[object], threshold: float = ..., within: tuple[numpy.ndarray, object] | None = ..., margin: float = ...) -> list[numpy.ndarray]:
         """`add` for each of `views`, over the machine's cores: their classes,
         in order.
         """
@@ -306,7 +307,7 @@ def align(a: numpy.ndarray, b: numpy.ndarray, search: int = ...) -> tuple[tuple[
     centre. Whole pixels within `search`, then to half a pixel.
     """
     ...
-def compose(vertices: numpy.ndarray, indices: object, maplets: object, spacing: float = ...) -> tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]:
+def compose(vertices: numpy.ndarray, indices: object, maplets: Sequence[object], spacing: float = ...) -> tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]:
     """The shape model `vertices` `(v, 3)`, `indices` `(f, 3)` or flat, with
     `maplets` in it, one mesh: `(vertices, indices, albedo)`. A point of the
     surface is the finest maplet's over it, and among those the one it is
@@ -319,7 +320,7 @@ def compose(vertices: numpy.ndarray, indices: object, maplets: object, spacing: 
     cells over the shape model are kept, where its `reference` is known.
     """
     ...
-def fuse(vertices: numpy.ndarray, indices: object, maplets: object, relax: int = ..., smooth: int = ..., step: float = ...) -> tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]:
+def fuse(vertices: numpy.ndarray, indices: object, maplets: Sequence[object], relax: int = ..., smooth: int = ..., step: float = ...) -> tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]:
     """The maplets' relief laid into the shape model itself, `vertices` `(v,
     3)`, `indices` `(f, 3)` or flat: each vertex moved along its own normal
     to where that line meets each maplet's surface over it, the maplets
@@ -334,7 +335,7 @@ def fuse(vertices: numpy.ndarray, indices: object, maplets: object, relax: int =
     maplets' summed weight, 0 where none is)`.
     """
     ...
-def merge(vertices: numpy.ndarray, indices: object, maplets: object, size: float, smooth: float = ..., relax: int = ..., depth: float = ...) -> tuple[numpy.ndarray, numpy.ndarray, PyDict]:
+def merge(vertices: numpy.ndarray, indices: object, maplets: Sequence[object], size: float, smooth: float = ..., relax: int = ..., depth: float = ...) -> tuple[numpy.ndarray, numpy.ndarray, PyDict]:
     """The maplets merged into a closed mesh made again, `(vertices, facets,
     report)` as `Hull.mesh` gives them: the surface where a field crosses
     zero -- each maplet's distance along its normal from its surface,

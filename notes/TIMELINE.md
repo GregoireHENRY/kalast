@@ -6706,3 +6706,22 @@ Open:
 - the primary's rotation subtracted for the reduced curve;
 - the model's level, 0.6-0.8 mag faint;
 - `kalast.shape`'s classes uncovered by `tests/test_stubs.py`.
+
+## 2026-10-23 — Photometry in one draw; Rc magnitudes; telescope frames on the GPU
+
+The user asked why the rendered flux drew the bodies a second time.
+Photometry is now the image itself:
+- with `photometry.enabled` the frame is drawn once, the photometric way --
+  floats, full meshes, facet normals -- shown, and summed;
+- the same fluxes to the last digit;
+- DART's finest shapes in 5.1 ms a frame, against 3.9 by levels of detail.
+
+The light-curve scripts plot Rc magnitudes, `Band("Rc").magnitude`: 16.7 to
+16.8 that night as measured, 20.8 reduced.
+
+Telescope frames are made on the GPU from the drawn frame's own light:
+`sim.expose`, `shaders/telescope.wgsl`. They are the same light as the
+CPU's pixel by pixel, with Poisson's noise. `telescope.py` draws the night
+and its 181 frames in 8.8 s, against 134 s on the CPU.
+
+The stub generator now reads tuple parameters and paths.

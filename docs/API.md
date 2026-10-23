@@ -2057,13 +2057,42 @@ red.mag, red.error, red.zero_point, red.comparisons
 
 AstroImageJ and astropy read the frames as they do a telescope's.
 
-`examples/lightcurve_didymos/telescope.py` makes Didymos's night of
-2022-11-18 through TRAPPIST-North and reduces it:
-- 181 frames of 90 s in Rc;
+**From a scene, on the GPU.** In a scene drawn for photometry, the frame's
+own light can make the telescope frame:
+
+```python
+sim.config.photometry.enabled = True
+sim.expose("out/frames/0001.fits", telescope.Exposure(start_iso, 90.0, ra0, dec0, airmass, seed=i),
+           (ra, dec), rate, r_au, delta_km, stars, camera, band, sky, effects, "(65803) Didymos")
+app.step()                                   # this frame's light, this telescope frame
+...
+sim.exposures_pending                        # asked, not yet written
+for iteration, path, flux, mag in sim.exposed():   # written since the last call
+    ...
+```
+
+The frame is asked of the frame the next step draws. That frame's summed
+light, kept on the GPU, is the target's. `shaders/telescope.wgsl` makes the
+frame from the same plan as `expose` (`telescope::Plan`): the target along
+its trail, the stars, the seeing, the sky, then the noise drawn on the GPU.
+The frame is read back a frame or two later, and its FITS written on a
+thread of its own, with `TARGMAG` the rendered magnitude.
+
+Without noise the two makers give the same light pixel by pixel, within a
+count rounding at peaks of 35,000; with it their noise is Poisson's
+(`tests/test_telescope_gpu.py`). An exposure asked without photometry is
+dropped, and the drop is said.
+
+`examples/lightcurve_didymos/telescope.py` draws Didymos's night of
+2022-11-18 as TRAPPIST-North recorded it, a frame each exposure, then
+reduces the frames from the files:
+- 181 frames of 90 s in Rc, made and written in 8.8 s with the scene drawn,
+  against 134 s for the CPU's frames from `kalast.lightcurve.flux`;
 - 119 comparison stars a frame;
-- 12.7 mmag a frame, the measured curve 12.7 mmag rms about the model;
-- the measured curve 3.8 mmag fainter than the model: the target trails
-  against the stars and loses that much more outside a 7-pixel aperture.
+- 12.7 mmag a frame;
+- the measured curve 3.8 mmag fainter than the rendered one: the target
+  trails against the stars, and loses that much more outside a 7-pixel
+  aperture.
 
 Not modelled: flat fields, fringing, cosmic rays, a sky changing through
 the night, colour terms, a frame's rotation.

@@ -322,6 +322,70 @@ The second draw cost both, about 9 ms a frame with the finest shapes.
 The level is some 0.7 mag fainter than Didymos was, from the albedo
 Buratti et al.'s law gives.
 
+## Telescope frames on the GPU
+
+The user: "how telescope.py creates frames without kalast on CPU, shouldnt
+this be on GPU/shaders as well and being rendered?", then of the frames
+made on the GPU from the rendered light: "yes, thats why we have the
+GPU/shaders for".
+
+The target is unresolved -- the pair spans 22 mas, a 27th of a 0.60" pixel
+-- so a frame is the drawn frame's light at the telescope's scale. A raster
+there would sample one point of a pixel the system lies inside. So:
+- `sim.expose(...)` asks for an exposure of the frame the next step draws;
+- that frame, drawn for photometry, is summed as always, and the sum stays
+  on the GPU;
+- `shaders/telescope.wgsl`:
+  - `cs_light` adds the tiles into the target's light;
+  - `cs_splat` spreads the target along its trail and the stars by
+    Moffat's profile, 5 x 5 a pixel, into electrons times 256 through
+    `atomicAdd`, a source's share of a pixel capped at 10^6 e-;
+  - `cs_read` draws each pixel's photon noise (Knuth under 10, PTRS in f32
+    to 1000, a rounded normal above), the read noise, the full well, the
+    gain, the bias and the ADC's clip, from PCG's hash per pixel and draw;
+- `app::telescope` reads the frame back a frame or two later without
+  waiting, in a ring of three, and writes its FITS on a thread of its own,
+  `TARGMAG` and `TARGFLUX` the rendered light's.
+
+The frame is set out by `telescope::Plan`, the CPU's `expose` split for it,
+and `telescope::header` likewise. The two makers differ in their noise's
+draws alone; a seed gives the CPU frames it gave before.
+
+An exposure asked without photometry is dropped and said: nothing would
+ever take it, and a script waiting on `exposures_pending` would wait
+forever.
+
+**Checked**, `tests/test_telescope_gpu.py` and in scratch:
+- without noise, GPU and CPU frames of one plan within a count rounding at
+  peaks of 35,144, their total light 1.4e-6 apart;
+- the sky's clipped mean and scatter as expected: 1319.6 +- 18.26 ADU
+  against 1319.1 +- 18.18;
+- the photon noise Poisson's, its variance over mean 0.995 to 1.001 from
+  5 to 5000 e-;
+- the target's own noise over 300 frames, 0.987 of Poisson's;
+- the reduction's pulls over 200 frames, every effect on: sd 0.96 on the
+  GPU's, 0.92 on the CPU's.
+
+On the way, the night showed a pull sd of 1.10, and 40 frames 0.81: each
+about two standard errors from 1, and the 200 and 300 frames' runs settle
+them.
+
+**`telescope.py`** draws the night with photometry on, an exposure a step:
+- 181 frames, made, written and reduced in 8.8 s, against 134 s on the CPU;
+- 12.7 mmag a frame and 119 comparison stars, as before;
+- the measured Rc beside the rendered Rc on one absolute scale, 3.8 mmag
+  fainter for the trail.
+
+![The night drawn, its frames made on the GPU, reduced, beside the rendered light](telescope_night_gpu.png)
+
+**The stub generator** cut a function's parameters at their first `)`, so
+a tuple, `rate: (f64, f64)`, ended them: `Source(...)` lost `comparison`,
+`reduce` returned `None`, and `sim.expose` had three parameters of twelve.
+It now nests a level of parentheses, splits parameters at top-level commas,
+and maps `PathBuf` to `str | os.PathLike[str]`. The same fix completed
+signatures in `kalast.mesh`, `kalast.shape` and `kalast.routines`
+(`Surface.add` its `margin` and return, `Surface.sees` its `sun`).
+
 ## Open
 
 - `kalast.shape`'s six classes uncovered in `tests/test_stubs.py`, from

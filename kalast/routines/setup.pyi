@@ -3,6 +3,7 @@
 # Regenerate after changing any #[pyclass]:  python tools/gen_stubs.py
 
 import numpy  # noqa: F401
+import os  # noqa: F401
 from typing import Any, Sequence
 from kalast.mesh import Mesh
 
@@ -43,7 +44,7 @@ class Body:
     def orbit_axis(self, value: Sequence[float] | numpy.ndarray) -> None: ...
 
 class BodyDataMap:
-    def __init__(self, temperatures: Sequence[numpy.ndarray], thermal_properties_all: int, thermal_properties_map: object) -> None:
+    def __init__(self, temperatures: Sequence[numpy.ndarray], thermal_properties_all: int, thermal_properties_map: Sequence[tuple[int, int]]) -> None:
         ...
     @property
     def temperatures(self) -> list[numpy.ndarray]:
@@ -51,7 +52,11 @@ class BodyDataMap:
     @temperatures.setter
     def temperatures(self, value: Sequence[numpy.ndarray]) -> None: ...
     thermal_properties_all: int
-    thermal_properties_map: list[tuple[int, int]]
+    @property
+    def thermal_properties_map(self) -> list[tuple[int, int]]:
+        ...
+    @thermal_properties_map.setter
+    def thermal_properties_map(self, value: Sequence[tuple[int, int]]) -> None: ...
 
 class Setup:
     def __init__(self) -> None:

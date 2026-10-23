@@ -1259,6 +1259,9 @@ pub struct Window {
     photometry_tag: Option<(u64, f64)>,
     /// Photometry asked of a perspective camera, said once.
     photometry_warned: bool,
+    /// Telescope frames asked of this frame, set in `update`, taken by
+    /// `render`.
+    telescope_requests: Vec<super::telescope::Request>,
     /// A traced frame drawn whole, being timed: when it was sent, and when the
     /// GPU finished it, set by the queue's callback.
     traced_probe: Option<(std::time::Instant, std::sync::Arc<std::sync::Mutex<Option<std::time::Instant>>>)>,
@@ -1787,6 +1790,7 @@ impl Window {
             traced_ms: 0.0,
             photometry_tag: None,
             photometry_warned: false,
+            telescope_requests: Vec::new(),
             traced_probe: None,
             held: None,
             facet_wanted: Vec::new(),
@@ -2411,6 +2415,18 @@ impl Window {
         }
     }
 
+    /// After a frame: the telescope frames read back since the last, their
+    /// files being written (`app::telescope`). Never waits.
+    pub fn telescope_after_frame(&mut self, simulation: &mut crate::app::simulation::Simulation) {
+        if let Some(telescope) = self.passes.telescope.as_mut() {
+            let got = telescope.after_frame(&self.device);
+            simulation.exposed.extend(got);
+            simulation.exposures_pending = telescope.pending() + simulation.exposures.len();
+        } else {
+            simulation.exposures_pending = simulation.exposures.len();
+        }
+    }
+
     /// After a frame shown through a stretch: its limits as last read back,
     /// for the UI and `sim.stretch_limits`, the next read started. Never
     /// waits.
@@ -2731,9 +2747,25 @@ impl Window {
         // simulation -- one flux an iteration -- and the camera is
         // orthographic, its pixels all one area.
         self.photometry_tag = None;
+        if !config.photometry.enabled && !simulation.exposures.is_empty() {
+            eprintln!("telescope: {} exposures asked without photometry.enabled, their light unmeasured: dropped", simulation.exposures.len());
+            simulation.exposures.clear();
+        }
         if config.photometry.enabled && !simulation.state.held {
             match simulation.camera.projection.pixel_area(self.render_size.1) {
-                Some(area) => self.photometry_tag = Some((simulation.state.iteration as u64, area as f64)),
+                Some(area) => {
+                    let iteration = simulation.state.iteration as u64;
+                    self.photometry_tag = Some((iteration, area as f64));
+                    // The telescope frames asked of this frame; any asked of
+                    // a frame that was not measured are said and dropped.
+                    let (now, rest): (Vec<_>, Vec<_>) = simulation.exposures.drain(..).partition(|r| r.iteration == iteration);
+                    let stale = rest.iter().filter(|r| r.iteration < iteration).count();
+                    if stale > 0 {
+                        eprintln!("telescope: {stale} exposures asked of frames not measured, dropped");
+                    }
+                    simulation.exposures = rest.into_iter().filter(|r| r.iteration > iteration).collect();
+                    self.telescope_requests = now;
+                }
                 None if !self.photometry_warned => {
                     self.photometry_warned = true;
                     eprintln!("photometry: the camera is perspective, its pixels of many areas; frames are measured with an orthographic one");
@@ -4061,8 +4093,10 @@ impl Window {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
-        // This frame measured for its light, when it is (`update`).
+        // This frame measured for its light, when it is (`update`), and the
+        // telescope frames asked of it.
         self.passes.photometry_tag = self.photometry_tag.take();
+        self.passes.telescope_requests = std::mem::take(&mut self.telescope_requests);
         self.passes.render(
             &self.device,
             &self.queue,

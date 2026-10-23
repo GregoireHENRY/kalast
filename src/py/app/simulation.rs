@@ -280,6 +280,63 @@ impl Simulation {
         self.inner.borrow().photometry_pending
     }
 
+    /// Ask for a telescope's frame of the frame this step draws, written to
+    /// `path` as FITS a frame or two later: the target's light the frame's
+    /// own photometry (`config.photometry.enabled`), the frame made on the
+    /// GPU -- the target spread along its trail and the field's `stars` by
+    /// the seeing, the sky, the noise -- as `kalast.telescope.expose` makes
+    /// one on the CPU. `target` is where the target is (degrees) and `rate`
+    /// how it moves (arcsec/s east and north), `r` its distance from the Sun
+    /// in au and `delta` from the observer in km. TRAPPIST-North, Cousins R
+    /// and a dark night at Oukaimeden unless `telescope`, `band`, `sky` say
+    /// otherwise; every effect unless `effects` switches some off.
+    #[pyo3(signature = (path, exposure, target, rate, r, delta, stars, telescope = None, band = None, sky = None, effects = None, object = ""))]
+    #[allow(clippy::too_many_arguments)]
+    fn expose(
+        &self,
+        path: std::path::PathBuf,
+        exposure: crate::telescope::Exposure,
+        target: (f64, f64),
+        rate: (f64, f64),
+        r: f64,
+        delta: f64,
+        stars: Vec<crate::telescope::Source>,
+        telescope: Option<crate::telescope::Telescope>,
+        band: Option<crate::telescope::Band>,
+        sky: Option<crate::telescope::Sky>,
+        effects: Option<crate::telescope::Effects>,
+        object: &str,
+    ) {
+        self.inner.borrow_mut().expose(crate::app::telescope::Request {
+            iteration: 0,
+            path,
+            telescope: telescope.unwrap_or_default(),
+            band: band.unwrap_or_else(|| crate::telescope::Band::named("Rc").expect("Rc is a band")),
+            sky: sky.unwrap_or_default(),
+            effects: effects.unwrap_or_default(),
+            exposure,
+            target: crate::telescope::Source { ra: target.0, dec: target.1, mag: f64::NAN, rate, comparison: false },
+            r,
+            delta,
+            stars,
+            object: object.to_string(),
+        });
+    }
+
+    #[getter]
+    /// Telescope frames asked and not yet written (`expose`).
+    fn exposures_pending(&self) -> usize {
+        self.inner.borrow().exposures_pending
+    }
+
+    /// The telescope frames written since the last call (`expose`):
+    /// `(iteration, path, flux, mag)` in the order of their iterations,
+    /// `flux` the target's rendered light and `mag` its magnitude above the
+    /// atmosphere in the band.
+    fn exposed(&self) -> Vec<(u64, std::path::PathBuf, f64, f64)> {
+        self.inner.borrow_mut().take_exposed().into_iter().map(|e| (e.iteration, e.path, e.flux, e.mag)).collect()
+    }
+
     /// Stop a reference image's sum where it is, after this frame: the mean
     /// so far is the image (`reference_image`), done -- as the UI's stop
     /// button does. Nothing once done.

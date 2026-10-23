@@ -234,11 +234,11 @@ Look at [res/README.md](../res/README.md) to get Hera data.
       each frame's light summed on the GPU from the frame itself
       (`config.photometry`), the plot written and opened at the night's end.
     - [lightcurve_didymos/telescope.py](lightcurve_didymos/telescope.py):
-      the night as TRAPPIST-North recorded it -- a FITS frame each exposure,
-      the field's stars from Gaia, every effect of a real frame switchable
-      (`kalast.telescope`) -- and its reduction from the frames: aperture
-      photometry against the comparison stars, the light curve beside the
-      model.
+      the night as TRAPPIST-North recorded it -- drawn for photometry, each
+      frame's own light making a FITS frame on the GPU (`sim.expose`), the
+      field's stars from Gaia, every effect of a real frame switchable --
+      and its reduction from the frames: aperture photometry against the
+      comparison stars, the measured Rc beside the rendered.
 - [hera_didymos](hera_didymos):
     - [hera_didymos/afc.py](hera_didymos/afc.py):
         - Load Didymos/Dimorphos/Sun/Earth in AFC FOV frame centered on AFC

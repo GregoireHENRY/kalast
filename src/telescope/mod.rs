@@ -296,87 +296,110 @@ pub fn scintillation(aperture: f64, airmass: f64, altitude: f64, exposure: f64) 
     0.09 * (aperture * 100.0).powf(-2.0 / 3.0) * airmass.powf(1.75) * (-altitude / 8000.0).exp() / (2.0 * exposure).sqrt()
 }
 
-/// A frame of `target` and `stars` through `telescope`, in counts (ADU) as
-/// its camera would store them. Its header says when, through what, under
-/// which sky, where the target was predicted (`TARGRA`, `TARGDEC`), and
-/// which effects it has.
+/// A frame set out: what its two makers -- [`expose`] on the CPU and the
+/// renderer's on the GPU (`app::telescope`) -- start from alike.
+#[derive(Debug, Clone)]
+pub struct Plan {
+    pub wcs: Wcs,
+    /// Electrons a pixel from the sky and the dark current, on average.
+    pub background: f64,
+    /// The stars' and the target's spread; `None` without seeing.
+    pub psf: Option<Moffat>,
+    /// The stars on the frame's plane: their pixel and their electrons,
+    /// extinction and scintillation taken.
+    pub stars: Vec<(f64, f64, f64)>,
+    /// The target's trail, its ends in pixels -- one point without a trail;
+    /// `None` behind the frame's plane.
+    pub trail: Option<((f64, f64), (f64, f64))>,
+    /// The target's electrons for a magnitude of 0 above the atmosphere:
+    /// the telescope's rate, the exposure, its extinction and its
+    /// scintillation.
+    pub target_zero: f64,
+}
+
+impl Plan {
+    /// The frame's plan; `rng` draws the stars' scintillation, then the
+    /// target's, and goes on to the pixels' noise.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        telescope: &Telescope,
+        band: &Band,
+        sky: &Sky,
+        effects: &Effects,
+        exposure: &Exposure,
+        target: &Source,
+        stars: &[Source],
+        rng: &mut Rng,
+    ) -> Self {
+        let t = exposure.duration;
+        let wcs = Wcs::centred(exposure.ra, exposure.dec, telescope.width, telescope.height, telescope.pixel_scale);
+        let zero = telescope.zero_rate(band);
+        let dimming = if effects.extinction { sky.extinction * exposure.airmass } else { 0.0 };
+        let flicker = if effects.scintillation {
+            scintillation(telescope.aperture, exposure.airmass, sky.altitude, t)
+        } else {
+            0.0
+        };
+        let scale = |rng: &mut Rng| {
+            let e = zero * 10f64.powf(-0.4 * dimming) * t;
+            if flicker > 0.0 { e * (1.0 + flicker * rng.normal()).max(0.0) } else { e }
+        };
+        let mut background = 0.0;
+        if effects.sky {
+            background += zero * 10f64.powf(-0.4 * sky.brightness) * telescope.pixel_scale.powi(2) * t;
+        }
+        if effects.dark {
+            background += telescope.dark * t;
+        }
+        let mut placed = Vec::new();
+        if effects.stars {
+            for star in stars {
+                if let Some((x, y)) = wcs.pixel(star.ra, star.dec) {
+                    placed.push((x, y, scale(rng) * 10f64.powf(-0.4 * star.mag)));
+                }
+            }
+        }
+        let target_zero = scale(rng);
+        // The tracking follows the stars: the target runs from where it was
+        // at the start to where it is at the end, about mid-exposure.
+        let half = if effects.trail { 0.5 * t } else { 0.0 };
+        let at = |s: f64| {
+            let dec = target.dec + target.rate.1 * s / 3600.0;
+            let ra = target.ra + target.rate.0 * s / 3600.0 / target.dec.to_radians().cos();
+            wcs.pixel(ra, dec)
+        };
+        let trail = at(-half).zip(at(half));
+        Self {
+            wcs,
+            background,
+            psf: effects.psf.then(|| Moffat::from_fwhm(sky.seeing / telescope.pixel_scale, sky.beta)),
+            stars: placed,
+            trail,
+            target_zero,
+        }
+    }
+
+    /// The target's electrons at `mag` above the atmosphere.
+    pub fn target_electrons(&self, mag: f64) -> f64 {
+        self.target_zero * 10f64.powf(-0.4 * mag)
+    }
+}
+
+/// A frame's header: when, through what, under which sky, where the target
+/// was predicted (`TARGRA`, `TARGDEC`) and how bright (`TARGMAG`), which
+/// effects it has, and its WCS.
 #[allow(clippy::too_many_arguments)]
-pub fn expose(
+pub fn header(
     telescope: &Telescope,
     band: &Band,
     sky: &Sky,
     effects: &Effects,
     exposure: &Exposure,
     target: &Source,
-    stars: &[Source],
     object: &str,
-) -> fits::Image {
-    let (w, h) = (telescope.width, telescope.height);
+    wcs: &Wcs,
+) -> fits::Header {
     let t = exposure.duration;
-    let wcs = Wcs::centred(exposure.ra, exposure.dec, w, h, telescope.pixel_scale);
-    let mut rng = Rng::new(exposure.seed);
-    let zero = telescope.zero_rate(band);
-    let dimming = if effects.extinction { sky.extinction * exposure.airmass } else { 0.0 };
-    let flicker = if effects.scintillation {
-        scintillation(telescope.aperture, exposure.airmass, sky.altitude, t)
-    } else {
-        0.0
-    };
-    let psf = effects.psf.then(|| Moffat::from_fwhm(sky.seeing / telescope.pixel_scale, sky.beta));
-    let electrons = |mag: f64, rng: &mut Rng| {
-        let e = zero * 10f64.powf(-0.4 * (mag + dimming)) * t;
-        if flicker > 0.0 { e * (1.0 + flicker * rng.normal()).max(0.0) } else { e }
-    };
-
-    // The light each pixel collects, in electrons on average.
-    let mut image = vec![0.0f64; w * h];
-    if effects.sky {
-        let per_pixel = zero * 10f64.powf(-0.4 * sky.brightness) * telescope.pixel_scale.powi(2) * t;
-        image.iter_mut().for_each(|e| *e += per_pixel);
-    }
-    if effects.dark {
-        image.iter_mut().for_each(|e| *e += telescope.dark * t);
-    }
-    if effects.stars {
-        for star in stars {
-            if let Some((x, y)) = wcs.pixel(star.ra, star.dec) {
-                let e = electrons(star.mag, &mut rng);
-                psf::add(&mut image, w, h, x, y, e, psf.as_ref());
-            }
-        }
-    }
-    let e = electrons(target.mag, &mut rng);
-    // The tracking follows the stars: the target runs from where it was at
-    // the start to where it is at the end, about mid-exposure.
-    let half = if effects.trail { 0.5 * t } else { 0.0 };
-    let at = |s: f64| {
-        let dec = target.dec + target.rate.1 * s / 3600.0;
-        let ra = target.ra + target.rate.0 * s / 3600.0 / target.dec.to_radians().cos();
-        wcs.pixel(ra, dec)
-    };
-    if let (Some(a), Some(b)) = (at(-half), at(half)) {
-        psf::add_trail(&mut image, w, h, a, b, e, psf.as_ref());
-    }
-
-    // What the camera reads.
-    let data: Vec<f32> = image
-        .iter()
-        .map(|&mean| {
-            let mut e = if effects.photon_noise { rng.poisson(mean) } else { mean };
-            if effects.saturation {
-                e = e.min(telescope.full_well);
-            }
-            if effects.read_noise {
-                e += telescope.read_noise * rng.normal();
-            }
-            let mut adu = e / telescope.gain + if effects.bias { telescope.bias } else { 0.0 };
-            if effects.saturation {
-                adu = adu.clamp(0.0, 65535.0);
-            }
-            adu as f32
-        })
-        .collect();
-
     let mut header = fits::Header::default();
     header.set("OBJECT", object, "");
     header.set("TELESCOP", telescope.name.as_str(), "");
@@ -402,6 +425,54 @@ pub fn expose(
     header.set("EFFECTS", effects.names().join(" "), "kalast's");
     header.set("ORIGIN", "kalast", "a simulated frame");
     wcs.header(&mut header);
+    header
+}
+
+/// A frame of `target` and `stars` through `telescope`, in counts (ADU) as
+/// its camera would store them, made on the CPU; its [`header`].
+#[allow(clippy::too_many_arguments)]
+pub fn expose(
+    telescope: &Telescope,
+    band: &Band,
+    sky: &Sky,
+    effects: &Effects,
+    exposure: &Exposure,
+    target: &Source,
+    stars: &[Source],
+    object: &str,
+) -> fits::Image {
+    let (w, h) = (telescope.width, telescope.height);
+    let mut rng = Rng::new(exposure.seed);
+    let plan = Plan::new(telescope, band, sky, effects, exposure, target, stars, &mut rng);
+
+    // The light each pixel collects, in electrons on average.
+    let mut image = vec![plan.background; w * h];
+    for &(x, y, e) in &plan.stars {
+        psf::add(&mut image, w, h, x, y, e, plan.psf.as_ref());
+    }
+    if let Some((a, b)) = plan.trail {
+        psf::add_trail(&mut image, w, h, a, b, plan.target_electrons(target.mag), plan.psf.as_ref());
+    }
+
+    // What the camera reads.
+    let data: Vec<f32> = image
+        .iter()
+        .map(|&mean| {
+            let mut e = if effects.photon_noise { rng.poisson(mean) } else { mean };
+            if effects.saturation {
+                e = e.min(telescope.full_well);
+            }
+            if effects.read_noise {
+                e += telescope.read_noise * rng.normal();
+            }
+            let mut adu = e / telescope.gain + if effects.bias { telescope.bias } else { 0.0 };
+            if effects.saturation {
+                adu = adu.clamp(0.0, 65535.0);
+            }
+            adu as f32
+        })
+        .collect();
+    let header = header(telescope, band, sky, effects, exposure, target, object, &plan.wcs);
     fits::Image { width: w, height: h, data, header }
 }
 

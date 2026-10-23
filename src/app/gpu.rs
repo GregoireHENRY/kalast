@@ -86,6 +86,10 @@ pub const SHADER_STRETCH: wgpu::ShaderModuleDescriptor =
 pub const SHADER_PHOTOMETRY: wgpu::ShaderModuleDescriptor =
     wgpu::include_wgsl!("../../shaders/photometry.wgsl");
 
+/// A telescope's frame from the rendered light (`app::telescope`).
+pub const SHADER_TELESCOPE: wgpu::ShaderModuleDescriptor =
+    wgpu::include_wgsl!("../../shaders/telescope.wgsl");
+
 /// Ray-traced shadows (`app::raytrace`): made only on a device with ray
 /// queries, since it does not compile elsewhere.
 pub const SHADER_RAYTRACE: wgpu::ShaderModuleDescriptor =

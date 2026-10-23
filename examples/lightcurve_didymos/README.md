@@ -48,12 +48,13 @@ al. (2024)'s Hapke law, what each body shadows or hides of the other exact.
   `MAGNITUDES` as in `lightcurve.py`; the rendered light agrees with
   `lightcurve.py`'s within 0.2 mmag rms.
 - [telescope.py](telescope.py): the night as TRAPPIST-North recorded it, and
-  its reduction. Each 2 minutes a 90 s exposure in Rc, written as a FITS
-  frame, the field's stars from Gaia and the target at its light. The
+  its reduction. The night is drawn for photometry, a frame each 2 minutes.
+  Each frame's own light makes a 90 s exposure in Rc on the GPU
+  (`sim.expose`), the field's stars from Gaia, written as a FITS frame. The
   frames are then read back and reduced as a real night's are: the target
-  in an aperture, the zero point from the comparison stars, the light curve
-  plotted beside the model. Every effect of the frames is in `EFFECTS`, all
-  on by default; `SHAPES` as in `lightcurve.py`.
+  in an aperture, the zero point from the comparison stars. The measured Rc
+  is plotted beside the rendered Rc. Every effect of the frames is in
+  `EFFECTS`, all on by default; `SHAPES` as in `scene.py`.
 - [kernels.tm](kernels.tm): the SPICE kernels the scripts load.
 
 ![The night with DART's shapes and with spheroids](../../notes/2026-10-22_lightcurve_plot/didymos_2022-11-18.png)
@@ -103,7 +104,7 @@ From kalast's folder, where the scripts name their files from:
 python examples/lightcurve_didymos/lightcurve.py         # the light curve: 32 s (spheroids) to 90 s (DART's shapes)
 python examples/lightcurve_didymos/scene.py              # the night drawn
 python examples/lightcurve_didymos/scene_lightcurve.py   # both: the plot at the night's end, 25 s
-python examples/lightcurve_didymos/telescope.py          # the frames, then their reduction: 2 min
+python examples/lightcurve_didymos/telescope.py          # the night drawn and its frames, then their reduction: 9 s and 1.4 GB
 ```
 
 A plot window cannot open in a process where kalast's window has opened --

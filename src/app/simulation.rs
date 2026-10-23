@@ -93,6 +93,13 @@ pub struct Simulation {
     pub photometry_last: Option<crate::app::photometry::Flux>,
     /// Readbacks of fluxes still in flight, set by the window each frame.
     pub photometry_pending: usize,
+    /// Telescope frames asked of the frames to come (`app::telescope`), each
+    /// tagged with the iteration whose frame makes it.
+    pub exposures: Vec<crate::app::telescope::Request>,
+    /// Those written since `take_exposed`, and those still being made,
+    /// read or written, set by the window each frame.
+    pub exposed: Vec<crate::app::telescope::Exposed>,
+    pub exposures_pending: usize,
     /// Whether this frame's shadows, the image's and the per-facet query's,
     /// were traced with rays:
     /// `shadows.method` "rays" and the GPU able to, set by the window each frame.
@@ -189,6 +196,20 @@ impl Simulation {
         std::mem::take(&mut self.fluxes)
     }
 
+    /// Ask for a telescope's frame of the frame this iteration draws
+    /// (`app::telescope`): its light the frame's photometry. Needs
+    /// `config.photometry`.
+    pub fn expose(&mut self, mut request: crate::app::telescope::Request) {
+        request.iteration = self.state.iteration as u64;
+        self.exposures.push(request);
+    }
+
+    /// The frames written since the last call, in the order of their
+    /// iterations.
+    pub fn take_exposed(&mut self) -> Vec<crate::app::telescope::Exposed> {
+        std::mem::take(&mut self.exposed)
+    }
+
     pub fn new() -> Self {
         let mut sun = crate::app::frame::Eye::new();
         sun.projection.mode = crate::app::frame::ProjectionMode::Orthographic;
@@ -225,6 +246,9 @@ impl Simulation {
             fluxes: Vec::new(),
             photometry_last: None,
             photometry_pending: 0,
+            exposures: Vec::new(),
+            exposed: Vec::new(),
+            exposures_pending: 0,
             diagnostics: Diagnostics::default(),
             image_size: (0, 0),
             value_range: (0.0, 1.0),

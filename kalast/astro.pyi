@@ -3,6 +3,7 @@
 # Regenerate after changing any #[pyclass]:  python tools/gen_stubs.py
 
 import numpy  # noqa: F401
+import os  # noqa: F401
 
 class Orbit:
     """An orbit about the Sun from two of its elements: `a`, the semi-major axis

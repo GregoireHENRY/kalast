@@ -465,6 +465,13 @@ impl Photometry {
         out
     }
 
+    /// This frame's sums -- one pair a tile, the tile's and its edge's --
+    /// and how many: what a telescope's frame takes its target's light from
+    /// (`app::telescope`), in the same encoder.
+    pub fn tiles(&self) -> Option<(&wgpu::Buffer, u32)> {
+        self.target.as_ref().map(|t| (&t.tiles, t.tiles_xy.0 * t.tiles_xy.1))
+    }
+
     /// Readbacks still in flight.
     pub fn pending(&self) -> usize {
         self.target.as_ref().map_or(0, |t| t.slots.iter().filter(|s| !matches!(s.state, State::Free)).count())

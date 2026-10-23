@@ -3,6 +3,7 @@
 # Regenerate after changing any #[pyclass]:  python tools/gen_stubs.py
 
 import numpy  # noqa: F401
+import os  # noqa: F401
 
 class Properties:
     def __init__(self, albedo: float = ..., emissivity: float = ..., density: float = ..., heat_capacity: float = ..., thermal_inertia: float = ..., conductivity: float = ..., diffusivity: float = ...) -> None:

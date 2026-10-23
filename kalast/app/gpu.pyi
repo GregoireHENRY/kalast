@@ -3,10 +3,11 @@
 # Regenerate after changing any #[pyclass]:  python tools/gen_stubs.py
 
 import numpy  # noqa: F401
+import os  # noqa: F401
 from typing import Sequence
 
 class InstanceInput:
-    def __init__(self, mat: object = ...) -> None:
+    def __init__(self, mat: numpy.ndarray | None = ...) -> None:
         ...
     mat: numpy.ndarray
     def set_mat(self, arr: Sequence[Sequence[float] | numpy.ndarray] | numpy.ndarray) -> None:

@@ -3,6 +3,7 @@
 # Regenerate after changing any #[pyclass]:  python tools/gen_stubs.py
 
 import numpy  # noqa: F401
+import os  # noqa: F401
 from typing import Sequence
 from kalast.scattering import Atmosphere
 from kalast.scattering import Hapke

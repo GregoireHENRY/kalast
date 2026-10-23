@@ -21,6 +21,7 @@ pub mod gpu_timing;
 pub mod occlusion;
 pub mod pass;
 pub mod photometry;
+pub mod telescope;
 pub mod raytrace;
 pub mod reference;
 pub mod response;
@@ -3731,6 +3732,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         // A stretch's limits, read back a frame or so late.
                         win.stretch_after_frame(&mut sim);
                         win.photometry_after_frame(&mut sim);
+                        win.telescope_after_frame(&mut sim);
                     }
 
                     // Asked of a frame once it is drawn; left undrawn, the
