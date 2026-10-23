@@ -10,6 +10,7 @@ import spiceypy as spice
 import kalast.app
 import kalast.mesh
 import kalast.plot
+import kalast.telescope
 from kalast.app import App
 from kalast.lightcurve import flux
 from kalast.scattering import Hapke
@@ -41,8 +42,11 @@ SHAPES = "ellipsoids"
 
 # options:
 # - apparent: as the observatory measured it, the distances and the phase angle as they were
-# - reduced: at unit distances and one phase angle, as Pravec et al. (2022) and Scheirich et al. (2024) give theirs
-MAGNITUDES = "apparent"
+# - reduced: at 1 au from the Sun and the observer and the night's mean phase angle, as Pravec et al. (2022)
+#   and Scheirich et al. (2024) give theirs
+MAGNITUDES = "reduced"
+# In this band: the Sun's magnitude in it, Cousins R.
+BAND = kalast.telescope.Band("Rc")
 
 SITE =(-7.8664, 31.20622, 2.751)  # TRAPPIST-North: longitude, latitude (deg), altitude (km)
 START, END = "2022-11-18T00:30", "2022-11-18T06:30"  # UTC
@@ -54,6 +58,7 @@ DISTANCE = 20.0  # km: the camera on the line to the observatory, this far out
 LAW = Hapke(w=0.126, b=0.36, c=1.0, b0=0.97, h=0.020, theta_bar=18.0 * RPD, k=1.0)
 
 PLOT = "out/lightcurve_didymos.png"
+AU = 149597870.7  # km
 
 app = App()
 sim = app.simulation
@@ -61,8 +66,6 @@ sim.config.wireframe.mode = 0
 sim.config.shading.srgb_mode = "linear"  # a pixel is exposure x I/F x 255
 sim.config.light.exposure = 20.0
 sim.config.huds = [kalast.app.Hud("")]
-sim.state.rate_limited = True
-sim.state.rate_limit = 30.0  # frames a second
 sim.config.photometry.enabled = True  # each frame's light, from the frame itself
 
 stretch = [numpy.ones(3), numpy.ones(3)]
@@ -98,7 +101,7 @@ midnight = spice.str2et(START[:10])
 # The light curve, made as the night is drawn: each frame's light summed on
 # the GPU from the frame itself -- its shadows, the bodies' law -- and read
 # back a frame or two later, by iteration.
-times, scale, light = {}, {}, {}
+times, seen_from, light = {}, {}, {}
 cut = set()  # frames whose edge cut a lit body: its light short
 plotted = False
 et = et0
@@ -112,12 +115,18 @@ while app.running:
     # The night drawn and all its light back: the light curve, once.
     if not plotted and et > etf and sim.fluxes_pending == 0:
         its = [i for i in sorted(times) if i in light]
-        fluxes = numpy.array([light[i] * scale[i] for i in its])
-        magnitude = -2.5 * numpy.log10(fluxes / fluxes.mean())  # about the night's mean
-        plt.plot((numpy.array([times[i] for i in its]) - midnight) / 3600, magnitude * 1000, "k+")
+        # The system's magnitude in the band: the Sun's light at r, seen from
+        # delta; or at 1 au from both, the law's phase curve -- a sphere's
+        # light -- taken out to the night's mean phase angle.
+        if MAGNITUDES == "apparent":
+            magnitude = [BAND.magnitude(light[i], seen_from[i][0], seen_from[i][1]) for i in its]
+        else:
+            mean = numpy.mean([seen_from[i][2] for i in its])
+            magnitude = [BAND.magnitude(light[i] * mean / seen_from[i][2], 1.0, AU) for i in its]
+        plt.plot((numpy.array([times[i] for i in its]) - midnight) / 3600, magnitude, "k+")
         plt.gca().invert_yaxis()  # brighter up
         plt.xlabel("UTC (h)")
-        plt.ylabel("Relative magnitude (mmag)")
+        plt.ylabel(f"{BAND.name} (mag)")
         plt.title(f"Didymos and Dimorphos from TRAPPIST-North, {START[:10]}, {SHAPES}, {MAGNITUDES}")
         os.makedirs(os.path.dirname(PLOT), exist_ok=True)
         plt.savefig(PLOT, dpi=120)
@@ -163,13 +172,11 @@ while app.running:
     to_sun = numpy.array(spice.spkpos("SUN", te, "J2000", "NONE", "DIDYMOS_BARYCENTER")[0])
     sim.sun.pos = to_sun.tolist()
 
-    # This frame's light, measured as it is drawn, and what it is scaled by.
+    # This frame's light, measured as it is drawn; its distances, and a
+    # sphere's light under the same law, the law's phase curve.
     times[sim.state.iteration] = et
-    if MAGNITUDES == "apparent":
-        scale[sim.state.iteration] = 1 / (numpy.linalg.norm(to_sun) * delta) ** 2  # the Sun's light at r, seen from delta
-    else:
-        # At one phase angle: the law's phase curve, a sphere's light, taken out.
-        scale[sim.state.iteration] = 1 / flux(sphere.positions, sphere.indices, to_sun, to_site, LAW, shadowing=False, visibility=False).flux
+    phase = flux(sphere.positions, sphere.indices, to_sun, to_site, LAW, shadowing=False, visibility=False).flux
+    seen_from[sim.state.iteration] = (numpy.linalg.norm(to_sun) / AU, delta, phase)
 
     # The camera on the line to the observatory, celestial north up.
     sim.camera.pos = (to_site * DISTANCE).tolist()

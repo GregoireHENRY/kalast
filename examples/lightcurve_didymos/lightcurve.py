@@ -9,6 +9,7 @@ import spiceypy as spice
 
 import kalast.mesh
 import kalast.plot
+import kalast.telescope
 from kalast.lightcurve import flux
 from kalast.scattering import Hapke
 from kalast.util import RPD
@@ -40,8 +41,11 @@ SHAPES = "ellipsoids"
 
 # options:
 # - apparent: as the observatory measured it, the distances and the phase angle as they were
-# - reduced: at unit distances and one phase angle, as Pravec et al. (2022) and Scheirich et al. (2024) give theirs
+# - reduced: at 1 au from the Sun and the observer and the night's mean phase angle, as Pravec et al. (2022)
+#   and Scheirich et al. (2024) give theirs
 MAGNITUDES = "apparent"
+# In this band: the Sun's magnitude in it, Cousins R.
+BAND = kalast.telescope.Band("Rc")
 
 SITE =(-7.8664, 31.20622, 2.751)  # TRAPPIST-North: longitude, latitude (deg), altitude (km)
 START, END = "2022-11-18T00:30", "2022-11-18T06:30"  # UTC
@@ -52,6 +56,7 @@ DT = 120.0  # seconds of the night between two points of the light curve
 LAW = Hapke(w=0.126, b=0.36, c=1.0, b0=0.97, h=0.020, theta_bar=18.0 * RPD, k=1.0)
 
 PLOT = "out/lightcurve_didymos.png"
+AU = 149597870.7  # km
 
 if SHAPES == "meshes":
     meshes = [kalast.mesh.Mesh(path=DIDYMOS), kalast.mesh.Mesh(path=DIMORPHOS)]
@@ -74,7 +79,7 @@ etf = spice.str2et(END)
 midnight = spice.str2et(START[:10])
 
 ets = numpy.arange(et0, etf + 1.0, DT)
-fluxes = []
+fluxes, distances, phase = [], [], []
 for et in ets:
     # Where the system is from the observatory, and when its light left it.
     state, light_time = spice.spkcpo("DIDYMOS_BARYCENTER", et, "J2000", "OBSERVER", "CN", station, "EARTH", "IAU_EARTH")
@@ -101,24 +106,25 @@ for et in ets:
 
     # The light the observatory gets: every facet of the two, as lit and as
     # seen, each body shadowing and hiding the other.
-    light = flux(vertices, [mesh.indices for mesh in meshes], to_sun, to_site, LAW).flux
-    if MAGNITUDES == "apparent":
-        light /= (r * delta) ** 2  # the Sun's light at r, seen from delta
-    else:
-        # At one phase angle: the law's phase curve, a sphere's light, taken out.
-        light /= flux(sphere.positions, sphere.indices, to_sun, to_site, LAW, shadowing=False, visibility=False).flux
-    fluxes.append(light)
+    fluxes.append(flux(vertices, [mesh.indices for mesh in meshes], to_sun, to_site, LAW).flux)
+    distances.append((r / AU, delta))
+    phase.append(flux(sphere.positions, sphere.indices, to_sun, to_site, LAW, shadowing=False, visibility=False).flux)
 
 spice.kclear()
 
-# The system's magnitude about the night's mean.
-magnitude = -2.5 * numpy.log10(numpy.array(fluxes) / numpy.mean(fluxes))
+# The system's magnitude in the band: the Sun's light at r, seen from delta;
+# or at 1 au from both, the law's phase curve -- a sphere's light -- taken
+# out to the night's mean phase angle.
+if MAGNITUDES == "apparent":
+    magnitude = [BAND.magnitude(f, r, delta) for f, (r, delta) in zip(fluxes, distances)]
+else:
+    magnitude = [BAND.magnitude(f * numpy.mean(phase) / p, 1.0, AU) for f, p in zip(fluxes, phase)]
 utc = (ets - midnight) / 3600
 
-plt.plot(utc, magnitude * 1000, "k+")
+plt.plot(utc, magnitude, "k+")
 plt.gca().invert_yaxis()  # brighter up
 plt.xlabel("UTC (h)")
-plt.ylabel("Relative magnitude (mmag)")
+plt.ylabel(f"{BAND.name} (mag)")
 plt.title(f"Didymos and Dimorphos from TRAPPIST-North, {START[:10]}, {SHAPES}, {MAGNITUDES}")
 os.makedirs(os.path.dirname(PLOT), exist_ok=True)
 plt.savefig(PLOT, dpi=120)

@@ -12,7 +12,7 @@ al. (2024)'s Hapke law, what each body shadows or hides of the other exact.
 
 - [lightcurve.py](lightcurve.py): the light curve, plotted to
   `out/lightcurve_didymos.png` as Scheirich et al. (2024) draw theirs and
-  opened -- the system's magnitude about the night's mean, every 2
+  opened -- the system's magnitude in Cousins R (`BAND`), every 2
   minutes -- with one shape model or the other, `SHAPES` at its top:
     - `meshes`: DART's shape models of the two;
     - `ellipsoids`: Scheirich et al. (2024)'s, the bodies the system's events
@@ -26,9 +26,14 @@ al. (2024)'s Hapke law, what each body shadows or hides of the other exact.
   and its magnitudes one way or the other, `MAGNITUDES`:
     - `apparent`: as the observatory measured them, the system's distances
       from the Sun and from the site and its phase angle as they were;
-    - `reduced`: at unit distances and one phase angle, as Pravec et al.
-      (2022) and Scheirich et al. give theirs -- the law's own phase curve,
-      a sphere's light under it, taken out.
+    - `reduced`: at 1 au from the Sun and the observer and the night's
+      mean phase angle, as Pravec et al. (2022) and Scheirich et al. give
+      theirs -- the law's own phase curve, a sphere's light under it, taken
+      out.
+
+  Rc 16.7 to 16.8 that night as measured, 20.8 reduced: some 0.7 mag
+  fainter than Didymos was, Buratti et al.'s albedo being lower than its
+  H = 18.16 asks (`notes/2026-10-15_didymos_lightcurves/`).
 - [scene.py](scene.py): the same night drawn by kalast's renderer, as the
   observatory looks at it, north up, orthographic, 2.4 km top to bottom:
   DART's shape models at their finest or the spheroids, `SHAPES` at its
