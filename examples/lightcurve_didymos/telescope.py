@@ -149,14 +149,15 @@ spice.kclear()
 
 # The night reduced as a real one is, frame by frame from the files: the target
 # where its ephemeris puts it, the frame's zero point from its comparison stars.
-reduced = [telescope.reduce(telescope.read(path), stars, APERTURE) for path in paths]
-kept = [k for k, red in enumerate(reduced) if red is not None]
-measured = numpy.array([reduced[k].mag for k in kept])
-errors = numpy.array([reduced[k].error for k in kept])
+reduced = [(k, telescope.reduce(telescope.read(path), stars, APERTURE)) for k, path in enumerate(paths)]
+reduced = [(k, red) for k, red in reduced if red is not None]  # a frame without its target or stars, left out
+kept = [k for k, _ in reduced]
+measured = numpy.array([red.mag for _, red in reduced])
+errors = numpy.array([red.error for _, red in reduced])
 model = numpy.array(model)
 utc = (numpy.array(times) - midnight) / 3600
 print(f"{len(kept)} of {len(paths)} frames reduced, {numpy.median(errors) * 1000:.1f} mmag a frame, "
-      f"{numpy.median([reduced[k].comparisons for k in kept]):.0f} comparison stars; "
+      f"{numpy.median([red.comparisons for _, red in reduced]):.0f} comparison stars; "
       f"measured less model: {numpy.mean(measured - model[kept]) * 1000:+.1f} mmag, "
       f"{numpy.std(measured - model[kept]) * 1000:.1f} rms")
 
