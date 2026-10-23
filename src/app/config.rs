@@ -1625,17 +1625,17 @@ impl Default for Reference {
 
 /// The flux of what the camera sees, from the frame itself: `sim.fluxes()`.
 ///
-/// Each frame that advances the simulation, the bodies are drawn a second
-/// time -- the same poses, shadows and scattering law, the full meshes,
-/// each facet's own normal, nothing of the image's colour, ambient light or
-/// exposure -- and every pixel's I/F summed times its area: the disc
-/// integral `kalast.lightcurve.flux` gives, read back a frame or two later,
-/// tagged with the iteration it was drawn at. An orthographic camera only,
-/// every body in the frame.
+/// The image drawn for photometry, once -- the frame's shadows and the
+/// bodies' scattering laws, the full meshes, each facet's own normal,
+/// floats, nothing of the ambient light, the bodies' colours or the
+/// wireframe -- shown, and each frame that advances summed: every pixel's
+/// I/F times its area, the disc integral `kalast.lightcurve.flux` gives,
+/// read back a frame or two later, tagged with the iteration it was drawn
+/// at. An orthographic camera only, every body in the frame.
 #[derive(Clone, Debug, Default)]
 pub struct Photometry {
-    /// Measure each frame that advances the simulation: the light of what
-    /// the camera sees, from the frame's own shadows, for `sim.fluxes()`.
+    /// Draw the image for photometry and measure each frame that advances:
+    /// the light of what the camera sees, for `sim.fluxes()`.
     pub enabled: bool,
 }
 

@@ -493,7 +493,7 @@ pub fn group_stretch(ui: &mut egui::Ui, c: &mut Config) {
 
 /// `config.photometry` -- Photometry.
 pub fn group_photometry(ui: &mut egui::Ui, c: &mut Config) {
-    setting(ui, "enabled", "Measure each frame that advances the simulation: the light of what the camera sees, from the frame's own shadows, for `sim.fluxes()`.", |ui| ui.checkbox(&mut c.photometry.enabled, ""));
+    setting(ui, "enabled", "Draw the image for photometry and measure each frame that advances: the light of what the camera sees, for `sim.fluxes()`.", |ui| ui.checkbox(&mut c.photometry.enabled, ""));
 }
 
 /// `config.debug` -- Debug.

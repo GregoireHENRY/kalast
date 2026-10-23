@@ -33,6 +33,11 @@ pub struct Passes {
     response_refused: Option<(u32, u32)>,
     /// A stretch shows the image (`config.stretch`), set each frame.
     pub stretch_on: bool,
+    /// The image drawn for photometry (`config.photometry`), set each frame;
+    /// and this frame measured -- its iteration and a pixel's area -- set by
+    /// the window before `render`.
+    pub photometry_on: bool,
+    pub photometry_tag: Option<(u64, f64)>,
     /// Its passes, made at the image's size when first shown.
     pub stretch: Option<crate::app::stretch::Stretch>,
     /// The reference image's sums, made at the image's size when first
@@ -47,8 +52,8 @@ pub struct Passes {
 
     pub depth: depth::Pass,
     pub occlusion: super::occlusion::Occlusion,
-    /// The flux of what the camera sees (`config.photometry`), built with
-    /// the main pass's layouts while it is on.
+    /// Photometry's image and its sums (`config.photometry`), built with the
+    /// main pass's layouts while it is on.
     pub photometry: Option<crate::app::photometry::Photometry>,
 
     pub bindings: Bindings,
@@ -82,7 +87,9 @@ impl Passes {
     ) -> Self {
         let layouts_all = uniforms.layouts_all();
         let bindings = uniforms.bindings(device);
-        let float = reference || response || stretch;
+        // Photometry's image is a float frame too: single-sampled, the
+        // overlays drawn over it as over the others.
+        let float = reference || response || stretch || config.photometry.enabled;
 
         // Resolved once, so the main pass and the light cube it draws inside
         // cannot disagree about it.
@@ -100,7 +107,7 @@ impl Passes {
         let photometry = config
             .photometry
             .enabled
-            .then(|| crate::app::photometry::Photometry::new(device, config, &shaded, rays.is_some()));
+            .then(|| crate::app::photometry::Photometry::new(device, config, &shaded, rays.is_some(), format));
 
         Self {
             shadow: shadow::Pass::new(device, config, &uniforms.layouts_for_shadow()),
@@ -115,6 +122,8 @@ impl Passes {
             response_refused: None,
             stretch_on: stretch,
             stretch: None,
+            photometry_on: config.photometry.enabled,
+            photometry_tag: None,
             reference: None,
             render,
             light_cube: light_cube::Pass::new(device, format, &layouts_all, samples),
@@ -197,8 +206,37 @@ impl Passes {
         // floats, shown through it.
         let response = self.response_ready(device, size);
         let stretch = self.stretch_ready(device, size);
-        if self.float_on && (self.reference_on || response || stretch) {
-            if self.reference_on {
+        // Photometry: the bodies drawn once, for the light curve, and that
+        // image the frame -- not while a reference image is summed.
+        let photometry = self.photometry_on && !self.reference_on && self.photometry.is_some();
+        if self.float_on && (self.reference_on || response || stretch || photometry) {
+            if photometry {
+                let tag = self.photometry_tag.take();
+                // The image shown where the floats go on: a camera's
+                // response's frame, a stretch's, or the window's image.
+                let response_frame = self.response.as_ref().filter(|_| response).map(|r| &r.frame_view);
+                let stretch_frame = self.stretch.as_ref().filter(|_| stretch).map(|s| &s.frame_view);
+                let (out, float) = match response_frame.or(stretch_frame) {
+                    Some(frame) => (frame, true),
+                    None => (&self.render.render_view, false),
+                };
+                let p = self.photometry.as_mut().expect("checked above");
+                p.draw(
+                    device,
+                    encoder,
+                    meshes,
+                    &self.bindings,
+                    self.penumbra.read_group(),
+                    config,
+                    size,
+                    &self.depth.texture.view,
+                    timer.and_then(|t| t.scope(super::gpu_timing::Scope::Render)),
+                );
+                if let Some((iteration, area)) = tag {
+                    p.measure(encoder, iteration, area);
+                }
+                p.show(queue, encoder, out, float, config);
+            } else if self.reference_on {
                 let format = self.render.format();
                 if self.reference.as_ref().is_none_or(|r| r.size != size) {
                     self.reference = Some(crate::app::reference::Reference::new(device, size, format));

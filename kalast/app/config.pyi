@@ -1363,8 +1363,8 @@ class PhotometryConfig:
     through the same handle as every other view of it.
     """
     enabled: bool
-    """Measure each frame that advances the simulation: the light of what
-    the camera sees, from the frame's own shadows, for `sim.fluxes()`.
+    """Draw the image for photometry and measure each frame that advances:
+    the light of what the camera sees, for `sim.fluxes()`.
     """
 
 class DebugConfig:

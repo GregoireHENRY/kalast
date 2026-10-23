@@ -2570,7 +2570,7 @@ impl Window {
         // stretch wants them: another turned on or off keeps them, and a
         // reference's sum with them.
         let stretch = config.stretch_on();
-        let float = reference || config.response.enabled || stretch;
+        let float = reference || config.response.enabled || stretch || config.photometry.enabled;
         if float != self.passes.float_on || self.rays != self.passes.traced || config.photometry.enabled != self.passes.photometry.is_some() {
             self.rebuild_passes(config);
         }
@@ -2580,6 +2580,7 @@ impl Window {
         self.passes.reference_on = reference;
         self.passes.response_on = config.response.enabled;
         self.passes.stretch_on = stretch;
+        self.passes.photometry_on = config.photometry.enabled;
         simulation.rays = self.rays;
         if config.shadows.method.traces() && self.raytrace.is_none() && !self.rays_refused {
             self.rays_refused = true;
@@ -4036,9 +4037,9 @@ impl Window {
         // rather than after a whole image of rays -- 0.14 to 0.4 s on an M1
         // Pro. The image as it was is shown meanwhile (`display`), and
         // `render_continue` carries the frame on.
-        // A frame measured for its light is drawn whole: its sum wants every
-        // band.
-        if self.probe_traced() && bands && surface_texture.is_none() && self.traced_ms > BANDED_ABOVE_MS && self.photometry_tag.is_none() {
+        // Photometry's image is drawn whole, measured or not: its sum wants
+        // every band, and its draw is its own.
+        if self.probe_traced() && bands && surface_texture.is_none() && self.traced_ms > BANDED_ABOVE_MS && !config.photometry.enabled {
             let rows = self.render_size.1.max(1);
             let total = ((self.traced_ms / BAND_MS).ceil() as u32).clamp(2, MAX_BANDS).min(rows);
             self.hold_image();
@@ -4060,6 +4061,8 @@ impl Window {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
+        // This frame measured for its light, when it is (`update`).
+        self.passes.photometry_tag = self.photometry_tag.take();
         self.passes.render(
             &self.device,
             &self.queue,
@@ -4074,25 +4077,6 @@ impl Window {
             self.render_size,
             self.uniforms.view.uniform.camera.view_proj,
         );
-
-        // The frame's light, after the image and in its encoder: the same
-        // poses, the same shadow maps or rays.
-        if let Some((iteration, area)) = self.photometry_tag.take() {
-            let passes = &mut self.passes;
-            if let Some(photometry) = passes.photometry.as_mut() {
-                photometry.render(
-                    &self.device,
-                    &mut encoder,
-                    &self.meshes,
-                    &passes.bindings,
-                    passes.penumbra.read_group(),
-                    config,
-                    self.render_size,
-                    iteration,
-                    area,
-                );
-            }
-        }
 
         if let (Some(texture), false) = (&surface_texture, axes_after_export) {
             self.blit(&mut encoder, texture);

@@ -1228,9 +1228,10 @@ fn panel(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config) {
             note(ui, &format!("now {} to {}, the image {} to {}", short(low), short(high), short(least), short(greatest)));
         }
         subheading(ui, "photometry").on_hover_text(
-            "The flux of what the camera sees, from the frame itself: the bodies drawn a second time, every \
-             pixel's I/F summed times its area -- the disc integral kalast.lightcurve.flux gives -- for \
-             sim.fluxes(). An orthographic camera only.",
+            "The flux of what the camera sees, from the frame itself: the image drawn for photometry -- full \
+             meshes, each facet's own normal, floats, no ambient light -- and every pixel's I/F summed times \
+             its area, the disc integral kalast.lightcurve.flux gives, for sim.fluxes(). An orthographic \
+             camera only.",
         );
         ui.push_id("photometry", |ui| group_photometry(ui, c));
         if let Some(f) = sim.photometry_last.filter(|_| c.photometry.enabled) {

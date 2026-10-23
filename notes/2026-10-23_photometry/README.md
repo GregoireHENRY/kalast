@@ -268,6 +268,60 @@ loss was 36 mmag.
 missing from it included (`response`, `stretch`, `photometry`). Its six
 `kalast.shape` classes were already uncovered before today, and still are.
 
+## One draw, one output
+
+The user, of the second draw: "why drawing the scene a second times? ... if it is same poses, same
+shadows, same scattering light, and same orthographic camera?", then, of the two-output design I
+suggested: "can't it be one draw and one output and the rendering pipeline being the good one
+required for lightcurve rendering? keeping the fast scene draw we current have when not doing
+photometry".
+
+So it is. With `photometry.enabled`:
+- the frame's bodies are drawn once, by the photometric build of the
+  shader, into the R32Float image (`Photometry::draw`), over the window's
+  depth;
+- that image is the frame. `Photometry::show` writes what the main pass
+  would store -- the light's colour times the exposure times the I/F,
+  through `srgb_to_linear` in "linear" mode, the background where the image
+  holds -1 -- into the window's image, or into the response's or stretch's
+  float frame, which carry on from there;
+- the overlays are drawn over it, as on any float frame (`finish_float`);
+- each frame that advances is summed and copied (`Photometry::measure`).
+
+Photometry counts among the float path's switches, so the passes are
+single-sampled. A reference image takes precedence: nothing is measured
+while one is summed. Traced frames are never drawn in bands while
+photometry is on. Off, nothing changed: levels of detail, multisampling,
+smooth normals, 8 bits.
+
+The show pass's uniform was 64 bytes in WGSL against 48 in Rust at first:
+a `vec3` of padding aligns to 16. Three floats now.
+
+The night against `flux`, again: the same numbers to the last digit, as
+they must be -- the same shading, the same pixels.
+
+Uncapped, 721 frames (the user took the rate limit out of
+`scene_lightcurve.py`):
+
+| | photometry on, one draw | off |
+|---|---|---|
+| spheroids | 1.1 s | 1.0 s |
+| DART's finest shapes, 3.1M facets each | 3.7 s, 5.1 ms a frame | 2.8 s, 3.9 ms by levels of detail |
+
+The second draw cost both, about 9 ms a frame with the finest shapes.
+
+![00:52, DART's finest shapes: as always (left), for photometry (right)](one_draw_meshes.png)
+
+## Rc magnitudes
+
+`lightcurve.py` and `scene_lightcurve.py` plot Cousins R magnitudes,
+`Band("Rc").magnitude`, as `telescope.py`'s:
+- apparent, Rc 16.71 to 16.82 that night;
+- reduced to 1 au and the night's mean phase angle, 20.76 to 20.86.
+
+The level is some 0.7 mag fainter than Didymos was, from the albedo
+Buratti et al.'s law gives.
+
 ## Open
 
 - `kalast.shape`'s six classes uncovered in `tests/test_stubs.py`, from

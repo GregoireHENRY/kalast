@@ -919,12 +919,16 @@ The flux of what the camera sees, from the frame itself, for `sim.fluxes()`
 (`API.md`, "The flux of what the camera sees").
 
 ### `photometry.enabled: bool` — default `False` *(live, rebuilds pipelines)*
-Each frame that advances the simulation, the bodies drawn a second time --
-the same poses, shadow maps or rays, and scattering law; the full meshes,
-each facet's own normal, nothing of the image's colour, ambient light or
-exposure -- and every pixel's I/F summed times its area: the disc integral
+The image drawn for photometry, once: the frame's shadow maps or rays and
+the bodies' scattering laws, the full meshes, each facet's own normal,
+single-sampled floats, nothing of the ambient light, the bodies' colours or
+the wireframe. That image is shown, at the exposure, through the response
+and the stretch when they are on, and each frame that advances it is summed
+-- every pixel's I/F times its area, the disc integral
 `kalast.lightcurve.flux` gives. An orthographic camera only, every body in
-the frame. A frame measured is drawn whole, never in bands.
+the frame; a frame is drawn whole, never in bands, and not while a
+reference image is summed. Off, the image is drawn as always: levels of
+detail, multisampling, smooth normals.
 
 ---
 

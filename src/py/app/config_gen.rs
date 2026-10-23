@@ -1419,8 +1419,8 @@ pub struct PhotometryConfig {
 
 #[pymethods]
 impl PhotometryConfig {
-    /// Measure each frame that advances the simulation: the light of what
-    /// the camera sees, from the frame's own shadows, for `sim.fluxes()`.
+    /// Draw the image for photometry and measure each frame that advances:
+    /// the light of what the camera sees, for `sim.fluxes()`.
     #[getter]
     fn enabled(&self) -> bool { self.config.borrow().photometry.enabled }
     #[setter]

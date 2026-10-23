@@ -1251,15 +1251,24 @@ for iteration, flux, clipped in sim.fluxes():   # what has come back since the l
     ...
 ```
 
-Each frame that advances the simulation, the bodies are drawn a second time
-after the image, by the main pass's own shader built for photometry: the
-frame's poses, its shadow maps or rays and the bodies' scattering laws --
-nothing recomputed on the CPU -- with each facet's own normal, the full
-meshes rather than their levels of detail, and nothing of the image's
-colour, ambient light, exposure or wireframe. Every pixel's I/F, summed
-times its area over pi, is the **disc integral `kalast.lightcurve.flux`
-gives**, in the scene's units squared per steradian per unit irradiance:
-the two are compared as they are.
+**The image is drawn for photometry, once, and summed.** While it is on,
+the frame's bodies are drawn by the main pass's own shader built for
+photometry:
+- the frame's poses, shadow maps or rays, and the bodies' scattering laws,
+  nothing recomputed on the CPU;
+- each facet's own normal and the full meshes, not their levels of detail;
+- single-sampled floats, each pixel its I/F times the Sun it sees;
+- nothing of the ambient light, the bodies' colours or the wireframe.
+
+That image is the frame. It is shown at the exposure as the main pass would
+store it, through the camera's response and the stretch when they are on,
+and the overlays are drawn over it. Each frame that advances, it is summed
+too: every pixel's I/F times its area, over pi, is the **disc integral
+`kalast.lightcurve.flux` gives**, in the scene's units squared per steradian
+per unit irradiance, so the two are compared as they are.
+
+Off, the image is drawn as always, quickly: levels of detail, multisampling,
+smooth normals.
 
 - **One flux an iteration**, tagged with the iteration the frame was drawn
   at -- the poses a script set before the step that drew it. None while
@@ -1275,7 +1284,9 @@ Against `kalast.lightcurve.flux` over Didymos's night of 2022-11-18, a frame
 every 30 s at 2116 x 1376 pixels (`notes/2026-10-23_photometry/`): the light
 curves 0.13 to 0.23 mmag apart rms, 0.8 at most, with the shadow maps or
 rays, the spheroids or DART's shapes; the absolute flux within 1.3e-4.
-What remains is each pixel deciding at a limb or a shadow's edge.
+What remains is each pixel deciding at a limb or a shadow's edge. DART's
+finest shapes, 3.1M facets each, drawn so in 5.1 ms a frame on an M1 Pro,
+against 3.9 by their levels of detail.
 
 **An orthographic camera shades as an observer far off**: every point seen
 along its axis. Toward the camera's position, a body's shading tilted with

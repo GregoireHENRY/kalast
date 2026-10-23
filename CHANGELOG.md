@@ -14,7 +14,11 @@ released, and the gate refuses the tag until it has.
 - The settings show `shading.srgb_mode` in the shaded mode only, and `shading.gamma` with it: the data mode stores its colours as given whatever it is.
 - The settings' `light.exposure` slider runs from 0.1 to 1000 on a logarithmic scale; it stopped at 10, where dark bodies in linear light want 20 to 40.
 - An orthographic camera shades as an observer far off does: every point seen along the camera's axis, rather than toward the camera's position, which tilted a body's shading with the camera's distance -- 0.02 rad across Didymos from 20 km, about 1 % of its light.
-- `sim.config.photometry.enabled` measures the light of what the camera sees, from the frame itself: each frame that advances, the bodies drawn a second time with the frame's own shadows (maps or rays) and their scattering laws, the full meshes and each facet's own normal, and every pixel's I/F summed times its area on the GPU -- the disc integral `kalast.lightcurve.flux` gives, read with `sim.fluxes()` a frame or two later, tagged with its iteration. On Didymos's night of 2022-11-18 the two agree within 0.13 to 0.23 mmag rms, the absolute flux within 1.3e-4. An orthographic camera only.
+- `sim.config.photometry.enabled` draws the image for photometry and measures the light of what the camera sees from it. The bodies are drawn once:
+  - with the frame's own shadows (maps or rays) and their scattering laws;
+  - with the full meshes and each facet's own normal, into floats.
+
+  That image is shown, and each frame that advances is summed on the GPU, every pixel's I/F times its area: the disc integral `kalast.lightcurve.flux` gives, read with `sim.fluxes()` a frame or two later and tagged with its iteration. On Didymos's night of 2022-11-18 the two agree within 0.13 to 0.23 mmag rms, the absolute flux within 1.3e-4. An orthographic camera only; off, the image is drawn as before.
 - `kalast.telescope` makes a night's frames as a telescope records them, and their photometry.
   - Each exposure is a FITS frame, written as a camera writes one: the target and the field's stars (Gaia DR3, `telescope.gaia`) spread by the seeing and trailed, the sky, extinction, scintillation, the photon, dark and read noise, the bias, saturation. Every effect can be switched off, and the camera is TRAPPIST-North's by default.
   - `telescope.reduce` measures a frame as a night's reduction does: the target in an aperture, the sky from a ring, the zero point from the comparison stars.
