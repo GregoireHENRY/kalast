@@ -7,7 +7,10 @@ distance to the asteroids, the phase angle, the sub-spacecraft points, the
 resolution, and a map of the ground in AFC's and TIRI's fields. Then they
 asked for the Hera kernels to be replaced with ESA's latest. Later the same
 day: Dimorphos's orbit corrected to match the images, TIRI's PSF on the
-drawing, and Dimorphos's sub-spacecraft information beside Didymos's.
+drawing, and Dimorphos's sub-spacecraft information beside Didymos's. In the
+evening, edds_decoder had all 230 TIRI images of 25–27 October and AFC's
+level-1B images (1,869, from the BME site), and the user asked for them to be
+used.
 
 ## Progress
 
@@ -19,7 +22,12 @@ drawing, and Dimorphos's sub-spacecraft information beside Didymos's.
 - [x] Dimorphos's orbit: Dimorphos 3.80 h ahead of the ephemeris, corrected in all three scripts
 - [x] TIRI's PSF on the drawing, fitted on the images
 - [x] Dimorphos's phase angle and resolution in `geometry.png`
-- [ ] Rerun on the images of 25 October 20:47 to 27 October, once the user has downloaded and decoded them
+- [x] AFC's images: Didymos 0.5° off where SPICE puts it, as in TIRI's, so the ephemeris and not TIRI's alignment
+- [ ] `afc.py` draws AFC's own images, at their `DATE-OBS`, and fits each drawing onto its image
+- [ ] Didymos's rotation phase from AFC's images (the PCK leaves its prime meridian undefined)
+- [ ] `tiri.py` on all 230 TIRI images of 25–27 October
+- [ ] `coverage.py` on the new times
+- [ ] README, CHANGELOG, commit, bundle
 
 ## The kernels
 
@@ -198,6 +206,36 @@ to `facet_incidence`.
 which is the route `docs/API.md` gives for several bodies. `tiri.py` uses it.
 API.md does not say a second request replaces the first.
 
+## AFC's images: the 0.5° is the ephemeris
+
+edds_decoder fetched AFC's level-1B images of the approach and early
+characterisation from the BME site (`out/afc`, 1,869). AFC-1 has 165 from
+25 Oct 14:00 to 26 Oct 15:59, mostly at TIRI's own times, to the second.
+
+**How the products lie.** Measured from the off-pointed frames at xx:05:51
+and xx:09:51, where Hera puts Didymos ±45 mrad off the boresight:
+- columns follow AFC's +Y, at 10,597 px/rad;
+- rows, the first row first, follow −X, at 10,546 px/rad.
+
+That is kalast's camera along +Z with +X up, as `afc.py` had it. The IK's
+diagram has +X along the lines, so the products are turned 90° from it.
+
+**Where Didymos is.** Observed − SPICE, measured attitude, 25 Oct 14:15–18:46:
+
+| | AFC-1 | TIRI |
+|---|---|---|
+| along X (the s/c's +X) | −89 to −106 px: +8.4 to +10.0 mrad | −35 to −44 px: +8.0 to +10.0 mrad |
+| along Y | +7 to +10 px: +0.7 to +0.9 mrad | within 1 px: 0.2 mrad |
+
+The two cameras were aligned apart: AFC-1 on stars and Mars in ESA's frames
+kernel (v1.6), TIRI on Mars in `kalast/tiri_alignment.py`. They agree within
+0.5 mrad, drift included. So the offset is not TIRI's alignment. It is
+Hera's position against Didymos: about 6 km across the line of sight at
+700 km.
+
+edds_decoder's note of today has AFC's Didymos 840–1,080 px (~5°) from SPICE.
+AFC's images do not show that: 89–106 px, as above. Its projection needs a look.
+
 ## Geometry and ground: `coverage.py`
 
 ![geometry](geometry.png)
@@ -231,8 +269,8 @@ Tables: `geometry.csv`, `tiri.csv`.
 
 ## Open
 
-- The 0.5° column offset: the ephemeris or TIRI's alignment. AFC's images or a
-  newer Didymos ephemeris would decide it.
+- The 0.5° column offset: decided by AFC's images, which see it too. It is
+  Hera's position against Didymos, not TIRI's alignment.
 - Dimorphos after its eclipse, 2.7 times its drawing at 19:46: thermal
   inertia, Didymos's shadow, its rotation phase.
 - Didymos's rotation phase in `hera_didymos_v06.tpc`, not checked. DART's
