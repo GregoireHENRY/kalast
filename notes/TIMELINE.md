@@ -6774,5 +6774,16 @@ attitude to 26 October and Hera's `fcp_000102`, which moves Hera 9 km and
 
 Write-up: `2026-10-27_hera_arrival/`.
 
-Open: the 0.5° offset; Dimorphos in TIRI's images; the PSF; the seasonal
-wave; the images to 27 October, to run again.
+Later that day, asked by the user, the bodies fitted image by image:
+- Dimorphos is 120° ahead of the dataset's ephemeris, which has it where
+  TIRI sees it 3.80 h later (0.25 px rms, 19 images). Corrected in the three
+  scripts (`DIMORPHOS_SHIFT`). The corrected orbit puts Dimorphos in
+  Didymos's shadow at 19:31, where TIRI sees it fade and AFC loses it.
+- TIRI's PSF: a Gaussian of 1.2–1.3 px where Didymos usually sits, 0.7–0.9
+  px at the other pointing. The drawing is spread by 1.3.
+- After the eclipse Dimorphos is 2.7 times its drawing (19:46).
+- `geometry.png` gives Dimorphos's phase angle and resolution too.
+
+Open: the 0.5° offset; Dimorphos after its eclipse; Didymos's rotation
+phase; one PSF over the detector; the seasonal wave; the images to 27
+October, to run again.

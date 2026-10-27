@@ -34,6 +34,10 @@ MESHES = {
 OUT = "out/hera_didymos/coverage"
 INSTRUMENTS = {"HERA_AFC-1": 1020, "HERA_TIRI": 768}  # and their detectors' rows
 ALIGN = True  # TIRI's boresight as measured in flight, kalast.tiri_alignment
+# Dimorphos where TIRI's images put it: where the ephemeris has it this much
+# later, 120 deg further along its orbit (tiri.py measures it). 0 for the
+# ephemeris as it is.
+DIMORPHOS_SHIFT = 13689.0  # s
 
 spice.kclear()
 spice.furnsh(f"{KERNELS}/hera_plan.tm")  # Didymos and Dimorphos
@@ -71,9 +75,9 @@ rows, k = [], 0
 while app.running and k < 2 * len(times):
     et, b = times[k // 2], k % 2  # each time, each body framed in turn
     hera = spice.spkpos("HERA", et, "J2000", "LT+S", "DIDYMOS")[0]
-    for body, name in zip(sim.bodies, MESHES):
-        body.mat[:3, :3] = spice.pxform(f"{name}_FIXED", "J2000", et)
-        body.mat[:3, 3] = spice.spkpos(name, et, "J2000", "LT+S", "DIDYMOS")[0]
+    for body, name, t in zip(sim.bodies, MESHES, (et, et + DIMORPHOS_SHIFT)):
+        body.mat[:3, :3] = spice.pxform(f"{name}_FIXED", "J2000", t)
+        body.mat[:3, 3] = spice.spkpos(name, t, "J2000", "NONE", "DIDYMOS")[0]
     sim.sun.pos = spice.spkpos("SUN", et, "J2000", "LT+S", "DIDYMOS")[0]
     toward = sim.bodies[b].mat[:3, 3] - hera
     sim.camera.pos = hera
@@ -98,15 +102,15 @@ while app.running and k < 2 * len(times):
         seen[instr, b] += drawn & inside & (lit if instr == "HERA_AFC-1" else True)
 
     if b == 1:
-        # The geometry: Hera to each body, the phase angle, the points under Hera.
+        # Each body's geometry: Hera's distance, the point under Hera
+        # (planetocentric, where the line to the centre meets the surface),
+        # the phase angle.
         row = [et]
-        for name in MESHES:
-            p = spice.spkpos(name, et, "J2000", "LT+S", "HERA")[0]
-            point = spice.subpnt("INTERCEPT/ELLIPSOID", name, et, f"{name}_FIXED", "LT+S", "HERA")[0]
-            _, lon, lat = spice.reclat(point)
-            row += [numpy.linalg.norm(p), lat * DPR, lon * DPR % 360.0]
         sun = spice.spkpos("SUN", et, "J2000", "LT+S", "DIDYMOS")[0]
-        row.append(spice.vsep(sun, hera) * DPR)
+        for body, name, t in zip(sim.bodies, MESHES, (et, et + DIMORPHOS_SHIFT)):
+            seen_from = hera - body.mat[:3, 3]
+            _, lon, lat = spice.reclat(spice.pxform("J2000", f"{name}_FIXED", t) @ seen_from)
+            row += [numpy.linalg.norm(seen_from), lat * DPR, lon * DPR % 360.0, spice.vsep(sun - body.mat[:3, 3], seen_from) * DPR]
         rows.append(row)
     k += 1
 
@@ -114,25 +118,26 @@ os.makedirs(OUT, exist_ok=True)
 g = numpy.array(rows)
 hours = (g[:, 0] - g[0, 0]) / 3600.0
 start = spice.et2utc(g[0, 0], "ISOC", 0)
-header = "utc,didymos_km,didymos_lat,didymos_lon,dimorphos_km,dimorphos_lat,dimorphos_lon,phase_deg"
+header = "utc,didymos_km,didymos_lat,didymos_lon,didymos_phase,dimorphos_km,dimorphos_lat,dimorphos_lon,dimorphos_phase"
 numpy.savetxt(f"{OUT}/geometry.csv", numpy.column_stack([[spice.et2utc(t, "ISOC", 3) for t in g[:, 0]], g[:, 1:]]),
               fmt="%s", delimiter=",", header=header, comments="")
 
 fig, ax = plt.subplots(4, 1, figsize=(10, 10), sharex=True)
-ax[0].plot(hours, g[:, 1], "o-", ms=3, label="Didymos")
-ax[0].plot(hours, g[:, 4], "s-", ms=3, label="Dimorphos")
+for b, (mark, name) in enumerate((("o", "Didymos"), ("s", "Dimorphos"))):
+    ax[0].plot(hours, g[:, 1 + 4 * b], mark + "-", ms=3, label=name)
+    ax[1].plot(hours, g[:, 4 + 4 * b], mark + "-", ms=3, label=name)
+    ax[2].plot(hours, g[:, 2 + 4 * b], mark, ms=3, label=f"{name}, latitude")
+    ax[2].plot(hours, g[:, 3 + 4 * b], mark, ms=3, mfc="none", label=f"{name}, longitude (east)")
+    for instr in INSTRUMENTS:
+        ax[3].plot(hours, g[:, 1 + 4 * b] * ifov[instr] * 1e3, mark + ("-" if b == 0 else "--"), ms=3,
+                   label=f"{name}, {instr[5:]} ({ifov[instr] * 1e6:.1f} µrad)")
 ax[0].set_ylabel("Hera's distance (km)")
 ax[0].legend()
-ax[1].plot(hours, g[:, 7], "o-", ms=3, color="k")
 ax[1].set_ylabel("phase angle (°)")
-for col, mark, name in ((2, "o", "Didymos"), (5, "s", "Dimorphos")):
-    ax[2].plot(hours, g[:, col], mark, ms=3, label=f"{name}, latitude")
-    ax[2].plot(hours, g[:, col + 1], mark, ms=3, mfc="none", label=f"{name}, longitude (east)")
+ax[1].legend()
 ax[2].set_ylabel("sub-spacecraft point (°)")
 ax[2].legend(fontsize=8, ncol=2)
-for instr in INSTRUMENTS:
-    ax[3].plot(hours, g[:, 1] * ifov[instr] * 1e3, "o-", ms=3, label=f"{instr[5:]}, {ifov[instr] * 1e6:.1f} µrad")
-ax[3].set_ylabel("resolution at Didymos (m/px)")
+ax[3].set_ylabel("resolution under Hera (m/px)")
 ax[3].set_xlabel(f"hours from {start} UTC")
 ax[3].legend()
 ax[0].set_title(f"Hera at Didymos, the {len(times)} TIRI images' times")
@@ -151,7 +156,7 @@ for i, instr in enumerate(INSTRUMENTS):
         a.set_title(f"{name.capitalize()} by {instr[5:]}: {100 * area[count > 0].sum() / area.sum():.0f}% of the surface",
                     fontsize=10)
         fig.colorbar(art, ax=a, label=f"seen at how many of the {len(times)} image times")
-        a.plot(g[:, 3 * b + 3], g[:, 3 * b + 2], "+", color="r", ms=7, mew=1.2, label="sub-spacecraft point")
+        a.plot(g[:, 3 + 4 * b], g[:, 2 + 4 * b], "+", color="r", ms=7, mew=1.2, label="sub-spacecraft point")
 ax[0, 0].legend(loc="upper right", fontsize=8)
 for a in ax[:, 0]:
     a.set_ylabel("latitude (°)")

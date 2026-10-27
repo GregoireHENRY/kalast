@@ -12,9 +12,11 @@ scripts below follow TIRI's images, at the times the images were taken.
   the shadows of the frames. Each image is drawn in its own filter, each
   pixel the radiance (W m⁻² sr⁻¹) of the ground it sees. The output goes to
   `out/hera_didymos/tiri/`:
-    - each drawn image as FITS, with the rows and columns of TIRI's products;
-    - `tiri.csv` and `tiri.png`: the target in each image against the drawing
-      (its position and its signal), and crops of both.
+    - each drawn image as FITS, spread by TIRI's point spread (`PSF`), with
+      the rows and columns of TIRI's products;
+    - `tiri.csv` and `tiri.png`: each body in each image against its
+      drawing -- Didymos's place (the pointing), Dimorphos's beside it (its
+      orbit, also as time along it), their signals -- and crops of both.
 - [coverage.py](coverage.py): the geometry at the images' times, in
   `out/hera_didymos/coverage/`:
     - `geometry.png`: Hera's distance to Didymos and to Dimorphos, the phase
@@ -27,6 +29,12 @@ scripts below follow TIRI's images, at the times the images were taken.
 Pointing comes from Hera's measured attitude: `hera_ops.tm` is loaded over
 `hera_plan.tm`, which holds Didymos and Dimorphos. TIRI's boresight is the one
 measured in flight (`ALIGN`, `kalast/tiri_alignment.py`).
+
+Dimorphos is placed where TIRI's images of 2026-10-25 have it: 120° further
+along its orbit than the dataset's ephemeris, which has it there 3.80 h later
+(`DIMORPHOS_SHIFT`, 13,689 s, in each script; 0 for the ephemeris as it is).
+`tiri.py` measures what is left on each run and prints the value that would
+match the images it ran on.
 
 The other scripts are the thermal studies of the Dimorphos transit of
 2027-01-21: [tpm.py](tpm.py) and [tpm_phase2.py](tpm_phase2.py) for the

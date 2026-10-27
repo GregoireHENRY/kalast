@@ -5,7 +5,9 @@ The user asked for the TIRI images of 25 October, decoded the day before in
 visible view first, then TIRI's. They also asked for graphs of Hera's
 distance to the asteroids, the phase angle, the sub-spacecraft points, the
 resolution, and a map of the ground in AFC's and TIRI's fields. Then they
-asked for the Hera kernels to be replaced with ESA's latest.
+asked for the Hera kernels to be replaced with ESA's latest. Later the same
+day: Dimorphos's orbit corrected to match the images, TIRI's PSF on the
+drawing, and Dimorphos's sub-spacecraft information beside Didymos's.
 
 ## Progress
 
@@ -14,6 +16,9 @@ asked for the Hera kernels to be replaced with ESA's latest.
 - [x] `tiri.py`: the thermophysical model and TIRI's images drawn, set beside the observed ones
 - [x] `coverage.py`: the geometry and the ground each instrument saw
 - [x] `examples/hera_didymos/README.md`
+- [x] Dimorphos's orbit: Dimorphos 3.80 h ahead of the ephemeris, corrected in all three scripts
+- [x] TIRI's PSF on the drawing, fitted on the images
+- [x] Dimorphos's phase angle and resolution in `geometry.png`
 - [ ] Rerun on the images of 25 October 20:47 to 27 October, once the user has downloaded and decoded them
 
 ## The kernels
@@ -117,9 +122,70 @@ the sky, 25 to 359σ. At 20:22 it is not in the field.
 - One sample per pixel scattered the drawn signal by ±10–15 %. That was the
   sampling of a 5 px Didymos, whose edge pixels were drawn whole or not at
   all. 4 × 4 samples cost nothing: 2.65 ms a frame against 2.49.
-- The drawing is sharper than the image: TIRI's PSF is not modelled.
-- In kalast's crops Dimorphos is 6–8 px from Didymos. The faint spots in
-  TIRI's crops do not obviously sit there. Not checked.
+- In the first runs the drawing was sharper than the image, with no PSF, and
+  Dimorphos was 8–12 px from where TIRI has it. Both are fixed below.
+
+## Dimorphos's orbit and TIRI's PSF
+
+Asked once the user saw Dimorphos's place differ in `tiri.png`, and Didymos
+larger and spread in TIRI's images.
+
+![Dimorphos in TIRI's wide band](tiri_dimorphos.png)
+
+On a hard stretch (0–40 DN over the sky) Dimorphos is a blob 6–8 px from
+Didymos in every wide-band image, going round it. Each image's bodies are
+fitted (`tiri.py`, `fit`):
+- each body's drawing, spread by a Gaussian of fitted sigma;
+- Didymos moved, Dimorphos moved beyond it;
+- each scaled, over the sky;
+- two starts for Dimorphos, where it is drawn and where Didymos's fit leaves
+  most light, the better kept.
+
+**The orbit.** Dimorphos goes round in the ephemeris's sense and at its rate,
+120° ahead. One shift of time along the orbit fits all of it: the ephemeris
+(`dimorphos_flp_000007`) has Dimorphos where TIRI sees it **13,689 ± 54 s
+(3.80 h, 120.4°) later**.
+- 0.25 px rms per axis over the 19 wide-band images off the slew, against
+  8.4 px unshifted. One minimum over the whole orbit.
+- The narrow bands, not fitted, agree within 0.3–0.9 px. So do the
+  projected orbit's size and tilt: only the phase is off.
+- `DIMORPHOS_SHIFT` in `afc.py`, `tiri.py` and `coverage.py` applies it:
+  Dimorphos's position about Didymos and its rotation (tidally locked) taken
+  that much later.
+- With it, `tiri.py` finds Dimorphos within 0.6 px of its drawing in the wide
+  band, +29 s left (median of 18), and prints what is left, so new images
+  re-measure it.
+
+**An eclipse confirms it.** The corrected orbit puts Dimorphos in Didymos's
+shadow from about 19:00 to 19:40, 0.28–0.29 km from the shadow's axis
+against Didymos's 0.39 km radius. The ephemeris as it was has it on the
+Sun's side then (no eclipse until after the images). TIRI sees Dimorphos fade
+to less than half its usual signal at 19:31, the one image too faint for the
+fit. AFC, drawn with the shift, loses it at 19:04 and 19:31.
+
+**After the eclipse** Dimorphos comes back faster in the images than in the
+drawing: at 19:46 its signal is 2.7 times its drawing, against 0.8–1.25 at
+other times. The drawing's Dimorphos is still in shadow there, or too cold.
+Candidates: the thermal inertia (320 for both), Didymos's shape and rotation
+phase where its shadow's edge is, the shadow's penumbra.
+
+**The PSF.** Fitted image by image, sigma is:
+- 1.2–1.3 px where Didymos usually sits (column ~440, row ~422);
+- 0.7–0.9 px about column 245, row 225 (the xx:04 pointing);
+- 0.5 px at 20:06, in the corner.
+
+So the spread changes over the detector. The drawing uses `PSF = 1.3`; the
+fit's own sigma goes in `tiri.csv`. In the wide band the residual is 5–7 DN
+against 2.4 of noise, so a Gaussian is close but not the whole shape. In the
+narrow bands it is down to the noise.
+
+**Dimorphos against Didymos.** Dimorphos's signal against its drawing is 0.8
+to 1.25 times Didymos's in the wide band. So the model's Dimorphos and
+Didymos are within about 20 % of each other in their thermal emission.
+
+`geometry.png` gives Dimorphos's phase angle (43.73 → 43.38°) and resolution
+beside Didymos's. Its sub-spacecraft longitude moved by the shift's 120°, as
+a tidally locked moon's does: 164° E at 14:00 rather than 285°.
 
 ### A trap: `request_facet_shadow` holds one body
 
@@ -137,10 +203,10 @@ API.md does not say a second request replaces the first.
 ![geometry](geometry.png)
 
 - Hera's distance to Didymos: 712 → 648 km.
-- The phase angle: 43.66 → 43.45°.
+- The phase angle: 43.66 → 43.45° at Didymos, 43.73 → 43.38° at Dimorphos.
 - The sub-spacecraft latitude: −58° on Didymos, −56° on Dimorphos.
-- The resolution at Didymos: AFC 67 → 61 m/px (94.2 µrad), TIRI 162 → 148
-  m/px (227.8 µrad).
+- The resolution under Hera, on either body: AFC 67 → 61 m/px (94.2 µrad),
+  TIRI 162 → 148 m/px (227.8 µrad).
 
 ![coverage](coverage.png)
 
@@ -155,7 +221,7 @@ At the 39 times:
 | | AFC | TIRI |
 |---|---|---|
 | Didymos | 69 % of the surface | 69 % |
-| Dimorphos | 63 % | 64 % |
+| Dimorphos | 60 % | 63 % |
 
 That is everything south of about +15°. A facet's colour is how many of the
 39 image times it was seen at: a count, not a duration. The red crosses are
@@ -167,8 +233,11 @@ Tables: `geometry.csv`, `tiri.csv`.
 
 - The 0.5° column offset: the ephemeris or TIRI's alignment. AFC's images or a
   newer Didymos ephemeris would decide it.
-- Dimorphos in TIRI's images.
-- TIRI's PSF, for the drawing's shape.
+- Dimorphos after its eclipse, 2.7 times its drawing at 19:46: thermal
+  inertia, Didymos's shadow, its rotation phase.
+- Didymos's rotation phase in `hera_didymos_v06.tpc`, not checked. DART's
+  kernel turned it at 2.2600 h against 2.2604 h.
+- One PSF for the whole detector, where it changes from 1.3 to 0.5 px.
 - No seasonal wave in the model: the columns are a day's deep, started from
   the effective temperatures.
 - `request_facet_shadow` holding one body a frame, silently.

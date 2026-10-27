@@ -21,6 +21,10 @@ KERNELS = "/Users/gregoireh/data/spice/hera/kernels/mk"
 DIDYMOS = "/Users/gregoireh/data/mesh/didymos/g_01165mm_spc_didy_v003_100k.obj"
 DIMORPHOS = "/Users/gregoireh/data/mesh/dimorphos/g_00243mm_spc_dimo_v004_100k.obj"
 FRAMES = "out/hera_didymos/afc"
+# Dimorphos where TIRI's images put it: where the ephemeris has it this much
+# later, 120 deg further along its orbit (tiri.py measures it). 0 for the
+# ephemeris as it is.
+DIMORPHOS_SHIFT = 13689.0  # s
 
 # Buratti et al. (2024), from DART's images and the system's phase curve.
 LAW = Hapke(w=0.126, b=0.36, c=1.0, b0=0.97, h=0.020, theta_bar=18.0 * RPD, k=1.0)
@@ -71,9 +75,12 @@ while app.running:
     if i >= len(times) - 1:
         sim.state.toggle_pause()  # the last time drawn, then paused
 
-    for body, name in zip(sim.bodies, ("DIDYMOS", "DIMORPHOS")):
-        body.mat[:3, :3] = spice.pxform(f"{name}_FIXED", INSTR, et)
-        body.mat[:3, 3] = spice.spkpos(name, et, INSTR, "LT+S", INSTR)[0]
+    to_afc = spice.pxform("J2000", INSTR, et)
+    didymos = spice.spkpos("DIDYMOS", et, INSTR, "LT+S", INSTR)[0]
+    sim.bodies[0].mat[:3, :3] = spice.pxform("DIDYMOS_FIXED", INSTR, et)
+    sim.bodies[0].mat[:3, 3] = didymos
+    sim.bodies[1].mat[:3, :3] = to_afc @ spice.pxform("DIMORPHOS_FIXED", "J2000", et + DIMORPHOS_SHIFT)
+    sim.bodies[1].mat[:3, 3] = didymos + to_afc @ spice.spkpos("DIMORPHOS", et + DIMORPHOS_SHIFT, "J2000", "NONE", "DIDYMOS")[0]
     sun = spice.spkpos("SUN", et, INSTR, "LT+S", INSTR)[0]
     sim.sun.pos = sun
 
