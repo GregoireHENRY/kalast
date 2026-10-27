@@ -34,7 +34,7 @@ No file in the old set was the user's own. The only local change was each of
 the 8 meta-kernels' `PATH_VALUES` set to `/Users/gregoireh/data/spice/hera/kernels`,
 and that is made again in the new ones. The old set was moved, not deleted,
 to `~/data/spice/hera_v182_20261020` (325 files, 1.9 GB). No process had it
-open.
+open. The user then had it deleted, the same day.
 
 The new trajectory moves Hera against Didymos, whose ephemeris
 (`didymos_flp_000007`) did not change. Seen from Hera (`hera_plan.tm`):
@@ -157,7 +157,8 @@ At the 39 times:
 | Didymos | 69 % of the surface | 69 % |
 | Dimorphos | 63 % | 64 % |
 
-That is everything south of about +15°. The run takes 5 s.
+That is everything south of about +15°. A facet's colour is how many of the
+39 image times it was seen at: a count, not a duration. The run takes 5 s.
 
 Tables: `geometry.csv`, `tiri.csv`.
 

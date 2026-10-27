@@ -150,7 +150,7 @@ for i, instr in enumerate(INSTRUMENTS):
         a.set_facecolor("0.85")
         a.set_title(f"{name.capitalize()} by {instr[5:]}: {100 * area[count > 0].sum() / area.sum():.0f}% of the surface",
                     fontsize=10)
-        fig.colorbar(art, ax=a, label="times seen")
+        fig.colorbar(art, ax=a, label=f"seen at how many of the {len(times)} image times")
 for a in ax[:, 0]:
     a.set_ylabel("latitude (°)")
 for a in ax[1]:
