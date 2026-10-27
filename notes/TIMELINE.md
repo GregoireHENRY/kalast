@@ -6750,3 +6750,29 @@ are shaded smooth now, the image as always inside the bodies.
 
 `telescope.show` is in the settings only once a script has made a
 telescope frame.
+
+## 2026-10-27 — Hera at Didymos: AFC and TIRI at TIRI's first images
+
+TIRI's images of 25 October, decoded by edds_decoder, are simulated in
+`examples/hera_didymos`, at the images' own times:
+- `afc.py`: AFC's view. Didymos is in 32 of the 39 frames, ~12 px across;
+  out of AFC's narrower field at the xx:04 pointing, 20:06 and 20:22.
+- `tiri.py`: kalast's thermophysical model 3 days before the first image,
+  and each image drawn in its filter, 4 × 4 samples a pixel, beside the
+  observed one. The rows agree within a pixel. The columns are off 39 px
+  (0.51°), drifting 8 px over 6 h: Didymos's ephemeris or TIRI's alignment.
+  The wide band's signal follows the model within ±5 %.
+- `coverage.py`: distances, phase angle, sub-spacecraft points,
+  resolution, and maps of the ground each saw (69 % of Didymos).
+
+The Hera kernels are ESA's v182 of 26 October. That brings the measured
+attitude to 26 October and Hera's `fcp_000102`, which moves Hera 9 km and
+3° of phase against Didymos. The old set is kept at
+`~/data/spice/hera_v182_20261020`.
+
+`request_facet_shadow` holds one body a frame, silently.
+
+Write-up: `2026-10-27_hera_arrival/`.
+
+Open: the 0.5° offset; Dimorphos in TIRI's images; the PSF; the seasonal
+wave; the images to 27 October, to run again.

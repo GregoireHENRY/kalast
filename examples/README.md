@@ -239,27 +239,26 @@ Look at [res/README.md](../res/README.md) to get Hera data.
       field's stars from Gaia, every effect of a real frame switchable --
       and its reduction from the frames: aperture photometry against the
       comparison stars, the measured Rc beside the rendered.
-- [hera_didymos](hera_didymos):
-    - [hera_didymos/afc.py](hera_didymos/afc.py):
-        - Load Didymos/Dimorphos/Sun/Earth in AFC FOV frame centered on AFC
-          using camera dir and up vectors from the kernels.
-          The camera can't really be moved manually between the steps to
-          inspect around but you can always change camera pos/anchor point.
-        - Image is set at AFC resolution so it's 1 to 1 pixel simulation of
-          what AFC will see at the corresponding dates.
-        - If you want to export frames and then compile later yourself into
-          a movie, you use `app.simulation.export_once()` in the main loop.
-          This requests kalast to export the rendering to a 1 to 1 pixels
-          PNG in `out/frames` folder.
-          Images are numbered automatically, you need to clear the folder
-          yourself before a future execution or you can also change the 
-          folder where kalast exports.
-          You can also exclude HUD and axes from image export if you want.
-    - [hera_didymos/afc_eclip_didy.py](hera_didymos/afc_eclip_didy.py):
-        - Same as [hera_didymos/afc.py](hera_didymos/afc.py) but everything
-          is simulated in ECLIPJ2000 frame centered on Didymos.
-          This way it is easier to rotate around the camera to inspect.
-          Both scripts produce the same output.
+- [hera_didymos](hera_didymos) ([README](hera_didymos/README.md)): Hera's
+  cameras at Didymos, at the times of TIRI's images.
+    - [hera_didymos/afc.py](hera_didymos/afc.py): what AFC saw at each
+      image's time -- Didymos, Dimorphos and the Sun placed in AFC's frame
+      from the kernels, Hera's measured attitude, at AFC's 1020 x 1020
+      pixels -- a frame a time exported to `out/hera_didymos/afc`. Without
+      images, from `START` to `END` every 15 minutes.
+    - [hera_didymos/tiri.py](hera_didymos/tiri.py): what TIRI saw -- kalast's
+      thermophysical model run before the first image, each image drawn in
+      its filter, a pixel the radiance of the ground it sees, written as
+      FITS -- set beside the images: the target's position and signal in
+      both, in `out/hera_didymos/tiri`.
+    - [hera_didymos/coverage.py](hera_didymos/coverage.py): Hera's distance
+      to Didymos and Dimorphos, the phase angle, the sub-spacecraft points
+      and AFC's and TIRI's resolution at the images' times, and maps of the
+      ground each instrument saw.
+    - [hera_didymos/afc_eclip_didy.py](hera_didymos/afc_eclip_didy.py): AFC
+      from November 2026 to April 2027 every 15 minutes, simulated in
+      ECLIPJ2000 centred on Didymos, where the camera is easier to move
+      around.
 - [hera_mars_swingby](hera_mars_swingby)
     - [hera_mars_swingby/tiri_diffuse_light.py](hera_mars_swingby/tiri_diffuse_light.py):
       - Simulate TIRI image similar to [hera_didymos/afc.py](hera_didymos/afc.py)
