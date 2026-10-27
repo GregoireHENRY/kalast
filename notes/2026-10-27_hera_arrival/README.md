@@ -158,7 +158,8 @@ At the 39 times:
 | Dimorphos | 63 % | 64 % |
 
 That is everything south of about +15°. A facet's colour is how many of the
-39 image times it was seen at: a count, not a duration. The run takes 5 s.
+39 image times it was seen at: a count, not a duration. The red crosses are
+the sub-spacecraft points, asked for on the maps too. The run takes 5 s.
 
 Tables: `geometry.csv`, `tiri.csv`.
 

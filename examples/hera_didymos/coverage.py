@@ -151,6 +151,8 @@ for i, instr in enumerate(INSTRUMENTS):
         a.set_title(f"{name.capitalize()} by {instr[5:]}: {100 * area[count > 0].sum() / area.sum():.0f}% of the surface",
                     fontsize=10)
         fig.colorbar(art, ax=a, label=f"seen at how many of the {len(times)} image times")
+        a.plot(g[:, 3 * b + 3], g[:, 3 * b + 2], "+", color="r", ms=7, mew=1.2, label="sub-spacecraft point")
+ax[0, 0].legend(loc="upper right", fontsize=8)
 for a in ax[:, 0]:
     a.set_ylabel("latitude (°)")
 for a in ax[1]:

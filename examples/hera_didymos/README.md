@@ -19,9 +19,10 @@ scripts below follow TIRI's images, at the times the images were taken.
   `out/hera_didymos/coverage/`:
     - `geometry.png`: Hera's distance to Didymos and to Dimorphos, the phase
       angle, the sub-spacecraft points, and AFC's and TIRI's resolution;
-    - `coverage.png`: maps of the ground each instrument saw. That is ground
-      in the field as the instrument was pointed and facing Hera, and lit
-      for AFC.
+    - `coverage.png`: maps of the ground each instrument saw, with the
+      sub-spacecraft points on them. Ground counts as seen where it was in
+      the field as the instrument was pointed and facing Hera, and lit for
+      AFC.
 
 Pointing comes from Hera's measured attitude: `hera_ops.tm` is loaded over
 `hera_plan.tm`, which holds Didymos and Dimorphos. TIRI's boresight is the one
