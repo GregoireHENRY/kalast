@@ -240,17 +240,18 @@ Look at [res/README.md](../res/README.md) to get Hera data.
       and its reduction from the frames: aperture photometry against the
       comparison stars, the measured Rc beside the rendered.
 - [hera_didymos](hera_didymos) ([README](hera_didymos/README.md)): Hera's
-  cameras at Didymos, at the times of TIRI's images.
-    - [hera_didymos/afc.py](hera_didymos/afc.py): what AFC saw at each
-      image's time -- Didymos, Dimorphos and the Sun placed in AFC's frame
-      from the kernels, Hera's measured attitude, at AFC's 1020 x 1020
-      pixels -- a frame a time exported to `out/hera_didymos/afc`. Without
-      images, from `START` to `END` every 15 minutes.
+  cameras at Didymos, at the times of AFC's and TIRI's images.
+    - [hera_didymos/afc.py](hera_didymos/afc.py): what AFC saw -- each AFC-1
+      image drawn in the products' rows and columns, a pixel the I/F of the
+      ground it sees (kalast's reference image), written as FITS -- set
+      beside the images: the pointing's error, Didymos's size and signal,
+      Dimorphos beside it, in `out/hera_didymos/afc`. Without images, from
+      `START` to `END` every 15 minutes.
     - [hera_didymos/tiri.py](hera_didymos/tiri.py): what TIRI saw -- kalast's
       thermophysical model run before the first image, each image drawn in
       its filter, a pixel the radiance of the ground it sees, written as
-      FITS -- set beside the images: the target's position and signal in
-      both, in `out/hera_didymos/tiri`.
+      FITS -- set beside the images: the pointing's error, Dimorphos beside
+      Didymos, each one's signal, in `out/hera_didymos/tiri`.
     - [hera_didymos/coverage.py](hera_didymos/coverage.py): Hera's distance
       to Didymos and Dimorphos, the phase angle, the sub-spacecraft points
       and AFC's and TIRI's resolution at the images' times, and maps of the

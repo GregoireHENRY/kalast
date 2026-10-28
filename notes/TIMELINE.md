@@ -6751,39 +6751,29 @@ are shaded smooth now, the image as always inside the bodies.
 `telescope.show` is in the settings only once a script has made a
 telescope frame.
 
-## 2026-10-27 — Hera at Didymos: AFC and TIRI at TIRI's first images
+## 2026-10-27 — Hera at Didymos: AFC and TIRI at their first images
 
-TIRI's images of 25 October, decoded by edds_decoder, are simulated in
-`examples/hera_didymos`, at the images' own times:
-- `afc.py`: AFC's view. Didymos is in 32 of the 39 frames, ~12 px across;
-  out of AFC's narrower field at the xx:04 pointing, 20:06 and 20:22.
-- `tiri.py`: kalast's thermophysical model 3 days before the first image,
-  and each image drawn in its filter, 4 × 4 samples a pixel, beside the
-  observed one. The rows agree within a pixel. The columns are off 39 px
-  (0.51°), drifting 8 px over 6 h: Didymos's ephemeris or TIRI's alignment.
-  The wide band's signal follows the model within ±5 %.
-- `coverage.py`: distances, phase angle, sub-spacecraft points,
-  resolution, and maps of the ground each saw (69 % of Didymos).
+`examples/hera_didymos` follows AFC's and TIRI's images of Didymos, at the
+images' own times, under Hera's measured attitude where there is one:
+- `afc.py` draws each AFC-1 image (I/F, kalast's reference image) and fits
+  each drawing onto its image.
+- `tiri.py` runs kalast's thermophysical model 3 days before the first image,
+  draws each image in its filter, spread by TIRI's point spread, and fits
+  each body's drawing onto each image.
+- Both draw Didymos where each image has it, the turn of SPICE's pointing the
+  pointing's error, and say whether the attitude was measured or the plan's.
+- Two corrections, constants in the scripts: Didymos's rotation phase
+  (`DIDYMOS_SHIFT`), which its PCK leaves undefined, and Dimorphos's place
+  along its orbit (`DIMORPHOS_SHIFT`).
+- `coverage.py`: distances, phase angle, sub-spacecraft points, resolution,
+  and maps of the ground each instrument saw, at the images' times.
 
-The Hera kernels are ESA's v182 of 26 October. That brings the measured
-attitude to 26 October and Hera's `fcp_000102`, which moves Hera 9 km and
-3° of phase against Didymos. The old set is kept at
-`~/data/spice/hera_v182_20261020`.
+The Hera kernels are ESA's v182 of 26 October: the measured attitude to 26
+October and Hera's `fcp_000102`. The old set was deleted at the user's go.
 
 `request_facet_shadow` holds one body a frame, silently.
 
-Write-up: `2026-10-27_hera_arrival/`.
-
-Later that day, asked by the user, the bodies fitted image by image:
-- Dimorphos is 120° ahead of the dataset's ephemeris, which has it where
-  TIRI sees it 3.80 h later (0.25 px rms, 19 images). Corrected in the three
-  scripts (`DIMORPHOS_SHIFT`). The corrected orbit puts Dimorphos in
-  Didymos's shadow at 19:31, where TIRI sees it fade and AFC loses it.
-- TIRI's PSF: a Gaussian of 1.2–1.3 px where Didymos usually sits, 0.7–0.9
-  px at the other pointing. The drawing is spread by 1.3.
-- After the eclipse Dimorphos is 2.7 times its drawing (19:46).
-- `geometry.png` gives Dimorphos's phase angle and resolution too.
-
-Open: the 0.5° offset; Dimorphos after its eclipse; Didymos's rotation
-phase; one PSF over the detector; the seasonal wave; the images to 27
-October, to run again.
+Hera's images at Didymos are the Hera team's data, not public yet. The notes
+on them stay out of the repository (`notes/*_hera_*/` is ignored), and
+nothing committed says what the images show. The Mars swing-by and the
+commissioning are not concerned.

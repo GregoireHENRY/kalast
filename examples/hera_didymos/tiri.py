@@ -9,10 +9,12 @@ the ground it sees in the image's filter, averaged over SUPER x SUPER samples
 and spread by TIRI's point spread (PSF), written as FITS in the products' rows
 and columns.
 
-tiri.csv and tiri.png set each image beside its drawing. The two bodies'
-drawings are moved and scaled onto the image: Didymos's move is the pointing's
-error, Dimorphos's beyond it the error of its orbit, given as time along it,
-and the scales are each body's signal against its drawing."""
+Didymos is drawn where each image has it: SPICE's pointing is turned onto it,
+and the turn is the pointing's error. tiri.csv and tiri.png set each image
+beside its drawing. The two bodies' drawings are moved and scaled onto the
+image: Didymos's move is what is left of the pointing's error, Dimorphos's
+beyond it the error of its orbit, given as time along it, and the scales are
+each body's signal against its drawing."""
 import glob
 import os
 import subprocess
@@ -46,16 +48,14 @@ OUT = "out/hera_didymos/tiri"
 SPINUP = 3.0  # days of the model before the first image
 LAYERS_PER_SKIN = 8  # at the surface: within 0.6 K of a converged column
 SUPER = 4  # samples a pixel along each side: Didymos is 5 pixels across
-# TIRI's point spread, a Gaussian's sigma (px), fitted on the images of
-# 2026-10-25 where Didymos usually sits; 0.9 px about row 225, column 245.
-PSF = 1.3
+PSF = 1.3  # TIRI's point spread, a Gaussian's sigma (px)
 ALIGN = True  # TIRI's boresight as measured in flight, kalast.tiri_alignment
 BLIND = 6  # columns of the raw frame the products leave out, the first
 INSTR = "HERA_TIRI"
-# Dimorphos where TIRI's images put it: where the ephemeris
-# (dimorphos_flp_000007) has it this much later, 120 deg further along its
-# orbit. Fitted on the 19 wide-band images of 2026-10-25 off the slew, 0.25 px
-# rms, +-54 s; tiri.csv gives what is left. 0 for the ephemeris as it is.
+# Didymos turned as its PCK has it this much later: the PCK leaves the prime
+# meridian undefined (afc.py). Dimorphos where the ephemeris has it this much
+# later; tiri.csv gives what is left. 0 for the kernels as they are.
+DIDYMOS_SHIFT = 5990.0  # s
 DIMORPHOS_SHIFT = 13689.0  # s
 
 spice.kclear()
@@ -98,19 +98,21 @@ for path in MESHES.values():
     sim.load_mesh(path=path)
 
 
-def place(et, shift=DIMORPHOS_SHIFT):
-    """Didymos and Dimorphos from Hera in TIRI's frame, and their rotations:
-    Dimorphos where the ephemeris has it `shift` later, about Didymos."""
-    to_tiri = turn @ spice.pxform("J2000", INSTR, et)
+def place(et, shift=DIMORPHOS_SHIFT, onto=numpy.eye(3)):
+    """Didymos and Dimorphos from Hera in TIRI's frame turned by `onto`, and
+    their rotations: Dimorphos where the ephemeris has it `shift` later, about
+    Didymos."""
+    to_tiri = onto @ turn @ spice.pxform("J2000", INSTR, et)
     didymos = to_tiri @ spice.spkpos("DIDYMOS", et, "J2000", "LT+S", "HERA")[0]
     dimorphos = didymos + to_tiri @ spice.spkpos("DIMORPHOS", et + shift, "J2000", "NONE", "DIDYMOS")[0]
-    turns = [to_tiri @ spice.pxform(f"{name}_FIXED", "J2000", et + s) for name, s in zip(MESHES, (0.0, shift))]
+    turns = [to_tiri @ spice.pxform(f"{name}_FIXED", "J2000", et + s) for name, s in zip(MESHES, (DIDYMOS_SHIFT, shift))]
     return (didymos, dimorphos), turns, to_tiri
 
 
-def pose(et):
-    """Bodies and Sun in TIRI's frame; each body's distance to the Sun (AU)."""
-    places, turns, to_tiri = place(et)
+def pose(et, onto=numpy.eye(3)):
+    """Bodies and Sun in TIRI's frame turned by `onto`; each body's distance to
+    the Sun (AU)."""
+    places, turns, to_tiri = place(et, onto=onto)
     for body, p, m in zip(sim.bodies, places, turns):
         body.mat[:3, :3] = m
         body.mat[:3, 3] = p
@@ -123,6 +125,20 @@ def beside(et, shift):
     """Where Dimorphos is in the image against Didymos, pixels (x right, y down)."""
     d, m = place(et, shift)[0]
     return -focal * (m[:2] / m[2] - d[:2] / d[2])
+
+
+def pixel(v):
+    """Where a direction in TIRI's frame lands in the products: x, y."""
+    return numpy.array([511.5 - BLIND - focal * v[0] / v[2], 383.5 - focal * v[1] / v[2]])
+
+
+def measured(et):
+    """Whether Hera's measured attitude covers et; after it, SPICE has the plan's."""
+    try:
+        spice.pxform("J2000", "HERA_SPACECRAFT_MEAS", et)
+        return True
+    except spice.exceptions.SpiceyError:
+        return False
 
 
 # A column under each facet, as deep as a day's wave reaches, its layers
@@ -211,6 +227,15 @@ while app.running:
         for body, t in zip(sim.bodies, columns):
             body.mesh.values = t[0]
     if imaging:
+        # Didymos where the image has it: SPICE's pointing turned onto it.
+        observed = numpy.nan_to_num(fits.getdata(images[k][2]))
+        ox, oy, snr = target(observed)
+        aim = numpy.zeros(2)
+        if snr >= 10.0:
+            before = place(et)[0][0]
+            seen = numpy.array([(511.5 - BLIND - ox) / focal, (383.5 - oy) / focal, 1.0])
+            pose(et, spice.axisar(numpy.cross(before, seen), spice.vsep(before, seen)))
+            aim = numpy.array([ox, oy]) - pixel(before)
         sim.request_facet_id()
     sim.huds[0].text = (f"{spice.et2utc(et, 'ISOC', 0)}  " + (f"image {k + 1}/{len(images)}, filter {images[k][1]}"
                         if imaging else "spin-up" if k == 0 else f"next image {k + 1}/{len(images)}"))
@@ -233,8 +258,6 @@ while app.running:
                               ("PSF", PSF, "[px] Gaussian sigma"), ("DIMSHIFT", DIMORPHOS_SHIFT, "[s] Dimorphos along its orbit")])
         fits.writeto(f"{OUT}/{name}", drawn.astype(numpy.float32), header, overwrite=True)
 
-        observed = numpy.nan_to_num(fits.getdata(images[k][2]))
-        ox, oy, snr = target(observed)
         ys, xs = numpy.nonzero(parts[0])
         if snr >= 10.0 and len(xs):
             w = parts[0][ys, xs]
@@ -242,9 +265,10 @@ while app.running:
             # Dimorphos's move beyond Didymos's, as time along its orbit.
             v = (beside(et, DIMORPHOS_SHIFT + 60.0) - beside(et, DIMORPHOS_SHIFT - 60.0)) / 120.0
             lag = numpy.array([tx, ty]) @ v / (v @ v)
-            rows.append((spice.et2utc(et, "ISOC", 3), images[k][1], px, py, tx, ty, lag, a, b, spread, rms, snr))
+            rows.append((spice.et2utc(et, "ISOC", 3), images[k][1], aim[0] + px, aim[1] + py, tx, ty, lag, a, b, spread, rms, snr,
+                         "measured" if measured(et) else "planned"))
             print("%s %s  pointing %+.1f %+.1f px  Dimorphos %+.1f %+.1f px, %+.0f s  signal %.1f, %.1f DN per W/m2/sr  "
-                  "PSF %.2f px  rms %.1f DN" % rows[-1][:11])
+                  "PSF %.2f px  rms %.1f DN" % rows[-1][:11] + f"  {rows[-1][-1]} attitude")
             crops.append((rows[-1][0], images[k][1], cut(observed, ox, oy), cut(drawn, ox - px, oy - py)))
         else:
             print(f"{spice.et2utc(et, 'ISOC', 3)} {images[k][1]}  no target in the image")
@@ -264,28 +288,34 @@ while app.running:
     et += h
 
 if rows:
-    header = "utc,filter,pointing_x,pointing_y,dimorphos_x,dimorphos_y,dimorphos_s,didymos_signal,dimorphos_signal,psf_px,rms_dn,peak_sigma"
+    header = ("utc,filter,pointing_x,pointing_y,dimorphos_x,dimorphos_y,dimorphos_s,didymos_signal,dimorphos_signal,psf_px,rms_dn,"
+              "peak_sigma,attitude")
     numpy.savetxt(f"{OUT}/tiri.csv", numpy.array(rows, dtype=object), fmt="%s", delimiter=",", header=header, comments="")
     r = {name: numpy.array([row[i] for row in rows]) for i, name in enumerate(header.split(","))}
     hours = numpy.array([(spice.str2et(t) - spice.str2et(rows[0][0])) / 3600.0 for t in r["utc"]])
     wide = r["filter"] == "g"
-    print(f"pointing, observed - drawn: x {numpy.median(r['pointing_x']):+.1f} px, y {numpy.median(r['pointing_y']):+.1f} px")
+    held = r["attitude"] == "measured"
+    if held.any():
+        print(f"measured attitude, {held.sum()} images: pointing, observed - SPICE: x {numpy.median(r['pointing_x'][held]):+.1f} px, "
+              f"y {numpy.median(r['pointing_y'][held]):+.1f} px")
     found = numpy.hypot(r["dimorphos_x"], r["dimorphos_y"]) < 3.0  # Dimorphos found beside its drawing
-    if (wide & found).any():
-        lag = numpy.median(r["dimorphos_s"][wide & found])
-        print(f"Dimorphos, observed - drawn along its orbit: {lag:+.0f} s (median of {(wide & found).sum()} wide-band images): "
-              f"DIMORPHOS_SHIFT = {DIMORPHOS_SHIFT + lag:.0f} would match them")
+    if (wide & found & held).any():
+        lag = numpy.median(r["dimorphos_s"][wide & found & held])
+        print(f"Dimorphos, observed - drawn along its orbit: {lag:+.0f} s (median of {(wide & found & held).sum()} wide-band "
+              f"images, measured attitude): DIMORPHOS_SHIFT = {DIMORPHOS_SHIFT + lag:.0f} would match them")
 
     fig = plt.figure(figsize=(15, 9.5))
     grid = fig.add_gridspec(3, 8, height_ratios=(1.0, 1.0, 1.3))
     ax = fig.add_subplot(grid[0, :6])
-    ax.plot(hours, r["pointing_x"], "o", label="Didymos, x (columns)")
-    ax.plot(hours, r["pointing_y"], "s", label="Didymos, y (rows)")
-    ax.plot(hours, r["dimorphos_x"], "o", mfc="none", label="Dimorphos beyond Didymos, x")
-    ax.plot(hours, r["dimorphos_y"], "s", mfc="none", label="Dimorphos beyond Didymos, y")
-    ax.set_ylabel("observed - drawn (px)")
+    for name, mark, color in (("pointing_x", "o", "C0"), ("pointing_y", "s", "C1")):
+        for use, fill, att in ((held, color, "measured"), (~held, "none", "planned")):
+            if use.any():
+                ax.plot(hours[use], r[name][use], mark, color=color, mfc=fill, ms=4, label=f"Didymos, {name[-1]}, {att} attitude")
+    ax.plot(hours, r["dimorphos_x"], "x", color="C2", label="Dimorphos beyond Didymos, x")
+    ax.plot(hours, r["dimorphos_y"], "+", color="C3", label="Dimorphos beyond Didymos, y")
+    ax.set_ylabel("observed - SPICE (px)")
     ax.legend(fontsize=8, ncol=2)
-    ax.set_title(f"TIRI, {rows[0][0][:10]}: the bodies where the images have them, against kalast's drawings")
+    ax.set_title(f"TIRI, {rows[0][0][:10]} to {rows[-1][0][:10]}: the bodies where the images have them, against kalast's drawings")
     ax = fig.add_subplot(grid[1, :6], sharex=ax)
     found = numpy.hypot(r["dimorphos_x"], r["dimorphos_y"]) < 3.0  # Dimorphos found beside its drawing
     for body, mark in (("didymos", "o"), ("dimorphos", "s")):
@@ -312,7 +342,7 @@ if rows:
         ax = fig.add_subplot(grid[2, j])
         ax.imshow(numpy.vstack([seen / max(seen.max(), 1e-9), drawn / max(drawn.max(), 1e-9)]),
                   cmap="inferno", origin="lower", vmin=0.0, vmax=1.0)
-        ax.set_title(f"{time[11:19]} {f}", fontsize=8)
+        ax.set_title(f"{time[5:10]} {time[11:19]} {f}", fontsize=8)
         ax.set_xticks([])
         ax.set_yticks([16, 48], ["TIRI", "kalast"] if j == 0 else ["", ""], fontsize=8)
     fig.tight_layout()

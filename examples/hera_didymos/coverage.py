@@ -1,13 +1,14 @@
 #!/usr/bin/env python
-"""Hera's view of Didymos and Dimorphos at the times of the TIRI images decoded
-by edds_decoder: the distances, the phase angle, the sub-spacecraft points and
-the resolution of AFC and TIRI there (geometry.png), and the ground each saw
+"""Hera's view of Didymos and Dimorphos at the times of AFC's and TIRI's images
+of them: the distances, the phase angle, the sub-spacecraft points and the
+resolution of AFC and TIRI there (geometry.png), and the ground each saw
 (coverage.png).
 
+The images are those where afc.py and tiri.py found Didymos: run them first.
 Ground is seen where the frames drawn from Hera have it -- each body framed in
 turn, so that its facets are resolved -- and inside the instrument's field as
-it was pointed. AFC's must be lit; TIRI sees the night side too."""
-import glob
+the image shows it pointed: SPICE's pointing moved by the error the two
+scripts measured. AFC's must be lit; TIRI sees the night side too."""
 import os
 import subprocess
 import sys
@@ -15,7 +16,6 @@ import sys
 import matplotlib
 import numpy
 import spiceypy as spice
-from astropy.io import fits
 
 import kalast.tiri_alignment as alignment
 from kalast.app import App
@@ -25,35 +25,44 @@ from kalast.util import DPR, RPD
 matplotlib.use("Agg")  # no plot window beside kalast's: drawn to a file
 import matplotlib.pyplot as plt  # noqa: E402
 
-IMAGES = "/Users/gregoireh/projects/edds_decoder/out/data_par/asteroid"
 KERNELS = "/Users/gregoireh/data/spice/hera/kernels/mk"
 MESHES = {
     "DIDYMOS": "/Users/gregoireh/data/mesh/didymos/g_01165mm_spc_didy_v003_100k.obj",
     "DIMORPHOS": "/Users/gregoireh/data/mesh/dimorphos/g_00243mm_spc_dimo_v004_100k.obj",
 }
 OUT = "out/hera_didymos/coverage"
-INSTRUMENTS = {"HERA_AFC-1": 1020, "HERA_TIRI": 768}  # and their detectors' rows
+# Each instrument's images where Didymos was found, as afc.py and tiri.py
+# write them; its detector's rows; how the products' columns and rows lie in
+# its frame (X, Y from x, y).
+INSTRUMENTS = {
+    "HERA_AFC-1": ("out/hera_didymos/afc/afc.csv", 1020, [[0.0, -1.0], [1.0, 0.0]]),
+    "HERA_TIRI": ("out/hera_didymos/tiri/tiri.csv", 768, [[-1.0, 0.0], [0.0, -1.0]]),
+}
 ALIGN = True  # TIRI's boresight as measured in flight, kalast.tiri_alignment
-# Dimorphos where TIRI's images put it: where the ephemeris has it this much
-# later, 120 deg further along its orbit (tiri.py measures it). 0 for the
-# ephemeris as it is.
+# Didymos turned as its PCK has it this much later (afc.py); Dimorphos where
+# the ephemeris has it this much later (tiri.py). 0 for the kernels as they are.
+DIDYMOS_SHIFT = 5990.0  # s
 DIMORPHOS_SHIFT = 13689.0  # s
 
 spice.kclear()
 spice.furnsh(f"{KERNELS}/hera_plan.tm")  # Didymos and Dimorphos
 spice.furnsh(f"{KERNELS}/hera_ops.tm")  # Hera's measured attitude, over the plan's
 
-# Each instrument's field, its half-angles' tangents, and a pixel's angle at its centre.
-field, ifov = {}, {}
-for instr, lines in INSTRUMENTS.items():
+# Each instrument's field, its half-angles' tangents, and a pixel's angle at
+# its centre. Its images: the time, and the pointing's error there as an angle
+# in its frame.
+field, ifov, shots = {}, {}, []
+for instr, (found, lines, axes) in INSTRUMENTS.items():
     _, _, _, _, bounds = spice.getfov(spice.bodn2c(instr), 4)
     field[instr] = (abs(bounds[0][0] / bounds[0][2]), abs(bounds[0][1] / bounds[0][2]))
     ifov[instr] = 2.0 * field[instr][1] / lines
+    for row in numpy.atleast_1d(numpy.genfromtxt(found, delimiter=",", names=True, dtype=None, encoding=None)):
+        shots.append((spice.str2et(row["utc"]), instr, numpy.array(axes) @ [row["pointing_x"], row["pointing_y"]] * ifov[instr]))
+shots.sort(key=lambda shot: shot[0])
 turn = {"HERA_AFC-1": numpy.eye(3), "HERA_TIRI": alignment.rotation() if ALIGN else numpy.eye(3)}
-
-headers = [fits.getheader(p) for p in glob.glob(f"{IMAGES}/**/tiri_par_*.fits", recursive=True)]
-times = sorted({spice.str2et(h.get("DATE-OBS", h["SPI_TIME"])) for h in headers if h["FW_NUM"] != "CLOSE"})
-print(f"{len(times)} times, {spice.et2utc(times[0], 'ISOC', 0)} to {spice.et2utc(times[-1], 'ISOC', 0)}")
+taken = {instr: sum(shot[1] == instr for shot in shots) for instr in INSTRUMENTS}
+times = [shot[0] for shot in shots]
+print(f"{taken} images, {spice.et2utc(times[0], 'ISOC', 0)} to {spice.et2utc(times[-1], 'ISOC', 0)}")
 
 app = App()
 sim = app.simulation
@@ -72,12 +81,12 @@ places = [numpy.array([spice.reclat(c)[1:] for c in cs]) * DPR for cs in centres
 seen = {(instr, b): numpy.zeros(len(centres[b]), int) for instr in INSTRUMENTS for b in range(len(sim.bodies))}
 
 rows, k = [], 0
-while app.running and k < 2 * len(times):
-    et, b = times[k // 2], k % 2  # each time, each body framed in turn
+while app.running and k < 2 * len(shots):
+    (et, instr, off), b = shots[k // 2], k % 2  # each image, each body framed in turn
     hera = spice.spkpos("HERA", et, "J2000", "LT+S", "DIDYMOS")[0]
-    for body, name, t in zip(sim.bodies, MESHES, (et, et + DIMORPHOS_SHIFT)):
-        body.mat[:3, :3] = spice.pxform(f"{name}_FIXED", "J2000", t)
-        body.mat[:3, 3] = spice.spkpos(name, t, "J2000", "NONE", "DIDYMOS")[0]
+    for body, name, s, t in zip(sim.bodies, MESHES, (DIDYMOS_SHIFT, DIMORPHOS_SHIFT), (0.0, DIMORPHOS_SHIFT)):
+        body.mat[:3, :3] = spice.pxform(f"{name}_FIXED", "J2000", et + s)
+        body.mat[:3, 3] = spice.spkpos(name, et + t, "J2000", "NONE", "DIDYMOS")[0]
     sim.sun.pos = spice.spkpos("SUN", et, "J2000", "LT+S", "DIDYMOS")[0]
     toward = sim.bodies[b].mat[:3, 3] - hera
     sim.camera.pos = hera
@@ -88,7 +97,8 @@ while app.running and k < 2 * len(times):
     if not app.step():
         break
 
-    # Drawn from Hera, lit, and inside each instrument's field as pointed.
+    # Drawn from Hera, lit, and inside the instrument's field as the image
+    # shows it pointed.
     ids, offsets = sim.facet_id_map()
     n = len(centres[b])
     drawn = numpy.zeros(n, bool)
@@ -96,10 +106,10 @@ while app.running and k < 2 * len(times):
     light = sim.facet_illumination(b)
     lit = (sim.facet_incidence(b) if light is None else light) > 0.0
     world = centres[b] @ sim.bodies[b].mat[:3, :3].T + sim.bodies[b].mat[:3, 3] - hera
-    for instr in INSTRUMENTS:
-        v = world @ (turn[instr] @ spice.pxform("J2000", instr, et)).T
-        inside = (v[:, 2] > 0) & (abs(v[:, 0]) <= field[instr][0] * v[:, 2]) & (abs(v[:, 1]) <= field[instr][1] * v[:, 2])
-        seen[instr, b] += drawn & inside & (lit if instr == "HERA_AFC-1" else True)
+    v = world @ (turn[instr] @ spice.pxform("J2000", instr, et)).T
+    x, y = v[:, 0] / v[:, 2] + off[0], v[:, 1] / v[:, 2] + off[1]
+    inside = (v[:, 2] > 0) & (abs(x) <= field[instr][0]) & (abs(y) <= field[instr][1])
+    seen[instr, b] += drawn & inside & (lit if instr == "HERA_AFC-1" else True)
 
     if b == 1:
         # Each body's geometry: Hera's distance, the point under Hera
@@ -107,9 +117,9 @@ while app.running and k < 2 * len(times):
         # the phase angle.
         row = [et]
         sun = spice.spkpos("SUN", et, "J2000", "LT+S", "DIDYMOS")[0]
-        for body, name, t in zip(sim.bodies, MESHES, (et, et + DIMORPHOS_SHIFT)):
+        for body, name, s in zip(sim.bodies, MESHES, (DIDYMOS_SHIFT, DIMORPHOS_SHIFT)):
             seen_from = hera - body.mat[:3, 3]
-            _, lon, lat = spice.reclat(spice.pxform("J2000", f"{name}_FIXED", t) @ seen_from)
+            _, lon, lat = spice.reclat(spice.pxform("J2000", f"{name}_FIXED", et + s) @ seen_from)
             row += [numpy.linalg.norm(seen_from), lat * DPR, lon * DPR % 360.0, spice.vsep(sun - body.mat[:3, 3], seen_from) * DPR]
         rows.append(row)
     k += 1
@@ -118,8 +128,10 @@ os.makedirs(OUT, exist_ok=True)
 g = numpy.array(rows)
 hours = (g[:, 0] - g[0, 0]) / 3600.0
 start = spice.et2utc(g[0, 0], "ISOC", 0)
-header = "utc,didymos_km,didymos_lat,didymos_lon,didymos_phase,dimorphos_km,dimorphos_lat,dimorphos_lon,dimorphos_phase"
-numpy.savetxt(f"{OUT}/geometry.csv", numpy.column_stack([[spice.et2utc(t, "ISOC", 3) for t in g[:, 0]], g[:, 1:]]),
+mine = {instr: numpy.array([shot[1] == instr for shot in shots[:len(g)]]) for instr in INSTRUMENTS}
+header = "utc,instrument,didymos_km,didymos_lat,didymos_lon,didymos_phase,dimorphos_km,dimorphos_lat,dimorphos_lon,dimorphos_phase"
+numpy.savetxt(f"{OUT}/geometry.csv", numpy.column_stack([[spice.et2utc(t, "ISOC", 3) for t in g[:, 0]],
+                                                         [shot[1] for shot in shots[:len(g)]], g[:, 1:]]),
               fmt="%s", delimiter=",", header=header, comments="")
 
 fig, ax = plt.subplots(4, 1, figsize=(10, 10), sharex=True)
@@ -140,7 +152,7 @@ ax[2].legend(fontsize=8, ncol=2)
 ax[3].set_ylabel("resolution under Hera (m/px)")
 ax[3].set_xlabel(f"hours from {start} UTC")
 ax[3].legend()
-ax[0].set_title(f"Hera at Didymos, the {len(times)} TIRI images' times")
+ax[0].set_title(f"Hera at Didymos, the times of {taken['HERA_AFC-1']} AFC and {taken['HERA_TIRI']} TIRI images")
 fig.tight_layout()
 fig.savefig(f"{OUT}/geometry.png", dpi=110)
 
@@ -155,8 +167,8 @@ for i, instr in enumerate(INSTRUMENTS):
         a.set_facecolor("0.85")
         a.set_title(f"{name.capitalize()} by {instr[5:]}: {100 * area[count > 0].sum() / area.sum():.0f}% of the surface",
                     fontsize=10)
-        fig.colorbar(art, ax=a, label=f"seen at how many of the {len(times)} image times")
-        a.plot(g[:, 3 + 4 * b], g[:, 2 + 4 * b], "+", color="r", ms=7, mew=1.2, label="sub-spacecraft point")
+        fig.colorbar(art, ax=a, label=f"seen in how many of the {taken[instr]} images")
+        a.plot(g[mine[instr], 3 + 4 * b], g[mine[instr], 2 + 4 * b], "+", color="r", ms=7, mew=1.2, label="sub-spacecraft point")
 ax[0, 0].legend(loc="upper right", fontsize=8)
 for a in ax[:, 0]:
     a.set_ylabel("latitude (°)")

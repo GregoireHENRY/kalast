@@ -35,3 +35,7 @@ kalast/_rs.pyd.old-*
 # kalast.app runs kalast from here.
 /scripts/
 /kalast.exe.lnk
+
+# Hera's images at Didymos are the Hera team's data, not public yet: the notes
+# on them stay on this machine.
+notes/*_hera_*/
