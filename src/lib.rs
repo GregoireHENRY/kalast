@@ -22,6 +22,7 @@ macro_rules! eprintln {
 pub mod astro;
 pub mod atmosphere;
 pub mod entity;
+pub mod fs;
 pub mod gpu;
 pub mod app;
 pub mod lightcurve;
@@ -48,6 +49,10 @@ pub mod meshes;
 /// the editor hosts one -- `wgpu::Color` in a config assignment has to be
 /// reachable without the example depending on wgpu itself.
 pub use wgpu;
+
+/// Re-exported for the same reason: the thermophysical model's steps take
+/// `ndarray` arrays, which an example has to be able to name.
+pub use ndarray;
 
 pub type UVec2 = glam::USizeVec2;
 

@@ -215,6 +215,8 @@ def _cases():
         ("kalast/entity.pyi", "Camera", kalast.entity.TIRI),
         ("kalast/tpm/properties.pyi", "Properties", kalast.tpm.properties.DEIMOS),
         ("kalast/tpm/core.pyi", "Ground", _a_ground()),
+        ("kalast/tpm/core.pyi", "Stepper", kalast.tpm.core.Stepper("bdf2")),
+        ("kalast/tpm/exchange.pyi", "ViewFactors", kalast.tpm.exchange.ViewFactors.from_csr([0.5], [0], [0, 1], 1)),
         ("kalast/astro.pyi", "Orbit", kalast.astro.Orbit(a=1.6426, e=0.3832)),
         # Added after this list let a broken stub through. `Hapke` shipped
         # advertising `py_reflectance` -- the Rust name, because the generator

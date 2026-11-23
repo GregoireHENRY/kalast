@@ -53,7 +53,7 @@ pub struct RayTracing {
     facets_pipeline: wgpu::ComputePipeline,
     /// Bound for the guide when there is none.
     no_guide: wgpu::Buffer,
-    /// The top level for the main pass, at group 7 (`mesh_shadow.wgsl`):
+    /// The top level for the main pass, at group 4 (`mesh_shadow.wgsl`):
     /// bound every frame on a device that traces, made again with the top
     /// level.
     pub image_layout: wgpu::BindGroupLayout,
@@ -535,7 +535,7 @@ impl RayTracing {
             group,
             out,
             read,
-            sent: std::time::Instant::now(),
+            sent: web_time::Instant::now(),
             in_flight: 0,
             finished: std::sync::Arc::new(std::sync::Mutex::new(None)),
             mapped: None,
@@ -577,10 +577,10 @@ impl RayTracing {
             let finished = std::sync::Arc::new(std::sync::Mutex::new(None));
             let f = finished.clone();
             queue.on_submitted_work_done(move || {
-                *f.lock().unwrap() = Some(std::time::Instant::now());
+                *f.lock().unwrap() = Some(web_time::Instant::now());
             });
             pass.finished = finished;
-            pass.sent = std::time::Instant::now();
+            pass.sent = web_time::Instant::now();
             pass.in_flight = count;
             pass.next += count;
             return None;
@@ -724,9 +724,9 @@ pub struct FacetPass {
     read: wgpu::Buffer,
     /// The range in flight: when it was sent, how many facets it holds, and
     /// when the GPU finished it.
-    sent: std::time::Instant,
+    sent: web_time::Instant,
     in_flight: u32,
-    finished: std::sync::Arc<std::sync::Mutex<Option<std::time::Instant>>>,
+    finished: std::sync::Arc<std::sync::Mutex<Option<web_time::Instant>>>,
     /// The answer's readback, once every range is in: whether it is mapped.
     mapped: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     /// The GPU's time per facet, last measured: the next range's size.

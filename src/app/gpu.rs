@@ -628,7 +628,7 @@ pub fn n_attrs(mesh: &crate::mesh::Mesh) -> usize {
 
 /// Which bind group the per-mesh attribute buffer occupies: after the five
 /// the `Bindings` set, so nothing else moves.
-pub const ATTRS_GROUP: u32 = 5;
+pub const ATTRS_GROUP: u32 = 2;
 
 /// The bind group layout the attribute buffer is bound through: one read-only
 /// storage buffer, visible to both stages.
@@ -769,16 +769,22 @@ fn upload_chunked<T: bytemuck::Pod + Send>(
         .map(|s| s..(s + UPLOAD_CHUNK).min(n))
         .collect();
     for batch in ranges.chunks(crate::mesh::load_threads()) {
-        let slices: Vec<Vec<T>> = std::thread::scope(|scope| {
-            let handles: Vec<_> = batch
-                .iter()
-                .map(|r| {
-                    let (make, r) = (&make, r.clone());
-                    scope.spawn(move || make(r))
-                })
-                .collect();
-            handles.into_iter().map(|h| h.join().unwrap()).collect()
-        });
+        // One slice is made where it is: on one core, and in the browser,
+        // which has no threads to start.
+        let slices: Vec<Vec<T>> = if batch.len() == 1 {
+            vec![make(batch[0].clone())]
+        } else {
+            std::thread::scope(|scope| {
+                let handles: Vec<_> = batch
+                    .iter()
+                    .map(|r| {
+                        let (make, r) = (&make, r.clone());
+                        scope.spawn(move || make(r))
+                    })
+                    .collect();
+                handles.into_iter().map(|h| h.join().unwrap()).collect()
+            })
+        };
         for (r, slice) in batch.iter().zip(&slices) {
             queue.write_buffer(buffer, r.start as u64 * stride, bytemuck::cast_slice(slice));
         }
@@ -1222,7 +1228,10 @@ impl MeshBuffer {
         // The level-of-detail tree is built on its own thread, from copies:
         // a 12.9M-facet mesh takes a second or two, which a frame must not
         // wait for. Until it is in, the mesh is drawn whole.
-        let lod_pending = (mesh.flat
+        // Not in the browser, which has no thread to build it on: there a
+        // mesh is drawn whole.
+        let lod_pending = (cfg!(not(target_arch = "wasm32"))
+            && mesh.flat
             && mesh.facets.len() >= crate::app::lod::MIN_FACETS
             && has_immediates(device)
             && has_primitive_index(device))
@@ -1232,7 +1241,7 @@ impl MeshBuffer {
             let normals: Vec<crate::Vec3> = mesh.facets.iter().map(|f| f.normal).collect();
             let (tx, rx) = std::sync::mpsc::channel();
             std::thread::spawn(move || {
-                let started = std::time::Instant::now();
+                let started = web_time::Instant::now();
                 let tree = crate::app::lod::Lod::build(&positions, &indices, &normals);
                 let _ = tx.send((tree, started.elapsed().as_secs_f64(), normals.len()));
             });
@@ -1819,7 +1828,7 @@ impl Texture {
         queue: &wgpu::Queue,
         path: P,
     ) -> Self {
-        Self::new_image_from_bytes(device, queue, &std::fs::read(path.as_ref()).unwrap())
+        Self::new_image_from_bytes(device, queue, &crate::fs::read(path.as_ref()).unwrap())
     }
 
     /// A layered shadow map: one depth layer per body.
@@ -2157,15 +2166,53 @@ fn save_job(job: SaveJob) {
     job.buffer.unmap();
 
     if let Some(img) = ImageBuffer::<Rgba<u8>, _>::from_raw(job.width, job.height, pixels) {
+        #[cfg(not(target_arch = "wasm32"))]
         if let Err(e) = img.save(&job.path) {
             eprintln!("[EXPORT] failed to save {:?}: {e}", job.path);
         }
+        #[cfg(target_arch = "wasm32")]
+        page_save(&img, &job.path);
     }
 
     let _ = job.pool_tx.send(PooledBuffer {
         buffer: job.buffer,
         size: job.buffer_size,
     });
+}
+
+/// In a page, a frame's PNG into the visitor's folder (`app::PageFolder`),
+/// not kept in the page's memory; encoded fast, the page's one thread
+/// drawing the frames too. The pixels are the desktop's, the bytes the
+/// compression's.
+#[cfg(target_arch = "wasm32")]
+fn page_save(img: &ImageBuffer<Rgba<u8>, Vec<u8>>, path: &std::path::Path) {
+    use image::ImageEncoder;
+    let mut png = Vec::new();
+    let encoder = image::codecs::png::PngEncoder::new_with_quality(
+        &mut png,
+        image::codecs::png::CompressionType::Fast,
+        image::codecs::png::FilterType::Adaptive,
+    );
+    if let Err(e) = encoder.write_image(img.as_raw(), img.width(), img.height(), image::ExtendedColorType::Rgba8) {
+        eprintln!("[EXPORT] failed to encode {path:?}: {e}");
+        return;
+    }
+    if let Some(folder) = crate::app::page_folder() {
+        folder.write(&page_path(path), &png);
+    }
+}
+
+/// `path` as a page's files name it, from its root (`kalast::fs`).
+#[cfg(target_arch = "wasm32")]
+fn page_path(path: &std::path::Path) -> String {
+    let names: Vec<String> = path
+        .components()
+        .filter_map(|c| match c {
+            std::path::Component::Normal(name) => Some(name.to_string_lossy().into_owned()),
+            _ => None,
+        })
+        .collect();
+    names.join("/")
 }
 
 /// Exports render-target frames to PNG (`{export_dir}/000000.png`) without
@@ -2202,6 +2249,10 @@ pub struct FrameExporter {
     // Max frames outstanding before export_frame blocks; 0 = unbounded.
     // See Config::export_max_queued.
     max_queued: usize,
+    /// In a page, said once: its frames go to a folder of the visitor's,
+    /// and none is open.
+    #[cfg(target_arch = "wasm32")]
+    told: bool,
 }
 
 impl FrameExporter {
@@ -2251,10 +2302,13 @@ impl FrameExporter {
         // buffer is unmapped and handed back through pool_tx once done, for
         // reuse by future exports.
         let save_rx = std::sync::Arc::new(std::sync::Mutex::new(save_rx));
-        let n_workers = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(4)
-            .clamp(2, 8);
+        // None in the browser, which has no threads to start nor a disk to
+        // write to: `export_frame` exports nothing there.
+        let n_workers = if cfg!(target_arch = "wasm32") {
+            0
+        } else {
+            std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).clamp(2, 8)
+        };
 
         let save_workers = (0..n_workers)
             .map(|_| {
@@ -2292,6 +2346,8 @@ impl FrameExporter {
             next_index,
             sync,
             max_queued,
+            #[cfg(target_arch = "wasm32")]
+            told: false,
         }
     }
 
@@ -2310,7 +2366,7 @@ impl FrameExporter {
                 .load(std::sync::atomic::Ordering::Acquire)
             {
                 let job = self.in_flight.remove(ii);
-                let _ = save_tx.send(SaveJob {
+                let job = SaveJob {
                     buffer: job.buffer,
                     buffer_size: job.buffer_size,
                     pool_tx: self.pool_tx.clone(),
@@ -2320,9 +2376,19 @@ impl FrameExporter {
                     height: job.height,
                     bgra_swap: job.bgra_swap,
                     path: job.path,
-                });
-                self.pending
-                    .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+                };
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let _ = save_tx.send(job);
+                    self.pending
+                        .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+                }
+                // A page has no threads to hand it to: saved now.
+                #[cfg(target_arch = "wasm32")]
+                {
+                    let _ = save_tx;
+                    save_job(job);
+                }
             } else {
                 ii += 1;
             }
@@ -2382,6 +2448,23 @@ impl FrameExporter {
         width: u32,
         height: u32,
     ) {
+        // In a page, which has no disk, into a folder of the visitor's
+        // (`app::PageFolder`); with none open, the frames have nowhere to go.
+        #[cfg(target_arch = "wasm32")]
+        if !crate::app::page_folder().is_some_and(|f| f.connected().is_some()) {
+            if !self.told {
+                println!(
+                    "[EXPORT] a page writes its frames into a folder of yours: open one in the files tab \
+                     (Chrome, Edge)"
+                );
+                self.told = true;
+            }
+            return;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.save_workers.is_empty() {
+            return;
+        }
         let bytes_per_pixel = 4;
         let unpadded_bytes_per_row = bytes_per_pixel * width;
         let padding = (256 - unpadded_bytes_per_row % 256) % 256;
@@ -2460,7 +2543,20 @@ impl FrameExporter {
         //
         // Six digits also matches ffmpeg's "%06d" input pattern directly.
         if !self.dir_made {
+            #[cfg(not(target_arch = "wasm32"))]
             std::fs::create_dir_all(&self.export_dir).unwrap();
+            // In a page, numbered after the frames already in the folder, as
+            // `new` numbers them after the disk's -- read here, the folder
+            // being open by the first frame and maybe not before.
+            #[cfg(target_arch = "wasm32")]
+            if let Some(folder) = crate::app::page_folder() {
+                for name in folder.names(&page_path(&self.export_dir)) {
+                    let stem = std::path::Path::new(&name).file_stem().and_then(|s| s.to_str()).map(str::to_string);
+                    if let Some(n) = stem.and_then(|s| s.parse::<usize>().ok()) {
+                        self.next_index = self.next_index.max(n + 1);
+                    }
+                }
+            }
             self.dir_made = true;
         }
         let path = self
@@ -2480,6 +2576,11 @@ impl FrameExporter {
             path,
         });
 
+        // A page cannot wait on the GPU: its frames are saved as their
+        // copies come back, a frame or more later (`poll`).
+        if cfg!(target_arch = "wasm32") {
+            return;
+        }
         if self.sync {
             self.save_last_blocking(device);
         } else {

@@ -1,0 +1,19 @@
+# The pages are asked for again each visit; what each loads is in a folder
+# named for its content, and kept -- build.sh writes in the two folders. Its
+# own agent cluster (Origin-Agent-Cluster): shown inside another page of
+# greghy.com's, the browser may then run it in a process of its own, so that
+# neither page's work stops the other's frames.
+/*
+  Origin-Agent-Cluster: ?1
+/
+  Cache-Control: no-cache
+/index.html
+  Cache-Control: no-cache
+/beta/
+  Cache-Control: no-cache
+/beta/index.html
+  Cache-Control: no-cache
+/__STABLE__/*
+  Cache-Control: public, max-age=31536000, immutable
+/beta/__BETA__/*
+  Cache-Control: public, max-age=31536000, immutable

@@ -151,7 +151,7 @@ pub enum ColorbarSource {
 /// Horizontal or vertical is inferred from the anchor -- a bar anchored to a
 /// side is vertical, one anchored top or bottom is horizontal -- since that is
 /// the only orientation that fits in either place. `vertical` overrides it.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Colorbar {
     pub enabled: bool,
     pub anchor: HudAnchor,
@@ -229,7 +229,7 @@ impl Colorbar {
 }
 
 /// One HUD overlay: a template, where it sits, and how it looks.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Hud {
     /// Template text; see `Config::huds` for the placeholders.
     pub text: String,
@@ -430,7 +430,7 @@ pub fn colormap_name(table: &[[f32; 3]]) -> Option<String> {
 /// reads as it is.
 pub fn colormap_from_file(path: &std::path::Path) -> Result<Vec<[f32; 3]>, String> {
     let shown = path.display();
-    let text = std::fs::read_to_string(path).map_err(|e| format!("cannot read {shown}: {e}"))?;
+    let text = crate::fs::read_to_string(path).map_err(|e| format!("cannot read {shown}: {e}"))?;
     let mut rows: Vec<[f32; 3]> = Vec::new();
     for (i, line) in text.lines().enumerate() {
         let line = line.split('#').next().unwrap_or_default().trim();
@@ -517,7 +517,7 @@ impl ColorMode {
 }
 
 /// How the surface is coloured and the image encoded.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Shading {
     /// Colour the frame is cleared to, `(r, g, b, a)`.
     ///
@@ -646,7 +646,7 @@ impl Default for Shading {
 }
 
 /// The Sun as a light: its colour, the ambient floor, the debug cube.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Light {
     /// Draw a cube at the light's position, so the Sun is visible.
     ///
@@ -844,7 +844,7 @@ impl ShadowMethod {
 }
 
 /// The shadow map and its readback.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Shadows {
     /// How the Sun's shadows are drawn: "maps", a shadow map per body (the
     /// default); "rays", traced against the full meshes, on a GPU with ray
@@ -1349,7 +1349,7 @@ impl Default for Shadows {
 }
 
 /// Facet edges drawn over or instead of the surface.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Wireframe {
     /// the barycentrics are meaningless and the CPU side warns once.
     /// :range: 0..=2
@@ -1403,7 +1403,7 @@ impl Default for Wireframe {
 }
 
 /// The picked facet and the facet labels.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Selection {
     // Wireframe overlay. 0 = shaded mesh only, 1 = wireframe only,
     // 2 = wireframe drawn over the shaded mesh.
@@ -1465,7 +1465,7 @@ impl Default for Selection {
 }
 
 /// Colouring facets from per-facet values.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Data {
     /// Range the colormap spans, or `None` to fit the loaded values each
     /// frame.
@@ -1499,7 +1499,7 @@ impl Default for Data {
 }
 
 /// Reference axes, tick labels and the navigation gizmo.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct AxesConfig {
     /// Reference axes drawn around the scene.
     ///
@@ -1583,7 +1583,7 @@ impl Default for AxesConfig {
 /// image every run. `sim.reference_samples`, `sim.reference_error` and
 /// `sim.reference_done` follow it; `sim.reference_image()` gives the mean as
 /// floats once done.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Reference {
     /// The standard error the sum stops at, as a share of the image's
     /// brightest value: the 99.9th percentile of the pixels', from the spread
@@ -1632,7 +1632,7 @@ impl Default for Reference {
 /// I/F times its area, the disc integral `kalast.lightcurve.flux` gives,
 /// read back a frame or two later, tagged with the iteration it was drawn
 /// at. An orthographic camera only, every body in the frame.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Photometry {
     /// Draw the image for photometry and measure each frame that advances:
     /// the light of what the camera sees, for `sim.fluxes()`.
@@ -1640,7 +1640,7 @@ pub struct Photometry {
 }
 
 /// A telescope's frames, made from the rendered light (`sim.expose`).
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct TelescopeView {
     /// Show the telescope's last frame in the window instead of the scene:
     /// fitted to the image, its rows as DS9 shows them. Through the stretch
@@ -1650,7 +1650,7 @@ pub struct TelescopeView {
 }
 
 /// The shaded ground grid of the `blender` axes style.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Grid {
     /// Shade the `"blender"` style's ground grid instead of drawing it as
     /// line segments. On by default; `False` restores the segments.
@@ -1738,7 +1738,7 @@ impl Default for Grid {
 }
 
 /// The text overlays.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct HudConfig {
     /// Font for the HUD: a **name** or a **path**, or empty for the built-in
     /// DejaVu Sans.
@@ -1784,7 +1784,7 @@ impl Default for HudConfig {
 }
 
 /// Frame export.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Export {
     // Export frames synchronously: block the render loop on each frame's
     // GPU->CPU copy, PNG encode and disk write instead of handing them to
@@ -1858,7 +1858,7 @@ impl Default for Export {
 }
 
 /// Mouse and keyboard sensitivities.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Controls {
     /// Multiplier for WASD movement speed.
     /// :range: 0.1..=5.0
@@ -1905,7 +1905,7 @@ impl Default for Controls {
 }
 
 /// The size of the image being rendered, as distinct from the window.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Image {
     /// Render size in physical pixels -- the *image*, not the window.
     ///
@@ -1965,7 +1965,7 @@ impl Default for Image {
 /// image is then drawn single-sampled into floats, as a reference's sample
 /// is, the response smoothing its edges instead of MSAA: a 1018-pixel image
 /// is a 2048 x 2048 transform a frame.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Response {
     /// Apply it. Off by default.
     pub enabled: bool,
@@ -2049,7 +2049,7 @@ impl Response {
 /// `"linear"` between `"user"` limits of 0 and 1, the default -- the image is
 /// drawn as it was. On, it is drawn into floats first, single-sampled as a
 /// camera's response has it.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Stretch {
     /// The function between the limits, DS9's: `"linear"`, the default,
     /// `"log"`, `"pow"`, `"sqrt"`, `"squared"`, `"asinh"`, `"sinh"`, or
@@ -2209,7 +2209,7 @@ impl StretchLimits {
 }
 
 /// Diagnostics and console output.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Diagnostics {
     /// Print app lifecycle events: pause and camera-mode changes.
     pub app: bool,
@@ -2270,7 +2270,7 @@ impl Default for Diagnostics {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Config {
     /// How the surface is coloured and the image encoded.
     pub shading: Shading,
@@ -2342,7 +2342,9 @@ impl Default for Config {
 /// scene is the renderer's, shown as an image no theme tints.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UiTheme {
-    /// Catppuccin's Mocha, its darkest flavour. The default.
+    /// Blender's own theme, its colours as Blender ships them. The default.
+    Blender,
+    /// Catppuccin's Mocha, its darkest flavour.
     CatppuccinMocha,
     /// egui's dark theme, whatever the system's appearance.
     Dark,
@@ -2353,6 +2355,7 @@ impl UiTheme {
     /// and space all work, since all three get typed.
     pub fn parse(s: &str) -> Option<Self> {
         match s.to_ascii_lowercase().replace(['_', ' '], "-").as_str() {
+            "blender" => Some(Self::Blender),
             "catppuccin-mocha" | "mocha" => Some(Self::CatppuccinMocha),
             "dark" => Some(Self::Dark),
             _ => None,
@@ -2361,6 +2364,7 @@ impl UiTheme {
 
     pub fn name(&self) -> &'static str {
         match self {
+            Self::Blender => "blender",
             Self::CatppuccinMocha => "catppuccin-mocha",
             Self::Dark => "dark",
         }
@@ -2454,8 +2458,8 @@ pub struct AppConfig {
     ///
     /// :label: toolbar text
     pub toolbar: String,
-    /// The colours of the UI app's panels: `"catppuccin-mocha"`, the default,
-    /// or `"dark"`, egui's own.
+    /// The colours of the UI app's panels: `"blender"`, the default, Blender's
+    /// own; `"catppuccin-mocha"`; or `"dark"`, egui's own.
     ///
     /// The panels only. The scene -- its background included -- is drawn by
     /// the renderer from `app.simulation.config` and shown as an image no
@@ -2653,7 +2657,7 @@ impl Default for AppConfig {
             log_folded: false,
             script_folded: false,
             simulation_folded: false,
-            theme: UiTheme::CatppuccinMocha,
+            theme: UiTheme::Blender,
             open_in_background: false,
             remember_window: true,
             width: 0,

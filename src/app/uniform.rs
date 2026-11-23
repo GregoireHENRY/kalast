@@ -301,6 +301,29 @@ impl LayerSelect {
     }
 }
 
+/// The frame's group, group 0 of the shaded pipelines: the globals, the view,
+/// the colour table and the colour bar, at bindings 0 to 3. One group rather
+/// than four, which a browser's WebGPU would not take -- it allows a pipeline
+/// four groups in all. Each buffer keeps its own group too, for the passes
+/// that bind it alone (`Bindings::for_shadow`).
+pub fn frame_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    let entry = |binding| wgpu::BindGroupLayoutEntry {
+        binding,
+        // Compute too: the penumbra pass's walks read the globals.
+        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT | wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Uniform,
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        },
+        count: None,
+    };
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("frame"),
+        entries: &[entry(0), entry(1), entry(2), entry(3)],
+    })
+}
+
 pub struct Uniforms {
     pub globals: super::gpu::UniformBuffer<Globals>,
     pub view: super::gpu::UniformBuffer<View>,
@@ -308,6 +331,8 @@ pub struct Uniforms {
     pub bar: super::gpu::UniformBuffer<Bar>,
     pub shadow: super::gpu::Texture,
     pub layer_select: LayerSelect,
+    /// `frame_layout`'s.
+    pub frame: wgpu::BindGroupLayout,
     /// The per-mesh attribute buffer's layout, held here so the pipeline that
     /// declares it and the meshes that fill it cannot drift apart.
     pub mesh_attrs: wgpu::BindGroupLayout,
@@ -315,15 +340,9 @@ pub struct Uniforms {
 }
 
 impl Uniforms {
+    /// The frame's group and the shadow layers'.
     pub fn layouts_all(&self) -> Vec<Option<&wgpu::BindGroupLayout>> {
-        vec![
-            Some(&self.globals.layout),
-            Some(&self.view.layout),
-            Some(&self.shadow.layout.as_ref().unwrap()),
-            Some(&self.colormap.layout),
-            Some(&self.bar.layout),
-            // Some(&self.textures[0].layout.as_ref().unwrap()),
-        ]
+        vec![Some(&self.frame), Some(&self.shadow.layout.as_ref().unwrap())]
     }
 
     /// `layouts_all` plus the per-mesh attributes at `ATTRS_GROUP`. Only the
@@ -346,11 +365,18 @@ impl Uniforms {
 
     pub fn bindings(&self, device: &wgpu::Device) -> super::pass::Bindings {
         super::pass::Bindings {
+            frame: device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("frame"),
+                layout: &self.frame,
+                entries: &[&self.globals.buffer, &self.view.buffer, &self.colormap.buffer, &self.bar.buffer]
+                    .iter()
+                    .enumerate()
+                    .map(|(i, buffer)| wgpu::BindGroupEntry { binding: i as u32, resource: buffer.as_entire_binding() })
+                    .collect::<Vec<_>>(),
+            }),
             globals: self.globals.bind_group(device),
             view: self.view.bind_group(device),
             shadow: self.shadow.bind_group(device).unwrap(),
-            colormap: self.colormap.bind_group(device),
-            bar: self.bar.bind_group(device),
             shadow_layer: self.layer_select.bind_group.clone(),
             layer_stride: self.layer_select.stride,
             rays: None,

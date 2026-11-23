@@ -70,9 +70,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // you trace it back. A tint at `FILL_ALPHA` is enough to carry the colour
     // and stays clearly lighter than the filled positive end, which is the
     // distinction the ring is there to draw.
+    //
+    // Its width taken before the branch: a derivative is defined only where
+    // the pixels around agree on the way through the shader, which a
+    // browser's compiler holds a shader to.
+    let r = length(in.uv);
+    let wi = max(fwidth(r) * 0.5, 1e-6);
     if in.inner > 0.0 {
-        let r = length(in.uv);
-        let wi = max(fwidth(r) * 0.5, 1e-6);
         let ring = smoothstep(in.inner - wi, in.inner + wi, r);
         a = a * mix(FILL_ALPHA, 1.0, ring);
     }

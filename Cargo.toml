@@ -22,6 +22,8 @@ include = [
     "/res/icons/**",
     "/res/codicon.ttf",
     "/res/LICENSE-codicons",
+    "/res/Inter-Blender.ttf",
+    "/res/LICENSE-inter",
     "/shaders/*.wgsl",
     "/res/cube.obj",
     "/res/ico3.obj",
@@ -103,13 +105,6 @@ embed = ["python", "pyo3/auto-initialize"]
 ext = ["python", "pyo3/extension-module"]
 
 [dependencies]
-# The editor's Open button: the platform's own file picker (NSOpenPanel,
-# IFileDialog, GTK on Linux -- `libgtk-3-dev` at build time there).
-rfd = "0.15"
-# The files tab's Delete: to the Trash -- Finder's, the Recycle Bin, the
-# freedesktop trash -- never gone for good. Not `chrono`, which only lists
-# what is in it.
-trash = { version = "5.2", default-features = false, features = ["coinit_apartmentthreaded"] }
 kalast_macros = { path = "macros", version = "0.5" }
 
 # Generic
@@ -117,9 +112,6 @@ zerocopy = "0.8.47"
 anyhow = "1.0.102"
 snafu = "0.9"
 serde = "1.0"
-# The update check and download (`src/app/update.rs`): HTTPS with rustls,
-# nothing from the system.
-ureq = "3"
 serde_json = "1"
 # The script editor's Neovim mode speaks msgpack-RPC to an embedded `nvim`
 # (`src/app/gui/script/nvim.rs`), and counts screen cells as it does -- a
@@ -133,6 +125,9 @@ once_cell = "1.21.4"
 itertools = "0.14"
 paste = "1.0"
 crossbeam = "0.8"
+# Time as the desktop's `std::time`, which it is there, and as the browser
+# gives it, where `std::time::Instant::now` panics.
+web-time = "1.1"
 
 # Albegra
 glam = { version = "0.32.1", features = ["serde", "bytemuck"] }
@@ -163,9 +158,6 @@ pyo3 = { version = "0.28", optional = true, features = [
 ] }
 numpy = { version = "0.28", optional = true }
 
-# Loading a compiled example into the running editor. See
-# `docs/API.md`, "Rust examples".
-libloading = "0.8"
 
 # Window/GPU
 bytemuck = { version = "1.25", features = ["derive"] }
@@ -173,7 +165,6 @@ memoffset = "0.9"
 winit = { version = "0.30.13", features = ["android-native-activity"] }
 wgpu = { version = "30", features = ["serde"] }
 wgpu_text = "30"
-pollster = "0.4"
 image = { version = "0.25.10", default-features = false, features = [
     "png",
     "jpeg",
@@ -181,7 +172,6 @@ image = { version = "0.25.10", default-features = false, features = [
 ] }
 egui = "0.36"
 egui-wgpu = "0.36"
-egui-winit = "0.36"
 # The SVG loader only, for the files tab's Catppuccin icons: `resvg` without
 # its text or raster-image features. Highlighting the script is kalast's own
 # (`gui/code.rs`) rather than the `syntect` feature, which would embed a
@@ -194,6 +184,36 @@ egui_extras = { version = "0.36", default-features = false, features = ["svg"] }
 pulldown-cmark = { version = "0.13", default-features = false }
 raw-window-handle = "0.6.2"
 
+
+# The desktop's alone: none of these is in the browser (`web/`).
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# The editor's Open button: the platform's own file picker (NSOpenPanel,
+# IFileDialog, GTK on Linux -- `libgtk-3-dev` at build time there).
+rfd = "0.15"
+# The files tab's Delete: to the Trash -- Finder's, the Recycle Bin, the
+# freedesktop trash -- never gone for good. Not `chrono`, which only lists
+# what is in it.
+trash = { version = "5.2", default-features = false, features = ["coinit_apartmentthreaded"] }
+# The update check and download (`src/app/update.rs`): HTTPS with rustls,
+# nothing from the system.
+ureq = "3"
+# Loading a compiled example into the running editor. See
+# `docs/API.md`, "Rust examples".
+libloading = "0.8"
+# Waiting on the GPU's start-up, which the browser does not allow.
+pollster = "0.4"
+# egui's window glue, with the clipboard, which the browser's does not have.
+egui-winit = "0.36"
+
+# The browser's alone (`web/`).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+egui-winit = { version = "0.36", default-features = false, features = ["links"] }
+# The GPU's start-up, awaited on the page's own loop.
+wasm-bindgen-futures = "0.4"
+# The log's local time in a page (`app::clock`): JavaScript's `Date`.
+js-sys = "0.3"
+# The room a page has for a window size a script asks for (`page_fit`).
+web-sys = { version = "0.3", features = ["Window"] }
 
 [build-dependencies]
 # kalast.exe's icon (`build.rs`): a Windows resource, linked into that

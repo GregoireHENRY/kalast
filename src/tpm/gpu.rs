@@ -45,6 +45,7 @@ struct Params {
     newton_max_iter: u32,
     stride_surface: u32,
     stride_conduction: u32,
+    bottom_rise: f32,
 }
 
 pub struct GpuTpm {
@@ -62,6 +63,8 @@ pub struct GpuTpm {
     normals: wgpu::Buffer,
     lit: wgpu::Buffer,
     readback: wgpu::Buffer,
+    params: Params,
+    params_buf: wgpu::Buffer,
     have_geometry: bool,
     n_facets: u32,
     n_nodes: u32,
@@ -117,11 +120,12 @@ impl GpuTpm {
             newton_max_iter,
             stride_surface,
             stride_conduction,
+            bottom_rise: 0.0,
         };
         let params_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("tpm params"),
             contents: bytemuck::bytes_of(&params),
-            usage: wgpu::BufferUsages::UNIFORM,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
         let n_total = (n_facets as u64) * (n_nodes as u64);
@@ -310,6 +314,8 @@ impl GpuTpm {
             normals,
             lit,
             readback,
+            params,
+            params_buf,
             have_geometry: false,
             n_facets,
             n_nodes,
@@ -318,6 +324,22 @@ impl GpuTpm {
             front: 0,
             ctx,
         })
+    }
+
+    /// A heat flow `q` (W/m2) through the base of every column, from below:
+    /// the base node sits `q spacing / conductivity` above the node over it,
+    /// `spacing` the distance between the two (m). Zero, the default, is the
+    /// adiabatic bottom. The CPU's `tpm::core::bottom_flux`.
+    pub fn set_bottom_flux(&mut self, q: f32, spacing: f32) -> Result<(), String> {
+        if !(q.is_finite() && spacing > 0.0 && spacing.is_finite()) {
+            return Err(format!("a heat flow at the bottom wants a finite q and a spacing > 0: not q = {q} W/m2, spacing = {spacing} m"));
+        }
+        if q != 0.0 && !(self.params.conductivity > 0.0) {
+            return Err(format!("a heat flow at the bottom needs a ground that conducts: its conductivity is {}", self.params.conductivity));
+        }
+        self.params.bottom_rise = if q == 0.0 { 0.0 } else { q * spacing / self.params.conductivity };
+        self.ctx.queue.write_buffer(&self.params_buf, 0, bytemuck::bytes_of(&self.params));
+        Ok(())
     }
 
     pub fn n_facets(&self) -> u32 {

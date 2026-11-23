@@ -42,7 +42,7 @@ struct View {
     camera: Camera,
     light: Light,
 };
-@group(1) @binding(0)
+@group(0) @binding(1)
 var<uniform> view: View;
 
 struct VertexInput {

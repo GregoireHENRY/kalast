@@ -23,6 +23,7 @@ use std::path::Path;
 use super::Source;
 
 /// Gaia's archive, its synchronous TAP endpoint.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))] // not asked from the browser
 const TAP: &str = "https://gea.esac.esa.int/tap-server/tap/sync";
 
 /// Gaia DR3's epoch, Julian years.
@@ -122,6 +123,22 @@ pub fn parse(csv: &str) -> Result<Vec<Star>, String> {
     Ok(stars)
 }
 
+/// The archive's answer to an ADQL query, as CSV.
+#[cfg(not(target_arch = "wasm32"))]
+fn ask(query: &str) -> Result<String, String> {
+    let mut response = ureq::post(TAP)
+        .header("User-Agent", &format!("kalast/{}", env!("CARGO_PKG_VERSION")))
+        .send_form([("REQUEST", "doQuery"), ("LANG", "ADQL"), ("FORMAT", "csv"), ("QUERY", query)])
+        .map_err(|e| format!("Gaia's archive: {e}"))?;
+    response.body_mut().read_to_string().map_err(|e| format!("Gaia's archive: {e}"))
+}
+
+/// Not from the browser, whose page asks no other site.
+#[cfg(target_arch = "wasm32")]
+fn ask(_query: &str) -> Result<String, String> {
+    Err("Gaia's archive is not asked from the browser".to_string())
+}
+
 /// The stars within `radius` degrees of (`ra`, `dec`) brighter than `g_max`
 /// in G, from the file `cache` when it holds them -- the archive's answer is
 /// written there the first time -- or from the archive.
@@ -136,11 +153,7 @@ pub fn cone(ra: f64, dec: f64, radius: f64, g_max: f64, cache: Option<&Path>) ->
          WHERE 1 = CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', {ra}, {dec}, {radius})) \
          AND phot_g_mean_mag < {g_max}"
     );
-    let mut response = ureq::post(TAP)
-        .header("User-Agent", &format!("kalast/{}", env!("CARGO_PKG_VERSION")))
-        .send_form([("REQUEST", "doQuery"), ("LANG", "ADQL"), ("FORMAT", "csv"), ("QUERY", query.as_str())])
-        .map_err(|e| format!("Gaia's archive: {e}"))?;
-    let csv = response.body_mut().read_to_string().map_err(|e| format!("Gaia's archive: {e}"))?;
+    let csv = ask(&query)?;
     let stars = parse(&csv)?;
     if let Some(path) = cache {
         if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {

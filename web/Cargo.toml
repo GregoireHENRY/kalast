@@ -1,0 +1,37 @@
+# kalast in the browser: the UI app compiled to WebAssembly, drawn with WebGPU,
+# every computation on the visitor's machine. `web/build.sh` builds it into
+# `web/dist/`, which is the whole site.
+[package]
+name = "kalast-web"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+kalast = { path = "..", default-features = false }
+# The version of the `wasm-bindgen` command that `build.sh` runs, which must be
+# the crate's: `cargo install wasm-bindgen-cli --version 0.2.128`.
+wasm-bindgen = "=0.2.128"
+console_error_panic_hook = "0.1"
+# wgpu's and kalast's log, to the browser's console.
+console_log = "1"
+log = "0.4"
+# JavaScript's values, which the page's Python bridge (`src/python.rs`) trades in.
+js-sys = "0.3"
+# The browser's storage, where what a visitor saves is kept.
+web-sys = { version = "0.3", features = ["Document", "Element", "Location", "Node", "Storage", "Window"] }
+# egui's hashing asks for random numbers, which the browser gives through
+# JavaScript; with the `getrandom_backend` flag in `.cargo/config.toml`.
+getrandom = { version = "0.3", features = ["wasm_js"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+
+# egui-winit 0.36.1 does not build for wasm32: see `patches/egui-winit/PATCH.md`.
+[patch.crates-io]
+egui-winit = { path = "patches/egui-winit" }

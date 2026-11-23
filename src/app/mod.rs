@@ -371,7 +371,7 @@ pub struct App {
     pub config: crate::locked::Locked<crate::app::config::AppConfig>,
     pub window: Option<crate::app::window::Window>,
 
-    pub now: std::time::Instant,
+    pub now: web_time::Instant,
     pub dt: Float,
 
     pub simulation: crate::locked::Locked<crate::app::simulation::Simulation>,
@@ -412,7 +412,7 @@ pub struct App {
 
     /// When the user last worked the mouse or the keyboard: for
     /// `INPUT_HOLD` after it, a paused scene is drawn.
-    last_input: std::time::Instant,
+    last_input: web_time::Instant,
     /// Whether the frame being drawn began paused: a frame drawn in bands
     /// ends on a later turn of the loop, and its callbacks and its step go
     /// by how it began.
@@ -421,11 +421,11 @@ pub struct App {
     phase: Phase,
     /// When the last turn of the loop began, for the rate's window, and how
     /// many have: `step()` gives up on a loop whose turns stop.
-    turn_now: std::time::Instant,
+    turn_now: web_time::Instant,
     turns: u64,
     /// When the camera last moved with the controller: it moves by the time
     /// since, the turns waiting for the scripts' thread included.
-    camera_now: std::time::Instant,
+    camera_now: web_time::Instant,
     /// The UI app's scripts' thread, when its front door started one: Python
     /// callbacks are called there, and the frames of a script running there
     /// are the ones it steps. See `script`.
@@ -435,27 +435,37 @@ pub struct App {
     /// takes it and hands it to `run_app`, which never gives it back --
     /// a platform event loop cannot be created twice in one process, so
     /// the two modes cannot both own one.
-    event_loop: Option<winit::event_loop::EventLoop<crate::app::window::Window>>,
+    event_loop: Option<winit::event_loop::EventLoop<crate::app::window::Gpu>>,
+    /// In the browser, how the GPU comes back to the loop once the page has
+    /// it (`user_event`), and the canvas waiting for it.
+    #[cfg(target_arch = "wasm32")]
+    proxy: Option<winit::event_loop::EventLoopProxy<crate::app::window::Gpu>>,
+    #[cfg(target_arch = "wasm32")]
+    canvas: Option<Arc<winit::window::Window>>,
     /// Set when a frame reaches the end of the redraw handler. `step()`
     /// pumps until it flips, which is what makes one call mean one frame
     /// rather than one batch of events.
     frame_drawn: bool,
+    /// The frame being drawn is the page's own, on its loop's turn between
+    /// two of the browser's: drawn and stepped, not shown (`page_frame`).
+    #[cfg(target_arch = "wasm32")]
+    page_turn: bool,
     /// What the update check and install threads send back; read each frame.
     update_rx: Option<std::sync::mpsc::Receiver<crate::app::update::Msg>>,
 
     /// When the swapchain last took a frame, and how often it may: once per
     /// refresh of the display the window is on. See the acquisition in the
     /// redraw handler for what presenting more often than that costs.
-    last_present: std::time::Instant,
+    last_present: web_time::Instant,
     present_interval: Option<std::time::Duration>,
     /// When the swapchain was last asked for a frame, given or refused: it
     /// is asked again an interval later. A covered window refuses every one,
     /// and asking every turn spun the loop of a paused scene, or of one
     /// waiting for its script, at twenty thousand turns a second.
-    present_tried: std::time::Instant,
+    present_tried: web_time::Instant,
     /// Presents, frames, refused acquisitions and the longest gap between
     /// two presents (ms) since the last `debug.window` report.
-    present_count: (u32, u32, u32, f64, std::time::Instant, f64),
+    present_count: (u32, u32, u32, f64, web_time::Instant, f64),
     /// Whether this app has already handed its scene to a host. Once only:
     /// the second hand-over would replace the simulation the host is midway
     /// through rendering with an identical one.
@@ -466,7 +476,7 @@ pub struct App {
     /// The example currently loaded into this process, held for as long as
     /// the callbacks it installed can run. Dropping it unmaps the code those
     /// callbacks point at.
-    loaded_example: Option<libloading::Library>,
+    loaded_example: Option<crate::app::cargo::Library>,
     cursor: Option<(f64, f64)>,
     /// Which gizmo ball the left button went down on, if any. Held until the
     /// release, so a press that slides off the ball still counts as a click on
@@ -510,6 +520,7 @@ pub struct App {
     /// intercept: native fullscreen is turned off for the window, which makes
     /// that button a plain zoom, and a zoom is then read as "fullscreen was
     /// asked for".
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     zoomed: bool,
     /// Where the UI app's window was last closed, from its settings: where
     /// it opens, unless the config says otherwise. See `place`.
@@ -882,6 +893,103 @@ fn window_icon() -> Option<winit::window::Icon> {
     winit::window::Icon::from_rgba(rgba.into_raw(), w, h).ok()
 }
 
+/// What a page does with Python (`web/`), which kalast in a browser asks of
+/// it: the page runs CPython in WebAssembly beside kalast and answers in its
+/// own time.
+#[cfg(target_arch = "wasm32")]
+pub trait PagePython {
+    /// A script is running, or Python is starting.
+    fn busy(&self) -> bool;
+    /// Run `source`, the script at `path`, its scene made ready.
+    fn run(&self, path: &str, source: &str);
+    /// Serve the python tab: the lines typed, a Tab.
+    fn console(&self);
+    /// A frame has been drawn: a script waiting in `step()` goes on.
+    fn frame(&self);
+    /// A script is running that has not asked for its next frame: starting,
+    /// importing, between two `step()`s. Its frames are the ones it asks
+    /// for, so none begins meanwhile (`App::page_holds`).
+    fn held(&self) -> bool;
+}
+
+#[cfg(target_arch = "wasm32")]
+thread_local! {
+    static PAGE_PYTHON: std::cell::RefCell<Option<Rc<dyn PagePython>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Give kalast the page's Python.
+#[cfg(target_arch = "wasm32")]
+pub fn set_page_python(python: Rc<dyn PagePython>) {
+    PAGE_PYTHON.with(|p| *p.borrow_mut() = Some(python));
+}
+
+#[cfg(target_arch = "wasm32")]
+fn page_python() -> Option<Rc<dyn PagePython>> {
+    PAGE_PYTHON.with(|p| p.borrow().clone())
+}
+
+/// In a page, a window size kept inside the browser's window. The canvas
+/// is a page's window, sized as a script asks -- the scene, its exported
+/// frames and `project_facet` then as on the desktop -- but a page does not
+/// scroll: a script's 1020 by 1020 left the panels below the bottom of a
+/// smaller screen. A desktop's window is held to its screen the same way.
+#[cfg(target_arch = "wasm32")]
+fn page_fit(width: u32, height: u32) -> (u32, u32) {
+    let Some(page) = web_sys::window() else {
+        return (width, height);
+    };
+    let ratio = page.device_pixel_ratio();
+    let room = |css: Option<f64>| css.map_or(u32::MAX, |css| (css * ratio) as u32);
+    let w = room(page.inner_width().ok().and_then(|v| v.as_f64()));
+    let h = room(page.inner_height().ok().and_then(|v| v.as_f64()));
+    (width.min(w), height.min(h))
+}
+
+/// A folder of the visitor's own, which a page works in once connected
+/// (`web/folder.js`), as the desktop app works in its own: the page's
+/// examples and an empty `scripts/` put there, its files over the page's,
+/// read again as the page is come back to, and what the page saves or a
+/// script writes, written there. Offered by the files tab; only where the
+/// browser has a way to it (Chrome, Edge).
+#[cfg(target_arch = "wasm32")]
+pub trait PageFolder {
+    /// The folder the page works in: its name.
+    fn connected(&self) -> Option<String>;
+    /// One from an earlier visit, which the browser wants allowed again
+    /// before the page reads it: its name.
+    fn remembered(&self) -> Option<String>;
+    /// Ask the visitor for a folder, with the browser's picker.
+    fn pick(&self);
+    /// Allow the remembered folder again.
+    fn reconnect(&self);
+    /// Work in the page's own files again; the folder is left as it is.
+    fn disconnect(&self);
+    /// `path`, from the page's root, is in the folder, or holds what is.
+    fn on_disk(&self, path: &str) -> bool;
+    /// A file for the folder alone, not kept in the page's memory: an
+    /// exported frame, which the page has no use for again.
+    fn write(&self, path: &str, bytes: &[u8]);
+    /// The names in the folder's `dir`, as last read: what an export numbers
+    /// its frames after.
+    fn names(&self, dir: &str) -> Vec<String>;
+}
+
+#[cfg(target_arch = "wasm32")]
+thread_local! {
+    static PAGE_FOLDER: std::cell::RefCell<Option<Rc<dyn PageFolder>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Give kalast the page's way to a folder of the visitor's.
+#[cfg(target_arch = "wasm32")]
+pub fn set_page_folder(folder: Rc<dyn PageFolder>) {
+    PAGE_FOLDER.with(|f| *f.borrow_mut() = Some(folder));
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn page_folder() -> Option<Rc<dyn PageFolder>> {
+    PAGE_FOLDER.with(|f| f.borrow().clone())
+}
+
 /// One turn of the editor's loop.
 ///
 /// `Run` is handed out between frames, never inside one, which is what lets a
@@ -1084,7 +1192,7 @@ impl App {
             config: crate::locked::Locked::new(app_config),
             window: None,
 
-            now: std::time::Instant::now(),
+            now: web_time::Instant::now(),
             dt: 0.0,
 
             home_simulation: simulation.clone(),
@@ -1112,24 +1220,34 @@ impl App {
             fps_window_secs: 0.0,
             fps_window_frames: 0,
 
-            last_input: std::time::Instant::now() - std::time::Duration::from_secs(60),
+            // A minute ago -- or now, in a page whose clock began when it
+            // loaded and has no minute before it.
+            last_input: web_time::Instant::now()
+                .checked_sub(std::time::Duration::from_secs(60))
+                .unwrap_or_else(web_time::Instant::now),
             frame_paused: false,
             phase: Phase::Idle,
-            turn_now: std::time::Instant::now(),
+            turn_now: web_time::Instant::now(),
             turns: 0,
-            camera_now: std::time::Instant::now(),
+            camera_now: web_time::Instant::now(),
             script: None,
 
             event_loop: None,
             frame_drawn: false,
+            #[cfg(target_arch = "wasm32")]
+            page_turn: false,
             update_rx: None,
-            last_present: std::time::Instant::now(),
-            present_tried: std::time::Instant::now(),
+            last_present: web_time::Instant::now(),
+            present_tried: web_time::Instant::now(),
             present_interval: None,
-            present_count: (0, 0, 0, 0.0, std::time::Instant::now(), 0.0),
+            present_count: (0, 0, 0, 0.0, web_time::Instant::now(), 0.0),
             gave_scene: false,
             stepping: false,
             loaded_example: None,
+            #[cfg(target_arch = "wasm32")]
+            proxy: None,
+            #[cfg(target_arch = "wasm32")]
+            canvas: None,
             cursor: None,
             gizmo_press: None,
             bar_grab: None,
@@ -1312,6 +1430,74 @@ impl App {
         self.shared.borrow_mut().running = false;
     }
 
+    /// `start()` in the browser, which owns the page's loop: hands the app to
+    /// it and returns at once, the page running on.
+    #[cfg(target_arch = "wasm32")]
+    pub fn spawn(mut self) {
+        use winit::platform::web::EventLoopExtWebSys;
+        self.stepping = false;
+        self.ensure_event_loop();
+        let ev = self.event_loop.take().unwrap();
+        self.proxy = Some(ev.create_proxy());
+        ev.spawn_app(self);
+    }
+
+    /// The page's canvas, filling what the page gives it, and its GPU asked
+    /// for: the browser does not let a page wait, and the answer comes back
+    /// through the loop, to `user_event`.
+    #[cfg(target_arch = "wasm32")]
+    fn open_canvas(&mut self, ev: &winit::event_loop::ActiveEventLoop) {
+        use winit::platform::web::WindowAttributesExtWebSys;
+        let attrs = winit::window::Window::default_attributes()
+            .with_title(&self.config.borrow().title)
+            .with_append(true);
+        let win = Arc::new(ev.create_window(attrs).unwrap());
+        self.canvas = Some(win.clone());
+        let proxy = self.proxy.clone().expect("spawn() makes the proxy");
+        let display = ev.owned_display_handle();
+        wasm_bindgen_futures::spawn_local(async move {
+            let gpu = crate::app::window::Window::gpu(display, win).await;
+            let _ = proxy.send_event(gpu);
+        });
+    }
+
+    /// The window drawing, once its GPU is there: at once on the desktop, as
+    /// an event of the loop in the browser.
+    fn window_ready(&mut self, win: Arc<winit::window::Window>, gpu: crate::app::window::Gpu) {
+        let sim_cfg = self.sim_config();
+        self.window = Some(crate::app::window::Window::with_gpu(
+            gpu,
+            win.clone(),
+            &sim_cfg.borrow(),
+            &self.config.borrow(),
+            &self.simulation.borrow(),
+        ));
+        // The canvas gave its size before its GPU was there, which
+        // `window_event` could do nothing with: the surface takes it now.
+        #[cfg(target_arch = "wasm32")]
+        {
+            let size = win.inner_size();
+            self.window.as_mut().unwrap().resize(size.width, size.height, &sim_cfg.borrow());
+        }
+        self.refresh_present_interval();
+
+        if self.want_editor || self.config.borrow().editor {
+            let w = self.window.as_ref().unwrap();
+            let mut editor = crate::app::gui::Editor::new(&win, &w.device, w.ui_format);
+            if let Some((path, source)) = self.shared.borrow_mut().pending_script.take() {
+                editor.show_script(path, source);
+            }
+            self.editor = Some(editor);
+            // Only with an editor, so a run that never opens one keeps its
+            // descriptors as they were. `editor_start` has usually made it
+            // already; a second capture would take the first one's pipe for
+            // the terminal.
+            if self.stdio.is_none() {
+                self.stdio = crate::app::gui::StdioCapture::new();
+            }
+        }
+    }
+
     /// Draw exactly one frame and return whether the app is still running.
     ///
     /// The caller owns the loop:
@@ -1362,6 +1548,7 @@ impl App {
     /// panels while a script runs there -- and return whether the window is
     /// still open. `step()` without its check for another run: the UI app
     /// turns its loop while a script there is being asked to end.
+    #[cfg(not(target_arch = "wasm32"))]
     fn turn(&mut self) -> bool {
         use winit::platform::pump_events::EventLoopExtPumpEvents;
 
@@ -1391,10 +1578,10 @@ impl App {
         // rays' structures, the pipelines compiled after a build -- took
         // longer than five seconds inside one pump, and the loop was given
         // up with nothing wrong.
-        let mut deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let mut deadline = web_time::Instant::now() + std::time::Duration::from_secs(5);
         let mut turns = self.turns;
         while self.shared.borrow().running && !self.frame_drawn {
-            let pumped = std::time::Instant::now();
+            let pumped = web_time::Instant::now();
             if let winit::platform::pump_events::PumpStatus::Exit(_) =
                 ev.pump_app_events(Some(std::time::Duration::ZERO), self)
             {
@@ -1402,9 +1589,9 @@ impl App {
             }
             if self.turns != turns || pumped.elapsed() > std::time::Duration::from_millis(250) {
                 turns = self.turns;
-                deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+                deadline = web_time::Instant::now() + std::time::Duration::from_secs(5);
             }
-            if !self.frame_drawn && std::time::Instant::now() > deadline {
+            if !self.frame_drawn && web_time::Instant::now() > deadline {
                 eprintln!("[APP] step() saw no frame in 5 s; giving up on the loop");
                 self.shared.borrow_mut().running = false;
             }
@@ -1412,6 +1599,15 @@ impl App {
 
         self.event_loop = Some(ev);
         self.shared.borrow().running
+    }
+
+    /// The browser owns the page's loop: an app there is started, with its
+    /// callbacks, and never stepped.
+    #[cfg(target_arch = "wasm32")]
+    fn turn(&mut self) -> bool {
+        eprintln!("step() cannot run in the browser: start() runs the loop");
+        self.shared.borrow_mut().running = false;
+        false
     }
 
     /// One present per refresh of the display the window is on. Read again
@@ -1437,6 +1633,10 @@ impl App {
     /// Ask GitHub on a thread, betas too if `update_betas` says so: the
     /// answer comes off `update_rx` (`serve_update`).
     fn spawn_update_check(&mut self) {
+        // The page is the newest there is: the site serves it.
+        if cfg!(target_arch = "wasm32") {
+            return;
+        }
         self.shared.borrow_mut().update = crate::app::update::State::Checking;
         let (tx, rx) = std::sync::mpsc::channel();
         self.update_rx = Some(rx);
@@ -1572,6 +1772,13 @@ impl App {
             sim.state.is_paused = true;
             sim.load_mesh(path, crate::Mat4::IDENTITY, false);
             sim.frame_all();
+            sim.light_for_viewing();
+            // In a page shown inside another, a mesh to look at: the user
+            // asked for no wireframe, some ambient light, a better Sun there.
+            #[cfg(target_arch = "wasm32")]
+            if crate::app::gui::embedded() {
+                sim.dress_for_viewing();
+            }
         }
     }
 
@@ -1712,9 +1919,11 @@ impl App {
             // fullscreen window may refuse it. The `Resized` event that
             // follows a granted request is what actually reconfigures the
             // surface, so nothing is done here beyond asking.
-            let _ = win
-                .window
-                .request_inner_size(winit::dpi::PhysicalSize::new(want.width, want.height));
+            #[cfg(not(target_arch = "wasm32"))]
+            let (w, h) = (want.width, want.height);
+            #[cfg(target_arch = "wasm32")]
+            let (w, h) = page_fit(want.width, want.height);
+            let _ = win.window.request_inner_size(winit::dpi::PhysicalSize::new(w, h));
         }
 
         if was.vsync != want.vsync {
@@ -1839,7 +2048,9 @@ impl App {
                 std::mem::take(&mut editor.launch_request) | asked_launch,
                 editor.rust_release,
             );
+            #[cfg_attr(target_arch = "wasm32", allow(unused_variables))]
             let busy = editor.building.clone();
+            #[cfg_attr(target_arch = "wasm32", allow(unused_mut))]
             let mut started = false;
             // A load -- Play, the render button -- is of the renderer's
             // script. One out of date would run code the panel is not
@@ -1849,10 +2060,17 @@ impl App {
                 if let Some((path, source)) = &target {
                     let stale = !crate::app::cargo::is_current(release, path, source);
                     if stale || retry_build {
-                        busy.store(true, std::sync::atomic::Ordering::SeqCst);
-                        crate::app::cargo::build_hosted(std::path::Path::new(path.trim_end()), source, release, busy.clone());
-                        editor.load_after_build = true;
-                        started = true;
+                        // A browser builds nothing: it runs the examples it
+                        // was built with, as they were.
+                        #[cfg(target_arch = "wasm32")]
+                        rust_messages.push(crate::app::cargo::cannot_build(path.trim_end()));
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            busy.store(true, std::sync::atomic::Ordering::SeqCst);
+                            crate::app::cargo::build_hosted(std::path::Path::new(path.trim_end()), source, release, busy.clone());
+                            editor.load_after_build = true;
+                            started = true;
+                        }
                     } else {
                         load = Some((path.trim_end().to_string(), release));
                     }
@@ -1861,9 +2079,14 @@ impl App {
             // Compile is of the file shown, as its button beside it says.
             if build && !started {
                 let path = editor.script_path.trim_end().to_string();
-                busy.store(true, std::sync::atomic::Ordering::SeqCst);
-                crate::app::cargo::build_hosted(std::path::Path::new(&path), &editor.script, release, busy.clone());
-                editor.load_after_build = false;
+                #[cfg(target_arch = "wasm32")]
+                rust_messages.push(crate::app::cargo::cannot_build(&path));
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    busy.store(true, std::sync::atomic::Ordering::SeqCst);
+                    crate::app::cargo::build_hosted(std::path::Path::new(&path), &editor.script, release, busy.clone());
+                    editor.load_after_build = false;
+                }
             }
         }
 
@@ -1922,12 +2145,15 @@ impl App {
         // where it said E32, no file name.
         let mut save = save;
         if save && path.trim().is_empty() {
+            #[cfg(not(target_arch = "wasm32"))]
             let chosen = rfd::FileDialog::new()
                 .set_title("Save the script as")
                 .add_filter("Python", &["py"])
                 .add_filter("Rust", &["rs"])
                 .set_file_name("script.py")
                 .save_file();
+            #[cfg(target_arch = "wasm32")]
+            let chosen: Option<std::path::PathBuf> = None;
             match chosen {
                 Some(p) => {
                     path = p.to_string_lossy().into_owned();
@@ -1942,7 +2168,7 @@ impl App {
             }
         }
         if save {
-            match std::fs::write(&path, &source) {
+            match crate::fs::write(&path, &source) {
                 Ok(()) => {
                     messages.push(format!("saved {path}"));
                     saved = true;
@@ -2078,6 +2304,7 @@ impl App {
         // capture made and released beside it broke the harness's pipe --
         // 2 runs in 60 died on EPIPE, none in 100 without it. The capture is
         // tested in a child process of its own, `stdio_tests`.
+        #[cfg_attr(target_arch = "wasm32", allow(unused_mut))]
         let mut uncaptured = false;
         if self.stdio.is_none() && !cfg!(test) {
             self.stdio = crate::app::gui::StdioCapture::new();
@@ -2108,7 +2335,7 @@ impl App {
         // (`mark_script_log`).
         {
             let mut shared = self.shared.borrow_mut();
-            shared.kalast_log.push(format!("kalast v{} started", crate::app::update::CURRENT));
+            shared.kalast_log.push(format!("{} started", crate::app::update::this_build()));
             if uncaptured {
                 shared.kalast_log.push("what kalast prints cannot reach this tab: stdout could not be redirected");
             }
@@ -2138,7 +2365,7 @@ impl App {
             }
             let path = std::path::Path::new(arg);
             match path.extension().and_then(|e| e.to_str()) {
-                Some(ext @ ("py" | "rs")) => match std::fs::read_to_string(path) {
+                Some(ext @ ("py" | "rs")) => match crate::fs::read_to_string(path) {
                     Ok(source) => {
                         self.set_script(arg.clone(), source);
                         opened_python |= ext == "py";
@@ -2269,6 +2496,140 @@ impl App {
             }
             None => EditorTick::Run { path, source },
         }
+    }
+
+    /// Pinches the page told kalast of itself (`gui::send_pinch`): winit's
+    /// web backend makes none, and gets no wheel events for a pinch over a
+    /// frame, which Chrome gives the page around it. Each goes through
+    /// `window_event` as the desktop's trackpad pinch does, so it takes the
+    /// same way: the UI's while the pointer is over a panel, the camera's
+    /// while it is over the scene, as far as the fingers opened. Whether the
+    /// canvas has the focus does not matter, as it does not on the desktop.
+    #[cfg(target_arch = "wasm32")]
+    fn page_pinch(&mut self, ev: &winit::event_loop::ActiveEventLoop) {
+        let Some(id) = self.window.as_ref().map(|w| w.window.id()) else {
+            return;
+        };
+        for delta in crate::app::gui::take_pinches() {
+            let event = winit::event::WindowEvent::PinchGesture {
+                device_id: winit::event::DeviceId::dummy(),
+                delta,
+                phase: winit::event::TouchPhase::Moved,
+            };
+            winit::application::ApplicationHandler::window_event(self, ev, id, event);
+        }
+    }
+
+    /// `editor_tick`'s turn between frames, in a browser, where nothing
+    /// outside the page's loop turns it: called by the loop itself, after a
+    /// frame. A Rust example runs here -- one the page was built with -- and
+    /// a Python script or a line at the python tab goes to the page's Python
+    /// (`PagePython`).
+    #[cfg(target_arch = "wasm32")]
+    fn page_tick(&mut self) {
+        let Some(editor) = self.editor.as_mut() else {
+            return;
+        };
+        // Files the visitor's folder changed under the editor, edited with
+        // their own tools: read again where the editor holds them unedited.
+        for path in crate::app::gui::take_changed_outside() {
+            editor.changed_outside(&path);
+        }
+        // Meshes the page showing this one sent, as the files tab sends one.
+        for path in crate::app::gui::take_sent_meshes() {
+            editor.send_to_renderer(std::path::Path::new(&path));
+        }
+        if std::mem::take(&mut self.shared.borrow_mut().reset_requested) {
+            self.reset_scene();
+            self.show_sent_mesh();
+            return;
+        }
+        self.show_sent_mesh();
+        let load = self.shared.borrow_mut().load_requested.take();
+        if let Some((path, release)) = load {
+            self.mark_script_log();
+            self.load_example(&path, release);
+            return;
+        }
+        // The page's Python: a script, as the desktop's scripts' thread takes
+        // one -- not while another runs, which sees the request through
+        // `superseded` and ends -- or the python tab. The page's own script
+        // installs it a moment after the first frames (`web/python.js`), and
+        // a script asked for before then waits for it: the one the page's
+        // address names, shown at iteration 0 as one named on the desktop's
+        // command line is. Taken earlier, it was said to need the desktop
+        // app and dropped.
+        let Some(python) = page_python() else {
+            return;
+        };
+        if python.busy() {
+            return;
+        }
+        if let Some((path, source, paused)) = self.take_script_request() {
+            self.renew_for(&path);
+            self.begin_script(paused);
+            self.mark_script_log();
+            python.run(&path, &source);
+        } else if crate::app::gui::console_pending() {
+            python.console();
+        }
+    }
+
+    /// A frame of the page's own, on its loop's turn, between two of the
+    /// browser's: how a page runs as fast as it can, as the desktop does
+    /// with `rate_limited` off.
+    ///
+    /// The browser draws a page once a refresh of its display
+    /// (`requestAnimationFrame`, where winit delivers `RedrawRequested`), and
+    /// a WebGPU canvas has no immediate mode: drawn only then, the page ran
+    /// at the display's rate, 60 iterations a second. The desktop draws a
+    /// frame each turn of its loop and presents one a refresh
+    /// (`present_interval`), the frames between drawn and stepped and not
+    /// shown. So does the page now: its turns draw frames that are not
+    /// shown, and the browser's frame shows the last of them with the
+    /// panels, beginning none of its own while the run goes (`page_holds`).
+    ///
+    /// Not while paused, when the browser's frames are all there is; nor
+    /// while the page's Python runs a script that has not asked for its next
+    /// frame (`PagePython::held`); under the cap only once a frame is due
+    /// (`State::frame_due`), a page being unable to sleep the wait out; and
+    /// not while the GPU is too far behind (`Window::gpu_backlogged`): three
+    /// frames' work queued, the bound the desktop's frames wait on, or up to
+    /// eight while that is little of the GPU's time.
+    #[cfg(target_arch = "wasm32")]
+    fn page_frame(&mut self, ev: &winit::event_loop::ActiveEventLoop) {
+        let Some(win) = self.window.as_ref() else {
+            return;
+        };
+        if !win.is_surface_configured || win.gpu_backlogged() || page_python().is_some_and(|p| p.held()) {
+            return;
+        }
+        {
+            let state = &self.simulation.borrow().state;
+            if state.is_paused || !state.frame_due(web_time::Instant::now()) {
+                return;
+            }
+        }
+        let id = win.window.id();
+        self.page_turn = true;
+        winit::application::ApplicationHandler::<crate::app::window::Gpu>::window_event(
+            self,
+            ev,
+            id,
+            winit::event::WindowEvent::RedrawRequested,
+        );
+        self.page_turn = false;
+    }
+
+    /// No frame begins on this turn of the page's, the panels drawn alone:
+    /// the browser's frame while the run goes, the page's own turns drawing
+    /// the frames (`page_frame`); and any while the page's Python runs a
+    /// script that has not asked for its next frame -- starting, importing
+    /// -- whose frames are the ones it asks for, as the desktop's scripts'
+    /// thread's are (`held` in the redraw handler).
+    #[cfg(target_arch = "wasm32")]
+    fn page_holds(&self) -> bool {
+        page_python().is_some_and(|p| p.held()) || (!self.page_turn && !self.simulation.borrow().state.is_paused)
     }
 
     /// Run the UI app's scripts, their callbacks and its python tab on a
@@ -2482,7 +2843,7 @@ impl App {
         self.restore_home_simulation();
         self.simulation.borrow_mut().reset();
         self.renew_for(example);
-        drop(self.loaded_example.take());
+        self.loaded_example = None;
     }
 
     /// Show this app's own simulation again, if an example's is on screen
@@ -2498,7 +2859,7 @@ impl App {
 
     /// Keep the library the example ran from: the callbacks it installed
     /// point into it.
-    fn finish_example(&mut self, loaded: Result<libloading::Library, String>) {
+    fn finish_example(&mut self, loaded: Result<crate::app::cargo::Library, String>) {
         match loaded {
             Ok(library) => self.loaded_example = Some(library),
             Err(e) => {
@@ -2508,8 +2869,10 @@ impl App {
                 // A stale or mismatched library is not something to ask
                 // someone to fix by hand -- the editor knows how to build
                 // it. Once, so a library that is wrong for another reason
-                // does not compile in a loop.
-                self.shared.borrow_mut().rebuild_then_load = true;
+                // does not compile in a loop. A browser builds nothing.
+                if cfg!(not(target_arch = "wasm32")) {
+                    self.shared.borrow_mut().rebuild_then_load = true;
+                }
             }
         }
     }
@@ -2686,8 +3049,11 @@ impl App {
         // `None` when the pass cannot answer for this scene and the ray has
         // to; `Some(None)` when it answers *nothing*, which is an answer and
         // not a reason to sweep the mesh on the CPU to be told the same thing.
+        //
+        // Not in a browser, where the texel's readback would have to wait on
+        // the GPU, which a page cannot: the ray answers there, exactly.
         let gpu: Option<Option<(u32, Vec<u32>)>> =
-            if self.simulation.borrow().pickable_on_gpu() {
+            if cfg!(not(target_arch = "wasm32")) && self.simulation.borrow().pickable_on_gpu() {
                 let px = ((u * rw as f32) as u32).min(rw - 1);
                 let py = ((v * rh as f32) as u32).min(rh - 1);
                 self.window.as_mut().map(|win| {
@@ -2952,6 +3318,25 @@ impl App {
             Some(Tick::Rust(f)) => {
                 f(&mut sim.borrow_mut(), dt);
             }
+            #[cfg(target_arch = "wasm32")]
+            Some(Tick::Page(f)) => {
+                // As a Python callback that raised: disconnected, not left to
+                // raise every frame. The page has shown its traceback.
+                if !f(dt) {
+                    let mut s = shared.borrow_mut();
+                    if before {
+                        s.before_render = None;
+                    } else {
+                        s.after_render = None;
+                    }
+                    s.log.push(if before {
+                        "before_render raised; it has been disconnected -- fix it and press Restart"
+                    } else {
+                        "after_render raised; it has been disconnected -- fix it and press Restart"
+                    });
+                    return;
+                }
+            }
             #[cfg(feature = "python")]
             Some(Tick::Python {
                 callback,
@@ -3063,12 +3448,26 @@ impl App {
     }
 }
 
-impl winit::application::ApplicationHandler<crate::app::window::Window> for crate::app::App {
+impl winit::application::ApplicationHandler<crate::app::window::Gpu> for crate::app::App {
+    #[cfg_attr(target_arch = "wasm32", allow(unreachable_code))]
     fn resumed(&mut self, ev: &winit::event_loop::ActiveEventLoop) {
         // Poll, not Wait. With Wait the loop sleeps until an event arrives,
         // and the only thing that woke it was the redraw it had queued
         // itself -- see `about_to_wait`.
         ev.set_control_flow(winit::event_loop::ControlFlow::Poll);
+        // Inside another page (`?embed=`), the wheel, a swipe and a drag
+        // reach the camera whether the canvas has the focus or not. winit
+        // sends them, as device events, only while it has it by default, and
+        // a click anywhere on the page around takes it: the scene stopped
+        // answering until clicked again. The desktop's window, or a page of
+        // its own, is not left so easily.
+        #[cfg(target_arch = "wasm32")]
+        if crate::app::gui::embedded() {
+            ev.listen_device_events(winit::event_loop::DeviceEvents::Always);
+        }
+        // The browser's page has no screens to place a window on: its canvas.
+        #[cfg(target_arch = "wasm32")]
+        return self.open_canvas(ev);
 
         // A zero width or height means "pick one": the size the UI app was
         // left at, else a share of the screen rather than a constant. Passing
@@ -3193,30 +3592,18 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
             set_window_fullscreen(&win, true);
         }
 
-        let sim_cfg = self.sim_config();
-        self.window = Some(pollster::block_on(crate::app::window::Window::new(
-            ev.owned_display_handle(),
-            win.clone(),
-            &sim_cfg.borrow(),
-            &self.config.borrow(),
-            &self.simulation.borrow(),
-        )));
-        self.refresh_present_interval();
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let gpu = pollster::block_on(crate::app::window::Window::gpu(ev.owned_display_handle(), win.clone()));
+            self.window_ready(win, gpu);
+        }
+    }
 
-        if self.want_editor || self.config.borrow().editor {
-            let w = self.window.as_ref().unwrap();
-            let mut editor = crate::app::gui::Editor::new(&win, &w.device, w.surface_config.format);
-            if let Some((path, source)) = self.shared.borrow_mut().pending_script.take() {
-                editor.show_script(path, source);
-            }
-            self.editor = Some(editor);
-            // Only with an editor, so a run that never opens one keeps its
-            // descriptors as they were. `editor_start` has usually made it
-            // already; a second capture would take the first one's pipe for
-            // the terminal.
-            if self.stdio.is_none() {
-                self.stdio = crate::app::gui::StdioCapture::new();
-            }
+    /// The browser's GPU, which `open_canvas` asked for.
+    fn user_event(&mut self, _ev: &winit::event_loop::ActiveEventLoop, _gpu: crate::app::window::Gpu) {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(win) = self.canvas.take() {
+            self.window_ready(win, _gpu);
         }
     }
 
@@ -3239,8 +3626,20 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
         // to exit with. Here is the first place that does.
         if self.shared.borrow().exit_requested && self.window.is_some() {
             self.shared.borrow_mut().exit_requested = false;
-            self.exit(ev);
-            return;
+            // A page is closed with its tab: ending its loop would only
+            // leave it standing still.
+            if cfg!(target_arch = "wasm32") {
+                self.log_kalast("the page stays open: closing its tab closes kalast");
+            } else {
+                self.exit(ev);
+                return;
+            }
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.page_pinch(ev);
+            self.page_tick();
+            self.page_frame(ev);
         }
         if let Some(win) = self.window.as_ref() {
             win.get_window().request_redraw();
@@ -3253,6 +3652,12 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
         _id: winit::window::WindowId,
         event: winit::event::WindowEvent,
     ) {
+        // The browser's canvas has events before its GPU is there
+        // (`open_canvas`): nothing to do with them yet, and the window takes
+        // the canvas's size when it is made.
+        if self.window.is_none() {
+            return;
+        }
         // Cloned once, up front: the simulation's config is a different cell
         // from the simulation, so this can be held across a `borrow_mut` of
         // the scene -- but obtaining it cannot, since it reads the field.
@@ -3272,7 +3677,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 | winit::event::WindowEvent::PanGesture { .. }
                 | winit::event::WindowEvent::RotationGesture { .. }
         ) {
-            self.last_input = std::time::Instant::now();
+            self.last_input = web_time::Instant::now();
         }
 
         // `Cmd`-`Q` on macOS, seen by the AppKit monitor -- see `macos`.
@@ -3304,7 +3709,8 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
             } else {
                 self.controller.ctrl_pressed
             };
-            if command {
+            // Not a page's to quit: its tab is the browser's.
+            if command && cfg!(not(target_arch = "wasm32")) {
                 self.request_close(ev);
                 return;
             }
@@ -3415,6 +3821,8 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 if let Some(stdio) = self.stdio.as_mut() {
                     stdio.drain(&mut self.shared.borrow_mut().kalast_log);
                 }
+                #[cfg(target_arch = "wasm32")]
+                crate::app::gui::drain_page_output(&mut self.shared.borrow_mut().kalast_log);
                 // Without a capture too: the script's own writer does not
                 // need one, which is how Windows gets its script tab.
                 crate::app::gui::drain_script_output(&mut self.shared.borrow_mut().log);
@@ -3425,7 +3833,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 // The turn's clock, for the rate's window. A frame's own,
                 // `dt`, is read where the frame begins: a frame may take
                 // several turns.
-                let now = std::time::Instant::now();
+                let now = web_time::Instant::now();
                 let turn_dt = (now - self.turn_now).as_secs_f64() as Float;
                 self.turn_now = now;
                 self.turns = self.turns.wrapping_add(1);
@@ -3468,6 +3876,8 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 // `step()`, and between two the scene is what it is building.
                 let banded = self.window.as_ref().is_some_and(|w| w.frame_in_progress());
                 let held = self.script.as_ref().is_some_and(|s| s.running() && !s.step_asked());
+                #[cfg(target_arch = "wasm32")]
+                let held = held || self.page_holds();
                 if self.phase == Phase::Idle && !banded && !held {
                     self.dt = (now - self.now).as_secs_f64() as _;
                     self.now = now;
@@ -3475,7 +3885,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         .simulation
                         .borrow_mut()
                         .state
-                        .frame_wait(std::time::Instant::now());
+                        .frame_wait(web_time::Instant::now());
                     if let Some(wait) = wait {
                         crate::app::simulation::State::wait_out(wait);
                     }
@@ -3483,7 +3893,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         .simulation
                         .borrow_mut()
                         .state
-                        .begin_frame(std::time::Instant::now());
+                        .begin_frame(web_time::Instant::now());
                     let line = pause_line(
                         self.was_paused,
                         paused,
@@ -3497,6 +3907,10 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     self.frame_paused = paused;
                     self.phase = Phase::Before;
                 }
+                // A frame begun now or on an earlier turn: one goes on this
+                // turn, where a page's turn may begin none (`page_holds`).
+                #[cfg(target_arch = "wasm32")]
+                let frame_ran = self.phase != Phase::Idle;
                 let paused = self.frame_paused;
 
                 // Held across the borrow below: the editor draws after it,
@@ -3668,7 +4082,12 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                         Some(interval) => self.present_tried.elapsed() >= interval,
                         None => true,
                     };
-                    let acquire_started = std::time::Instant::now();
+                    // In a page, the browser's frames present, once a
+                    // refresh, and the page's own between them do not
+                    // (`page_frame`).
+                    #[cfg(target_arch = "wasm32")]
+                    let present_due = present_due && !self.page_turn;
+                    let acquire_started = web_time::Instant::now();
                     let surface_texture = if present_due {
                         self.present_tried = acquire_started;
                         win.get_surface_texture(&sim_cfg.borrow())
@@ -3680,7 +4099,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     if surface_texture.is_some() {
                         let gap = self.last_present.elapsed().as_secs_f64() * 1000.0;
                         self.present_count.3 = self.present_count.3.max(gap);
-                        self.last_present = std::time::Instant::now();
+                        self.last_present = web_time::Instant::now();
                         self.present_count.0 += 1;
                     } else if present_due {
                         self.present_count.2 += 1;
@@ -3691,7 +4110,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                             "[WINDOW] {} presents/s, {} frames/s, {} refused, longest gap {:.1} ms, longest acquire {:.1} ms",
                             self.present_count.0, self.present_count.1, self.present_count.2, self.present_count.3, self.present_count.5
                         );
-                        self.present_count = (0, 0, 0, 0.0, std::time::Instant::now(), 0.0);
+                        self.present_count = (0, 0, 0, 0.0, web_time::Instant::now(), 0.0);
                     }
                     if continuing {
                         // Only the UI app draws in bands, and its scene is
@@ -3823,7 +4242,7 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                     let win = self.window.as_mut().unwrap();
                     let view = texture
                         .texture
-                        .create_view(&wgpu::TextureViewDescriptor::default());
+                        .create_view(&wgpu::TextureViewDescriptor { format: Some(win.ui_format), ..Default::default() });
                     let scene_size = win.render_size;
                     let window = win.window.clone();
                     // Read before the borrows below: the call already holds
@@ -3957,6 +4376,21 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                 // Nor while a frame is drawn in bands, or waits for the
                 // scripts' thread: it ends on a later turn.
                 self.frame_drawn = self.phase == Phase::Idle;
+                #[cfg(target_arch = "wasm32")]
+                {
+                    // The turn's work, counted until the GPU has done it
+                    // (`page_frame` waits on it).
+                    if let Some(win) = self.window.as_ref() {
+                        win.count_in_flight();
+                    }
+                    // A frame ended, not a turn that began none: a script's
+                    // `step()` is one frame drawn.
+                    if self.frame_drawn && frame_ran {
+                        if let Some(python) = page_python() {
+                            python.frame();
+                        }
+                    }
+                }
             }
 
             winit::event::WindowEvent::KeyboardInput {
@@ -4051,13 +4485,15 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
                                 let win = self.window.as_ref().unwrap();
                                 win.center_cursor();
                                 win.window.set_cursor_visible(false);
-                                win.window
+                                // Held where the platform lets it be: a
+                                // browser locks it only on a click.
+                                let _ = win
+                                    .window
                                     .set_cursor_grab(winit::window::CursorGrabMode::Confined)
                                     .or_else(|_e| {
                                         win.window
                                             .set_cursor_grab(winit::window::CursorGrabMode::Locked)
-                                    })
-                                    .unwrap();
+                                    });
                             }
                             frame::Control::None => {}
                         }
@@ -4189,6 +4625,9 @@ impl winit::application::ApplicationHandler<crate::app::window::Window> for crat
         _id: winit::event::DeviceId,
         ev: winit::event::DeviceEvent,
     ) {
+        if self.window.is_none() {
+            return;
+        }
         // Device events are raw input, not addressed to a window, so they
         // never reach `window_event` and none of its routing applied to them
         // -- which is the whole of the camera's look and zoom. Scrolling
@@ -4264,6 +4703,11 @@ pub enum Tick {
         /// the stack is borrowed for the whole run loop.
         simulation: crate::py::app::simulation::Simulation,
     },
+    /// A browser's: a callback of the page's Python, called as `Python` is,
+    /// with the simulation not borrowed -- the script reaches it through the
+    /// page's bridge (`web/`). False when it raised.
+    #[cfg(target_arch = "wasm32")]
+    Page(Box<dyn Fn(Float) -> bool>),
 }
 
 #[cfg(test)]
@@ -4545,7 +4989,7 @@ mod editor_tests {
             app.shared.borrow_mut().reset_requested = true;
             assert!(matches!(app.editor_tick(), EditorTick::Frame));
             let mut sim = app.simulation.borrow_mut();
-            assert!(!sim.state.begin_frame(std::time::Instant::now()), "held after the reset (running before: {running})");
+            assert!(!sim.state.begin_frame(web_time::Instant::now()), "held after the reset (running before: {running})");
             sim.state.advance();
             assert_eq!(sim.state.iteration, 0, "the counter stays at the start (running before: {running})");
             assert_eq!(app.was_paused, None, "no pause to log (running before: {running})");
@@ -4567,7 +5011,7 @@ mod editor_tests {
         app.open_mesh(std::path::Path::new("res/cube.obj"));
         let mut sim = app.simulation.borrow_mut();
         assert!(!sim.bodies.is_empty(), "the mesh is in the scene");
-        assert!(!sim.state.begin_frame(std::time::Instant::now()), "held");
+        assert!(!sim.state.begin_frame(web_time::Instant::now()), "held");
         sim.state.advance();
         assert_eq!((sim.state.iteration, app.shared.borrow().drawn_iteration), (0, 0));
     }

@@ -1044,12 +1044,22 @@ pub fn choose(
 /// where the surface under the maplets is a first guess -- held so to
 /// zero. `fixed`, `(n,)` true for the cameras whose pointing is known --
 /// from their limbs, say -- which keep it and hold the maplets where they
-/// are on the whole. Gives `(pointing (n, 2) pixels to add to each camera's
-/// centre, behind (n,) registrations each image's rests on, offsets (m, 2)
-/// -- (m, 3) with the heights, along each maplet's u, v and w -- residuals
-/// (p,))`.
+/// are on the whole. `roll`, `(n,)` true for the cameras whose roll about
+/// the boresight is fitted too -- the images whose attitude is only the
+/// plan's. `turn`, `(n,)` true for the cameras that see the body turned
+/// about its origin by a rotation fitted too -- a body whose rotation model
+/// is uncertain; not with `roll` for the same camera. `group` and `time`,
+/// `(n,)`: the freed cameras of one group (0 or more; -1 none, say a
+/// session) share one turn and its rate, `time` in hours. Gives `(pointing (n, 2)
+/// pixels to add to each camera's centre -- then a column with `roll`, the
+/// roll, radians, by which to turn the camera's axes about their z first
+/// (rows x, y: `Rz(roll) @ axes`), and three with `turn`, the body's turn, a
+/// rotation vector (radians, the surface's frame; for the camera, position
+/// `R.T @ p` and axes `A @ R`, `R` its rotation) -- behind (n,)
+/// registrations each image's rests on, offsets (m, 2) -- (m, 3) with the
+/// heights, along each maplet's u, v and w -- residuals (p,))`.
 #[pyfunction]
-#[pyo3(signature = (positions, axes, focal, centres, normals, image, tile, shift, weight, offset_sigma, huber=3.0, iterations=25, height_sigma=0.0, fixed=None))]
+#[pyo3(signature = (positions, axes, focal, centres, normals, image, tile, shift, weight, offset_sigma, huber=3.0, iterations=25, height_sigma=0.0, fixed=None, roll=None, turn=None, group=None, time=None))]
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn pointing<'py>(
     py: Python<'py>,
@@ -1067,8 +1077,15 @@ pub fn pointing<'py>(
     iterations: usize,
     height_sigma: f64,
     fixed: Option<Vec<bool>>,
+    roll: Option<Vec<bool>>,
+    turn: Option<Vec<bool>>,
+    group: Option<Vec<i64>>,
+    time: Option<Vec<f64>>,
 ) -> PyResult<(Bound<'py, PyArray2<f64>>, Bound<'py, PyArray1<i64>>, Bound<'py, PyArray2<f64>>, Bound<'py, PyArray1<f64>>)> {
     let fixed = fixed.unwrap_or_default();
+    let (with_roll, with_turn) = (roll.is_some(), turn.is_some());
+    let (roll, turn) = (roll.unwrap_or_default(), turn.unwrap_or_default());
+    let (group, time) = (group.unwrap_or_default(), time.unwrap_or_default());
     let positions = vectors(positions, "positions")?;
     let axes = axes.as_array();
     if axes.shape() != [positions.len(), 3, 3] {
@@ -1107,12 +1124,23 @@ pub fn pointing<'py>(
         registrations.push(super::Registration { image: k as usize, tile: t as usize, shift: [shift[[i, 0]], shift[[i, 1]]], weight: weight[i] });
     }
     let fit = py
-        .detach(|| super::pointing(&cameras, &tiles, &registrations, offset_sigma, huber, iterations, height_sigma, &fixed))
+        .detach(|| super::pointing(&cameras, &tiles, &registrations, offset_sigma, huber, iterations, height_sigma, &fixed, &roll, &turn, &group, &time))
         .map_err(err)?;
-    let two = |v: &[[f64; 2]]| PyArray1::from_vec(py, v.iter().flatten().copied().collect()).reshape([v.len(), 2]).expect("n x 2");
+    let width = 2 + usize::from(with_roll) + 3 * usize::from(with_turn);
+    let mut rows: Vec<f64> = Vec::with_capacity(fit.images.len() * width);
+    for k in 0..fit.images.len() {
+        rows.extend(fit.images[k]);
+        if with_roll {
+            rows.push(fit.rolls[k]);
+        }
+        if with_turn {
+            rows.extend(fit.turns[k]);
+        }
+    }
+    let images = PyArray1::from_vec(py, rows).reshape([fit.images.len(), width]).expect("n x 2 to 6");
     let columns = if height_sigma > 0.0 { 3 } else { 2 };
     let offsets = PyArray1::from_vec(py, fit.offsets.iter().flat_map(|o| o[..columns].to_vec()).collect())
         .reshape([fit.offsets.len(), columns])
         .expect("m x 2 or 3");
-    Ok((two(&fit.images), PyArray1::from_vec(py, fit.behind.iter().map(|&b| b as i64).collect()), offsets, PyArray1::from_vec(py, fit.residuals)))
+    Ok((images, PyArray1::from_vec(py, fit.behind.iter().map(|&b| b as i64).collect()), offsets, PyArray1::from_vec(py, fit.residuals)))
 }

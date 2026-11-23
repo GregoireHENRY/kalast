@@ -54,7 +54,7 @@ pub struct Pass {
     /// The per-facet query with the Sun a disc: its points (`cs_facets`),
     /// their walks (`cs_walk` again) and the walked points' shares
     /// (`cs_facets_walked`); and where the rays' guide sees a penumbra can
-    /// be (`cs_facets_guide`). Its group 6 -- a queue as the image's, what
+    /// be (`cs_facets_guide`). Its group 3 -- a queue as the image's, what
     /// each walk is for, the query, the body's vertices and corners, the
     /// answer; and the queue, made the first time.
     facets: [wgpu::ComputePipeline; 4],
@@ -68,8 +68,22 @@ pub struct Pass {
     /// Group 6 as the main pass reads it: the queue and the codes.
     pub read_layout: wgpu::BindGroupLayout,
     targets: Option<Targets>,
-    /// The main pass's group 6 while there are no targets.
+    /// The main pass's group 3 while there are no targets.
     idle: wgpu::BindGroup,
+    /// In a browser, by body: the per-facet read in flight, whether it is
+    /// mapped yet, and the last answer (`facets_later`).
+    #[cfg(target_arch = "wasm32")]
+    later: std::cell::RefCell<std::collections::HashMap<usize, Later>>,
+}
+
+#[cfg(target_arch = "wasm32")]
+type Later = (Option<wgpu::Buffer>, std::sync::Arc<std::sync::atomic::AtomicBool>, Vec<f32>);
+
+/// What `facets` reads back, as each facet's share of the Sun hidden.
+fn facets_answer(data: &[u8]) -> Vec<f32> {
+    // `FACET_FIXED` in `mesh_shadow.wgsl` a whole disc's worth per point,
+    // four points a facet.
+    bytemuck::cast_slice::<u8, u32>(data).iter().map(|&s| 1.0 - s as f32 / (4.0 * 4_194_304.0)).collect()
 }
 
 struct Targets {
@@ -95,8 +109,8 @@ pub fn wanted(config: &crate::app::config::Config) -> bool {
 }
 
 impl Pass {
-    /// `shaded` is the main pass's layouts up to group 5, of which the scan
-    /// and the walks bind the first three too.
+    /// `shaded` is the main pass's layouts up to group 2, of which the scan
+    /// and the walks bind the first two too.
     pub fn new(
         device: &wgpu::Device,
         config: &crate::app::config::Config,
@@ -215,7 +229,7 @@ impl Pass {
         let module = device.create_shader_module(gpu::shader_for_traced(device, &gpu::SHADER_MESH_SHADOW, false, false));
         let compute_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("penumbra scan and walks"),
-            bind_group_layouts: &[shaded[0], shaded[1], shaded[2], None, None, None, Some(&write_layout)],
+            bind_group_layouts: &[shaded[0], shaded[1], None, Some(&write_layout)],
             immediate_size: 0,
         });
         let compute = |entry| {
@@ -253,7 +267,7 @@ impl Pass {
         });
         let facets_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("facet shadows, disc"),
-            bind_group_layouts: &[shaded[0], shaded[1], shaded[2], None, None, shaded[5], Some(&facets_layout)],
+            bind_group_layouts: &[shaded[0], shaded[1], shaded[2], Some(&facets_layout)],
             immediate_size: 0,
         });
         let facets = ["cs_facets", "cs_walk", "cs_facets_walked", "cs_facets_guide"].map(|entry| {
@@ -282,6 +296,8 @@ impl Pass {
             read_layout,
             targets: None,
             idle,
+            #[cfg(target_arch = "wasm32")]
+            later: Default::default(),
         }
     }
 
@@ -331,11 +347,10 @@ impl Pass {
                 label: Some("facet shadows, the rays' guide"),
                 timestamp_writes: None,
             });
-            pass.set_bind_group(0, Some(&bindings.globals), &[]);
-            pass.set_bind_group(1, Some(&bindings.view), &[]);
-            pass.set_bind_group(2, Some(&bindings.shadow), &[]);
-            pass.set_bind_group(5, Some(&mesh.attr_bind_group), &[]);
-            pass.set_bind_group(6, Some(&group), &[]);
+            pass.set_bind_group(0, Some(&bindings.frame), &[]);
+            pass.set_bind_group(1, Some(&bindings.shadow), &[]);
+            pass.set_bind_group(2, Some(&mesh.attr_bind_group), &[]);
+            pass.set_bind_group(3, Some(&group), &[]);
             pass.set_pipeline(&self.facets[3]);
             pass.dispatch_workgroups(groups_x, groups_y, 1);
         }
@@ -375,10 +390,72 @@ impl Pass {
         bindings: &super::Bindings,
         mesh: &gpu::MeshBuffer,
     ) -> Vec<f32> {
-        let n = mesh.n_facets();
+        if mesh.n_facets() == 0 {
+            return vec![];
+        }
+        let read = self.facets_submit(device, queue, bindings, mesh);
+        let slice = read.slice(..);
+        slice.map_async(wgpu::MapMode::Read, |_| {});
+        device
+            .poll(wgpu::PollType::Wait { submission_index: None, timeout: None })
+            .unwrap();
+        let data = slice.get_mapped_range().unwrap();
+        let answer = facets_answer(&data);
+        drop(data);
+        read.unmap();
+        answer
+    }
+
+    /// `facets` in a browser, which cannot wait on the GPU: the answer an
+    /// earlier frame asked for -- the facets wholly lit until there is one --
+    /// and the next asked for when that one is in.
+    #[cfg(target_arch = "wasm32")]
+    pub fn facets_later(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        bindings: &super::Bindings,
+        body: usize,
+        mesh: &gpu::MeshBuffer,
+    ) -> Vec<f32> {
+        let n = mesh.n_facets() as usize;
         if n == 0 {
             return vec![];
         }
+        let mut later = self.later.borrow_mut();
+        let (read, mapped, answer) = later.entry(body).or_insert_with(|| (None, Default::default(), vec![0.0; n]));
+        use std::sync::atomic::Ordering;
+        if let Some(buffer) = read.as_ref().filter(|_| mapped.load(Ordering::Acquire)) {
+            let data = buffer.slice(..).get_mapped_range().unwrap();
+            *answer = facets_answer(&data);
+            drop(data);
+            buffer.unmap();
+            *read = None;
+        }
+        if read.is_none() {
+            let buffer = self.facets_submit(device, queue, bindings, mesh);
+            mapped.store(false, Ordering::Release);
+            let done = mapped.clone();
+            buffer.slice(..).map_async(wgpu::MapMode::Read, move |r| done.store(r.is_ok(), Ordering::Release));
+            *read = Some(buffer);
+        }
+        // A mesh of another size since: lit, until its own answer is in.
+        if answer.len() != n {
+            *answer = vec![0.0; n];
+        }
+        answer.clone()
+    }
+
+    /// The compute `facets` reads, submitted with its copy into the buffer
+    /// returned, to be mapped.
+    fn facets_submit(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        bindings: &super::Bindings,
+        mesh: &gpu::MeshBuffer,
+    ) -> wgpu::Buffer {
+        let n = mesh.n_facets();
         let (groups_x, groups_y, stride) = crate::gpu::Context::dispatch_2d(n as u64);
         let (queue_buffer, walks_for) = self.facet_queue_buffers(device);
         let query = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -418,11 +495,10 @@ impl Pass {
                 label: Some("facet shadows, disc"),
                 timestamp_writes: None,
             });
-            pass.set_bind_group(0, Some(&bindings.globals), &[]);
-            pass.set_bind_group(1, Some(&bindings.view), &[]);
-            pass.set_bind_group(2, Some(&bindings.shadow), &[]);
-            pass.set_bind_group(5, Some(&mesh.attr_bind_group), &[]);
-            pass.set_bind_group(6, Some(&group), &[]);
+            pass.set_bind_group(0, Some(&bindings.frame), &[]);
+            pass.set_bind_group(1, Some(&bindings.shadow), &[]);
+            pass.set_bind_group(2, Some(&mesh.attr_bind_group), &[]);
+            pass.set_bind_group(3, Some(&group), &[]);
             pass.set_pipeline(&self.facets[0]);
             pass.dispatch_workgroups(groups_x, groups_y, 1);
             pass.set_pipeline(&self.facets[1]);
@@ -432,19 +508,7 @@ impl Pass {
         }
         encoder.copy_buffer_to_buffer(&out, 0, &read, 0, size);
         queue.submit(Some(encoder.finish()));
-        let slice = read.slice(..);
-        slice.map_async(wgpu::MapMode::Read, |_| {});
-        device
-            .poll(wgpu::PollType::Wait { submission_index: None, timeout: None })
-            .unwrap();
-        let data = slice.get_mapped_range().unwrap();
-        // `FACET_FIXED` in `mesh_shadow.wgsl` a whole disc's worth per point,
-        // four points a facet.
-        let answer: Vec<f32> =
-            bytemuck::cast_slice::<u8, u32>(&data).iter().map(|&s| 1.0 - s as f32 / (4.0 * 4_194_304.0)).collect();
-        drop(data);
-        read.unmap();
-        answer
+        read
     }
 
     fn targets_of(
@@ -523,7 +587,7 @@ impl Pass {
         }
     }
 
-    /// The main pass's group 6: what this frame's passes found, or `idle`.
+    /// The main pass's group 3: what this frame's passes found, or `idle`.
     pub fn read_group(&self) -> &wgpu::BindGroup {
         self.targets.as_ref().map_or(&self.idle, |t| &t.read)
     }
@@ -598,10 +662,9 @@ impl Pass {
             label: Some("penumbra scan and walks"),
             timestamp_writes: timer.and_then(|t| t.compute_scope(crate::app::gpu_timing::Scope::Penumbra)),
         });
-        pass.set_bind_group(0, Some(&bindings.globals), &[]);
-        pass.set_bind_group(1, Some(&bindings.view), &[]);
-        pass.set_bind_group(2, Some(&bindings.shadow), &[]);
-        pass.set_bind_group(6, Some(&t.write), &[]);
+        pass.set_bind_group(0, Some(&bindings.frame), &[]);
+        pass.set_bind_group(1, Some(&bindings.shadow), &[]);
+        pass.set_bind_group(3, Some(&t.write), &[]);
         pass.set_pipeline(&self.scan);
         pass.dispatch_workgroups(size.0.div_ceil(8), size.1.div_ceil(8), 1);
         pass.set_pipeline(&self.walk);

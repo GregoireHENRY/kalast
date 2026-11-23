@@ -33,7 +33,7 @@ var<uniform> globals: Globals;
 struct Colormap {
     lut: array<vec4<f32>, 256>,
 };
-@group(3) @binding(0)
+@group(0) @binding(2)
 var<uniform> colormap: Colormap;
 
 struct Bar {
@@ -45,7 +45,7 @@ struct Bar {
     source: u32,
     _pad: vec2<u32>,
 };
-@group(4) @binding(0)
+@group(0) @binding(3)
 var<uniform> bar: Bar;
 
 struct VertexOutput {

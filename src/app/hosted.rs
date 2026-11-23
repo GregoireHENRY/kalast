@@ -186,6 +186,9 @@ pub mod host {
         target: Target,
         shared: crate::locked::Locked<crate::app::Shared>,
         between: Option<&'a mut dyn FnMut()>,
+        /// A browser's: the example asked for a frame of its own, which a
+        /// page cannot wait for, and its run is over (`step`).
+        refused: bool,
     }
 
     impl<'a> Host<'a> {
@@ -196,14 +199,14 @@ pub mod host {
         /// the example's `main` returns.
         pub unsafe fn owned(app: *mut crate::app::App) -> Self {
             let shared = unsafe { &*app }.shared.clone();
-            Self { target: Target::Owned(app), shared, between: None }
+            Self { target: Target::Owned(app), shared, between: None, refused: false }
         }
 
         /// For a front door that shares the app, and has something to run
         /// between the example's frames.
         pub fn shared(app: &Rc<RefCell<crate::app::App>>, between: &'a mut dyn FnMut()) -> Self {
             let shared = app.borrow().shared.clone();
-            Self { target: Target::Shared(Rc::as_ptr(app)), shared, between: Some(between) }
+            Self { target: Target::Shared(Rc::as_ptr(app)), shared, between: Some(between), refused: false }
         }
 
         fn with_app<T>(&mut self, f: impl FnOnce(&mut crate::app::App) -> T) -> T {
@@ -222,6 +225,20 @@ pub mod host {
 
     extern "C" fn step(ctx: *mut c_void) -> bool {
         let host = unsafe { host(ctx) };
+        // A page's loop is the browser's, and a call inside it cannot wait
+        // for the next frame -- the frame comes after the call returns. A
+        // driven example is shown as its first frame left it, and its loop
+        // told the run is over, as when the window closes.
+        if cfg!(target_arch = "wasm32") {
+            // Printed, as the example's own lines are, to keep their order.
+            if !std::mem::replace(&mut host.refused, true) {
+                println!(
+                    "the example drives its own loop, step() after step(), which a browser cannot wait on: \
+                     shown as its first frame left it. One written with callbacks and start() runs here"
+                );
+            }
+            return false;
+        }
         // The guest is between frames of its own, inside the host's
         // `editor_tick` turn, so this nests the way a driven Python script's
         // `step` does.
@@ -235,8 +252,9 @@ pub mod host {
 
     extern "C" fn is_running(ctx: *mut c_void) -> bool {
         // As `App::is_running` has it for the host, which is not hosted.
-        let shared = unsafe { host(ctx) }.shared.borrow();
-        shared.running && !shared.superseded()
+        let host = unsafe { host(ctx) };
+        let shared = host.shared.borrow();
+        shared.running && !shared.superseded() && !host.refused
     }
 
     extern "C" fn close(ctx: *mut c_void) {

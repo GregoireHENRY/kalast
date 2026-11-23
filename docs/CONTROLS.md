@@ -21,6 +21,9 @@ Handled in `src/app/mod.rs` (`window_event` / `device_event`) and
 | `N` | any | Fold the editor's three panels to the window edges, or bring them all back — see below |
 | `↑` `↓` `→` | any | Fold or unfold the one panel on that edge: toolbar, log, side panel — see below |
 | `T` | any | Toggle camera control, Arcball ⇄ WASD |
+| `E` | any | Search what kalast does, every setting of the panels, the bodies it ships and its files, as Blender's menu search — see "Searching" below. Not while a field is typed into |
+| `Cmd`+`Z` | any | Undo the last change made in the panels to `app.simulation.config`, as Blender undoes it — see "Undo" below. `Ctrl`+`Z` off macOS |
+| `Cmd`+`Shift`+`Z` | any | Do it again. `Ctrl`+`Shift`+`Z` off macOS |
 | `W` `A` `S` `D` | WASD | Move forward / left / back / right |
 | `Space` | WASD | Move up |
 | `Left Shift` | WASD | Move down |
@@ -346,6 +349,18 @@ that alone. So a Magic Mouse counts as a trackpad, as it does in Blender;
 `config.controls.trackpad_orbit = False` makes any pixel-reporting surface
 zoom like a wheel again, the behaviour before 17 September.
 
+In the browser, at kalast.greghy.com, the map is the same. Chrome, Edge and
+Safari report a wheel in pixels too, so the page tells it from a trackpad by
+the numbers they give each and passes it on in notches (`web/wheel.js`): a
+wheel zooms there as on the desktop. Firefox reports a wheel in notches
+already. A pinch never zooms the page. Safari reports a pinch as gestures
+of its own. When kalast is shown in a frame of another page, Chrome gives a
+pinch over it to that page, which can pass it on (`web/embed.js`). kalast
+takes both as the desktop takes a trackpad's pinch.
+In a frame of another page, kalast takes the keyboard's focus when the
+pointer comes over it, and the wheel, a swipe and a drag move the camera
+whether it has the focus or not.
+
 A swipe orbits as far as a drag of the same length: the pixels arrive
 physical and a drag arrives in points, so the swipe is divided by the window's
 scale factor. macOS keeps sending scroll events after the fingers lift
@@ -452,24 +467,92 @@ The middle shows the **renderer** -- the scene --, the **editor** -- the
 script, marked `●` while it has unsaved changes -- or the **documentation**,
 as the three tabs at the start of the toolbar choose -- after kalast's logo,
 which gives the version on hover -- so `↑`, folding the toolbar, leaves the
-scene alone. Play, Restart and loading a Rust example switch back to the renderer,
+scene alone. Beside them, GitHub's mark opens kalast's repository in the
+browser: the code, the releases, the issues. Play, Restart and loading a Rust example switch back to the renderer,
 since running something is for watching it; clicks and keys reach the scene
 only while it is shown. The scene fills the middle to its edges, with no card
 around it, so with every panel folded it is the whole window.
 
-The panels are cards, 4 points apart with a faint outline, as VS Code's are.
-An edge that can be dragged is lit in the theme's accent -- mauve in Mocha --
+The panels are drawn as Blender draws its own: editors 4 points apart over
+its darkest grey, each with a faint outline, its colours, its font (Inter).
+The scene is in one of those cards too, its corners rounded on the screen
+only: the image rendered and the frames exported are whole and square.
+An edge that can be dragged is lit in the theme's accent -- Blender's blue --
 once the pointer has rested on it 300 ms, and at once while it is dragged.
 
-The side panel, on the right, has three tabs, icons as VS Code's activity bar
-has them and named on hover: **app** (the gear; `app.config`, the theme, the
-window and the editor's settings remembered), **simulation** (the globe;
-`app.simulation.config` and the scene) and **scripts** (two folders as a
-tree: `examples`, the bundle's, and `scripts`, your own). The app and
-simulation tabs are sections, each a row with its icon in its colour, closed
-until clicked; inside, every setting is a row with its name on the left --
-its doc on hover -- and its control on the right. The folder button at the
-tabs' right opens any text file from anywhere, through the system's dialog.
+The side panel, on the right, has three tabs atop it, icons named on hover:
+**app** (the gear; `app.config`, the theme, the window and the editor's
+settings remembered), **simulation** (the globe; `app.simulation.config` and
+the scene) and **scripts** (two folders as a tree: `examples`, the bundle's,
+and `scripts`, your own). Beside them the folder button opens any text file
+from anywhere, through the system's dialog; under them is the settings'
+search. The simulation tab is laid out as Blender's properties editor: its
+topics -- Run, Bodies, Selection, Camera, Sun, Shading, Shadows, Wireframe,
+Data colouring, Axes & grid, HUD, Image, Controls, Export, Debug -- are a tab
+each down a bar at its left, an icon named on hover, and the chosen one's
+panels are beside it: the Sun's are **Sun**, where it is, and **Light**, what
+it does. Panels are Blender's: a box each, folded and unfolded by a click on
+its header, one inside another a sub-panel (a body, a HUD); inside, every
+setting is a row, its name right-aligned against its control -- its doc on
+hover, and the whole name when it is cut short. A vector is a block of rows,
+`pos X`, `Y`, `Z`; a colour is a swatch as wide as its row, a click opening
+the picker; a value fitted rather than set is shown in a field greyed out.
+
+A **number field** is dragged left and right to change it -- slower with
+`Shift`, held to round steps with `Ctrl` -- or clicked to type into, as
+Blender's are. Under the pointer it shows Blender's arrows at either end: a
+click on one steps the value down or up, by one for a whole number and
+otherwise by what ten points of dragging would. While it is held or typed
+into it turns dark. Typed into, it takes a number, or maths, `2*pi`, `90/4`,
+`sqrt(2)`, `radians(45)`,
+or, begun with an operator, applied to what the field holds: `*2` doubles it,
+`/4` quarters it, `+1` adds one. `Enter` takes it, `Escape` leaves the value
+as it was. The maths is Python's: `+ - * / %`, `**` or `^` for a power,
+`pi`, `tau` and `e`, and `sin`, `cos`, `tan`, `asin`, `acos`, `atan`,
+`atan2`, `sqrt`, `exp`, `log` (`ln`), `log10`, `log2`, `abs`, `floor`,
+`ceil`, `round`, `min`, `max`, `pow`, `hypot`, `radians` and `degrees`; a
+number before a name or a parenthesis multiplies it, `2pi`. A **slider** is
+the same field filled in blue as far as its value goes in its range, with no
+arrows; `Ctrl` holds it to tenths of the range.
+
+**Searching**, as Blender's search does it: the words typed in any order,
+each the beginning of a word of a name, a piece of one, the initials of
+several, or the word with a typo or two -- `lod pix` finds `lod_pixels`,
+`shdow` the shadows.
+
+- **The settings.** The field atop the app and simulation tabs -- `Ctrl`+`F`
+  (`Cmd`+`F`) with the pointer over the panel, `Escape` to empty it -- shows
+  only the settings whose names match, their sections opened, as Blender's
+  properties search does; a section whose title matches shows whole. The
+  simulation tab's topics with nothing matching fade, and if the one shown
+  has nothing, the first that has is shown.
+- **A menu** takes typing as Blender's do: a search field atop it holds the
+  focus, the items shown are those that match, and `Enter` takes the first.
+- **`E`** (Blender's `F3`, which a Mac keyboard keeps for itself) searches
+  what kalast does -- Play, Step, Restart, Reset, Save, Open a file, export
+  one frame, the middle's tabs and the side panel's, the settings' search,
+  fold the panels, fullscreen, focus mode, print the camera, the grid and the
+  colour bar shown or hidden, clearing the log, checking for updates --, every
+  setting of the app and simulation tabs, named with the sections it is in
+  ("Sun › pos X"), the shapes kalast ships to add as bodies ("Add body:
+  Cube"), the shadows' presets and the themes, and then the files of
+  `examples/` and `scripts/`. A setting chosen is shown in the side panel, its
+  sections opened, and its field takes what is typed next: `E`, `sun pos`,
+  `Enter`, `5`, `Enter` puts the Sun at x = 5. One that is on or off says which
+  in the list, and choosing it switches it: `E`, `back face`, `Enter` turns
+  `shading.render_back_face` on or off.
+  The arrows move through them, `Enter` or a click does one, `Escape` or a
+  click elsewhere shuts it. Restart and Reset, which have no key, are there
+  to be typed by name; what it switches in the scene's config is undone by
+  `Cmd`+`Z` as a widget's change is.
+
+**Undo.** `Cmd`+`Z` (`Ctrl`+`Z`) puts the simulation's config back as it was
+before the last change made in the panels -- a drag, or a value typed and
+taken, is one change -- and `Cmd`+`Shift`+`Z` does it again, 100 changes back
+at most. It covers `app.simulation.config`, the shading, the light, the
+shadows, the colours, the grid and the rest; not the camera nor the Sun,
+which turning the view moves, not the bodies, nor the app tab's own
+settings. While a field or the editor is typed into, the keys are theirs.
 
 A click on a file in the scripts tab opens it in the editor -- any text file,
 a script, a mesh, a README -- and only there: what the scene shows is changed

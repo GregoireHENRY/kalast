@@ -289,6 +289,57 @@ impl Simulation {
         self.sun.look_anchor();
     }
 
+    /// A mesh dressed to be looked at rather than measured, as the page shown
+    /// inside another shows one (`web/embed.js`): no wireframe, a little
+    /// ambient light so that a shadow is dark rather than black, an exposure
+    /// that leaves lit ground grey rather than white, and the Sun over the
+    /// viewer's left shoulder -- 50 degrees left of the camera and 35 above
+    /// it, a phase of 58 degrees -- so that the relief shows. After
+    /// `frame_all`, from the camera it placed.
+    pub fn dress_for_viewing(&mut self) {
+        let Some((centre, radius)) = self.scene_sphere() else {
+            return;
+        };
+        {
+            let mut config = self.config.borrow_mut();
+            config.wireframe.mode = 0;
+            config.light.ambient = 0.08;
+            config.light.exposure = 0.55;
+        }
+        self.sun.anchor = centre;
+        self.sun.anchor_body = None;
+        self.sun.pos = centre + self.sun_for_viewing() * radius.max(1e-6) * 10.0;
+        self.sun.look_anchor();
+    }
+
+    /// Where a Sun lights the view well: 50 degrees left of the camera's back
+    /// and 35 up, a unit vector.
+    fn sun_for_viewing(&self) -> crate::Vec3 {
+        let (sa, ca) = (50.0 as crate::Float).to_radians().sin_cos();
+        let (se, ce) = (35.0 as crate::Float).to_radians().sin_cos();
+        (self.camera.back() * ce * ca - self.camera.right() * ce * sa + self.camera.up() * se).normalize()
+    }
+
+    /// The Sun placed to light what the UI app just loaded, when nothing has
+    /// placed it: at its default, the origin, a body there was lit from
+    /// inside itself (the user: "by default Sun is 0 0 0 which when loading a
+    /// body doesnt show it, make Sun somewhere else"). Where `dress_for_viewing`
+    /// puts it, at 1 au, the distance a script gives it. A script's Sun, set,
+    /// is left alone, and so is the default for scripts, whose bodies may go
+    /// round the Sun at the origin.
+    pub fn light_for_viewing(&mut self) {
+        if self.sun.pos != crate::Vec3::ZERO {
+            return;
+        }
+        let Some((centre, _)) = self.scene_sphere() else {
+            return;
+        };
+        self.sun.anchor = centre;
+        self.sun.anchor_body = None;
+        self.sun.pos = centre + self.sun_for_viewing() * crate::util::AU;
+        self.sun.look_anchor();
+    }
+
     pub fn load_mesh<P>(&mut self, path: P, mat: Mat4, smooth: bool)
     where
         P: AsRef<std::path::Path>,
@@ -814,7 +865,7 @@ pub struct State {
     /// half speed -- a beat between two nearly equal periods. Scheduling
     /// forward, a late advance does not push the next one later, so the
     /// average is the cap exactly while frames are faster than it.
-    pub due: Option<std::time::Instant>,
+    pub due: Option<web_time::Instant>,
 }
 
 impl State {
@@ -840,7 +891,7 @@ impl State {
     /// slower rate -- but never behind `now`, so frames slower than the cap
     /// cannot bank a burst for later. A paused run is not paced: its frames
     /// draw nothing new and the window should stay as live as it is.
-    pub fn frame_wait(&mut self, now: std::time::Instant) -> Option<std::time::Duration> {
+    pub fn frame_wait(&mut self, now: web_time::Instant) -> Option<std::time::Duration> {
         if !self.rate_limited || !(self.rate_limit > 0.0) || self.is_paused {
             // Forgotten while off, so switching the cap on starts at once.
             self.due = None;
@@ -866,17 +917,33 @@ impl State {
         wait
     }
 
+    /// Whether a frame may begin now under the cap, for a page, which cannot
+    /// sleep out `frame_wait`'s wait -- `std::thread::sleep` panics in a
+    /// browser's WebAssembly, and switching the cap on stopped the page. A
+    /// frame not due yet is left for a later turn of the page's loop; one
+    /// that is due is scheduled by `frame_wait` as on the desktop, and waits
+    /// nothing.
+    pub fn frame_due(&self, now: web_time::Instant) -> bool {
+        !self.rate_limited || !(self.rate_limit > 0.0) || self.is_paused || self.due.is_none_or(|due| due <= now)
+    }
+
     /// Sleep `wait` out to within a few microseconds. `std::thread::sleep`
     /// alone wakes late by up to a millisecond on macOS, which under a cap
     /// of 500 fps is half the period and made the rate wander; so it sleeps
     /// to just short of the deadline and yields the rest of the way.
+    ///
+    /// Nothing in a page, which cannot sleep and begins a frame only once it
+    /// is due (`frame_due`), so has nothing to wait out.
     pub fn wait_out(wait: std::time::Duration) {
-        let deadline = std::time::Instant::now() + wait;
+        if cfg!(target_arch = "wasm32") {
+            return;
+        }
+        let deadline = web_time::Instant::now() + wait;
         const SLACK: std::time::Duration = std::time::Duration::from_micros(400);
         if wait > SLACK {
             std::thread::sleep(wait - SLACK);
         }
-        while std::time::Instant::now() < deadline {
+        while web_time::Instant::now() < deadline {
             std::thread::yield_now();
         }
     }
@@ -886,7 +953,7 @@ impl State {
     /// `false` while paused: the frame draws either way, so the window
     /// stays live, but the callbacks are skipped and `advance` does nothing,
     /// so a physics script never steps one iteration twice.
-    pub fn begin_frame(&mut self, _now: std::time::Instant) -> bool {
+    pub fn begin_frame(&mut self, _now: web_time::Instant) -> bool {
         self.held = self.is_paused;
         !self.held
     }
@@ -974,7 +1041,7 @@ mod pause_tests {
     /// loop never ran.
     #[test]
     fn a_step_asked_for_is_the_next_frames_and_a_driven_loop_sees_it() {
-        let now = std::time::Instant::now();
+        let now = web_time::Instant::now();
         let mut s = State::new();
         s.is_paused = true;
         s.iteration = 5;
@@ -1082,7 +1149,8 @@ mod pause_tests {
     /// resyncs, banking nothing; and a paused run is not paced at all.
     #[test]
     fn rate_limit_paces_the_frames() {
-        use std::time::{Duration, Instant};
+        use std::time::Duration;
+        use web_time::Instant;
         let mut s = State::new();
         s.rate_limited = true;
         s.rate_limit = 1.0;
@@ -1123,7 +1191,8 @@ mod pause_tests {
     /// due, and frames slower than it wait nothing and bank nothing.
     #[test]
     fn rate_limit_at_the_natural_rate_costs_nothing_and_banks_nothing() {
-        use std::time::{Duration, Instant};
+        use std::time::Duration;
+        use web_time::Instant;
         let mut s = State::new();
         s.rate_limited = true;
         s.rate_limit = 100.0; // 10 ms

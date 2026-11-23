@@ -1,9 +1,10 @@
 //! The local wall-clock time, for the log's stamps.
 //!
 //! Local, not UTC: a line is read against the clock on the wall. Asked of the
-//! operating system -- `localtime_r` on Unix, `GetLocalTime` on Windows --
-//! which knows the time zone and its daylight saving time; the standard
-//! library does not, and no date crate is linked for it.
+//! operating system -- `localtime_r` on Unix, `GetLocalTime` on Windows -- or
+//! in a browser of JavaScript's `Date`, which know the time zone and its
+//! daylight saving time; the standard library does not, and no date crate is
+//! linked for it.
 
 /// A moment on the local clock, to the millisecond.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -28,8 +29,8 @@ impl LocalTime {
 pub fn now() -> LocalTime {
     // One reading for both: the seconds go through the time zone, the
     // milliseconds are the same in any.
-    let since = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    let since = web_time::SystemTime::now()
+        .duration_since(web_time::UNIX_EPOCH)
         .unwrap_or_default();
     // SAFETY: `localtime_r` writes the `tm` it is given and nothing else.
     unsafe {
@@ -63,18 +64,31 @@ pub fn now() -> LocalTime {
     }
 }
 
+/// In a browser: its `Date`, in the visitor's time zone. A page's log was in
+/// UTC until 30 October, off the UI app's by the time zone.
+#[cfg(target_arch = "wasm32")]
+pub fn now() -> LocalTime {
+    let date = js_sys::Date::new_0();
+    LocalTime {
+        hour: date.get_hours(),
+        minute: date.get_minutes(),
+        second: date.get_seconds(),
+        millisecond: date.get_milliseconds(),
+    }
+}
+
 /// UTC, where the local time cannot be had.
-#[cfg(not(any(unix, windows)))]
+#[cfg(not(any(unix, windows, target_arch = "wasm32")))]
 pub fn now() -> LocalTime {
     utc_from_unix(
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
+        web_time::SystemTime::now()
+            .duration_since(web_time::UNIX_EPOCH)
             .unwrap_or_default(),
     )
 }
 
 /// The UTC time of day, from the time since 1970.
-#[cfg(any(not(windows), test))]
+#[cfg(any(unix, test, not(any(windows, target_arch = "wasm32"))))]
 fn utc_from_unix(since: std::time::Duration) -> LocalTime {
     let rem = since.as_secs() % 86_400;
     LocalTime {

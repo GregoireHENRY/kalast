@@ -15,7 +15,10 @@ from kalast._rs.tpm.core import (  # noqa
     conduction_1d_nonuniform,
     columns,
     solar_bc,
+    flux_bc,
+    bottom_flux,
     bottom_adiabatic,
     heat_conduction,
     Ground,
+    Stepper,
 )

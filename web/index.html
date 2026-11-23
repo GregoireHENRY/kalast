@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en" data-channel="__CHANNEL__" data-built="__BUILT__">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/png" href="./__VERSION__/kalast-256.png">
+<title>kalast</title>
+<meta name="description" content="kalast, the thermophysical model and renderer for binary asteroids, in your browser: its UI app, computing on your machine.">
+<style>
+  :root { --bg: #101114; --fg: #a1a1aa; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); overflow: hidden;
+               font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; outline: none; touch-action: none; }
+  #status { position: fixed; z-index: 1; inset: 0; display: grid; place-items: center; text-align: center; padding: 24px;
+            white-space: pre-line; background: rgba(16, 17, 20, 0.88); pointer-events: none; }
+  #status:empty { display: none; }
+  a { color: #f59e0b; pointer-events: auto; }
+</style>
+</head>
+<body>
+<div id="status">Starting kalast…</div>
+<script type="module">
+  const status = document.getElementById("status");
+  // Which page this is, as build.sh sets it: "stable", the newest release's,
+  // which kalast.greghy.com opens, or "beta", built from main, at beta/; a page
+  // built alone is neither. A visitor who ticked "offer betas" in the app tab
+  // is shown the beta, and taken back once it is unticked there. kalast reads
+  // it too, and the day the page was built (`data-built`): the beta says so.
+  const channel = document.documentElement.dataset.channel;
+  const betas = () => {
+    try { return /^update_betas\s*=\s*true\s*$/m.test(localStorage.getItem("kalast:file:.kalast/settings.toml") ?? ""); }
+    catch { return false; }
+  };
+  const go = (to) => location.replace(new URL(to + location.search + location.hash, location.href));
+  let offered = betas();
+  // Shown inside another page (embed.js): told when kalast cannot start.
+  const unavailable = (reason) => { if (window.parent !== window) window.parent.postMessage({ kalast: "unavailable", reason }, "*"); };
+  if (channel === "stable" && offered) {
+    go("beta/");
+  } else if (!navigator.gpu) {
+    unavailable("this browser has no WebGPU");
+    status.innerHTML = 'kalast needs WebGPU: a recent Chrome, Edge or Safari, or Firefox on Windows.<br>' +
+      'Or the desktop app: <a href="https://github.com/GregoireHENRY/kalast/releases">kalast on GitHub</a>.';
+  } else {
+    try {
+      // A mouse wheel told in lines, as the desktop app is told of it: it zooms. A pinch never zooms the page.
+      const wheel = await import("./__VERSION__/wheel.js");
+      wheel.install();
+      const kalast = await import("./__VERSION__/kalast_web.js");
+      await kalast.default();
+      // Safari's pinches, told kalast as the desktop's trackpad tells one.
+      wheel.connect(kalast);
+      // A folder of the visitor's, where the browser has a way to one: the
+      // one from the last visit read beside the rest.
+      const folder = await import("./__VERSION__/folder.js");
+      folder.install(kalast).catch((e) => console.error(e));
+      // Python, started as soon as kalast has drawn, as the UI app has its interpreter at hand.
+      const python = await import("./__VERSION__/python.js");
+      python.install(kalast, new URL("./__VERSION__/kalast-python.zip", location.href).href);
+      // Inside another page of greghy.com's, the meshes it sends.
+      const embed = await import("./__VERSION__/embed.js");
+      embed.install(kalast);
+      // "offer betas" ticked or unticked in the app tab: the page it asks for.
+      kalast.on_settings_kept(() => {
+        if (betas() === offered) return;
+        offered = !offered;
+        if (offered && channel === "stable") go("beta/");
+        if (!offered && channel === "beta") go("../");
+      });
+      status.textContent = "";
+    } catch (e) {
+      status.textContent = `kalast could not start: ${e}`;
+      unavailable(`kalast could not start: ${e}`);
+      console.error(e);
+    }
+  }
+</script>
+</body>
+</html>

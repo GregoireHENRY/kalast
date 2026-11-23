@@ -520,6 +520,13 @@ impl Look {
         let v = ui.visuals();
         // VS Code's link colour, which its Catppuccin port makes blue.
         let (link, code, fill, line, stripe) = match theme {
+            UiTheme::Blender => (
+                super::theme::blender::LINK,
+                super::theme::blender::PANEL,
+                super::theme::blender::TEXT_EDITOR,
+                super::theme::blender::PANEL,
+                Color32::from_white_alpha(5),
+            ),
             UiTheme::CatppuccinMocha => (
                 palette::BLUE,
                 palette::SURFACE0,
@@ -831,7 +838,7 @@ fn disk_textures(ctx: &egui::Context, here: &str, page: &Page, out: &mut HashMap
     images(&page.blocks, &mut found);
     for src in found {
         let path = resolve(here, src);
-        let Ok(bytes) = std::fs::read(&path) else { continue };
+        let Ok(bytes) = crate::fs::read(&path) else { continue };
         let Ok(image) = image::load_from_memory(&bytes).map(|i| i.into_rgba8()) else { continue };
         let size = [image.width() as usize, image.height() as usize];
         let pixels = egui::ColorImage::from_rgba_unmultiplied(size, image.as_raw());
@@ -1183,7 +1190,7 @@ impl Docs {
         let index = match SOURCES.iter().position(|s| s.path == key) {
             Some(i) => i,
             None => {
-                let text = std::fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+                let text = crate::fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
                 let page = parse(&text);
                 disk_textures(ctx, &key, &page, &mut self.pictures);
                 match self.opened.iter().position(|o| *o == key) {
@@ -1281,18 +1288,8 @@ impl Docs {
                 }
                 let x = rect.left() + row.depth as f32 * INDENT;
                 if row.children {
-                    let chevron = if open.contains(&(page, row.heading)) {
-                        icons::codicon::CHEVRON_DOWN
-                    } else {
-                        icons::codicon::CHEVRON_RIGHT
-                    };
-                    painter.text(
-                        pos2(x + TWISTIE / 2.0, rect.center().y),
-                        egui::Align2::CENTER_CENTER,
-                        chevron,
-                        FontId::proportional(14.0),
-                        text,
-                    );
+                    let shown = open.contains(&(page, row.heading));
+                    super::widgets::twistie(&painter, pos2(x + TWISTIE / 2.0, rect.center().y), shown, text);
                 }
                 let name_x = x + TWISTIE + 2.0;
                 let mut job = LayoutJob::single_section(

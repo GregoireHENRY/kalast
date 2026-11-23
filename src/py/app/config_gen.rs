@@ -1840,8 +1840,8 @@ impl super::config::AppConfig {
     fn toolbar(&self) -> String { self.config.borrow().toolbar.clone() }
     #[setter]
     fn set_toolbar(&mut self, v: &str) { self.config.borrow_mut().toolbar = v.to_string(); }
-    /// The colours of the UI app's panels: `"catppuccin-mocha"`, the default,
-    /// or `"dark"`, egui's own.
+    /// The colours of the UI app's panels: `"blender"`, the default, Blender's
+    /// own; `"catppuccin-mocha"`; or `"dark"`, egui's own.
     ///
     /// The panels only. The scene -- its background included -- is drawn by
     /// the renderer from `app.simulation.config` and shown as an image no

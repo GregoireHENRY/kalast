@@ -556,42 +556,24 @@ inside the conduction-solver note and were separate tasks.
 A standing list, not tied to a date. Everything here is open as of
 1 September 2026.
 
-## The paper — `/Users/gregoireh/projects/paper-kalast`
+## The papers — `~/projects/paper-tpm` and `~/projects/paper-simulator`
 
-**Started, never finished. Last commit 2025-12-05**, "finished transition from
-gdoc to latex". MNRAS template, `main.tex` at 44 kB, 23 figures under `fig/`.
+As of 18 November 2026. Two papers: I, the thermophysical model; II, the image simulator. The plan
+to finish them is `paper-tpm/notes/2026-11-17_plan.md`, approved by the user on 18 November; the
+audit of the thermal code it rests on is beside it.
 
-Three separate problems, and they are worth keeping separate because they need
-different kinds of work:
-
-1. **The text reads poorly.** The author's own judgement; it wants rewriting
-   rather than editing.
-2. **The figures are weak** and could be much better. 23 of them.
-3. **The code and the methods have moved a long way since December**, and the
-   paper does not reflect any of it.
-
-On that third point, what has changed under the paper's feet — this is the
-part that will silently go stale, so it is written down rather than
-remembered:
-
-- **View factors are a different method entirely.** The paper's
-  `fig/view-factor.png` and `fig/mutual-heating-90°.png` predate the GPU
-  hemicube. The old `view_factor_facets` is now known to read **37.8 % low**
-  on a configuration with a closed-form answer, because its proximity guard
-  returned zero exactly where the view factor is largest. Anything in the
-  paper resting on it needs redoing, not just re-plotting.
-  See `2026-08-31_view_factors/`.
-- **Self and mutual heating exist now** and are quantified: negligible on
-  Didymos (+0.07 K mean), +2.92 K mean and +30 K peak on Dimorphos, with the
-  mutual part almost entirely a night-side effect.
-- **The conduction solvers changed**: implicit BDF2 is 19x faster than the
-  explicit path and more accurate. See `2026-08-27_conduction_solvers/`.
-- **The TPM and radiance now run on the GPU**, 27x and 3x, which makes the
-  full-resolution 3.1M shape model usable where it was a 20-day run.
-  See `2026-09-01_gpu_tpm/`.
-- **A shape-model correction**: the decimated Dimorphos meshes carried a
-  decimation artefact, since re-cut. If any figure used the old 10k mesh its
-  Dimorphos temperatures are affected.
+- **The model is split over three code paths and none has everything** (the audit's finding): the
+  Rust core on the CPU, the GPU compute pass, and Python (`kalast/tpm/*.py`), which alone had the
+  implicit solvers and self- and mutual heating.
+- **The user's rules for the thermal model** (18 November): everything in Rust, Python only wraps;
+  the CPU and the GPU offer the same features and differ in speed. Added to the list: a heat flux at
+  the lower boundary, properties that vary with temperature, roughness in the boundary condition as
+  a switch, the disc-integrated thermal flux.
+- **The engine work the papers need** is items E1 to E13 of the plan's section 3.0; their state is
+  kept in the newest `notes/*_tpm_*` note (first: `2026-11-18_tpm_flux_bc/`; now `2026-11-23_tpm_view_factor_exact/`).
+- What the older text of this section said still holds for the figures: the old
+  `view_factor_facets` reads 37.8 % low on a closed form (`2026-08-31_view_factors/`), and the
+  decimated Dimorphos meshes were re-cut, so every figure is made again by a script.
 
 ## Model and code
 
@@ -6750,3 +6732,292 @@ are shaded smooth now, the image as always inside the bodies.
 
 `telescope.show` is in the settings only once a script has made a
 telescope frame.
+
+## 2026-10-30 — kalast in the browser (`web/`), for kalast.greghy.com
+
+kalast compiles for WebAssembly and runs in a browser with WebGPU, every
+computation on the visitor's machine. The page is the UI app itself, the same
+code as the desktop's -- toolbar, renderer, editor, documentation, the side
+panel's tabs, the log -- opening as the UI app opens, or on the file its
+address names. `examples/didymos/tpm.rs` is new, the binary's surface
+temperatures from the thermophysical model on DART's models at 10,000 facets,
+now in `res/`. See `notes/2026-10-30_web_app/`.
+
+What it took of kalast, the desktop unchanged (its frames pixel-identical, its
+tests passing): the desktop-only dependencies and their uses gated; `web-time`
+for the clock; no threads where there is one; the window's GPU start-up split
+so that a page can wait for it on its loop (`App::spawn`); the renderer's bind
+groups merged from 7 to 4, WebGPU's limit; `kalast::fs`, `std::fs` on the
+desktop and in a page a tree in memory -- the examples compiled in, what the
+visitor saves kept in the browser; the Rust examples compiled into the page
+and run hosted (`app::cargo::add_example`), the editor's turn between frames
+served from the page's loop (`App::page_tick`); per-facet shadows read a frame
+behind and picking on the CPU, a page being unable to wait on the GPU; an sRGB
+view of the canvas, which has no sRGB format; and in the vendored egui-winit,
+Cmd on a Mac and the system clipboard.
+
+Python runs in the page too, as in the UI app: CPython compiled to
+WebAssembly (Pyodide) with kalast's package unchanged and, for its extension
+module, the page's own (`web/python`), which calls into the engine in the page
+(`web/src/python.rs`, the config's half generated by `tools/gen_bindings.py`);
+`step()` waits for the page's next frame (JSPI: Chrome, Edge). The examples
+that need no data run as on the desktop.
+
+Deployed the same day, on Cloudflare. A colleague's first script there failed
+with Python's "is not a zip file": their tab predated a deploy, which takes the
+previous build's folder off the site, and kalast's Python package was fetched
+from it only when Python started. The page fetches it as it opens now, and an
+address naming a script shows it at iteration 0, as `kalast <file>` does,
+rather than dropping it before the page's Python is installed.
+
+Then, as the user asked, the page runs as fast as it can with `rate_limited`
+off, as the UI app does: its own turns draw frames between the browser's, not
+shown, the GPU's queue bounded by a count rather than a wait -- 60 iterations a
+second became about 2,000 on `two_spheres`. The cap switched on, which slept and
+so stopped the page, leaves a frame until it is due. The log's clock is local,
+and the tab has kalast's icon.
+
+Then, for a visitor whose example wants data beside its script, the page works
+in a folder of the visitor's (Chrome, Edge): the page's examples put there,
+the folder's files over the page's, read again as the page is come back to,
+what the page saves and scripts write written there, nothing deleted from it.
+`Mesh(path=...)` and `add_mesh()` in the page's Python: `landmark_tracking`
+runs there to its 258 MB `track.csv`. Frames are exported there too, into the
+folder, encoded on the page's thread; and a script's window size sizes the
+page's canvas, held inside the browser's window, so that frames and screen
+coordinates come out as on the desktop.
+
+Open: the rest of the Python API in the page (radiance, the GPU's TPM, view
+factors, shadowing, roughness, the GPU readbacks), figures a script shows, the
+18 MB download, touch on phones, TIRI's data for token holders.
+
+## 2026-10-30 — kalast.app signed (ad hoc), for macOS 26.5
+
+A user on an M5 Mac with macOS 26.5.1 could not open v0.5.14's `kalast.app`:
+"cannot be opened because of a problem". The bundle's executable and its
+native files are signed and run here (26.4.1); the app itself, a shell-script
+launcher, was not signed at all, which macOS 26.5 is reported to refuse.
+`tools/macos_app.py` signs it ad hoc now and the release checks the seal,
+which survives the archive and `xattr -cr`. Open: the user's confirmation
+(a `codesign -s -` workaround sent), six unsigned fontTools extensions in the
+bundle. See `notes/2026-10-30_macos_app_signed/`.
+
+## 2026-11-01 — kalast.greghy.com in a frame of another page
+
+A page of greghy.com, or of the visitor's own machine, can show kalast.greghy.com in a frame and send it a mesh by
+`postMessage`; kalast opens it as its files tab opens an `.obj`, and answers `opened` or `error` (`ready` once started,
+`unavailable` without WebGPU). The file stays in the page's files for the visit, `sent/<name>`, never in the browser's
+storage or a folder of the visitor's. Asked by the user for their own site. See `notes/2026-11-01_web_embed/`.
+
+The page's mouse wheel orbited where the desktop's zooms: Chrome, Edge and Safari report a wheel in pixels, which
+kalast reads as a trackpad's. `web/wheel.js` tells a wheel from a trackpad by the numbers those browsers give each and
+passes it on in lines, as the desktop app gets it. See `notes/2026-11-01_web_wheel/`.
+
+The toolbar has GitHub's mark beside the documentation tab, opening the repository, as the user asked. In a frame
+that says so (`?embed=`), the page folds the toolbar and the log, is dark without remembering it, and shows a mesh
+without wireframe, with some ambient light, grey rather than white, the Sun over the viewer's left shoulder, as the
+user asked of their site's Kalast tab; `Origin-Agent-Cluster` lets the browser run it apart from the page around it.
+The wheel's rule was corrected on macOS: a wheel's lines are its pixels over 40, whatever they are.
+
+## 2026-11-03 — kalast.greghy.com in a frame: the pinch, the focus, the panels
+
+The user's site's Kalast tab zoomed as a whole under a trackpad pinch over kalast. Over a frame from another origin,
+Chrome gives the pinch to the page around it (measured in headless Chrome: no event reached the frame). That page
+now cancels the pinch and sends it on. kalast takes it as the desktop takes a trackpad's pinch (`kalast.pinch`,
+`App::page_pinch`). That way it needs no focus, which a wheel event in winit's web backend does. Safari's gesture
+events are cancelled and taken the same way, and Ctrl+wheel is cancelled anywhere in kalast's page.
+
+Open:
+- At kalast.greghy.com itself, Chrome's own pinch still goes winit's way: only with the focus, and a quarter to half
+  of the desktop's zoom.
+- Safari is untried.
+
+See `notes/2026-11-03_web_pinch/`.
+
+The same tab froze once anything on the page around took the focus, and needed a click to take it back. winit's web
+backend gives kalast the wheel, a swipe and a drag's motion only while the canvas has the focus. Now, in a frame:
+- they reach the camera whatever has the focus (`DeviceEvents::Always`);
+- the canvas takes the focus when the pointer comes over it, or when the page around focuses the frame.
+
+The toolbar and the log are shown there again, as the user asked. See `notes/2026-11-03_web_embed_focus/`.
+
+## 2026-11-04 — shape: an image's roll fitted with its pointing
+
+`kalast.shape.pointing` frees, image by image, the roll about the boresight, fitted with the shift. It is for images
+whose attitude is only roughly known, a planned one. Wrong locks are left out of those images' fit. On synthetic
+cameras turned by up to two degrees, the rolls come back within 0.06°. Python: `pointing(..., roll=...)`.
+
+Open: camera positions are not fitted. A body turning otherwise than its frame says needs each image's view solved.
+
+See `notes/2026-11-04_pointing_roll/`.
+
+## 2026-11-05 — `kalast.shape.pointing`: the body's turn, fitted with each image's pointing
+
+A body whose rotation is not what its frame says: each freed image's turn of the body about its origin (a rotation
+vector, three angles) fitted with its shift, the maplet at `c` moving by `d x c`. On 60 synthetic cameras with turns
+up to three degrees, the turns come back within 0.05° about the line of sight and 0.2° across it (where a turn looks
+almost like a shift). Python: `pointing(..., turn=...)`.
+
+See `notes/2026-11-05_pointing_turn/`.
+
+Later: the images of one session can share the turn and its rate (`group`, `time`), for images that register few
+maplets: on synthetic sessions of eight registrations an image, three times closer than each image's own turn.
+
+
+## 2026-11-06 — kalast.greghy.com: Python as the page opens
+
+The page started Python only when the first script ran: 1.7 s before the script with Pyodide cached, 4.5 s on a first
+visit. It now starts once the page has drawn a frame, kalast imported and the python tab greeted, as the UI app has
+its interpreter at hand, and nothing goes to the log. A script then starts 0.04 s after Play. The cost: the page holds
+its frames once for about 0.3 s, 1.4 s in (numpy's import), and every visitor downloads Python.
+
+Answered with it, and measured in headless Chrome: why "Starting kalast…" shows (0.7 s on a first visit, 0.15 s
+after), and why the page's iteration rate moves more than the desktop's. Chrome's GPU process takes 1.3 to 3.5 ms,
+and up to 16, to say a frame is done. Everything also runs on one thread, garbage collector included.
+
+Then, as the user agreed: the page queues up to eight frames' work on the GPU while that is little of the GPU's
+time, three as before once it is more than 4 ms (`Window::gpu_backlogged`). Light scenes ran 4 to 12 % faster on an
+idle machine, a heavy one the same, its panels unchanged. A build for speed (opt-level 3, SIMD) was tried too: 15 %
+bigger, no gain on the examples measured.
+
+Open: the message only past a second.
+
+See `notes/2026-11-06_web_python_at_start/`.
+
+## 2026-11-09 — kalast.greghy.com: the latest release, and the beta behind "offer betas"
+
+kalast.greghy.com is two pages: `/`, the stable page, the newest release's, and `/beta/`, main's as it is deployed.
+`web/build.sh` builds the beta from the working tree and the stable page from the newest release tag with `web/`, in a
+worktree, with the working tree's `Cargo.lock`, once per release. The page reads the remembered `update_betas` before
+it loads kalast: a visitor who ticked "offer betas" in the app tab is sent to the beta, and ticking or unticking it
+switches page at once (`on_settings_kept`). A link to `/beta/` shows the beta whatever the setting.
+
+No release has the page yet (v0.5.14 and v0.5.15-beta predate `web/`): until 0.5.15, the stable page is ded8145's, the
+page as it was when the beta was split from it. What is deployed now reaches `/beta/` only.
+
+The beta's kalast tab opens on `kalast v0.5.15 beta (built <day>) started` (the user: "yes add beta to the log line"):
+the page hands it to `update::set_page_build` from its `<html>`'s `data-channel` and `data-built`.
+
+Open: the release workflow could build the stable page and attach it to the release.
+
+See `notes/2026-11-09_web_stable_and_beta/`.
+
+## 2026-11-09 — The UI app's panels drawn after Blender's
+
+The user asked for kalast's panels "like blender", then for Blender's number fields, its fuzzy menu search and undo.
+First step done: Blender's default theme, its values from Blender's source, the new default (`"blender"`; a theme
+chosen before stays); sections as Blender's panels and sub-panels; settings as its split rows, names right-aligned;
+vectors as `X`, `Y`, `Z` rows; its sliders, checkboxes, menu buttons and tabs; Inter as the font, cut to 127 KB. Number
+fields take maths (`2*pi`, `90/4`, `*2` on the value held; `src/app/gui/expr.rs`), `Ctrl` snaps a drag to round steps,
+`Shift` drags finer.
+
+Then Blender's search, one fuzzy matcher (`src/app/gui/fuzzy.rs`: words in any order, beginnings, initials, typos):
+a search field atop every menu, `Enter` for the first match; a search over the settings atop the side panel, `Ctrl+F`,
+showing those whose names match with their sections opened; and `F3`, over kalast's actions and its example and
+script files, the actions first.
+
+And `Cmd+Z` (`Ctrl+Z`): undo for what the panels change in `app.simulation.config`, a drag one step, `Shift` to do it
+again (`src/app/gui/undo.rs`).
+
+Then the user's reviews. The first: a slider grey while dragged, Mocha's fields and sliders readable, the search on
+`E`, which lists more -- the bodies kalast ships to add, exporting a frame, the tabs, the themes --, the Bodies section's
+shapes as a menu, and the scene in a card. The second: long names cut short in the `E` search; every setting of the
+panels in it, "sun pos" showing the Sun's position with its field ready to type into; the Sun placed 1 au off, lighting
+what the camera sees, when a body is added while it is at the origin; Mocha's menus readable.
+
+And a pass closer to Blender, against Blender 4.5's source and its manual's screenshot measured pixel by pixel: the UI
+blended in the display's colours, where egui's sRGB view blended in linear light and washed it out (desktop and page);
+Blender's own build of Inter; its panel geometry, chevrons and grips; its split rows; its fields painted by kalast,
+with Blender's hover arrows stepping the value, `#222222` while held, the emboss under them; stitched vectors, colour
+swatches, expanded enums, full-width buttons; the side panel as the properties editor, its tabs a navigation bar down
+its left.
+
+Then the user's third review: the app, simulation and scripts tabs back atop the side panel, and the simulation
+tab's fifteen topics a tab each down Blender's navigation bar, each one's settings in panels that fold -- the Sun's in
+Sun and Light; only the chosen page drawn; the searches following the tabs, as Blender's properties search does.
+
+Open: the README's screenshot; a field's value without Blender's text shadow; the desktop's new blending to be seen
+on a screen.
+
+See `notes/2026-11-09_blender_panels/`.
+
+## 2026-11-18 — `core.flux_bc`: the surface balance from an absorbed flux
+
+The first item of the engine work for the two papers (plan in `~/projects/paper-tpm/notes/`, approved by the user this
+day). `kalast.tpm.core.flux_bc(t, flux, prop, dz)` solves each facet's surface temperature from the flux it absorbs
+(W/m2): direct sunlight, and with it the sunlight scattered by other surfaces and their thermal radiation, which until
+now a script could only pass to `solar_bc` as an "equivalent cosine". `solar_bc` is the same routine with the sunlight
+alone and is unchanged to the bit. Three Rust tests and a Python one.
+
+Open: items E2 to E13 of the plan, listed with their state in the note.
+
+See `notes/2026-11-18_tpm_flux_bc/`.
+
+## 2026-11-19 — the solar constant, and a heat flow at the bottom (CPU and GPU)
+
+Decisions of the user on Paper I, taken this day: the solar constant is 1361 W/m2 (was 1369), in
+`util::SOLAR_CONSTANT` and the roughness model's default; CPU and GPU must be level before the
+paper is submitted, so each engine item is now done on both at once. First of them: a heat flow
+through the base of the columns (plan item E10), `kalast.tpm.core.bottom_flux(t, q, prop, dz)` and
+`GpuTpm.set_bottom_flux(q, spacing)`, the adiabatic bottom being `q = 0`. The GPU holds the steady
+state of a heat flow through full steps within 2e-3 K. Note: `notes/2026-11-19_tpm_bottom_flux/`,
+which also keeps the state of the engine items. Next: k(T) and c(T) (E9), the implicit schemes
+(E11).
+
+## 2026-11-22 — `core.Stepper`: implicit schemes, RKC, and a ground that changes with temperature (CPU)
+
+Plan items E11 and E9 on the CPU; the GPU twin is the next change. `kalast.tpm.core.Stepper(scheme)`
+steps every column in one call by `"explicit"` (the three calls, to the bit), `"rkc"`,
+`"backward-euler"`, `"crank-nicolson"` or `"bdf2"`, for `Properties` or a `Ground`. The implicit
+schemes eliminate each column from the base up and solve the surface balance with the layers, by
+Newton's method (one iteration is the semi-implicit form). A `Ground` takes two laws,
+`radiative_conductivity` (`k = k_c (1 + chi (T/350)^3)`) and `heat_capacity_polynomial`, read by every
+scheme and by the explicit functions. Measured: orders 0.98, 2.00 and 2.03 in float32; a heat flow
+through `k(T)` within 0.011 K of its closed form; the Python solvers in float64 within 0.002 K. Two
+findings: solving for the temperatures drifted in float32 (the schemes solve for the changes and
+carry the remainder), and the Python BDF2's first step is 2/3 of a step. Note:
+`notes/2026-11-22_tpm_stepper/`, which keeps the state of the engine items.
+
+## 2026-11-22 — `GpuStepper`: the same schemes on the GPU
+
+The GPU twin of `core.Stepper` (`src/tpm/gpu_stepper.rs`, `shaders/tpm_stepper.wgsl`,
+`kalast._rs.tpm.gpu.GpuStepper`): the five schemes, a `Properties` or a `Ground` with its layers
+and its laws, the heat flow at the base, the sunlight computed on the GPU. One thread a facet, the
+same arithmetic as the CPU; the compensated sum holds there. Within 0.0001 K of the CPU on one
+material and 0.003 K on a graded ground with the Moon's laws, by every scheme. With it the plan's
+items E9 and E11 are done on both sides. `GpuTpm` is unchanged. Note:
+`notes/2026-11-22_tpm_stepper/`.
+
+## 2026-11-23 — the exact view factor between two triangles
+
+`tpm::view_factor::exact` (`kalast.mesh.view_factor_exact` from Python): the double contour integral
+of Sparrow (1963) as Lagerros (1998, appendix A.1) writes it for triangles, the inner integral in
+closed form, the outer one numerical, two sides on one line closed entirely, a triangle crossing the
+other's plane cut by it. In double precision. The closed forms for opposed and for hinged rectangles
+to 1e-15, a closed box summing to one within 2e-15: exact where the formula of two points is 37.8 %
+low. The plan's item E8 for the geometry; visibility and the exchange (E2) come next. The same night,
+for the PhD progress meeting, prototypes of the paper's Didymos figures were made with the new
+stepper (pictures and scripts in `~/projects/phd-manuscript/notes/2026-11-23_progress_meeting/figures/`).
+Note: `notes/2026-11-23_tpm_view_factor_exact/`.
+
+## 2026-11-23 — the exchange between facets, on the CPU
+
+`tpm::exchange` (`kalast.tpm.exchange` from Python): sparse view factors, and what every facet
+absorbs of the sunlight the others scatter and of their thermal radiation, the reflections followed
+to the end, with a row and a column for each facet of every body so that the cross-body terms are in
+the one system. An isothermal closed box absorbs what it emits within 1e-7 at any emissivity; light
+let into a closed box is all absorbed; the Python `heating` module's numbers to 2e-7 where the two
+overlap. The plan's item E2 on the CPU; the GPU and the stepping loop are next. With it, a stall of
+the exact view factor was removed (a distance taken as a difference of squares: noise the
+integrator chased; the suite went from 207 s to 0.1 s). Note:
+`notes/2026-11-23_tpm_view_factor_exact/`.
+
+## 2026-11-23 — `GpuExchange`: the exchange between facets on the GPU
+
+The GPU twin of `tpm::exchange` (`src/tpm/gpu_exchange.rs`, `shaders/tpm_exchange.wgsl`,
+`kalast._rs.tpm.gpu.GpuExchange`): one thread a facet over its row of the sparse view factors, a
+dispatch a reflection, the passes counted beforehand from the view factors and the surfaces since a
+thread cannot say that the series has settled. Within 3e-7 of the CPU on 3,000 facets at any number
+of bounces; an isothermal closed box within 1e-7. With it the plan's item E2 is done on both sides;
+what is left is to run it inside `GpuStepper` without the round trip through the host. Note:
+`notes/2026-11-23_tpm_view_factor_exact/`.

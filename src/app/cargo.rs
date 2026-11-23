@@ -831,6 +831,81 @@ pub fn source_hash_path(library: &std::path::Path) -> std::path::PathBuf {
     library.with_file_name(name)
 }
 
+/// A built example loaded into the process. A browser loads none -- it has
+/// no `dlopen`, and no cargo to build one with -- but runs the examples it
+/// was built with (`add_example`).
+#[cfg(not(target_arch = "wasm32"))]
+pub type Library = libloading::Library;
+#[cfg(target_arch = "wasm32")]
+pub type Library = ();
+
+#[cfg(target_arch = "wasm32")]
+thread_local! {
+    /// The examples a page was built with, compiled into it with kalast:
+    /// each one's path, its text and its `main`.
+    static BUILT_IN: std::cell::RefCell<Vec<(String, &'static str, fn())>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// A path as the editor and a page's examples agree on it.
+#[cfg(target_arch = "wasm32")]
+fn tidy(path: &str) -> String {
+    let path = path.trim().replace('\\', "/");
+    path.strip_prefix("./").unwrap_or(&path).to_string()
+}
+
+/// Make the example at `path`, whose text is `source`, one this page runs:
+/// `main` is its own, compiled into the page.
+#[cfg(target_arch = "wasm32")]
+pub fn add_example(path: &str, source: &'static str, main: fn()) {
+    BUILT_IN.with(|b| b.borrow_mut().push((tidy(path), source, main)));
+}
+
+#[cfg(target_arch = "wasm32")]
+fn built_in(path: &str) -> Option<(&'static str, fn())> {
+    let path = tidy(path);
+    BUILT_IN.with(|b| b.borrow().iter().find(|(p, _, _)| *p == path).map(|(_, source, main)| (*source, *main)))
+}
+
+/// Run an example the page was built with, as a loaded one runs: its `main`,
+/// with the host reachable from it.
+#[cfg(target_arch = "wasm32")]
+pub fn load_example(
+    example: &std::path::Path,
+    _release: bool,
+    api: &crate::app::hosted::HostApi,
+) -> Result<Library, String> {
+    let Some((_, main)) = built_in(&example.to_string_lossy()) else {
+        return Err(format!("{} is not one of the examples this page was built with", example.display()));
+    };
+    unsafe { crate::app::hosted::set_host(api) };
+    main();
+    crate::app::hosted::clear_host();
+    Ok(())
+}
+
+/// Whether the page runs `source` as the example at `source_path`: one it
+/// was built with, unedited.
+#[cfg(target_arch = "wasm32")]
+pub fn is_current(_release: bool, source_path: &str, source: &str) -> bool {
+    built_in(source_path).is_some_and(|(text, _)| text == source)
+}
+
+/// Why the page cannot run `source` as the example at `path`: it compiles
+/// nothing, and runs the examples as it was built with them.
+#[cfg(target_arch = "wasm32")]
+pub fn cannot_build(path: &str) -> String {
+    match built_in(path) {
+        Some(_) => format!(
+            "{path} is edited, and a browser cannot compile Rust: the page runs its examples as they were built \
+             -- undo the edits to run it, or run it in kalast's desktop app"
+        ),
+        None => format!(
+            "{path} is not one of the examples this page was built with, and a browser cannot compile Rust: \
+             run it in kalast's desktop app"
+        ),
+    }
+}
+
 /// Load a built example into this process and run its `scene`.
 ///
 /// The returned `Library` **must outlive every callback the example
@@ -843,11 +918,12 @@ pub fn source_hash_path(library: &std::path::Path) -> std::path::PathBuf {
 /// host's table, `api`, through which it reaches the live `App`. The
 /// fingerprint check below is what makes that defensible; see
 /// `kalast::app::abi_fingerprint`.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn load_example(
     example: &std::path::Path,
     release: bool,
     api: &crate::app::hosted::HostApi,
-) -> Result<libloading::Library, String> {
+) -> Result<Library, String> {
     let path = dylib_path_for(&package_name(example), release);
     if !path.is_file() {
         return Err(format!(
@@ -918,6 +994,7 @@ fn show(cmd: &std::process::Command) -> String {
 ///
 /// A library with no fingerprint beside it -- built before there were
 /// fingerprints -- is judged the old way, by the file's modification time.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn is_current(release: bool, source_path: &str, source: &str) -> bool {
     let modified = |p: &std::path::Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
     let example = std::path::Path::new(source_path);
@@ -953,6 +1030,7 @@ pub fn is_current(release: bool, source_path: &str, source: &str) -> bool {
 ///
 /// A few hundred `stat`s, and only when the editor is deciding whether to
 /// rebuild -- not per frame.
+#[cfg(not(target_arch = "wasm32"))]
 fn newest_engine_source() -> Option<std::time::SystemTime> {
     fn walk(dir: &std::path::Path, newest: &mut Option<std::time::SystemTime>) {
         let Ok(entries) = std::fs::read_dir(dir) else {

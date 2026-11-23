@@ -350,9 +350,9 @@ impl Photometry {
         });
         pass.set_pipeline(&self.pipeline.inner);
         bindings.all(&mut pass);
-        pass.set_bind_group(6, Some(penumbra), &[]);
+        pass.set_bind_group(3, Some(penumbra), &[]);
         if let Some(rays) = &bindings.rays {
-            pass.set_bind_group(7, Some(rays), &[]);
+            pass.set_bind_group(4, Some(rays), &[]);
         }
         // As the main pass picks them (`render::Pass::render`).
         let corners = config.wireframe.mode != 0 || !self.primitive_index;

@@ -43,7 +43,7 @@ the script, right for the config, bottom for the log — and staying while the
 pointer is anywhere over it.
 
 The edge strip is 24 points, and deliberately not enough on its own to hold a
-panel open: the config panel is 240 wide, so reaching for anything in it would
+panel open: the config panel is 300 wide, so reaching for anything in it would
 leave the strip and the panel would vanish under the pointer.
 
 Focus on the scene, in other words — not on the window, which is yours to size
@@ -98,13 +98,15 @@ The side panel, on the right -- app, simulation and files tabs: what `→`
 toggles. Live and written back, like `toolbar_folded`.
 Accepted: `True` / `False`.
 
-### `app.config.theme: str` — default `"catppuccin-mocha"` *(live, remembered)*
-The colours of the UI app's panels: `"catppuccin-mocha"`, the default, or
+### `app.config.theme: str` — default `"blender"` *(live, remembered)*
+The colours of the UI app's panels: `"blender"`, the default, Blender's own
+theme, as the panels are drawn after Blender's; `"catppuccin-mocha"`; or
 `"dark"`, egui's own dark theme, whatever the system's appearance. The panels only: the scene,
 its background included, is drawn by the renderer and shown as an image no
 theme tints, so a frame looks the same under either, on screen and exported.
-Accepted: `"catppuccin-mocha"` (also `"mocha"`), `"dark"`; the app tab's
-combo box. Remembered by the UI app when changed there, as `fullscreen` is.
+Accepted: `"blender"`, `"catppuccin-mocha"` (also `"mocha"`), `"dark"`; the
+app tab's menu. Remembered by the UI app when changed there, as `fullscreen`
+is: a theme chosen before stays chosen.
 
 ### `app.config.open_in_background: bool` — default `False` *(startup only)*
 Open the window **without taking focus**, so a run can go on beside other work.
@@ -219,6 +221,12 @@ Offer betas too: the pre-release of the next version, `v<version>-beta`, built
 from main and replaced as it moves on, beside the releases -- when its version
 is newer than this one's and than the newest release's. Ticked in the app tab,
 it asks GitHub again, and the UI app remembers it.
+
+In the browser it is which kalast the page is: kalast.greghy.com is the latest
+release, and ticked, the page becomes the beta, at kalast.greghy.com/beta/,
+built from main as it moves on; unticked there, the release again. The browser
+remembers it, and kalast.greghy.com opens as the beta while it is ticked. The
+beta's kalast tab opens on `kalast v<version> beta (built <date>) started`.
 
 ### The script editor
 

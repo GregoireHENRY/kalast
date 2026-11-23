@@ -27,6 +27,12 @@ the root forward `config.grid_color` to `config.grid.color` with a
 `DeprecationWarning`, from the table in `tools/config_renames.py`. The three
 window properties that moved to `app.config` raise an error saying so.
 
+The page's bridge (`web/src/config_gen.rs`) comes from the same walk: in a
+browser the Python runs in CPython compiled to WebAssembly beside kalast, and
+`kalast._rs` is the page's own (`web/python`), reaching the config through
+`get` and `set` by group and name, with the conversions and the messages of
+the accessors here. The `:py_custom:` fields are written by hand there too.
+
 Run:  python tools/gen_bindings.py          # write
       python tools/gen_bindings.py --check  # fail if stale
 """
@@ -41,6 +47,7 @@ from config_renames import GROUPS, RENAMES  # noqa: E402
 
 SOURCE = ROOT / "src/app/config.rs"
 TARGET = ROOT / "src/py/app/config_gen.rs"
+WEB_TARGET = ROOT / "web/src/config_gen.rs"
 
 RUST_CONFIG = "crate::app::config::Config"
 # Enums of `config.rs` with `ALL`, `name()` and `parse()`: a name from Python.
@@ -187,6 +194,152 @@ def accessor(path: str, name: str, rust: str, doc):
             f"or mark the field `:py_custom:` and write it by hand"
         )
     return lines
+
+
+def web_arms(target: str, label: str, name: str, rust: str):
+    """-> (get, set) of the page's bridge for one field: `target` the Rust
+    place (`c.shading`, `c`), `label` its Python path for messages. The
+    conversions and the messages of `accessor`'s, on `JsValue`s."""
+    g = f"{target}.{name}"
+    if rust == "bool":
+        return f"JsValue::from_bool({g})", f'{g} = boolean(v, "{label}")?'
+    if rust in ("u32", "usize"):
+        return f"JsValue::from_f64({g} as f64)", f'{g} = unsigned(v, "{label}")? as {rust}'
+    if rust == "i32":
+        return f"JsValue::from_f64({g} as f64)", f'{g} = integer(v, "{label}")? as i32'
+    if rust in ("f32", "f64", "Float"):
+        return f"JsValue::from_f64({g} as f64)", f'{g} = number(v, "{label}")? as {rust}'
+    if rust in ("[f32; 3]", "[f32; 4]"):
+        n = rust[-2]
+        return (f"floats_value(&{g}.map(|x| x as f64))",
+                f'{g} = floats::<{n}>(v, "{label}")?.map(|x| x as f32)')
+    if rust in ("Option<f32>", "Option<Float>"):
+        inner = rust[7:-1]
+        return (f"{g}.map_or(JsValue::UNDEFINED, |x| JsValue::from_f64(x as f64))",
+                f'{g} = if absent(v) {{ None }} else {{ Some(number(v, "{label}")? as {inner}) }}')
+    if rust == "Option<bool>":
+        return (f"{g}.map_or(JsValue::UNDEFINED, JsValue::from_bool)",
+                f'{g} = if absent(v) {{ None }} else {{ Some(boolean(v, "{label}")?) }}')
+    if rust == "String":
+        return f"JsValue::from_str(&{g})", f'{g} = string(v, "{label}")?'
+    if rust == "wgpu::Color":
+        return (f"floats_value(&[{g}.r, {g}.g, {g}.b, {g}.a])",
+                f'{{ let rgba = floats::<4>(v, "{label}")?; {g} = kalast::wgpu::Color {{ r: rgba[0], g: rgba[1], b: rgba[2], a: rgba[3] }} }}')
+    if rust == "HudAnchor":
+        msg = ("unknown anchor {s:?}: expected one of top-left, top-center, top-right, middle-left, "
+               "middle-center, middle-right, bottom-left, bottom-center, bottom-right")
+        return (f"JsValue::from_str({g}.name())",
+                f'{{ let s = string(v, "{label}")?; {g} = kalast::app::config::HudAnchor::parse(&s)'
+                f'.ok_or_else(|| format!("ValueError: {msg}"))? }}')
+    if rust == "UiTheme":
+        msg = "unknown theme {s:?}: expected catppuccin-mocha or dark"
+        return (f"JsValue::from_str({g}.name())",
+                f'{{ let s = string(v, "{label}")?; {g} = kalast::app::config::UiTheme::parse(&s)'
+                f'.ok_or_else(|| format!("ValueError: {msg}"))? }}')
+    if rust in NAMED_ENUMS:
+        ty = f"kalast::app::config::{rust}"
+        return (f"JsValue::from_str({g}.name())",
+                f'{{ let s = string(v, "{label}")?; {g} = {ty}::parse(&s).ok_or_else(|| {{ '
+                f'let names: Vec<String> = {ty}::ALL.iter().map(|m| format!("{{:?}}", m.name())).collect(); '
+                f'format!("ValueError: {name} is one of {{}}, got {{s:?}}", names.join(", ")) }})? }}')
+    if rust in ("crate::app::axes::AxesStyle", "AxesStyle"):
+        msg = "unknown axes style {s:?}: expected off, box, panes, gizmo or blender"
+        return (f"JsValue::from_str({g}.name())",
+                f'{{ let s = string(v, "{label}")?; {g} = kalast::app::axes::AxesStyle::parse(&s)'
+                f'.ok_or_else(|| format!("ValueError: {msg}"))? }}')
+    raise SystemExit(
+        f"{label}: no bridge rule for `{rust}` -- add one to gen_bindings.py's web_arms, "
+        f"or mark the field `:py_custom:` and write it by hand in web/src/python.rs too"
+    )
+
+
+def web_bridge(src: str) -> str:
+    """The page's accessors, `web/src/config_gen.rs`: `get` and `set` by
+    group and name for `Config`, `app_get` and `app_set` for `AppConfig`."""
+    out = [
+        "// Generated by tools/gen_bindings.py -- do not edit by hand.",
+        "//",
+        "// Regenerate after changing `Config` or `AppConfig`:  python tools/gen_bindings.py",
+        "//",
+        "// The page's Python reaches the config through these, by group and name;",
+        "// the fields marked `:py_custom:` are written by hand in `python.rs`.",
+        "",
+        "use kalast::Float;",
+        "use kalast::app::config::{AppConfig, Config};",
+        "use wasm_bindgen::JsValue;",
+        "",
+        "use crate::convert::*;",
+        "",
+    ]
+    groups = fields("Config", src)
+    out += ["/// The groups of `Config`, `app.simulation.config.<group>`.",
+            "pub const GROUPS: &[&str] = &[" + ", ".join(f'"{g}"' for g, _, _ in groups) + "];", ""]
+    gets, sets, reprs = [], [], []
+    for gfield, gtype, _ in groups:
+        reprs.append(f'        "{gfield}" => format!("{{:?}}", c.{gfield}),')
+        for name, rust, doc in fields(gtype, src):
+            if has_marker(doc, "py_custom"):
+                continue
+            get, set_ = web_arms(f"c.{gfield}", f"config.{gfield}.{name}", name, rust)
+            gets.append(f'        ("{gfield}", "{name}") => {get},')
+            sets.append(f'        ("{gfield}", "{name}") => {set_},')
+    out += [
+        "/// `app.simulation.config.<group>.<name>`.",
+        "pub fn get(c: &Config, group: &str, name: &str) -> Result<JsValue, String> {",
+        "    Ok(match (group, name) {",
+        *gets,
+        "        _ => return Err(no_attribute(group, name)),",
+        "    })",
+        "}",
+        "",
+        "/// `app.simulation.config.<group>.<name> = v`.",
+        "pub fn set(c: &mut Config, group: &str, name: &str, v: &JsValue) -> Result<(), String> {",
+        "    match (group, name) {",
+        *sets,
+        "        _ => return Err(no_attribute(group, name)),",
+        "    }",
+        "    Ok(())",
+        "}",
+        "",
+        "/// A group as the desktop's `repr` shows it.",
+        "pub fn repr(c: &Config, group: &str) -> String {",
+        "    match group {",
+        *reprs,
+        "        _ => String::new(),",
+        "    }",
+        "}",
+        "",
+    ]
+    gets, sets = [], []
+    for name, rust, doc in fields("AppConfig", src):
+        if has_marker(doc, "py_custom"):
+            continue
+        get, set_ = web_arms("c", f"app.config.{name}", name, rust)
+        gets.append(f'        "{name}" => {get},')
+        sets.append(f'        "{name}" => {set_},')
+    out += [
+        "/// `app.config.<name>`.",
+        "pub fn app_get(c: &AppConfig, name: &str) -> Result<JsValue, String> {",
+        "    Ok(match name {",
+        *gets,
+        "        _ => return Err(no_attribute(\"app config\", name)),",
+        "    })",
+        "}",
+        "",
+        "/// `app.config.<name> = v`.",
+        "pub fn app_set(c: &mut AppConfig, name: &str, v: &JsValue) -> Result<(), String> {",
+        "    match name {",
+        *sets,
+        "        _ => return Err(no_attribute(\"app config\", name)),",
+        "    }",
+        "    Ok(())",
+        "}",
+        "",
+        "fn no_attribute(group: &str, name: &str) -> String {",
+        "    format!(\"AttributeError: config.{group} has no attribute {name:?}\")",
+        "}",
+    ]
+    return "\n".join(out) + "\n"
 
 
 def proxy_name(group: str) -> str:
@@ -346,16 +499,21 @@ def main() -> int:
     # `accessor("")` produces `.name` paths with a leading dot for AppConfig; tidy them.
     text = re.sub(r"borrow\(\)\.\.", "borrow().", text)
 
+    web = web_bridge(src)
     if "--check" in sys.argv:
-        cur = TARGET.read_text() if TARGET.exists() else ""
-        if cur != text:
-            print("bindings are out of date; run python tools/gen_bindings.py")
+        stale = [t for t, want in ((TARGET, text), (WEB_TARGET, web))
+                 if (t.read_text() if t.exists() else "") != want]
+        if stale:
+            names = ", ".join(str(t.relative_to(ROOT)) for t in stale)
+            print(f"bindings are out of date ({names}); run python tools/gen_bindings.py")
             return 1
         print("bindings are current")
         return 0
     TARGET.write_text(text)
+    WEB_TARGET.write_text(web)
     n = text.count("#[getter]")
     print(f"wrote {TARGET.relative_to(ROOT)}: {len(groups)} group classes, {n} getters")
+    print(f"wrote {WEB_TARGET.relative_to(ROOT)}: the page's {web.count('=> ') // 2} accessors")
     return 0
 
 

@@ -77,6 +77,36 @@ impl Palette {
 pub fn palette(theme: UiTheme) -> Palette {
     let c = Color32::from_rgb;
     match theme {
+        // Blender's text editor: its syntax colours, built-ins for keywords,
+        // "special" for functions, "reserved" for constants.
+        UiTheme::Blender => {
+            let (text, symbols) = (c(0xe6, 0xe6, 0xe6), c(0xff, 0x73, 0x4d));
+            Palette {
+                colors: [
+                    (text, false),                     // Text
+                    (c(0xe6, 0x2e, 0x67), false),      // Keyword: built-in
+                    (c(0xe6, 0xd5, 0x73), false),      // String
+                    (c(0x48, 0xd9, 0xe6), false),      // Number
+                    (c(0xc4, 0x75, 0x3b), false),      // Constant: reserved
+                    (c(0x93, 0x93, 0x93), false),      // Comment
+                    (c(0x68, 0x9d, 0x06), false),      // Function: special
+                    (c(0x68, 0x9d, 0x06), false),      // Type: special
+                    (c(0xc4, 0x75, 0x3b), false),      // self: reserved
+                    (c(0x9c, 0x73, 0xe6), false),      // Decorator: preprocessor
+                    (symbols, false),                  // Operator: symbols
+                    (c(0xb0, 0xb0, 0xb0), false),      // Punctuation
+                    (c(0x9c, 0x73, 0xe6), false),      // Lifetime: preprocessor
+                ],
+                gutter: c(0x77, 0x77, 0x77),
+                gutter_current: c(0xe6, 0xe6, 0xe6),
+                current_line: Color32::from_white_alpha(8),
+                found: Color32::from_rgba_unmultiplied(0xe6, 0xd5, 0x73, 0x38),
+                found_current: Color32::from_rgba_unmultiplied(0xff, 0x73, 0x4d, 0x80),
+                // The console's: output blue, errors red.
+                prompt: c(0x71, 0xa8, 0xff),
+                error: c(0xff, 0x4d, 0x84),
+            }
+        }
         UiTheme::CatppuccinMocha => {
             let (text, overlay2) = (c(0xcd, 0xd6, 0xf4), c(0x93, 0x99, 0xb2));
             Palette {

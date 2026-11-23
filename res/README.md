@@ -1,5 +1,10 @@
 # Hera meshes and kernels
 
+Two shape models are in this folder: DART's Didymos v003 (Palmer et al.) and
+Dimorphos v004 (Daly, Ernst et al.), made by SPC, decimated to 10,000 facets
+each, in km -- `didymos_v003_10k.obj` and `dimorphos_v004_10k.obj`, which
+`examples/didymos/tpm.rs` loads. The full models and the rest are below.
+
 The Hera, Didymos and Dimorphos examples need ESA's Hera SPICE kernel
 dataset, which is not in this repository. It also contains the shape models.
 

@@ -69,7 +69,7 @@ impl Default for Crater {
             wavelength: 8.0e-6,
             ntheta: 32,
             nphi: 32,
-            solar_constant: 1369.0,
+            solar_constant: 1361.0,
         }
     }
 }

@@ -331,6 +331,132 @@ impl<'a> From<GroundView<'a>> for Thermal<'a> {
     }
 }
 
+/// How a ground's conductivity and heat capacity change with temperature.
+///
+/// The conduction of a regolith has a part that radiation between the grains
+/// carries, which grows as `T^3` (Mitchell & de Pater 1994):
+///
+/// ```text
+/// k(T) = k_c (1 + chi (T / 350)^3)
+/// ```
+///
+/// with `k_c` the ground's `conductivity`, layer by layer, and `chi` the
+/// `radiative` parameter here: 2.7 for the Moon (Hayne et al. 2017), 0 for a
+/// conductivity that does not change. The heat capacity is a polynomial of
+/// the temperature, in place of the ground's `heat_capacity`:
+///
+/// ```text
+/// c(T) = a[0] + a[1] T + a[2] T^2 + a[3] T^3 + a[4] T^4        (J/kg/K)
+/// ```
+///
+/// Each step reads both at the temperatures of the step before. Within a
+/// step the conductivity at a boundary between two layers is the harmonic
+/// mean of the two layers', each at its own temperature.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Laws {
+    /// `chi`: the radiative share of the conduction at 350 K. 0 for none.
+    pub radiative: Float,
+    /// The coefficients of `c(T)`, from the constant up. `None` for the
+    /// ground's own `heat_capacity`.
+    pub heat_capacity: Option<[Float; 5]>,
+}
+
+impl Laws {
+    /// The lunar regolith of Hayne et al. (2017, table A1): `chi` 2.7, and
+    /// the heat capacity fitted to the lunar samples.
+    pub const MOON: Laws = Laws {
+        radiative: 2.7,
+        heat_capacity: Some([-3.6125, 2.7431, 2.3616e-3, -1.2340e-5, 8.9093e-9]),
+    };
+
+    /// The temperature (K) at which `radiative` is the radiative share.
+    pub const REFERENCE: Float = 350.0;
+
+    /// Whether nothing changes with temperature.
+    pub fn is_constant(&self) -> bool {
+        self.radiative == 0.0 && self.heat_capacity.is_none()
+    }
+
+    /// `k(T) / k_c`.
+    #[inline(always)]
+    pub fn conductivity(&self, t: Float) -> Float {
+        let x = t / Self::REFERENCE;
+        1.0 + self.radiative * x * x * x
+    }
+
+    /// The slope of `k(T) / k_c` with temperature (1/K).
+    #[inline(always)]
+    pub fn conductivity_slope(&self, t: Float) -> Float {
+        let x = t / Self::REFERENCE;
+        3.0 * self.radiative * x * x / Self::REFERENCE
+    }
+
+    /// `c(T)` (J/kg/K): the polynomial, or `constant` without one.
+    #[inline(always)]
+    pub fn heat_capacity(&self, t: Float, constant: Float) -> Float {
+        match self.heat_capacity {
+            Some(a) => a[0] + t * (a[1] + t * (a[2] + t * (a[3] + t * a[4]))),
+            None => constant,
+        }
+    }
+
+    /// The largest `k(T) / k_c` and the smallest `c(T) / constant` between
+    /// two temperatures: what bounds a stable step.
+    fn extremes(&self, t_min: Float, t_max: Float, constant: Float) -> (Float, Float) {
+        const SAMPLES: usize = 64;
+        let (mut k, mut c) = (0.0 as Float, Float::INFINITY);
+        for i in 0..=SAMPLES {
+            let t = t_min + (t_max - t_min) * i as Float / SAMPLES as Float;
+            k = k.max(self.conductivity(t));
+            c = c.min(self.heat_capacity(t, constant));
+        }
+        (k, c)
+    }
+}
+
+/// How far Newton's method takes a surface balance: until a correction is
+/// under `threshold` (K), in `iterations` at most. One iteration is the
+/// balance linearised about the temperature of the step before, which the
+/// semi-implicit schemes use (Schorghofer & Khatiwala 2024).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Newton {
+    pub threshold: Float,
+    pub iterations: usize,
+}
+
+impl Default for Newton {
+    fn default() -> Self {
+        Self { threshold: crate::util::NEWTON_METHOD_THRESHOLD, iterations: crate::util::NEWTON_METHOD_MAX_ITERATION }
+    }
+}
+
+/// Newton's method on a surface balance in its general form,
+///
+/// ```text
+/// f  -  se x^4  +  kq phi(x) (a x + b)  =  0
+/// ```
+///
+/// `kq` the surface's conductivity over twice the layer thickness, `phi` the
+/// conductivity's law, and `a x + b` the one-sided difference `-3 x + 4 T1 -
+/// T2` with the layers under it written from `x`: `a = -3`, `b = 4 T1 - T2`
+/// when they stand as they are, other values when they are solved with it.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn newton_balance(mut x: Float, f: Float, se: Float, kq: Float, laws: &Laws, a: Float, b: Float, newton: Newton) -> Result<Float> {
+    for _ in 0..newton.iterations.max(1) {
+        let phi = laws.conductivity(x);
+        let lin = a * x + b;
+        let set3 = se * x * x * x;
+        let r = f - set3 * x + kq * phi * lin;
+        let dr = -4.0 * set3 + kq * (laws.conductivity_slope(x) * lin + phi * a);
+        let delta = -r / dr;
+        x += delta;
+        if delta.abs() < newton.threshold || (newton.iterations <= 1 && x.is_finite()) {
+            return Ok(x);
+        }
+    }
+    Err(anyhow!("Newton method reached maximum iteration"))
+}
+
 /// A body's thermal properties facet by facet and layer by layer, where one
 /// `Properties` for the whole body is not enough: a darker patch, bare rock
 /// under a crater, a fluffy layer over a denser one.
@@ -344,6 +470,9 @@ impl<'a> From<GroundView<'a>> for Thermal<'a> {
 /// at each depth -- a property that does not vary costs a value, a row or a
 /// column rather than the whole array.
 ///
+/// `laws` says how the conductivity and the heat capacity change with
+/// temperature: not at all, unless set.
+///
 /// It carries what its conduction steps leave over, `Remainder`, for each
 /// temperature array it steps.
 #[derive(Clone, Debug)]
@@ -353,6 +482,7 @@ pub struct Ground {
     pub conductivity: Array2<Float>,
     pub density: Array2<Float>,
     pub heat_capacity: Array2<Float>,
+    pub laws: Laws,
     layers: usize,
     facets: usize,
     remainder: RefCell<Remainder>,
@@ -450,6 +580,7 @@ impl Ground {
             conductivity: Array2::from_elem((layers, facets), prop.conductivity),
             density: Array2::from_elem((layers, facets), prop.density),
             heat_capacity: Array2::from_elem((layers, facets), prop.heat_capacity),
+            laws: Laws::default(),
             layers,
             facets,
             remainder: RefCell::default(),
@@ -508,6 +639,7 @@ impl Ground {
             conductivity: self.conductivity.view(),
             density: self.density.view(),
             heat_capacity: self.heat_capacity.view(),
+            laws: self.laws,
             remainder: Some(&self.remainder),
         }
     }
@@ -516,6 +648,12 @@ impl Ground {
     /// `GroundView::stability_maxdt`.
     pub fn stability_maxdt(&self, dz: Float, s: Float) -> Result<Float> {
         self.view().stability_maxdt(self.layers, self.facets, dz, s)
+    }
+
+    /// The same for a ground whose `laws` change it with temperature, over
+    /// the temperatures it will meet: `GroundView::stability_maxdt_between`.
+    pub fn stability_maxdt_between(&self, dz: Float, s: Float, t_min: Float, t_max: Float) -> Result<Float> {
+        self.view().stability_maxdt_between(self.layers, self.facets, dz, s, t_min, t_max)
     }
 }
 
@@ -528,6 +666,8 @@ pub struct GroundView<'a> {
     pub conductivity: ArrayView2<'a, Float>,
     pub density: ArrayView2<'a, Float>,
     pub heat_capacity: ArrayView2<'a, Float>,
+    /// How the conductivity and the heat capacity change with temperature.
+    pub laws: Laws,
     /// Where the conduction carries what its steps leave over: the
     /// `Ground`'s own. Without one, nothing is carried past a step.
     pub remainder: Option<&'a RefCell<Remainder>>,
@@ -560,7 +700,7 @@ impl<'a> GroundView<'a> {
 
     /// Layer `i` of a per-node array: its row, one value or one a facet --
     /// broadcast where it is read (`Zip::and_broadcast`).
-    fn layer<'b>(a: &'b ArrayView2<'a, Float>, i: usize) -> ArrayView1<'b, Float> {
+    pub(super) fn layer<'b>(a: &'b ArrayView2<'a, Float>, i: usize) -> ArrayView1<'b, Float> {
         a.row(if a.nrows() == 1 { 0 } else { i })
     }
 
@@ -574,7 +714,34 @@ impl<'a> GroundView<'a> {
     /// -- `s = 1/2` its limit -- with `k` at a boundary between layers the
     /// harmonic mean of the two. For one material this is
     /// `stability_maxdt(D, dz^2, s)`.
+    ///
+    /// The properties as they are given: with `laws` that change them with
+    /// temperature, `stability_maxdt_between`.
     pub fn stability_maxdt(&self, layers: usize, facets: usize, dz: Float, s: Float) -> Result<Float> {
+        self.stability_scaled(layers, facets, dz, s, 1.0, None)
+    }
+
+    /// The largest stable time step (s) of a ground whose `laws` change it
+    /// with temperature, for any temperatures between `t_min` and `t_max`
+    /// (K): `stability_maxdt` with the largest conductivity and the smallest
+    /// heat capacity that the laws give between the two. On the safe side:
+    /// the two are not reached at one temperature.
+    pub fn stability_maxdt_between(&self, layers: usize, facets: usize, dz: Float, s: Float, t_min: Float, t_max: Float) -> Result<Float> {
+        if !(t_min > 0.0 && t_max >= t_min && t_max.is_finite()) {
+            bail!("temperatures from {t_min} K to {t_max} K: they must be positive, the first the lower");
+        }
+        // The capacity's ratio is found against 1, so `c_least` is c(T) itself.
+        let (k_most, c_least) = self.laws.extremes(t_min, t_max, 1.0);
+        let c_least = self.laws.heat_capacity.map(|_| c_least);
+        if c_least.is_some_and(|c| !(c > 0.0)) {
+            bail!("the heat capacity's polynomial is not positive everywhere from {t_min} K to {t_max} K");
+        }
+        self.stability_scaled(layers, facets, dz, s, k_most, c_least)
+    }
+
+    /// `stability_maxdt` with every conductivity times `k_scale` and, where
+    /// given, every heat capacity `c_fixed`.
+    fn stability_scaled(&self, layers: usize, facets: usize, dz: Float, s: Float, k_scale: Float, c_fixed: Option<Float>) -> Result<Float> {
         self.check(layers, facets)?;
         let row = |a: &ArrayView2<'_, Float>, i: usize| -> Vec<Float> {
             let r = GroundView::layer(a, i);
@@ -589,10 +756,10 @@ impl<'a> GroundView<'a> {
                 let (k_up, k_here, k_next, rho, c) =
                     (&k_up[..facets], &k_here[..facets], &k_next[..facets], &rho[..facets], &c[..facets]);
                 for f in 0..facets {
-                    let flow = harmonic(k_up[f], k_here[f]) + harmonic(k_here[f], k_next[f]);
+                    let flow = k_scale * (harmonic(k_up[f], k_here[f]) + harmonic(k_here[f], k_next[f]));
                     // No conduction, no limit: an infinite step, which `min`
                     // passes over.
-                    best = best.min(2.0 * s * rho[f] * c[f] * dz * dz / flow);
+                    best = best.min(2.0 * s * rho[f] * c_fixed.unwrap_or(c[f]) * dz * dz / flow);
                 }
             }
             k_up = std::mem::replace(&mut k_here, k_next);
@@ -604,7 +771,8 @@ impl<'a> GroundView<'a> {
 /// The conductivity at the boundary between two layers: the harmonic mean,
 /// which is what the two in series conduct, half a layer of each -- `0` where
 /// either does not conduct.
-fn harmonic(a: Float, b: Float) -> Float {
+#[inline(always)]
+pub(super) fn harmonic(a: Float, b: Float) -> Float {
     2.0 * a * b / (a + b).max(Float::MIN_POSITIVE)
 }
 
@@ -634,32 +802,104 @@ fn harmonic(a: Float, b: Float) -> Float {
 /// run already gone wrong under it -- temperatures run away or NaN from a
 /// time step past `stability_maxdt` -- and nothing to continue from.
 pub fn solar_bc<'a>(
-    mut t: ArrayViewMut2<'_, Float>,
+    t: ArrayViewMut2<'_, Float>,
     dau: Float,
     cosi: ArrayView1<'_, Float>,
     thermal: impl Into<Thermal<'a>>,
     dz: Float,
 ) -> Result<()> {
+    surface_balance(t, thermal.into(), dz, cosi.len(), "cosines of incidence", Newton::default(), |i, albedo| {
+        radiation_sun(dau, cosi[i], albedo)
+    })
+}
+
+/// The surface boundary condition from an absorbed flux, every facet at once:
+/// each surface temperature solved for the balance of what the facet absorbs,
+/// what it radiates, and what it conducts into the layers under it,
+///
+/// ```text
+/// Q  -  e sigma T0^4  +  k (-3 T0 + 4 T1 - T2) / (2 dz)  =  0
+/// ```
+///
+/// `flux` is `Q`, the power each facet absorbs per unit area (W/m2): the
+/// direct sunlight, and with it whatever else the surface absorbs -- the
+/// sunlight that other surfaces scatter to it, their thermal radiation.
+/// `solar_bc` is this with `Q = S (1 - A) max(cos i, 0) / r^2`, and the method
+/// is the same: Newton's, from the surface temperature the step before, with
+/// the layers under it as they stand. `t` is laid out as `columns` makes it
+/// and `dz` is the thickness of a layer (m).
+///
+/// With a `Ground`, each facet's own emissivity and the conductivity of its
+/// top layer, at the surface's temperature where its `laws` change it; the
+/// albedo is not read, since `flux` is already what is absorbed.
+///
+/// A flux that is negative or not finite is an error, and so is a balance
+/// that does not converge, as in `solar_bc`.
+pub fn flux_bc<'a>(
+    t: ArrayViewMut2<'_, Float>,
+    flux: ArrayView1<'_, Float>,
+    thermal: impl Into<Thermal<'a>>,
+    dz: Float,
+) -> Result<()> {
+    flux_bc_with(t, flux, thermal.into(), dz, Newton::default())
+}
+
+/// `flux_bc` with Newton's method taken as far as `newton` says.
+pub(super) fn flux_bc_with(t: ArrayViewMut2<'_, Float>, flux: ArrayView1<'_, Float>, thermal: Thermal<'_>, dz: Float, newton: Newton) -> Result<()> {
+    check_flux(flux)?;
+    surface_balance(t, thermal, dz, flux.len(), "absorbed fluxes", newton, |i, _| flux[i])
+}
+
+/// A flux that a surface can absorb: finite and not negative.
+pub(super) fn check_flux(flux: ArrayView1<'_, Float>) -> Result<()> {
+    if let Some((i, f)) = flux.indexed_iter().find(|(_, f)| !(f.is_finite() && **f >= 0.0)) {
+        bail!("the absorbed flux of facet {i} is {f} W/m2: it must be finite and not negative");
+    }
+    Ok(())
+}
+
+/// What `solar_bc` and `flux_bc` share: the balance of every facet, with
+/// `absorbed(facet, albedo)` the flux it absorbs (W/m2), `given` of them of
+/// the kind `what` names in an error.
+fn surface_balance(
+    mut t: ArrayViewMut2<'_, Float>,
+    thermal: Thermal<'_>,
+    dz: Float,
+    given: usize,
+    what: &str,
+    newton: Newton,
+    absorbed: impl Fn(usize, Float) -> Float,
+) -> Result<()> {
     let (layers, facets) = t.dim();
     if layers < 3 {
         bail!("the surface balance needs 3 layers or more, got {layers}");
     }
-    if cosi.len() != facets {
-        bail!("{} cosines of incidence for {facets} facets", cosi.len());
+    if given != facets {
+        bail!("{given} {what} for {facets} facets");
     }
     let twodz = 2.0 * dz;
     let (mut surface, below) = t.multi_slice_mut((s![0, ..], s![1..3, ..]));
     let mut failed = None;
-    match thermal.into() {
+    // The balance as it always was, to the bit, unless Newton's method is
+    // taken another way or the conductivity follows a law.
+    let plain = newton == Newton::default();
+    let none = Laws::default();
+    let solve = |t0: Float, f: Float, se: Float, k: Float, t1: Float, t2: Float, laws: &Laws| {
+        if plain && laws.radiative == 0.0 {
+            newton_method(t0, f, se, k, t1, t2, twodz)
+        } else {
+            newton_balance(t0, f, se, k / twodz, laws, -3.0, 4.0 * t1 - t2, newton)
+        }
+    };
+    match thermal {
         Thermal::Body(prop) => {
             let se = crate::util::STEFAN_BOLTZMANN * prop.emissivity;
             Zip::indexed(&mut surface)
                 .and(below.row(0))
                 .and(below.row(1))
-                .and(cosi)
-                .for_each(|i, t0, &t1, &t2, &cosi| {
-                    let f = radiation_sun(dau, cosi, prop.albedo);
-                    match newton_method(*t0, f, se, prop.conductivity, t1, t2, twodz) {
+                .for_each(|i, t0, &t1, &t2| {
+                    let f = absorbed(i, prop.albedo);
+                    match solve(*t0, f, se, prop.conductivity, t1, t2, &none) {
                         Ok(t) => *t0 = t,
                         Err(_) => {
                             failed.get_or_insert((i, *t0, t1));
@@ -675,9 +915,9 @@ pub fn solar_bc<'a>(
             k.assign(&GroundView::layer(&g.conductivity, 0));
             for i in 0..facets {
                 let (t1, t2) = (below[[0, i]], below[[1, i]]);
-                let f = radiation_sun(dau, cosi[i], albedo[i]);
+                let f = absorbed(i, albedo[i]);
                 let se = crate::util::STEFAN_BOLTZMANN * emissivity[i];
-                match newton_method(surface[i], f, se, k[i], t1, t2, twodz) {
+                match solve(surface[i], f, se, k[i], t1, t2, &g.laws) {
                     Ok(t) => surface[i] = t,
                     Err(_) => {
                         failed = Some((i, surface[i], t1));
@@ -710,6 +950,67 @@ pub fn bottom_adiabatic(mut t: ArrayViewMut2<'_, Float>) {
     }
     let (mut bottom, above) = t.multi_slice_mut((s![layers - 1, ..], s![layers - 2, ..]));
     bottom.assign(&above);
+}
+
+/// The bottom with a heat flow, every facet at once: `q` (W/m2) enters the
+/// base of each column from below, `k dT/dz = q` there with depth counted
+/// downward -- the first-order form `T[-1] = T[-2] + q dz / k`, `k` the
+/// conductivity between the last two layers (their harmonic mean for a
+/// `Ground`, each at its temperature where its `laws` change it). `q = 0` is
+/// `bottom_adiabatic`, to the bit.
+///
+/// For a body with a heat flow of its own: the Moon's is 0.018 W/m2 (Hayne
+/// et al. 2017). Asteroids have none to speak of.
+pub fn bottom_flux<'a>(mut t: ArrayViewMut2<'_, Float>, q: Float, thermal: impl Into<Thermal<'a>>, dz: Float) -> Result<()> {
+    if !q.is_finite() {
+        bail!("the heat flow at the bottom is {q} W/m2: it must be finite");
+    }
+    let (layers, facets) = t.dim();
+    if layers < 2 {
+        return Ok(());
+    }
+    let thermal = thermal.into();
+    if let Thermal::Ground(g) = &thermal {
+        g.check(layers, facets)?;
+    }
+    // What the base sits above the layer over it, per facet (K): found
+    // before anything is written, so that an error changes nothing.
+    let mut rise = vec![0.0; facets];
+    if q != 0.0 {
+        match thermal {
+            Thermal::Body(p) => {
+                if !(p.conductivity > 0.0) {
+                    bail!("a heat flow at the bottom needs a ground that conducts: its conductivity is {}", p.conductivity);
+                }
+                rise.fill(q * dz / p.conductivity);
+            }
+            Thermal::Ground(g) => {
+                let (k_above, k_last) =
+                    (GroundView::layer(&g.conductivity, layers - 2), GroundView::layer(&g.conductivity, layers - 1));
+                let at = |r: &ArrayView1<'_, Float>, f: usize| if r.len() == 1 { r[0] } else { r[f] };
+                for (f, rise) in rise.iter_mut().enumerate() {
+                    let k = if g.laws.radiative != 0.0 {
+                        let (above, last) = (g.laws.conductivity(t[[layers - 2, f]]), g.laws.conductivity(t[[layers - 1, f]]));
+                        harmonic(at(&k_above, f) * above, at(&k_last, f) * last)
+                    } else {
+                        harmonic(at(&k_above, f), at(&k_last, f))
+                    };
+                    if !(k > 0.0) {
+                        bail!("a heat flow at the bottom needs a ground that conducts: facet {f}'s last layers do not");
+                    }
+                    *rise = q * dz / k;
+                }
+            }
+        }
+    }
+    let (mut bottom, above) = t.multi_slice_mut((s![layers - 1, ..], s![layers - 2, ..]));
+    bottom.assign(&above);
+    if q != 0.0 {
+        for (b, r) in bottom.iter_mut().zip(&rise) {
+            *b += r;
+        }
+    }
+    Ok(())
 }
 
 /// Heat conduction, every facet at once: one step of `dt` (s) of the heat
@@ -843,10 +1144,33 @@ fn conduction_ground(mut t: ArrayViewMut2<'_, Float>, g: GroundView<'_>, dt: Flo
     // the layer being stepped, `k_{i-1/2}`.
     let mut above: Vec<Float> = t.row(0).iter().copied().collect();
     let mut k_up = zeros();
+    // With laws that change the ground with temperature: each layer's
+    // conductivity over its `k_c`, at the temperature it has before the
+    // step -- this layer's and the next one's, the next becoming this one
+    // as the layers are gone down -- and the conductivities and the heat
+    // capacity that come of them.
+    let laws = g.laws;
+    let (radiative, capacity) = (laws.radiative != 0.0, laws.heat_capacity.is_some());
+    let (mut phi_here, mut phi_next) = if radiative { (zeros(), zeros()) } else { (Vec::new(), Vec::new()) };
+    let (mut lk_here, mut lk_next) = if radiative { (zeros(), zeros()) } else { (Vec::new(), Vec::new()) };
+    let mut lc = if capacity { zeros() } else { Vec::new() };
+    let factors = |row: ndarray::ArrayView1<'_, Float>, out: &mut [Float]| {
+        for (o, &v) in out.iter_mut().zip(row.iter()) {
+            *o = laws.conductivity(v);
+        }
+    };
     {
         let (k0, k1) = (row_of(&g.conductivity, 0, facets, &mut b_here), row_of(&g.conductivity, 1, facets, &mut b_next));
-        for ((o, &a), &b) in k_up.iter_mut().zip(k0).zip(k1) {
-            *o = harmonic(a, b);
+        if radiative {
+            factors(t.row(0), &mut phi_here);
+            factors(t.row(1), &mut phi_next);
+            for f in 0..facets {
+                k_up[f] = harmonic(k0[f] * phi_here[f], k1[f] * phi_next[f]);
+            }
+        } else {
+            for ((o, &a), &b) in k_up.iter_mut().zip(k0).zip(k1) {
+                *o = harmonic(a, b);
+            }
         }
     }
     for i in 1..layers - 1 {
@@ -854,6 +1178,25 @@ fn conduction_ground(mut t: ArrayViewMut2<'_, Float>, g: GroundView<'_>, dt: Flo
         let k_next = row_of(&g.conductivity, i + 1, facets, &mut b_next);
         let rho = row_of(&g.density, i, facets, &mut b_rho);
         let c = row_of(&g.heat_capacity, i, facets, &mut b_c);
+        let (k_here, k_next) = if radiative {
+            std::mem::swap(&mut phi_here, &mut phi_next);
+            factors(t.row(i + 1), &mut phi_next);
+            for f in 0..facets {
+                lk_here[f] = k_here[f] * phi_here[f];
+                lk_next[f] = k_next[f] * phi_next[f];
+            }
+            (&lk_here[..], &lk_next[..])
+        } else {
+            (k_here, k_next)
+        };
+        let c = if capacity {
+            for ((o, &v), &constant) in lc.iter_mut().zip(t.row(i).iter()).zip(c) {
+                *o = laws.heat_capacity(v, constant);
+            }
+            &lc[..]
+        } else {
+            c
+        };
         let (mut layer, below) = t.multi_slice_mut((s![i, ..], s![i + 1, ..]));
         let mut rest = carried.values.row_mut(i);
         let rest = rest.as_slice_mut().expect("an array of its own, in order");
@@ -895,8 +1238,9 @@ fn conduction_ground(mut t: ArrayViewMut2<'_, Float>, g: GroundView<'_>, dt: Flo
         if worst > limit || lowest < 0.0 {
             bail!(
                 "unstable at layer {i}: D dt / dz^2 reaches {} of the 1/2 its layers allow \
-                 (ground.stability_maxdt gives the largest dt); the layers down to it are stepped",
-                worst / 2.0
+                 (ground.stability_maxdt gives the largest dt{}); the layers down to it are stepped",
+                worst / 2.0,
+                if laws.is_constant() { "" } else { ", stability_maxdt_between with the ground's laws" }
             );
         }
     }
@@ -951,13 +1295,13 @@ fn step_layer<const CARRY: bool, const MEASURE: bool>(
 /// A row filled out from a broadcast one, remembering the value it holds,
 /// so that one value for the whole body is written once a step, not once a
 /// layer.
-struct RowBuf {
+pub(super) struct RowBuf {
     values: Vec<Float>,
     holds: Option<Float>,
 }
 
 impl RowBuf {
-    fn new(facets: usize) -> Self {
+    pub(super) fn new(facets: usize) -> Self {
         Self { values: vec![0.0; facets], holds: None }
     }
 }
@@ -965,7 +1309,7 @@ impl RowBuf {
 /// Layer `i` of a per-node array, as a slice of `facets` values: the array's
 /// own row where it is contiguous and full, else `buf` filled from it -- one
 /// value broadcast, or a row with gaps.
-fn row_of<'s>(a: &'s ArrayView2<'_, Float>, i: usize, facets: usize, buf: &'s mut RowBuf) -> &'s [Float] {
+pub(super) fn row_of<'s>(a: &'s ArrayView2<'_, Float>, i: usize, facets: usize, buf: &'s mut RowBuf) -> &'s [Float] {
     let r = GroundView::layer(a, i);
     if r.len() == facets {
         if let Some(values) = r.to_slice() {
@@ -1167,6 +1511,44 @@ use pyo3::prelude::*;
         super::solar_bc(t.as_array_mut(), dau, cosi.view(), &*prop.inner.borrow(), dz).map_err(value_error)
     }
 
+    /// The surface boundary condition from an absorbed flux, every facet at
+    /// once: each surface temperature, `t[0]`, solved for the balance of what
+    /// the facet absorbs, what it radiates, and what it conducts into the
+    /// layers under it,
+    ///
+    /// ```text
+    /// Q  -  e sigma T0^4  +  k (-3 T0 + 4 T1 - T2) / (2 dz)  =  0
+    /// ```
+    ///
+    /// `flux` is `Q`, the power each facet absorbs per unit area (W/m2): the
+    /// direct sunlight, and with it whatever else the surface absorbs -- the
+    /// sunlight that other surfaces scatter to it, their thermal radiation.
+    /// `solar_bc` is this with `Q = S (1 - A) max(cos i, 0) / dau^2`, solved
+    /// the same way.
+    ///
+    /// `t` is what `columns` made, changed in place; `prop` the body's
+    /// `Properties`, or a `Ground` for each facet's own emissivity and
+    /// top-layer conductivity (the albedo is not read: `flux` is already what
+    /// is absorbed); `dz` the thickness of a layer (m). A flux that is
+    /// negative or not finite is an error.
+    #[cfg_attr(feature = "python", pyfunction)]
+    #[cfg_attr(feature = "python", pyo3(signature = (t: "numpy.ndarray", flux: "numpy.ndarray", prop: "Properties | Ground", dz)))]
+    pub fn flux_bc(
+        t: &Bound<'_, PyAny>,
+        flux: &Bound<'_, PyAny>,
+        prop: &Bound<'_, PyAny>,
+        dz: Float,
+    ) -> PyResult<()> {
+        let mut t = temperatures(t)?;
+        let flux = per_facet(flux, "flux")?;
+        if let Ok(g) = prop.extract::<PyRef<'_, Ground>>() {
+            let arrays = g.readonly(prop.py())?;
+            return super::flux_bc(t.as_array_mut(), flux.view(), arrays.view(), dz).map_err(value_error);
+        }
+        let prop = body(prop)?;
+        super::flux_bc(t.as_array_mut(), flux.view(), &*prop.inner.borrow(), dz).map_err(value_error)
+    }
+
     /// The adiabatic bottom, every facet at once: no heat through the base
     /// of a column, its last layer, `t[-1]`, at the temperature of the one
     /// above -- `t[-1] = t[-2]`, the first-order form of `dT/dz = 0` there.
@@ -1175,6 +1557,23 @@ use pyo3::prelude::*;
     pub fn bottom_adiabatic(t: &Bound<'_, PyAny>) -> PyResult<()> {
         super::bottom_adiabatic(temperatures(t)?.as_array_mut());
         Ok(())
+    }
+
+    /// The bottom with a heat flow, every facet at once: `q` (W/m2) enters
+    /// the base of each column from below -- `t[-1] = t[-2] + q dz / k`, the
+    /// first-order form of `k dT/dz = q` there, `k` the conductivity between
+    /// the last two layers. `q = 0` is `bottom_adiabatic`. The Moon's heat
+    /// flow is 0.018 W/m2 (Hayne et al. 2017). `t` is changed in place.
+    #[cfg_attr(feature = "python", pyfunction)]
+    #[cfg_attr(feature = "python", pyo3(signature = (t: "numpy.ndarray", q, prop: "Properties | Ground", dz)))]
+    pub fn bottom_flux(t: &Bound<'_, PyAny>, q: Float, prop: &Bound<'_, PyAny>, dz: Float) -> PyResult<()> {
+        let mut t = temperatures(t)?;
+        if let Ok(g) = prop.extract::<PyRef<'_, Ground>>() {
+            let arrays = g.readonly(prop.py())?;
+            return super::bottom_flux(t.as_array_mut(), q, arrays.view(), dz).map_err(value_error);
+        }
+        let prop = body(prop)?;
+        super::bottom_flux(t.as_array_mut(), q, &*prop.inner.borrow(), dz).map_err(value_error)
     }
 
     /// Heat conduction, every facet at once: one step of `dt` (s) of the heat
@@ -1229,12 +1628,12 @@ use pyo3::prelude::*;
         super::heat_conduction(t.as_array_mut(), &*prop.inner.borrow(), dt, dz).map_err(value_error)
     }
 
-    fn value_error(e: anyhow::Error) -> PyErr {
+    pub(crate) fn value_error(e: anyhow::Error) -> PyErr {
         pyo3::exceptions::PyValueError::new_err(e.to_string())
     }
 
     /// A body's `Properties`, or a message saying what else would do.
-    fn body(prop: &Bound<'_, PyAny>) -> PyResult<crate::py::tpm::properties::Properties> {
+    pub(crate) fn body(prop: &Bound<'_, PyAny>) -> PyResult<crate::py::tpm::properties::Properties> {
         prop.extract().map_err(|_| {
             pyo3::exceptions::PyTypeError::new_err(
                 "prop must be the body's Properties, or a Ground for them facet by facet and layer by layer",
@@ -1273,27 +1672,32 @@ use pyo3::prelude::*;
         conductivity: Py<PyArray2<Float>>,
         density: Py<PyArray2<Float>>,
         heat_capacity: Py<PyArray2<Float>>,
+        /// How the conductivity and the heat capacity change with
+        /// temperature: `super::Laws`.
+        laws: super::Laws,
         /// What its conduction steps leave over: `super::Remainder`.
-        remainder: std::cell::RefCell<super::Remainder>,
+        pub(crate) remainder: std::cell::RefCell<super::Remainder>,
     }
 
     /// The arrays borrowed for one call, read as the core reads a `Ground`.
-    struct GroundArrays<'py> {
+    pub(crate) struct GroundArrays<'py> {
         albedo: numpy::PyReadonlyArray1<'py, Float>,
         emissivity: numpy::PyReadonlyArray1<'py, Float>,
         conductivity: numpy::PyReadonlyArray2<'py, Float>,
         density: numpy::PyReadonlyArray2<'py, Float>,
         heat_capacity: numpy::PyReadonlyArray2<'py, Float>,
+        laws: super::Laws,
     }
 
     impl GroundArrays<'_> {
-        fn view(&self) -> super::GroundView<'_> {
+        pub(crate) fn view(&self) -> super::GroundView<'_> {
             super::GroundView {
                 albedo: self.albedo.as_array(),
                 emissivity: self.emissivity.as_array(),
                 conductivity: self.conductivity.as_array(),
                 density: self.density.as_array(),
                 heat_capacity: self.heat_capacity.as_array(),
+                laws: self.laws,
                 remainder: None,
             }
         }
@@ -1311,11 +1715,12 @@ use pyo3::prelude::*;
                 conductivity: g.conductivity.into_pyarray(py).unbind(),
                 density: g.density.into_pyarray(py).unbind(),
                 heat_capacity: g.heat_capacity.into_pyarray(py).unbind(),
+                laws: g.laws,
                 remainder: g.remainder,
             }
         }
 
-        fn readonly<'py>(&self, py: Python<'py>) -> PyResult<GroundArrays<'py>> {
+        pub(crate) fn readonly<'py>(&self, py: Python<'py>) -> PyResult<GroundArrays<'py>> {
             let busy = |_| pyo3::exceptions::PyValueError::new_err("a Ground's array is being written elsewhere");
             Ok(GroundArrays {
                 albedo: self.albedo.bind(py).try_readonly().map_err(busy)?,
@@ -1323,6 +1728,7 @@ use pyo3::prelude::*;
                 conductivity: self.conductivity.bind(py).try_readonly().map_err(busy)?,
                 density: self.density.bind(py).try_readonly().map_err(busy)?,
                 heat_capacity: self.heat_capacity.bind(py).try_readonly().map_err(busy)?,
+                laws: self.laws,
             })
         }
     }
@@ -1448,14 +1854,81 @@ use pyo3::prelude::*;
             Ok(())
         }
 
+        /// `chi` in `k(T) = k_c (1 + chi (T / 350)**3)`, the conductivity of
+        /// a regolith with the part that radiation between its grains
+        /// carries: `k_c` is `conductivity`, layer by layer. 2.7 for the Moon
+        /// (Hayne et al. 2017); 0, the default, for a conductivity that does
+        /// not change with temperature.
+        ///
+        /// ```python
+        /// ground.radiative_conductivity = 2.7
+        /// ground.heat_capacity_polynomial = [-3.6125, 2.7431, 2.3616e-3, -1.2340e-5, 8.9093e-9]
+        /// dt = ground.stability_maxdt(dz, temperatures=(40.0, 400.0))
+        /// ```
+        #[getter]
+        fn radiative_conductivity(&self) -> Float {
+            self.laws.radiative
+        }
+
+        #[setter]
+        fn set_radiative_conductivity(&mut self, chi: Float) -> PyResult<()> {
+            if !(chi >= 0.0 && chi.is_finite()) {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "radiative_conductivity is {chi}: it must be finite and not negative"
+                )));
+            }
+            self.laws.radiative = chi;
+            Ok(())
+        }
+
+        /// The heat capacity as a polynomial of the temperature, `c(T) =
+        /// a[0] + a[1] T + ... + a[4] T**4` (J/kg/K), in place of
+        /// `heat_capacity`: up to five coefficients, from the constant up.
+        /// `None`, the default, for `heat_capacity` as it is. The Moon's
+        /// (Hayne et al. 2017): `[-3.6125, 2.7431, 2.3616e-3, -1.2340e-5,
+        /// 8.9093e-9]`.
+        #[getter]
+        fn heat_capacity_polynomial(&self) -> Option<Vec<Float>> {
+            self.laws.heat_capacity.map(|a| a.to_vec())
+        }
+
+        /// :pytype: Sequence[float] | None
+        #[setter]
+        fn set_heat_capacity_polynomial(&mut self, v: Option<Vec<Float>>) -> PyResult<()> {
+            self.laws.heat_capacity = match v {
+                None => None,
+                Some(a) if (1..=5).contains(&a.len()) && a.iter().all(|x| x.is_finite()) => {
+                    let mut full = [0.0; 5];
+                    full[..a.len()].copy_from_slice(&a);
+                    Some(full)
+                }
+                Some(a) => {
+                    return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                        "heat_capacity_polynomial takes 1 to 5 finite coefficients, from the constant up: got {}",
+                        a.len()
+                    )));
+                }
+            };
+            Ok(())
+        }
+
         /// The largest stable time step (s) for layers `dz` (m) apart, over
         /// every interior node: `dt (k_{i-1/2} + k_{i+1/2}) / (rho c_i dz^2)
         /// <= 2 s`, `s = 1/2` the limit itself. For one material,
         /// `stability_maxdt(D, dz**2, s)`.
-        #[pyo3(signature = (dz, s=0.5))]
-        fn stability_maxdt(&self, py: Python<'_>, dz: Float, s: Float) -> PyResult<Float> {
+        ///
+        /// For a ground that changes with temperature
+        /// (`radiative_conductivity`, `heat_capacity_polynomial`), give the
+        /// `temperatures` it will meet, `(lowest, highest)` in K: the step
+        /// is then the one that holds at any of them.
+        #[pyo3(signature = (dz, s=0.5, temperatures=None))]
+        fn stability_maxdt(&self, py: Python<'_>, dz: Float, s: Float, temperatures: Option<(Float, Float)>) -> PyResult<Float> {
             let arrays = self.readonly(py)?;
-            arrays.view().stability_maxdt(self.layers, self.facets, dz, s).map_err(value_error)
+            match temperatures {
+                Some((lo, hi)) => arrays.view().stability_maxdt_between(self.layers, self.facets, dz, s, lo, hi),
+                None => arrays.view().stability_maxdt(self.layers, self.facets, dz, s),
+            }
+            .map_err(value_error)
         }
 
         fn __repr__(&self) -> String {
@@ -1563,7 +2036,7 @@ use pyo3::prelude::*;
     /// already: there would be nothing to write back into otherwise. Checked
     /// here for a message that says so -- a float64 array's is otherwise
     /// "'ndarray' object is not an instance of 'ndarray'".
-    fn temperatures<'py>(
+    pub(crate) fn temperatures<'py>(
         t: &Bound<'py, PyAny>,
     ) -> PyResult<numpy::PyReadwriteArray2<'py, Float>> {
         t.extract().map_err(|_| {
@@ -1576,7 +2049,7 @@ use pyo3::prelude::*;
     }
 
     /// One value per facet, from an array of either float width or a list.
-    fn per_facet(v: &Bound<'_, PyAny>, name: &str) -> PyResult<ndarray::Array1<Float>> {
+    pub(crate) fn per_facet(v: &Bound<'_, PyAny>, name: &str) -> PyResult<ndarray::Array1<Float>> {
         if let Ok(a) = v.extract::<PyReadonlyArray1<'_, f64>>() {
             return Ok(a.as_array().mapv(|x| x as Float));
         }
@@ -2232,5 +2705,128 @@ mod tests {
         assert_eq!(a, a_own);
         assert_eq!(b, b_own);
         assert!(a != start(0.3), "nothing moved: no remainder to keep apart");
+    }
+
+    /// `flux_bc` given the sunlight that `solar_bc` computes is `solar_bc`,
+    /// to the bit: for a body's properties and for a `Ground` with each
+    /// facet's own albedo and emissivity.
+    #[test]
+    fn flux_bc_given_the_sunlight_is_solar_bc() {
+        let prop = surface(200.0);
+        let (layers, facets, dz, dau) = (8, 5, 2e-3, 1.3);
+        let mut start = columns(layers, facets, 0.0);
+        for ((z, i), v) in start.indexed_iter_mut() {
+            *v = 180.0 + 25.0 * i as Float - 2.0 * z as Float;
+        }
+        let cosi = ndarray::array![1.0, 0.5, 0.0, -0.3, 0.9];
+
+        let flux = cosi.mapv(|c| radiation_sun(dau, c, prop.albedo));
+        let (mut a, mut b) = (start.clone(), start.clone());
+        solar_bc(a.view_mut(), dau, cosi.view(), &prop, dz).unwrap();
+        flux_bc(b.view_mut(), flux.view(), &prop, dz).unwrap();
+        assert_eq!(a, b);
+        assert!(a != start, "the surfaces moved");
+
+        let mut g = Ground::new(&prop, layers, facets).unwrap();
+        g.albedo = ndarray::array![0.05, 0.1, 0.2, 0.3, 0.4];
+        g.emissivity = ndarray::array![0.8, 0.85, 0.9, 0.95, 1.0];
+        let flux = Zip::from(&cosi).and(&g.albedo).map_collect(|&c, &albedo| radiation_sun(dau, c, albedo));
+        let (mut a, mut b) = (start.clone(), start.clone());
+        solar_bc(a.view_mut(), dau, cosi.view(), &g, dz).unwrap();
+        flux_bc(b.view_mut(), flux.view(), &g, dz).unwrap();
+        assert_eq!(a, b);
+    }
+
+    /// The balance holds for the flux given: what is absorbed is radiated or
+    /// conducted, within what Newton's threshold leaves; more flux is a
+    /// warmer surface; and only the surfaces change.
+    #[test]
+    fn flux_bc_balances_the_flux_it_is_given() {
+        let prop = surface(200.0);
+        let (layers, facets, dz) = (6, 3, 2e-3);
+        let start = columns(layers, facets, 250.0);
+        let flux = ndarray::array![0.0, 400.0, 1200.0];
+        let mut t = start.clone();
+        flux_bc(t.view_mut(), flux.view(), &prop, dz).unwrap();
+
+        let se = crate::util::STEFAN_BOLTZMANN * prop.emissivity;
+        for i in 0..facets {
+            let (t0, t1, t2) = (t[[0, i]], t[[1, i]], t[[2, i]]);
+            let set3 = se * t0.powi(3);
+            let residual = newton_method_fn(t0, flux[i], set3, prop.conductivity, t1, t2, 2.0 * dz);
+            let slope = newton_method_dfn(set3, prop.conductivity, 2.0 * dz).abs();
+            assert!(
+                residual.abs() <= slope * crate::util::NEWTON_METHOD_THRESHOLD,
+                "facet {i}: {residual} W/m2 left over"
+            );
+        }
+        assert!(t[[0, 0]] < t[[0, 1]] && t[[0, 1]] < t[[0, 2]], "{:?}", t.row(0));
+        assert_eq!(t.slice(s![1.., ..]), start.slice(s![1.., ..]));
+    }
+
+    #[test]
+    fn flux_bc_refuses_a_flux_that_cannot_be() {
+        let prop = surface(200.0);
+        let dz = 1e-3;
+        let mut t = columns(8, 3, 250.0);
+        let err = flux_bc(t.view_mut(), ndarray::array![1.0, 0.0].view(), &prop, dz).unwrap_err();
+        assert!(err.to_string().contains("2 absorbed fluxes for 3 facets"), "{err}");
+        let err = flux_bc(t.view_mut(), ndarray::array![1.0, -2.0, 0.0].view(), &prop, dz).unwrap_err();
+        assert!(err.to_string().contains("facet 1"), "{err}");
+        let err = flux_bc(t.view_mut(), ndarray::array![1.0, 2.0, Float::NAN].view(), &prop, dz).unwrap_err();
+        assert!(err.to_string().contains("facet 2"), "{err}");
+        assert_eq!(t, columns(8, 3, 250.0), "an error changes nothing");
+    }
+    /// No heat flow at the bottom is the adiabatic bottom, to the bit; and a
+    /// column in the steady state of a heat flow `q`, `T = T0 + q z / k`,
+    /// stays there under conduction and `bottom_flux`.
+    #[test]
+    fn bottom_flux_holds_the_gradient_of_its_heat_flow() {
+        let prop = surface(200.0);
+        let (layers, facets, dz, q) = (12, 3, 2e-3, 0.018);
+        let mut a = columns(layers, facets, 0.0);
+        for ((z, i), v) in a.indexed_iter_mut() {
+            *v = 200.0 + 10.0 * i as Float + 3.0 * z as Float;
+        }
+        let mut b = a.clone();
+        bottom_adiabatic(a.view_mut());
+        bottom_flux(b.view_mut(), 0.0, &prop, dz).unwrap();
+        assert_eq!(a, b);
+
+        let slope = q * dz / prop.conductivity;
+        let mut t = columns(layers, facets, 0.0);
+        for ((z, i), v) in t.indexed_iter_mut() {
+            *v = 250.0 + 5.0 * i as Float + slope * z as Float;
+        }
+        let start = t.clone();
+        let dt = stability_maxdt(prop.diffusivity, dz * dz, 0.2);
+        for _ in 0..200 {
+            heat_conduction(t.view_mut(), &prop, dt, dz).unwrap();
+            bottom_flux(t.view_mut(), q, &prop, dz).unwrap();
+        }
+        let worst = (&t - &start).mapv(Float::abs).fold(0.0, |m: Float, v| m.max(*v));
+        assert!(worst < 1e-9, "the steady profile moved by {worst} K");
+        assert!((t[[layers - 1, 0]] - t[[layers - 2, 0]] - slope).abs() < 8.0 * 300.0 * Float::EPSILON);
+
+        // A `Ground` of the same material gives the same base.
+        let ground = Ground::new(&prop, layers, facets).unwrap();
+        let mut g = start.clone();
+        bottom_flux(g.view_mut(), q, &ground, dz).unwrap();
+        let mut p = start.clone();
+        bottom_flux(p.view_mut(), q, &prop, dz).unwrap();
+        let worst = (&g - &p).mapv(Float::abs).fold(0.0, |m: Float, v| m.max(*v));
+        assert!(worst < 8.0 * 300.0 * Float::EPSILON, "{worst}");
+    }
+
+    #[test]
+    fn bottom_flux_refuses_what_cannot_be() {
+        let prop = surface(200.0);
+        let mut t = columns(8, 3, 250.0);
+        let err = bottom_flux(t.view_mut(), Float::NAN, &prop, 1e-3).unwrap_err();
+        assert!(err.to_string().contains("must be finite"), "{err}");
+        let raw = Properties { conductivity: 0.0, ..prop };
+        let err = bottom_flux(t.view_mut(), 0.018, &raw, 1e-3).unwrap_err();
+        assert!(err.to_string().contains("conducts"), "{err}");
+        assert_eq!(t, columns(8, 3, 250.0), "an error changes nothing");
     }
 }

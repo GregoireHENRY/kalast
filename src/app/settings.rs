@@ -294,8 +294,12 @@ fn unquote(s: &str) -> String {
     out
 }
 
-/// Where the settings live, if there is a home to put them in.
+/// Where the settings live, if there is a home to put them in -- in a
+/// browser, the page's files, which the page keeps for the next visit.
 pub fn path() -> Option<std::path::PathBuf> {
+    if cfg!(target_arch = "wasm32") {
+        return Some(".kalast/settings.toml".into());
+    }
     if let Some(p) = std::env::var_os("KALAST_SETTINGS") {
         return Some(p.into());
     }
@@ -319,7 +323,7 @@ pub fn load() -> Option<Remembered> {
 }
 
 fn load_from(path: &std::path::Path) -> Option<Remembered> {
-    let text = std::fs::read_to_string(path).ok()?;
+    let text = crate::fs::read_to_string(path).ok()?;
     Some(Remembered::parse(&text))
 }
 
@@ -327,6 +331,12 @@ fn load_from(path: &std::path::Path) -> Option<Remembered> {
 /// one. A failure is reported and otherwise ignored: forgetting a theme is
 /// not worth interrupting anyone over.
 pub fn save(r: &Remembered) {
+    // A page shown inside another dresses itself differently, and shares its
+    // storage with the page alone: what is changed there is not kept.
+    #[cfg(target_arch = "wasm32")]
+    if crate::app::gui::embedded() {
+        return;
+    }
     if let Some(path) = path() {
         save_to(&path, r);
     }
@@ -342,8 +352,8 @@ fn save_to(path: &std::path::Path, r: &Remembered) {
     };
     let written = path
         .parent()
-        .map_or(Ok(()), std::fs::create_dir_all)
-        .and_then(|()| std::fs::write(path, r.to_text()));
+        .map_or(Ok(()), crate::fs::create_dir_all)
+        .and_then(|()| crate::fs::write(path, r.to_text()));
     if let Err(e) = written {
         eprintln!("cannot remember the app's settings in {}: {e}", path.display());
     }

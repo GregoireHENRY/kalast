@@ -125,11 +125,11 @@ struct View {
     camera: Camera,
     light: Light,
 };
-@group(1) @binding(0)
+@group(0) @binding(1)
 var<uniform> view: View;
 
 // The bodies' acceleration structure (`raytrace`), for the main pass alone.
-@group(7) @binding(0) var tlas: acceleration_structure; //@rt
+@group(4) @binding(0) var tlas: acceleration_structure; //@rt
 
 struct InstanceInput {
     @location(8) mat_row_0: vec4<f32>,
@@ -156,7 +156,7 @@ struct InstanceInput {
 struct Colormap {
     lut: array<vec4<f32>, 256>,
 };
-@group(3) @binding(0)
+@group(0) @binding(2)
 var<uniform> colormap: Colormap;
 
 /// Colour for a value, clamped to the ends of the range.
@@ -191,7 +191,7 @@ struct MeshAttr {
     mode: u32,
 };
 
-@group(5) @binding(0) var<storage, read> attrs: array<MeshAttr>;
+@group(2) @binding(0) var<storage, read> attrs: array<MeshAttr>;
 
 // A body drawn by its level-of-detail cut (flag bit 3, `gpu::LodBuffers`):
 // the cut's triangles are not the mesh's own, and each stands for the facet
@@ -199,14 +199,14 @@ struct MeshAttr {
 // the draw's first triangle, set per draw; `skirt_base` the first of the
 // cut's vertices that is a skirt's, which hangs from the vertex of
 // `lod_positions` that `skirt_top` names.
-@group(5) @binding(1) var<storage, read> facet_of: array<u32>;
-@group(5) @binding(3) var<storage, read> lod_positions: array<f32>;
-@group(5) @binding(4) var<storage, read> skirt_top: array<u32>;
+@group(2) @binding(1) var<storage, read> facet_of: array<u32>;
+@group(2) @binding(3) var<storage, read> lod_positions: array<f32>;
+@group(2) @binding(4) var<storage, read> skirt_top: array<u32>;
 // A body's horizon map (flag bit 4, `app::horizon`): per facet, the sine of
 // how high its terrain rises in each of `HORIZON_AZIMUTHS` directions, a
 // snorm16 each, two to a word; then per degree of longitude and latitude
 // (`HORIZON_TOPS`), the highest of the horizons of the facets there.
-@group(5) @binding(5) var<storage, read> horizons: array<u32>;
+@group(2) @binding(5) var<storage, read> horizons: array<u32>;
 struct Chunk {
     facet_base: u32,
     skirt_base: u32,
@@ -241,7 +241,7 @@ struct Body {
     near_inner: f32,
     near_depth: f32,
 };
-@group(5) @binding(2) var<storage, read> body: Body;
+@group(2) @binding(2) var<storage, read> body: Body;
 
 // Two builds of this file (`gpu::shader_for`): the full one, and a lean one
 // for a flat mesh drawn indexed without the wireframe -- what a large body
@@ -472,14 +472,14 @@ fn project_light(m: mat4x4<f32>, pos: vec3<f32>) -> vec3<f32> {
     return vec3<f32>(pr.xy * 0.5 + 0.5, pr.z);
 }
 
-@group(2) @binding(0)
+@group(1) @binding(0)
 var t_shadow: texture_depth_2d_array;
-@group(2) @binding(1)
+@group(1) @binding(1)
 var s_shadow: sampler_comparison;
 
 // The layers' depth pyramid (`gpu::DepthPyramid`): mip `m` holds the depths
 // nearest and farthest from the Sun over each block of `4 * 2^m` texels.
-@group(2) @binding(2)
+@group(1) @binding(2)
 var t_shadow_min: texture_2d_array<f32>;
 
 // The Sun as a disc (`light.sun_as_point` off): what each receiver sees of
@@ -967,16 +967,16 @@ struct Scan {
 };
 
 // The scan and the walks.
-@group(6) @binding(0) var<storage, read_write> walks: Walks;
-@group(6) @binding(3) var t_surface: texture_2d<u32>;
-@group(6) @binding(4) var t_surface_depth: texture_depth_2d;
-@group(6) @binding(5) var t_codes: texture_storage_2d<rg32uint, write>;
-@group(6) @binding(6) var<uniform> scan: Scan;
+@group(3) @binding(0) var<storage, read_write> walks: Walks;
+@group(3) @binding(3) var t_surface: texture_2d<u32>;
+@group(3) @binding(4) var t_surface_depth: texture_depth_2d;
+@group(3) @binding(5) var t_codes: texture_storage_2d<rg32uint, write>;
+@group(3) @binding(6) var<uniform> scan: Scan;
 // The main pass: the walks, and the scan's code and depth per pixel --
 // 0 nothing drawn, 1 no penumbra, 2 the umbra, 3 a walk with no room in the
 // queue, 4 + i walk `i`.
-@group(6) @binding(1) var<storage, read> walked: WalksDone;
-@group(6) @binding(2) var t_walk: texture_2d<u32>;
+@group(3) @binding(1) var<storage, read> walked: WalksDone;
+@group(3) @binding(2) var t_walk: texture_2d<u32>;
 
 /// Where a receiver in shadow layer `layer` looks the Sun up: its place
 /// there and depth, lifted off the surface as the hard lookup is, its bias,
@@ -1401,15 +1401,15 @@ struct FacetQuery {
     is_flat: u32,
     _pad: u32,
 };
-@group(6) @binding(10) var<uniform> facet_query: FacetQuery;
-@group(6) @binding(11) var<storage, read> facet_geometry: array<f32>;
-@group(6) @binding(12) var<storage, read> facet_indices: array<u32>;
+@group(3) @binding(10) var<uniform> facet_query: FacetQuery;
+@group(3) @binding(11) var<storage, read> facet_geometry: array<f32>;
+@group(3) @binding(12) var<storage, read> facet_indices: array<u32>;
 // What each facet's points see of the disc, summed, `FACET_FIXED` a whole
 // disc's worth per point.
-@group(6) @binding(13) var<storage, read_write> facet_out: array<atomic<u32>>;
+@group(3) @binding(13) var<storage, read_write> facet_out: array<atomic<u32>>;
 // For each queued walk: its facet, its hard lookups (its layer's, the other
 // bodies') and its facet's horizon, as bits.
-@group(6) @binding(14) var<storage, read_write> facet_walks: array<vec4<u32>>;
+@group(3) @binding(14) var<storage, read_write> facet_walks: array<vec4<u32>>;
 
 const FACET_FIXED: f32 = 4194304.0;
 

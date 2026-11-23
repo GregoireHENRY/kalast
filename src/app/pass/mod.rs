@@ -16,7 +16,7 @@ pub struct Passes {
     pub penumbra: penumbra::Pass,
     /// The shadows are traced this frame (`raytrace`): no penumbra pass.
     pub rays: bool,
-    /// The main pass built to trace rays, group 7 bound (`Passes::new`).
+    /// The main pass built to trace rays, group 4 bound (`Passes::new`).
     pub traced: bool,
     /// Built single-sampled with the float pipelines, for a reference image,
     /// a camera's response or a stretch (`Passes::new`).
@@ -75,7 +75,7 @@ impl Passes {
         size: (u32, u32),
         // The GPU's sample counts, asked when the window was made.
         msaa: &render::MsaaSupport,
-        // The main pass's group 7, the bodies to trace rays against, when it
+        // The main pass's group 4, the bodies to trace rays against, when it
         // traces them; `None` builds it without (`gpu::shader_for_traced`).
         rays: Option<&wgpu::BindGroupLayout>,
         // A reference image is being made (`shadows.method` "reference"): everything
@@ -100,10 +100,11 @@ impl Passes {
         let samples = if float { 1 } else { msaa.resolve(config.shading.msaa) };
 
         let penumbra = penumbra::Pass::new(device, config, &uniforms.layouts_shaded());
-        // The main pass reads what the penumbra pass found, at group 6.
+        // The main pass reads what the penumbra pass found, at group 3.
         let mut shaded = uniforms.layouts_shaded();
         shaded.push(Some(&penumbra.read_layout));
-        // And the bodies' acceleration structure at group 7, where it is.
+        // And the bodies' acceleration structure at group 4, where it is: a
+        // fifth group, which a browser has none of.
         if let Some(rays) = rays {
             shaded.push(Some(rays));
         }
@@ -563,30 +564,28 @@ impl Passes {
 
 #[derive(Debug, Clone)]
 pub struct Bindings {
+    /// The globals, the view, the colour table and the colour bar, at group 0
+    /// of the shaded pipelines (`uniform::frame_layout`).
+    pub frame: wgpu::BindGroup,
     pub globals: wgpu::BindGroup,
     pub view: wgpu::BindGroup,
     pub shadow: wgpu::BindGroup,
-    pub colormap: wgpu::BindGroup,
-    pub bar: wgpu::BindGroup,
     /// Which layer the shadow pass is drawing, picked by dynamic offset.
     pub shadow_layer: wgpu::BindGroup,
     pub layer_stride: u32,
-    /// The bodies' acceleration structure for the main pass, at group 7, on
+    /// The bodies' acceleration structure for the main pass, at group 4, on
     /// a device that traces rays (`raytrace`); set by the window.
     pub rays: Option<wgpu::BindGroup>,
 }
 
 impl Bindings {
     pub fn all(&self, render_pass: &mut wgpu::RenderPass) {
-        render_pass.set_bind_group(0, Some(&self.globals), &[]);
-        render_pass.set_bind_group(1, Some(&self.view), &[]);
-        render_pass.set_bind_group(2, Some(&self.shadow), &[]);
-        render_pass.set_bind_group(3, Some(&self.colormap), &[]);
-        render_pass.set_bind_group(4, Some(&self.bar), &[]);
+        render_pass.set_bind_group(0, Some(&self.frame), &[]);
+        render_pass.set_bind_group(1, Some(&self.shadow), &[]);
     }
 
     /// The occlusion pipeline binds only the camera, at group 0 -- its layout
-    /// is `[view, box]`, not the renderer's five. The box itself is set per
+    /// is `[view, box]`, not the renderer's. The box itself is set per
     /// body by `Occlusion::draw`.
     pub fn for_occlusion(&self, render_pass: &mut wgpu::RenderPass) {
         render_pass.set_bind_group(0, Some(&self.view), &[]);

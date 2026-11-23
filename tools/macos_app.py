@@ -111,6 +111,13 @@ def main() -> int:
             },
             f,
         )
+    # Signed, ad hoc -- no certificate -- which seals the launcher, Info.plist
+    # and the icon. Not signed at all, the app was what macOS 26.5 refuses to
+    # open (anthropics/claude-code#70647, odysseus-dev/odysseus#3815), and a
+    # user on 26.5.1 got "cannot be opened because of a problem" from
+    # v0.5.14's. The seal is files, `Contents/_CodeSignature`: it goes into
+    # the archive and survives the README's `xattr -cr`.
+    subprocess.run(["codesign", "--force", "--sign", "-", str(app)], check=True)
     print(f"{app}: v{v}")
     return 0
 

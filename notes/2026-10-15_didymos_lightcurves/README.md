@@ -127,6 +127,11 @@ deg south of the orbit plane in August, 5 deg north in November, where
 DART's shape departs most from Didymos. The simulation applies these
 offsets, interpolated by date (`phase_fix`), and each night also shows the
 rotation scaled to the data.
+[**Corrected on 3 November** (`2026-11-03_didymos_september_nights/`):
+before 5 September and from late October, the runs fit DART's curve best
+upside down, and the offsets above are those fits taken a quarter turn
+back. Kept the right way up, DART's curve fits best at -44 to -68 deg
+before 5 September.]
 
 ## The level
 

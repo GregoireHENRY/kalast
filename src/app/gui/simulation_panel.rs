@@ -12,35 +12,95 @@ use crate::Float;
 use super::config_panel::*;
 use super::icons::codicon;
 use super::theme::palette;
-use super::widgets::{line, note, section, setting, subheading, Icon};
+use super::widgets::{line, note, panel, section, setting, subheading};
 
-/// A topic's section: its Codicon in its colour, kept open or shut by title.
-fn topic(ui: &mut egui::Ui, icon: &'static str, color: egui::Color32, title: &str, add: impl FnOnce(&mut egui::Ui)) {
-    section(ui, Icon::Codicon(icon, color), title, title, add);
+/// The simulation tab's topics, a tab each down its navigation bar, as
+/// Blender's properties editor has its contexts (the user: "in simulation tab
+/// the sun/bodies/selection/camera/sun could be the left side vertical sub
+/// tabs"): a title, named on hover; a Codicon in a colour; and whether a gap
+/// sets it apart from the tab before, as Blender groups its tabs -- the run;
+/// what is in the scene; how it is drawn; the rest.
+pub const TOPICS: [(&str, &str, egui::Color32, bool); 15] = [
+    ("Run", codicon::PLAY_CIRCLE, palette::GREEN, false),
+    ("Bodies", codicon::CIRCLE_LARGE_FILLED, palette::PEACH, true),
+    ("Selection", codicon::TARGET, palette::RED, false),
+    ("Camera", codicon::DEVICE_CAMERA, palette::BLUE, false),
+    ("Sun", codicon::STAR_FULL, palette::YELLOW, false),
+    ("Shading", codicon::PAINTCAN, palette::MAUVE, true),
+    ("Shadows", codicon::COLOR_MODE, palette::LAVENDER, false),
+    ("Wireframe", codicon::LAYERS, palette::TEAL, false),
+    ("Data colouring", codicon::SYMBOL_COLOR, palette::PINK, false),
+    ("Axes & grid", codicon::MOVE, palette::SKY, false),
+    ("HUD", codicon::TEXT_SIZE, palette::LAVENDER, false),
+    ("Image", codicon::FILE_MEDIA, palette::SAPPHIRE, false),
+    ("Controls", codicon::RECORD_KEYS, palette::FLAMINGO, true),
+    ("Export", codicon::EXPORT, palette::GREEN, false),
+    ("Debug", codicon::DEBUG, palette::MAROON, false),
+];
+
+fn topic_id() -> egui::Id {
+    egui::Id::new("kalast simulation topic")
 }
 
-/// A readout, laid out as a setting is, so a value and a control line up.
-/// Returns the value's response, for the rows that want a hover on it.
-fn row(ui: &mut egui::Ui, label: &str, value: impl Into<String>) -> egui::Response {
-    setting(ui, label, "", |ui| ui.label(egui::RichText::new(value.into()).monospace()))
+/// The topic whose tab is chosen, for the session; the first at first.
+pub fn chosen_topic(ctx: &egui::Context) -> String {
+    ctx.data_mut(|d| d.get_persisted::<String>(topic_id())).unwrap_or_else(|| TOPICS[0].0.to_owned())
 }
 
-/// Three drag fields for a vector, returning whether any changed.
-fn vec3(ui: &mut egui::Ui, label: &str, hover: &str, v: &mut crate::Vec3, speed: f64) -> bool {
-    setting(ui, label, hover, |ui| {
-        // Three to a row, each a third of it: sized by their digits, a unit
-        // vector's three ran past the panel's edge.
-        let gap = 3.0;
-        ui.spacing_mut().item_spacing.x = gap;
-        let width = ((ui.available_width() - 2.0 * gap - 6.0) / 3.0).max(28.0);
-        let mut changed = false;
-        for c in [&mut v.x, &mut v.y, &mut v.z] {
-            changed |= ui
-                .add_sized([width, 18.0], egui::DragValue::new(c).speed(speed).max_decimals(3))
-                .changed();
+/// The topics' tabs, down the navigation bar (`widgets::nav_bar`), the chosen
+/// one's page drawn beside them. A setting revealed by the search
+/// (`widgets::reveal`) chooses its own; while the settings are searched, a
+/// tab with nothing that matches is faint, and the one chosen, if it has
+/// nothing, gives way to the first that has, as in Blender's properties
+/// editor.
+pub fn topic_tabs(ui: &mut egui::Ui) {
+    let ctx = ui.ctx().clone();
+    let mut chosen = chosen_topic(&ctx);
+    if let Some(first) = super::widgets::revealing(&ctx).filter(|place| !place.app).and_then(|place| place.path.first().cloned()) {
+        chosen = first;
+    }
+    let matches: Vec<Option<u32>> = TOPICS.iter().map(|(title, ..)| super::widgets::tab_matches(&ctx, title)).collect();
+    let here = TOPICS.iter().position(|(title, ..)| *title == chosen);
+    if here.is_none_or(|i| matches[i] == Some(0)) {
+        if let Some(j) = matches.iter().position(|m| m.is_some_and(|m| m > 0)) {
+            chosen = TOPICS[j].0.to_owned();
         }
-        changed
-    })
+    }
+    for (i, (title, icon, color, gap)) in TOPICS.iter().enumerate() {
+        if *gap {
+            ui.add_space(8.0);
+        }
+        let dimmed = matches[i] == Some(0);
+        if super::widgets::nav_tab(ui, chosen == *title, icon, *color, dimmed).on_hover_text(*title).clicked() {
+            chosen = (*title).to_owned();
+        }
+    }
+    ctx.data_mut(|d| d.insert_persisted(topic_id(), chosen));
+}
+
+/// A topic's page: its panels, drawn while its tab is chosen
+/// (`widgets::tab_page`), under ids of its own, so that two topics' panels
+/// of the same name keep their own state.
+fn topic(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui)) {
+    debug_assert!(TOPICS.iter().any(|(t, ..)| *t == title), "{title} has no tab");
+    let selected = chosen_topic(ui.ctx()) == title;
+    ui.push_id(("topic", title), |ui| super::widgets::tab_page(ui, title, selected, add));
+}
+
+/// A readout, laid out as a setting is, so a value and a control line up: in
+/// the panels' font, as Blender writes what cannot be edited, cut short with
+/// an ellipsis rather than past the panel's edge. Returns the value's
+/// response, for the rows that want a hover on it.
+fn row(ui: &mut egui::Ui, label: &str, value: impl Into<String>) -> egui::Response {
+    setting(ui, label, "", |ui| ui.add(egui::Label::new(value.into()).truncate()))
+}
+
+/// Three drag fields for a vector, returning whether any changed: Blender's
+/// column of them, "pos X", "Y", "Z" against one block of three fields, its
+/// corners round only at its top and its bottom.
+fn vec3(ui: &mut egui::Ui, label: &str, hover: &str, v: &mut crate::Vec3, speed: f64) -> bool {
+    let values = vec![("X", &mut v.x), ("Y", &mut v.y), ("Z", &mut v.z)];
+    super::widgets::components(ui, label, hover, values, |d| d.speed(speed).max_decimals(3))
 }
 
 /// Where the file is, without the file: its name is already the header just
@@ -98,6 +158,33 @@ fn remember(ui: &egui::Ui, id: egui::Id, value: String) {
     ui.data_mut(|d| d.insert_temp(id, value));
 }
 
+/// The page's files a colour map can be read from, by their extension: the
+/// page's own and the visitor's folder's, the examples and `res/` left out.
+#[cfg(target_arch = "wasm32")]
+fn colour_files() -> Vec<String> {
+    let mut found = Vec::new();
+    let mut folders: Vec<(std::path::PathBuf, usize)> = vec![(".".into(), 0)];
+    while let Some((dir, depth)) = folders.pop() {
+        let Ok(entries) = crate::fs::list(&dir) else { continue };
+        for (name, is_dir) in entries {
+            if name.starts_with('.') || name == "__pycache__" {
+                continue;
+            }
+            let path = if depth == 0 { std::path::PathBuf::from(&name) } else { dir.join(&name) };
+            if is_dir {
+                if depth < 4 && !(depth == 0 && matches!(name.as_str(), "examples" | "res" | "out")) {
+                    folders.push((path, depth + 1));
+                }
+            } else if matches!(path.extension().and_then(|e| e.to_str()), Some("csv" | "txt" | "dat" | "tsv")) {
+                found.push(path.to_string_lossy().replace('\\', "/"));
+            }
+        }
+    }
+    found.sort();
+    found.truncate(40);
+    found
+}
+
 /// Read a mesh without taking the process down with it.
 ///
 /// `Mesh::load` unwraps its way through the file: a path that is not there,
@@ -107,7 +194,9 @@ fn remember(ui: &egui::Ui, id: egui::Id, value: String) {
 /// everything running in it.
 fn try_load(path: &str, flat: bool) -> Result<crate::mesh::Mesh, String> {
     let p = std::path::Path::new(path);
-    if !p.is_file() {
+    // Through `crate::fs`, which in the page is the page's own files:
+    // `std`'s saw none of them, and `res/cube.obj` was not found there.
+    if crate::fs::len(p).is_err() {
         return Err(format!("no such file: {path}"));
     }
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -118,6 +207,78 @@ fn try_load(path: &str, flat: bool) -> Result<crate::mesh::Mesh, String> {
         mesh
     }))
     .map_err(|_| format!("could not read {path} as a mesh"))
+}
+
+/// A body added to the scene from the shape model at `path`, as the side
+/// panel's "add body" adds one: for the search (`search.rs`) too.
+pub(super) fn add_body(sim: &mut Simulation, path: &str, flat: bool) -> Result<(), String> {
+    sim.add_mesh(try_load(path, flat)?, crate::Mat4::IDENTITY);
+    sim.meshes_dirty = true;
+    sim.light_for_viewing();
+    Ok(())
+}
+
+/// The shapes kalast ships in `res/`, `(name, path)`, those this copy has --
+/// the page carries some of them (`web/build.rs`) -- named as Blender names
+/// its own: a cube, ico spheres and UV spheres, then the asteroids and the
+/// crater planes.
+pub(super) fn shapes() -> Vec<(String, String)> {
+    let Ok(files) = crate::fs::list(std::path::Path::new("res")) else { return Vec::new() };
+    let mut shapes: Vec<(u32, String, String)> = files
+        .into_iter()
+        .filter(|(name, folder)| !folder && name.ends_with(".obj"))
+        .map(|(name, _)| {
+            let (order, label) = shape_name(name.trim_end_matches(".obj"));
+            (order, label, format!("res/{name}"))
+        })
+        .collect();
+    shapes.sort();
+    // Two of one name -- two crater planes -- told apart by their files.
+    let named = |label: &str| shapes.iter().filter(|(_, l, _)| l == label).count();
+    let twice: Vec<bool> = shapes.iter().map(|(_, label, _)| named(label) > 1).collect();
+    shapes
+        .into_iter()
+        .zip(twice)
+        .map(|((_, label, path), twice)| {
+            let stem = path.trim_start_matches("res/").trim_end_matches(".obj");
+            (if twice { format!("{label} ({stem})") } else { label }, path)
+        })
+        .collect()
+}
+
+/// A shipped shape's name, and where it goes in the list.
+fn shape_name(stem: &str) -> (u32, String) {
+    const ICO: [u32; 7] = [80, 320, 1280, 5120, 20480, 81920, 327680];
+    const UV: [u32; 4] = [960, 3968, 15872, 63488];
+    let level = |prefix: &str, most: usize| {
+        stem.strip_prefix(prefix).and_then(|n| n.parse::<usize>().ok()).filter(|n| (1..=most).contains(n))
+    };
+    let facets = |n: u32| {
+        let digits = n.to_string();
+        let mut out = String::new();
+        for (i, c) in digits.chars().enumerate() {
+            if i > 0 && (digits.len() - i) % 3 == 0 {
+                out.push(',');
+            }
+            out.push(c);
+        }
+        out
+    };
+    if let Some(n) = level("ico", ICO.len()) {
+        return (10 + n as u32, format!("Ico sphere, {} facets", facets(ICO[n - 1])));
+    }
+    if let Some(n) = level("sph", UV.len()) {
+        return (20 + n as u32, format!("UV sphere, {} facets", facets(UV[n - 1])));
+    }
+    match stem {
+        "cube" => (0, "Cube".into()),
+        "cube-tex" => (1, "Cube, textured".into()),
+        s if s.starts_with("didymos") => (30, "Didymos, DART's model, 10,000 facets".into()),
+        s if s.starts_with("dimorphos") => (31, "Dimorphos, DART's model, 10,000 facets".into()),
+        // Its file's parameters are for its maker; the file is on hover.
+        s if s.starts_with("plane_crater_") => (40, "Crater in a plane".into()),
+        s => (50, s.to_string()),
+    }
 }
 
 /// The colour map: a built-in chosen by name, reversed, or read from a file
@@ -139,14 +300,19 @@ fn colormap_ui(ui: &mut egui::Ui, c: &mut Config) {
         "data.colormap -- the colours the values are drawn in: a built-in, reversed with _r after its name, or a table from a script or a file",
         |ui| {
             // matplotlib's, each with its colours beside its name.
-            egui::ComboBox::from_id_salt(id).selected_text(&shown).height(360.0).show_ui(ui, |ui| {
+            super::widgets::ComboBox::from_id_salt(id).selected_text(&shown).height(360.0).show_ui(ui, |ui| {
                 for n in colormap_names() {
+                    // Its swatch and its name, a row shown only if the name
+                    // matches what the menu is searched for.
+                    if !super::widgets::in_menu_search(ui, n) {
+                        continue;
+                    }
                     let current = name.as_deref().is_some_and(|m| m.strip_suffix("_r").unwrap_or(m) == n);
                     let table = builtin_colormap(n).unwrap_or_default();
                     ui.horizontal(|ui| {
                         let (rect, _) = ui.allocate_exact_size(egui::vec2(48.0, 10.0), egui::Sense::hover());
                         gradient(ui, rect, &table, 24);
-                        if ui.selectable_label(current, n).clicked() {
+                        if super::widgets::choice_label(ui, current, n).clicked() {
                             chosen = Some(table.clone());
                         }
                     });
@@ -168,10 +334,20 @@ fn colormap_ui(ui: &mut egui::Ui, c: &mut Config) {
             "A text file with a colour a line -- red, green and blue, in 0..1 or 0..255, apart by commas or spaces",
         );
         if load.clicked() {
+            #[cfg(not(target_arch = "wasm32"))]
             let picked = rfd::FileDialog::new()
                 .set_title("A colour map")
                 .add_filter("colours", &["csv", "txt", "dat", "tsv"])
                 .pick_file();
+            // The page has no file dialog: the button opens, under it, the
+            // colour files among the page's own -- the visitor's folder's
+            // with them -- and a click on one loads it.
+            #[cfg(target_arch = "wasm32")]
+            let picked: Option<std::path::PathBuf> = {
+                let open = remembered(ui, id.with("pick"), String::new).is_empty();
+                remember(ui, id.with("pick"), if open { "open".into() } else { String::new() });
+                None
+            };
             if let Some(path) = picked {
                 match colormap_from_file(&path) {
                     Ok(t) => {
@@ -183,6 +359,28 @@ fn colormap_ui(ui: &mut egui::Ui, c: &mut Config) {
             }
         }
     });
+    #[cfg(target_arch = "wasm32")]
+    if !remembered(ui, id.with("pick"), String::new).is_empty() {
+        let files = colour_files();
+        if files.is_empty() {
+            line(ui, |ui| {
+                ui.weak("no colour file here: put one (.csv, .txt, .dat, .tsv) in the folder the page works in")
+            });
+        }
+        for path in files {
+            let clicked = line(ui, |ui| ui.link(&path).clicked());
+            if clicked {
+                match colormap_from_file(std::path::Path::new(&path)) {
+                    Ok(t) => {
+                        chosen = Some(t);
+                        remember(ui, id.with("error"), String::new());
+                        remember(ui, id.with("pick"), String::new());
+                    }
+                    Err(e) => remember(ui, id.with("error"), e),
+                }
+            }
+        }
+    }
     let error = remembered(ui, id.with("error"), String::new);
     if !error.is_empty() {
         line(ui, |ui| ui.colored_label(egui::Color32::from_rgb(220, 120, 120), error));
@@ -223,11 +421,10 @@ fn bodies_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
         let name = body_name(&sim.bodies[i]);
         let path = body_path(&sim.bodies[i]);
         let mut drop_it = false;
-        let icon = Icon::Image(super::icons::for_file("body.obj"));
-        section(ui, icon, &format!("{i}  {name}"), ("body", i), |ui| {
+        section(ui, &format!("{i}  {name}"), ("body", i), |ui| {
             dirty |= body_ui(ui, i, &mut sim.bodies[i]);
             line(ui, |ui| {
-                if ui.button("remove").on_hover_text("Take this body out of the scene").clicked() {
+                if super::widgets::button(ui, "remove").on_hover_text("Take this body out of the scene").clicked() {
                     drop_it = true;
                 }
             });
@@ -243,28 +440,41 @@ fn bodies_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
         dirty = true;
     }
 
-    // Adding one. A path rather than a file dialog, the same way the script
-    // panel opens a file -- there is no native picker in this window.
-    subheading(ui, "add a body");
+    // Adding one: a shape kalast ships, chosen from a list as Blender's Add
+    // menu offers its cube and spheres, or a file of one's own by its path.
+    panel(ui, "Add a body", |ui| add_body_ui(ui, sim, &mut dirty));
+
+    sim.meshes_dirty |= dirty;
+}
+
+/// The Bodies tab's means of adding one (`bodies_ui`).
+fn add_body_ui(ui: &mut egui::Ui, sim: &mut Simulation, dirty: &mut bool) {
     let id = ui.id().with("add");
+    let shapes = shapes();
+    let mut shape = remembered(ui, id.with("shape"), || shapes.first().map(|(_, p)| p.clone()).unwrap_or_default());
     let mut path = remembered(ui, id, String::new);
     let mut flat = ui.data_mut(|d| d.get_temp::<bool>(id.with("flat"))).unwrap_or(true);
-    setting(ui, "path", "The shape model to load, an .obj", |ui| {
-        ui.add(
-            egui::TextEdit::singleline(&mut path)
-                .hint_text("path to an .obj")
-                .desired_width(f32::INFINITY),
-        )
+    setting(ui, "shape", "One of the shape models kalast ships, or a file of yours", |ui| {
+        let shown = shapes.iter().find(|(_, p)| *p == shape).map_or("a file of yours...", |(label, _)| label.as_str());
+        super::widgets::ComboBox::from_id_salt(id.with("shapes")).selected_text(shown).show_ui(ui, |ui| {
+            for (label, file) in &shapes {
+                super::widgets::choice(ui, &mut shape, file.clone(), label.as_str()).on_hover_text(file.as_str());
+            }
+            super::widgets::choice(ui, &mut shape, String::new(), "a file of yours...");
+        })
     });
-    setting(ui, "flat", "Give every facet its own vertices, as `flatten=True` does", |ui| {
-        ui.checkbox(&mut flat, "")
-    });
+    if shape.is_empty() {
+        setting(ui, "path", "The shape model to load, an .obj", |ui| {
+            super::widgets::text_field(ui, egui::TextEdit::singleline(&mut path).hint_text("path to an .obj").desired_width(f32::INFINITY))
+        });
+    }
+    super::widgets::toggle(ui, "flat", "Give every facet its own vertices, as `flatten=True` does", &mut flat);
     line(ui, |ui| {
-        if ui.button("add body").clicked() && !path.is_empty() {
-            match try_load(&path, flat) {
-                Ok(mesh) => {
-                    sim.add_mesh(mesh, crate::Mat4::IDENTITY);
-                    dirty = true;
+        let from = if shape.is_empty() { path.clone() } else { shape.clone() };
+        if super::widgets::button(ui, "add body").clicked() && !from.is_empty() {
+            match add_body(sim, &from, flat) {
+                Ok(()) => {
+                    *dirty = true;
                     remember(ui, id.with("error"), String::new());
                     path.clear();
                 }
@@ -277,9 +487,8 @@ fn bodies_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
         line(ui, |ui| ui.colored_label(egui::Color32::from_rgb(220, 120, 120), error));
     }
     remember(ui, id, path);
+    remember(ui, id.with("shape"), shape);
     ui.data_mut(|d| d.insert_temp(id.with("flat"), flat));
-
-    sim.meshes_dirty |= dirty;
 }
 
 /// One body: which file it is, and the shape of what was loaded. Counts and
@@ -296,26 +505,34 @@ fn body_ui(ui: &mut egui::Ui, i: usize, body: &mut crate::app::body::Body) -> bo
     };
 
     // The path is editable and takes effect on `reload`, so the same field
-    // both says where this body came from and points it somewhere else.
-    let id = ui.id().with(("path", i));
+    // both says where this body came from and points it somewhere else. What
+    // is typed is kept per body and per file: kept by place alone, a body
+    // taking another's -- a script run again, one removed and another added
+    // -- was shown the other's file, `reload` ready to load it over this one.
     let current = handle
         .borrow()
         .path
         .as_ref()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
+    let id = ui.id().with(("path", i, current.as_str()));
     let mut path = remembered(ui, id, || current.clone());
     setting(ui, "file", "Where the mesh came from: edit it and reload to point the body at another", |ui| {
-        ui.add(
-            egui::TextEdit::singleline(&mut path)
-                .desired_width(f32::INFINITY)
-                .font(egui::TextStyle::Monospace),
-        )
+        super::widgets::text_field(ui, egui::TextEdit::singleline(&mut path).desired_width(f32::INFINITY))
     });
     line(ui, |ui| {
         let changed = path != current;
+        // Two halves when `revert` is there too, as Blender shares a row
+        // between its buttons: after a `reload` as wide as the row, `revert`
+        // was a sliver at its edge.
+        let gap = ui.spacing().item_spacing.x;
+        let width = if changed { ((ui.available_width() - gap) / 2.0).floor() } else { ui.available_width() };
         if ui
-            .add_enabled(changed, egui::Button::new("reload"))
+            .add_enabled_ui(changed, |ui| {
+                ui.set_max_width(width);
+                super::widgets::button(ui, "reload")
+            })
+            .inner
             .on_hover_text("Replace this body's mesh with the file above, keeping its transform")
             .clicked()
         {
@@ -332,7 +549,16 @@ fn body_ui(ui: &mut egui::Ui, i: usize, body: &mut crate::app::body::Body) -> bo
                 Err(e) => remember(ui, id.with("error"), e),
             }
         }
-        if changed && ui.small_button("revert").clicked() {
+        if changed
+            && ui
+                .scope(|ui| {
+                    ui.set_max_width(width);
+                    super::widgets::button(ui, "revert")
+                })
+                .inner
+                .on_hover_text("Put this body's own file back in the field")
+                .clicked()
+        {
             path = current.clone();
         }
     });
@@ -369,13 +595,13 @@ fn body_ui(ui: &mut egui::Ui, i: usize, body: &mut crate::app::body::Body) -> bo
     atmosphere_ui(ui, i, &mut body.atmosphere);
 
     subheading(ui, "shadows");
-    setting(
+    super::widgets::toggle(
         ui,
         "horizon_map",
         "The body's own shadows from how high its terrain rises round each facet, worked out once on the GPU \
          (seconds for millions of facets), instead of drawing it into its own shadow map every frame. For a \
          body each direction from whose centre crosses its surface once, with shadows.per_body on",
-        |ui| ui.checkbox(&mut body.horizon_map, ""),
+        &mut body.horizon_map,
     );
 
     if let Some(shadow) = body.shadow_mesh.as_ref() {
@@ -402,11 +628,13 @@ fn body_ui(ui: &mut egui::Ui, i: usize, body: &mut crate::app::body::Body) -> bo
         .on_hover_text("Model to world. A script that sets `body.mat` every iteration wins over this.");
     for r in 0..4 {
         line(ui, |ui| {
-            // Four to a row, each a quarter of it.
-            ui.spacing_mut().item_spacing.x = 3.0;
-            let width = ((ui.available_width() - 9.0) / 4.0).max(28.0);
+            // Four to a row, each a quarter of it, Blender's number fields.
+            ui.spacing_mut().item_spacing.x = 2.0;
+            let width = ((ui.available_width() - 6.0) / 4.0).max(28.0);
             for c in 0..4 {
-                ui.add_sized([width, 18.0], egui::DragValue::new(&mut body.mat.col_mut(c)[r]).speed(0.01).max_decimals(4));
+                ui.allocate_ui(egui::vec2(width, 20.0), |ui| {
+                    super::widgets::number(ui, &mut body.mat.col_mut(c)[r], |d| d.speed(0.01).max_decimals(4))
+                });
             }
         });
     }
@@ -424,17 +652,18 @@ fn body_ui(ui: &mut egui::Ui, i: usize, body: &mut crate::app::body::Body) -> bo
 fn quality_ui(ui: &mut egui::Ui, c: &mut Config) {
     use crate::app::config::Quality;
     let now = c.quality();
-    ui.horizontal_wrapped(|ui| {
-        ui.add_space(6.0);
-        ui.label(egui::RichText::new("quality").weak()).on_hover_text(
-            "The shadow settings for one use, from the quickest look to the most exact. \
-             Each button's hover lists the fields it sets.",
-        );
-        for q in Quality::ALL {
-            if ui.selectable_label(now == Some(q), q.name()).on_hover_text(q.hover()).clicked() {
-                c.set_quality(q);
-            }
-        }
+    let hover = "The shadow settings for one use, from the quickest look to the most exact; \
+                 each one's hover in the menu lists the fields it sets. \"custom\" when they are set otherwise.";
+    setting(ui, "quality", hover, |ui| {
+        super::widgets::ComboBox::from_id_salt("shadow quality")
+            .selected_text(now.map_or("custom", |q| q.name()))
+            .show_ui(ui, |ui| {
+                for q in Quality::ALL {
+                    if super::widgets::choice_label(ui, now == Some(q), q.name()).on_hover_text(q.hover()).clicked() {
+                        c.set_quality(q);
+                    }
+                }
+            });
     });
 }
 
@@ -445,37 +674,33 @@ fn quality_ui(ui: &mut egui::Ui, c: &mut Config) {
 /// frame (`access_shadow_map`).
 fn shadows_ui(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config) {
     let shaded = c.shading.color_mode == crate::app::config::ColorMode::Shaded;
-    if !shaded {
-        if !c.shadows.access_shadow_map {
-            note(ui, "unlit colour mode: shadows show in \"Shaded\"");
-            return;
+    panel(ui, "Shadows", |ui| {
+        if !shaded {
+            if !c.shadows.access_shadow_map {
+                note(ui, "unlit colour mode: shadows show in \"Shaded\"");
+                return;
+            }
+            note(ui, "unlit image: these are the per-facet shadows'");
         }
-        note(ui, "unlit image: these are the per-facet shadows'");
-    }
-    quality_ui(ui, c);
-    group_shadows(ui, c);
-    // The reference image's own rows, under the method that makes one.
+        quality_ui(ui, c);
+        group_shadows(ui, c);
+    });
+    // The reference image's own panel, under the method that makes one.
     if !shaded || c.shadows.method != crate::app::config::ShadowMethod::Reference {
         return;
     }
-    subheading(ui, "reference image").on_hover_text(
-        "A still drawn as exactly as kalast can, ray traced and summed a sample of every pixel a frame \
-         until its error is under `error`, then held: for a figure, or to check a faster method against. \
-         Anything that moves starts it again.",
-    );
-    group_reference(ui, c);
-    {
+    panel(ui, "Reference image", |ui| {
+        group_reference(ui, c);
         use crate::app::simulation::ReferenceAsk;
         let max = c.reference.max_samples;
         let r = &mut sim.reference;
         note(ui, &super::reference_words(r, max, c.reference.error));
         if !r.done {
-            if ui.button("Stop here").on_hover_text("The mean so far is the image, done").clicked() {
+            if line(ui, |ui| super::widgets::button(ui, "Stop here").on_hover_text("The mean so far is the image, done")).clicked() {
                 r.ask = Some(ReferenceAsk::Stop);
             }
         } else if r.stopped
-            && ui
-                .add_enabled(r.samples < max, egui::Button::new("Go on"))
+            && line(ui, |ui| ui.add_enabled_ui(r.samples < max, |ui| super::widgets::button(ui, "Go on")).inner)
                 .on_hover_text("Sum on from where it was stopped")
                 .clicked()
         {
@@ -484,7 +709,12 @@ fn shadows_ui(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config) {
         if !sim.rays {
             note(ui, "no ray queries on this GPU: shadows from the maps");
         }
-    }
+    })
+    .on_hover_text(
+        "A still drawn as exactly as kalast can, ray traced and summed a sample of every pixel a frame \
+         until its error is under `error`, then held: for a figure, or to check a faster method against. \
+         Anything that moves starts it again.",
+    );
 }
 
 /// How a body's surface reflects sunlight in the image (`body.scattering`):
@@ -518,11 +748,11 @@ fn scattering_ui(ui: &mut egui::Ui, i: usize, law: &mut Option<crate::lightcurve
         "How the surface reflects sunlight in the image, seen from where the camera is. Lambert: a lit pixel is the \
          colour times cos i. A law: the colour times the law's I/F, so a colour of 1 is the law's own albedo",
         |ui| {
-            egui::ComboBox::from_id_salt(("scattering law", i))
+            super::widgets::ComboBox::from_id_salt(("scattering law", i))
                 .selected_text(names[kind])
                 .show_ui(ui, |ui| {
                     for (k, name) in names.iter().enumerate() {
-                        ui.selectable_value(&mut kind, k, *name);
+                        super::widgets::choice(ui, &mut kind, k, *name);
                     }
                 })
         },
@@ -535,7 +765,7 @@ fn scattering_ui(ui: &mut egui::Ui, i: usize, law: &mut Option<crate::lightcurve
         (_, _) => Some(Law::Hapke(ui.data_mut(|d| d.get_temp::<Hapke>(hapke_id)).unwrap_or_default())),
     };
     let number = |ui: &mut egui::Ui, name: &str, hover: &str, v: &mut Float, range: std::ops::RangeInclusive<f64>, speed: f64| {
-        setting(ui, name, hover, |ui| ui.add(egui::DragValue::new(v).range(range).speed(speed).max_decimals(4)));
+        setting(ui, name, hover, |ui| super::widgets::number(ui, v, |d| d.range(range).speed(speed).max_decimals(4)));
     };
     match law {
         Some(Law::Mix(m)) => {
@@ -556,7 +786,7 @@ fn scattering_ui(ui: &mut egui::Ui, i: usize, law: &mut Option<crate::lightcurve
                 "theta_bar",
                 "Macroscopic roughness, the mean slope of the relief within a facet, in degrees here (radians in a \
                  script): 0 a smooth surface, 20-30 for most asteroids",
-                |ui| ui.add(egui::DragValue::new(&mut deg).range(0.0..=89.9).speed(0.1).max_decimals(2).suffix(" deg")),
+                |ui| super::widgets::number(ui, &mut deg, |d| d.range(0.0..=89.9).speed(0.1).max_decimals(2).suffix(" deg")),
             );
             edit.theta_bar = deg.to_radians();
             number(ui, "k", "Hapke's porosity factor, 1 for none: 1.19 for Phobos, 1.21 for Deimos", &mut edit.k, 1.0..=10.0, 0.001);
@@ -577,12 +807,12 @@ fn atmosphere_ui(ui: &mut egui::Ui, i: usize, atmosphere: &mut Option<crate::atm
     subheading(ui, "atmosphere");
     let kept = ui.id().with(("atmosphere", i));
     let mut on = atmosphere.is_some();
-    setting(
+    super::widgets::toggle(
         ui,
         "on",
         "A dusty atmosphere over the surface in the image: the dust's own light, and the surface seen \
          through it, lit by the beam that got through and by the sky. Mars's, in km, when first turned on",
-        |ui| ui.checkbox(&mut on, ""),
+        &mut on,
     );
     match (on, atmosphere.take()) {
         (true, None) => *atmosphere = Some(ui.data_mut(|d| d.get_temp::<Atmosphere>(kept)).unwrap_or_default()),
@@ -596,17 +826,17 @@ fn atmosphere_ui(ui: &mut egui::Ui, i: usize, atmosphere: &mut Option<crate::atm
     };
     let mut edit = *air;
     let number = |ui: &mut egui::Ui, name: &str, hover: &str, v: &mut Float, range: std::ops::RangeInclusive<f64>, speed: f64| {
-        setting(ui, name, hover, |ui| ui.add(egui::DragValue::new(v).range(range).speed(speed).max_decimals(4)));
+        setting(ui, name, hover, |ui| super::widgets::number(ui, v, |d| d.range(range).speed(speed).max_decimals(4)));
     };
     number(ui, "tau", "Vertical optical depth of the dust at the surface", &mut edit.tau, 0.0..=10.0, 0.01);
     number(ui, "scale_height", "The dust's scale height, in the scene's units", &mut edit.scale_height, 1e-6..=1e12, 0.1);
     number(ui, "radius", "The planet's equatorial radius, in the scene's units", &mut edit.radius, 1e-6..=1e12, 1.0);
     let mut ellipsoid = edit.polar_radius.is_some();
     setting(ui, "polar_radius", "The ellipsoid's polar radius, about the body's own z axis; off, a sphere of `radius`", |ui| {
-        ui.checkbox(&mut ellipsoid, "");
+        super::widgets::checkbox(ui, &mut ellipsoid, "");
         edit.polar_radius = ellipsoid.then(|| {
             let mut c = edit.polar_radius.unwrap_or(edit.radius);
-            ui.add(egui::DragValue::new(&mut c).range(1e-6..=1e12).speed(1.0).max_decimals(4));
+            super::widgets::number(ui, &mut c, |d| d.range(1e-6..=1e12).speed(1.0).max_decimals(4));
             c
         });
     });
@@ -620,10 +850,10 @@ fn atmosphere_ui(ui: &mut egui::Ui, i: usize, atmosphere: &mut Option<crate::atm
         "albedo",
         "The surface's mean albedo round about, for the light the surface and the dust send each other; off, each facet's own",
         |ui| {
-            ui.checkbox(&mut fixed, "");
+            super::widgets::checkbox(ui, &mut fixed, "");
             edit.albedo = fixed.then(|| {
                 let mut v = edit.albedo.unwrap_or(0.2);
-                ui.add(egui::DragValue::new(&mut v).range(0.0..=1.0).speed(0.001).max_decimals(4));
+                super::widgets::number(ui, &mut v, |d| d.range(0.0..=1.0).speed(0.001).max_decimals(4));
                 v
             });
         },
@@ -650,10 +880,7 @@ fn mesh_ui(ui: &mut egui::Ui, mesh: &mut crate::mesh::Mesh) -> bool {
         "Flat gives every facet its own three vertices instead of sharing \
          corners with its neighbours, so each shades as a plate and a \
          per-facet value colours exactly one triangle. What flatten=True asks for.",
-        |ui| {
-            ui.selectable_value(&mut flat, true, "flat");
-            ui.selectable_value(&mut flat, false, "smooth");
-        },
+        |ui| super::widgets::segmented(ui, &mut flat, &[(true, "flat"), (false, "smooth")]),
     );
     let changed = flat != was;
     if changed {
@@ -704,12 +931,12 @@ fn eye_ui(ui: &mut egui::Ui, eye: &mut crate::app::frame::Eye, bodies: &[String]
                     .unwrap_or_else(|| i.to_string()),
                 None => "none".to_string(),
             };
-            egui::ComboBox::from_id_salt("anchor_body")
+            super::widgets::ComboBox::from_id_salt("anchor_body")
                 .selected_text(selected)
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut eye.anchor_body, None, "none");
+                    super::widgets::choice(ui, &mut eye.anchor_body, None, "none");
                     for (i, name) in bodies.iter().enumerate() {
-                        ui.selectable_value(&mut eye.anchor_body, Some(i), format!("{i}  {name}"));
+                        super::widgets::choice(ui, &mut eye.anchor_body, Some(i), format!("{i}  {name}"));
                     }
                 });
         });
@@ -719,12 +946,12 @@ fn eye_ui(ui: &mut egui::Ui, eye: &mut crate::app::frame::Eye, bodies: &[String]
 
     if !is_sun {
         setting(ui, "mode", "Perspective, or orthographic: parallel rays, no vanishing point", |ui| {
-            egui::ComboBox::from_id_salt("mode")
+            super::widgets::ComboBox::from_id_salt("mode")
                 .selected_text(format!("{:?}", p.mode))
                 .show_ui(ui, |ui| {
                     use crate::app::frame::ProjectionMode::*;
-                    ui.selectable_value(&mut p.mode, Perspective, "Perspective");
-                    ui.selectable_value(&mut p.mode, Orthographic, "Orthographic");
+                    super::widgets::choice(ui, &mut p.mode, Perspective, "Perspective");
+                    super::widgets::choice(ui, &mut p.mode, Orthographic, "Orthographic");
                 });
         });
 
@@ -733,9 +960,7 @@ fn eye_ui(ui: &mut egui::Ui, eye: &mut crate::app::frame::Eye, bodies: &[String]
         if p.mode == crate::app::frame::ProjectionMode::Perspective {
             setting(ui, "fovy", "The vertical field of view, spanning the window's height", |ui| {
                 let mut deg = p.fovy.to_degrees();
-                if ui
-                    .add(egui::DragValue::new(&mut deg).speed(0.2).suffix("\u{b0}"))
-                    .changed()
+                if super::widgets::number(ui, &mut deg, |d| d.speed(0.2).suffix("\u{b0}")).changed()
                 {
                     p.fovy = deg.to_radians();
                 }
@@ -762,19 +987,40 @@ fn eye_ui(ui: &mut egui::Ui, eye: &mut crate::app::frame::Eye, bodies: &[String]
     ] {
         setting(ui, name, hover, |ui| {
             let mut pinned = field.is_some();
-            if ui.checkbox(&mut pinned, "").changed() {
+            if super::widgets::checkbox(ui, &mut pinned, "").changed() {
                 *field = pinned.then_some(value);
             }
             match field {
                 Some(v) => {
-                    ui.add(egui::DragValue::new(v).speed(0.01));
+                    super::widgets::number(ui, v, |d| d.speed(0.01));
                 }
                 None => {
-                    ui.label(egui::RichText::new(format!("{value:.4}")).monospace());
-                    ui.label(egui::RichText::new("fitted").weak().small());
+                    // The value fitted, in a field shown disabled, as
+                    // Blender shows one that cannot be edited: at half its
+                    // colours.
+                    let mut shown = value;
+                    ui.add_enabled_ui(false, |ui| super::widgets::number(ui, &mut shown, |d| d.speed(0.01)));
                 }
             }
         });
+    }
+}
+
+/// The ground grid, shown or hidden, and its settings while it is shown. It is
+/// the `"blender"` axes style's -- Blender's viewport floor, the gizmo with it
+/// -- so `show` switches the style between that and the gizmo alone:
+/// `grid.enabled`, which this was taken for, picks a shaded grid or segments,
+/// a grid either way, and nothing under the default gizmo (the user:
+/// "toggling the grid doesnt seem to do anything anymore").
+fn grid_ui(ui: &mut egui::Ui, c: &mut Config) {
+    use crate::app::axes::AxesStyle;
+    let mut shown = c.axes.style == AxesStyle::Blender;
+    let hover = "The ground grid, as Blender's viewport floor: axes.style \"blender\" when ticked, \"gizmo\" when not";
+    if super::widgets::toggle(ui, "show", hover, &mut shown).changed() {
+        c.axes.style = if shown { AxesStyle::Blender } else { AxesStyle::Gizmo };
+    }
+    if shown {
+        group_grid(ui, c);
     }
 }
 
@@ -794,8 +1040,7 @@ fn huds_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
     let mut remove = None;
     for (i, handle) in sim.huds.iter().enumerate() {
         let mut hud = handle.borrow_mut();
-        let icon = Icon::Codicon(super::icons::codicon::TEXT_SIZE, super::theme::palette::LAVENDER);
-        section(ui, icon, &format!("hud {i}"), ("hud", i), |ui| {
+        section(ui, &format!("hud {i}"), ("hud", i), |ui| {
                 // Typing here takes the HUD off the script: what is typed
                 // goes in `pin`, which the frame uses in place of `text`.
                 // Without that an edit cannot survive at all -- a callback
@@ -860,7 +1105,7 @@ fn huds_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
                 }
 
                 setting(ui, "anchor", "The corner, edge or centre of the image it is placed against", |ui| {
-                    egui::ComboBox::from_id_salt("anchor")
+                    super::widgets::ComboBox::from_id_salt("anchor")
                         .selected_text(format!("{:?}", hud.anchor))
                         .show_ui(ui, |ui| {
                             for a in [
@@ -875,20 +1120,21 @@ fn huds_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
                                 HudAnchor::BottomRight,
                             ] {
                                 let label = format!("{a:?}");
-                                ui.selectable_value(&mut hud.anchor, a, label);
+                                super::widgets::choice(ui, &mut hud.anchor, a, label);
                             }
                         });
                 });
-                setting(ui, "inset", "Pixels from the anchor, across and down", |ui| {
-                    ui.add(egui::DragValue::new(&mut hud.x).speed(1.0));
-                    ui.add(egui::DragValue::new(&mut hud.y).speed(1.0));
+                let h = &mut *hud;
+                let inset = vec![("X", &mut h.x), ("Y", &mut h.y)];
+                super::widgets::components(ui, "inset", "Pixels from the anchor, across and down", inset, |d| d.speed(1.0));
+                setting(ui, "size", "Letter height in pixels", |ui| {
+                    super::widgets::number(ui, &mut hud.size, |d| d.speed(0.5).range(1.0..=200.0).clamp_existing_to_range(false))
                 });
-                setting(ui, "size", "Letter height in pixels, and the colour", |ui| {
-                    ui.add(egui::DragValue::new(&mut hud.size).speed(0.5).range(1.0..=200.0).clamp_existing_to_range(false));
+                setting(ui, "color", "The letters' colour", |ui| {
                     // Through a copy: egui's button writes its HSV round
                     // trip back every frame, changing what a script set.
                     let mut color = hud.color;
-                    if ui.color_edit_button_rgba_unmultiplied(&mut color).changed() {
+                    if super::widgets::color_rgba(ui, &mut color).changed() {
                         hud.color = color;
                     }
                 });
@@ -900,34 +1146,34 @@ fn huds_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
                 setting(ui, "align", "Which of its edges sits on the anchor; \"anchor\" follows it", |ui| {
                     // Two lists side by side, halving the row.
                     ui.spacing_mut().combo_width = (ui.available_width() - 8.0) / 2.0;
-                    egui::ComboBox::from_id_salt("align_h")
+                    super::widgets::ComboBox::from_id_salt("align_h")
                         .selected_text(match hud.align_h {
                             Some(a) => format!("{a:?}"),
                             None => "anchor".to_string(),
                         })
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut hud.align_h, None, "anchor");
+                            super::widgets::choice(ui, &mut hud.align_h, None, "anchor");
                             for a in [HAlign::Left, HAlign::Center, HAlign::Right] {
                                 let label = format!("{a:?}");
-                                ui.selectable_value(&mut hud.align_h, Some(a), label);
+                                super::widgets::choice(ui, &mut hud.align_h, Some(a), label);
                             }
                         });
-                    egui::ComboBox::from_id_salt("align_v")
+                    super::widgets::ComboBox::from_id_salt("align_v")
                         .selected_text(match hud.align_v {
                             Some(a) => format!("{a:?}"),
                             None => "anchor".to_string(),
                         })
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut hud.align_v, None, "anchor");
+                            super::widgets::choice(ui, &mut hud.align_v, None, "anchor");
                             for a in [VAlign::Top, VAlign::Center, VAlign::Bottom] {
                                 let label = format!("{a:?}");
-                                ui.selectable_value(&mut hud.align_v, Some(a), label);
+                                super::widgets::choice(ui, &mut hud.align_v, Some(a), label);
                             }
                         });
                 });
 
                 line(ui, |ui| {
-                    if ui.button("remove").clicked() {
+                    if super::widgets::button(ui, "remove").clicked() {
                         remove = Some(i);
                     }
                 });
@@ -938,7 +1184,7 @@ fn huds_ui(ui: &mut egui::Ui, sim: &mut Simulation) {
         sim.huds.remove(i);
     }
 
-    if line(ui, |ui| ui.button("add HUD").clicked()) {
+    if line(ui, |ui| super::widgets::button(ui, "add HUD").clicked()) {
         // A template rather than empty text, so a new HUD says something the
         // moment it appears and shows what a placeholder looks like.
         sim.huds.push(crate::locked::Locked::new(Hud::new(
@@ -1100,197 +1346,216 @@ fn selection_ui(ui: &mut egui::Ui, sim: &mut Simulation, config: &Config, color:
 /// a field added to the struct lands under the right header without anyone
 /// remembering.
 ///
-/// Every section starts closed, so the panel opens as a table of contents
-/// rather than a wall -- Run, Bodies, Selection and HUD used to start open
-/// and pushed everything else below the fold. Each has its icon and colour,
-/// as the files tab has its file icons, to be found at a glance.
+/// Each topic is a tab down the panel's navigation bar (`TOPICS`,
+/// `topic_tabs`), its icon and colour to be found at a glance, and only the
+/// chosen one's page is drawn: the tabs are the table of contents, where a
+/// closed section each was -- before those, Run, Bodies, Selection and HUD
+/// started open and pushed everything else below the fold. A page's panels
+/// start open, a body's and a HUD's closed.
 pub fn simulation_panel(
     ui: &mut egui::Ui,
     sim: &mut Simulation,
     config: &mut Config,
 ) {
-    ui.push_id("simulation", |ui| panel(ui, sim, config));
+    ui.push_id("simulation", |ui| pages(ui, sim, config));
 }
 
-fn panel(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config) {
+/// Each topic's page, its panels by what they hold -- the Sun's place and its
+/// light two of them (the user: "in sun you would have two foldable category
+/// sun and light").
+fn pages(ui: &mut egui::Ui, sim: &mut Simulation, c: &mut Config) {
     let sel = c.selection.color;
     let selection_color = crate::Vec3::new(sel.r as Float, sel.g as Float, sel.b as Float);
 
-    topic(ui, codicon::PLAY_CIRCLE, palette::GREEN, "Run", |ui| {
-        setting(ui, "is_paused", "sim.state.is_paused -- hold the simulation; P toggles it", |ui| {
-            ui.checkbox(&mut sim.state.is_paused, "")
+    topic(ui, "Run", |ui| {
+        panel(ui, "Run", |ui| {
+            super::widgets::toggle(ui, "is_paused", "sim.state.is_paused -- hold the simulation; P toggles it", &mut sim.state.is_paused);
+            // A cap on the frame rate, for watching something that otherwise
+            // flashes past. The slider is live whether or not the cap is on,
+            // so the value can be set first and the cap switched on to it;
+            // off, the value is kept and does nothing. Logarithmic: the useful
+            // range runs from one frame every few seconds to a few hundred a
+            // second.
+            setting(
+                ui,
+                "rate_limited",
+                "sim.state.rate_limited -- cap the frame rate at rate_limit; one step is one frame, so the run \
+                 slows with it. Off runs as fast as it can. The value can be set before or after switching the \
+                 cap on; kept, and idle, while the cap is off",
+                |ui| {
+                    super::widgets::checkbox(ui, &mut sim.state.rate_limited, "");
+                    ui.spacing_mut().slider_width = (ui.available_width() - 76.0).max(40.0);
+                    ui.add(
+                        super::widgets::Slider::new(&mut sim.state.rate_limit, 0.1..=1000.0)
+                            .logarithmic(true)
+                            .suffix(" fps"),
+                    );
+                },
+            );
+            setting(
+                ui,
+                "pause_after_iteration",
+                "sim.state.pause_after_iteration -- pause once this iteration has run",
+                |ui| {
+                    let mut on = sim.state.pause_after_iteration.is_some();
+                    if super::widgets::checkbox(ui, &mut on, "").changed() {
+                        sim.state.pause_after_iteration = on.then_some(sim.state.iteration);
+                    }
+                    if let Some(n) = sim.state.pause_after_iteration.as_mut() {
+                        super::widgets::number(ui, n, |d| d.speed(1.0));
+                    }
+                },
+            );
         });
-        // A cap on the frame rate, for watching something that otherwise
-        // flashes past. The slider is live whether or not the cap is on, so
-        // the value can be set first and the cap switched on to it; off, the
-        // value is kept and does nothing. Logarithmic: the useful range runs
-        // from one frame every few seconds to a few hundred a second.
-        setting(
-            ui,
-            "rate_limited",
-            "sim.state.rate_limited -- cap the frame rate at rate_limit; one step is one frame, so the run \
-             slows with it. Off runs as fast as it can. The value can be set before or after switching the \
-             cap on; kept, and idle, while the cap is off",
-            |ui| {
-                ui.checkbox(&mut sim.state.rate_limited, "");
-                ui.spacing_mut().slider_width = (ui.available_width() - 76.0).max(40.0);
-                ui.add(
-                    egui::Slider::new(&mut sim.state.rate_limit, 0.1..=1000.0)
-                        .clamping(egui::SliderClamping::Edits)
-                        .logarithmic(true)
-                        .suffix(" fps"),
-                );
-            },
-        );
-        setting(
-            ui,
-            "pause_after_iteration",
-            "sim.state.pause_after_iteration -- pause once this iteration has run",
-            |ui| {
-                let mut on = sim.state.pause_after_iteration.is_some();
-                if ui.checkbox(&mut on, "").changed() {
-                    sim.state.pause_after_iteration = on.then_some(sim.state.iteration);
-                }
-                if let Some(n) = sim.state.pause_after_iteration.as_mut() {
-                    ui.add(egui::DragValue::new(n).speed(1.0));
-                }
-            },
-        );
     });
 
-    topic(ui, codicon::CIRCLE_LARGE_FILLED, palette::PEACH, "Bodies", |ui| bodies_ui(ui, sim));
+    topic(ui, "Bodies", |ui| bodies_ui(ui, sim));
 
     // Named for the anchor-body picker below, and collected first because
     // that reads `bodies` while the picker holds `camera` mutably.
     let names: Vec<String> = sim.bodies.iter().map(body_name).collect();
 
-    topic(ui, codicon::TARGET, palette::RED, "Selection", |ui| {
-        selection_ui(ui, sim, c, selection_color);
-        subheading(ui, "settings");
-        group_selection(ui, c);
+    topic(ui, "Selection", |ui| {
+        panel(ui, "Selected", |ui| selection_ui(ui, sim, c, selection_color));
+        panel(ui, "Display", |ui| group_selection(ui, c));
     });
 
-    topic(ui, codicon::DEVICE_CAMERA, palette::BLUE, "Camera", |ui| {
-        eye_ui(ui, &mut sim.camera, &names, false)
+    topic(ui, "Camera", |ui| {
+        panel(ui, "Camera", |ui| eye_ui(ui, &mut sim.camera, &names, false));
     });
 
-    // Where it is, then what it does as a light. One header, because that is
-    // one thing.
-    topic(ui, codicon::STAR_FULL, palette::YELLOW, "Sun", |ui| {
-        eye_ui(ui, &mut sim.sun, &names, true);
-        subheading(ui, "light");
-        group_light(ui, c);
+    // Where it is, then what it does as a light.
+    topic(ui, "Sun", |ui| {
+        panel(ui, "Sun", |ui| eye_ui(ui, &mut sim.sun, &names, true));
+        panel(ui, "Light", |ui| group_light(ui, c));
     });
 
-    topic(ui, codicon::PAINTCAN, palette::MAUVE, "Shading", |ui| group_shading(ui, c));
-    topic(ui, codicon::COLOR_MODE, palette::LAVENDER, "Shadows", |ui| shadows_ui(ui, sim, c));
-    topic(ui, codicon::LAYERS, palette::TEAL, "Wireframe", |ui| group_wireframe(ui, c));
-
-    topic(ui, codicon::SYMBOL_COLOR, palette::PINK, "Data colouring", |ui| {
-        colormap_ui(ui, c);
-        group_data(ui, c);
-        subheading(ui, "colour bar");
-        group_colorbar(ui, c);
+    topic(ui, "Shading", |ui| {
+        panel(ui, "Shading", |ui| group_shading(ui, c));
+    });
+    topic(ui, "Shadows", |ui| shadows_ui(ui, sim, c));
+    topic(ui, "Wireframe", |ui| {
+        panel(ui, "Wireframe", |ui| group_wireframe(ui, c));
     });
 
-    topic(ui, codicon::MOVE, palette::SKY, "Axes & grid", |ui| {
-        group_axes(ui, c);
-        subheading(ui, "grid");
-        group_grid(ui, c);
+    topic(ui, "Data colouring", |ui| {
+        panel(ui, "Data colouring", |ui| {
+            colormap_ui(ui, c);
+            group_data(ui, c);
+        });
+        panel(ui, "Colour bar", |ui| group_colorbar(ui, c));
     });
 
-    topic(ui, codicon::TEXT_SIZE, palette::LAVENDER, "HUD", |ui| {
+    topic(ui, "Axes & grid", |ui| {
+        panel(ui, "Axes", |ui| group_axes(ui, c));
+        panel(ui, "Grid", |ui| grid_ui(ui, c));
+    });
+
+    topic(ui, "HUD", |ui| {
         huds_ui(ui, sim);
-        subheading(ui, "settings");
-        group_hud(ui, c);
+        panel(ui, "Font", |ui| group_hud(ui, c));
     });
 
     // The image drawn into the window. The window itself is the app's, in the
     // side panel's app tab; namespaced all the same, since the two have
     // `width` and `height` widgets of their own.
-    topic(ui, codicon::FILE_MEDIA, palette::SAPPHIRE, "Image", |ui| {
-        note(ui, "0 follows the window");
-        ui.push_id("image", |ui| group_image(ui, c));
-        subheading(ui, "camera response").on_hover_text(
+    topic(ui, "Image", |ui| {
+        panel(ui, "Image", |ui| {
+            note(ui, "0 follows the window");
+            ui.push_id("image", |ui| group_image(ui, c));
+        });
+        panel(ui, "Camera response", |ui| {
+            ui.push_id("response", |ui| group_response(ui, c));
+        })
+        .on_hover_text(
             "What the camera does to the image it records: its point spread, a Gaussian core and two \
              exponential halos, and a smear, the image's motion over the exposure. Applied to the image's \
              floats by an FFT, before the overlays.",
         );
-        ui.push_id("response", |ui| group_response(ui, c));
-        subheading(ui, "stretch").on_hover_text(
+        panel(ui, "Stretch", |ui| {
+            ui.push_id("stretch", |ui| group_stretch(ui, c));
+            if let Some([low, high, least, greatest]) = sim.stretch_limits {
+                note(ui, &format!("now {} to {}, the image {} to {}", short(low), short(high), short(least), short(greatest)));
+            }
+        })
+        .on_hover_text(
             "How the image's values are shown, as SAO DS9 scales an image: each taken from between two limits, \
              black at the low one and white at the high one, through a function -- a logarithm, a square root, \
              ... -- for faint and bright to show together. The window and exported frames show it; a script \
              still reads the values themselves.",
         );
-        ui.push_id("stretch", |ui| group_stretch(ui, c));
-        if let Some([low, high, least, greatest]) = sim.stretch_limits {
-            note(ui, &format!("now {} to {}, the image {} to {}", short(low), short(high), short(least), short(greatest)));
-        }
-        subheading(ui, "photometry").on_hover_text(
+        panel(ui, "Photometry", |ui| {
+            ui.push_id("photometry", |ui| group_photometry(ui, c));
+            if let Some(f) = sim.photometry_last.filter(|_| c.photometry.enabled) {
+                let cut = if f.clipped { ", a body cut by the frame" } else { "" };
+                note(ui, &format!("{:.6e} at iteration {}{cut}", f.flux, f.iteration));
+            }
+        })
+        .on_hover_text(
             "The flux of what the camera sees, from the frame itself: the image drawn for photometry -- full \
              meshes with their own normals, floats, no ambient light -- and every pixel's I/F summed times \
              its area, the disc integral kalast.lightcurve.flux gives, for sim.fluxes(). An orthographic \
              camera only.",
         );
-        ui.push_id("photometry", |ui| group_photometry(ui, c));
-        if let Some(f) = sim.photometry_last.filter(|_| c.photometry.enabled) {
-            let cut = if f.clipped { ", a body cut by the frame" } else { "" };
-            note(ui, &format!("{:.6e} at iteration {}{cut}", f.flux, f.iteration));
-        }
-        // Only once a script has made a telescope frame (`sim.expose`): before
-        // that there is none to show, and the switch would do nothing.
+        // Only once a script has made a telescope frame (`sim.expose`):
+        // before that there is none to show, and the switch would do nothing.
         if sim.telescope_frame {
-            subheading(ui, "telescope").on_hover_text(
+            panel(ui, "Telescope", |ui| {
+                ui.push_id("telescope", |ui| group_telescope(ui, c));
+            })
+            .on_hover_text(
                 "A telescope's frames, made on the GPU from the rendered light (sim.expose): the last one shown \
                  in place of the scene, the bodies still drawn for their light.",
             );
-            ui.push_id("telescope", |ui| group_telescope(ui, c));
         }
     });
 
-    topic(ui, codicon::RECORD_KEYS, palette::FLAMINGO, "Controls", |ui| group_controls(ui, c));
+    topic(ui, "Controls", |ui| {
+        panel(ui, "Controls", |ui| group_controls(ui, c));
+    });
 
-    topic(ui, codicon::EXPORT, palette::GREEN, "Export", |ui| {
-        setting(ui, "export", "Write every frame from now on", |ui| ui.checkbox(&mut sim.export, ""));
-        setting(ui, "one frame", "Write the next frame only", |ui| {
-            if ui.button("export one frame").clicked() {
-                sim.export_once = true;
-            }
+    topic(ui, "Export", |ui| {
+        panel(ui, "Export", |ui| {
+            super::widgets::toggle(ui, "export", "Write every frame from now on", &mut sim.export);
+            setting(ui, "one frame", "Write the next frame only", |ui| {
+                if super::widgets::button(ui, "export one frame").clicked() {
+                    sim.export_once = true;
+                }
+            });
         });
-        subheading(ui, "settings");
-        group_export(ui, c);
+        panel(ui, "Output", |ui| group_export(ui, c));
     });
 
     // What the last frame could actually see, then the switches. The renderer
     // writes the diagnostics after fitting the frustums, and they are the
     // quickest answer to "why is my body not on screen".
-    topic(ui, codicon::DEBUG, palette::MAROON, "Debug", |ui| {
-        let d = &sim.diagnostics;
-        row(ui, "bodies", format!("{} of {} visible", d.n_visible, d.n_bodies));
-        row(ui, "clipped near", d.out_near.to_string());
-        row(ui, "clipped far", d.out_far.to_string());
-        row(ui, "outside sides", d.out_side.to_string());
+    topic(ui, "Debug", |ui| {
+        panel(ui, "Diagnostics", |ui| {
+            let d = &sim.diagnostics;
+            row(ui, "bodies", format!("{} of {} visible", d.n_visible, d.n_bodies));
+            row(ui, "clipped near", d.out_near.to_string());
+            row(ui, "clipped far", d.out_far.to_string());
+            row(ui, "outside sides", d.out_side.to_string());
 
-        // The rows above answer "could the camera see it". This one answers
-        // "did it appear": a body inside the frustum but wholly behind
-        // another counts as visible up there and not here.
-        if d.occlusion.valid {
-            row(
-                ui,
-                "drew pixels",
-                format!("{} of {}", d.occlusion.n_drawn(), d.occlusion.n),
-            );
-            let occluded = d.n_visible.saturating_sub(d.occlusion.n_drawn());
-            if occluded > 0 {
-                note(ui, &format!("{occluded} in frustum but hidden behind another body"));
+            // The rows above answer "could the camera see it". This one
+            // answers "did it appear": a body inside the frustum but wholly
+            // behind another counts as visible up there and not here.
+            if d.occlusion.valid {
+                row(
+                    ui,
+                    "drew pixels",
+                    format!("{} of {}", d.occlusion.n_drawn(), d.occlusion.n),
+                );
+                let occluded = d.n_visible.saturating_sub(d.occlusion.n_drawn());
+                if occluded > 0 {
+                    note(ui, &format!("{occluded} in frustum but hidden behind another body"));
+                }
             }
-        }
-        if d.light_cube_clipped {
-            note(ui, "light cube is outside the camera's far plane");
-        }
-        subheading(ui, "switches");
-        group_debug(ui, c);
+            if d.light_cube_clipped {
+                note(ui, "light cube is outside the camera's far plane");
+            }
+        });
+        panel(ui, "Switches", |ui| group_debug(ui, c));
     });
 }
 

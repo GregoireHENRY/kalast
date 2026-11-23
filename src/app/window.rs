@@ -40,8 +40,8 @@ struct Banded {
     /// The target the bands draw into: a frame begun for one there is no
     /// longer -- a resize, a rebuild -- is dropped.
     generation: u64,
-    sent: std::time::Instant,
-    finished: std::sync::Arc<std::sync::Mutex<Option<std::time::Instant>>>,
+    sent: web_time::Instant,
+    finished: std::sync::Arc<std::sync::Mutex<Option<web_time::Instant>>>,
     /// The bands' GPU time so far, from each one's sending to its finish.
     busy_ms: f64,
 }
@@ -52,6 +52,29 @@ const BAND_MS: f64 = 6.0;
 
 /// A traced frame quicker than this is drawn whole, as any other.
 const BANDED_ABOVE_MS: f64 = 12.0;
+
+/// In a page, the most turns' work queued on the GPU while it is little GPU
+/// time: a light scene, whose frames wait on the browser's word that the GPU
+/// is done rather than on the GPU (`Window::gpu_backlogged`).
+#[cfg(target_arch = "wasm32")]
+const PAGE_MAX_IN_FLIGHT: usize = 8;
+
+/// The GPU time a page's queue may hold past three turns: more, and a heavy
+/// scene's queue would hold the browser's frame -- the panels -- behind it.
+#[cfg(target_arch = "wasm32")]
+const PAGE_QUEUED_MS: f64 = 4.0;
+
+/// A page's turns on the GPU (`Window::count_in_flight`).
+#[cfg(target_arch = "wasm32")]
+#[derive(Default)]
+struct InFlight {
+    /// Submitted, and not yet said done.
+    turns: usize,
+    /// When the GPU last said a turn was done.
+    last_done: Option<web_time::Instant>,
+    /// The GPU's time over a turn, in ms, averaged over the last few.
+    turn_ms: f64,
+}
 
 /// The most bands a frame is cut into.
 const MAX_BANDS: u32 = 256;
@@ -1248,6 +1271,12 @@ pub struct Window {
     /// The last frames' submissions, so the loop can wait for the GPU to be
     /// at most two frames behind; see `render`.
     frame_submissions: std::collections::VecDeque<wgpu::SubmissionIndex>,
+    /// In a page, which cannot wait as `render_tail` does: the turns whose
+    /// work the GPU has not finished, counted up as a turn ends and down as
+    /// the GPU says it is done, and how long it has lately taken over one
+    /// (`count_in_flight`, `gpu_backlogged`).
+    #[cfg(target_arch = "wasm32")]
+    in_flight: Arc<std::sync::Mutex<InFlight>>,
     /// A traced frame being drawn in bands, a band a turn of the loop
     /// (`render`, `render_continue`); `None` between frames.
     banded: Option<Banded>,
@@ -1264,7 +1293,7 @@ pub struct Window {
     telescope_requests: Vec<super::telescope::Request>,
     /// A traced frame drawn whole, being timed: when it was sent, and when the
     /// GPU finished it, set by the queue's callback.
-    traced_probe: Option<(std::time::Instant, std::sync::Arc<std::sync::Mutex<Option<std::time::Instant>>>)>,
+    traced_probe: Option<(web_time::Instant, std::sync::Arc<std::sync::Mutex<Option<web_time::Instant>>>)>,
     /// The image as it was before a banded frame began, shown while it is
     /// drawn (`display`).
     held: Option<wgpu::Texture>,
@@ -1285,6 +1314,13 @@ pub struct Window {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub surface_config: wgpu::SurfaceConfiguration,
+    /// What everything is drawn in: the surface's format, or in a browser,
+    /// whose canvas offers no sRGB format, the sRGB view of it -- the colours
+    /// encoded as the desktop's sRGB surface encodes them.
+    pub format: wgpu::TextureFormat,
+    /// What the UI is drawn in: the surface without sRGB where it can be,
+    /// so that egui blends in the display's space (see `Window::new`).
+    pub ui_format: wgpu::TextureFormat,
     pub is_surface_configured: bool,
 
     /// Tick labels for the axes, in world space. Projected to screen at draw
@@ -1367,7 +1403,7 @@ pub struct Window {
     ray_guided: bool,
     /// When the scene was last drawn: for the app to leave a paused scene
     /// undrawn while nothing changes.
-    pub last_drawn: std::time::Instant,
+    pub last_drawn: web_time::Instant,
     /// The image's target it was drawn into (`render_generation`): one made
     /// since, by a resize or a rebuild, holds nothing yet.
     pub drawn_generation: u64,
@@ -1437,6 +1473,18 @@ pub struct Window {
     pub last_body_mats: Vec<Mat4>,
 }
 
+/// A window's GPU: what has to be waited for before it can draw. The desktop
+/// blocks on it; a page in the browser cannot, and gets it back as an event
+/// of its loop (`App::user_event`).
+pub struct Gpu {
+    instance: wgpu::Instance,
+    surface: wgpu::Surface<'static>,
+    adapter: wgpu::Adapter,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    ray_query: bool,
+}
+
 impl Window {
     pub async fn new(
         display: winit::event_loop::OwnedDisplayHandle,
@@ -1447,6 +1495,11 @@ impl Window {
         app: &crate::app::config::AppConfig,
         simulation: &crate::app::simulation::Simulation,
     ) -> Self {
+        let gpu = Self::gpu(display, window.clone()).await;
+        Self::with_gpu(gpu, window, config, app, simulation)
+    }
+
+    pub async fn gpu(display: winit::event_loop::OwnedDisplayHandle, window: Arc<winit::window::Window>) -> Gpu {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_with_display_handle(
             Box::new(display),
         ));
@@ -1565,19 +1618,51 @@ impl Window {
             })
             .await
             .unwrap();
+        Gpu { instance, surface, adapter, device, queue, ray_query }
+    }
+
+    pub fn with_gpu(
+        gpu: Gpu,
+        window: Arc<winit::window::Window>,
+        config: &crate::app::config::Config,
+        app: &crate::app::config::AppConfig,
+        simulation: &crate::app::simulation::Simulation,
+    ) -> Self {
+        let Gpu { instance, surface, adapter, device, queue, ray_query } = gpu;
         let raytrace = ray_query.then(|| super::raytrace::RayTracing::new(&device, &queue));
 
         let caps = surface.get_capabilities(&adapter);
 
-        let format = caps
+        let surface_format = caps
             .formats
             .iter()
             .copied()
             .find(|f| f.is_srgb())
             .unwrap_or(caps.formats[0]);
+        #[cfg(target_arch = "wasm32")]
+        let format = surface_format.add_srgb_suffix();
+        #[cfg(not(target_arch = "wasm32"))]
+        let format = surface_format;
+
+        // The UI's own view of the surface: not sRGB, so that egui blends its
+        // text's edges and its tints in the display's space, as Blender does
+        // -- through an sRGB view the blending was in linear light, and the
+        // UI read washed out beside Blender's (the user: "looks a bit washed
+        // or fade compared to the vibrant UI of Blender"). A browser's canvas
+        // is not sRGB itself; a desktop's surface gets the second view where
+        // the device allows one (`SURFACE_VIEW_FORMATS`: Vulkan without
+        // `VK_KHR_swapchain_mutable_format` does not), and keeps the sRGB one
+        // otherwise.
+        let ui_format = if !surface_format.is_srgb() {
+            surface_format
+        } else if adapter.get_downlevel_capabilities().flags.contains(wgpu::DownlevelFlags::SURFACE_VIEW_FORMATS) {
+            surface_format.remove_srgb_suffix()
+        } else {
+            format
+        };
 
         if config.debug.window {
-            println!("{:?}", format);
+            println!("{:?} (the UI: {:?})", format, ui_format);
         }
 
         let msaa = super::pass::render::MsaaSupport::of(&adapter, &device, format);
@@ -1588,14 +1673,14 @@ impl Window {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                 | wgpu::TextureUsages::COPY_SRC
                 | wgpu::TextureUsages::COPY_DST,
-            format: format,
+            format: surface_format,
             width: size.width,
             height: size.height,
             present_mode: pick_present_mode(&caps, app.vsync),
             color_space: wgpu::SurfaceColorSpace::Auto,
             desired_maximum_frame_latency: 2,
             alpha_mode: caps.alpha_modes[0],
-            view_formats: vec![],
+            view_formats: [format, ui_format].into_iter().filter(|f| *f != surface_format).collect(),
         };
 
         // List of supported configurations by the adapter, device, surface.
@@ -1741,6 +1826,7 @@ impl Window {
             colormap,
             bar,
             layer_select: super::uniform::LayerSelect::new(&device),
+            frame: super::uniform::frame_layout(&device),
             mesh_attrs: mesh_attrs_layout,
         };
 
@@ -1752,7 +1838,7 @@ impl Window {
         let traced = raytrace.as_ref().filter(|_| rays_wanted(config));
         let mut passes = super::pass::Passes::new(
             &device,
-            surface_config.format,
+            format,
             &config,
             &uniforms,
             render_size,
@@ -1773,7 +1859,7 @@ impl Window {
                 &device,
                 surface_config.width,
                 surface_config.height,
-                surface_config.format,
+                format,
             )
         };
         let hud = font.clone().map(build);
@@ -1786,6 +1872,8 @@ impl Window {
             instance,
             surface,
             frame_submissions: std::collections::VecDeque::new(),
+            #[cfg(target_arch = "wasm32")]
+            in_flight: Default::default(),
             banded: None,
             traced_ms: 0.0,
             photometry_tag: None,
@@ -1801,6 +1889,8 @@ impl Window {
             device,
             queue,
             surface_config,
+            format,
+            ui_format,
             is_surface_configured: false,
             axes_labels: Vec::new(),
             pointer: None,
@@ -1826,7 +1916,7 @@ impl Window {
             ray_samples: 1,
             ray_probe: 0,
             ray_guided: false,
-            last_drawn: std::time::Instant::now(),
+            last_drawn: web_time::Instant::now(),
             drawn_generation: 0,
             rays_refused: false,
             uniforms,
@@ -1898,6 +1988,9 @@ impl Window {
                 );
             }
         }
+        #[cfg(target_arch = "wasm32")]
+        return self.passes.penumbra.facets_later(&self.device, &self.queue, &self.passes.bindings, body, mesh);
+        #[cfg(not(target_arch = "wasm32"))]
         self.passes.penumbra.facets(&self.device, &self.queue, &self.passes.bindings, mesh)
     }
 
@@ -2130,21 +2223,19 @@ impl Window {
         // todo
     }
 
+    /// The pointer to the window's middle, where the platform lets it be
+    /// moved: neither a browser nor Wayland does, and the pointer stays.
     pub fn center_cursor(&self) {
         let width = self.surface_config.width;
         let height = self.surface_config.height;
         let mid = (width / 2, height / 2);
-        self.window
-            .set_cursor_position(winit::dpi::PhysicalPosition::new(mid.0, mid.1))
-            .unwrap();
+        let _ = self.window.set_cursor_position(winit::dpi::PhysicalPosition::new(mid.0, mid.1));
     }
 
     pub fn reset_cursor(&self) {
         self.center_cursor();
         self.window.set_cursor_visible(true);
-        self.window
-            .set_cursor_grab(winit::window::CursorGrabMode::None)
-            .unwrap();
+        let _ = self.window.set_cursor_grab(winit::window::CursorGrabMode::None);
     }
 
     pub fn toggle_export_frame(&mut self) {
@@ -2190,7 +2281,7 @@ impl Window {
         let (w, h) = self.render_size;
         self.passes
             .render
-            .resize(&self.device, self.surface_config.format, w, h);
+            .resize(&self.device, self.format, w, h);
         self.passes.depth.resize(&self.device, w, h);
 
         let is_surface_configured = self.is_surface_configured;
@@ -2222,7 +2313,7 @@ impl Window {
         self.render_size = (width, height);
         self.passes
             .render
-            .resize(&self.device, self.surface_config.format, width, height);
+            .resize(&self.device, self.format, width, height);
         self.passes.depth.resize(&self.device, width, height);
         self.render_generation += 1;
     }
@@ -2251,7 +2342,7 @@ impl Window {
         let traced = self.raytrace.as_ref().filter(|_| rays_wanted(config));
         self.passes = super::pass::Passes::new(
             &self.device,
-            self.surface_config.format,
+            self.format,
             config,
             &self.uniforms,
             self.render_size,
@@ -2267,7 +2358,7 @@ impl Window {
         let (w, h) = self.render_size;
         self.passes
             .render
-            .resize(&self.device, self.surface_config.format, w, h);
+            .resize(&self.device, self.format, w, h);
         self.passes.depth.resize(&self.device, w, h);
         self.render_generation += 1;
     }
@@ -2477,7 +2568,7 @@ impl Window {
                 &self.device,
                 self.surface_config.width,
                 self.surface_config.height,
-                self.surface_config.format,
+                self.format,
             )
         };
         self.hud = font.clone().map(build);
@@ -3860,7 +3951,7 @@ impl Window {
 
         // `hud.antialias` off: drawn on a layer of its own, cleared to
         // nothing, and copied over with a hard edge (`TextLayer`).
-        let format = self.surface_config.format;
+        let format = self.format;
         let layer = match config.hud.antialias {
             true => None,
             false => Some(
@@ -3916,7 +4007,7 @@ impl Window {
         bands: bool,
     ) -> bool {
         self.bands_now = bands;
-        self.last_drawn = std::time::Instant::now();
+        self.last_drawn = web_time::Instant::now();
         self.drawn_generation = self.render_generation;
         if let (true, Some(t)) = (config.debug.gpu_timing, self.timer.as_ref()) {
             // Close the previous frame first: resolve what it wrote, start
@@ -3944,7 +4035,7 @@ impl Window {
 
         let surface_view = surface_texture
             .as_ref()
-            .map(|t| t.texture.create_view(&wgpu::TextureViewDescriptor::default()));
+            .map(|t| t.texture.create_view(&wgpu::TextureViewDescriptor { format: Some(self.format), ..Default::default() }));
         let offscreen_view;
         let surface_view = match &surface_view {
             Some(v) => v,
@@ -4083,7 +4174,7 @@ impl Window {
                 huds: huds.to_vec(),
                 axes_after_export,
                 generation: self.render_generation,
-                sent: std::time::Instant::now(),
+                sent: web_time::Instant::now(),
                 finished: std::sync::Arc::new(std::sync::Mutex::new(None)),
                 busy_ms: 0.0,
             });
@@ -4126,9 +4217,9 @@ impl Window {
             let finished = std::sync::Arc::new(std::sync::Mutex::new(None));
             let f = finished.clone();
             self.queue.on_submitted_work_done(move || {
-                *f.lock().unwrap() = Some(std::time::Instant::now());
+                *f.lock().unwrap() = Some(web_time::Instant::now());
             });
-            self.traced_probe = Some((std::time::Instant::now(), finished));
+            self.traced_probe = Some((web_time::Instant::now(), finished));
         }
         self.render_tail(surface_texture, config, huds, axes_after_export, frame_submission);
         self.facet_job.is_none()
@@ -4154,6 +4245,44 @@ impl Window {
     /// still being drawn (`render`).
     pub fn frame_in_progress(&self) -> bool {
         self.banded.is_some() || self.facet_job.is_some()
+    }
+
+    /// A turn of the page's loop submitted its work: counted until the GPU
+    /// has done it, which covers everything submitted before. A turn queued
+    /// behind another is said done that much after it: the spacing of their
+    /// answers is the GPU's time over it -- for a light scene, the browser's
+    /// delay in answering shared among the turns queued.
+    #[cfg(target_arch = "wasm32")]
+    pub fn count_in_flight(&self) {
+        let queued = {
+            let mut f = self.in_flight.lock().unwrap();
+            f.turns += 1;
+            f.turns > 1
+        };
+        let in_flight = self.in_flight.clone();
+        self.queue.on_submitted_work_done(move || {
+            let mut f = in_flight.lock().unwrap();
+            f.turns = f.turns.saturating_sub(1);
+            let now = web_time::Instant::now();
+            if let (true, Some(last)) = (queued, f.last_done) {
+                let ms = (now - last).as_secs_f64() * 1e3;
+                f.turn_ms += 0.1 * (ms - f.turn_ms);
+            }
+            f.last_done = Some(now);
+        });
+    }
+
+    /// Too much work queued on the GPU for the page's loop to begin a frame
+    /// of its own, or it would run ahead of the GPU with nothing to stop it:
+    /// three turns', the bound `render_tail` waits on, once they hold more
+    /// than `PAGE_QUEUED_MS` of the GPU's time; else `PAGE_MAX_IN_FLIGHT`.
+    /// A light scene's frames wait on the browser's word that the GPU is
+    /// done -- in Chrome 1.3 ms, at times 16, for an empty frame -- and more
+    /// of them queued is more of them a second, and steadier.
+    #[cfg(target_arch = "wasm32")]
+    pub fn gpu_backlogged(&self) -> bool {
+        let f = self.in_flight.lock().unwrap();
+        f.turns >= PAGE_MAX_IN_FLIGHT || (f.turns >= 3 && f.turns as f64 * f.turn_ms > PAGE_QUEUED_MS)
     }
 
     /// The per-facet shadows the frame just drawn was asked for
@@ -4292,11 +4421,11 @@ impl Window {
         let finished = std::sync::Arc::new(std::sync::Mutex::new(None));
         let f = finished.clone();
         self.queue.on_submitted_work_done(move || {
-            *f.lock().unwrap() = Some(std::time::Instant::now());
+            *f.lock().unwrap() = Some(web_time::Instant::now());
         });
         let b = self.banded.as_mut().unwrap();
         b.finished = finished;
-        b.sent = std::time::Instant::now();
+        b.sent = web_time::Instant::now();
         b.next += 1;
     }
 
@@ -4351,7 +4480,7 @@ impl Window {
     ) {
         let surface_view = surface_texture
             .as_ref()
-            .map(|t| t.texture.create_view(&wgpu::TextureViewDescriptor::default()));
+            .map(|t| t.texture.create_view(&wgpu::TextureViewDescriptor { format: Some(self.format), ..Default::default() }));
         let offscreen_view;
         let surface_view = match &surface_view {
             Some(v) => v,
@@ -4516,7 +4645,7 @@ impl Window {
         if let (Some(texture), true) = (&surface_texture, any_text) {
             let view = texture
                 .texture
-                .create_view(&wgpu::TextureViewDescriptor::default());
+                .create_view(&wgpu::TextureViewDescriptor { format: Some(self.format), ..Default::default() });
             let size = (
                 self.surface_config.width as f32,
                 self.surface_config.height as f32,
@@ -4681,9 +4810,15 @@ fn shadow_array_that_fits(device: &wgpu::Device, wanted: u32, layers: u32) -> (s
         let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let memory = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
         let texture = super::gpu::Texture::create_depth_texture_shadow_pass(device, side, side, layers);
-        let out_of_memory = pollster::block_on(memory.pop()).is_some();
-        let invalid = pollster::block_on(validation.pop()).is_some();
-        let failed = out_of_memory || invalid;
+        #[cfg(not(target_arch = "wasm32"))]
+        let failed = pollster::block_on(memory.pop()).is_some() || pollster::block_on(validation.pop()).is_some();
+        // The browser does not let a page wait for the answer: taken as it
+        // comes, a failure the browser's console's.
+        #[cfg(target_arch = "wasm32")]
+        let failed = {
+            drop((memory, validation));
+            false
+        };
         if !failed || side <= 512 {
             if side != wanted {
                 println!(
@@ -4758,8 +4893,11 @@ fn pick_present_mode(caps: &wgpu::SurfaceCapabilities, vsync: bool) -> wgpu::Pre
     // Printed unconditionally rather than under `debug_window`, because a
     // `vsync = false` that silently got `Fifo` is the difference between a
     // number that means something and the panel's refresh rate, and it has
-    // already produced one wrong conclusion in this repo's notes.
-    if !vsync && picked != wgpu::PresentMode::Immediate {
+    // already produced one wrong conclusion in this repo's notes. Not in a
+    // browser, where it is always so and the loop does not follow it: a page
+    // presents at the display's rate, and its own turns draw the frames
+    // between (`App::page_frame`).
+    if !vsync && picked != wgpu::PresentMode::Immediate && cfg!(not(target_arch = "wasm32")) {
         println!(
             "[WINDOW] vsync is off but this surface offers no Immediate mode:              presenting {picked:?}, so the loop runs at the display refresh rate.              Available: {:?}",
             caps.present_modes

@@ -1049,6 +1049,37 @@ pub fn view_factor_triangles(
     crate::mesh::view_factor_triangles(&read(&tri_a), &read(&tri_b), ratio, max_level)
 }
 
+/// The exact view factor `F(A->B)` between two triangles given as (3, 3)
+/// arrays of vertices, one row per vertex, counter-clockwise seen from the
+/// side the normal points to.
+///
+/// The double contour integral of Sparrow (1963) as Lagerros (1998, appendix
+/// A.1) writes it for triangles: exact for neighbours that share a side or a
+/// corner, where the formula of two points fails. A triangle crossing the
+/// other's plane counts for its part in front. Computed in double precision.
+/// Nothing between the two is looked for: visibility is another question.
+#[pyfunction]
+pub fn view_factor_exact(
+    tri_a: numpy::PyReadonlyArray2<'_, Float>,
+    tri_b: numpy::PyReadonlyArray2<'_, Float>,
+) -> PyResult<Float> {
+    let read = |t: &numpy::PyReadonlyArray2<'_, Float>| -> PyResult<crate::mesh::Triangle> {
+        let a = t.as_array();
+        if a.dim() != (3, 3) {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "a triangle is a (3, 3) array of vertices, got {:?}",
+                a.dim()
+            )));
+        }
+        Ok([
+            crate::Vec3::new(a[[0, 0]], a[[0, 1]], a[[0, 2]]),
+            crate::Vec3::new(a[[1, 0]], a[[1, 1]], a[[1, 2]]),
+            crate::Vec3::new(a[[2, 0]], a[[2, 1]], a[[2, 2]]),
+        ])
+    };
+    Ok(crate::tpm::view_factor::exact(&read(&tri_a)?, &read(&tri_b)?))
+}
+
 #[pyfunction]
 pub fn rms_slope_terrain(
     theta: numpy::PyReadonlyArray1<'_, Float>,

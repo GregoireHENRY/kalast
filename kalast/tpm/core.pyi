@@ -94,11 +94,119 @@ class Ground:
         ...
     @heat_capacity.setter
     def heat_capacity(self, value: numpy.ndarray | Sequence[float] | float) -> None: ...
-    def stability_maxdt(self, dz: float, s: float = ...) -> float:
+    radiative_conductivity: float
+    """`chi` in `k(T) = k_c (1 + chi (T / 350)**3)`, the conductivity of
+    a regolith with the part that radiation between its grains
+    carries: `k_c` is `conductivity`, layer by layer. 2.7 for the Moon
+    (Hayne et al. 2017); 0, the default, for a conductivity that does
+    not change with temperature.
+
+    ```python
+    ground.radiative_conductivity = 2.7
+    ground.heat_capacity_polynomial = [-3.6125, 2.7431, 2.3616e-3, -1.2340e-5, 8.9093e-9]
+    dt = ground.stability_maxdt(dz, temperatures=(40.0, 400.0))
+    ```
+    """
+    @property
+    def heat_capacity_polynomial(self) -> list[float] | None:
+        """The heat capacity as a polynomial of the temperature, `c(T) =
+        a[0] + a[1] T + ... + a[4] T**4` (J/kg/K), in place of
+        `heat_capacity`: up to five coefficients, from the constant up.
+        `None`, the default, for `heat_capacity` as it is. The Moon's
+        (Hayne et al. 2017): `[-3.6125, 2.7431, 2.3616e-3, -1.2340e-5,
+        8.9093e-9]`.
+        """
+        ...
+    @heat_capacity_polynomial.setter
+    def heat_capacity_polynomial(self, value: Sequence[float] | None) -> None: ...
+    def stability_maxdt(self, dz: float, s: float = ..., temperatures: tuple[float, float] | None = ...) -> float:
         """The largest stable time step (s) for layers `dz` (m) apart, over
         every interior node: `dt (k_{i-1/2} + k_{i+1/2}) / (rho c_i dz^2)
         <= 2 s`, `s = 1/2` the limit itself. For one material,
         `stability_maxdt(D, dz**2, s)`.
+
+        For a ground that changes with temperature
+        (`radiative_conductivity`, `heat_capacity_polynomial`), give the
+        `temperatures` it will meet, `(lowest, highest)` in K: the step
+        is then the one that holds at any of them.
+        """
+        ...
+
+class Stepper:
+    """One step of every column at once, by the time scheme of one's
+    choice: the surface, the layers and the base in one call.
+
+    ```python
+    stepper = core.Stepper("crank-nicolson")
+    t = core.columns(layers, facets, t0)
+    for _ in range(steps):
+        stepper.step(t, flux, prop, dt, dz)          # flux: W/m2 absorbed, one a facet
+    ```
+
+    `scheme` is one of
+
+    - `"explicit"`: `flux_bc`, `heat_conduction` and `bottom_flux`, to
+      the bit. First order, stable while `D dt / dz**2 <= 1/2`
+      (`stability_maxdt`).
+    - `"rkc"`: that step in `stages` stages (Runge-Kutta-Chebyshev),
+      stable about `stages**2` times further for `stages` times the
+      work, still first order. `Stepper.rkc_stages(speedup)` gives the
+      fewest stages for a step `speedup` times the explicit one's.
+    - `"backward-euler"`, `"crank-nicolson"`, `"bdf2"`: implicit, stable
+      at any step. The first is first order; the two others second, of
+      which BDF2 damps what a step cannot resolve and Crank-Nicolson
+      does not. Surface and layers are solved together.
+
+    `prop` is the body's `Properties` or a `Ground`: every scheme takes
+    layered and graded grounds and those that change with temperature
+    (`Ground.radiative_conductivity`, `Ground.heat_capacity_polynomial`).
+
+    Newton's method solves the surface balance until a correction is
+    under `newton_threshold` (K, 0.1 by default), in `newton_iterations`
+    at most; `newton_iterations=1` is the balance linearised about the
+    step before, the semi-implicit form.
+
+    One `Stepper` a body: it keeps what its steps could not add to the
+    temperatures in single precision, and BDF2 the step before.
+    """
+    def __init__(self, scheme: str = ..., stages: int = ..., newton_threshold: float | None = ..., newton_iterations: int | None = ...) -> None:
+        ...
+    scheme: str
+    """The scheme's name."""
+    stages: int
+    """The stages of a step: those of `"rkc"`, 1 for any other scheme."""
+    newton_threshold: float
+    newton_iterations: int
+    def step(self, t: numpy.ndarray, flux: numpy.ndarray, prop: Properties | Ground, dt: float, dz: float, bottom_flux: float = ...) -> None:
+        """One step of `dt` (s) of the columns `t`, as `columns` makes
+        them, their layers `dz` (m) apart, changed in place: each
+        surface from the `flux` it absorbs (W/m2, one a facet), the
+        layers by conduction, the base from the heat flow `bottom_flux`
+        (W/m2) that enters it from below.
+        """
+        ...
+    def step_surface(self, t: numpy.ndarray, temperature: numpy.ndarray, prop: Properties | Ground, dt: float, dz: float, bottom_flux: float = ...) -> None:
+        """`step` with each surface's `temperature` (K, one a facet) given
+        in place of a flux: for a test against a closed form. An
+        explicit step goes from the surface as it is at the step's
+        start, an implicit one to the surface as it is at its end.
+        """
+        ...
+    def reset(self) -> None:
+        """Forget the steps before: BDF2 starts again with a backward-Euler
+        step. After the temperatures were set from outside.
+        """
+        ...
+    @staticmethod
+    def rkc_stability(stages: int) -> float:
+        """How far `stages` stages of RKC stay stable, in units where the
+        explicit step's limit is 2: about `2 stages**2`.
+        """
+        ...
+    @staticmethod
+    def rkc_stages(speedup: float) -> int:
+        """The fewest RKC stages for a step `speedup` times the largest the
+        explicit scheme takes (`stability_maxdt`).
         """
         ...
 
@@ -225,6 +333,37 @@ def solar_bc(t: numpy.ndarray, dau: float, cosi: numpy.ndarray, prop: Properties
     `sim.facet_incidence` gives them; `prop` the body's `Properties`, or a
     `Ground` for each facet's own albedo, emissivity and top-layer
     conductivity; `dz` the thickness of a layer (m).
+    """
+    ...
+def flux_bc(t: numpy.ndarray, flux: numpy.ndarray, prop: Properties | Ground, dz: float) -> None:
+    """The surface boundary condition from an absorbed flux, every facet at
+    once: each surface temperature, `t[0]`, solved for the balance of what
+    the facet absorbs, what it radiates, and what it conducts into the
+    layers under it,
+
+    ```text
+    Q  -  e sigma T0^4  +  k (-3 T0 + 4 T1 - T2) / (2 dz)  =  0
+    ```
+
+    `flux` is `Q`, the power each facet absorbs per unit area (W/m2): the
+    direct sunlight, and with it whatever else the surface absorbs -- the
+    sunlight that other surfaces scatter to it, their thermal radiation.
+    `solar_bc` is this with `Q = S (1 - A) max(cos i, 0) / dau^2`, solved
+    the same way.
+
+    `t` is what `columns` made, changed in place; `prop` the body's
+    `Properties`, or a `Ground` for each facet's own emissivity and
+    top-layer conductivity (the albedo is not read: `flux` is already what
+    is absorbed); `dz` the thickness of a layer (m). A flux that is
+    negative or not finite is an error.
+    """
+    ...
+def bottom_flux(t: numpy.ndarray, q: float, prop: Properties | Ground, dz: float) -> None:
+    """The bottom with a heat flow, every facet at once: `q` (W/m2) enters
+    the base of each column from below -- `t[-1] = t[-2] + q dz / k`, the
+    first-order form of `k dT/dz = q` there, `k` the conductivity between
+    the last two layers. `q = 0` is `bottom_adiabatic`. The Moon's heat
+    flow is 0.018 W/m2 (Hayne et al. 2017). `t` is changed in place.
     """
     ...
 def bottom_adiabatic(t: object) -> None:

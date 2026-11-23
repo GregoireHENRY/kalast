@@ -137,8 +137,8 @@ class AppConfig:
     Empty for a bare toolbar.
     """
     theme: str
-    """The colours of the UI app's panels: `"catppuccin-mocha"`, the default,
-    or `"dark"`, egui's own.
+    """The colours of the UI app's panels: `"blender"`, the default, Blender's
+    own; `"catppuccin-mocha"`; or `"dark"`, egui's own.
 
     The panels only. The scene -- its background included -- is drawn by
     the renderer from `app.simulation.config` and shown as an image no

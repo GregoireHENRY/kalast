@@ -537,14 +537,17 @@ jobs:
       # A double-click on macOS. The Finder runs a bare executable in
       # Terminal, and launches an application bundle itself, so the bundle
       # gets `kalast.app`: a launcher for the `kalast` beside it, with
-      # kalast's icon (`tools/macos_app.py`). Run through the launcher once,
-      # which proves it finds the executable from where it sits.
+      # kalast's icon (`tools/macos_app.py`), signed ad hoc -- its seal
+      # checked, since macOS 26.5 refuses an app that has none. Run through
+      # the launcher once, which proves it finds the executable from where
+      # it sits.
       - name: A kalast.app to double-click
         if: runner.os == 'macOS'
         shell: bash
         run: |
           set -euo pipefail
           python3 tools/macos_app.py "dist/${{ env.name }}"
+          codesign --verify --deep --strict "dist/${{ env.name }}/kalast.app"
           "dist/${{ env.name }}/kalast.app/Contents/MacOS/kalast" --python-check
 
       # 49 MB of the interpreter that nothing in a bundle runs. `bin/python3`

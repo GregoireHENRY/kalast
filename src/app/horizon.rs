@@ -114,7 +114,7 @@ impl HorizonMap {
     /// own frame, centred on its origin, z its spin axis.
     pub fn build(device: &wgpu::Device, queue: &wgpu::Queue, positions: &[Vec3], indices: &[u32]) -> Self {
         use std::f64::consts::PI;
-        let started = std::time::Instant::now();
+        let started = web_time::Instant::now();
         let n_facets = indices.len() / 3;
 
         // The body's size, and its facets': the coarse grid about half a
@@ -330,7 +330,7 @@ impl HorizonMap {
         let cpu = started.elapsed().as_secs_f64();
         let mut steps: Vec<(&str, f64)> = Vec::new();
         let mut run = |name: &'static str, record: &dyn Fn(&mut wgpu::ComputePass)| {
-            let t = std::time::Instant::now();
+            let t = web_time::Instant::now();
             let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("horizon map") });
             {
                 let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some(name), timestamp_writes: None });

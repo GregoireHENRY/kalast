@@ -3,178 +3,178 @@
 // Regenerate after changing `Config`:  python tools/gen_config_panel.py
 
 use crate::app::config::{AppConfig, Config};
-use super::widgets::setting;
+use super::widgets::{self, setting};
 
 /// `config.shading` -- Shading.
 pub fn group_shading(ui: &mut egui::Ui, c: &mut Config) {
     setting(ui, "background", "Colour the frame is cleared to, `(r, g, b, a)`.", |ui| {
         let mut rgba = [c.shading.background.r as f32, c.shading.background.g as f32,
                         c.shading.background.b as f32, c.shading.background.a as f32];
-        if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
+        if widgets::color_rgba(ui, &mut rgba).changed() {
             c.shading.background = wgpu::Color {
                 r: rgba[0] as f64, g: rgba[1] as f64,
                 b: rgba[2] as f64, a: rgba[3] as f64,
             };
         }
     });
-    setting(ui, "render_back_face", "Draw triangles facing away from the camera.", |ui| ui.checkbox(&mut c.shading.render_back_face, ""));
+    widgets::toggle(ui, "render_back_face", "Draw triangles facing away from the camera.", &mut c.shading.render_back_face);
     setting(ui, "msaa", "Multisample anti-aliasing for the main render pass: 1 (off), 2, 4 or 8 samples a pixel.", |ui| {
-        egui::ComboBox::from_id_salt("c.shading.msaa")
+        widgets::ComboBox::from_id_salt("c.shading.msaa")
             .selected_text(c.shading.msaa.to_string())
             .show_ui(ui, |ui| {
-                ui.selectable_value(&mut c.shading.msaa, 1, "1").on_hover_text("off");
-                ui.selectable_value(&mut c.shading.msaa, 2, "2");
-                ui.selectable_value(&mut c.shading.msaa, 4, "4");
-                ui.selectable_value(&mut c.shading.msaa, 8, "8");
+                widgets::choice(ui, &mut c.shading.msaa, 1, "1").on_hover_text("off");
+                widgets::choice(ui, &mut c.shading.msaa, 2, "2");
+                widgets::choice(ui, &mut c.shading.msaa, 4, "4");
+                widgets::choice(ui, &mut c.shading.msaa, 8, "8");
             });
     });
     setting(ui, "color_mode", "What the surface shows: \"shaded\", lit by the Sun with the shadows `shadows.method` draws (the default), or \"data\", unlit, a mesh's values through the colormap, else its own colours.", |ui| {
-        egui::ComboBox::from_id_salt("c.shading.color_mode")
+        widgets::ComboBox::from_id_salt("c.shading.color_mode")
             .selected_text(format!("{:?}", c.shading.color_mode))
             .show_ui(ui, |ui| {
-                ui.selectable_value(&mut c.shading.color_mode, crate::app::config::ColorMode::Shaded, "Shaded").on_hover_text("Lit by the Sun through the body's scattering law, with the shadows `shadows.method` draws. The default.");
-                ui.selectable_value(&mut c.shading.color_mode, crate::app::config::ColorMode::Data, "Data").on_hover_text("The data, unlit: a mesh's `values` through the colormap, else its own colours as they are. What a quantitative figure wants: shading a data map makes one value read as two colours.");
+                widgets::choice(ui, &mut c.shading.color_mode, crate::app::config::ColorMode::Shaded, "Shaded").on_hover_text("Lit by the Sun through the body's scattering law, with the shadows `shadows.method` draws. The default.");
+                widgets::choice(ui, &mut c.shading.color_mode, crate::app::config::ColorMode::Data, "Data").on_hover_text("The data, unlit: a mesh's `values` through the colormap, else its own colours as they are. What a quantitative figure wants: shading a data map makes one value read as two colours.");
             });
     });
     if c.shading.color_mode == crate::app::config::ColorMode::Shaded {
         setting(ui, "srgb_mode", "How the lit image is stored: \"screen\", through the sRGB curve as a screen shows light (the default), or \"linear\", the lit value itself.", |ui| {
-            egui::ComboBox::from_id_salt("c.shading.srgb_mode")
+            widgets::ComboBox::from_id_salt("c.shading.srgb_mode")
                 .selected_text(format!("{:?}", c.shading.srgb_mode))
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut c.shading.srgb_mode, crate::app::config::SrgbMode::Screen, "Screen").on_hover_text("Through the sRGB curve, as a screen shows light: on a screen, light in proportion to the I/F. A lit 0.078 stored as 0.31. The default.");
-                    ui.selectable_value(&mut c.shading.srgb_mode, crate::app::config::SrgbMode::Linear, "Linear").on_hover_text("The lit value itself: an exported pixel reads exposure x I/F x 255, as a linear camera records it. Darker on a screen.");
+                    widgets::choice(ui, &mut c.shading.srgb_mode, crate::app::config::SrgbMode::Screen, "Screen").on_hover_text("Through the sRGB curve, as a screen shows light: on a screen, light in proportion to the I/F. A lit 0.078 stored as 0.31. The default.");
+                    widgets::choice(ui, &mut c.shading.srgb_mode, crate::app::config::SrgbMode::Linear, "Linear").on_hover_text("The lit value itself: an exported pixel reads exposure x I/F x 255, as a linear camera records it. Darker on a screen.");
                 });
         });
     }
     if c.shading.color_mode == crate::app::config::ColorMode::Shaded && c.shading.srgb_mode == crate::app::config::SrgbMode::Linear {
         setting(ui, "gamma", "The power law the conversion uses instead of sRGB's own curve, unset by default.", |ui| {
             let mut on = c.shading.gamma.is_some();
-            if ui.checkbox(&mut on, "").changed() {
+            if widgets::checkbox(ui, &mut on, "").changed() {
                 c.shading.gamma = if on { Some(2.2) } else { None };
             }
             if let Some(v) = c.shading.gamma.as_mut() {
-                ui.add(egui::DragValue::new(v).speed(0.01));
+                widgets::number(ui, v, |d| d.speed(0.01));
             }
         });
     }
-    setting(ui, "lod", "Draw a large mesh by the parts the camera can see, each only as fine as the image can show it.", |ui| ui.checkbox(&mut c.shading.lod, ""));
-    setting(ui, "lod_pixels", "The size, in pixels, a large mesh's triangles are drawn at when `lod` is on: smaller is finer and slower.", |ui| ui.add(egui::Slider::new(&mut c.shading.lod_pixels, 0.25..=16.0).clamping(egui::SliderClamping::Edits)));
+    widgets::toggle(ui, "lod", "Draw a large mesh by the parts the camera can see, each only as fine as the image can show it.", &mut c.shading.lod);
+    setting(ui, "lod_pixels", "The size, in pixels, a large mesh's triangles are drawn at when `lod` is on: smaller is finer and slower.", |ui| ui.add(widgets::Slider::new(&mut c.shading.lod_pixels, 0.25..=16.0)));
 }
 
 /// `config.light` -- Light.
 pub fn group_light(ui: &mut egui::Ui, c: &mut Config) {
-    setting(ui, "cube_show", "Draw a cube at the light's position, so the Sun is visible.", |ui| ui.checkbox(&mut c.light.cube_show, ""));
-    setting(ui, "cube_fit", "Fit the camera's frustum around the light cube too, not just the bodies.", |ui| ui.checkbox(&mut c.light.cube_fit, ""));
-    setting(ui, "ambient", "Light added to every fragment regardless of shadowing.", |ui| ui.add(egui::Slider::new(&mut c.light.ambient, 0.0..=1.0).clamping(egui::SliderClamping::Edits)));
+    widgets::toggle(ui, "cube_show", "Draw a cube at the light's position, so the Sun is visible.", &mut c.light.cube_show);
+    widgets::toggle(ui, "cube_fit", "Fit the camera's frustum around the light cube too, not just the bodies.", &mut c.light.cube_fit);
+    setting(ui, "ambient", "Light added to every fragment regardless of shadowing.", |ui| ui.add(widgets::Slider::new(&mut c.light.ambient, 0.0..=1.0)));
     setting(ui, "color", "Colour of the Sun, `(r, g, b, a)`.", |ui| {
         let mut rgba = [c.light.color.r as f32, c.light.color.g as f32,
                         c.light.color.b as f32, c.light.color.a as f32];
-        if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
+        if widgets::color_rgba(ui, &mut rgba).changed() {
             c.light.color = wgpu::Color {
                 r: rgba[0] as f64, g: rgba[1] as f64,
                 b: rgba[2] as f64, a: rgba[3] as f64,
             };
         }
     });
-    setting(ui, "exposure", "Scales the light by one number, `color`'s red, green and blue alike: a camera's exposure.", |ui| ui.add(egui::Slider::new(&mut c.light.exposure, 0.1..=1000.0).clamping(egui::SliderClamping::Edits).logarithmic(true)));
-    setting(ui, "sun_as_point", "The Sun as a point, every shadow hard; on by default.", |ui| ui.checkbox(&mut c.light.sun_as_point, ""));
+    setting(ui, "exposure", "Scales the light by one number, `color`'s red, green and blue alike: a camera's exposure.", |ui| ui.add(widgets::Slider::new(&mut c.light.exposure, 0.1..=1000.0).logarithmic(true)));
+    widgets::toggle(ui, "sun_as_point", "The Sun as a point, every shadow hard; on by default.", &mut c.light.sun_as_point);
     if c.light.sun_as_point == false {
-        setting(ui, "sun_radius", "The Sun's radius in the scene's units, with `sun_as_point` off: 695,700, the Sun's in km. A scene in metres wants 6.957e8.", |ui| ui.add(egui::DragValue::new(&mut c.light.sun_radius).speed(1000.0)));
+        setting(ui, "sun_radius", "The Sun's radius in the scene's units, with `sun_as_point` off: 695,700, the Sun's in km. A scene in metres wants 6.957e8.", |ui| widgets::number(ui, &mut c.light.sun_radius, |d| d.speed(1000.0)));
     }
-    setting(ui, "cube_scale", "Size of the debug light cube, in world units.", |ui| ui.add(egui::Slider::new(&mut c.light.cube_scale, 0.0..=5.0).clamping(egui::SliderClamping::Edits)));
+    setting(ui, "cube_scale", "Size of the debug light cube, in world units.", |ui| ui.add(widgets::Slider::new(&mut c.light.cube_scale, 0.0..=5.0)));
 }
 
 /// `config.shadows` -- Shadows.
 pub fn group_shadows(ui: &mut egui::Ui, c: &mut Config) {
     setting(ui, "method", "How the Sun's shadows are drawn: \"maps\", a shadow map per body (the default); \"rays\", traced against the full meshes, on a GPU with ray queries; \"reference\", a still image summed with rays to a stated error (`reference`); \"none\", no shadows at all. The image's and those the thermophysical model reads (`sim.facet_shadow`) alike -- a reference image's, the rays'.", |ui| {
-        egui::ComboBox::from_id_salt("c.shadows.method")
+        widgets::ComboBox::from_id_salt("c.shadows.method")
             .selected_text(format!("{:?}", c.shadows.method))
             .show_ui(ui, |ui| {
-                ui.selectable_value(&mut c.shadows.method, crate::app::config::ShadowMethod::Maps, "Maps").on_hover_text("Shadow maps: a layer per body, fitted to what the camera sees of it, drawn from the Sun every frame. The default.");
-                ui.selectable_value(&mut c.shadows.method, crate::app::config::ShadowMethod::Rays, "Rays").on_hover_text("Traced with rays against the full meshes, the Sun's disc sampled by `ray_samples` rays a point: no texel, filter or bias. On a GPU with ray queries; without, the shadow maps answer.");
-                ui.selectable_value(&mut c.shadows.method, crate::app::config::ShadowMethod::Reference, "Reference").on_hover_text("A reference image: a still drawn as exactly as kalast can, for a figure or to check a faster method against -- every pixel summed over its area and the Sun's disc with rays, a sample a frame, until its error is under `reference.error`, then held. For a still scene: anything that moves starts the sum again.");
-                ui.selectable_value(&mut c.shadows.method, crate::app::config::ShadowMethod::None, "None").on_hover_text("No shadows: every point facing the Sun sees all of it, and nothing is drawn for them.");
+                widgets::choice(ui, &mut c.shadows.method, crate::app::config::ShadowMethod::Maps, "Maps").on_hover_text("Shadow maps: a layer per body, fitted to what the camera sees of it, drawn from the Sun every frame. The default.");
+                widgets::choice(ui, &mut c.shadows.method, crate::app::config::ShadowMethod::Rays, "Rays").on_hover_text("Traced with rays against the full meshes, the Sun's disc sampled by `ray_samples` rays a point: no texel, filter or bias. On a GPU with ray queries; without, the shadow maps answer.");
+                widgets::choice(ui, &mut c.shadows.method, crate::app::config::ShadowMethod::Reference, "Reference").on_hover_text("A reference image: a still drawn as exactly as kalast can, for a figure or to check a faster method against -- every pixel summed over its area and the Sun's disc with rays, a sample a frame, until its error is under `reference.error`, then held. For a still scene: anything that moves starts the sum again.");
+                widgets::choice(ui, &mut c.shadows.method, crate::app::config::ShadowMethod::None, "None").on_hover_text("No shadows: every point facing the Sun sees all of it, and nothing is drawn for them.");
             });
     });
     if c.shadows.method == crate::app::config::ShadowMethod::Maps {
-        setting(ui, "resolution", "Side length of each square shadow map, in texels.", |ui| ui.add(egui::Slider::new(&mut c.shadows.resolution, 512..=16384).clamping(egui::SliderClamping::Edits)));
+        setting(ui, "resolution", "Side length of each square shadow map, in texels.", |ui| ui.add(widgets::Slider::new(&mut c.shadows.resolution, 512..=16384)));
     }
     if c.shadows.method == crate::app::config::ShadowMethod::Maps {
-        setting(ui, "pcf", "Smoothing of the shadows' edges, the percentage-closer-filtering kernel's *radius* in shadow-map texels: 0 is the hardware's single 2x2 comparison, N a `(2N+1)^2` grid of them averaged.", |ui| ui.add(egui::Slider::new(&mut c.shadows.pcf, 0..=16).clamping(egui::SliderClamping::Edits)));
+        setting(ui, "pcf", "Smoothing of the shadows' edges, the percentage-closer-filtering kernel's *radius* in shadow-map texels: 0 is the hardware's single 2x2 comparison, N a `(2N+1)^2` grid of them averaged.", |ui| ui.add(widgets::Slider::new(&mut c.shadows.pcf, 0..=16)));
     }
     if c.shadows.method == crate::app::config::ShadowMethod::Maps {
         setting(ui, "normal_offset_scale", "Push the sample along the surface normal before the shadow lookup, in world units. `None` fits it per frame from the layer's own texel size.", |ui| {
             let mut on = c.shadows.normal_offset_scale.is_some();
-            if ui.checkbox(&mut on, "").changed() {
+            if widgets::checkbox(ui, &mut on, "").changed() {
                 c.shadows.normal_offset_scale = if on { Some(0.0) } else { None };
             }
             if let Some(v) = c.shadows.normal_offset_scale.as_mut() {
-                ui.add(egui::DragValue::new(v).speed(1e-6));
+                widgets::number(ui, v, |d| d.speed(1e-6));
             }
         });
     }
     if c.shadows.method == crate::app::config::ShadowMethod::Maps {
         setting(ui, "bias_scale", "Slope-dependent term of the depth-comparison bias. `None` fits it per frame. Combined in the shader as `max(shadow_bias_scale * k, shadow_bias_minimum)`.", |ui| {
             let mut on = c.shadows.bias_scale.is_some();
-            if ui.checkbox(&mut on, "").changed() {
+            if widgets::checkbox(ui, &mut on, "").changed() {
                 c.shadows.bias_scale = if on { Some(0.0) } else { None };
             }
             if let Some(v) = c.shadows.bias_scale.as_mut() {
-                ui.add(egui::DragValue::new(v).speed(1e-6));
+                widgets::number(ui, v, |d| d.speed(1e-6));
             }
         });
     }
     if c.shadows.method == crate::app::config::ShadowMethod::Maps {
         setting(ui, "bias_minimum", "Floor on the depth-comparison bias, for surfaces facing the light head-on. `None` fits it per frame.", |ui| {
             let mut on = c.shadows.bias_minimum.is_some();
-            if ui.checkbox(&mut on, "").changed() {
+            if widgets::checkbox(ui, &mut on, "").changed() {
                 c.shadows.bias_minimum = if on { Some(0.0) } else { None };
             }
             if let Some(v) = c.shadows.bias_minimum.as_mut() {
-                ui.add(egui::DragValue::new(v).speed(1e-6));
+                widgets::number(ui, v, |d| d.speed(1e-6));
             }
         });
     }
-    setting(ui, "access_shadow_map", "Compute every body's per-facet shadows every frame, as `method` draws them, read back with `sim.facet_shadow(body)` from `after_render`.", |ui| ui.checkbox(&mut c.shadows.access_shadow_map, ""));
+    widgets::toggle(ui, "access_shadow_map", "Compute every body's per-facet shadows every frame, as `method` draws them, read back with `sim.facet_shadow(body)` from `after_render`.", &mut c.shadows.access_shadow_map);
     if c.shadows.method == crate::app::config::ShadowMethod::Maps {
-        setting(ui, "per_body", "Fit a shadow map per body instead of one fitted to the whole scene.", |ui| ui.checkbox(&mut c.shadows.per_body, ""));
+        widgets::toggle(ui, "per_body", "Fit a shadow map per body instead of one fitted to the whole scene.", &mut c.shadows.per_body);
     }
     if c.shadows.method == crate::app::config::ShadowMethod::Maps {
-        setting(ui, "near_layer", "A finer shadow layer over where the camera looks closest, for a body seen up close.", |ui| ui.checkbox(&mut c.shadows.near_layer, ""));
+        widgets::toggle(ui, "near_layer", "A finer shadow layer over where the camera looks closest, for a body seen up close.", &mut c.shadows.near_layer);
     }
     if c.shadows.method == crate::app::config::ShadowMethod::Maps && c.light.sun_as_point == false {
-        setting(ui, "second_depth", "With the Sun a disc, a second depth layer under each shadow layer: the nearest surface behind what the Sun sees first. Nothing with the Sun a point, whatever it is set to.", |ui| ui.checkbox(&mut c.shadows.second_depth, ""));
+        widgets::toggle(ui, "second_depth", "With the Sun a disc, a second depth layer under each shadow layer: the nearest surface behind what the Sun sees first. Nothing with the Sun a point, whatever it is set to.", &mut c.shadows.second_depth);
     }
     if c.shadows.method == crate::app::config::ShadowMethod::Maps {
-        setting(ui, "cache", "Keep each body's shadow layer from frame to frame, drawn again only when the Sun has moved past `cache_degrees` in the body's own frame, another body has moved about it, or the scene or the shadows' settings changed.", |ui| ui.checkbox(&mut c.shadows.cache, ""));
+        widgets::toggle(ui, "cache", "Keep each body's shadow layer from frame to frame, drawn again only when the Sun has moved past `cache_degrees` in the body's own frame, another body has moved about it, or the scene or the shadows' settings changed.", &mut c.shadows.cache);
     }
     if c.shadows.method == crate::app::config::ShadowMethod::Maps && c.shadows.cache == true {
-        setting(ui, "cache_degrees", "How far, in degrees, the Sun may move in a body's own frame, or another body about it, before a kept layer is drawn again (`cache`). 0: only when nothing has moved at all, the shadows as exact as without the cache. Larger keeps layers through a running simulation -- Didymos turns 0.044 deg a second of simulated time -- each shadow up to that far behind the Sun.", |ui| ui.add(egui::DragValue::new(&mut c.shadows.cache_degrees).speed(0.01)));
+        setting(ui, "cache_degrees", "How far, in degrees, the Sun may move in a body's own frame, or another body about it, before a kept layer is drawn again (`cache`). 0: only when nothing has moved at all, the shadows as exact as without the cache. Larger keeps layers through a running simulation -- Didymos turns 0.044 deg a second of simulated time -- each shadow up to that far behind the Sun.", |ui| widgets::number(ui, &mut c.shadows.cache_degrees, |d| d.speed(0.01)));
     }
     if c.shadows.method == crate::app::config::ShadowMethod::Maps {
-        setting(ui, "lod_texels", "The size, in shadow-map texels, a large mesh's triangles are drawn at in the shadow maps when `shading.lod` is on, outside the camera's view.", |ui| ui.add(egui::Slider::new(&mut c.shadows.lod_texels, 0.5..=16.0).clamping(egui::SliderClamping::Edits)));
+        setting(ui, "lod_texels", "The size, in shadow-map texels, a large mesh's triangles are drawn at in the shadow maps when `shading.lod` is on, outside the camera's view.", |ui| ui.add(widgets::Slider::new(&mut c.shadows.lod_texels, 0.5..=16.0)));
     }
     if c.shadows.method == crate::app::config::ShadowMethod::Maps {
-        setting(ui, "lod_pixels", "The size, in the camera's pixels, a large mesh's triangles are drawn at in the shadow maps when `shading.lod` is on, outside the camera's view.", |ui| ui.add(egui::Slider::new(&mut c.shadows.lod_pixels, 0.5..=32.0).clamping(egui::SliderClamping::Edits)));
+        setting(ui, "lod_pixels", "The size, in the camera's pixels, a large mesh's triangles are drawn at in the shadow maps when `shading.lod` is on, outside the camera's view.", |ui| ui.add(widgets::Slider::new(&mut c.shadows.lod_pixels, 0.5..=32.0)));
     }
     if c.shadows.method.traces() {
-        setting(ui, "ray_samples", "The rays each point -- a pixel, a facet's corner or centre -- traces across the Sun's disc, with `method` \"rays\" and `light.sun_as_point` off, and with \"reference\" each facet's: each carries the same share of the limb-darkened disc's light, so a penumbra is resolved to about 1/`ray_samples`. A point Sun takes one.", |ui| ui.add(egui::Slider::new(&mut c.shadows.ray_samples, 1..=1024).clamping(egui::SliderClamping::Edits)));
+        setting(ui, "ray_samples", "The rays each point -- a pixel, a facet's corner or centre -- traces across the Sun's disc, with `method` \"rays\" and `light.sun_as_point` off, and with \"reference\" each facet's: each carries the same share of the limb-darkened disc's light, so a penumbra is resolved to about 1/`ray_samples`. A point Sun takes one.", |ui| ui.add(widgets::Slider::new(&mut c.shadows.ray_samples, 1..=1024)));
     }
     if c.shadows.method.traces() {
-        setting(ui, "ray_probe", "The rays a point tries first across the disc, with `method` \"rays\": where they all agree the point is wholly lit or wholly hidden and the rest of `ray_samples` are not traced. Nearly every point is, so a step costs about this many rays a point whatever `ray_samples` is.", |ui| ui.add(egui::Slider::new(&mut c.shadows.ray_probe, 0..=64).clamping(egui::SliderClamping::Edits)));
+        setting(ui, "ray_probe", "The rays a point tries first across the disc, with `method` \"rays\": where they all agree the point is wholly lit or wholly hidden and the rest of `ray_samples` are not traced. Nearly every point is, so a step costs about this many rays a point whatever `ray_samples` is.", |ui| ui.add(widgets::Slider::new(&mut c.shadows.ray_probe, 0..=64)));
     }
     if c.shadows.method == crate::app::config::ShadowMethod::Rays {
-        setting(ui, "ray_guide", "Trace the disc's rays only where the shadow maps see a penumbra can be, one ray to the Sun's centre elsewhere: much quicker, and exact wherever the maps hold what casts the penumbra.", |ui| ui.checkbox(&mut c.shadows.ray_guide, ""));
+        widgets::toggle(ui, "ray_guide", "Trace the disc's rays only where the shadow maps see a penumbra can be, one ray to the Sun's centre elsewhere: much quicker, and exact wherever the maps hold what casts the penumbra.", &mut c.shadows.ray_guide);
     }
     if c.shadows.method == crate::app::config::ShadowMethod::Rays {
         setting(ui, "ray_points", "The points of a pixel its rays start from, with `method` \"rays\": 1, the surface under its centre; more, the surface under that many points spread over it -- MSAA's own patterns -- their shares of the Sun averaged.", |ui| {
-            egui::ComboBox::from_id_salt("c.shadows.ray_points")
+            widgets::ComboBox::from_id_salt("c.shadows.ray_points")
                 .selected_text(c.shadows.ray_points.to_string())
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut c.shadows.ray_points, 1, "1").on_hover_text("the centre");
-                    ui.selectable_value(&mut c.shadows.ray_points, 4, "4");
-                    ui.selectable_value(&mut c.shadows.ray_points, 8, "8");
-                    ui.selectable_value(&mut c.shadows.ray_points, 16, "16");
+                    widgets::choice(ui, &mut c.shadows.ray_points, 1, "1").on_hover_text("the centre");
+                    widgets::choice(ui, &mut c.shadows.ray_points, 4, "4");
+                    widgets::choice(ui, &mut c.shadows.ray_points, 8, "8");
+                    widgets::choice(ui, &mut c.shadows.ray_points, 16, "16");
                 });
         });
     }
@@ -183,49 +183,49 @@ pub fn group_shadows(ui: &mut egui::Ui, c: &mut Config) {
 /// `config.reference` -- Reference.
 pub fn group_reference(ui: &mut egui::Ui, c: &mut Config) {
     if c.shadows.method == crate::app::config::ShadowMethod::Reference {
-        setting(ui, "error", "The standard error the sum stops at, as a share of the image's brightest value: the 99.9th percentile of the pixels', from the spread of four independent estimates of each. 1/510 by default, half an 8-bit step of an image whose brightest is white.", |ui| ui.add(egui::DragValue::new(&mut c.reference.error).speed(0.0001)));
+        setting(ui, "error", "The standard error the sum stops at, as a share of the image's brightest value: the 99.9th percentile of the pixels', from the spread of four independent estimates of each. 1/510 by default, half an 8-bit step of an image whose brightest is white.", |ui| widgets::number(ui, &mut c.reference.error, |d| d.speed(0.0001)));
     }
     if c.shadows.method == crate::app::config::ShadowMethod::Reference {
-        setting(ui, "max_samples", "The most samples a pixel takes, the error reached or not.", |ui| ui.add(egui::Slider::new(&mut c.reference.max_samples, 64..=65536).clamping(egui::SliderClamping::Edits)));
+        setting(ui, "max_samples", "The most samples a pixel takes, the error reached or not.", |ui| ui.add(widgets::Slider::new(&mut c.reference.max_samples, 64..=65536)));
     }
     if c.shadows.method == crate::app::config::ShadowMethod::Reference {
-        setting(ui, "bounces", "Sunlight bounced off the surfaces this many times on its way to the camera, up to 4: what lights a crater's floor in its own shadow.", |ui| ui.add(egui::Slider::new(&mut c.reference.bounces, 0..=4).clamping(egui::SliderClamping::Edits)));
+        setting(ui, "bounces", "Sunlight bounced off the surfaces this many times on its way to the camera, up to 4: what lights a crater's floor in its own shadow.", |ui| ui.add(widgets::Slider::new(&mut c.reference.bounces, 0..=4)));
     }
 }
 
 /// `config.wireframe` -- Wireframe.
 pub fn group_wireframe(ui: &mut egui::Ui, c: &mut Config) {
-    setting(ui, "mode", "the barycentrics are meaningless and the CPU side warns once.", |ui| ui.add(egui::Slider::new(&mut c.wireframe.mode, 0..=2).clamping(egui::SliderClamping::Edits)));
+    setting(ui, "mode", "the barycentrics are meaningless and the CPU side warns once.", |ui| ui.add(widgets::Slider::new(&mut c.wireframe.mode, 0..=2)));
     setting(ui, "color", "Wireframe colour, `(r, g, b, a)`; alpha is dropped. Very dark grey rather than black by default.", |ui| {
         let mut rgba = [c.wireframe.color.r as f32, c.wireframe.color.g as f32,
                         c.wireframe.color.b as f32, c.wireframe.color.a as f32];
-        if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
+        if widgets::color_rgba(ui, &mut rgba).changed() {
             c.wireframe.color = wgpu::Color {
                 r: rgba[0] as f64, g: rgba[1] as f64,
                 b: rgba[2] as f64, a: rgba[3] as f64,
             };
         }
     });
-    setting(ui, "width", "Wireframe half-width in screen pixels.", |ui| ui.add(egui::Slider::new(&mut c.wireframe.width, 0.1..=10.0).clamping(egui::SliderClamping::Edits)));
-    setting(ui, "fade", "Fade the wireframe out as a body recedes far enough that its facets stop being resolvable. **Off by default.**", |ui| ui.checkbox(&mut c.wireframe.fade, ""));
-    setting(ui, "antialias", "Smooth the wireframe's edges, or draw them hard.", |ui| ui.checkbox(&mut c.wireframe.antialias, ""));
+    setting(ui, "width", "Wireframe half-width in screen pixels.", |ui| ui.add(widgets::Slider::new(&mut c.wireframe.width, 0.1..=10.0)));
+    widgets::toggle(ui, "fade", "Fade the wireframe out as a body recedes far enough that its facets stop being resolvable. **Off by default.**", &mut c.wireframe.fade);
+    widgets::toggle(ui, "antialias", "Smooth the wireframe's edges, or draw them hard.", &mut c.wireframe.antialias);
 }
 
 /// `config.selection` -- Selection.
 pub fn group_selection(ui: &mut egui::Ui, c: &mut Config) {
-    setting(ui, "labels", "0 shaded only, 1 wireframe only, 2 wireframe over the shaded mesh.", |ui| ui.checkbox(&mut c.selection.labels, ""));
-    setting(ui, "labels_max", "Most facets to label before giving up, per body.", |ui| ui.add(egui::Slider::new(&mut c.selection.labels_max, 0..=20000).clamping(egui::SliderClamping::Edits)));
-    setting(ui, "label_size", "Size of a facet label, in pixels.", |ui| ui.add(egui::Slider::new(&mut c.selection.label_size, 4.0..=48.0).clamping(egui::SliderClamping::Edits)));
+    widgets::toggle(ui, "labels", "0 shaded only, 1 wireframe only, 2 wireframe over the shaded mesh.", &mut c.selection.labels);
+    setting(ui, "labels_max", "Most facets to label before giving up, per body.", |ui| ui.add(widgets::Slider::new(&mut c.selection.labels_max, 0..=20000)));
+    setting(ui, "label_size", "Size of a facet label, in pixels.", |ui| ui.add(widgets::Slider::new(&mut c.selection.label_size, 4.0..=48.0)));
     setting(ui, "label_color", "Colour of a facet label, `(r, g, b, a)`.", |ui| {
         let mut rgba = c.selection.label_color;
-        if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
+        if widgets::color_rgba(ui, &mut rgba).changed() {
             c.selection.label_color = rgba;
         }
     });
     setting(ui, "color", "Colour a facet takes when it is selected, `(r, g, b, a)`.", |ui| {
         let mut rgba = [c.selection.color.r as f32, c.selection.color.g as f32,
                         c.selection.color.b as f32, c.selection.color.a as f32];
-        if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
+        if widgets::color_rgba(ui, &mut rgba).changed() {
             c.selection.color = wgpu::Color {
                 r: rgba[0] as f64, g: rgba[1] as f64,
                 b: rgba[2] as f64, a: rgba[3] as f64,
@@ -238,321 +238,322 @@ pub fn group_selection(ui: &mut egui::Ui, c: &mut Config) {
 pub fn group_data(ui: &mut egui::Ui, c: &mut Config) {
     setting(ui, "value_min", "Range the colormap spans, or `None` to fit the loaded values each frame.", |ui| {
         let mut on = c.data.value_min.is_some();
-        if ui.checkbox(&mut on, "").changed() {
+        if widgets::checkbox(ui, &mut on, "").changed() {
             c.data.value_min = if on { Some(0.0) } else { None };
         }
         if let Some(v) = c.data.value_min.as_mut() {
-            ui.add(egui::DragValue::new(v).speed(1e-6));
+            widgets::number(ui, v, |d| d.speed(1e-6));
         }
     });
     setting(ui, "value_max", "", |ui| {
         let mut on = c.data.value_max.is_some();
-        if ui.checkbox(&mut on, "").changed() {
+        if widgets::checkbox(ui, &mut on, "").changed() {
             c.data.value_max = if on { Some(0.0) } else { None };
         }
         if let Some(v) = c.data.value_max.as_mut() {
-            ui.add(egui::DragValue::new(v).speed(1e-6));
+            widgets::number(ui, v, |d| d.speed(1e-6));
         }
     });
 }
 
 /// `config.colorbar` -- Colour bar.
 pub fn group_colorbar(ui: &mut egui::Ui, c: &mut Config) {
-    setting(ui, "enabled", "", |ui| ui.checkbox(&mut c.colorbar.enabled, ""));
+    widgets::toggle(ui, "enabled", "", &mut c.colorbar.enabled);
     setting(ui, "anchor", "", |ui| {
-        egui::ComboBox::from_id_salt("c.colorbar.anchor")
+        widgets::ComboBox::from_id_salt("c.colorbar.anchor")
             .selected_text(format!("{:?}", c.colorbar.anchor))
             .show_ui(ui, |ui| {
-                ui.selectable_value(&mut c.colorbar.anchor, crate::app::config::HudAnchor::TopLeft, "TopLeft");
-                ui.selectable_value(&mut c.colorbar.anchor, crate::app::config::HudAnchor::TopCenter, "TopCenter");
-                ui.selectable_value(&mut c.colorbar.anchor, crate::app::config::HudAnchor::TopRight, "TopRight");
-                ui.selectable_value(&mut c.colorbar.anchor, crate::app::config::HudAnchor::MiddleLeft, "MiddleLeft");
-                ui.selectable_value(&mut c.colorbar.anchor, crate::app::config::HudAnchor::MiddleCenter, "MiddleCenter");
-                ui.selectable_value(&mut c.colorbar.anchor, crate::app::config::HudAnchor::MiddleRight, "MiddleRight");
-                ui.selectable_value(&mut c.colorbar.anchor, crate::app::config::HudAnchor::BottomLeft, "BottomLeft");
-                ui.selectable_value(&mut c.colorbar.anchor, crate::app::config::HudAnchor::BottomCenter, "BottomCenter");
-                ui.selectable_value(&mut c.colorbar.anchor, crate::app::config::HudAnchor::BottomRight, "BottomRight");
+                widgets::choice(ui, &mut c.colorbar.anchor, crate::app::config::HudAnchor::TopLeft, "TopLeft");
+                widgets::choice(ui, &mut c.colorbar.anchor, crate::app::config::HudAnchor::TopCenter, "TopCenter");
+                widgets::choice(ui, &mut c.colorbar.anchor, crate::app::config::HudAnchor::TopRight, "TopRight");
+                widgets::choice(ui, &mut c.colorbar.anchor, crate::app::config::HudAnchor::MiddleLeft, "MiddleLeft");
+                widgets::choice(ui, &mut c.colorbar.anchor, crate::app::config::HudAnchor::MiddleCenter, "MiddleCenter");
+                widgets::choice(ui, &mut c.colorbar.anchor, crate::app::config::HudAnchor::MiddleRight, "MiddleRight");
+                widgets::choice(ui, &mut c.colorbar.anchor, crate::app::config::HudAnchor::BottomLeft, "BottomLeft");
+                widgets::choice(ui, &mut c.colorbar.anchor, crate::app::config::HudAnchor::BottomCenter, "BottomCenter");
+                widgets::choice(ui, &mut c.colorbar.anchor, crate::app::config::HudAnchor::BottomRight, "BottomRight");
             });
     });
-    setting(ui, "x", "Inset from the anchor, pixels.", |ui| ui.add(egui::DragValue::new(&mut c.colorbar.x).speed(1.0)));
-    setting(ui, "y", "", |ui| ui.add(egui::DragValue::new(&mut c.colorbar.y).speed(1.0)));
-    setting(ui, "length", "Long and short axis of the bar, pixels. Its edges drag in the viewport too.", |ui| ui.add(egui::DragValue::new(&mut c.colorbar.length).speed(1.0)));
-    setting(ui, "thickness", "", |ui| ui.add(egui::DragValue::new(&mut c.colorbar.thickness).speed(1.0)));
-    setting(ui, "tick_size", "Length of a tick mark, pixels, across the bar's edge -- half inside, half out -- the numbers standing past it.", |ui| ui.add(egui::DragValue::new(&mut c.colorbar.tick_size).speed(0.5)));
+    setting(ui, "x", "Inset from the anchor, pixels.", |ui| widgets::number(ui, &mut c.colorbar.x, |d| d.speed(1.0)));
+    setting(ui, "y", "", |ui| widgets::number(ui, &mut c.colorbar.y, |d| d.speed(1.0)));
+    setting(ui, "length", "Long and short axis of the bar, pixels. Its edges drag in the viewport too.", |ui| widgets::number(ui, &mut c.colorbar.length, |d| d.speed(1.0)));
+    setting(ui, "thickness", "", |ui| widgets::number(ui, &mut c.colorbar.thickness, |d| d.speed(1.0)));
+    setting(ui, "tick_size", "Length of a tick mark, pixels, across the bar's edge -- half inside, half out -- the numbers standing past it.", |ui| widgets::number(ui, &mut c.colorbar.tick_size, |d| d.speed(0.5)));
     setting(ui, "vertical", "`None` infers from the anchor.", |ui| {
-        egui::ComboBox::from_id_salt("c.colorbar.vertical")
+        widgets::ComboBox::from_id_salt("c.colorbar.vertical")
             .selected_text(match c.colorbar.vertical { None => "auto", Some(true) => "yes", Some(false) => "no" })
             .show_ui(ui, |ui| {
-                ui.selectable_value(&mut c.colorbar.vertical, None, "auto");
-                ui.selectable_value(&mut c.colorbar.vertical, Some(true), "yes");
-                ui.selectable_value(&mut c.colorbar.vertical, Some(false), "no");
+                widgets::choice(ui, &mut c.colorbar.vertical, None, "auto");
+                widgets::choice(ui, &mut c.colorbar.vertical, Some(true), "yes");
+                widgets::choice(ui, &mut c.colorbar.vertical, Some(false), "no");
             });
     });
-    setting(ui, "label", "Caption, e.g. `\"Surface temperature (K)\"`.", |ui| ui.add(egui::TextEdit::singleline(&mut c.colorbar.label).desired_width(f32::INFINITY)));
-    setting(ui, "ticks", "Roughly how many numbered ticks; rounded to a readable step as the axes are.", |ui| ui.add(egui::Slider::new(&mut c.colorbar.ticks, 1..=20).clamping(egui::SliderClamping::Edits)));
-    setting(ui, "text_size", "", |ui| ui.add(egui::Slider::new(&mut c.colorbar.text_size, 4.0..=64.0).clamping(egui::SliderClamping::Edits)));
+    setting(ui, "label", "Caption, e.g. `\"Surface temperature (K)\"`.", |ui| widgets::text_field(ui, egui::TextEdit::singleline(&mut c.colorbar.label).desired_width(f32::INFINITY)));
+    setting(ui, "ticks", "Roughly how many numbered ticks; rounded to a readable step as the axes are.", |ui| ui.add(widgets::Slider::new(&mut c.colorbar.ticks, 1..=20)));
+    setting(ui, "text_size", "", |ui| ui.add(widgets::Slider::new(&mut c.colorbar.text_size, 4.0..=64.0)));
     setting(ui, "text_color", "", |ui| {
         let mut rgba = c.colorbar.text_color;
-        if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
+        if widgets::color_rgba(ui, &mut rgba).changed() {
             c.colorbar.text_color = rgba;
         }
     });
-    setting(ui, "border", "Outline drawn around the strip, in the text's colour, so it reads as a scale rather than as part of the scene when it sits over a dark body.", |ui| ui.checkbox(&mut c.colorbar.border, ""));
-    setting(ui, "min_max", "Mark the lowest and highest value the bodies carry where they fall on the scale -- at its end, when a pinned range leaves them outside it -- and name them, on the side away from the tick numbers: above a horizontal bar, left of a vertical one. The data map's only (`shading.color_mode` \"data\").", |ui| ui.checkbox(&mut c.colorbar.min_max, ""));
-    setting(ui, "min_max_format", "How `min_max` writes the two values, as a Python format spec: `.0f` whole numbers, `.3f` three decimals, `.2e` in powers of ten, `d` an integer. Anything else reads as `.0f`.", |ui| ui.add(egui::TextEdit::singleline(&mut c.colorbar.min_max_format).desired_width(f32::INFINITY)));
+    widgets::toggle(ui, "border", "Outline drawn around the strip, in the text's colour, so it reads as a scale rather than as part of the scene when it sits over a dark body.", &mut c.colorbar.border);
+    widgets::toggle(ui, "min_max", "Mark the lowest and highest value the bodies carry where they fall on the scale -- at its end, when a pinned range leaves them outside it -- and name them, on the side away from the tick numbers: above a horizontal bar, left of a vertical one. The data map's only (`shading.color_mode` \"data\").", &mut c.colorbar.min_max);
+    setting(ui, "min_max_format", "How `min_max` writes the two values, as a Python format spec: `.0f` whole numbers, `.3f` three decimals, `.2e` in powers of ten, `d` an integer. Anything else reads as `.0f`.", |ui| widgets::text_field(ui, egui::TextEdit::singleline(&mut c.colorbar.min_max_format).desired_width(f32::INFINITY)));
 }
 
 /// `config.axes` -- Axes & gizmo.
 pub fn group_axes(ui: &mut egui::Ui, c: &mut Config) {
     setting(ui, "style", "Reference axes drawn around the scene.", |ui| {
-        egui::ComboBox::from_id_salt("c.axes.style")
+        widgets::ComboBox::from_id_salt("c.axes.style")
             .selected_text(format!("{:?}", c.axes.style))
             .show_ui(ui, |ui| {
-                ui.selectable_value(&mut c.axes.style, crate::app::axes::AxesStyle::Off, "Off").on_hover_text("Nothing.");
-                ui.selectable_value(&mut c.axes.style, crate::app::axes::AxesStyle::Box, "Box").on_hover_text("A closed box around the scene, ticked on the near edges. What MATLAB's `box on` draws, and what a profile figure wants: every edge is a ruler.");
-                ui.selectable_value(&mut c.axes.style, crate::app::axes::AxesStyle::Panes, "Panes").on_hover_text("The three far panes, gridded, with ticks on their outer edges -- matplotlib's `Axes3D`. Reads as a room the body sits in, so the grid gives depth cues a bare box does not.");
-                ui.selectable_value(&mut c.axes.style, crate::app::axes::AxesStyle::Gizmo, "Gizmo").on_hover_text("The navigation gizmo in a corner and nothing in the scene. For fly-throughs and movies, where a box would occlude the subject every time the camera swings.");
-                ui.selectable_value(&mut c.axes.style, crate::app::axes::AxesStyle::Blender, "Blender").on_hover_text("Blender's viewport: an infinite ground grid on the XY plane, the Z axis picked out as a vertical line, plus the navigation gizmo in a corner. Best for judging orientation while moving around a scene.");
+                widgets::choice(ui, &mut c.axes.style, crate::app::axes::AxesStyle::Off, "Off").on_hover_text("Nothing.");
+                widgets::choice(ui, &mut c.axes.style, crate::app::axes::AxesStyle::Box, "Box").on_hover_text("A closed box around the scene, ticked on the near edges. What MATLAB's `box on` draws, and what a profile figure wants: every edge is a ruler.");
+                widgets::choice(ui, &mut c.axes.style, crate::app::axes::AxesStyle::Panes, "Panes").on_hover_text("The three far panes, gridded, with ticks on their outer edges -- matplotlib's `Axes3D`. Reads as a room the body sits in, so the grid gives depth cues a bare box does not.");
+                widgets::choice(ui, &mut c.axes.style, crate::app::axes::AxesStyle::Gizmo, "Gizmo").on_hover_text("The navigation gizmo in a corner and nothing in the scene. For fly-throughs and movies, where a box would occlude the subject every time the camera swings.");
+                widgets::choice(ui, &mut c.axes.style, crate::app::axes::AxesStyle::Blender, "Blender").on_hover_text("Blender's viewport: an infinite ground grid on the XY plane, the Z axis picked out as a vertical line, plus the navigation gizmo in a corner. Best for judging orientation while moving around a scene.");
             });
     });
     setting(ui, "color", "Colour of the axis lines and grid.", |ui| {
         let mut rgb = c.axes.color;
-        if ui.color_edit_button_rgb(&mut rgb).changed() {
+        if widgets::color_rgb(ui, &mut rgb).changed() {
             c.axes.color = rgb;
         }
     });
-    setting(ui, "ticks", "Roughly how many ticks per axis. The step is rounded to 1, 2 or 5 times a power of ten first, so the count lands near this rather than on it -- a figure with ticks at 0.0347 is unreadable.", |ui| ui.add(egui::Slider::new(&mut c.axes.ticks, 1..=20).clamping(egui::SliderClamping::Edits)));
-    setting(ui, "unit", "Appended to every tick label, e.g. `\" km\"`.", |ui| ui.add(egui::TextEdit::singleline(&mut c.axes.unit).desired_width(f32::INFINITY)));
-    setting(ui, "label_size", "Tick label size in pixels, and their colour.", |ui| ui.add(egui::Slider::new(&mut c.axes.label_size, 4.0..=64.0).clamping(egui::SliderClamping::Edits)));
+    setting(ui, "ticks", "Roughly how many ticks per axis. The step is rounded to 1, 2 or 5 times a power of ten first, so the count lands near this rather than on it -- a figure with ticks at 0.0347 is unreadable.", |ui| ui.add(widgets::Slider::new(&mut c.axes.ticks, 1..=20)));
+    setting(ui, "unit", "Appended to every tick label, e.g. `\" km\"`.", |ui| widgets::text_field(ui, egui::TextEdit::singleline(&mut c.axes.unit).desired_width(f32::INFINITY)));
+    setting(ui, "label_size", "Tick label size in pixels, and their colour.", |ui| ui.add(widgets::Slider::new(&mut c.axes.label_size, 4.0..=64.0)));
     setting(ui, "label_color", "", |ui| {
         let mut rgba = c.axes.label_color;
-        if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
+        if widgets::color_rgba(ui, &mut rgba).changed() {
             c.axes.label_color = rgba;
         }
     });
     setting(ui, "gizmo_anchor", "Which corner the navigation gizmo sits in. Any of the nine HUD anchors, so it can be moved out of the way of a colour bar or a HUD.", |ui| {
-        egui::ComboBox::from_id_salt("c.axes.gizmo_anchor")
+        widgets::ComboBox::from_id_salt("c.axes.gizmo_anchor")
             .selected_text(format!("{:?}", c.axes.gizmo_anchor))
             .show_ui(ui, |ui| {
-                ui.selectable_value(&mut c.axes.gizmo_anchor, crate::app::config::HudAnchor::TopLeft, "TopLeft");
-                ui.selectable_value(&mut c.axes.gizmo_anchor, crate::app::config::HudAnchor::TopCenter, "TopCenter");
-                ui.selectable_value(&mut c.axes.gizmo_anchor, crate::app::config::HudAnchor::TopRight, "TopRight");
-                ui.selectable_value(&mut c.axes.gizmo_anchor, crate::app::config::HudAnchor::MiddleLeft, "MiddleLeft");
-                ui.selectable_value(&mut c.axes.gizmo_anchor, crate::app::config::HudAnchor::MiddleCenter, "MiddleCenter");
-                ui.selectable_value(&mut c.axes.gizmo_anchor, crate::app::config::HudAnchor::MiddleRight, "MiddleRight");
-                ui.selectable_value(&mut c.axes.gizmo_anchor, crate::app::config::HudAnchor::BottomLeft, "BottomLeft");
-                ui.selectable_value(&mut c.axes.gizmo_anchor, crate::app::config::HudAnchor::BottomCenter, "BottomCenter");
-                ui.selectable_value(&mut c.axes.gizmo_anchor, crate::app::config::HudAnchor::BottomRight, "BottomRight");
+                widgets::choice(ui, &mut c.axes.gizmo_anchor, crate::app::config::HudAnchor::TopLeft, "TopLeft");
+                widgets::choice(ui, &mut c.axes.gizmo_anchor, crate::app::config::HudAnchor::TopCenter, "TopCenter");
+                widgets::choice(ui, &mut c.axes.gizmo_anchor, crate::app::config::HudAnchor::TopRight, "TopRight");
+                widgets::choice(ui, &mut c.axes.gizmo_anchor, crate::app::config::HudAnchor::MiddleLeft, "MiddleLeft");
+                widgets::choice(ui, &mut c.axes.gizmo_anchor, crate::app::config::HudAnchor::MiddleCenter, "MiddleCenter");
+                widgets::choice(ui, &mut c.axes.gizmo_anchor, crate::app::config::HudAnchor::MiddleRight, "MiddleRight");
+                widgets::choice(ui, &mut c.axes.gizmo_anchor, crate::app::config::HudAnchor::BottomLeft, "BottomLeft");
+                widgets::choice(ui, &mut c.axes.gizmo_anchor, crate::app::config::HudAnchor::BottomCenter, "BottomCenter");
+                widgets::choice(ui, &mut c.axes.gizmo_anchor, crate::app::config::HudAnchor::BottomRight, "BottomRight");
             });
     });
-    setting(ui, "gizmo_size", "Half the widget's width, in pixels: a ball centre never sits further than this from the middle.", |ui| ui.add(egui::Slider::new(&mut c.axes.gizmo_size, 16.0..=200.0).clamping(egui::SliderClamping::Edits)));
-    setting(ui, "antialias", "Smooth the axes' lines, or draw them hard.", |ui| ui.checkbox(&mut c.axes.antialias, ""));
+    setting(ui, "gizmo_size", "Half the widget's width, in pixels: a ball centre never sits further than this from the middle.", |ui| ui.add(widgets::Slider::new(&mut c.axes.gizmo_size, 16.0..=200.0)));
+    widgets::toggle(ui, "antialias", "Smooth the axes' lines, or draw them hard.", &mut c.axes.antialias);
 }
 
 /// `config.grid` -- Grid.
 pub fn group_grid(ui: &mut egui::Ui, c: &mut Config) {
-    setting(ui, "enabled", "Shade the `\"blender\"` style's ground grid instead of drawing it as line segments. On by default; `False` restores the segments.", |ui| ui.checkbox(&mut c.grid.enabled, ""));
-    setting(ui, "width", "Width of a grid line, in pixels.", |ui| ui.add(egui::Slider::new(&mut c.grid.width, 0.25..=8.0).clamping(egui::SliderClamping::Edits)));
-    setting(ui, "major", "Cells between thick lines, and the factor between the levels the crossfade steps through -- the same number seen from two sides.", |ui| ui.add(egui::Slider::new(&mut c.grid.major, 2..=100).clamping(egui::SliderClamping::Edits)));
+    widgets::toggle(ui, "enabled", "Shade the `\"blender\"` style's ground grid instead of drawing it as line segments. On by default; `False` restores the segments.", &mut c.grid.enabled);
+    setting(ui, "width", "Width of a grid line, in pixels.", |ui| ui.add(widgets::Slider::new(&mut c.grid.width, 0.25..=8.0)));
+    setting(ui, "major", "Cells between thick lines, and the factor between the levels the crossfade steps through -- the same number seen from two sides.", |ui| ui.add(widgets::Slider::new(&mut c.grid.major, 2..=100)));
     setting(ui, "color", "Colour of the ordinary lines, `(r, g, b, a)`.", |ui| {
         let mut rgba = c.grid.color;
-        if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
+        if widgets::color_rgba(ui, &mut rgba).changed() {
             c.grid.color = rgba;
         }
     });
     setting(ui, "major_color", "Colour of every `grid_major`-th line.", |ui| {
         let mut rgba = c.grid.major_color;
-        if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
+        if widgets::color_rgba(ui, &mut rgba).changed() {
             c.grid.major_color = rgba;
         }
     });
     setting(ui, "axis_x_color", "The axis lines, drawn over the grid so the origin reads without hunting for it. Two of the three are in the grid's plane and get drawn; which two depends on which plane that is.", |ui| {
         let mut rgba = c.grid.axis_x_color;
-        if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
+        if widgets::color_rgba(ui, &mut rgba).changed() {
             c.grid.axis_x_color = rgba;
         }
     });
     setting(ui, "axis_y_color", "", |ui| {
         let mut rgba = c.grid.axis_y_color;
-        if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
+        if widgets::color_rgba(ui, &mut rgba).changed() {
             c.grid.axis_y_color = rgba;
         }
     });
     setting(ui, "axis_z_color", "", |ui| {
         let mut rgba = c.grid.axis_z_color;
-        if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
+        if widgets::color_rgba(ui, &mut rgba).changed() {
             c.grid.axis_z_color = rgba;
         }
     });
-    setting(ui, "fade_near", "Fade the grid out between these grazing factors: `0.0` is looking straight down at the ground plane and `1.0` is looking along it. Without it the horizon is a hard line of aliasing.", |ui| ui.add(egui::Slider::new(&mut c.grid.fade_near, 0.0..=1.0).clamping(egui::SliderClamping::Edits)));
-    setting(ui, "fade_far", "", |ui| ui.add(egui::Slider::new(&mut c.grid.fade_far, 0.0..=1.0).clamping(egui::SliderClamping::Edits)));
+    setting(ui, "fade_near", "Fade the grid out between these grazing factors: `0.0` is looking straight down at the ground plane and `1.0` is looking along it. Without it the horizon is a hard line of aliasing.", |ui| ui.add(widgets::Slider::new(&mut c.grid.fade_near, 0.0..=1.0)));
+    setting(ui, "fade_far", "", |ui| ui.add(widgets::Slider::new(&mut c.grid.fade_far, 0.0..=1.0)));
 }
 
 /// `config.hud` -- HUD.
 pub fn group_hud(ui: &mut egui::Ui, c: &mut Config) {
-    setting(ui, "font", "Font for the HUD: a **name** or a **path**, or empty for the built-in DejaVu Sans.", |ui| ui.add(egui::TextEdit::singleline(&mut c.hud.font).desired_width(f32::INFINITY)));
-    setting(ui, "antialias", "Smooth the text drawn over the image, or draw it hard: the HUDs and every label -- the axes', the facets', the colour bar's, the gizmo's.", |ui| ui.checkbox(&mut c.hud.antialias, ""));
+    setting(ui, "font", "Font for the HUD: a **name** or a **path**, or empty for the built-in DejaVu Sans.", |ui| widgets::text_field(ui, egui::TextEdit::singleline(&mut c.hud.font).desired_width(f32::INFINITY)));
+    widgets::toggle(ui, "antialias", "Smooth the text drawn over the image, or draw it hard: the HUDs and every label -- the axes', the facets', the colour bar's, the gizmo's.", &mut c.hud.antialias);
 }
 
 /// `config.export` -- Export.
 pub fn group_export(ui: &mut egui::Ui, c: &mut Config) {
-    setting(ui, "sync", "Encode and write each exported frame on the render thread instead of a worker pool.", |ui| ui.checkbox(&mut c.export.sync, ""));
-    setting(ui, "max_queued", "How many frames may be waiting to be encoded before the render loop blocks.", |ui| ui.add(egui::Slider::new(&mut c.export.max_queued, 1..=512).clamping(egui::SliderClamping::Edits)));
-    setting(ui, "dir", "Directory exported frames are written to, as `{export_dir}/{N:06}.png`.", |ui| ui.add(egui::TextEdit::singleline(&mut c.export.dir).desired_width(f32::INFINITY)));
-    setting(ui, "hud", "Burn the HUD text into exported frames as well as drawing it on screen.", |ui| ui.checkbox(&mut c.export.hud, ""));
-    setting(ui, "axes", "Keep the axes -- grid, box or panes, gizmo, and their labels -- in exported frames as well as on screen.", |ui| ui.checkbox(&mut c.export.axes, ""));
+    widgets::toggle(ui, "sync", "Encode and write each exported frame on the render thread instead of a worker pool.", &mut c.export.sync);
+    setting(ui, "max_queued", "How many frames may be waiting to be encoded before the render loop blocks.", |ui| ui.add(widgets::Slider::new(&mut c.export.max_queued, 1..=512)));
+    setting(ui, "dir", "Directory exported frames are written to, as `{export_dir}/{N:06}.png`.", |ui| widgets::text_field(ui, egui::TextEdit::singleline(&mut c.export.dir).desired_width(f32::INFINITY)));
+    widgets::toggle(ui, "hud", "Burn the HUD text into exported frames as well as drawing it on screen.", &mut c.export.hud);
+    widgets::toggle(ui, "axes", "Keep the axes -- grid, box or panes, gizmo, and their labels -- in exported frames as well as on screen.", &mut c.export.axes);
 }
 
 /// `config.controls` -- Controls.
 pub fn group_controls(ui: &mut egui::Ui, c: &mut Config) {
-    setting(ui, "sensitivity_move", "Multiplier for WASD movement speed.", |ui| ui.add(egui::Slider::new(&mut c.controls.sensitivity_move, 0.1..=5.0).clamping(egui::SliderClamping::Edits)));
-    setting(ui, "sensitivity_look", "Multiplier for mouse-look speed in WASD mode.", |ui| ui.add(egui::Slider::new(&mut c.controls.sensitivity_look, 0.1..=5.0).clamping(egui::SliderClamping::Edits)));
-    setting(ui, "sensitivity_rotate", "Multiplier for arcball orbit speed.", |ui| ui.add(egui::Slider::new(&mut c.controls.sensitivity_rotate, 0.1..=5.0).clamping(egui::SliderClamping::Edits)));
-    setting(ui, "sensitivity_zoom", "Multiplier for scroll and pinch zoom speed.", |ui| ui.add(egui::Slider::new(&mut c.controls.sensitivity_zoom, 0.1..=5.0).clamping(egui::SliderClamping::Edits)));
-    setting(ui, "emulate_middle_button", "Treat alt + left-drag as a middle-drag, so the arcball can be orbited on hardware with no middle button. Blender calls the same setting \"Emulate 3 Button Mouse\". Defaults on for macOS, where a trackpad is the common case, and off elsewhere. Let `Option`/`Alt` + left-drag stand in for a middle-drag.", |ui| ui.checkbox(&mut c.controls.emulate_middle_button, ""));
-    setting(ui, "trackpad_orbit", "Two-finger swipe on a trackpad orbits, `shift` pans and `ctrl` zooms; off, it zooms like a wheel.", |ui| ui.checkbox(&mut c.controls.trackpad_orbit, ""));
+    setting(ui, "sensitivity_move", "Multiplier for WASD movement speed.", |ui| ui.add(widgets::Slider::new(&mut c.controls.sensitivity_move, 0.1..=5.0)));
+    setting(ui, "sensitivity_look", "Multiplier for mouse-look speed in WASD mode.", |ui| ui.add(widgets::Slider::new(&mut c.controls.sensitivity_look, 0.1..=5.0)));
+    setting(ui, "sensitivity_rotate", "Multiplier for arcball orbit speed.", |ui| ui.add(widgets::Slider::new(&mut c.controls.sensitivity_rotate, 0.1..=5.0)));
+    setting(ui, "sensitivity_zoom", "Multiplier for scroll and pinch zoom speed.", |ui| ui.add(widgets::Slider::new(&mut c.controls.sensitivity_zoom, 0.1..=5.0)));
+    widgets::toggle(ui, "emulate_middle_button", "Treat alt + left-drag as a middle-drag, so the arcball can be orbited on hardware with no middle button. Blender calls the same setting \"Emulate 3 Button Mouse\". Defaults on for macOS, where a trackpad is the common case, and off elsewhere. Let `Option`/`Alt` + left-drag stand in for a middle-drag.", &mut c.controls.emulate_middle_button);
+    widgets::toggle(ui, "trackpad_orbit", "Two-finger swipe on a trackpad orbits, `shift` pans and `ctrl` zooms; off, it zooms like a wheel.", &mut c.controls.trackpad_orbit);
 }
 
 /// `config.image` -- Image.
 pub fn group_image(ui: &mut egui::Ui, c: &mut Config) {
-    setting(ui, "image width", "Render size in physical pixels -- the *image*, not the window.", |ui| ui.add(egui::Slider::new(&mut c.image.width, 0..=7680).clamping(egui::SliderClamping::Edits)));
-    setting(ui, "image height", "", |ui| ui.add(egui::Slider::new(&mut c.image.height, 0..=4320).clamping(egui::SliderClamping::Edits)));
-    setting(ui, "mirror left to right", "Mirror the image left to right: the camera's right drawn on the left.", |ui| ui.checkbox(&mut c.image.flip_x, ""));
-    setting(ui, "mirror top to bottom", "Mirror the image top to bottom: the camera's up drawn at the bottom.", |ui| ui.checkbox(&mut c.image.flip_y, ""));
+    setting(ui, "image width", "Render size in physical pixels -- the *image*, not the window.", |ui| ui.add(widgets::Slider::new(&mut c.image.width, 0..=7680)));
+    setting(ui, "image height", "", |ui| ui.add(widgets::Slider::new(&mut c.image.height, 0..=4320)));
+    widgets::toggle(ui, "mirror left to right", "Mirror the image left to right: the camera's right drawn on the left.", &mut c.image.flip_x);
+    widgets::toggle(ui, "mirror top to bottom", "Mirror the image top to bottom: the camera's up drawn at the bottom.", &mut c.image.flip_y);
 }
 
 /// `config.response` -- Response.
 pub fn group_response(ui: &mut egui::Ui, c: &mut Config) {
-    setting(ui, "enabled", "Apply it. Off by default.", |ui| ui.checkbox(&mut c.response.enabled, ""));
+    widgets::toggle(ui, "enabled", "Apply it. Off by default.", &mut c.response.enabled);
     if c.response.enabled == true {
-        setting(ui, "core", "The core's standard deviation, pixels: a Gaussian holding the light the halos do not. 0: a point.", |ui| ui.add(egui::Slider::new(&mut c.response.core, 0.0..=16.0).clamping(egui::SliderClamping::Edits)));
+        setting(ui, "core", "The core's standard deviation, pixels: a Gaussian holding the light the halos do not. 0: a point.", |ui| ui.add(widgets::Slider::new(&mut c.response.core, 0.0..=16.0)));
     }
     if c.response.enabled == true {
-        setting(ui, "halo_share", "The first halo's share of the light, spread as `exp(-r / halo_scale)`. The halos' shares over 1 together are scaled down to 1.", |ui| ui.add(egui::Slider::new(&mut c.response.halo_share, 0.0..=1.0).clamping(egui::SliderClamping::Edits)));
+        setting(ui, "halo_share", "The first halo's share of the light, spread as `exp(-r / halo_scale)`. The halos' shares over 1 together are scaled down to 1.", |ui| ui.add(widgets::Slider::new(&mut c.response.halo_share, 0.0..=1.0)));
     }
     if c.response.enabled == true {
-        setting(ui, "halo_scale", "The first halo's scale, pixels.", |ui| ui.add(egui::Slider::new(&mut c.response.halo_scale, 0.0..=2000.0).clamping(egui::SliderClamping::Edits)));
+        setting(ui, "halo_scale", "The first halo's scale, pixels.", |ui| ui.add(widgets::Slider::new(&mut c.response.halo_scale, 0.0..=2000.0)));
     }
     if c.response.enabled == true {
-        setting(ui, "halo2_share", "The second halo's share of the light, spread as `exp(-r / halo2_scale)`.", |ui| ui.add(egui::Slider::new(&mut c.response.halo2_share, 0.0..=1.0).clamping(egui::SliderClamping::Edits)));
+        setting(ui, "halo2_share", "The second halo's share of the light, spread as `exp(-r / halo2_scale)`.", |ui| ui.add(widgets::Slider::new(&mut c.response.halo2_share, 0.0..=1.0)));
     }
     if c.response.enabled == true {
-        setting(ui, "halo2_scale", "The second halo's scale, pixels.", |ui| ui.add(egui::Slider::new(&mut c.response.halo2_scale, 0.0..=2000.0).clamping(egui::SliderClamping::Edits)));
+        setting(ui, "halo2_scale", "The second halo's scale, pixels.", |ui| ui.add(widgets::Slider::new(&mut c.response.halo2_scale, 0.0..=2000.0)));
     }
     if c.response.enabled == true {
-        setting(ui, "smear", "The smear's length, pixels: each point drawn out to a segment, the image's motion across the sensor over the exposure. 0: none.", |ui| ui.add(egui::Slider::new(&mut c.response.smear, 0.0..=64.0).clamping(egui::SliderClamping::Edits)));
+        setting(ui, "smear", "The smear's length, pixels: each point drawn out to a segment, the image's motion across the sensor over the exposure. 0: none.", |ui| ui.add(widgets::Slider::new(&mut c.response.smear, 0.0..=64.0)));
     }
     if c.response.enabled == true {
-        setting(ui, "smear_angle", "The smear's direction, degrees from the image's x axis toward its y axis, down the image: 0 along the rows.", |ui| ui.add(egui::Slider::new(&mut c.response.smear_angle, -180.0..=180.0).clamping(egui::SliderClamping::Edits)));
+        setting(ui, "smear_angle", "The smear's direction, degrees from the image's x axis toward its y axis, down the image: 0 along the rows.", |ui| ui.add(widgets::Slider::new(&mut c.response.smear_angle, -180.0..=180.0)));
     }
 }
 
 /// `config.stretch` -- Stretch.
 pub fn group_stretch(ui: &mut egui::Ui, c: &mut Config) {
     setting(ui, "scale", "The function between the limits, DS9's: `\"linear\"`, the default, `\"log\"`, `\"pow\"`, `\"sqrt\"`, `\"squared\"`, `\"asinh\"`, `\"sinh\"`, or `\"histequ\"`, histogram equalisation.", |ui| {
-        egui::ComboBox::from_id_salt("c.stretch.scale")
+        widgets::ComboBox::from_id_salt("c.stretch.scale")
             .selected_text(format!("{:?}", c.stretch.scale))
             .show_ui(ui, |ui| {
-                ui.selectable_value(&mut c.stretch.scale, crate::app::config::StretchScale::Linear, "Linear").on_hover_text("`x`. The default.");
-                ui.selectable_value(&mut c.stretch.scale, crate::app::config::StretchScale::Log, "Log").on_hover_text("`log(a x + 1) / log(a + 1)`, `a` the exponent: the faint lifted.");
-                ui.selectable_value(&mut c.stretch.scale, crate::app::config::StretchScale::Pow, "Pow").on_hover_text("`(a^x - 1) / (a - 1)`: the bright spread, the inverse of log.");
-                ui.selectable_value(&mut c.stretch.scale, crate::app::config::StretchScale::Sqrt, "Sqrt").on_hover_text("The square root of `x`.");
-                ui.selectable_value(&mut c.stretch.scale, crate::app::config::StretchScale::Squared, "Squared").on_hover_text("`x` squared.");
-                ui.selectable_value(&mut c.stretch.scale, crate::app::config::StretchScale::Asinh, "Asinh").on_hover_text("`asinh(10 x) / asinh(10)`: linear in the faint, logarithmic above.");
-                ui.selectable_value(&mut c.stretch.scale, crate::app::config::StretchScale::Sinh, "Sinh").on_hover_text("`sinh(3 x) / sinh(3)`.");
-                ui.selectable_value(&mut c.stretch.scale, crate::app::config::StretchScale::Histequ, "Histequ").on_hover_text("Histogram equalisation: each value shown as the share of the values between the limits under it.");
+                widgets::choice(ui, &mut c.stretch.scale, crate::app::config::StretchScale::Linear, "Linear").on_hover_text("`x`. The default.");
+                widgets::choice(ui, &mut c.stretch.scale, crate::app::config::StretchScale::Log, "Log").on_hover_text("`log(a x + 1) / log(a + 1)`, `a` the exponent: the faint lifted.");
+                widgets::choice(ui, &mut c.stretch.scale, crate::app::config::StretchScale::Pow, "Pow").on_hover_text("`(a^x - 1) / (a - 1)`: the bright spread, the inverse of log.");
+                widgets::choice(ui, &mut c.stretch.scale, crate::app::config::StretchScale::Sqrt, "Sqrt").on_hover_text("The square root of `x`.");
+                widgets::choice(ui, &mut c.stretch.scale, crate::app::config::StretchScale::Squared, "Squared").on_hover_text("`x` squared.");
+                widgets::choice(ui, &mut c.stretch.scale, crate::app::config::StretchScale::Asinh, "Asinh").on_hover_text("`asinh(10 x) / asinh(10)`: linear in the faint, logarithmic above.");
+                widgets::choice(ui, &mut c.stretch.scale, crate::app::config::StretchScale::Sinh, "Sinh").on_hover_text("`sinh(3 x) / sinh(3)`.");
+                widgets::choice(ui, &mut c.stretch.scale, crate::app::config::StretchScale::Histequ, "Histequ").on_hover_text("Histogram equalisation: each value shown as the share of the values between the limits under it.");
             });
     });
     setting(ui, "limits", "The values shown black and white: `\"user\"`, the default, `low` and `high`; `\"minmax\"`, the image's least and greatest; `\"percent\"`; `\"zscale\"`, IRAF's; or `\"zmax\"`, zscale's low and the greatest.", |ui| {
-        egui::ComboBox::from_id_salt("c.stretch.limits")
+        widgets::ComboBox::from_id_salt("c.stretch.limits")
             .selected_text(format!("{:?}", c.stretch.limits))
             .show_ui(ui, |ui| {
-                ui.selectable_value(&mut c.stretch.limits, crate::app::config::StretchLimits::User, "User").on_hover_text("`low` and `high`, as given. The default.");
-                ui.selectable_value(&mut c.stretch.limits, crate::app::config::StretchLimits::Minmax, "Minmax").on_hover_text("The image's least value and its greatest.");
-                ui.selectable_value(&mut c.stretch.limits, crate::app::config::StretchLimits::Percent, "Percent").on_hover_text("The values `percent` of them lie between, as many cut below as above: from a histogram, to about 1 %.");
-                ui.selectable_value(&mut c.stretch.limits, crate::app::config::StretchLimits::Zscale, "Zscale").on_hover_text("IRAF's zscale, as DS9 and astropy have it: a line fitted to 1000 of the values, sorted, the outliers cut, its slope over `contrast` about the median. For a sky and its faint objects.");
-                ui.selectable_value(&mut c.stretch.limits, crate::app::config::StretchLimits::Zmax, "Zmax").on_hover_text("zscale's low limit, and the greatest value.");
+                widgets::choice(ui, &mut c.stretch.limits, crate::app::config::StretchLimits::User, "User").on_hover_text("`low` and `high`, as given. The default.");
+                widgets::choice(ui, &mut c.stretch.limits, crate::app::config::StretchLimits::Minmax, "Minmax").on_hover_text("The image's least value and its greatest.");
+                widgets::choice(ui, &mut c.stretch.limits, crate::app::config::StretchLimits::Percent, "Percent").on_hover_text("The values `percent` of them lie between, as many cut below as above: from a histogram, to about 1 %.");
+                widgets::choice(ui, &mut c.stretch.limits, crate::app::config::StretchLimits::Zscale, "Zscale").on_hover_text("IRAF's zscale, as DS9 and astropy have it: a line fitted to 1000 of the values, sorted, the outliers cut, its slope over `contrast` about the median. For a sky and its faint objects.");
+                widgets::choice(ui, &mut c.stretch.limits, crate::app::config::StretchLimits::Zmax, "Zmax").on_hover_text("zscale's low limit, and the greatest value.");
             });
     });
     if c.stretch.limits == crate::app::config::StretchLimits::Percent {
-        setting(ui, "percent", "With `\"percent\"` limits: the share of the values between them, the rest cut as much below as above. 99.5 by default.", |ui| ui.add(egui::Slider::new(&mut c.stretch.percent, 50.0..=100.0).clamping(egui::SliderClamping::Edits)));
+        setting(ui, "percent", "With `\"percent\"` limits: the share of the values between them, the rest cut as much below as above. 99.5 by default.", |ui| ui.add(widgets::Slider::new(&mut c.stretch.percent, 50.0..=100.0)));
     }
     if c.stretch.limits == crate::app::config::StretchLimits::User {
-        setting(ui, "low", "With `\"user\"` limits: the value shown black, in the image's values -- 1 is white unstretched.", |ui| ui.add(egui::DragValue::new(&mut c.stretch.low).speed(0.001)));
+        setting(ui, "low", "With `\"user\"` limits: the value shown black, in the image's values -- 1 is white unstretched.", |ui| widgets::number(ui, &mut c.stretch.low, |d| d.speed(0.001)));
     }
     if c.stretch.limits == crate::app::config::StretchLimits::User {
-        setting(ui, "high", "With `\"user\"` limits: the value shown white.", |ui| ui.add(egui::DragValue::new(&mut c.stretch.high).speed(0.001)));
+        setting(ui, "high", "With `\"user\"` limits: the value shown white.", |ui| widgets::number(ui, &mut c.stretch.high, |d| d.speed(0.001)));
     }
     if c.stretch.scale.has_exponent() {
-        setting(ui, "exponent", "The `\"log\"` and `\"pow\"` scales' exponent `a`: DS9's 1000 by default.", |ui| ui.add(egui::DragValue::new(&mut c.stretch.exponent).speed(10.0)));
+        setting(ui, "exponent", "The `\"log\"` and `\"pow\"` scales' exponent `a`: DS9's 1000 by default.", |ui| widgets::number(ui, &mut c.stretch.exponent, |d| d.speed(10.0)));
     }
     if c.stretch.limits.zscale() {
-        setting(ui, "contrast", "zscale's contrast: IRAF's 0.25 by default; less widens the limits.", |ui| ui.add(egui::Slider::new(&mut c.stretch.contrast, 0.01..=1.0).clamping(egui::SliderClamping::Edits)));
+        setting(ui, "contrast", "zscale's contrast: IRAF's 0.25 by default; less widens the limits.", |ui| ui.add(widgets::Slider::new(&mut c.stretch.contrast, 0.01..=1.0)));
     }
 }
 
 /// `config.photometry` -- Photometry.
 pub fn group_photometry(ui: &mut egui::Ui, c: &mut Config) {
-    setting(ui, "enabled", "Draw the image for photometry and measure each frame that advances: the light of what the camera sees, for `sim.fluxes()`.", |ui| ui.checkbox(&mut c.photometry.enabled, ""));
+    widgets::toggle(ui, "enabled", "Draw the image for photometry and measure each frame that advances: the light of what the camera sees, for `sim.fluxes()`.", &mut c.photometry.enabled);
 }
 
 /// `config.telescope` -- Telescope.
 pub fn group_telescope(ui: &mut egui::Ui, c: &mut Config) {
-    setting(ui, "show", "Show the telescope's last frame in the window instead of the scene: fitted to the image, its rows as DS9 shows them. Through the stretch when `stretch` is on, linear from 3 sigma under its sky to 20 above otherwise. The bodies are still drawn, for their light.", |ui| ui.checkbox(&mut c.telescope.show, ""));
+    widgets::toggle(ui, "show", "Show the telescope's last frame in the window instead of the scene: fitted to the image, its rows as DS9 shows them. Through the stretch when `stretch` is on, linear from 3 sigma under its sky to 20 above otherwise. The bodies are still drawn, for their light.", &mut c.telescope.show);
 }
 
 /// `config.debug` -- Debug.
 pub fn group_debug(ui: &mut egui::Ui, c: &mut Config) {
-    setting(ui, "app", "Print app lifecycle events: pause and camera-mode changes.", |ui| ui.checkbox(&mut c.debug.app, ""));
-    setting(ui, "window", "Print window and GPU setup: chosen surface format, adapter and device features, and **the present modes the surface supports**.", |ui| ui.checkbox(&mut c.debug.window, ""));
-    setting(ui, "window_mesh", "Print per-mesh detail as meshes are uploaded.", |ui| ui.checkbox(&mut c.debug.window_mesh, ""));
-    setting(ui, "simulation", "**Does nothing.** The field exists and is settable from Python, but no code reads it. Left as a placeholder.", |ui| ui.checkbox(&mut c.debug.simulation, ""));
-    setting(ui, "gpu_timing", "Time each GPU pass with timestamp queries, into `sim.gpu_timings()`.", |ui| ui.checkbox(&mut c.debug.gpu_timing, ""));
-    setting(ui, "occlusion_queries", "Count what each body actually drew, with occlusion queries.", |ui| ui.checkbox(&mut c.debug.occlusion_queries, ""));
-    setting(ui, "depth_show", "", |ui| ui.checkbox(&mut c.debug.depth_show, ""));
-    setting(ui, "extra", "Free integer passed through to the shader, for one-off experiments.", |ui| ui.add(egui::Slider::new(&mut c.debug.extra, 0..=10).clamping(egui::SliderClamping::Edits)));
+    widgets::toggle(ui, "app", "Print app lifecycle events: pause and camera-mode changes.", &mut c.debug.app);
+    widgets::toggle(ui, "window", "Print window and GPU setup: chosen surface format, adapter and device features, and **the present modes the surface supports**.", &mut c.debug.window);
+    widgets::toggle(ui, "window_mesh", "Print per-mesh detail as meshes are uploaded.", &mut c.debug.window_mesh);
+    widgets::toggle(ui, "simulation", "**Does nothing.** The field exists and is settable from Python, but no code reads it. Left as a placeholder.", &mut c.debug.simulation);
+    widgets::toggle(ui, "gpu_timing", "Time each GPU pass with timestamp queries, into `sim.gpu_timings()`.", &mut c.debug.gpu_timing);
+    widgets::toggle(ui, "occlusion_queries", "Count what each body actually drew, with occlusion queries.", &mut c.debug.occlusion_queries);
+    widgets::toggle(ui, "depth_show", "", &mut c.debug.depth_show);
+    setting(ui, "extra", "Free integer passed through to the shader, for one-off experiments.", |ui| ui.add(widgets::Slider::new(&mut c.debug.extra, 0..=10)));
 }
 
 /// `app.config` -- Panels.
 pub fn app_panels(ui: &mut egui::Ui, a: &mut AppConfig) {
-    setting(ui, "focus", "Give the whole window to the renderer: panels out of the way, each coming back when the pointer reaches its edge.", |ui| ui.checkbox(&mut a.focus, ""));
-    setting(ui, "panels_folded", "Fold the editor's panels to the window edges; `N` toggles it.", |ui| ui.checkbox(&mut a.panels_folded, ""));
-    setting(ui, "toolbar_folded", "Fold the toolbar, the top panel, or bring it back; `↑` toggles it.", |ui| ui.checkbox(&mut a.toolbar_folded, ""));
-    setting(ui, "log_folded", "Fold the log, the bottom panel, or bring it back; `↓` toggles it.", |ui| ui.checkbox(&mut a.log_folded, ""));
-    setting(ui, "simulation_folded", "Fold the side panel, on the right -- app, simulation and files -- or bring it back; `→` toggles it.", |ui| ui.checkbox(&mut a.simulation_folded, ""));
-    setting(ui, "toolbar text", "What the editor's toolbar says beside the transport buttons.", |ui| ui.add(egui::TextEdit::singleline(&mut a.toolbar).desired_width(f32::INFINITY)));
+    widgets::toggle(ui, "focus", "Give the whole window to the renderer: panels out of the way, each coming back when the pointer reaches its edge.", &mut a.focus);
+    widgets::toggle(ui, "panels_folded", "Fold the editor's panels to the window edges; `N` toggles it.", &mut a.panels_folded);
+    widgets::toggle(ui, "toolbar_folded", "Fold the toolbar, the top panel, or bring it back; `↑` toggles it.", &mut a.toolbar_folded);
+    widgets::toggle(ui, "log_folded", "Fold the log, the bottom panel, or bring it back; `↓` toggles it.", &mut a.log_folded);
+    widgets::toggle(ui, "simulation_folded", "Fold the side panel, on the right -- app, simulation and files -- or bring it back; `→` toggles it.", &mut a.simulation_folded);
+    setting(ui, "toolbar text", "What the editor's toolbar says beside the transport buttons.", |ui| widgets::text_field(ui, egui::TextEdit::singleline(&mut a.toolbar).desired_width(f32::INFINITY)));
 }
 
 /// `app.config` -- Window.
 pub fn app_window(ui: &mut egui::Ui, a: &mut AppConfig) {
-    setting(ui, "theme", "The colours of the UI app's panels: `\"catppuccin-mocha\"`, the default, or `\"dark\"`, egui's own.", |ui| {
-        egui::ComboBox::from_id_salt("a.theme")
+    setting(ui, "theme", "The colours of the UI app's panels: `\"blender\"`, the default, Blender's own; `\"catppuccin-mocha\"`; or `\"dark\"`, egui's own.", |ui| {
+        widgets::ComboBox::from_id_salt("a.theme")
             .selected_text(format!("{:?}", a.theme))
             .show_ui(ui, |ui| {
-                ui.selectable_value(&mut a.theme, crate::app::config::UiTheme::CatppuccinMocha, "CatppuccinMocha").on_hover_text("Catppuccin's Mocha, its darkest flavour. The default.");
-                ui.selectable_value(&mut a.theme, crate::app::config::UiTheme::Dark, "Dark").on_hover_text("egui's dark theme, whatever the system's appearance.");
+                widgets::choice(ui, &mut a.theme, crate::app::config::UiTheme::Blender, "Blender").on_hover_text("Blender's own theme, its colours as Blender ships them. The default.");
+                widgets::choice(ui, &mut a.theme, crate::app::config::UiTheme::CatppuccinMocha, "CatppuccinMocha").on_hover_text("Catppuccin's Mocha, its darkest flavour.");
+                widgets::choice(ui, &mut a.theme, crate::app::config::UiTheme::Dark, "Dark").on_hover_text("egui's dark theme, whatever the system's appearance.");
             });
     });
-    setting(ui, "remember last window", "Open the UI app's window where it was left: on its screen, at its place and size, fullscreen if it was.", |ui| ui.checkbox(&mut a.remember_window, ""));
-    setting(ui, "title", "The OS window title.", |ui| ui.add(egui::TextEdit::singleline(&mut a.title).desired_width(f32::INFINITY)));
-    setting(ui, "fullscreen", "Open the window in native fullscreen (borderless, current monitor).", |ui| ui.checkbox(&mut a.fullscreen, ""));
-    setting(ui, "vsync", "Cap the frame rate to the display refresh.", |ui| ui.checkbox(&mut a.vsync, ""));
+    widgets::toggle(ui, "remember last window", "Open the UI app's window where it was left: on its screen, at its place and size, fullscreen if it was.", &mut a.remember_window);
+    setting(ui, "title", "The OS window title.", |ui| widgets::text_field(ui, egui::TextEdit::singleline(&mut a.title).desired_width(f32::INFINITY)));
+    widgets::toggle(ui, "fullscreen", "Open the window in native fullscreen (borderless, current monitor).", &mut a.fullscreen);
+    widgets::toggle(ui, "vsync", "Cap the frame rate to the display refresh.", &mut a.vsync);
 }
 
 /// `app.config` -- Editor.
 pub fn app_editor(ui: &mut egui::Ui, a: &mut AppConfig) {
-    setting(ui, "neovim", "Neovim in the script editor: your own `nvim`, run the way VS Code's Neovim extension runs it -- modes, motions, operators, `:` commands, registers, macros and mappings -- with the config `neovim_config` names.", |ui| ui.checkbox(&mut a.neovim, ""));
-    setting(ui, "neovim path", "The Neovim to run when `neovim` is on; empty for `nvim` on the PATH.", |ui| ui.add(egui::TextEdit::singleline(&mut a.neovim_path).desired_width(f32::INFINITY)));
-    setting(ui, "neovim config", "The config Neovim reads: `\"kalast\"`, the one kalast ships; `\"user\"`, your own, where Neovim looks for it; or a path, to a config folder holding `init.lua` or to one file.", |ui| ui.add(egui::TextEdit::singleline(&mut a.neovim_config).desired_width(f32::INFINITY)));
-    setting(ui, "ruler", "The column the script editor draws a vertical line at, 0 for none: `editor.rulers` in VS Code, `colorcolumn` in Vim.", |ui| ui.add(egui::Slider::new(&mut a.ruler, 0..=200).clamping(egui::SliderClamping::Edits)));
-    setting(ui, "language servers", "Completion, hover, signatures and errors in the script editor, from a language server -- pyright for Python, rust-analyzer for Rust -- the servers VS Code runs for its own.", |ui| ui.checkbox(&mut a.language_servers, ""));
-    setting(ui, "python server", "The command starting the Python language server; empty for the first of `basedpyright-langserver`, `pyright-langserver`, `pylsp` and `jedi-language-server` found.", |ui| ui.add(egui::TextEdit::singleline(&mut a.python_language_server).desired_width(f32::INFINITY)));
-    setting(ui, "rust server", "The command starting the Rust language server; empty for `rust-analyzer`.", |ui| ui.add(egui::TextEdit::singleline(&mut a.rust_language_server).desired_width(f32::INFINITY)));
+    widgets::toggle(ui, "neovim", "Neovim in the script editor: your own `nvim`, run the way VS Code's Neovim extension runs it -- modes, motions, operators, `:` commands, registers, macros and mappings -- with the config `neovim_config` names.", &mut a.neovim);
+    setting(ui, "neovim path", "The Neovim to run when `neovim` is on; empty for `nvim` on the PATH.", |ui| widgets::text_field(ui, egui::TextEdit::singleline(&mut a.neovim_path).desired_width(f32::INFINITY)));
+    setting(ui, "neovim config", "The config Neovim reads: `\"kalast\"`, the one kalast ships; `\"user\"`, your own, where Neovim looks for it; or a path, to a config folder holding `init.lua` or to one file.", |ui| widgets::text_field(ui, egui::TextEdit::singleline(&mut a.neovim_config).desired_width(f32::INFINITY)));
+    setting(ui, "ruler", "The column the script editor draws a vertical line at, 0 for none: `editor.rulers` in VS Code, `colorcolumn` in Vim.", |ui| ui.add(widgets::Slider::new(&mut a.ruler, 0..=200)));
+    widgets::toggle(ui, "language servers", "Completion, hover, signatures and errors in the script editor, from a language server -- pyright for Python, rust-analyzer for Rust -- the servers VS Code runs for its own.", &mut a.language_servers);
+    setting(ui, "python server", "The command starting the Python language server; empty for the first of `basedpyright-langserver`, `pyright-langserver`, `pylsp` and `jedi-language-server` found.", |ui| widgets::text_field(ui, egui::TextEdit::singleline(&mut a.python_language_server).desired_width(f32::INFINITY)));
+    setting(ui, "rust server", "The command starting the Rust language server; empty for `rust-analyzer`.", |ui| widgets::text_field(ui, egui::TextEdit::singleline(&mut a.rust_language_server).desired_width(f32::INFINITY)));
 }
 
 /// `app.config` -- Updates.
 pub fn app_updates(ui: &mut egui::Ui, a: &mut AppConfig) {
-    setting(ui, "check for updates", "Ask GitHub for a newer release when the UI app opens, and offer it in the toolbar. On a thread, so nothing waits on it; never when a script runs its own window. Off, kalast touches the network at no point.", |ui| ui.checkbox(&mut a.check_updates, ""));
-    setting(ui, "offer betas", "Offer betas too: the pre-release of the next version, built from main and replaced as it moves on, beside the releases. Remembered.", |ui| ui.checkbox(&mut a.update_betas, ""));
+    widgets::toggle(ui, "check for updates", "Ask GitHub for a newer release when the UI app opens, and offer it in the toolbar. On a thread, so nothing waits on it; never when a script runs its own window. Off, kalast touches the network at no point.", &mut a.check_updates);
+    widgets::toggle(ui, "offer betas", "Offer betas too: the pre-release of the next version, built from main and replaced as it moves on, beside the releases. Remembered.", &mut a.update_betas);
 }
 

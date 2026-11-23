@@ -282,6 +282,18 @@ def view_factor_triangles(tri_a: numpy.ndarray, tri_b: numpy.ndarray, ratio: flo
     fraction of energy leaving A that reaches B.
     """
     ...
+def view_factor_exact(tri_a: numpy.ndarray, tri_b: numpy.ndarray) -> float:
+    """The exact view factor `F(A->B)` between two triangles given as (3, 3)
+    arrays of vertices, one row per vertex, counter-clockwise seen from the
+    side the normal points to.
+
+    The double contour integral of Sparrow (1963) as Lagerros (1998, appendix
+    A.1) writes it for triangles: exact for neighbours that share a side or a
+    corner, where the formula of two points fails. A triangle crossing the
+    other's plane counts for its part in front. Computed in double precision.
+    Nothing between the two is looked for: visibility is another question.
+    """
+    ...
 def largest_slope_angle_sphere(S: float) -> float:
     """Largest slope angle of spherical segment, in radian.
 

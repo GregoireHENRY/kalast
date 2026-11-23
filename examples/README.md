@@ -173,6 +173,16 @@ you have any question or want any feature added.
           last spin: the daily wave going down, lagging and dying out with
           depth; for `tpm_logo.py`, through the last year as well, the
           seasons' wave down the whole column.
+- [didymos/tpm.rs](didymos/tpm.rs):
+    - Didymos and Dimorphos, each facet's surface temperature from the
+      thermophysical model: Didymos turning in 2.26 h, Dimorphos along its
+      11.37 h orbit facing it, the heat conducted down a column under each
+      facet, as [sphere/tpm.py](sphere/tpm.py) makes them.
+    - Written with callbacks (`set_before_render`) and `start()` rather than
+      a loop of `step()`s, which is what lets it run in a browser too, at
+      [kalast.greghy.com](https://kalast.greghy.com/#examples/didymos/tpm.rs).
+    - DART's shape models, Didymos v003 and Dimorphos v004, at 10,000 facets
+      each, in `res/`.
 - [two_spheres/main.py](two_spheres/main.py):
     - Showcase with two bodies and mutual shadows.
     - The second body is loaded with a custom 4D model matrix to change its

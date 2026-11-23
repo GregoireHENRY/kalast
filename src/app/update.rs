@@ -36,8 +36,28 @@
 
 use std::path::{Path, PathBuf};
 
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))] // the desktop's updater
 const REPO: &str = "GregoireHENRY/kalast";
 pub const CURRENT: &str = env!("CARGO_PKG_VERSION");
+
+/// What the browser's page is beside its version, for its beta: "beta (built
+/// <date>)", which the page knows from its address (`web/`), where the desktop
+/// learns that it is a beta from GitHub (`message`).
+static PAGE_BUILD: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Set by the page, before the UI app starts.
+pub fn set_page_build(build: String) {
+    let _ = PAGE_BUILD.set(build);
+}
+
+/// "kalast v<version>", and what the page is beside it: the kalast tab's first
+/// line.
+pub fn this_build() -> String {
+    match PAGE_BUILD.get() {
+        Some(build) => format!("kalast v{CURRENT} {build}"),
+        None => format!("kalast v{CURRENT}"),
+    }
+}
 
 /// Which commit this build is, and when that commit was made, in UTC as
 /// GitHub writes its dates. Set by the release workflow for the bundle's
@@ -188,11 +208,13 @@ pub fn asset_name(version: &str) -> String {
     format!("kalast-v{version}-{os}-{arch}.{ext}")
 }
 
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))] // the desktop's updater
 fn agent() -> String {
     format!("kalast/{CURRENT}")
 }
 
 /// Ask GitHub, betas offered too or not. Blocking; run it on a thread.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn check(current: &str, betas: bool) -> Result<Update, String> {
     let url = format!("https://api.github.com/repos/{REPO}/releases?per_page=100");
     let mut response = ureq::get(&url)
@@ -202,6 +224,12 @@ pub fn check(current: &str, betas: bool) -> Result<Update, String> {
         .map_err(|e| e.to_string())?;
     let body = response.body_mut().read_to_string().map_err(|e| e.to_string())?;
     parse(&body, current, betas)
+}
+
+/// The browser's page is the latest there is.
+#[cfg(target_arch = "wasm32")]
+pub fn check(_current: &str, _betas: bool) -> Result<Update, String> {
+    Err("no updates in the browser".to_string())
 }
 
 /// The releases list as GitHub returns it, against `current` and this build.
@@ -401,6 +429,12 @@ pub fn install_release(release: &Release, kind: &Kind, log: &dyn Fn(String)) -> 
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+fn install_bundle(_release: &Release, _dir: &Path, _log: &dyn Fn(String)) -> Result<(), String> {
+    Err("no updates in the browser".to_string())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn install_bundle(release: &Release, dir: &Path, log: &dyn Fn(String)) -> Result<(), String> {
     let name = asset_name(&release.version);
     let (_, url) = release
@@ -457,6 +491,7 @@ fn install_bundle(release: &Release, dir: &Path, log: &dyn Fn(String)) -> Result
 /// namesake, `examples` with the rest. What it replaces goes to `.previous`
 /// first: on Windows the running executable cannot be deleted, but it can be
 /// renamed, and `clean_previous` takes the folder away at the next start.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))] // the desktop's updater
 fn install_unpacked(inner: &Path, dir: &Path, version: &str, shipped: &Shipped, log: &dyn Fn(String)) -> Result<(), String> {
     if let Some(kept) = keep_changed_examples(dir, &dir.join("examples"), version, shipped)? {
         log(kept_line(&kept, dir));
@@ -472,6 +507,7 @@ fn install_unpacked(inner: &Path, dir: &Path, version: &str, shipped: &Shipped, 
 /// Every entry of `inner`, an archive unpacked, in place of its namesake in
 /// `dir`, which goes to `previous` -- all but the user's `scripts`, which no
 /// archive is to replace, whatever it holds.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))] // the desktop's updater
 fn swap_in(inner: &Path, dir: &Path, previous: &Path) -> Result<(), String> {
     for entry in std::fs::read_dir(inner).map_err(|e| format!("{}: {e}", inner.display()))? {
         let entry = entry.map_err(|e| e.to_string())?;

@@ -14,8 +14,8 @@ pub const RPD: Float = 1.0 / DPR;
 pub const AU: Float = 1.495978707e11;
 pub const AU_KM: Float = 1.495978707e8;
 
-// integrated solar flux at 1 AU (W/m2)
-pub const SOLAR_CONSTANT: Float = 1369.0;
+// integrated solar flux at 1 au (W/m2): Kopp & Lean (2011), the IAU nominal value (2015)
+pub const SOLAR_CONSTANT: Float = 1361.0;
 
 pub const STEFAN_BOLTZMANN: Float = 5.670374419e-8;
 

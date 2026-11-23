@@ -869,8 +869,8 @@ fn trace(direction: &str, message: &Value) {
             text.truncate(cut);
             text.push_str("...");
         }
-        let elapsed = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
+        let elapsed = web_time::SystemTime::now()
+            .duration_since(web_time::UNIX_EPOCH)
             .map(|d| d.as_secs_f64())
             .unwrap_or_default();
         let _ = writeln!(file.lock().unwrap(), "{elapsed:.3} {direction} {text}");
@@ -915,6 +915,7 @@ fn read_message(reader: &mut impl BufRead) -> std::io::Result<Option<Value>> {
 
 /// Low priority, and on Windows no console window: a language server is a
 /// console program, and started from a double-clicked app it would open one.
+#[cfg_attr(not(any(unix, windows)), allow(unused_variables))]
 fn background(command: &mut Command) {
     #[cfg(windows)]
     {
@@ -1466,10 +1467,10 @@ mod tests {
         let text = "import os\nx: int = \"a\"\nos.pa";
         std::fs::write(&file, text).unwrap();
         let mut server = Server::start(spec.clone(), "python", &dir, settings(None, &[]), || {}).unwrap();
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        let deadline = web_time::Instant::now() + std::time::Duration::from_secs(60);
         let mut replies = Vec::new();
         let mut asked = None;
-        while std::time::Instant::now() < deadline {
+        while web_time::Instant::now() < deadline {
             replies.extend(server.poll());
             server.sync(&file, text);
             if server.ready() && asked.is_none() {

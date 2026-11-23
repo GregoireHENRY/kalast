@@ -5,10 +5,10 @@
 // into it, where each body's facets begin, how each body reflects -- three
 // `vec4` a body, its facets' mean colour and its law's number, then the
 // law's parameters, as `law_factor` takes them.
-@group(7) @binding(1) var<storage, read> ray_positions: array<f32>;
-@group(7) @binding(2) var<storage, read> ray_indices: array<u32>;
-@group(7) @binding(3) var<storage, read> ray_index_base: array<u32>;
-@group(7) @binding(4) var<storage, read> ray_surface: array<vec4<f32>>;
+@group(4) @binding(1) var<storage, read> ray_positions: array<f32>;
+@group(4) @binding(2) var<storage, read> ray_indices: array<u32>;
+@group(4) @binding(3) var<storage, read> ray_index_base: array<u32>;
+@group(4) @binding(4) var<storage, read> ray_surface: array<vec4<f32>>;
 
 // Halton's bases for the bounces, four a bounce -- the direction's two and
 // the disc's two at the surface met -- after the pixel's 2 and 3 and the

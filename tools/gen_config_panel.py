@@ -169,9 +169,13 @@ def widget(path: str, name: str, rust: str, doc: str) -> list[str]:
     when = marker(doc, "when")
     label = marker(doc, "label") or name
 
-    def row(body: list[str]) -> list[str]:
-        """`body` is the closure's lines, drawing the control."""
-        if len(body) == 1:
+    def row(body: list[str], toggle: bool = False) -> list[str]:
+        """`body` is the closure's lines, drawing the control -- or, a
+        `toggle`, the bool itself: Blender's row of one, the name after the box
+        in the field column."""
+        if toggle:
+            lines = [f'    widgets::toggle(ui, "{label}", "{hover}", &mut {body[0]});']
+        elif len(body) == 1:
             lines = [f'    setting(ui, "{label}", "{hover}", |ui| {body[0]});']
         else:
             lines = (
@@ -187,7 +191,7 @@ def widget(path: str, name: str, rust: str, doc: str) -> list[str]:
         return lines
 
     if rust == "bool":
-        return row([f'ui.checkbox(&mut {path}, "")'])
+        return row([path], toggle=True)
 
     if choices is not None:
         # The values that mean something and no others: a slider over
@@ -202,13 +206,13 @@ def widget(path: str, name: str, rust: str, doc: str) -> list[str]:
         # a script that is not on the list is shown too, and kept: the panel
         # never changes a setting by being drawn.
         lines = [
-            f'egui::ComboBox::from_id_salt("{path}")',
+            f'widgets::ComboBox::from_id_salt("{path}")',
             f"    .selected_text({path}.to_string())",
             "    .show_ui(ui, |ui| {",
         ]
         for v, meaning in pairs:
             tip = f'.on_hover_text("{meaning}")' if meaning else ""
-            lines.append(f'        ui.selectable_value(&mut {path}, {v}, "{v}"){tip};')
+            lines.append(f'        widgets::choice(ui, &mut {path}, {v}, "{v}"){tip};')
         lines += ["    });"]
         return row(lines)
 
@@ -219,31 +223,31 @@ def widget(path: str, name: str, rust: str, doc: str) -> list[str]:
             # set outside the range -- the colour bar's 320-pixel length
             # became 1, and the bar vanished, when "Data colouring" opened.
             log = ".logarithmic(true)" if marker(doc, "log") is not None else ""
-            return row([f"ui.add(egui::Slider::new(&mut {path}, {rng}).clamping(egui::SliderClamping::Edits){log})"])
+            return row([f"ui.add(widgets::Slider::new(&mut {path}, {rng}){log})"])
         speed = step or ("0.01" if rust in ("f32", "f64", "Float") else "1.0")
-        return row([f"ui.add(egui::DragValue::new(&mut {path}).speed({speed}))"])
+        return row([f"widgets::number(ui, &mut {path}, |d| d.speed({speed}))"])
 
     if rust == "Option<bool>":
         # One choice of three, not a box that brings a second: ticked, the
         # first set `Some(true)` and showed another box for the value, whose
         # `false` often looked like `None` -- "a second box that does nothing".
         return row([
-            f'egui::ComboBox::from_id_salt("{path}")',
+            f'widgets::ComboBox::from_id_salt("{path}")',
             f'    .selected_text(match {path} {{ None => "auto", Some(true) => "yes", Some(false) => "no" }})',
             "    .show_ui(ui, |ui| {",
-            f'        ui.selectable_value(&mut {path}, None, "auto");',
-            f'        ui.selectable_value(&mut {path}, Some(true), "yes");',
-            f'        ui.selectable_value(&mut {path}, Some(false), "no");',
+            f'        widgets::choice(ui, &mut {path}, None, "auto");',
+            f'        widgets::choice(ui, &mut {path}, Some(true), "yes");',
+            f'        widgets::choice(ui, &mut {path}, Some(false), "no");',
             "    });",
         ])
 
     if rust in ("Option<f32>", "Option<Float>"):
         # Ticked, a value; unticked, `None`, and the field beside it gone.
         some = f"Some({marker(doc, 'some') or '0.0'})"
-        value = f"ui.add(egui::DragValue::new(v).speed({step or '1e-6'}));"
+        value = f"widgets::number(ui, v, |d| d.speed({step or '1e-6'}));"
         return row([
             f"let mut on = {path}.is_some();",
-            'if ui.checkbox(&mut on, "").changed() {',
+            'if widgets::checkbox(ui, &mut on, "").changed() {',
             f"    {path} = if on {{ {some} }} else {{ None }};",
             "}",
             f"if let Some(v) = {path}.as_mut() {{",
@@ -252,13 +256,13 @@ def widget(path: str, name: str, rust: str, doc: str) -> list[str]:
         ])
 
     if rust == "String":
-        return row([f"ui.add(egui::TextEdit::singleline(&mut {path}).desired_width(f32::INFINITY))"])
+        return row([f"widgets::text_field(ui, egui::TextEdit::singleline(&mut {path}).desired_width(f32::INFINITY))"])
 
     if rust == "wgpu::Color":
         return row([
             f"let mut rgba = [{path}.r as f32, {path}.g as f32,",
             f"                {path}.b as f32, {path}.a as f32];",
-            "if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {",
+            "if widgets::color_rgba(ui, &mut rgba).changed() {",
             f"    {path} = wgpu::Color {{",
             "        r: rgba[0] as f64, g: rgba[1] as f64,",
             "        b: rgba[2] as f64, a: rgba[3] as f64,",
@@ -273,7 +277,7 @@ def widget(path: str, name: str, rust: str, doc: str) -> list[str]:
     if rust == "[f32; 3]":
         return row([
             f"let mut rgb = {path};",
-            "if ui.color_edit_button_rgb(&mut rgb).changed() {",
+            "if widgets::color_rgb(ui, &mut rgb).changed() {",
             f"    {path} = rgb;",
             "}",
         ])
@@ -281,7 +285,7 @@ def widget(path: str, name: str, rust: str, doc: str) -> list[str]:
     if rust == "[f32; 4]":
         return row([
             f"let mut rgba = {path};",
-            "if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {",
+            "if widgets::color_rgba(ui, &mut rgba).changed() {",
             f"    {path} = rgba;",
             "}",
         ])
@@ -290,13 +294,13 @@ def widget(path: str, name: str, rust: str, doc: str) -> list[str]:
         ty = rust.split("::")[-1]
         use = "crate::app::axes::AxesStyle" if ty == "AxesStyle" else f"crate::app::config::{ty}"
         lines = [
-            f'egui::ComboBox::from_id_salt("{path}")',
+            f'widgets::ComboBox::from_id_salt("{path}")',
             f"    .selected_text(format!(\"{{:?}}\", {path}))",
             "    .show_ui(ui, |ui| {",
         ]
         for v, tip in vs:
             on_hover = f'.on_hover_text("{tip}")' if tip else ""
-            lines.append(f'        ui.selectable_value(&mut {path}, {use}::{v}, "{v}"){on_hover};')
+            lines.append(f'        widgets::choice(ui, &mut {path}, {use}::{v}, "{v}"){on_hover};')
         lines += ["    });"]
         return row(lines)
 
@@ -338,7 +342,7 @@ def main() -> int:
         "// Regenerate after changing `Config`:  python tools/gen_config_panel.py",
         "",
         "use crate::app::config::{AppConfig, Config};",
-        "use super::widgets::setting;",
+        "use super::widgets::{self, setting};",
         "",
     ]
     fns = []

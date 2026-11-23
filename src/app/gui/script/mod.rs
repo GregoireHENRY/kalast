@@ -408,7 +408,7 @@ pub struct ScriptEditor {
     /// The Neovim that could not be started -- its `neovim_path` and
     /// `neovim_config` -- and why: not tried again until either changes.
     nvim_failed: Option<(String, String)>,
-    nvim_exits: Vec<std::time::Instant>,
+    nvim_exits: Vec<web_time::Instant>,
     /// The file Neovim holds and the text it was last in step with. A script
     /// that no longer hashes to this was changed from outside -- opened,
     /// reloaded -- and goes to Neovim again.
@@ -656,6 +656,10 @@ impl ScriptEditor {
     }
 
     fn ensure_server(&mut self, ctx: &egui::Context, language: &'static str, file: &Path, settings: &Settings) {
+        // A page starts no programs, a language server among them.
+        if cfg!(target_arch = "wasm32") {
+            return;
+        }
         let configured = match language {
             "python" => settings.python_language_server,
             _ => settings.rust_language_server,
@@ -717,7 +721,7 @@ impl ScriptEditor {
             self.nvim = None;
             self.synced = None;
             self.nvim_exits.retain(|t| t.elapsed().as_secs() < 60);
-            self.nvim_exits.push(std::time::Instant::now());
+            self.nvim_exits.push(web_time::Instant::now());
             if self.nvim_exits.len() >= 3 {
                 let why = format!("{why}, three times in a minute; the editor goes on without it");
                 self.say(why.clone());
@@ -2321,6 +2325,13 @@ fn filter(c: &mut Completion, view: &View) {
 fn kind_icon(kind: u8, t: UiTheme) -> (&'static str, Color32) {
     use theme::palette as p;
     let (purple, blue, orange, text, peach) = match t {
+        UiTheme::Blender => (
+            Color32::from_rgb(0x9c, 0x73, 0xe6),
+            Color32::from_rgb(0x71, 0xa8, 0xff),
+            Color32::from_rgb(0xe1, 0x96, 0x58),
+            Color32::from_rgb(0xe6, 0xe6, 0xe6),
+            Color32::from_rgb(0xe1, 0x96, 0x58),
+        ),
         UiTheme::Dark => (
             Color32::from_rgb(0xb1, 0x80, 0xd7),
             Color32::from_rgb(0x75, 0xbe, 0xff),
@@ -2363,6 +2374,9 @@ fn severity_color(severity: u8, t: UiTheme) -> Color32 {
         (1, UiTheme::Dark) => Color32::from_rgb(0xf1, 0x4c, 0x4c),
         (2, UiTheme::Dark) => Color32::from_rgb(0xcc, 0xa7, 0x00),
         (_, UiTheme::Dark) => Color32::from_rgb(0x37, 0x94, 0xff),
+        (1, UiTheme::Blender) => theme::blender::ERROR,
+        (2, UiTheme::Blender) => theme::blender::WARNING,
+        (_, UiTheme::Blender) => theme::blender::BLUE_LIGHT,
         (1, _) => p::RED,
         (2, _) => p::YELLOW,
         _ => p::BLUE,
@@ -2385,9 +2399,11 @@ fn popup_frame(ui: &egui::Ui) -> egui::Frame {
         .corner_radius(egui::CornerRadius::same(5))
 }
 
-/// The cursor's colour: Catppuccin's rosewater, VS Code's grey.
+/// The cursor's colour: Blender's blue, Catppuccin's rosewater, VS Code's
+/// grey.
 fn cursor_color(t: UiTheme) -> Color32 {
     match t {
+        UiTheme::Blender => theme::blender::BLUE_LIGHT,
         UiTheme::CatppuccinMocha => theme::palette::ROSEWATER,
         UiTheme::Dark => Color32::from_gray(0xae),
     }
@@ -2538,6 +2554,7 @@ fn behind_text(view: &View, settings: &Settings, diagnostics: &[lsp::Diagnostic]
     if settings.ruler > 0 {
         let x = (view.origin.x + settings.ruler as f32 * view.char_width).round() + 0.5;
         let color = match settings.theme {
+            UiTheme::Blender => theme::blender::PANEL,
             UiTheme::CatppuccinMocha => theme::palette::SURFACE1,
             UiTheme::Dark => Color32::from_gray(0x4a),
         };

@@ -24,6 +24,13 @@ pub struct Context {
 }
 
 impl Context {
+    /// Not in the browser, which does not let a page wait for its GPU.
+    #[cfg(target_arch = "wasm32")]
+    pub fn new() -> Result<Arc<Self>, String> {
+        Err("a headless GPU context cannot be waited for in the browser".to_string())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn new() -> Result<Arc<Self>, String> {
         let instance = wgpu::Instance::default();
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {

@@ -1571,6 +1571,21 @@ rigid body the self view factors are fixed in the body frame, so compute once
 per shape model and reuse. Delta form factors close to unity as
 `1/resolution²`, reaching 3e-5 at 128.
 
+**Between two triangles, exactly, on the CPU:**
+
+```python
+f = kalast.mesh.view_factor_exact(tri_a, tri_b)   # (3, 3) arrays, one vertex a row
+```
+
+The share of the radiation leaving `tri_a` that reaches `tri_b`, each seen from the side its
+normal points to (vertices counter-clockwise from there): the double contour integral of Sparrow
+(1963) as Lagerros (1998, appendix A.1) writes it for triangles, computed in double precision.
+It is exact for neighbours that share a side or a corner, where the formula of two points fails
+(`view_factor_facets` is 37.8 % low on two squares sharing a side, `view_factor_triangles` 3.7 %
+high at its default setting); a triangle crossing the other's plane counts for its part in
+front. It does not look for a third surface between the two: use the hemicube for a whole
+body, and this as the reference for a pair. See `notes/2026-11-23_tpm_view_factor_exact/`.
+
 ## `sim.gpu_timings()` — where a frame's GPU time went
 
 Milliseconds per pass, once `config.debug.gpu_timing = True`:
@@ -1634,9 +1649,11 @@ while app.running:
 
 | | |
 |---|---|
-| `columns(layers, facets, t)` | the temperatures, starting at `t` (K) -- one for the body, or one a facet, each column at its own: `t[0]` the surface, `t[-1]` the bottom, `t[:, i]` the ground under facet `i` -- of the float type kalast was built with, which the three below change in place |
+| `columns(layers, facets, t)` | the temperatures, starting at `t` (K) -- one for the body, or one a facet, each column at its own: `t[0]` the surface, `t[-1]` the bottom, `t[:, i]` the ground under facet `i` -- of the float type kalast was built with, which the four below change in place |
 | `solar_bc(t, dau, cosi, prop, dz)` | each surface temperature solved for `S (1-A) max(cos i, 0) / dau^2 = e sigma T0^4 - k dT/dz`: the sunlight absorbed, radiated, and conducted into the column. `dau` in AU, `cosi` one per facet, `dz` the layer thickness (m) |
+| `flux_bc(t, flux, prop, dz)` | the same balance from the flux each facet absorbs, `flux` in W/m2, one per facet: `Q = e sigma T0^4 - k dT/dz`. For what a surface absorbs besides the direct sunlight -- sunlight scattered by other surfaces, their thermal radiation -- added to `radiation_sun(dau, cosi, albedo)`. `solar_bc` is this for the sunlight alone. A flux that is negative or not finite is an error |
 | `bottom_adiabatic(t)` | no heat through the base: the last layer at the temperature of the one above |
+| `bottom_flux(t, q, prop, dz)` | a heat flow `q` (W/m2) through the base, from below: `t[-1] = t[-2] + q dz / k`. `q = 0` is `bottom_adiabatic`. The Moon's is 0.018 W/m2. On the GPU: `GpuTpm.set_bottom_flux(q, spacing)`, once |
 | `heat_conduction(t, prop, dt, dz)` | one explicit step of `dt` (s) through each column's interior, layers `dz` apart |
 
 The scheme is explicit finite differences at a fixed step: forward Euler in
@@ -1710,7 +1727,9 @@ core.heat_conduction(t, ground, dt, dz)
 |---|---|
 | `albedo`, `emissivity` | `(facets,)` -- the surface's balance, per facet |
 | `conductivity`, `density`, `heat_capacity` | `(layers, facets)`, as the temperatures |
-| `stability_maxdt(dz, s=0.5)` | the largest stable `dt` over every interior node |
+| `radiative_conductivity` | `chi` in `k(T) = k_c (1 + chi (T / 350)**3)`, `k_c` being `conductivity`: 0 by default, 2.7 for the Moon |
+| `heat_capacity_polynomial` | `c(T) = a[0] + a[1] T + ... + a[4] T**4` (J/kg/K) in place of `heat_capacity`: up to five coefficients, `None` by default |
+| `stability_maxdt(dz, s=0.5, temperatures=None)` | the largest stable `dt` over every interior node; with `temperatures=(lowest, highest)` in K, the one that holds at any of them for a ground that changes with temperature |
 | `layers`, `facets` | the shape the arrays broadcast to |
 | `Ground.graded(prop, facets, dz, depth, ratio=1.2)` | a column graded with depth: three layers `dz` thick, then each `ratio` times the one above, down past `depth` |
 
@@ -1750,6 +1769,25 @@ it would in float64, to a thousandth of a kelvin. It keeps that for each
 temperature array it steps, four at most. Equal layers do not need it and
 cost nothing more.
 
+A regolith conducts better and holds more heat as it warms. Two laws say
+how, for the whole `Ground`, and every step reads them at the temperatures
+of the step before:
+
+```python
+ground.radiative_conductivity = 2.7                                    # the Moon (Hayne et al. 2017)
+ground.heat_capacity_polynomial = [-3.6125, 2.7431, 2.3616e-3, -1.2340e-5, 8.9093e-9]
+dt = ground.stability_maxdt(dz, temperatures=(40.0, 400.0))
+```
+
+The first is the part of the conduction that radiation between the grains
+carries, which grows as `T**3`; `conductivity` is then the part that does
+not change, layer by layer. The second replaces `heat_capacity`. The
+conductivity at a boundary between two layers is the harmonic mean of the
+two, each at its own temperature, and the surface's balance takes the
+surface's. Checked on a heat flow through such a ground, which has a closed
+form: within 0.011 K with 41 layers and 0.003 K with 81; and on a column that
+radiates nothing, which gains the heat it absorbs within 0.03 %.
+
 The conduction keeps the heat flow continuous where the material changes:
 the balance of what crosses the boundaries above and below each layer,
 `rho c_i (T_i' - T_i) / dt = [k_{i+1/2} (T_{i+1} - T_i) - k_{i-1/2} (T_i - T_{i-1})] / dz^2`,
@@ -1758,6 +1796,97 @@ per layer in the uniform stencil would not conserve it. At the surface each
 facet takes its own albedo, emissivity and top-layer conductivity. The cost:
 at 5120 facets by 51 layers a step is 158 us, against 56 us for one
 `Properties`.
+
+### `core.Stepper` — a step by the scheme of one's choice
+
+`flux_bc`, `heat_conduction` and `bottom_flux` are one explicit step in three
+calls. A `Stepper` takes that step in one, or takes it by another scheme,
+with the same columns, `Properties` or `Ground`:
+
+```python
+stepper = core.Stepper("crank-nicolson")
+for _ in range(steps):
+    stepper.step(t, flux, ground, dt, dz, bottom_flux=0.018)   # flux: W/m2 absorbed, one a facet
+```
+
+| `scheme` | order in time | stable | |
+|---|---|---|---|
+| `"explicit"` | 1 | while `D dt / dz**2 <= 1/2` | the three calls, to the bit |
+| `"rkc"` | 1 | about `stages**2` times further | `stages` explicit stages a step (Runge-Kutta-Chebyshev); `Stepper.rkc_stages(speedup)` gives the fewest for a step `speedup` times the explicit one's |
+| `"backward-euler"` | 1 | at any step | damps what a step cannot resolve |
+| `"crank-nicolson"` | 2 | at any step | the most accurate at a given step |
+| `"bdf2"` | 2 | at any step | damps what a step cannot resolve; its first step is a backward-Euler one |
+
+| | |
+|---|---|
+| `Stepper(scheme="explicit", stages=1, newton_threshold=None, newton_iterations=None)` | `stages` for `"rkc"`. Newton's method solves the surface balance until a correction is under `newton_threshold` (K, 0.1 by default) in `newton_iterations` at most; one iteration is the balance linearised about the step before, the semi-implicit form |
+| `step(t, flux, prop, dt, dz, bottom_flux=0.0)` | one step of `dt` (s): each surface from the flux it absorbs, the layers, the base from the heat flow entering it |
+| `step_surface(t, temperature, prop, dt, dz, bottom_flux=0.0)` | the same with each surface's temperature given (K), for a test against a closed form |
+| `reset()` | forget the steps before, after the temperatures were set from outside |
+| `Stepper.rkc_stability(stages)`, `Stepper.rkc_stages(speedup)` | how far `stages` stages reach, the explicit limit being 2; the fewest stages for a step |
+
+The explicit step is bound by the thinnest layer: with 8 mm at the top of a
+graded column, a few tens of seconds. The implicit schemes are not, and take
+the step that the day's curve needs. They solve each column as one system,
+the surface with it: eliminated from the base up, the layers leave the
+surface's balance as one equation in its temperature, which Newton's method
+solves, and the layers follow from the top down. Surface and layers are at
+the same time, where the explicit step solves the surface from the layers
+of the step before.
+
+Measured on the wave that a surface swinging by 100 K sends down, with ten
+layers a skin depth: Crank-Nicolson and BDF2 at 200 steps a period, three
+times the explicit limit, are within 0.044 K and 0.045 K, which is what the
+layers themselves allow; backward Euler is within 0.45 K, and halves with
+the step. On a day of sunlight they are within 0.04 K (0.41 K for backward
+Euler) of the explicit scheme at sixteen times as many steps. An eclipse
+that cuts the light at once is followed without ringing. One `Stepper` a
+body: it keeps what its steps could not add to the temperatures in single
+precision, so that a deep layer changing by less than float32 holds does not
+drift.
+
+### `GpuStepper` — the same steps on the GPU
+
+`kalast._rs.tpm.gpu.GpuStepper` is the `Stepper` on the GPU: the same five
+schemes, the same `Properties` or `Ground` -- layered, graded, changing with
+temperature -- and the heat flow at the base. The temperatures stay on the
+GPU between steps.
+
+```python
+from kalast._rs.tpm.gpu import GpuStepper
+
+gpu = GpuStepper(ground, layers, facets, dz, scheme="bdf2")
+gpu.set_bottom_flux(0.018)
+gpu.upload(t)                          # (layers, facets), as core.columns makes them
+for _ in range(steps):
+    gpu.step(flux, dt)                 # W/m2 absorbed, one a facet, float32
+t = gpu.download()                     # a readback: for a result, not every step
+```
+
+| | |
+|---|---|
+| `GpuStepper(prop, layers, facets, dz, scheme="explicit", stages=1, newton_threshold=None, newton_iterations=None, context=None)` | the columns and their ground; `context` a `GpuContext` to share a device with `GpuRadiance` |
+| `upload(t)`, `download()`, `surface()` | the temperatures given and read back, `(layers, facets)`; the surface alone, one a facet |
+| `step(flux, dt)` | one step from the flux each facet absorbs |
+| `step_sun(sun_pos, au, dt)` | one step with the sunlight computed on the GPU, `S (1-A) cos(i) lit / r**2`, from the Sun's position in the body's frame (m); needs `set_geometry(positions, normals)` once, and takes `set_lit(lit)` for shadows |
+| `step_surface(temperature, dt)` | one step with each surface's temperature given |
+| `set_bottom_flux(q)` | the heat flow entering the base (W/m2) |
+| `set_properties(prop)` | the ground sent again after it was changed |
+| `reset()` | forget the steps before |
+
+The CPU and the GPU do the same arithmetic in float32 and differ by
+rounding: within 0.0001 K on one material and 0.003 K on a graded ground
+with the Moon's laws and its heat flow, by every scheme, over a day. A deep
+layer does not drift there either: after 6,400 steps the two are within
+0.0005 K.
+
+The GPU cannot refuse a step. One past what the explicit scheme or RKC
+reaches is refused before it is sent, from the ground as given; for a ground
+that changes with temperature the limit is the script's to keep
+(`ground.stability_maxdt(dz, temperatures=...)`).
+
+`GpuTpm` is the earlier GPU model, for the explicit scheme on one material:
+the scripts that use it are unchanged.
 
 ### `sim.facet_incidence(body)` — the Sun on each facet, no shadow
 
@@ -1793,6 +1922,59 @@ scaled pose first. Any shape centred on its origin; on a concave one, where a
 direction crosses the surface twice, the facet pointing most nearly along it.
 A `ValueError` for a `step` outside (0, 180] or a body with no mesh, an
 `IndexError` for a body that does not exist.
+
+### `kalast.tpm.exchange` — what facets send to one another
+
+A facet in a concavity, or facing another body, receives beside the direct sunlight what the
+facets it sees scatter and emit. The exchange is the Rust core's (`tpm::exchange`):
+
+```python
+from kalast.tpm import exchange
+
+vf = exchange.ViewFactors.from_dense(rows)                 # a hemicube's rows, one a facet, over every facet
+scattered, thermal = exchange.absorbed(vf, albedo, emissivity, incident=sunlight, temperature=t[0])
+stepper.step(t, (1 - albedo) * sunlight + scattered + thermal, prop, dt, dz)
+```
+
+| | |
+|---|---|
+| `ViewFactors.from_dense(matrix, threshold=1e-7)` | from a full `(n, n)` matrix, leaving out what is at or under `threshold` |
+| `ViewFactors.from_csr(data, indices, indptr, columns)` | from sparse rows, as `scipy.sparse.csr_matrix` holds them |
+| `ViewFactors.exact(triangles)` | every pair of an `(n, 3, 3)` array of triangles by `mesh.view_factor_exact`, with nothing looked for between two of them: for surfaces that all see each other, and as a reference |
+| `.shape`, `.nnz`, `.row_sums()`, `.dot(x)`, `.csr()` | what it holds; a row's sum is the share of a facet's radiation that reaches another facet |
+| `absorbed(vf, albedo, emissivity, incident=None, temperature=None, bounces=0, tolerance=1e-6)` | `(scattered, thermal)`, W/m2 absorbed by each facet: the sunlight the others scatter, `(1 - A_i) sum_j F_ij J_j`, and their thermal radiation, `e_i sum_j F_ij J_j` |
+
+`vf` has a row and a column for **each facet of every body**: what two bodies send to each other
+and back is then in the answer, with no term of its own. `incident` is the sunlight falling on each
+facet, before its albedo and with the shadows in it; `temperature` its surface temperature. `albedo`
+and `emissivity` are a number or one a facet.
+
+The radiation leaving a facet, its radiosity `J`, is `A (S + F J)` in the visible and
+`e sigma T^4 + (1 - e) F J` in the thermal infrared. It is found by substitution, each pass one
+reflection more: `bounces=1` keeps what the others send directly, `bounces=n` follows `n - 1`
+reflections, and `bounces=0` goes on until a pass changes no radiosity by more than `tolerance`
+times the largest source. A cavity that absorbs nothing never settles and is refused.
+
+Measured: every facet of an isothermal closed box absorbs `e sigma T^4`, what it emits, within 1e-7
+at any emissivity; sunlight let into a closed box is all absorbed, to five digits, after 10 passes
+at albedo 0.1 and 403 at 0.95. See `notes/2026-11-23_tpm_view_factor_exact/`.
+
+**On the GPU**, `kalast._rs.tpm.gpu.GpuExchange(vf, albedo, emissivity, context=None)` is the same
+for one set of view factors and surfaces:
+
+```python
+from kalast._rs.tpm.gpu import GpuExchange
+gpu = GpuExchange(vf, albedo, emissivity)
+scattered, thermal = gpu.absorbed(incident=sunlight, temperature=surface)   # as exchange.absorbed
+```
+
+It agrees with the CPU within 3e-7 of the largest flux. A thread cannot tell that the reflections
+have settled, so with `bounces=0` the passes are counted beforehand, enough to bring what is left
+under `tolerance` (`gpu.passes(bounces, tolerance)` says how many). Pass `context` to share a device
+with `GpuStepper`.
+
+`kalast.tpm.heating` holds the same two terms in Python, with the reflections followed on one
+body's own facets only; it gives the same numbers where the two overlap and will become a wrapper.
 
 ## `kalast.astro` — an orbit about the Sun
 
@@ -2192,7 +2374,7 @@ vertices, indices, albedo = compose(vertices, indices, maplets, spacing=0.0)
 | `Surface.tiles(points, normals, areas, finest, size=241, overlap=0.2)` | maplets over the samples, each at the finest spacing its samples allow (`finest`, not a number where none): finest first, laid as a lattice grows over the surface until every sample is on one -- facing within 60 deg of its normal, not under an overhang |
 | `choose(scales, suns, views, seen=None, cap=70, angle=10 deg, ratio=1.5)` | a maplet's images, as MPCD keeps them: finest first, each only if it differs from those taken by `angle` of Sun or view, `ratio` of scale, or the ground it sees |
 | `surface.mask(maplet, view, margin=0.0)` | the view's pixels showing the maplet as its grid can tell it: false where the rest of the surface hides or shadows it, and `margin` around; for `View`'s `valid` |
-| `pointing(positions, axes, focal, centres, normals, image, tile, shift, weight, offset_sigma, huber=3.0, iterations=25, height_sigma=0.0, fixed=None)` | each image's pointing from its registrations in many maplets: every shift (`ViewReport.shift`) fitted at once as the image's pointing and the maplet's offset on the ground, as SPC fixes pointing from the whole surface. Cameras as `View` takes them, `focal` a number or one each; maplets by centre and normal; one row a registration. `height_sigma`, if positive, frees each maplet's height too -- the images' parallax tells it where the surface under the maplets is a first guess. `fixed`, `(n,)` true for the cameras whose pointing is known, which keep it: they hold the maplets where they are on the whole. Returns `(pointing (n, 2) pixels to add to each camera's centre, behind (n,) registrations each rests on, offsets (m, 2) -- (m, 3) with heights -- residuals (p,))`. 0.3 s for 312k registrations |
+| `pointing(positions, axes, focal, centres, normals, image, tile, shift, weight, offset_sigma, huber=3.0, iterations=25, height_sigma=0.0, fixed=None, roll=None, turn=None, group=None, time=None)` | each image's pointing from its registrations in many maplets: every shift (`ViewReport.shift`) fitted at once as the image's pointing and the maplet's offset on the ground, as SPC fixes pointing from the whole surface. Cameras as `View` takes them, `focal` a number or one each; maplets by centre and normal; one row a registration. `height_sigma`, if positive, frees each maplet's height too -- the images' parallax tells it where the surface under the maplets is a first guess. `fixed`, `(n,)` true for the cameras whose pointing is known, which keep it: they hold the maplets where they are on the whole. `roll`, `(n,)` true for the cameras whose roll about the boresight is fitted too -- an attitude known only roughly, a planned one: wrong locks are left out of those images' fit. `turn`, `(n,)` true for the cameras that see the body turned about its origin by a small rotation fitted too -- a body whose rotation model is uncertain: the maplet at `c` moves by `d x c`; within 0.05 deg about the line of sight and 0.2 across it on the tests' sphere, where a turn moves the face seen almost as a shift; not with `roll` for the same camera. `group`, `time` `(n,)`: the freed cameras of one group (0 or more; -1, none), a session, share one turn and its rate, `d = a + (t - mean t) b`, `time` in hours: images that register few maplets cannot tell three angles from a shift alone (three times closer on the tests' sessions of eight registrations an image). Returns `(pointing (n, 2) pixels to add to each camera's centre -- then a column with `roll`, the roll in radians, applied as `Rz(roll) @ axes` (rows x, y turned about z) before the shift, and three with `turn`, the body's turn as a rotation vector in radians (the surface's frame), applied to the camera as position `R.T @ p` and axes `A @ R` -- behind (n,) registrations each rests on, offsets (m, 2) -- (m, 3) with heights -- residuals (p,))`. 0.3 s for 312k registrations |
 | `compose(vertices, indices, maplets, spacing=0.0)` | the shape model with the maplets in it, one mesh: each point the finest maplet's over it, then the one it is most in the middle of; `spacing` draws them coarser, for an image that sees no more. Returns `(vertices, indices, albedo)` -- pieces that overlap, not one closed surface |
 | `merge(vertices, indices, maplets, size, smooth=0.0, relax=2, depth=0.4)` | the maplets merged into a closed mesh made again: the surface where their distances along their normals -- positive below each, fading at `depth` -- and the old mesh's where they weigh little cross zero, in cubes of `size`, smoothed by `smooth`. Returns `(vertices, facets, report)` as `Hull.mesh`: one closed piece whatever the maplets do, the next round's surface |
 | `fuse(vertices, indices, maplets, relax=2, smooth=3, step=0.0)` | the maplets' relief laid into the mesh by moving its vertices along their normals, the facets kept: for small moves; a saddle sunk far folds, where `merge` does not |

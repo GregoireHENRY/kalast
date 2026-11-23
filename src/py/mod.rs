@@ -131,6 +131,7 @@ pub fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     pyadd_f!(mesh, crate::mesh::view_factor_scalar);
     pyadd_f!(mesh, mesh::view_factor_facets);
     pyadd_f!(mesh, mesh::view_factor_triangles);
+    pyadd_f!(mesh, mesh::view_factor_exact);
     pyadd_f!(mesh, crate::mesh::largest_slope_angle_sphere);
     pyadd_f!(mesh, crate::mesh::curvature_radius);
     pyadd_f!(mesh, crate::mesh::curvature_diameter_from_radius);
@@ -176,13 +177,24 @@ pub fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     pyadd_f!(core, crate::tpm::core::py::conduction_1d_nonuniform);
     pyadd_f!(core, crate::tpm::core::py::columns);
     pyadd_f!(core, crate::tpm::core::py::solar_bc);
+    pyadd_f!(core, crate::tpm::core::py::flux_bc);
+    pyadd_f!(core, crate::tpm::core::py::bottom_flux);
     pyadd_f!(core, crate::tpm::core::py::bottom_adiabatic);
     pyadd_f!(core, crate::tpm::core::py::heat_conduction);
     core.add_class::<crate::tpm::core::py::Ground>()?;
+    core.add_class::<crate::tpm::stepper::py::Stepper>()?;
     tpm.add_submodule(&core)?;
     py.import("sys")?
         .getattr("modules")?
         .set_item("kalast._rs.tpm.core", core)?;
+
+    let exchange = PyModule::new(tpm.py(), "exchange")?;
+    exchange.add_class::<crate::tpm::exchange::py::ViewFactors>()?;
+    pyadd_f!(exchange, crate::tpm::exchange::py::absorbed);
+    tpm.add_submodule(&exchange)?;
+    py.import("sys")?
+        .getattr("modules")?
+        .set_item("kalast._rs.tpm.exchange", exchange)?;
 
     let rough = PyModule::new(tpm.py(), "roughness")?;
     rough.add_class::<tpm::roughness::Crater>()?;
@@ -196,6 +208,8 @@ pub fn python_module(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     let gpu = PyModule::new(tpm.py(), "gpu")?;
     gpu.add_class::<tpm::gpu::GpuContext>()?;
     gpu.add_class::<tpm::gpu::GpuTpm>()?;
+    gpu.add_class::<tpm::gpu::GpuStepper>()?;
+    gpu.add_class::<tpm::gpu::GpuExchange>()?;
     gpu.add_class::<tpm::gpu::GpuRadiance>()?;
     tpm.add_submodule(&gpu)?;
     py.import("sys")?

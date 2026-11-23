@@ -18,7 +18,7 @@ impl Crater {
     #[new]
     #[pyo3(signature = (gamma_deg=180.0, density=0.25, emissivity=0.95, albedo=0.12,
                         rh=1.0, wavelength=8.0e-6, ntheta=32, nphi=32,
-                        solar_constant=1369.0))]
+                        solar_constant=1361.0))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         gamma_deg: f64,

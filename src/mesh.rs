@@ -253,7 +253,7 @@ pub fn load_image<P>(path: P) -> image::DynamicImage
 where
     P: AsRef<std::path::Path>,
 {
-    let bytes = std::fs::read(path).unwrap();
+    let bytes = crate::fs::read(path).unwrap();
     image::load_from_memory(&bytes).unwrap()
 }
 
@@ -1018,9 +1018,8 @@ impl Model {
         // text sat in memory for the length of the parse, 163 MB for a 3M
         // facet model, on top of tobj's own working set. Measured in
         // `notes/2026-09-18_memory_meshes_and_shadow_maps/`.
-        let file = std::fs::File::open(path)
+        let mut obj_reader = crate::fs::reader(path, 1 << 20)
             .unwrap_or_else(|e| panic!("cannot open mesh {}: {e}", path.display()));
-        let mut obj_reader = std::io::BufReader::with_capacity(1 << 20, file);
 
         let (models, obj_materials) = tobj::load_obj_buf(
             &mut obj_reader,
@@ -1031,7 +1030,7 @@ impl Model {
             },
             |p| {
                 let p = path.parent().unwrap().join(p);
-                let mat_text = std::fs::read_to_string(p).unwrap();
+                let mat_text = crate::fs::read_to_string(p).unwrap();
                 tobj::load_mtl_buf(&mut std::io::BufReader::new(std::io::Cursor::new(mat_text)))
             },
         )
@@ -1783,7 +1782,7 @@ mod tests {
 /// feels slow is one of four things and guessing which has been wrong twice.
 struct LoadTimer {
     on: bool,
-    last: std::time::Instant,
+    last: web_time::Instant,
     phases: Vec<(&'static str, std::time::Duration)>,
 }
 
@@ -1791,13 +1790,13 @@ impl LoadTimer {
     fn start() -> Self {
         Self {
             on: std::env::var_os("KALAST_TIMING").is_some(),
-            last: std::time::Instant::now(),
+            last: web_time::Instant::now(),
             phases: Vec::new(),
         }
     }
     fn phase(&mut self, name: &'static str) {
         if self.on {
-            let now = std::time::Instant::now();
+            let now = web_time::Instant::now();
             self.phases.push((name, now - self.last));
             self.last = now;
         }
@@ -1818,7 +1817,9 @@ impl Drop for LoadTimer {
     }
 }
 
-/// Threads for the parallel parts of a load: the machine's, capped.
+/// Threads for the parallel parts of a load: the machine's, capped. One in
+/// the browser, which has no others to start: there each part runs where it
+/// is called.
 pub(crate) fn load_threads() -> usize {
     std::thread::available_parallelism()
         .map(|n| n.get())
@@ -1855,16 +1856,20 @@ pub(crate) fn parse_plain_obj(bytes: &[u8]) -> Option<(Vec<Vec3>, Vec<[u32; 3]>)
         cuts.push(bytes.len());
     }
 
-    let parts: Vec<Option<(Vec<Vec3>, Vec<[u32; 3]>, usize)>> = std::thread::scope(|scope| {
-        let handles: Vec<_> = cuts
-            .windows(2)
-            .map(|w| {
-                let chunk = &bytes[w[0]..w[1]];
-                scope.spawn(move || parse_plain_chunk(chunk))
-            })
-            .collect();
-        handles.into_iter().map(|h| h.join().unwrap()).collect()
-    });
+    let parts: Vec<Option<(Vec<Vec3>, Vec<[u32; 3]>, usize)>> = if load_threads() == 1 {
+        cuts.windows(2).map(|w| parse_plain_chunk(&bytes[w[0]..w[1]])).collect()
+    } else {
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = cuts
+                .windows(2)
+                .map(|w| {
+                    let chunk = &bytes[w[0]..w[1]];
+                    scope.spawn(move || parse_plain_chunk(chunk))
+                })
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        })
+    };
 
     let mut positions = Vec::new();
     let mut tris = Vec::new();
@@ -1962,7 +1967,7 @@ fn canonicalise(positions: &[Vec3], tris: &[[u32; 3]]) -> (Vec<Vec3>, Vec<[u32; 
 /// over to tobj. Parsed every time: a cache beside the data was tried and
 /// rejected -- kalast does not leave files next to a user's models.
 fn plain_mesh(path: &std::path::Path, timer: &mut LoadTimer) -> Option<(Vec<Vec3>, Vec<[u32; 3]>)> {
-    let bytes = std::fs::read(path).ok()?;
+    let bytes = crate::fs::read(path).ok()?;
     timer.phase("read");
     let (positions, tris) = parse_plain_obj(&bytes)?;
     drop(bytes);
@@ -1978,24 +1983,31 @@ fn build_facets(positions: &[Vec3], indices: &[u32]) -> Vec<Facet> {
     let n = indices.len() / 3;
     let mut facets = vec![Facet::default(); n];
     let step = n.div_ceil(load_threads()).max(1);
-    std::thread::scope(|scope| {
-        for (fs, is) in facets.chunks_mut(step).zip(indices.chunks(3 * step)) {
-            scope.spawn(move || {
-                for (f, fv) in fs.iter_mut().zip(is.chunks(3)) {
-                    let a = positions[fv[0] as usize];
-                    let b = positions[fv[1] as usize];
-                    let c = positions[fv[2] as usize];
-                    let ab = b - a;
-                    let ac = c - a;
-                    *f = Facet {
-                        pos: (a + b + c) / 3.0,
-                        normal: normal_facet(&ab, &ac),
-                        area: area_facet(&ab, &ac),
-                    };
-                }
-            });
+    let fill = |fs: &mut [Facet], is: &[u32]| {
+        for (f, fv) in fs.iter_mut().zip(is.chunks(3)) {
+            let a = positions[fv[0] as usize];
+            let b = positions[fv[1] as usize];
+            let c = positions[fv[2] as usize];
+            let ab = b - a;
+            let ac = c - a;
+            *f = Facet {
+                pos: (a + b + c) / 3.0,
+                normal: normal_facet(&ab, &ac),
+                area: area_facet(&ab, &ac),
+            };
         }
-    });
+    };
+    let chunks = facets.chunks_mut(step).zip(indices.chunks(3 * step));
+    if load_threads() == 1 {
+        chunks.for_each(|(fs, is)| fill(fs, is));
+    } else {
+        std::thread::scope(|scope| {
+            for (fs, is) in chunks {
+                let fill = &fill;
+                scope.spawn(move || fill(fs, is));
+            }
+        });
+    }
     facets
 }
 

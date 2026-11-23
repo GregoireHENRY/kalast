@@ -358,7 +358,7 @@ def choose(scales: numpy.ndarray, suns: numpy.ndarray, views: numpy.ndarray, see
     camera. Indices into the candidates, in the order taken.
     """
     ...
-def pointing(positions: numpy.ndarray, axes: numpy.ndarray, focal: object, centres: numpy.ndarray, normals: numpy.ndarray, image: numpy.ndarray, tile: numpy.ndarray, shift: numpy.ndarray, weight: numpy.ndarray, offset_sigma: float, huber: float = ..., iterations: int = ..., height_sigma: float = ..., fixed: Sequence[bool] | None = ...) -> tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray, numpy.ndarray]:
+def pointing(positions: numpy.ndarray, axes: numpy.ndarray, focal: object, centres: numpy.ndarray, normals: numpy.ndarray, image: numpy.ndarray, tile: numpy.ndarray, shift: numpy.ndarray, weight: numpy.ndarray, offset_sigma: float, huber: float = ..., iterations: int = ..., height_sigma: float = ..., fixed: Sequence[bool] | None = ..., roll: Sequence[bool] | None = ..., turn: Sequence[bool] | None = ..., group: Sequence[int] | numpy.ndarray | None = ..., time: Sequence[float] | numpy.ndarray | None = ...) -> tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray, numpy.ndarray]:
     """Each image's pointing, from its registrations in many maplets: every
     maplet's shift in every image fitted at once as the image's pointing and
     the maplet's offset on the ground (`s = P + J o`), as SPC fixes an
@@ -373,10 +373,20 @@ def pointing(positions: numpy.ndarray, axes: numpy.ndarray, focal: object, centr
     where the surface under the maplets is a first guess -- held so to
     zero. `fixed`, `(n,)` true for the cameras whose pointing is known --
     from their limbs, say -- which keep it and hold the maplets where they
-    are on the whole. Gives `(pointing (n, 2) pixels to add to each camera's
-    centre, behind (n,) registrations each image's rests on, offsets (m, 2)
-    -- (m, 3) with the heights, along each maplet's u, v and w -- residuals
-    (p,))`.
+    are on the whole. `roll`, `(n,)` true for the cameras whose roll about
+    the boresight is fitted too -- the images whose attitude is only the
+    plan's. `turn`, `(n,)` true for the cameras that see the body turned
+    about its origin by a rotation fitted too -- a body whose rotation model
+    is uncertain; not with `roll` for the same camera. `group` and `time`,
+    `(n,)`: the freed cameras of one group (0 or more; -1 none, say a
+    session) share one turn and its rate, `time` in hours. Gives `(pointing (n, 2)
+    pixels to add to each camera's centre -- then a column with `roll`, the
+    roll, radians, by which to turn the camera's axes about their z first
+    (rows x, y: `Rz(roll) @ axes`), and three with `turn`, the body's turn, a
+    rotation vector (radians, the surface's frame; for the camera, position
+    `R.T @ p` and axes `A @ R`, `R` its rotation) -- behind (n,)
+    registrations each image's rests on, offsets (m, 2) -- (m, 3) with the
+    heights, along each maplet's u, v and w -- residuals (p,))`.
     """
     ...
 

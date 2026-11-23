@@ -14,11 +14,15 @@
 mod code;
 mod config_panel;
 mod docs;
+mod expr;
+mod fuzzy;
 mod icon_table;
 mod icons;
 pub mod script;
+mod search;
 mod simulation_panel;
 mod theme;
+mod undo;
 mod widgets;
 
 use std::collections::VecDeque;
@@ -90,7 +94,7 @@ struct FileTree {
     /// Each opened folder's entries -- folders first, then files, by name --
     /// and when they were read. Re-read when older than `FRESH`, so a file a
     /// script writes turns up without the folder being read every frame.
-    listings: std::collections::HashMap<std::path::PathBuf, (std::time::Instant, Vec<(String, bool)>)>,
+    listings: std::collections::HashMap<std::path::PathBuf, (web_time::Instant, Vec<(String, bool)>)>,
     /// The folders shown open.
     open: std::collections::HashSet<std::path::PathBuf>,
     /// A name being typed into the tree.
@@ -141,6 +145,20 @@ fn scripts_base() -> std::path::PathBuf {
     crate::app::bundled_python_dir()
         .and_then(|python| python.parent().map(tree_path))
         .unwrap_or_default()
+}
+
+/// `path` as a page's files name it, from its root, `/` between names
+/// (`kalast::fs`).
+#[cfg(target_arch = "wasm32")]
+fn page_key(path: &std::path::Path) -> String {
+    let names: Vec<String> = path
+        .components()
+        .filter_map(|c| match c {
+            std::path::Component::Normal(name) => Some(name.to_string_lossy().into_owned()),
+            _ => None,
+        })
+        .collect();
+    names.join("/")
 }
 
 /// `path` relative to the working directory when inside it, as the tree
@@ -259,11 +277,11 @@ fn moved(path: &str, from: &str, to: &str) -> Option<String> {
 /// its first 8 KiB, or not UTF-8 -- or too big to edit at a frame's pace.
 fn read_text(path: &std::path::Path) -> Result<String, String> {
     const MAX: u64 = 4 << 20;
-    let size = std::fs::metadata(path).map_err(|e| format!("cannot open {}: {e}", path.display()))?.len();
+    let size = crate::fs::len(path).map_err(|e| format!("cannot open {}: {e}", path.display()))?;
     if size > MAX {
         return Err(format!("{} is {} MB, too big to edit here", path.display(), size / 1_000_000));
     }
-    let bytes = std::fs::read(path).map_err(|e| format!("cannot open {}: {e}", path.display()))?;
+    let bytes = crate::fs::read(path).map_err(|e| format!("cannot open {}: {e}", path.display()))?;
     if bytes[..bytes.len().min(8192)].contains(&0) {
         return Err(format!("{} is not text", path.display()));
     }
@@ -293,18 +311,13 @@ impl FileTree {
             }
         }
         let read = if dir.as_os_str().is_empty() { std::path::Path::new(".") } else { dir };
-        let mut entries: Vec<(String, bool)> = std::fs::read_dir(read)
+        let mut entries: Vec<(String, bool)> = crate::fs::list(read)
             .into_iter()
             .flatten()
-            .flatten()
-            .filter_map(|e| {
-                let name = e.file_name().to_string_lossy().into_owned();
-                let hidden = name.starts_with('.') || name == "__pycache__";
-                (!hidden).then(|| (name, e.file_type().is_ok_and(|t| t.is_dir())))
-            })
+            .filter(|(name, _)| !(name.starts_with('.') || name == "__pycache__"))
             .collect();
         entries.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.to_lowercase().cmp(&b.0.to_lowercase())));
-        self.listings.insert(dir.to_path_buf(), (std::time::Instant::now(), entries.clone()));
+        self.listings.insert(dir.to_path_buf(), (web_time::Instant::now(), entries.clone()));
         entries
     }
 
@@ -397,14 +410,7 @@ impl FileTree {
         let mut x = rect.left() + depth as f32 * INDENT;
         let text_color = ui.visuals().text_color();
         if is_dir {
-            let chevron = if open { icons::codicon::CHEVRON_DOWN } else { icons::codicon::CHEVRON_RIGHT };
-            painter.text(
-                egui::pos2(x + TWISTIE / 2.0, rect.center().y),
-                egui::Align2::CENTER_CENTER,
-                chevron,
-                egui::FontId::proportional(14.0),
-                text_color,
-            );
+            widgets::twistie(&painter, egui::pos2(x + TWISTIE / 2.0, rect.center().y), open, text_color);
         }
         x += TWISTIE + 2.0;
         let icon = if is_dir { icons::for_folder(name, open) } else { icons::for_file(name) };
@@ -566,15 +572,11 @@ impl FileTree {
             return;
         }
         let made = match &n.what {
-            Named::Folder(d) | Named::File(d) => std::fs::create_dir_all(d).and_then(|()| match &n.what {
-                Named::Folder(_) => std::fs::create_dir(&target).map(|()| None),
-                _ => std::fs::OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(&target)
-                    .map(|_| Some(TreeAction::Created(target.clone()))),
+            Named::Folder(d) | Named::File(d) => crate::fs::create_dir_all(d).and_then(|()| match &n.what {
+                Named::Folder(_) => crate::fs::create_dir(&target).map(|()| None),
+                _ => crate::fs::create_new(&target).map(|()| Some(TreeAction::Created(target.clone()))),
             }),
-            Named::Rename(p) => std::fs::rename(p, &target).map(|()| Some(TreeAction::Renamed(p.clone(), target.clone()))),
+            Named::Rename(p) => crate::fs::rename(p, &target).map(|()| Some(TreeAction::Renamed(p.clone(), target.clone()))),
         };
         match made {
             Ok(done) => {
@@ -745,22 +747,20 @@ fn editor_nav(
 fn window_start(ui: &mut egui::Ui, a: &mut crate::app::config::AppConfig, screens: &[String]) {
     widgets::setting(ui, "screen", "The screen the window opens on.", |ui| {
         let shown = if a.monitor.is_empty() { "the main one".to_string() } else { a.monitor.clone() };
-        egui::ComboBox::from_id_salt("a.monitor").selected_text(shown).show_ui(ui, |ui| {
-            ui.selectable_value(&mut a.monitor, String::new(), "the main one");
+        widgets::ComboBox::from_id_salt("a.monitor").selected_text(shown).show_ui(ui, |ui| {
+            widgets::choice(ui, &mut a.monitor, String::new(), "the main one");
             for name in screens {
-                ui.selectable_value(&mut a.monitor, name.clone(), name);
+                widgets::choice(ui, &mut a.monitor, name.clone(), name);
             }
         });
     });
     let at = "Its top-left corner from the screen's, in pixels; -1 in the middle.";
-    widgets::setting(ui, "window x", at, |ui| ui.add(egui::DragValue::new(&mut a.window_x).range(-1..=i32::MAX)));
-    widgets::setting(ui, "window y", at, |ui| ui.add(egui::DragValue::new(&mut a.window_y).range(-1..=i32::MAX)));
+    widgets::setting(ui, "window x", at, |ui| widgets::number(ui, &mut a.window_x, |d| d.range(-1..=i32::MAX)));
+    widgets::setting(ui, "window y", at, |ui| widgets::number(ui, &mut a.window_y, |d| d.range(-1..=i32::MAX)));
     let size = "In pixels; 0 for most of the screen.";
-    widgets::setting(ui, "window width", size, |ui| ui.add(egui::DragValue::new(&mut a.width)));
-    widgets::setting(ui, "window height", size, |ui| ui.add(egui::DragValue::new(&mut a.height)));
-    widgets::setting(ui, "open fullscreen", "Open fullscreen, whatever F did last time.", |ui| {
-        ui.checkbox(&mut a.start_fullscreen, "")
-    });
+    widgets::setting(ui, "window width", size, |ui| widgets::number(ui, &mut a.width, |d| d));
+    widgets::setting(ui, "window height", size, |ui| widgets::number(ui, &mut a.height, |d| d));
+    widgets::toggle(ui, "open fullscreen", "Open fullscreen, whatever F did last time.", &mut a.start_fullscreen);
 }
 
 impl Log {
@@ -1014,7 +1014,11 @@ const DOCKED: [usize; 3] = [0, 1, 3];
 /// The top entry is the toolbar's and is not read: one row of buttons takes
 /// that row's height, and nothing about it is dragged. It keeps its place so
 /// the four panels index alike.
-const FLOAT_DEFAULTS: [f32; 4] = [30.0, 160.0, 300.0, 240.0];
+///
+/// The right one is Blender's properties editor, about as wide as Blender
+/// opens it: its navigation bar 29, and the panels' names a column of their
+/// own (`widgets::split`).
+const FLOAT_DEFAULTS: [f32; 4] = [30.0, 160.0, 300.0, 300.0];
 
 /// A *floating* panel smaller than this counts as put away rather than merely
 /// narrow, and comes back at its usual size when next summoned.
@@ -1162,6 +1166,63 @@ fn action(icon: &str, color: egui::Color32) -> egui::Button<'_> {
         .min_size(ACTION)
 }
 
+/// In a page, the files tab's way to a folder of the visitor's: offered,
+/// to be allowed again, or the one the page works in (`app::PageFolder`).
+/// What puts a script's data beside it there, as on the desktop.
+#[cfg(target_arch = "wasm32")]
+fn page_folder_row(ui: &mut egui::Ui) {
+    let Some(folder) = crate::app::page_folder() else {
+        return;
+    };
+    let weak = ui.visuals().weak_text_color();
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        match (folder.connected(), folder.remembered()) {
+            (Some(name), _) => {
+                ui.label(egui::RichText::new(icons::codicon::FOLDER_OPENED).size(16.0).color(weak));
+                ui.label(egui::RichText::new(&name).strong()).on_hover_text(
+                    "The page works in this folder of yours, as the desktop app works in its own. A script's data \
+                     goes beside it here, and what you edit with your own tools is read again when you come back \
+                     to the page. What the page saves and what scripts write is written here; nothing in it is \
+                     deleted from the page.",
+                );
+                if ui
+                    .add(action(icons::codicon::CLOSE, weak))
+                    .on_hover_text("Work in the page's own files again: your folder is left as it is")
+                    .clicked()
+                {
+                    folder.disconnect();
+                }
+            }
+            (None, Some(name)) => {
+                if ui
+                    .button(format!("{} Open {name} again", icons::codicon::FOLDER_OPENED))
+                    .on_hover_text("The folder of yours the page worked in last time: the browser asks once a visit")
+                    .clicked()
+                {
+                    folder.reconnect();
+                }
+            }
+            (None, None) => {
+                if ui
+                    .button(format!("{} Open a folder of yours...", icons::codicon::FOLDER_OPENED))
+                    .on_hover_text(
+                        "Work in a folder on your disk, as the desktop app works in its own: the page puts its \
+                         examples and an empty scripts/ there, replacing nothing. Put a script's data beside it, \
+                         edit with your own tools: the page reads the folder again when you come back to it. What \
+                         the page saves and what scripts write is written there.",
+                    )
+                    .clicked()
+                {
+                    folder.pick();
+                }
+            }
+        }
+    });
+    ui.add_space(4.0);
+}
+
 /// A reference image's state in words: how far while it sums, against the
 /// error it stops under; once stopped, why.
 pub(super) fn reference_words(r: &crate::app::simulation::ReferenceState, max: u32, goal: f32) -> String {
@@ -1222,13 +1283,13 @@ fn versions_ui(
         "version",
         "Every version GitHub lists, newest first, betas among them: one to install in place of this one, older ones too",
         |ui| {
-            egui::ComboBox::from_id_salt("update.version")
+            widgets::ComboBox::from_id_salt("update.version")
                 .selected_text(u.releases.iter().find(|r| r.tag == shown).map(label).unwrap_or(shown.clone()))
                 .width(ui.available_width())
                 .show_ui(ui, |ui| {
                     for r in u.releases.iter() {
                         let notes: String = r.notes.lines().take(12).collect::<Vec<_>>().join("\n");
-                        let row = ui.selectable_label(r.tag == shown, label(r));
+                        let row = widgets::choice_label(ui, r.tag == shown, label(r));
                         let row = if notes.is_empty() { row } else { row.on_hover_text(notes) };
                         if row.clicked() {
                             *choice = Some(r.tag.clone());
@@ -1298,30 +1359,6 @@ fn reference_toolbar(
         ui.label(egui::RichText::new(icon).size(16.0).color(color));
         ui.label(egui::RichText::new(words).color(color));
     }
-}
-
-/// A VS Code tab: its label dim until it is chosen or under the pointer,
-/// and the accent under the chosen one. `upper` for a panel's tabs, which
-/// VS Code writes in capitals -- TERMINAL, OUTPUT.
-fn panel_tab(ui: &mut egui::Ui, selected: bool, label: &str, upper: bool, accent: egui::Color32) -> egui::Response {
-    let (text, size) = if upper { (label.to_uppercase(), 11.0) } else { (label.to_owned(), 13.0) };
-    let galley = ui.painter().layout_no_wrap(text, egui::FontId::proportional(size), egui::Color32::PLACEHOLDER);
-    let padding = egui::vec2(6.0, 5.0);
-    let (rect, response) = ui.allocate_exact_size(galley.size() + 2.0 * padding, egui::Sense::click());
-    let color = if selected || response.hovered() {
-        ui.visuals().strong_text_color()
-    } else {
-        ui.visuals().weak_text_color()
-    };
-    ui.painter().galley(rect.min + padding, galley, color);
-    if selected {
-        ui.painter().hline(
-            rect.x_range().shrink(padding.x - 2.0),
-            rect.bottom() - 1.0,
-            egui::Stroke::new(2.0, accent),
-        );
-    }
-    response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 /// VS Code's primary button, the vibrant one -- "Update", "Restart to
@@ -1467,7 +1504,7 @@ pub struct Editor {
     side_tab: SideTab,
     /// The panel edge the pointer is resting on, and since when: lit once it
     /// has rested there `SASH_DELAY`, as VS Code's are.
-    sash_hover: Option<(usize, std::time::Instant)>,
+    sash_hover: Option<(usize, web_time::Instant)>,
     /// The panel edge being dragged, lit until the button comes up.
     sash_drag: Option<usize>,
     /// The files tab's listings.
@@ -1573,6 +1610,11 @@ pub struct Editor {
     /// Held while a `cargo build` thread is running, so the buttons can go
     /// grey rather than starting a second one on top of the first.
     pub building: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// `F3`, and what it chose, done the frame after (`search.rs`).
+    search: search::Search,
+    searched: Option<search::Found>,
+    /// `Ctrl+Z` for what the panels change (`undo.rs`).
+    undo: undo::Undo,
 }
 
 impl Editor {
@@ -1627,6 +1669,29 @@ impl Editor {
         }
     }
 
+    /// `path` changed outside the editor, in a page's folder of the
+    /// visitor's: read again where the editor holds it without edits of its
+    /// own -- shown, or kept aside -- so that what Play runs is what the
+    /// visitor wrote. An edited one is kept: saving it is the visitor's
+    /// choice.
+    #[cfg(target_arch = "wasm32")]
+    pub fn changed_outside(&mut self, path: &str) {
+        let path = path.trim_start_matches("./");
+        if self.script_path.trim().trim_start_matches("./") == path {
+            if !self.script_dirty {
+                let _ = self.reload_shown();
+            }
+        } else if let Some((text, dirty)) =
+            self.stash.iter_mut().find(|(p, _)| p.trim_start_matches("./") == path).map(|(_, v)| v)
+        {
+            if !*dirty {
+                if let Ok(read) = read_text(std::path::Path::new(path)) {
+                    *text = read;
+                }
+            }
+        }
+    }
+
     /// The file shown read again from the disk, its edits given up.
     pub fn reload_shown(&mut self) -> Result<(), String> {
         let path = std::path::PathBuf::from(self.script_path.trim());
@@ -1677,7 +1742,7 @@ impl Editor {
     /// way, through `save_request` -- as "Save all and quit" asks.
     fn save_stashed(&mut self) {
         for (path, (text, dirty)) in self.stash.iter_mut().filter(|(p, (_, d))| *d && !p.is_empty()) {
-            match std::fs::write(path.as_str(), text.as_str()) {
+            match crate::fs::write(path.as_str(), text.as_str()) {
                 Ok(()) => {
                     *dirty = false;
                     self.notes.push(format!("saved {path}"));
@@ -1697,7 +1762,7 @@ impl Editor {
         if let Some((text, _)) = self.stash.get(path) {
             return Some((path.clone(), text.clone()));
         }
-        std::fs::read_to_string(path).ok().map(|text| (path.clone(), text))
+        crate::fs::read_to_string(path).ok().map(|text| (path.clone(), text))
     }
 
     /// Send `path` to the renderer, from a clean scene -- a new app's, its
@@ -1868,6 +1933,9 @@ impl Editor {
             was_building: false,
             load_after_build: false,
             building: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            search: search::Search::default(),
+            searched: None,
+            undo: undo::Undo::default(),
         }
     }
 
@@ -1901,6 +1969,90 @@ impl Editor {
         iteration_rate: f32,
         timestamps: Option<wgpu::RenderPassTimestampWrites<'_>>,
     ) -> (u32, u32) {
+        // What `F3` chose last frame (`search.rs`), done as its button or
+        // its row does it: here, or by the button below.
+        let found = self.searched.take();
+        let chosen = found.as_ref().and_then(search::Found::action);
+        // What the search switches in the scene's config is a step undone
+        // as a widget's change is.
+        let config_was = found.is_some().then(|| config.clone());
+        {
+            use search::{Action as A, Found as F};
+            match &found {
+                Some(F::File(path)) => self.open_in_editor(std::path::Path::new(path)),
+                Some(F::Body(path)) => {
+                    if let Err(e) = simulation_panel::add_body(sim, path, true) {
+                        shared.kalast_log.push(e);
+                    }
+                }
+                Some(F::Shadows(quality)) => config.set_quality(*quality),
+                Some(F::Setting(place)) => {
+                    self.side_tab = if place.app { SideTab::App } else { SideTab::Simulation };
+                    self.docked_open[3] = true;
+                    widgets::reveal(&self.ctx, place.clone());
+                }
+                Some(F::Theme(theme)) => {
+                    app_config.theme = *theme;
+                    if !cfg!(test) {
+                        crate::app::settings::save(&crate::app::settings::Remembered::of(app_config));
+                    }
+                }
+                Some(F::Action(A::Renderer)) => self.central_tab = CentralTab::Renderer,
+                Some(F::Action(A::Editor)) => self.central_tab = CentralTab::Editor,
+                Some(F::Action(A::Docs)) => self.central_tab = CentralTab::Docs,
+                Some(F::Action(which @ (A::AppTab | A::SimulationTab | A::ScriptsTab))) => {
+                    self.side_tab = match which {
+                        A::AppTab => SideTab::App,
+                        A::SimulationTab => SideTab::Simulation,
+                        _ => SideTab::Files,
+                    };
+                    self.docked_open[3] = true;
+                }
+                Some(F::Action(A::ClearLog)) => match self.log_tab {
+                    LogTab::Script => shared.log.clear(),
+                    LogTab::Kalast => shared.kalast_log.clear(),
+                    LogTab::Python => shared.console_log.clear(),
+                },
+                Some(F::Action(A::Settings)) => {
+                    if self.side_tab == SideTab::Files {
+                        self.side_tab = SideTab::Simulation;
+                    }
+                    self.docked_open[3] = true;
+                    self.ctx.memory_mut(|m| m.request_focus(egui::Id::new("kalast settings search field")));
+                }
+                Some(F::Action(A::FoldPanels)) => self.toggle_panels(),
+                // As `F` and `Shift F` do it (`App::window_event`).
+                Some(F::Action(A::Fullscreen)) => {
+                    app_config.fullscreen = !app_config.fullscreen;
+                    if !cfg!(test) {
+                        crate::app::settings::save(&crate::app::settings::Remembered::of(app_config));
+                    }
+                }
+                Some(F::Action(A::Focus)) => app_config.focus = !app_config.focus,
+                Some(F::Action(A::PrintCamera)) => {
+                    let c = &sim.camera;
+                    println!(
+                        "camera: pos={} up={} dir={} anchor={} projection={:?}",
+                        c.pos, c.up, c.dir, c.anchor, c.projection
+                    );
+                }
+                Some(F::Action(A::ExportFrame)) => sim.export_once = true,
+                // The ground grid is the "blender" style's: shown, the style
+                // is that; hidden, the gizmo alone (`simulation_panel::grid_ui`).
+                Some(F::Action(A::Grid)) => {
+                    use crate::app::axes::AxesStyle;
+                    config.axes.style =
+                        if config.axes.style == AxesStyle::Blender { AxesStyle::Gizmo } else { AxesStyle::Blender };
+                }
+                Some(F::Action(A::Colorbar)) => config.colorbar.enabled = !config.colorbar.enabled,
+                Some(F::Action(A::CheckUpdates)) => self.check_request = true,
+                Some(F::Action(A::GitHub)) => self.ctx.open_url(egui::OpenUrl::new_tab(env!("CARGO_PKG_REPOSITORY"))),
+                _ => {}
+            }
+        }
+        if let Some(was) = config_was.filter(|was| was != config) {
+            self.undo.push(was);
+        }
         // Re-register only when the texture behind it is a different one. A
         // `TextureId` outlives a resize, but the view it points at does not.
         if self.viewport_texture.is_none()
@@ -1951,6 +2103,11 @@ impl Editor {
         };
 
         let mut raw = self.state.take_egui_input(window);
+        // Ctrl+Z, done before the frame draws what it puts back, and the
+        // config as the frame found it, to tell what its widgets changed.
+        let typing = self.ctx.memory(|m| m.focused().is_some());
+        self.undo.keys(&mut raw.events, typing, config);
+        let config_before = config.clone();
         // Lay out for what is being drawn into, not for the window.
         let ppp = self.ctx.pixels_per_point();
         let screen = egui::Rect::from_min_size(
@@ -2047,7 +2204,7 @@ impl Editor {
         let side_fill = theme::side_fill(app_config.theme);
         let mut tree_action: Option<TreeAction> = None;
         // The side panel's open button, the editor's column and its buttons.
-        let mut open_external = false;
+        let mut open_external = chosen == Some(search::Action::Open);
         let mut nav_click: Option<NavClick> = None;
         let (mut render_now, mut preview_now) = (false, false);
         // What the editor's column lists: the files open, those edited, the
@@ -2145,7 +2302,7 @@ impl Editor {
         let log_tab = &mut self.log_tab;
         let dirty = &mut self.script_dirty;
         let ran = &mut shared.script_ran;
-        let (mut run_request, mut save_request) = (false, false);
+        let (mut run_request, mut save_request) = (false, chosen == Some(search::Action::Save));
         let (mut update_request, mut relaunch_request) = (false, false);
         let (mut install_request, mut check_request) = (None::<String>, false);
         let mut version_choice = self.version_choice.clone();
@@ -2169,6 +2326,8 @@ impl Editor {
         // for pixel: its size is its own, not the viewport's.
         let pinned = (config.image.width, config.image.height) != (0, 0);
 
+        let mut search = std::mem::take(&mut self.search);
+        let mut searched_now = None;
         let mut output = self.ctx.run_ui(raw, |ui_root| {
             let ppp = ui_root.ctx().pixels_per_point();
 
@@ -2306,31 +2465,36 @@ impl Editor {
                         // rather than on the middle, so folding the toolbar --
                         // `↑` -- leaves nothing but the scene.
                         let tab = central_tab.get();
-                        if panel_tab(ui, tab == CentralTab::Renderer, "renderer", false, accent)
+                        if widgets::tab(ui, tab == CentralTab::Renderer, "renderer")
                             .on_hover_text("The scene")
                             .clicked()
                         {
                             central_tab.set(CentralTab::Renderer);
                         }
-                        if panel_tab(
+                        if widgets::tab(
                             ui,
                             tab == CentralTab::Editor,
                             // VS Code's dot for an edited file: the Codicon,
                             // since the UI font has no U+25CF and drew a box.
                             if script_dirty { "editor \u{ea71}" } else { "editor" },
-                            false,
-                            accent,
                         )
                         .on_hover_text(if script_dirty { "The script, edited since it was saved" } else { "The script" })
                         .clicked()
                         {
                             central_tab.set(CentralTab::Editor);
                         }
-                        if panel_tab(ui, tab == CentralTab::Docs, "documentation", false, accent)
+                        if widgets::tab(ui, tab == CentralTab::Docs, "documentation")
                             .on_hover_text("kalast's documentation: the Python API, the config, the controls, the changelog")
                             .clicked()
                         {
                             central_tab.set(CentralTab::Docs);
+                        }
+                        if ui
+                            .add(action(icons::codicon::GITHUB, ui.visuals().text_color()))
+                            .on_hover_text("kalast on GitHub: the code, the releases, the issues")
+                            .clicked()
+                        {
+                            ui.ctx().open_url(egui::OpenUrl::new_tab(env!("CARGO_PKG_REPOSITORY")));
                         }
                         if ui
                             .add_enabled(script_dirty, action(icons::codicon::SAVE, ui.visuals().text_color()))
@@ -2392,21 +2556,21 @@ impl Editor {
                             .add_enabled(!native, action(icons::codicon::CLEAR_ALL, colors.stop))
                             .on_hover_text("Reset: back to a new app -- no bodies, its settings and camera, the welcome")
                             .clicked()
+                            || (!native && chosen == Some(search::Action::Reset))
                         {
                             reset_request = true;
                         }
                         // One frame while paused: the same thing the render
                         // loop does, so the button cannot drift from the key.
+                        // Anything that has actually run can be stepped: a
+                        // hosted script, a native window, or a Rust example
+                        // loaded into this one.
+                        let can_step = (script_ran || native) && state.is_paused;
                         if ui
-                            .add_enabled(
-                                // Anything that has actually run can be
-                                // stepped: a hosted script, a native window, or
-                                // a Rust example loaded into this one.
-                                (script_ran || native) && state.is_paused,
-                                action(icons::codicon::STEP, colors.step),
-                            )
+                            .add_enabled(can_step, action(icons::codicon::STEP, colors.step))
                             .on_hover_text("Step: advance one iteration  (K)")
                             .clicked()
+                            || (can_step && chosen == Some(search::Action::Step))
                         {
                             state.request_step();
                         }
@@ -2417,8 +2581,9 @@ impl Editor {
                         // see the change. It runs the text in the panel, saved
                         // or not; saving is for when the change is worth
                         // keeping.
+                        let can_restart = have_script && !native;
                         if ui
-                            .add_enabled(have_script && !native, action(icons::codicon::RESTART, colors.run))
+                            .add_enabled(can_restart, action(icons::codicon::RESTART, colors.run))
                             .on_hover_text(if native {
                                 "Restart: this window is the example; close it and launch again"
                             } else if is_rust {
@@ -2427,6 +2592,7 @@ impl Editor {
                                 "Restart: rebuild the scene from the text in the panel -- saved or not -- and stop at the start"
                             })
                             .clicked()
+                            || (can_restart && chosen == Some(search::Action::Restart))
                         {
                             // Reloading *is* the restart: it clears the scene
                             // and runs the example again from the top. A `.rs`
@@ -2439,7 +2605,9 @@ impl Editor {
                                 restart_request = true;
                             }
                         }
-                        if ui.add_enabled(have_script, action(icon, color)).on_hover_text(hover).clicked() {
+                        if ui.add_enabled(have_script, action(icon, color)).on_hover_text(hover).clicked()
+                            || (have_script && chosen == Some(search::Action::Play))
+                        {
                             if native || loaded {
                                 state.is_paused = !state.is_paused;
                             } else if is_rust {
@@ -2484,7 +2652,7 @@ impl Editor {
                 );
             };
             let log_ui = |ui: &mut egui::Ui| {
-                    ui.horizontal(|ui| {
+                    widgets::tab_strip(ui, |ui| {
                         // The tab not shown gets a dot while it has lines not
                         // seen yet. Painted on its corner rather than added to
                         // its label, so the row does not shift as it comes and
@@ -2511,7 +2679,7 @@ impl Editor {
                             ),
                         ] {
                             let chosen = *log_tab == tab;
-                            let response = panel_tab(ui, chosen, name, true, accent).on_hover_text(hover);
+                            let response = widgets::tab(ui, chosen, name).on_hover_text(hover);
                             if response.clicked() {
                                 *log_tab = tab;
                             }
@@ -2696,101 +2864,129 @@ impl Editor {
                 docs_request = docs.show(ui, ui_theme);
             };
             let config_ui = |ui: &mut egui::Ui| {
-                    // Icons, as VS Code's activity bar has them, named on
-                    // hover. No rule under them: the accent under the chosen
-                    // one is the division, and a line across the panel was a
-                    // bar between the tabs and what they show.
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 2.0;
-                        for (which, icon, hover) in [
-                            (SideTab::App, icons::codicon::SETTINGS_GEAR, "App: the app's own settings, remembered for next time"),
-                            (SideTab::Simulation, icons::codicon::GLOBE, "Simulation: app.simulation.config, and the scene's bodies, camera and Sun"),
-                            (
-                                SideTab::Files,
-                                icons::codicon::FILE_CODE,
-                                "Scripts: the bundle's examples and your own scripts; a click opens a file in the editor, a right click does the rest",
-                            ),
-                        ] {
-                            if widgets::icon_tab(ui, *side_tab == which, icon, accent).on_hover_text(hover).clicked() {
-                                *side_tab = which;
+                    // The three tabs atop the panel, as the user keeps them
+                    // ("app settings + simulation settings + examples/scripts
+                    // 3 buttons should remain top"), and under them
+                    // Blender's properties search: the settings whose names
+                    // match, their sections open (`widgets::search_field`).
+                    // The panel's margins are drawn here: the simulation
+                    // tab's navigation bar runs to its edges.
+                    let panel = ui.max_rect();
+                    egui::Frame::NONE.inner_margin(egui::Margin { left: 8, right: 8, top: 8, bottom: 0 }).show(ui, |ui| {
+                        // Icons, as Blender's properties editor has them,
+                        // named on hover, on Blender's strip of tabs.
+                        widgets::tab_strip(ui, |ui| {
+                            for (which, icon, hover) in [
+                                (SideTab::App, icons::codicon::SETTINGS_GEAR, "App: the app's own settings, remembered for next time"),
+                                (SideTab::Simulation, icons::codicon::GLOBE, "Simulation: app.simulation.config, and the scene's bodies, camera and Sun"),
+                                (
+                                    SideTab::Files,
+                                    icons::codicon::FILE_CODE,
+                                    "Scripts: the bundle's examples and your own scripts; a click opens a file in the editor, a right click does the rest",
+                                ),
+                            ] {
+                                if widgets::icon_tab(ui, *side_tab == which, icon).on_hover_text(hover).clicked() {
+                                    *side_tab = which;
+                                }
                             }
+                            // Any file, from anywhere, as the system's dialog finds it.
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui
+                                    .add(action(icons::codicon::FOLDER_OPENED, ui.visuals().text_color()))
+                                    .on_hover_text("Open a file: any text file, from anywhere -- a script, a mesh, a README")
+                                    .clicked()
+                                {
+                                    open_external = true;
+                                }
+                            });
+                        });
+                        ui.add_space(4.0);
+                        if matches!(*side_tab, SideTab::App | SideTab::Simulation) {
+                            widgets::search_field(ui, panel);
+                            ui.add_space(4.0);
                         }
-                        // Any file, from anywhere, as the system's dialog finds it.
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui
-                                .add(action(icons::codicon::FOLDER_OPENED, ui.visuals().text_color()))
-                                .on_hover_text("Open a file: any text file, from anywhere -- a script, a mesh, a README")
-                                .clicked()
-                            {
-                                open_external = true;
+                    });
+                    // The app tab and the simulation's, as closures: drawn as
+                    // the tab chosen, and again, invisibly, for the search's
+                    // list of every setting (`widgets::catalogue`).
+                    let mut app_tab = |ui: &mut egui::Ui| {
+                        let before = crate::app::settings::Remembered::of(app_config);
+                        widgets::section(ui, "Panels", "Panels", |ui| {
+                            config_panel::app_panels(ui, app_config)
+                        });
+                        widgets::section(ui, "Window", "Window", |ui| {
+                            config_panel::app_window(ui, app_config);
+                            if !app_config.remember_window {
+                                window_start(ui, app_config, &screens);
                             }
                         });
-                    });
-                    ui.add_space(4.0);
-                    // A scroll position per tab, so switching does not drop
-                    // one at the other's place.
+                        widgets::section(ui, "Editor", "Editor", |ui| {
+                            config_panel::app_editor(ui, app_config)
+                        });
+                        widgets::section(
+                            ui,
+                            "Updates",
+                            "Updates",
+                            |ui| {
+                                let betas = app_config.update_betas;
+                                config_panel::app_updates(ui, app_config);
+                                // The offer changes with it: asked again.
+                                check_request |= app_config.update_betas != betas;
+                                versions_ui(ui, &update_state, &mut version_choice, &mut install_request, &mut check_request);
+                            },
+                        );
+                        remember |= crate::app::settings::Remembered::of(app_config) != before;
+                        ui.add_space(8.0);
+                        ui.label(
+                            egui::RichText::new("The theme, the window and the editor's settings are remembered for next time.")
+                                .weak()
+                                .small(),
+                        );
+                    };
+                    // By topic, a tab each, its panels holding the entity
+                    // beside its own settings -- the Sun beside its light,
+                    // the HUD list beside its font. See `simulation_panel`.
+                    let mut simulation_tab = |ui: &mut egui::Ui| {
+                        let mut sim = sim.borrow_mut();
+                        // The config is passed in rather than read from
+                        // `sim.config`: that is the same RefCell this
+                        // panel is being drawn with open, and reading it
+                        // here panics.
+                        simulation_panel::simulation_panel(ui, &mut sim, config);
+                    };
+                    // The simulation tab: its topics a tab each down Blender's
+                    // navigation bar, the chosen one's panels beside it. The
+                    // others in the panel's margins.
+                    let mut region = if *side_tab == SideTab::Simulation {
+                        widgets::nav_bar(ui, simulation_panel::topic_tabs)
+                    } else {
+                        let rect = ui.available_rect_before_wrap();
+                        ui.advance_cursor_after_rect(rect);
+                        let inside = egui::Rect::from_min_max(rect.min + egui::vec2(8.0, 0.0), rect.max - egui::vec2(8.0, 8.0));
+                        ui.new_child(egui::UiBuilder::new().max_rect(inside).layout(egui::Layout::top_down(egui::Align::Min)))
+                    };
+                    // A scroll position per tab, and per topic, so switching
+                    // does not drop one at the other's place.
+                    let topic = (*side_tab == SideTab::Simulation).then(|| simulation_panel::chosen_topic(region.ctx()));
                     egui::ScrollArea::vertical()
-                        .id_salt(("side", *side_tab))
+                        .id_salt(("side", *side_tab, topic))
                         .auto_shrink([false, false])
-                        .show(ui, |ui| {
+                        .show(&mut region, |ui| {
                             // All three tabs on the files tab's grid: rows of
                             // its height, no gap between them.
                             ui.spacing_mut().item_spacing.y = 0.0;
                             match *side_tab {
-                            SideTab::App => {
-                                use theme::palette;
-                                let before = crate::app::settings::Remembered::of(app_config);
-                                use widgets::Icon::Codicon;
-                                widgets::section(ui, Codicon(icons::codicon::LAYOUT, palette::BLUE), "Panels", "Panels", |ui| {
-                                    config_panel::app_panels(ui, app_config)
-                                });
-                                widgets::section(ui, Codicon(icons::codicon::WINDOW, palette::LAVENDER), "Window", "Window", |ui| {
-                                    config_panel::app_window(ui, app_config);
-                                    if !app_config.remember_window {
-                                        window_start(ui, app_config, &screens);
-                                    }
-                                });
-                                widgets::section(ui, Codicon(icons::codicon::CODE, palette::GREEN), "Editor", "Editor", |ui| {
-                                    config_panel::app_editor(ui, app_config)
-                                });
-                                widgets::section(
-                                    ui,
-                                    Codicon(icons::codicon::CLOUD_DOWNLOAD, palette::SAPPHIRE),
-                                    "Updates",
-                                    "Updates",
-                                    |ui| {
-                                        let betas = app_config.update_betas;
-                                        config_panel::app_updates(ui, app_config);
-                                        // The offer changes with it: asked again.
-                                        check_request |= app_config.update_betas != betas;
-                                        versions_ui(ui, &update_state, &mut version_choice, &mut install_request, &mut check_request);
-                                    },
-                                );
-                                remember |= crate::app::settings::Remembered::of(app_config) != before;
-                                ui.add_space(8.0);
-                                ui.label(
-                                    egui::RichText::new("The theme, the window and the editor's settings are remembered for next time.")
-                                        .weak()
-                                        .small(),
-                                );
-                            }
-                            // By topic, each header holding the entity beside
-                            // its own settings -- the Sun beside its light, the
-                            // HUD list beside its font. See `simulation_panel`.
-                            SideTab::Simulation => {
-                                let mut sim = sim.borrow_mut();
-                                // The config is passed in rather than read from
-                                // `sim.config`: that is the same RefCell this
-                                // panel is being drawn with open, and reading it
-                                // here panics.
-                                simulation_panel::simulation_panel(ui, &mut sim, config);
-                            }
+                            SideTab::App => app_tab(ui),
+                            SideTab::Simulation => simulation_tab(ui),
                             SideTab::Files => {
                                 // Headed as VS Code heads its explorer.
                                 ui.label(egui::RichText::new("SCRIPTS").strong().size(11.0));
+                                #[cfg(target_arch = "wasm32")]
+                                page_folder_row(ui);
                                 tree_action = files.show(ui, &current_script, ui_theme);
                             }
                             }
+                            widgets::catalogue(ui, &mut app_tab, &mut simulation_tab);
                         });
                 };
 
@@ -2831,7 +3027,11 @@ impl Editor {
                         } else {
                             ui.set_max_size(rect.size());
                         }
-                        let framed = egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        // The side panel's margins are its own, its
+                        // navigation bar running to the frame's edges.
+                        let frame = egui::Frame::popup(ui.style());
+                        let frame = if side == 3 { frame.inner_margin(0) } else { frame };
+                        let framed = frame.show(ui, |ui| {
                             if toolbar {
                                 ui.set_min_width(rect.width());
                             } else {
@@ -3049,7 +3249,9 @@ impl Editor {
                 rects[3] = egui::Panel::right("config")
                     // A shade darker than the other cards, as VS Code's
                     // sidebar is.
-                    .frame(card.fill(side_fill))
+                    // Its margins drawn inside (`widgets::nav_bar`): the
+                    // navigation bar runs to its edges.
+                    .frame(card.fill(side_fill).inner_margin(0))
                     .show_separator_line(false)
                     .resizable(true)
                     .default_size(right_w)
@@ -3083,13 +3285,17 @@ impl Editor {
                 // the toolbar's tabs choose. The scene is measured only while
                 // it is the one shown, so the render keeps its size while the
                 // others are, and a click on them is not a click on it.
-                // The scene in no card: it fills the middle to its edges, so
-                // with the panels folded it is the whole window, as a render
-                // window is. The others take a card, like the panels.
+                // Each in a card, like the panels: the scene's too, as
+                // Blender's 3D viewport is an editor among the others (the
+                // user: "put the center renderer panel in a proper panel like
+                // editor and documentation"). Its corners are rounded on the
+                // screen only: the render, and a frame exported from it, are
+                // the image whole and square. Focus mode still gives it the
+                // window to its edges.
                 let mut script_ui = script_ui;
                 let mut docs_ui = docs_ui;
                 let frame = match central_tab.get() {
-                    CentralTab::Renderer => egui::Frame::NONE,
+                    CentralTab::Renderer => card.inner_margin(0),
                     CentralTab::Editor | CentralTab::Docs => card,
                 };
                 egui::CentralPanel::default().frame(frame).show(ui_root, |ui| {
@@ -3100,7 +3306,7 @@ impl Editor {
                                 ((vp_rect.width() * ppp).round() as u32).max(1),
                                 ((vp_rect.height() * ppp).round() as u32).max(1),
                             );
-                            scene_ui(ui, vp_rect, 0);
+                            scene_ui(ui, vp_rect, 6);
                         }
                         CentralTab::Editor => script_ui(ui),
                         CentralTab::Docs => docs_ui(ui),
@@ -3162,7 +3368,7 @@ impl Editor {
                 }
                 match (over, *sash_hover) {
                     (Some(i), Some((j, _))) if i == j => {}
-                    (Some(i), _) => *sash_hover = Some((i, std::time::Instant::now())),
+                    (Some(i), _) => *sash_hover = Some((i, web_time::Instant::now())),
                     (None, _) => *sash_hover = None,
                 }
                 // Not while something else is being dragged across it.
@@ -3210,9 +3416,29 @@ impl Editor {
             // A right click's Delete: to the Trash, from where it can be put
             // back, once asked.
             if let Some(path) = &trash_asked {
+                // In a page, what is in the visitor's folder is not deleted
+                // from there: the page cannot reach the Trash, and a delete
+                // would be for good. Said before, not after a click.
+                #[cfg(target_arch = "wasm32")]
+                let on_disk = crate::app::page_folder().is_some_and(|f| f.on_disk(&page_key(path)));
+                #[cfg(not(target_arch = "wasm32"))]
+                let on_disk = false;
                 let modal = egui::Modal::new(egui::Id::new("confirm_trash")).show(ui_root.ctx(), |ui| {
                     ui.set_width(380.0);
                     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                    if on_disk {
+                        ui.heading(format!("{name} stays"));
+                        ui.label(format!(
+                            "{} is in your folder, and a page has no Trash to move it to: deleted from here, it would be \
+                             gone for good. Delete it there; the page sees it gone when you come back to it.",
+                            path.display()
+                        ));
+                        ui.add_space(8.0);
+                        if ui.button("OK").clicked() {
+                            trash_cancel = true;
+                        }
+                        return;
+                    }
                     ui.heading(format!("Delete {name}?"));
                     ui.label(if path.is_dir() {
                         format!("{} and everything in it go to the Trash, from where they can be put back.", path.display())
@@ -3258,7 +3484,13 @@ impl Editor {
                     close_cancel = true;
                 }
             }
+            // F3, over everything.
+            searched_now = search.show(ui_root.ctx());
         });
+        self.search = search;
+        self.searched = searched_now;
+        let holding = self.ctx.input(|i| i.pointer.any_down()) || self.ctx.memory(|m| m.focused().is_some());
+        self.undo.record(config_before, config, holding);
 
         self.viewport_size = wanted;
         self.viewport_rect = vp_rect;
@@ -3325,8 +3557,21 @@ impl Editor {
             if let Some(path) = self.trash_asked.take() {
                 // Whole, as the tree's paths are relative to where kalast
                 // started, and not every platform's Trash reads them so.
-                let whole = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
-                match trash::delete(&whole) {
+                #[cfg(not(target_arch = "wasm32"))]
+                let thrown = {
+                    let whole = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+                    trash::delete(&whole).map_err(|e| e.to_string())
+                };
+                // A page has no Trash: its file is taken away.
+                // Not what is in the visitor's folder: a page cannot reach the
+                // Trash, and taken away there it would be gone for good.
+                #[cfg(target_arch = "wasm32")]
+                let thrown = if crate::app::page_folder().is_some_and(|f| f.on_disk(&page_key(&path))) {
+                    Err("it is in your folder, where a page has no Trash to move it to: delete it there".to_string())
+                } else {
+                    crate::fs::remove_all(&path).map_err(|e| e.to_string())
+                };
+                match thrown {
                     Ok(()) => {
                         self.notes.push(format!("moved {} to the Trash", path.display()));
                         self.files.reread();
@@ -3342,7 +3587,11 @@ impl Editor {
         // The side panel's open button: the system's dialog, any file. A
         // mesh too big to edit goes to the scene instead.
         if open_external {
-            if let Some(path) = rfd::FileDialog::new().set_title("Open a file").pick_file() {
+            #[cfg(not(target_arch = "wasm32"))]
+            let picked = rfd::FileDialog::new().set_title("Open a file").pick_file();
+            #[cfg(target_arch = "wasm32")]
+            let picked: Option<std::path::PathBuf> = None;
+            if let Some(path) = picked {
                 let path = tree_path(&path);
                 let big_mesh = path.extension().is_some_and(|e| e == "obj") && read_text(&path).is_err();
                 if big_mesh {
@@ -3378,7 +3627,7 @@ impl Editor {
                     } else {
                         self.stash.get(&path).map(|(text, _)| text.clone())
                     };
-                    match text.map(|t| std::fs::write(&path, t)) {
+                    match text.map(|t| crate::fs::write(&path, t)) {
                         Some(Ok(())) => self.notes.push(format!("saved {path}")),
                         Some(Err(e)) => self.notes.push(format!("cannot save {path}: {e}")),
                         None => {}
@@ -4006,6 +4255,18 @@ pub fn engine_write(args: std::fmt::Arguments<'_>, err: bool) {
     // Formatted first and written once: `write_fmt` goes piece by piece,
     // and another writer on the pipe could cut in between two pieces.
     let text = args.to_string();
+    // A page's: no pipe and no terminal, and the examples it runs are this
+    // same crate, whose host would be this function again. Into the queue
+    // the kalast tab takes its lines from.
+    if cfg!(target_arch = "wasm32") {
+        let mut out = PAGE_OUTPUT.lock().unwrap_or_else(|e| e.into_inner());
+        out.0.push_str(&text);
+        while let Some(i) = out.0.find('\n') {
+            let line: String = out.0.drain(..=i).collect();
+            out.1.push(Entry { time: crate::app::clock::now().time(), text: line.trim_end().to_string() });
+        }
+        return;
+    }
     if let Some(pipe) = ENGINE_OUT.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
         let _ = pipe.write_all(text.as_bytes());
         return;
@@ -4165,6 +4426,88 @@ pub fn script_write(text: &str) {
             text: String::from_utf8_lossy(&line).trim_end_matches(['\n', '\r']).to_string(),
         });
     }
+}
+
+/// In a page, what kalast prints, for the kalast tab: the line being
+/// written, and the lines done (`engine_write`).
+static PAGE_OUTPUT: std::sync::Mutex<(String, Vec<Entry>)> = std::sync::Mutex::new((String::new(), Vec::new()));
+
+/// In a page, move what kalast has printed since last time into the kalast
+/// tab, which on the desktop a capture of stdout fills.
+#[cfg(target_arch = "wasm32")]
+pub fn drain_page_output(log: &mut Log) {
+    let lines = std::mem::take(&mut PAGE_OUTPUT.lock().unwrap_or_else(|e| e.into_inner()).1);
+    for line in lines {
+        log.push_at(line.time, line.text);
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+thread_local! {
+    static CHANGED_OUTSIDE: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// In a page, files its folder changed (`web/folder.js`): the visitor's own
+/// tools edited them, and the page's files hold the new text now.
+#[cfg(target_arch = "wasm32")]
+pub fn changed_outside(path: &str) {
+    CHANGED_OUTSIDE.with(|c| c.borrow_mut().push(path.to_string()));
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn take_changed_outside() -> Vec<String> {
+    CHANGED_OUTSIDE.with(|c| std::mem::take(&mut *c.borrow_mut()))
+}
+
+#[cfg(target_arch = "wasm32")]
+thread_local! {
+    static SENT_MESHES: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+    static EMBEDDED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// In a page, shown inside another that asked for it (`?embed=`): meshes
+/// opened are dressed to be looked at (`Simulation::dress_for_viewing`).
+#[cfg(target_arch = "wasm32")]
+pub fn set_embedded(on: bool) {
+    EMBEDDED.with(|e| e.set(on));
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn embedded() -> bool {
+    EMBEDDED.with(|e| e.get())
+}
+
+/// In a page shown inside another (`web/embed.js`), a mesh that page sent,
+/// among the page's files now: sent to the renderer as the files tab sends
+/// an `.obj`.
+#[cfg(target_arch = "wasm32")]
+pub fn send_mesh(path: &str) {
+    SENT_MESHES.with(|s| s.borrow_mut().push(path.to_string()));
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn take_sent_meshes() -> Vec<String> {
+    SENT_MESHES.with(|s| std::mem::take(&mut *s.borrow_mut()))
+}
+
+#[cfg(target_arch = "wasm32")]
+thread_local! {
+    static PINCHES: std::cell::RefCell<Vec<f64>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// In a page, a pinch the browser told the page as something else, which
+/// winit does not make a pinch of (`web/wheel.js`, `web/embed.js`): Safari's
+/// gesture events, and a pinch over the page in a frame, which Chrome gives
+/// the page around it. Its magnification, as the desktop's trackpad reports
+/// one: `+1.0` for twice as big.
+#[cfg(target_arch = "wasm32")]
+pub fn send_pinch(magnification: f64) {
+    PINCHES.with(|p| p.borrow_mut().push(magnification));
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn take_pinches() -> Vec<f64> {
+    PINCHES.with(|p| std::mem::take(&mut *p.borrow_mut()))
 }
 
 /// Move the lines a script has written since last time into its log.
@@ -4568,7 +4911,8 @@ mod terminal_tests {
 #[cfg(all(test, any(unix, windows)))]
 mod stdio_tests {
     use super::{log_tests::is_time, Log, StdioCapture};
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
+    use web_time::Instant;
 
     const CHILD: &str = "KALAST_STDIO_CAPTURE_CHILD";
     const NAME: &str =

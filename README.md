@@ -10,6 +10,11 @@ uses — viewing and interacting with meshes, generating lightcurves — see the
 
 Download the [latest version of kalast here](https://github.com/GregoireHENRY/kalast/releases).
 You can directly run the executable and open an example script from the UI.
+Or use it in your browser, nothing to install, at
+[kalast.greghy.com](https://kalast.greghy.com): the same UI app, computing on
+your machine (a browser with WebGPU: a recent Chrome, Edge or Safari). In
+Chrome or Edge it can work in a folder of yours, where a script's data goes.
+It is the latest release; *offer betas*, in its app tab, opens the beta.
 
 Kalast focus is doing sciences with highest performance possible (core written
 in Rust + GPU/shaders) while being accessible by everyone (wrapper written in

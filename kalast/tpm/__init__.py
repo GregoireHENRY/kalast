@@ -17,6 +17,7 @@ _SUBMODULES = (
     "emit",
     "routine",
     "radiance",
+    "exchange",
     #
     "nonuniform",
     "explicit",

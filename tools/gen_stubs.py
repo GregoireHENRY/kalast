@@ -735,6 +735,10 @@ TARGETS = {
     # re-exports, so that a script stepping a thermophysical model reads
     # them in its editor rather than a module the checker cannot see into.
     "src/tpm/core.rs": "kalast/tpm/core.pyi",
+    # The same module from Python: `Stepper` is registered in `core`.
+    "src/tpm/stepper.rs": "kalast/tpm/core.pyi",
+    # The exchange between facets keeps its binding beside the physics too.
+    "src/tpm/exchange.rs": "kalast/tpm/exchange.pyi",
     # Not under src/py/: `scattering` keeps its `#[pyclass]` inline with the
     # physics rather than in a separate binding file, since the struct is
     # the same either way and splitting it would put the parameter docs a

@@ -1,0 +1,9 @@
+// kalast.greghy.com: web/dist/ as a Worker's static assets, on Cloudflare,
+// up whether this machine is or not. `npx wrangler deploy` from web/, after
+// `./build.sh`.
+{
+  "name": "kalast",
+  "compatibility_date": "2026-10-30",
+  "assets": { "directory": "./dist" },
+  "routes": [{ "pattern": "kalast.greghy.com", "custom_domain": true }]
+}

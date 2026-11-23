@@ -16,7 +16,10 @@ images directly (the default) and point by point:
 - the images' residual a tenth of what it was.
 
 Then `Maplet.from_surface` over a mesh of the truth: on it, its facets
-found; and `mesh()` facing out.
+found; and `mesh()` facing out. And `pointing` with `roll`: cameras about a
+sphere of maplets, every other one turned about its boresight by up to two
+degrees, as a planned attitude is, each shift what its turned axes give --
+the rolls found back within 0.06 degrees, applied as `Rz(roll) @ axes`.
 
 No window.
 """
@@ -27,7 +30,7 @@ import sys
 import numpy
 
 from kalast.scattering import Hapke
-from kalast.shape import Maplet, View
+from kalast.shape import Maplet, View, pointing
 from kalast.util import RPD
 
 failures: list[str] = []
@@ -147,8 +150,139 @@ def main() -> int:
     check("from_surface: its reference its heights", numpy.allclose(over.reference, over.heights))
     check("from_surface: the facets under it", 0 < len(over.facets) < len(facets), f"{len(over.facets)} of {len(facets)}")
 
+    rolls()
+    turns()
+    sessions()
     print("FAILED: " + ", ".join(failures) if failures else "all ok")
     return 1 if failures else 0
+
+
+def rolls() -> None:
+    rng = numpy.random.default_rng(5)
+    focal, far = 5000.0, 20.0
+    centres = rng.normal(size=(200, 3))
+    centres /= numpy.linalg.norm(centres, axis=1)[:, None]
+    looks = rng.normal(size=(40, 3))
+    looks /= numpy.linalg.norm(looks, axis=1)[:, None]
+    axes = []
+    for d in looks:
+        z = -d
+        x = numpy.cross([0.0, 0.0, 1.0], z)
+        x /= numpy.linalg.norm(x)
+        axes.append(numpy.array([x, numpy.cross(z, x), z]))
+    axes = numpy.array(axes)
+    freed = numpy.arange(len(looks)) % 2 == 0
+    truth = numpy.where(freed, rng.uniform(-0.035, 0.035, len(looks)), 0.0)
+    image, tile, shift = [], [], []
+    for k, (d, a) in enumerate(zip(looks, axes)):
+        c, s_ = numpy.cos(truth[k]), numpy.sin(truth[k])
+        turned = numpy.array([[c, s_, 0.0], [-s_, c, 0.0], [0.0, 0.0, 1.0]]) @ a
+        for t, p in enumerate(centres):
+            if p @ d < 0.5:
+                continue
+            q, r = a @ (p - far * d), turned @ (p - far * d)
+            image.append(k), tile.append(t)
+            shift.append(focal * (r[:2] / r[2] - q[:2] / q[2]) + rng.uniform(-0.2, 0.2, 2))
+    fit, behind, _, _ = pointing(far * looks, axes, focal, centres, centres, image, tile, shift, numpy.ones(len(image)),
+                                 offset_sigma=0.01, roll=freed)
+    off = numpy.degrees(numpy.abs(fit[:, 2] - truth))[behind >= 3]
+    check("pointing(roll=...): each freed camera's roll found back within 0.06 deg", fit.shape == (len(looks), 3) and off.max() < 0.06,
+          f"worst {off.max():.3f} deg")
+    check("pointing(roll=...): no roll where not freed", bool((fit[~freed, 2] == 0.0).all()))
+
+
+def turns() -> None:
+    """A body turned about its origin by up to 3 degrees in half the images: pointing(turn=...) gives each turn back."""
+    rng = numpy.random.default_rng(9)
+    focal, far = 5000.0, 20.0
+    centres = rng.normal(size=(300, 3))
+    centres /= numpy.linalg.norm(centres, axis=1)[:, None]
+    looks = rng.normal(size=(60, 3))
+    looks /= numpy.linalg.norm(looks, axis=1)[:, None]
+    axes = []
+    for d in looks:
+        z = -d
+        x = numpy.cross([0.0, 0.0, 1.0], z)
+        x /= numpy.linalg.norm(x)
+        axes.append(numpy.array([x, numpy.cross(z, x), z]))
+    axes = numpy.array(axes)
+    freed = numpy.arange(len(looks)) % 2 == 0
+    truth = numpy.where(freed[:, None], rng.uniform(-0.03, 0.03, (len(looks), 3)), 0.0)
+
+    def rotation(v):
+        a = numpy.linalg.norm(v)
+        if a == 0:
+            return numpy.eye(3)
+        k = v / a
+        K = numpy.array([[0, -k[2], k[1]], [k[2], 0, -k[0]], [-k[1], k[0], 0]])
+        return numpy.eye(3) + numpy.sin(a) * K + (1 - numpy.cos(a)) * K @ K
+
+    image, tile, shift = [], [], []
+    for k, (d, a) in enumerate(zip(looks, axes)):
+        R = rotation(truth[k])
+        for t, p in enumerate(centres):
+            if p @ d < 0.5:
+                continue
+            q, r = a @ (p - far * d), a @ (R @ p - far * d)
+            image.append(k), tile.append(t)
+            shift.append(focal * (r[:2] / r[2] - q[:2] / q[2]) + rng.uniform(-0.2, 0.2, 2))
+    fit, behind, _, _ = pointing(far * looks, axes, focal, centres, centres, image, tile, shift, numpy.ones(len(image)),
+                                 offset_sigma=0.01, iterations=40, turn=freed)
+    err = numpy.array([a @ (fit[k, 2:5] - truth[k]) for k, a in enumerate(axes)])  # in each camera's frame
+    held = behind >= 3
+    across, along = numpy.degrees(numpy.hypot(err[:, 0], err[:, 1]))[held], numpy.degrees(numpy.abs(err[:, 2]))[held]
+    check("pointing(turn=...): each freed image's turn found back, 0.3 deg across the line of sight, 0.1 along it",
+          fit.shape == (len(looks), 5) and across.max() < 0.3 and along.max() < 0.1,
+          f"worst {across.max():.3f} across, {along.max():.3f} along")
+    check("pointing(turn=...): no turn where not freed", bool((fit[~freed, 2:5] == 0.0).all()))
+
+
+def sessions() -> None:
+    """Images that register few maplets, in sessions whose body turns smoothly: pointing(group=..., time=...) shares one
+    turn and its rate a session, closer than each image's own."""
+    rng = numpy.random.default_rng(13)
+    focal, far = 5000.0, 20.0
+    centres = rng.normal(size=(300, 3))
+    centres /= numpy.linalg.norm(centres, axis=1)[:, None]
+
+    def rotation(v):
+        a = numpy.linalg.norm(v)
+        if a == 0:
+            return numpy.eye(3)
+        k = v / a
+        K = numpy.array([[0, -k[2], k[1]], [k[2], 0, -k[0]], [-k[1], k[0], 0]])
+        return numpy.eye(3) + numpy.sin(a) * K + (1 - numpy.cos(a)) * K @ K
+
+    looks, axes, group, time, truth = [], [], [], [], []
+    for g in range(4):
+        lon0, lat = rng.uniform(-numpy.pi, numpy.pi), rng.uniform(-0.3, 0.3)
+        a_, b_ = rng.uniform(-0.01, 0.01, 3), rng.uniform(-0.01, 0.01, 3)
+        for k in range(8):
+            lon = lon0 + numpy.radians(60) * k / 7
+            d = numpy.array([numpy.cos(lat) * numpy.cos(lon), numpy.cos(lat) * numpy.sin(lon), numpy.sin(lat)])
+            z = -d
+            x = numpy.cross([0.0, 0.0, 1.0], z)
+            x /= numpy.linalg.norm(x)
+            looks.append(d), axes.append(numpy.array([x, numpy.cross(z, x), z])), group.append(g), time.append(10.0 * g + 0.25 * k)
+            truth.append(a_ + (0.25 * k - 0.875) * b_)
+    looks, axes, truth = numpy.array(looks), numpy.array(axes), numpy.array(truth)
+    image, tile, shift = [], [], []
+    for k, (d, a) in enumerate(zip(looks, axes)):
+        R = rotation(truth[k])
+        seen = [t for t, p in enumerate(centres) if p @ d >= 0.5]
+        for t in seen[:: max(1, len(seen) // 10)][:10]:
+            p = centres[t]
+            q, r = a @ (p - far * d), a @ (R @ p - far * d)
+            image.append(k), tile.append(t)
+            shift.append(focal * (r[:2] / r[2] - q[:2] / q[2]) + rng.uniform(-0.2, 0.2, 2))
+    freed = numpy.ones(len(looks), bool)
+    args = (far * looks, axes, focal, centres, centres, image, tile, shift, numpy.ones(len(image)))
+    alone = pointing(*args, offset_sigma=0.01, iterations=40, turn=freed)[0]
+    shared = pointing(*args, offset_sigma=0.01, iterations=40, turn=freed, group=group, time=time)[0]
+    worst = lambda fit: numpy.degrees(numpy.linalg.norm(fit[:, 2:5] - truth, axis=1).max())  # noqa: E731
+    check("pointing(group=..., time=...): one turn and rate a session, within 0.2 deg and closer than each image alone",
+          shared.shape == (len(looks), 5) and worst(shared) < 0.2 and worst(shared) < 0.7 * worst(alone),
+          f"worst {worst(shared):.3f} deg shared, {worst(alone):.3f} alone")
 
 
 if __name__ == "__main__":

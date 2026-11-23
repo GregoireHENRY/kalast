@@ -261,7 +261,7 @@ impl Pass {
         // Whether to build the pipelines a reference image draws its samples
         // with (`render_reference`).
         reference: bool,
-        // Whether they trace rays (`gpu::shader_for_traced`), group 7 bound.
+        // Whether they trace rays (`gpu::shader_for_traced`), group 4 bound.
         traced: bool,
     ) -> Self {
         // The shadow pass reads the same flag (`shadow::Pass::new`): closed
@@ -413,9 +413,9 @@ impl Pass {
         render_pass.set_pipeline(&self.pipeline.inner);
 
         bindings.all(&mut render_pass);
-        render_pass.set_bind_group(6, Some(penumbra), &[]);
+        render_pass.set_bind_group(3, Some(penumbra), &[]);
         if let Some(rays) = &bindings.rays {
-            render_pass.set_bind_group(7, Some(rays), &[]);
+            render_pass.set_bind_group(4, Some(rays), &[]);
         }
 
         // Non-indexed only while the wireframe is on (`Window::update` sets
@@ -520,9 +520,9 @@ impl Pass {
         render_pass.set_scissor_rect(0, y0, width, y1.saturating_sub(y0).max(1));
         render_pass.set_pipeline(&self.pipeline.inner);
         bindings.all(&mut render_pass);
-        render_pass.set_bind_group(6, Some(penumbra), &[]);
+        render_pass.set_bind_group(3, Some(penumbra), &[]);
         if let Some(rays) = &bindings.rays {
-            render_pass.set_bind_group(7, Some(rays), &[]);
+            render_pass.set_bind_group(4, Some(rays), &[]);
         }
         let corners = config.wireframe.mode != 0 || !self.primitive_index;
         let mut lean_set = false;
@@ -641,9 +641,9 @@ impl Pass {
         render_pass.set_scissor_rect(0, y0, width, y1.saturating_sub(y0).max(1));
         render_pass.set_pipeline(&full.inner);
         bindings.all(&mut render_pass);
-        render_pass.set_bind_group(6, Some(penumbra), &[]);
+        render_pass.set_bind_group(3, Some(penumbra), &[]);
         if let Some(rays) = &bindings.rays {
-            render_pass.set_bind_group(7, Some(rays), &[]);
+            render_pass.set_bind_group(4, Some(rays), &[]);
         }
         let corners = config.wireframe.mode != 0 || !self.primitive_index;
         let mut lean_set = false;
@@ -701,9 +701,9 @@ impl Pass {
         });
         render_pass.set_pipeline(&full.inner);
         bindings.all(&mut render_pass);
-        render_pass.set_bind_group(6, Some(penumbra), &[]);
+        render_pass.set_bind_group(3, Some(penumbra), &[]);
         if let Some(rays) = &bindings.rays {
-            render_pass.set_bind_group(7, Some(rays), &[]);
+            render_pass.set_bind_group(4, Some(rays), &[]);
         }
         // As the main pass picks them (`render`).
         let corners = config.wireframe.mode != 0 || !self.primitive_index;

@@ -27,6 +27,10 @@ struct Params {
     // dispatched two-dimensionally and the linear index rebuilt here.
     stride_surface: u32,
     stride_conduction: u32,
+    // What the base node sits above the node over it (K): `q d / k` for a
+    // heat flow `q` (W/m2) through the base, `d` the last spacing. Zero is
+    // the adiabatic bottom.
+    bottom_rise: f32,
 };
 
 @group(0) @binding(0) var<uniform> params: Params;
@@ -139,8 +143,10 @@ fn conduction(@builtin(global_invocation_id) gid: vec3<u32>) {
     // *after* that node has been advanced, so recompute rather than read a
     // neighbour this dispatch may not have written yet.
     var n = node;
+    var rise = 0.0;
     if (node == last) {
         n = last - 1u;
+        rise = params.bottom_rise;
     }
     let base = idx - node;
     let t_mid = t_in[base + n];
@@ -148,5 +154,5 @@ fn conduction(@builtin(global_invocation_id) gid: vec3<u32>) {
     let t_hi = t_in[base + n + 1u];
     let c = n - 1u;
     t_out[idx] = t_mid + diffusivity[n]
-        * (coef_lo[c] * (t_lo - t_mid) + coef_hi[c] * (t_hi - t_mid));
+        * (coef_lo[c] * (t_lo - t_mid) + coef_hi[c] * (t_hi - t_mid)) + rise;
 }

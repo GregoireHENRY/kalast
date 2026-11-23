@@ -1,4 +1,11 @@
-//! Icons: VS Code's own for buttons, Catppuccin's for files.
+//! Icons: VS Code's own for buttons, Catppuccin's for files. And the text's
+//! font: Inter as Blender ships it (`release/datafiles/fonts/Inter.woff2`,
+//! Inter Variable 4.001 with tabular digits and Blender's glyph variants baked
+//! in; SIL OFL 1.1, `res/LICENSE-inter`), made static with fontTools at the
+//! weight Blender writes with, 400, and the optical size it uses on a Retina
+//! screen, 22 -- its 11 points at twice the pixels -- and cut down to the
+//! Latin, Greek and the punctuation, arrows and symbols the UI writes with:
+//! `Inter-Blender.ttf`, 124 KB.
 //!
 //! Buttons use the Codicons font (microsoft/vscode-codicons, CC BY 4.0,
 //! `res/LICENSE-codicons`; `codicon.ttf` from the `@vscode/codicons` npm
@@ -27,10 +34,13 @@ pub mod codicon {
     pub const DEBUG_CONTINUE: &str = "\u{eacf}";
     pub const PASS_FILLED: &str = "\u{ebb3}";
     pub const WARNING: &str = "\u{ea6c}";
-    pub const CHEVRON_RIGHT: &str = "\u{eab6}";
     pub const CHEVRON_DOWN: &str = "\u{eab4}";
+    pub const SEARCH: &str = "\u{ea6d}";
+    pub const ADD: &str = "\u{ea60}";
     pub const CLOUD_DOWNLOAD: &str = "\u{eac2}";
     pub const REFRESH: &str = "\u{eb37}";
+    // The toolbar's link to the repository, beside the documentation.
+    pub const GITHUB: &str = "\u{ea84}";
     // The side panel's tabs.
     pub const SETTINGS_GEAR: &str = "\u{eb51}";
     pub const GLOBE: &str = "\u{eb01}";
@@ -52,9 +62,6 @@ pub mod codicon {
     pub const EXPORT: &str = "\u{ebac}";
     pub const DEBUG: &str = "\u{ead8}";
     // The app tab's sections.
-    pub const LAYOUT: &str = "\u{ebeb}";
-    pub const WINDOW: &str = "\u{eaae}";
-    pub const CODE: &str = "\u{eac4}";
     // A code block's copy button in the documentation, and what it turns
     // into once it has copied.
     pub const COPY: &str = "\u{ebcc}";
@@ -84,10 +91,16 @@ pub mod codicon {
     pub const SYMBOL_STRING: &str = "\u{eb8d}";
 }
 
-/// The Codicons font behind every family, DejaVu Sans behind that, and the
-/// SVG loader for the file icons. Once per egui context.
+/// Inter first in the proportional family, as Blender writes its UI; the
+/// Codicons font behind every family, DejaVu Sans behind that, and the SVG
+/// loader for the file icons. Once per egui context.
 pub fn install(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
+    fonts.font_data.insert(
+        "inter".to_owned(),
+        std::sync::Arc::new(egui::FontData::from_static(include_bytes!("../../../res/Inter-Blender.ttf"))),
+    );
+    fonts.families.entry(egui::FontFamily::Proportional).or_default().insert(0, "inter".to_owned());
     fonts.font_data.insert(
         "codicon".to_owned(),
         std::sync::Arc::new(egui::FontData::from_static(include_bytes!("../../../res/codicon.ttf"))),
