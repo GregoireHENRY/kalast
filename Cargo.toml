@@ -193,7 +193,8 @@ rfd = "0.15"
 # The files tab's Delete: to the Trash -- Finder's, the Recycle Bin, the
 # freedesktop trash -- never gone for good. Not `chrono`, which only lists
 # what is in it.
-trash = { version = "5.2", default-features = false, features = ["coinit_apartmentthreaded"] }
+# 5.2 only: 5.4 without its default features has no Linux side and does not compile there.
+trash = { version = "~5.2", default-features = false, features = ["coinit_apartmentthreaded"] }
 # The update check and download (`src/app/update.rs`): HTTPS with rustls,
 # nothing from the system.
 ureq = "3"

@@ -242,7 +242,7 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-22.04,    target: linux-x86_64,   archive: tar, pbs: x86_64-unknown-linux-gnu, cache: linux-x86_64-ubuntu-22.04 }
-          - { os: macos-14,        target: macos-arm64,    archive: tar, pbs: aarch64-apple-darwin }
+          - { os: macos-15,        target: macos-arm64,    archive: tar, pbs: aarch64-apple-darwin }
           - { os: macos-15-intel,  target: macos-x86_64,   archive: tar, pbs: x86_64-apple-darwin }
           - { os: windows-latest,  target: windows-x86_64, archive: zip, pbs: x86_64-pc-windows-msvc }
     steps:
@@ -718,7 +718,7 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-22.04,   target: linux-x86_64,   manylinux: "2_35", container: "off" }
-          - { os: macos-14,       target: macos-arm64,    manylinux: "" }
+          - { os: macos-15,       target: macos-arm64,    manylinux: "" }
           - { os: macos-15-intel, target: macos-x86_64,   manylinux: "" }
           - { os: windows-latest, target: windows-x86_64, manylinux: "" }
     steps:
